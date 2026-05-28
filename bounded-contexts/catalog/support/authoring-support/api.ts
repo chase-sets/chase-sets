@@ -68,6 +68,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
           eventName: event.eventName,
           data: event.job,
         })),
+      waitForEvents: (_afterSequence, signal) => services.authoringBulkJobs.waitForEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
     });
   });

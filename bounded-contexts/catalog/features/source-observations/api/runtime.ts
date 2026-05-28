@@ -3,6 +3,11 @@ import { createAggregateRepository } from "@chase-sets/event-core/aggregate-repo
 import { createCommandHandler, type CommandHandler } from "@chase-sets/event-core/command-handler";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import {
+  createPostgresDurableJobStore,
+  type DurableJobEvent,
+  type DurableJobRecord,
+} from "@chase-sets/platform-runtime/durable-job-store";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
@@ -108,6 +113,14 @@ export type SourceObservationBulkJobAction = "promote" | "reject" | "reapply";
 
 export type SourceObservationBulkJobStatus = "queued" | "running" | "completed" | "failed";
 
+type SourceObservationBulkJobPayload = Readonly<{
+  action: SourceObservationBulkJobAction;
+  selectionMode: "ids" | "filter";
+  observationIds: readonly string[];
+  scope: SourceObservationFilterScope;
+  reason: string | null;
+}>;
+
 export type SourceObservationBulkJob = Readonly<{
   jobId: string;
   action: SourceObservationBulkJobAction;
@@ -146,6 +159,11 @@ export type SourceObservationIntegrationJobScope = Readonly<{
   language?: string;
   seriesId?: string;
   setId?: string;
+}>;
+
+type SourceObservationIntegrationJobPayload = Readonly<{
+  action: SourceObservationIntegrationJobAction;
+  scope: SourceObservationIntegrationJobScope;
 }>;
 
 export type SourceObservationIntegrationJobOutcome = Readonly<{
@@ -272,6 +290,7 @@ export type SourceObservationServices = Readonly<{
     jobId: string,
     afterSequence?: number,
   ) => Promise<readonly SourceObservationJobEvent<SourceObservationBulkJob>[]>;
+  waitForBulkReviewJobEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
   listActiveBulkReviewJobs: (input: { context: EventStoreContext }) => Promise<readonly SourceObservationBulkJob[]>;
   processNextBulkReviewJob: (
     input: { claimOwnerId: string; claimTtlMs: number } & SourceObservationJobRunContext,
@@ -286,6 +305,7 @@ export type SourceObservationServices = Readonly<{
     jobId: string,
     afterSequence?: number,
   ) => Promise<readonly SourceObservationJobEvent<SourceObservationIntegrationJob>[]>;
+  waitForIntegrationJobEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
   listActiveIntegrationJobs: (input: {
     context?: EventStoreContext | null;
   }) => Promise<readonly SourceObservationIntegrationJob[]>;
@@ -300,6 +320,10 @@ export type SourceObservationServices = Readonly<{
     language?: string;
     setId?: string;
   }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
+  pruneSourceObservationJobRetention: (input?: {
+    completedBefore?: string | Date;
+    limit?: number;
+  }) => Promise<{ bulkReviewJobs: number; integrationJobs: number }>;
   getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -328,6 +352,34 @@ export function createSourceObservationRuntime(
       }),
     }),
   ];
+  const bulkReviewJobStore = createPostgresDurableJobStore<
+    SourceObservationBulkJobPayload,
+    BulkSourceObservationProgress,
+    SourceObservationBulkJobResult,
+    SourceObservationBulkJob
+  >(
+    deps.db,
+    {
+      jobsTable: "catalog_source_observation_bulk_review_jobs",
+      eventsTable: "catalog_source_observation_bulk_review_job_events",
+      notifyChannel: "catalog_source_observation_durable_job_events",
+    },
+    { eventSnapshot: toSourceObservationBulkJob },
+  );
+  const integrationJobStore = createPostgresDurableJobStore<
+    SourceObservationIntegrationJobPayload,
+    BulkSourceObservationProgress,
+    SourceObservationIntegrationJobResult,
+    SourceObservationIntegrationJob
+  >(
+    deps.db,
+    {
+      jobsTable: "catalog_source_observation_integration_durable_jobs",
+      eventsTable: "catalog_source_observation_integration_job_events",
+      notifyChannel: "catalog_source_observation_durable_job_events",
+    },
+    { eventSnapshot: toSourceObservationIntegrationJob },
+  );
 
   async function recordObservation(
     observation: Awaited<ReturnType<typeof fetchTcgdexSetObservations>>[number],
@@ -704,41 +756,21 @@ export function createSourceObservationRuntime(
     const scope = selectionMode === "filter" ? normalizeBulkJobScope(input.scope ?? {}) : {};
     const jobId = createId("job");
     const progress = bulkProgress(0, 0, null, null, "queued");
-
-    await deps.db.query(
-      `INSERT INTO catalog_source_observation_bulk_jobs (
-         job_id,
-         action,
-         selection_mode,
-         observation_ids,
-         scope,
-         reason,
-         event_context,
-         status,
-         progress,
-         created_at,
-         updated_at
-       ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6, $7::jsonb, 'queued', $8::jsonb, now(), now())`,
-      [
-        jobId,
-        input.action,
+    const job = await bulkReviewJobStore.enqueue({
+      jobId,
+      jobKind: input.action,
+      payload: {
+        action: input.action,
         selectionMode,
-        JSON.stringify(observationIds),
-        JSON.stringify(scope),
-        input.reason?.trim() || null,
-        JSON.stringify(input.context),
-        JSON.stringify(progress),
-      ],
-    );
+        observationIds,
+        scope,
+        reason: input.reason?.trim() || null,
+      },
+      progress,
+      eventContext: input.context,
+    });
 
-    const job = await getBulkReviewJob(deps.db, jobId);
-    if (!job) {
-      throw new Error("Bulk review job was not created.");
-    }
-
-    await appendSourceObservationJobEvent(deps.db, "bulk-review", job.jobId, job);
-
-    return job;
+    return toSourceObservationBulkJob(job);
   }
 
   async function processNextBulkReviewJob(
@@ -748,7 +780,12 @@ export function createSourceObservationRuntime(
       return 0;
     }
 
-    const claimed = await claimNextBulkReviewJob(deps.db, input);
+    const claimedJob = await bulkReviewJobStore.claimNext({
+      claimOwnerId: input.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      jobKinds: ["promote", "reject", "reapply"],
+    });
+    const claimed = claimedJob ? toClaimedSourceObservationBulkJob(claimedJob) : null;
     if (!claimed) {
       return 0;
     }
@@ -774,7 +811,14 @@ export function createSourceObservationRuntime(
       const batchObservationIds = remainingObservationIds.slice(0, BULK_REVIEW_JOB_BATCH_SIZE);
 
       if (batchObservationIds.length === 0) {
-        await completeBulkReviewJob(deps.db, claimed.jobId, summarizePromotionOutcomes(total, previousResult.outcomes));
+        await requireSourceObservationJobClaim(
+          bulkReviewJobStore.complete({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: bulkProgress(total, total, null, null, "completed"),
+            result: summarizePromotionOutcomes(total, previousResult.outcomes),
+          }),
+        );
         return 1;
       }
 
@@ -795,12 +839,20 @@ export function createSourceObservationRuntime(
         turnOutcomes.push(...itemResult.outcomes);
         const partialResult = summarizePromotionOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
         const latestOutcome = itemResult.outcomes[itemResult.outcomes.length - 1];
-        await updateBulkReviewJobTurnResult(
-          deps.db,
-          claimed.jobId,
-          bulkProgress(partialResult.outcomes.length, total, null, latestOutcome?.status ?? null, "processing"),
-          partialResult,
-          input.claimTtlMs,
+        await requireSourceObservationJobClaim(
+          bulkReviewJobStore.updateProgress({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            claimTtlMs: input.claimTtlMs,
+            progress: bulkProgress(
+              partialResult.outcomes.length,
+              total,
+              null,
+              latestOutcome?.status ?? null,
+              "processing",
+            ),
+            result: partialResult,
+          }),
         );
       }
       throwIfJobRunCancelled(input);
@@ -808,26 +860,37 @@ export function createSourceObservationRuntime(
       const updatedResult = summarizePromotionOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
       const completedCount = updatedResult.outcomes.length;
       if (completedCount >= total || remainingObservationIds.length <= batchObservationIds.length) {
-        await completeBulkReviewJob(deps.db, claimed.jobId, updatedResult);
+        await requireSourceObservationJobClaim(
+          bulkReviewJobStore.complete({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: bulkProgress(updatedResult.requested, updatedResult.requested, null, null, "completed"),
+            result: updatedResult,
+          }),
+        );
       } else {
-        await continueBulkReviewJob(
-          deps.db,
-          claimed.jobId,
-          bulkProgress(completedCount, total, null, null, "processing"),
-          updatedResult,
+        await requireSourceObservationJobClaim(
+          bulkReviewJobStore.releaseClaim({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: bulkProgress(completedCount, total, null, null, "processing"),
+            result: updatedResult,
+          }),
         );
       }
       return 1;
     } catch (error) {
       if (error instanceof SourceObservationJobCancelledError) {
-        await releaseBulkReviewJobClaim(deps.db, claimed.jobId);
         return 0;
       }
 
-      await failBulkReviewJob(
-        deps.db,
-        claimed.jobId,
-        error instanceof Error ? error.message : "Bulk review job failed.",
+      await requireSourceObservationJobClaim(
+        bulkReviewJobStore.fail({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: { ...claimed.progress, phase: "failed" },
+          errorMessage: error instanceof Error ? error.message : "Bulk review job failed.",
+        }),
       );
       return 1;
     }
@@ -851,7 +914,14 @@ export function createSourceObservationRuntime(
     const batchObservationIds = remainingObservationIds.slice(0, BULK_REVIEW_JOB_BATCH_SIZE);
 
     if (batchObservationIds.length === 0) {
-      await completeBulkReviewJob(deps.db, input.job.jobId, summarizeReapplyOutcomes(total, previousResult.outcomes));
+      await requireSourceObservationJobClaim(
+        bulkReviewJobStore.complete({
+          jobId: input.job.jobId,
+          claimOwnerId: input.job.claimOwnerId,
+          progress: bulkProgress(total, total, null, null, "completed"),
+          result: summarizeReapplyOutcomes(total, previousResult.outcomes),
+        }),
+      );
       return;
     }
 
@@ -865,12 +935,20 @@ export function createSourceObservationRuntime(
       turnOutcomes.push(...itemResult.outcomes);
       const partialResult = summarizeReapplyOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
       const latestOutcome = itemResult.outcomes[itemResult.outcomes.length - 1];
-      await updateBulkReviewJobTurnResult(
-        deps.db,
-        input.job.jobId,
-        bulkProgress(partialResult.outcomes.length, total, null, latestOutcome?.status ?? null, "processing"),
-        partialResult,
-        input.claimTtlMs,
+      await requireSourceObservationJobClaim(
+        bulkReviewJobStore.updateProgress({
+          jobId: input.job.jobId,
+          claimOwnerId: input.job.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          progress: bulkProgress(
+            partialResult.outcomes.length,
+            total,
+            null,
+            latestOutcome?.status ?? null,
+            "processing",
+          ),
+          result: partialResult,
+        }),
       );
     }
     throwIfJobRunCancelled(input.context);
@@ -878,13 +956,22 @@ export function createSourceObservationRuntime(
     const updatedResult = summarizeReapplyOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
     const completedCount = updatedResult.outcomes.length;
     if (completedCount >= total || remainingObservationIds.length <= batchObservationIds.length) {
-      await completeBulkReviewJob(deps.db, input.job.jobId, updatedResult);
+      await requireSourceObservationJobClaim(
+        bulkReviewJobStore.complete({
+          jobId: input.job.jobId,
+          claimOwnerId: input.job.claimOwnerId,
+          progress: bulkProgress(updatedResult.requested, updatedResult.requested, null, null, "completed"),
+          result: updatedResult,
+        }),
+      );
     } else {
-      await continueBulkReviewJob(
-        deps.db,
-        input.job.jobId,
-        bulkProgress(completedCount, total, null, null, "processing"),
-        updatedResult,
+      await requireSourceObservationJobClaim(
+        bulkReviewJobStore.releaseClaim({
+          jobId: input.job.jobId,
+          claimOwnerId: input.job.claimOwnerId,
+          progress: bulkProgress(completedCount, total, null, null, "processing"),
+          result: updatedResult,
+        }),
       );
     }
   }
@@ -895,11 +982,10 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const scope = normalizeIntegrationJobScope(input.scope);
-    const existingJob = await getActiveIntegrationJobForScope(deps.db, {
-      action: input.action,
-      scope,
-      context: input.context,
-    });
+    const existingJob = (await integrationJobStore.listActive({ jobKinds: [input.action] }))
+      .filter((job) => jobMatchesContext(job, input.context))
+      .map(toSourceObservationIntegrationJob)
+      .find((job) => JSON.stringify(job.scope) === JSON.stringify(scope));
     if (existingJob) {
       return existingJob;
     }
@@ -907,28 +993,15 @@ export function createSourceObservationRuntime(
     const jobId = createId("job");
     const progress = bulkProgress(0, 0, null, null, "queued");
 
-    await deps.db.query(
-      `INSERT INTO catalog_source_observation_integration_jobs (
-         job_id,
-         action,
-         scope,
-         event_context,
-         status,
-         progress,
-         created_at,
-         updated_at
-       ) VALUES ($1, $2, $3::jsonb, $4::jsonb, 'queued', $5::jsonb, now(), now())`,
-      [jobId, input.action, JSON.stringify(scope), JSON.stringify(input.context), JSON.stringify(progress)],
-    );
+    const job = await integrationJobStore.enqueue({
+      jobId,
+      jobKind: input.action,
+      payload: { action: input.action, scope },
+      progress,
+      eventContext: input.context,
+    });
 
-    const job = await getIntegrationJob(deps.db, jobId);
-    if (!job) {
-      throw new Error("Integration job was not created.");
-    }
-
-    await appendSourceObservationJobEvent(deps.db, "integration", job.jobId, job);
-
-    return job;
+    return toSourceObservationIntegrationJob(job);
   }
 
   async function processNextIntegrationJob(
@@ -938,7 +1011,12 @@ export function createSourceObservationRuntime(
       return 0;
     }
 
-    const claimed = await claimNextIntegrationJob(deps.db, input);
+    const claimedJob = await integrationJobStore.claimNext({
+      claimOwnerId: input.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      jobKinds: ["import", "reapply"],
+    });
+    const claimed = claimedJob ? toClaimedSourceObservationIntegrationJob(claimedJob) : null;
     if (!claimed) {
       return 0;
     }
@@ -960,21 +1038,37 @@ export function createSourceObservationRuntime(
 
       throwIfJobRunCancelled(input);
       if (turnResult.complete) {
-        await completeIntegrationJob(deps.db, claimed.jobId, turnResult.result);
+        await requireSourceObservationJobClaim(
+          integrationJobStore.complete({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: bulkProgress(turnResult.result.requested, turnResult.result.requested, null, null, "completed"),
+            result: turnResult.result,
+          }),
+        );
       } else {
-        await continueIntegrationJob(deps.db, claimed.jobId, turnResult.progress, turnResult.result);
+        await requireSourceObservationJobClaim(
+          integrationJobStore.releaseClaim({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: turnResult.progress,
+            result: turnResult.result,
+          }),
+        );
       }
       return 1;
     } catch (error) {
       if (error instanceof SourceObservationJobCancelledError) {
-        await releaseIntegrationJobClaim(deps.db, claimed.jobId);
         return 0;
       }
 
-      await failIntegrationJob(
-        deps.db,
-        claimed.jobId,
-        error instanceof Error ? error.message : "Integration job failed.",
+      await requireSourceObservationJobClaim(
+        integrationJobStore.fail({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: { ...claimed.progress, phase: "failed" },
+          errorMessage: error instanceof Error ? error.message : "Integration job failed.",
+        }),
       );
       return 1;
     }
@@ -1023,11 +1117,13 @@ export function createSourceObservationRuntime(
       };
     }
 
-    await updateIntegrationJobProgress(
-      deps.db,
-      input.job.jobId,
-      bulkProgress(previousResult.outcomes.length, expansions.length, nextExpansion.name),
-      input.claimTtlMs,
+    await requireSourceObservationJobClaim(
+      integrationJobStore.updateProgress({
+        jobId: input.job.jobId,
+        claimOwnerId: input.job.claimOwnerId,
+        claimTtlMs: input.claimTtlMs,
+        progress: bulkProgress(previousResult.outcomes.length, expansions.length, nextExpansion.name),
+      }),
     );
 
     throwIfJobRunCancelled(input.context);
@@ -1091,7 +1187,14 @@ export function createSourceObservationRuntime(
         progress.phase === "failed" ? "failed" : "processing",
       );
       progressWrite = progressWrite.then(() =>
-        updateIntegrationJobProgress(deps.db, input.job.jobId, persistedProgress, input.claimTtlMs),
+        requireSourceObservationJobClaim(
+          integrationJobStore.updateProgress({
+            jobId: input.job.jobId,
+            claimOwnerId: input.job.claimOwnerId,
+            claimTtlMs: input.claimTtlMs,
+            progress: persistedProgress,
+          }),
+        ),
       );
     };
     throwIfJobRunCancelled(input.context);
@@ -1313,46 +1416,47 @@ export function createSourceObservationRuntime(
       return { observationId, status: "rejected" };
     },
     enqueueBulkReviewJob,
-    getBulkReviewJob: (jobId) => getBulkReviewJob(deps.db, jobId),
-    listBulkReviewJobEvents: async (jobId, afterSequence) => {
-      const events = await listSourceObservationJobEvents<SourceObservationBulkJob>(
-        deps.db,
-        "bulk-review",
-        jobId,
-        afterSequence,
-      );
-      if (events.length === 0 && !afterSequence) {
-        await recordBulkReviewJobEvent(deps.db, jobId);
-        return listSourceObservationJobEvents<SourceObservationBulkJob>(deps.db, "bulk-review", jobId, afterSequence);
-      }
-      return events;
+    getBulkReviewJob: async (jobId) => {
+      const job = await bulkReviewJobStore.get(jobId);
+      return job ? toSourceObservationBulkJob(job) : null;
     },
-    listActiveBulkReviewJobs: ({ context }) => listActiveBulkReviewJobs(deps.db, context),
+    listBulkReviewJobEvents: async (jobId, afterSequence = 0) =>
+      (await bulkReviewJobStore.listEvents(jobId, afterSequence)).map(toSourceObservationJobEvent),
+    waitForBulkReviewJobEvents: (jobId, signal) => bulkReviewJobStore.waitForEvents({ jobId, signal }),
+    listActiveBulkReviewJobs: async ({ context }) =>
+      (await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "reapply"] }))
+        .filter((job) => jobMatchesContext(job, context))
+        .map(toSourceObservationBulkJob),
     processNextBulkReviewJob,
     enqueueIntegrationJob,
-    getIntegrationJob: (jobId) => getIntegrationJob(deps.db, jobId),
-    listIntegrationJobEvents: async (jobId, afterSequence) => {
-      const events = await listSourceObservationJobEvents<SourceObservationIntegrationJob>(
-        deps.db,
-        "integration",
-        jobId,
-        afterSequence,
-      );
-      if (events.length === 0 && !afterSequence) {
-        await recordIntegrationJobEvent(deps.db, jobId);
-        return listSourceObservationJobEvents<SourceObservationIntegrationJob>(
-          deps.db,
-          "integration",
-          jobId,
-          afterSequence,
-        );
-      }
-      return events;
+    getIntegrationJob: async (jobId) => {
+      const job = await integrationJobStore.get(jobId);
+      return job ? toSourceObservationIntegrationJob(job) : null;
     },
-    listActiveIntegrationJobs: ({ context }) => listActiveIntegrationJobs(deps.db, context),
+    listIntegrationJobEvents: async (jobId, afterSequence = 0) =>
+      (await integrationJobStore.listEvents(jobId, afterSequence)).map(toSourceObservationJobEvent),
+    waitForIntegrationJobEvents: (jobId, signal) => integrationJobStore.waitForEvents({ jobId, signal }),
+    listActiveIntegrationJobs: async ({ context }) => {
+      if (!context) {
+        return [];
+      }
+
+      return (await integrationJobStore.listActive({ jobKinds: ["import", "reapply"] }))
+        .filter((job) => jobMatchesContext(job, context))
+        .map(toSourceObservationIntegrationJob);
+    },
     processNextIntegrationJob,
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
     listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
+    pruneSourceObservationJobRetention: async (input = {}) => {
+      const completedBefore = input.completedBefore ?? sourceObservationRetentionCutoff(7);
+      const [bulkReviewJobs, integrationJobs] = await Promise.all([
+        bulkReviewJobStore.pruneTerminalJobs({ completedBefore, limit: input.limit }),
+        integrationJobStore.pruneTerminalJobs({ completedBefore, limit: input.limit }),
+      ]);
+
+      return { bulkReviewJobs, integrationJobs };
+    },
     getSourceObservationDetail: (observationId) => getSourceObservationDetail(deps.db, observationId),
     projectors,
   };
@@ -2296,654 +2400,126 @@ function sourceObservationStreamId(observationId: string): string {
   return `catalog.source-observation-${observationId}`;
 }
 
-type SourceObservationBulkJobRow = Readonly<{
-  job_id: string;
-  action: SourceObservationBulkJobAction;
-  selection_mode: "ids" | "filter";
-  observation_ids: unknown;
-  scope: unknown;
-  reason: string | null;
-  event_context: unknown;
-  status: SourceObservationBulkJobStatus;
-  progress: unknown;
-  result: unknown;
-  error_message: string | null;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  updated_at: string;
-}>;
-
 type ClaimedSourceObservationBulkJob = SourceObservationBulkJob &
   Readonly<{
     eventContext: EventStoreContext;
+    claimOwnerId: string;
   }>;
-
-type SourceObservationIntegrationJobRow = Readonly<{
-  job_id: string;
-  action: SourceObservationIntegrationJobAction;
-  scope: unknown;
-  event_context: unknown;
-  status: SourceObservationBulkJobStatus;
-  progress: unknown;
-  result: unknown;
-  error_message: string | null;
-  created_at: string;
-  started_at: string | null;
-  completed_at: string | null;
-  updated_at: string;
-}>;
 
 type ClaimedSourceObservationIntegrationJob = SourceObservationIntegrationJob &
   Readonly<{
     eventContext: EventStoreContext;
+    claimOwnerId: string;
   }>;
 
-type SourceObservationJobKind = "bulk-review" | "integration";
-
-type SourceObservationJobEventRow = Readonly<{
-  sequence: string | number;
-  event_name: SourceObservationJobEvent<unknown>["eventName"];
-  snapshot: unknown;
-  created_at: string;
-}>;
-
-async function getBulkReviewJob(db: CatalogRuntimeDeps["db"], jobId: string): Promise<SourceObservationBulkJob | null> {
-  const result = await db.query<SourceObservationBulkJobRow>(
-    `SELECT
-       job_id,
-       action,
-       selection_mode,
-       observation_ids,
-       scope,
-       reason,
-       event_context,
-       status,
-       progress,
-       result,
-       error_message,
-       created_at::text,
-       started_at::text,
-       completed_at::text,
-       updated_at::text
-     FROM catalog_source_observation_bulk_jobs
-     WHERE job_id = $1`,
-    [jobId],
-  );
-
-  return result.rows[0] ? mapBulkReviewJobRow(result.rows[0]) : null;
+function toSourceObservationBulkJob(
+  job: DurableJobRecord<SourceObservationBulkJobPayload, BulkSourceObservationProgress, SourceObservationBulkJobResult>,
+): SourceObservationBulkJob {
+  return {
+    jobId: job.jobId,
+    action: job.payload.action,
+    selectionMode: job.payload.selectionMode,
+    observationIds: job.payload.observationIds,
+    scope: normalizeBulkJobScope(job.payload.scope),
+    reason: job.payload.reason,
+    status: job.status,
+    progress: job.progress,
+    result: job.result,
+    errorMessage: job.errorMessage,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    updatedAt: job.updatedAt,
+  };
 }
 
-async function listActiveBulkReviewJobs(
-  db: CatalogRuntimeDeps["db"],
+function toClaimedSourceObservationBulkJob(
+  job: DurableJobRecord<SourceObservationBulkJobPayload, BulkSourceObservationProgress, SourceObservationBulkJobResult>,
+): ClaimedSourceObservationBulkJob {
+  const eventContext = job.eventContext;
+  const claimOwnerId = job.claimOwnerId;
+  if (!eventContext || !claimOwnerId) {
+    throw new Error("Source Observation bulk job is missing claim context.");
+  }
+
+  return {
+    ...toSourceObservationBulkJob(job),
+    eventContext,
+    claimOwnerId,
+  };
+}
+
+function toSourceObservationIntegrationJob(
+  job: DurableJobRecord<
+    SourceObservationIntegrationJobPayload,
+    BulkSourceObservationProgress,
+    SourceObservationIntegrationJobResult
+  >,
+): SourceObservationIntegrationJob {
+  return {
+    jobId: job.jobId,
+    action: job.payload.action,
+    scope: normalizeIntegrationJobScope(job.payload.scope),
+    status: job.status,
+    progress: job.progress,
+    result: job.result,
+    errorMessage: job.errorMessage,
+    createdAt: job.createdAt,
+    startedAt: job.startedAt,
+    completedAt: job.completedAt,
+    updatedAt: job.updatedAt,
+  };
+}
+
+function toClaimedSourceObservationIntegrationJob(
+  job: DurableJobRecord<
+    SourceObservationIntegrationJobPayload,
+    BulkSourceObservationProgress,
+    SourceObservationIntegrationJobResult
+  >,
+): ClaimedSourceObservationIntegrationJob {
+  const eventContext = job.eventContext;
+  const claimOwnerId = job.claimOwnerId;
+  if (!eventContext || !claimOwnerId) {
+    throw new Error("Source Observation integration job is missing claim context.");
+  }
+
+  return {
+    ...toSourceObservationIntegrationJob(job),
+    eventContext,
+    claimOwnerId,
+  };
+}
+
+function toSourceObservationJobEvent<TJob>(
+  event: DurableJobEvent<unknown, BulkSourceObservationProgress, unknown, TJob>,
+): SourceObservationJobEvent<TJob> {
+  return {
+    sequence: event.sequence,
+    eventName: event.eventName,
+    job: event.job,
+    createdAt: event.createdAt,
+  };
+}
+
+async function requireSourceObservationJobClaim(succeeded: Promise<boolean> | boolean) {
+  if (!(await succeeded)) {
+    throw new Error("Source Observation job claim was lost before the status update completed.");
+  }
+}
+
+function sourceObservationRetentionCutoff(daysAgo: number): Date {
+  return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+}
+
+function jobMatchesContext(
+  job: Readonly<{ eventContext: EventStoreContext | null }>,
   context: EventStoreContext,
-): Promise<readonly SourceObservationBulkJob[]> {
-  const result = await db.query<SourceObservationBulkJobRow>(
-    `SELECT
-       job_id,
-       action,
-       selection_mode,
-       observation_ids,
-       scope,
-       reason,
-       event_context,
-       status,
-       progress,
-       result,
-       error_message,
-       created_at::text,
-       started_at::text,
-       completed_at::text,
-       updated_at::text
-     FROM catalog_source_observation_bulk_jobs
-     WHERE status IN ('queued', 'running')
-       AND event_context ->> 'tenantId' = $1
-       AND event_context #>> '{audit,performedByUserId}' = $2
-     ORDER BY created_at ASC`,
-    [context.tenantId, context.audit.performedByUserId],
+): boolean {
+  return (
+    job.eventContext?.tenantId === context.tenantId &&
+    job.eventContext?.audit?.performedByUserId === context.audit?.performedByUserId
   );
-
-  return result.rows.map(mapBulkReviewJobRow);
-}
-
-async function claimNextBulkReviewJob(
-  db: CatalogRuntimeDeps["db"],
-  input: { claimOwnerId: string; claimTtlMs: number },
-): Promise<ClaimedSourceObservationBulkJob | null> {
-  const result = await db.query<SourceObservationBulkJobRow>(
-    `WITH next_job AS (
-       SELECT job_id
-       FROM catalog_source_observation_bulk_jobs
-       WHERE status = 'queued'
-          OR (status = 'running' AND claim_expires_at < now())
-       ORDER BY created_at ASC
-       LIMIT 1
-       FOR UPDATE SKIP LOCKED
-     )
-     UPDATE catalog_source_observation_bulk_jobs AS job
-     SET
-       status = 'running',
-       claim_owner_id = $1,
-       claim_expires_at = now() + ($2::integer * interval '1 millisecond'),
-       started_at = coalesce(job.started_at, now()),
-       updated_at = now()
-     FROM next_job
-     WHERE job.job_id = next_job.job_id
-     RETURNING
-       job.job_id,
-       job.action,
-       job.selection_mode,
-       job.observation_ids,
-       job.scope,
-       job.reason,
-       job.event_context,
-       job.status,
-       job.progress,
-       job.result,
-       job.error_message,
-       job.created_at::text,
-       job.started_at::text,
-       job.completed_at::text,
-       job.updated_at::text`,
-    [input.claimOwnerId, Math.max(1_000, Math.floor(input.claimTtlMs))],
-  );
-  const row = result.rows[0];
-  if (!row) {
-    return null;
-  }
-
-  const job = {
-    ...mapBulkReviewJobRow(row),
-    eventContext: parseJsonField<EventStoreContext>(row.event_context, "event_context"),
-  };
-  await appendSourceObservationJobEvent(db, "bulk-review", job.jobId, mapBulkReviewJobRow(row));
-
-  return job;
-}
-
-async function updateBulkReviewJobProgress(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-  progress: BulkSourceObservationProgress,
-  claimTtlMs: number,
-): Promise<void> {
-  await db.query(
-    `UPDATE catalog_source_observation_bulk_jobs
-     SET
-       progress = $2::jsonb,
-       claim_expires_at = now() + ($3::integer * interval '1 millisecond'),
-       updated_at = now()
-     WHERE job_id = $1
-       AND status = 'running'`,
-    [jobId, JSON.stringify(progress), Math.max(1_000, Math.floor(claimTtlMs))],
-  );
-  await recordBulkReviewJobEvent(db, jobId);
-}
-
-async function updateBulkReviewJobTurnResult(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-  progress: BulkSourceObservationProgress,
-  result: SourceObservationBulkJobResult,
-  claimTtlMs: number,
-): Promise<void> {
-  await db.query(
-    `UPDATE catalog_source_observation_bulk_jobs
-     SET
-       progress = $2::jsonb,
-       result = $3::jsonb,
-       claim_expires_at = now() + ($4::integer * interval '1 millisecond'),
-       updated_at = now()
-     WHERE job_id = $1
-       AND status = 'running'`,
-    [jobId, JSON.stringify(progress), JSON.stringify(result), Math.max(1_000, Math.floor(claimTtlMs))],
-  );
-  await recordBulkReviewJobEvent(db, jobId);
-}
-
-async function continueBulkReviewJob(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-  progress: BulkSourceObservationProgress,
-  result: SourceObservationBulkJobResult,
-): Promise<void> {
-  await db.query(
-    `UPDATE catalog_source_observation_bulk_jobs
-     SET
-       status = 'queued',
-       progress = $2::jsonb,
-       result = $3::jsonb,
-       error_message = NULL,
-       claim_owner_id = NULL,
-       claim_expires_at = NULL,
-       updated_at = now()
-     WHERE job_id = $1
-       AND status = 'running'`,
-    [jobId, JSON.stringify(progress), JSON.stringify(result)],
-  );
-  await recordBulkReviewJobEvent(db, jobId);
-}
-
-async function completeBulkReviewJob(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-  result: SourceObservationBulkJobResult,
-): Promise<void> {
-  await db.query(
-    `UPDATE catalog_source_observation_bulk_jobs
-     SET
-       status = 'completed',
-       progress = $2::jsonb,
-       result = $3::jsonb,
-       error_message = NULL,
-       claim_owner_id = NULL,
-       claim_expires_at = NULL,
-       completed_at = now(),
-       updated_at = now()
-     WHERE job_id = $1`,
-    [
-      jobId,
-      JSON.stringify(bulkProgress(result.requested, result.requested, null, null, "completed")),
-      JSON.stringify(result),
-    ],
-  );
-  await recordBulkReviewJobEvent(db, jobId);
-}
-
-async function failBulkReviewJob(db: CatalogRuntimeDeps["db"], jobId: string, message: string): Promise<void> {
-  const current = await getBulkReviewJob(db, jobId);
-  const progress = {
-    ...(current?.progress ?? bulkProgress(0, 0)),
-    phase: "failed" as const,
-  };
-  await db.query(
-    `UPDATE catalog_source_observation_bulk_jobs
-     SET
-       status = 'failed',
-       progress = $2::jsonb,
-       error_message = $3,
-       claim_owner_id = NULL,
-       claim_expires_at = NULL,
-       completed_at = now(),
-       updated_at = now()
-     WHERE job_id = $1`,
-    [jobId, JSON.stringify(progress), message],
-  );
-  await recordBulkReviewJobEvent(db, jobId);
-}
-
-async function releaseBulkReviewJobClaim(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
-  await db.query(
-    `UPDATE catalog_source_observation_bulk_jobs
-     SET
-       status = 'queued',
-       claim_owner_id = NULL,
-       claim_expires_at = NULL,
-       updated_at = now()
-     WHERE job_id = $1
-       AND status = 'running'`,
-    [jobId],
-  );
-  await recordBulkReviewJobEvent(db, jobId);
-}
-
-function mapBulkReviewJobRow(row: SourceObservationBulkJobRow): SourceObservationBulkJob {
-  return {
-    jobId: row.job_id,
-    action: row.action,
-    selectionMode: row.selection_mode,
-    observationIds: parseJsonField<string[]>(row.observation_ids, "observation_ids"),
-    scope: normalizeBulkJobScope(parseJsonField<SourceObservationFilterScope>(row.scope, "scope")),
-    reason: row.reason,
-    status: row.status,
-    progress: parseJsonField<BulkSourceObservationProgress>(row.progress, "progress"),
-    result: row.result ? parseJsonField<SourceObservationBulkJobResult>(row.result, "result") : null,
-    errorMessage: row.error_message,
-    createdAt: row.created_at,
-    startedAt: row.started_at,
-    completedAt: row.completed_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-async function getIntegrationJob(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-): Promise<SourceObservationIntegrationJob | null> {
-  const result = await db.query<SourceObservationIntegrationJobRow>(
-    `SELECT
-       job_id,
-       action,
-       scope,
-       event_context,
-       status,
-       progress,
-       result,
-       error_message,
-       created_at::text,
-       started_at::text,
-       completed_at::text,
-       updated_at::text
-     FROM catalog_source_observation_integration_jobs
-     WHERE job_id = $1`,
-    [jobId],
-  );
-
-  return result.rows[0] ? mapIntegrationJobRow(result.rows[0]) : null;
-}
-
-async function listActiveIntegrationJobs(
-  db: CatalogRuntimeDeps["db"],
-  context?: EventStoreContext | null,
-): Promise<readonly SourceObservationIntegrationJob[]> {
-  if (!context?.tenantId || !context.audit?.performedByUserId) {
-    return [];
-  }
-
-  const result = await db.query<SourceObservationIntegrationJobRow>(
-    `SELECT
-       job_id,
-       action,
-       scope,
-       event_context,
-       status,
-       progress,
-       result,
-       error_message,
-       created_at::text,
-       started_at::text,
-       completed_at::text,
-       updated_at::text
-     FROM catalog_source_observation_integration_jobs
-     WHERE status IN ('queued', 'running')
-       AND event_context ->> 'tenantId' = $1
-       AND event_context #>> '{audit,performedByUserId}' = $2
-     ORDER BY created_at ASC`,
-    [context.tenantId, context.audit.performedByUserId],
-  );
-
-  return result.rows.map(mapIntegrationJobRow);
-}
-
-async function getActiveIntegrationJobForScope(
-  db: CatalogRuntimeDeps["db"],
-  input: Readonly<{
-    action: SourceObservationIntegrationJobAction;
-    scope: SourceObservationIntegrationJobScope;
-    context: EventStoreContext;
-  }>,
-): Promise<SourceObservationIntegrationJob | null> {
-  const result = await db.query<SourceObservationIntegrationJobRow>(
-    `SELECT
-       job_id,
-       action,
-       scope,
-       event_context,
-       status,
-       progress,
-       result,
-       error_message,
-       created_at::text,
-       started_at::text,
-       completed_at::text,
-       updated_at::text
-     FROM catalog_source_observation_integration_jobs
-     WHERE status IN ('queued', 'running')
-       AND action = $1
-       AND scope = $2::jsonb
-       AND event_context ->> 'tenantId' = $3
-       AND event_context #>> '{audit,performedByUserId}' = $4
-     ORDER BY created_at ASC
-     LIMIT 1`,
-    [input.action, JSON.stringify(input.scope), input.context.tenantId, input.context.audit.performedByUserId],
-  );
-
-  return result.rows[0] ? mapIntegrationJobRow(result.rows[0]) : null;
-}
-
-async function claimNextIntegrationJob(
-  db: CatalogRuntimeDeps["db"],
-  input: { claimOwnerId: string; claimTtlMs: number },
-): Promise<ClaimedSourceObservationIntegrationJob | null> {
-  const result = await db.query<SourceObservationIntegrationJobRow>(
-    `WITH next_job AS (
-       SELECT job_id
-       FROM catalog_source_observation_integration_jobs
-       WHERE status = 'queued'
-          OR (status = 'running' AND claim_expires_at < now())
-       ORDER BY created_at ASC
-       LIMIT 1
-       FOR UPDATE SKIP LOCKED
-     )
-     UPDATE catalog_source_observation_integration_jobs AS job
-     SET
-       status = 'running',
-       claim_owner_id = $1,
-       claim_expires_at = now() + ($2::integer * interval '1 millisecond'),
-       started_at = coalesce(job.started_at, now()),
-       updated_at = now()
-     FROM next_job
-     WHERE job.job_id = next_job.job_id
-     RETURNING
-       job.job_id,
-       job.action,
-       job.scope,
-       job.event_context,
-       job.status,
-       job.progress,
-       job.result,
-       job.error_message,
-       job.created_at::text,
-       job.started_at::text,
-       job.completed_at::text,
-       job.updated_at::text`,
-    [input.claimOwnerId, Math.max(1_000, Math.floor(input.claimTtlMs))],
-  );
-  const row = result.rows[0];
-  if (!row) {
-    return null;
-  }
-
-  const job = {
-    ...mapIntegrationJobRow(row),
-    eventContext: parseJsonField<EventStoreContext>(row.event_context, "event_context"),
-  };
-  await appendSourceObservationJobEvent(db, "integration", job.jobId, mapIntegrationJobRow(row));
-
-  return job;
-}
-
-async function updateIntegrationJobProgress(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-  progress: BulkSourceObservationProgress,
-  claimTtlMs: number,
-): Promise<void> {
-  await db.query(
-    `UPDATE catalog_source_observation_integration_jobs
-     SET
-       progress = $2::jsonb,
-       claim_expires_at = now() + ($3::integer * interval '1 millisecond'),
-       updated_at = now()
-     WHERE job_id = $1
-       AND status = 'running'`,
-    [jobId, JSON.stringify(progress), Math.max(1_000, Math.floor(claimTtlMs))],
-  );
-  await recordIntegrationJobEvent(db, jobId);
-}
-
-async function continueIntegrationJob(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-  progress: BulkSourceObservationProgress,
-  result: SourceObservationIntegrationJobResult,
-): Promise<void> {
-  await db.query(
-    `UPDATE catalog_source_observation_integration_jobs
-     SET
-       status = 'queued',
-       progress = $2::jsonb,
-       result = $3::jsonb,
-       error_message = NULL,
-       claim_owner_id = NULL,
-       claim_expires_at = NULL,
-       updated_at = now()
-     WHERE job_id = $1
-       AND status = 'running'`,
-    [jobId, JSON.stringify(progress), JSON.stringify(result)],
-  );
-  await recordIntegrationJobEvent(db, jobId);
-}
-
-async function completeIntegrationJob(
-  db: CatalogRuntimeDeps["db"],
-  jobId: string,
-  result: SourceObservationIntegrationJobResult,
-): Promise<void> {
-  await db.query(
-    `UPDATE catalog_source_observation_integration_jobs
-     SET
-       status = 'completed',
-       progress = $2::jsonb,
-       result = $3::jsonb,
-       error_message = NULL,
-       claim_owner_id = NULL,
-       claim_expires_at = NULL,
-       completed_at = now(),
-       updated_at = now()
-     WHERE job_id = $1`,
-    [
-      jobId,
-      JSON.stringify(bulkProgress(result.requested, result.requested, null, null, "completed")),
-      JSON.stringify(result),
-    ],
-  );
-  await recordIntegrationJobEvent(db, jobId);
-}
-
-async function failIntegrationJob(db: CatalogRuntimeDeps["db"], jobId: string, message: string): Promise<void> {
-  const current = await getIntegrationJob(db, jobId);
-  const progress = {
-    ...(current?.progress ?? bulkProgress(0, 0)),
-    phase: "failed" as const,
-  };
-  await db.query(
-    `UPDATE catalog_source_observation_integration_jobs
-     SET
-       status = 'failed',
-       progress = $2::jsonb,
-       error_message = $3,
-       claim_owner_id = NULL,
-       claim_expires_at = NULL,
-       completed_at = now(),
-       updated_at = now()
-     WHERE job_id = $1`,
-    [jobId, JSON.stringify(progress), message],
-  );
-  await recordIntegrationJobEvent(db, jobId);
-}
-
-async function releaseIntegrationJobClaim(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
-  await db.query(
-    `UPDATE catalog_source_observation_integration_jobs
-     SET
-       status = 'queued',
-       claim_owner_id = NULL,
-       claim_expires_at = NULL,
-       updated_at = now()
-     WHERE job_id = $1
-       AND status = 'running'`,
-    [jobId],
-  );
-  await recordIntegrationJobEvent(db, jobId);
-}
-
-function mapIntegrationJobRow(row: SourceObservationIntegrationJobRow): SourceObservationIntegrationJob {
-  return {
-    jobId: row.job_id,
-    action: row.action,
-    scope: normalizeIntegrationJobScope(parseJsonField<SourceObservationIntegrationJobScope>(row.scope, "scope")),
-    status: row.status,
-    progress: parseJsonField<BulkSourceObservationProgress>(row.progress, "progress"),
-    result: row.result ? parseJsonField<SourceObservationIntegrationJobResult>(row.result, "result") : null,
-    errorMessage: row.error_message,
-    createdAt: row.created_at,
-    startedAt: row.started_at,
-    completedAt: row.completed_at,
-    updatedAt: row.updated_at,
-  };
-}
-
-async function recordBulkReviewJobEvent(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
-  const job = await getBulkReviewJob(db, jobId);
-  if (job) {
-    await appendSourceObservationJobEvent(db, "bulk-review", job.jobId, job);
-  }
-}
-
-async function recordIntegrationJobEvent(db: CatalogRuntimeDeps["db"], jobId: string): Promise<void> {
-  const job = await getIntegrationJob(db, jobId);
-  if (job) {
-    await appendSourceObservationJobEvent(db, "integration", job.jobId, job);
-  }
-}
-
-async function appendSourceObservationJobEvent<TJob>(
-  db: CatalogRuntimeDeps["db"],
-  jobKind: SourceObservationJobKind,
-  jobId: string,
-  job: TJob,
-): Promise<void> {
-  await db.query(
-    `INSERT INTO catalog_source_observation_job_events (
-       job_kind,
-       job_id,
-       sequence,
-       event_name,
-       snapshot,
-       created_at
-     )
-     SELECT
-       $1,
-       $2,
-       coalesce(max(sequence), 0) + 1,
-       'status',
-       $3::jsonb,
-       now()
-     FROM catalog_source_observation_job_events
-     WHERE job_kind = $1
-       AND job_id = $2`,
-    [jobKind, jobId, JSON.stringify(job)],
-  );
-}
-
-async function listSourceObservationJobEvents<TJob>(
-  db: CatalogRuntimeDeps["db"],
-  jobKind: SourceObservationJobKind,
-  jobId: string,
-  afterSequence = 0,
-): Promise<readonly SourceObservationJobEvent<TJob>[]> {
-  const result = await db.query<SourceObservationJobEventRow>(
-    `SELECT
-       sequence,
-       event_name,
-       snapshot,
-       created_at::text
-     FROM catalog_source_observation_job_events
-     WHERE job_kind = $1
-       AND job_id = $2
-       AND sequence > $3
-     ORDER BY sequence ASC
-     LIMIT 100`,
-    [jobKind, jobId, Math.max(0, Math.floor(afterSequence))],
-  );
-
-  return result.rows.map((row) => ({
-    sequence: Number(row.sequence),
-    eventName: row.event_name,
-    job: parseJsonField<TJob>(row.snapshot, "snapshot"),
-    createdAt: row.created_at,
-  }));
 }
 
 function parseJsonField<T>(value: unknown, fieldName: string): T {

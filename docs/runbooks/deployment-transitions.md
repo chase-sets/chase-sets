@@ -23,7 +23,7 @@ draining process from rotation based on readiness, not liveness.
 
 ## SSE And Status Streams
 
-Realtime SSE and Catalog job-status streams are resumable. During drain, new
+Realtime SSE and durable job-status streams are resumable. During drain, new
 realtime streams are rejected with `503 process_draining`; existing streams can
 close after the stream drain grace period. Clients reconnect using durable
 cursors or job ids.
@@ -31,8 +31,8 @@ cursors or job ids.
 Expected client behavior:
 
 - Realtime clients reconnect with `Last-Event-ID` or cursor query state.
-- Catalog job clients reconnect to `/bulk-jobs/:jobId/events` or
-  `/integration-jobs/:jobId/events`.
+- Durable job clients reconnect to the owning context's `/jobs/:jobId/events`
+  endpoint with `Last-Event-ID`.
 - A temporary `429 too_many_realtime_streams` can be retried with backoff while
   forced-exit leases expire.
 
@@ -45,11 +45,13 @@ provider calls, and before final completion writes.
 On cooperative stop, jobs should preserve progress and release or let their
 claim expire. They should not mark deployment cancellation as business failure.
 
-Catalog Source Observation bulk/reapply/promote/reject work and Catalog
-authoring bulk work are durable job-first. Legacy mutating endpoints enqueue
-jobs and return `202`; progress endpoints stream from durable job state.
-Progress writes renew durable job ownership, while completion and failure writes
-are rejected after lease loss so a replacement worker can safely resume.
+Catalog Source Observation, Catalog authoring bulk work, Inventory import
+batch create/commit, Pricing recommendation refresh/apply/dismiss, and manual
+Settlement payout reconciliation are durable job-first. Legacy mutating
+endpoints enqueue jobs and return `202`; progress endpoints stream from durable
+job state. Progress writes renew durable job ownership, bounded-turn jobs
+release the live claim back to `queued`, and completion/failure writes are
+rejected after lease loss so a replacement worker can safely resume.
 
 ## Scheduled Cadence
 
@@ -60,6 +62,11 @@ payment reconciliation, seller funds release, or payout reconciliation cadence.
 
 The worker lease still prevents concurrent execution. The scheduled runner table
 owns cadence only.
+
+The `durable-jobs.retention` scheduled runner prunes terminal job/event rows
+after the retention window and removes orphaned staged Inventory import inputs.
+It is safe for every worker process to register; the platform control plane
+leases the cadence so only one process runs a turn.
 
 ## External Providers
 

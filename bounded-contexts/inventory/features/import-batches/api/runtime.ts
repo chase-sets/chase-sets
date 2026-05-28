@@ -98,6 +98,12 @@ export type InventoryImportBatchServices = Readonly<{
       InventoryImportBatchJobResult
     >[]
   >;
+  waitForImportBatchJobEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
+  pruneImportBatchJobRetention: (input?: {
+    completedBefore?: string | Date;
+    stagedInputCreatedBefore?: string | Date;
+    limit?: number;
+  }) => Promise<{ jobs: number; stagedInputs: number }>;
   processNextImportBatchJob: (input: {
     claimOwnerId: string;
     claimTtlMs: number;
@@ -997,6 +1003,22 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     },
     getImportBatchJob: (jobId) => jobStore.get(jobId),
     listImportBatchJobEvents: (jobId, afterSequence = 0) => jobStore.listEvents(jobId, afterSequence),
+    waitForImportBatchJobEvents: (jobId, signal) => jobStore.waitForEvents({ jobId, signal }),
+    pruneImportBatchJobRetention: async (input = {}) => {
+      const completedBefore = input.completedBefore ?? retentionCutoff(7);
+      const stagedInputCreatedBefore = input.stagedInputCreatedBefore ?? retentionCutoff(1);
+      const jobs = await jobStore.pruneTerminalJobs({
+        completedBefore,
+        limit: input.limit,
+      });
+      const result = await deps.db.query(
+        `DELETE FROM inventory_import_batch_job_inputs
+         WHERE created_at < $1::timestamptz`,
+        [formatRetentionDate(stagedInputCreatedBefore)],
+      );
+
+      return { jobs, stagedInputs: Number(result.rowCount ?? 0) };
+    },
     processNextImportBatchJob: async (input) => {
       const claimed = await jobStore.claimNext({
         claimOwnerId: input.claimOwnerId,
@@ -1148,6 +1170,14 @@ async function requireImportBatchJobClaim(succeeded: Promise<boolean> | boolean)
 
 function readJsonValue<T>(value: unknown): T {
   return typeof value === "string" ? (JSON.parse(value) as T) : (value as T);
+}
+
+function retentionCutoff(daysAgo: number): Date {
+  return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
+}
+
+function formatRetentionDate(value: string | Date): string {
+  return value instanceof Date ? value.toISOString() : value;
 }
 
 function throwIfImportBatchJobCancelled(input?: { signal?: AbortSignal; throwIfLeaseLost?: () => void }) {

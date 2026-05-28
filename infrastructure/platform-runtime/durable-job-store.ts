@@ -1,5 +1,5 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { PgPoolClient, PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 
 export type DurableJobStatus = "queued" | "running" | "completed" | "failed";
 
@@ -72,6 +72,12 @@ export type DurableJobStore<
     result?: TResult | null;
   }) => Promise<boolean>;
   renewClaim: (input: { jobId: string; claimOwnerId: string; claimTtlMs: number }) => Promise<boolean>;
+  releaseClaim: (input: {
+    jobId: string;
+    claimOwnerId: string;
+    progress: TProgress;
+    result?: TResult | null;
+  }) => Promise<boolean>;
   complete: (input: { jobId: string; claimOwnerId: string; progress: TProgress; result: TResult }) => Promise<boolean>;
   fail: (input: { jobId: string; claimOwnerId: string; progress: TProgress; errorMessage: string }) => Promise<boolean>;
   get: (jobId: string) => Promise<DurableJobRecord<TPayload, TProgress, TResult> | null>;
@@ -82,11 +88,14 @@ export type DurableJobStore<
     jobId: string,
     afterSequence?: number,
   ) => Promise<readonly DurableJobEvent<TPayload, TProgress, TResult, TSnapshot>[]>;
+  waitForEvents: (input: { jobId: string; signal?: AbortSignal; timeoutMs?: number }) => Promise<void>;
+  pruneTerminalJobs: (input: { completedBefore: string | Date; limit?: number }) => Promise<number>;
 }>;
 
 type DurableJobTables = Readonly<{
   jobsTable: string;
   eventsTable: string;
+  notifyChannel?: string;
 }>;
 
 type DurableJobRow = Readonly<{
@@ -169,14 +178,18 @@ export function createPostgresDurableJobStore<
 ): DurableJobStore<TPayload, TProgress, TResult, TSnapshot> {
   const jobsTable = sqlIdentifier(tables.jobsTable);
   const eventsTable = sqlIdentifier(tables.eventsTable);
+  const notifyChannel = sqlNotifyChannel(tables.notifyChannel ?? "durable_job_events");
   const eventSnapshot =
     options.eventSnapshot ??
     ((job: DurableJobRecord<TPayload, TProgress, TResult>) =>
       toDurableJobPublicSnapshot<TPayload, TProgress, TResult>(job) as TSnapshot);
 
-  async function appendEvent(job: DurableJobRecord<TPayload, TProgress, TResult>) {
+  async function appendEvent(
+    queryable: PgQueryable,
+    job: DurableJobRecord<TPayload, TProgress, TResult>,
+  ): Promise<number> {
     const snapshot = eventSnapshot(job);
-    await db.query(
+    const result = await queryable.query<{ sequence: number | string }>(
       `INSERT INTO ${eventsTable} (
          job_id,
          sequence,
@@ -191,23 +204,29 @@ export function createPostgresDurableJobStore<
          $2::jsonb,
          now()
        FROM ${eventsTable}
-       WHERE job_id = $1`,
+       WHERE job_id = $1
+       RETURNING sequence`,
       [job.jobId, JSON.stringify(snapshot)],
     );
+    const sequence = Number(result.rows[0]?.sequence ?? 0);
+    await queryable.query(`SELECT pg_notify($1, $2)`, [notifyChannel, JSON.stringify({ jobId: job.jobId, sequence })]);
+    return sequence;
   }
 
   async function updateAndAppend(
     sql: string,
     values: readonly unknown[],
   ): Promise<DurableJobRecord<TPayload, TProgress, TResult> | null> {
-    const result = await db.query<DurableJobRow>(sql, values);
-    if (!result.rows[0]) {
-      return null;
-    }
+    return runDurableJobWrite(db, async (queryable) => {
+      const result = await queryable.query<DurableJobRow>(sql, values);
+      if (!result.rows[0]) {
+        return null;
+      }
 
-    const job = mapJobRow<TPayload, TProgress, TResult>(result.rows[0]);
-    await appendEvent(job);
-    return job;
+      const job = mapJobRow<TPayload, TProgress, TResult>(result.rows[0]);
+      await appendEvent(queryable, job);
+      return job;
+    });
   }
 
   return {
@@ -302,6 +321,55 @@ export function createPostgresDurableJobStore<
       );
       return Number(result.rowCount ?? 0) > 0;
     },
+    releaseClaim: async (input) => {
+      const job = await updateAndAppend(
+        `UPDATE ${jobsTable}
+         SET status = 'queued',
+             progress = $3::jsonb,
+             result = COALESCE($4::jsonb, result),
+             claim_owner_id = NULL,
+             claimed_until = NULL,
+             updated_at = now()
+         WHERE job_id = $1
+           AND claim_owner_id = $2
+           AND status = 'running'
+           AND claimed_until > now()
+         RETURNING ${DURABLE_JOB_COLUMNS}`,
+        [
+          input.jobId,
+          input.claimOwnerId,
+          JSON.stringify(input.progress),
+          input.result === undefined ? null : JSON.stringify(input.result),
+        ],
+      );
+      return Boolean(job);
+    },
+    waitForEvents: async (input) => {
+      await waitForDurableJobNotification(db, {
+        channel: notifyChannel,
+        jobId: input.jobId,
+        signal: input.signal,
+        timeoutMs: input.timeoutMs,
+      });
+    },
+    pruneTerminalJobs: async (input) => {
+      const result = await db.query<{ job_id: string }>(
+        `WITH expired AS (
+           SELECT job_id
+           FROM ${jobsTable}
+           WHERE status IN ('completed', 'failed')
+             AND completed_at < $1::timestamptz
+           ORDER BY completed_at ASC, job_id ASC
+           LIMIT $2
+         )
+         DELETE FROM ${jobsTable} AS job
+         USING expired
+         WHERE job.job_id = expired.job_id
+         RETURNING job.job_id`,
+        [formatDateInput(input.completedBefore), Math.max(1, Math.min(input.limit ?? 500, 5_000))],
+      );
+      return Number(result.rowCount ?? result.rows.length);
+    },
     complete: async (input) => {
       const job = await updateAndAppend(
         `UPDATE ${jobsTable}
@@ -382,6 +450,66 @@ export function createPostgresDurableJobStore<
           createdAt: formatTimestamp(row.created_at),
         };
       });
+    },
+  };
+}
+
+export type DurableJobExecutionContext<TProgress, TResult> = Readonly<{
+  signal?: AbortSignal;
+  throwIfCancelled: () => void;
+  renew: () => Promise<void>;
+  checkpointProgress: (progress: TProgress, result?: TResult | null) => Promise<void>;
+}>;
+
+export function createDurableJobExecutionContext<TPayload, TProgress, TResult, TSnapshot>(
+  store: DurableJobStore<TPayload, TProgress, TResult, TSnapshot>,
+  input: Readonly<{
+    jobId: string;
+    claimOwnerId: string;
+    claimTtlMs: number;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+    cancelledMessage: string;
+    claimLostMessage: string;
+  }>,
+): DurableJobExecutionContext<TProgress, TResult> {
+  const throwIfCancelled = () => {
+    input.throwIfLeaseLost?.();
+    if (input.signal?.aborted) {
+      throw new Error(input.cancelledMessage);
+    }
+  };
+
+  const requireClaim = async (succeeded: Promise<boolean> | boolean) => {
+    if (!(await succeeded)) {
+      throw new Error(input.claimLostMessage);
+    }
+  };
+
+  return {
+    signal: input.signal,
+    throwIfCancelled,
+    renew: async () => {
+      throwIfCancelled();
+      await requireClaim(
+        store.renewClaim({
+          jobId: input.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+        }),
+      );
+    },
+    checkpointProgress: async (progress, result) => {
+      throwIfCancelled();
+      await requireClaim(
+        store.updateProgress({
+          jobId: input.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          progress,
+          result,
+        }),
+      );
     },
   };
 }
@@ -476,10 +604,123 @@ function formatNullableTimestamp(value: Date | string | null): string | null {
   return value === null ? null : formatTimestamp(value);
 }
 
+function formatDateInput(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : value;
+}
+
 function sqlIdentifier(value: string): string {
   if (!/^[a-z][a-z0-9_]*$/.test(value)) {
     throw new Error(`Invalid SQL identifier: ${value}`);
   }
 
   return value;
+}
+
+function sqlNotifyChannel(value: string): string {
+  if (!/^[a-z][a-z0-9_]*$/.test(value)) {
+    throw new Error(`Invalid durable job notify channel: ${value}`);
+  }
+
+  return value;
+}
+
+function isTransactionalPool(db: PgQueryable): db is PgTransactionalPool {
+  return typeof (db as { connect?: unknown }).connect === "function";
+}
+
+async function runDurableJobWrite<T>(db: PgQueryable, work: (queryable: PgQueryable) => Promise<T>): Promise<T> {
+  if (!isTransactionalPool(db)) {
+    return work(db);
+  }
+
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function waitForDurableJobNotification(
+  db: PgQueryable,
+  input: Readonly<{ channel: string; jobId: string; signal?: AbortSignal; timeoutMs?: number }>,
+): Promise<void> {
+  const timeoutMs = Math.max(100, Math.floor(input.timeoutMs ?? 500));
+  if (input.signal?.aborted || !isTransactionalPool(db)) {
+    return waitForDurableJobTimeout(timeoutMs, input.signal);
+  }
+
+  const client = await db.connect();
+  const eventClient = client as PgPoolClient & {
+    on?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
+    off?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
+  };
+
+  try {
+    await client.query(`LISTEN ${input.channel}`);
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      const cleanup = () => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timer);
+        input.signal?.removeEventListener("abort", cleanup);
+        eventClient.off?.("notification", onNotification);
+        eventClient.off?.("error", cleanup);
+        resolve();
+      };
+      const onNotification = (message?: { payload?: string }) => {
+        if (notificationMatchesJob(message?.payload, input.jobId)) {
+          cleanup();
+        }
+      };
+      const timer = setTimeout(cleanup, timeoutMs);
+
+      input.signal?.addEventListener("abort", cleanup, { once: true });
+      eventClient.on?.("notification", onNotification);
+      eventClient.on?.("error", cleanup);
+    });
+    await client.query(`UNLISTEN ${input.channel}`);
+  } finally {
+    client.release();
+  }
+}
+
+function notificationMatchesJob(payload: string | undefined, jobId: string): boolean {
+  if (!payload) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(payload) as { jobId?: unknown };
+    return parsed.jobId === jobId;
+  } catch {
+    return false;
+  }
+}
+
+function waitForDurableJobTimeout(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 }

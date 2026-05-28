@@ -422,6 +422,7 @@ function streamBulkJobEvents(services: SourceObservationServices, jobId: string,
         eventName: event.eventName,
         data: event.job,
       })),
+    waitForEvents: (_afterSequence, signal) => services.waitForBulkReviewJobEvents(jobId, signal),
     isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
   });
 }
@@ -436,6 +437,7 @@ function streamIntegrationJobEvents(services: SourceObservationServices, jobId: 
         eventName: event.eventName,
         data: event.job,
       })),
+    waitForEvents: (_afterSequence, signal) => services.waitForIntegrationJobEvents(jobId, signal),
     isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
   });
 }

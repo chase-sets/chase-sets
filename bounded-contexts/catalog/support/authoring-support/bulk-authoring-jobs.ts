@@ -1,8 +1,17 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { createPostgresDurableJobStore, type DurableJobEvent } from "@chase-sets/platform-runtime/durable-job-store";
+import {
+  createDurableJobExecutionContext,
+  createPostgresDurableJobStore,
+  type DurableJobEvent,
+  type DurableJobExecutionContext,
+} from "@chase-sets/platform-runtime/durable-job-store";
 import { createId } from "@chase-sets/primitives/typed-ids";
-import type { BulkSelection } from "../runtime-support/bulk-lifecycle";
+import type {
+  BulkLifecycleExecutionOptions,
+  BulkLifecycleExecutionProgress,
+  BulkSelection,
+} from "../runtime-support/bulk-lifecycle";
 import type { CatalogServices } from "./services";
 
 export type CatalogAuthoringBulkJobKind =
@@ -67,6 +76,8 @@ export type CatalogAuthoringBulkJobServices = Readonly<{
   get: (jobId: string) => Promise<CatalogAuthoringBulkJob | null>;
   listActive: () => Promise<readonly CatalogAuthoringBulkJob[]>;
   listEvents: (jobId: string, afterSequence?: number) => Promise<readonly CatalogAuthoringBulkJobEvent[]>;
+  waitForEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
+  pruneRetention: (input?: { completedBefore?: string | Date; limit?: number }) => Promise<number>;
   processNext: (input: {
     claimOwnerId: string;
     claimTtlMs?: number;
@@ -113,6 +124,12 @@ export function createCatalogAuthoringBulkJobServices(db: PgQueryable): CatalogA
     },
     listActive: async () => (await store.listActive()).map(toCatalogAuthoringBulkJob),
     listEvents: (jobId, afterSequence) => store.listEvents(jobId, afterSequence),
+    waitForEvents: (jobId, signal) => store.waitForEvents({ jobId, signal }),
+    pruneRetention: (input = {}) =>
+      store.pruneTerminalJobs({
+        completedBefore: input.completedBefore ?? catalogAuthoringRetentionCutoff(7),
+        limit: input.limit,
+      }),
     processNext: async (input) => {
       const claimTtlMs = input.claimTtlMs ?? 60_000;
       const job = await store.claimNext({
@@ -147,9 +164,17 @@ export function createCatalogAuthoringBulkJobServices(db: PgQueryable): CatalogA
             progress: progress("running"),
           }),
         );
-        throwIfCatalogAuthoringBulkJobCancelled(input);
-        const result = await executeCatalogAuthoringBulkJob(input.services, job.payload, context);
-        throwIfCatalogAuthoringBulkJobCancelled(input);
+        const jobContext = createDurableJobExecutionContext(store, {
+          jobId: job.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs,
+          signal: input.signal,
+          throwIfLeaseLost: input.throwIfLeaseLost,
+          cancelledMessage: "Catalog authoring bulk job was cancelled.",
+          claimLostMessage: "Catalog authoring bulk job claim was lost before the status update completed.",
+        });
+        const result = await executeCatalogAuthoringBulkJob(input.services, job.payload, context, jobContext);
+        jobContext.throwIfCancelled();
         await requireCatalogAuthoringBulkJobClaim(
           store.complete({
             jobId: job.jobId,
@@ -211,36 +236,60 @@ async function executeCatalogAuthoringBulkJob(
   services: CatalogServices,
   payload: CatalogAuthoringBulkJobPayload,
   context: EventStoreContext,
+  jobContext: DurableJobExecutionContext<CatalogAuthoringBulkJobProgress, CatalogAuthoringBulkJobResult>,
 ) {
+  const progressOptions = catalogAuthoringProgressOptions(jobContext);
   switch (payload.kind) {
     case "catalog.authoring.dimensions.lifecycle":
-      return services.dimensions.bulkLifecycle.execute(requireSelection(payload), payload.action, context);
+      return services.dimensions.bulkLifecycle.execute(
+        requireSelection(payload),
+        payload.action,
+        context,
+        progressOptions,
+      );
     case "catalog.authoring.fields.lifecycle":
-      return services.fields.bulkLifecycle.execute(requireSelection(payload), payload.action, context);
+      return services.fields.bulkLifecycle.execute(requireSelection(payload), payload.action, context, progressOptions);
     case "catalog.authoring.components.lifecycle":
-      return services.components.bulkLifecycle.execute(requireSelection(payload), payload.action, context);
+      return services.components.bulkLifecycle.execute(
+        requireSelection(payload),
+        payload.action,
+        context,
+        progressOptions,
+      );
     case "catalog.authoring.blueprints.lifecycle":
-      return services.blueprints.bulkLifecycle.execute(requireSelection(payload), payload.action, context);
+      return services.blueprints.bulkLifecycle.execute(
+        requireSelection(payload),
+        payload.action,
+        context,
+        progressOptions,
+      );
     case "catalog.authoring.categories.lifecycle":
-      return services.categories.bulkLifecycle.execute(requireSelection(payload), payload.action, context);
+      return services.categories.bulkLifecycle.execute(
+        requireSelection(payload),
+        payload.action,
+        context,
+        progressOptions,
+      );
     case "catalog.authoring.reference-types.lifecycle":
       return services.referenceData.referenceTypeBulkLifecycle.execute(
         requireSelection(payload),
         payload.action,
         context,
+        progressOptions,
       );
     case "catalog.authoring.reference-records.lifecycle":
       return services.referenceData.referenceRecordBulkLifecycle.execute(
         requireSelection(payload),
         payload.action,
         context,
+        progressOptions,
       );
     case "catalog.authoring.items.lifecycle":
-      return services.items.bulkLifecycle.execute(requireSelection(payload), payload.action, context);
+      return services.items.bulkLifecycle.execute(requireSelection(payload), payload.action, context, progressOptions);
     case "catalog.authoring.items.publish":
-      return services.items.publishBulk(payload.itemIds ?? [], context);
+      return services.items.publishBulk(payload.itemIds ?? [], context, progressOptions);
     case "catalog.authoring.items.edit":
-      return services.items.editBulk(requireSelection(payload), payload.operation as never, context);
+      return services.items.editBulk(requireSelection(payload), payload.operation as never, context, progressOptions);
     default:
       throw new Error(`Unsupported Catalog authoring bulk job kind: ${payload.kind}`);
   }
@@ -262,6 +311,29 @@ function progress(phase: CatalogAuthoringBulkJobProgress["phase"]): CatalogAutho
     currentName: null,
     status: phase,
   };
+}
+
+function catalogAuthoringProgressOptions(
+  jobContext: DurableJobExecutionContext<CatalogAuthoringBulkJobProgress, CatalogAuthoringBulkJobResult>,
+): BulkLifecycleExecutionOptions {
+  return {
+    throwIfCancelled: jobContext.throwIfCancelled,
+    onProgress: (progressUpdate) => jobContext.checkpointProgress(toCatalogAuthoringProgress(progressUpdate)),
+  };
+}
+
+function toCatalogAuthoringProgress(progressUpdate: BulkLifecycleExecutionProgress): CatalogAuthoringBulkJobProgress {
+  return {
+    phase: "running",
+    completed: progressUpdate.completed,
+    total: progressUpdate.total,
+    currentName: progressUpdate.currentName,
+    status: progressUpdate.status,
+  };
+}
+
+function catalogAuthoringRetentionCutoff(daysAgo: number): Date {
+  return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
 }
 
 async function requireCatalogAuthoringBulkJobClaim(succeeded: Promise<boolean> | boolean) {

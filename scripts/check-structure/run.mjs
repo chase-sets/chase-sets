@@ -2237,6 +2237,28 @@ export async function runStructureCheck(options = {}) {
       if (
         normalizedFile.startsWith("bounded-contexts/") &&
         normalizedFile.endsWith("/api/route.ts") &&
+        /createDurableJobEventStream\s*\(/.test(content) &&
+        !/waitForEvents\s*:/.test(content)
+      ) {
+        addViolation(
+          file,
+          "durable job SSE routes must pass a notification-backed waitForEvents hook with polling fallback",
+        );
+      }
+
+      if (
+        normalizedFile.startsWith("bounded-contexts/catalog/features/source-observations/") &&
+        /catalog_source_observation_(?:bulk_jobs|integration_jobs|job_events)\b/.test(content)
+      ) {
+        addViolation(
+          file,
+          "Source Observation jobs must use the shared durable job store tables, not legacy unfenced job tables",
+        );
+      }
+
+      if (
+        normalizedFile.startsWith("bounded-contexts/") &&
+        normalizedFile.endsWith("/api/route.ts") &&
         !normalizedFile.endsWith("/source-observations/api/route.ts") &&
         /\benqueue[A-Za-z0-9_]*Job\b/.test(content) &&
         /return\s+c\.json\(\s*job\s*,\s*202\s*\)/.test(content)

@@ -10,6 +10,7 @@ export type DurableJobEventStreamOptions<T> = Readonly<{
   pollIntervalMs?: number;
   keepaliveIntervalMs?: number;
   loadEvents: (afterSequence: number) => Promise<readonly DurableJobStreamEvent<T>[]>;
+  waitForEvents?: (afterSequence: number, signal?: AbortSignal) => Promise<void>;
   isTerminal: (event: DurableJobStreamEvent<T>) => boolean;
 }>;
 
@@ -59,7 +60,8 @@ export function createDurableJobEventStream<T>(options: DurableJobEventStreamOpt
             write(": keepalive\n\n");
           }
 
-          await waitForDurableJobEventPoll(pollIntervalMs, options.signal);
+          await (options.waitForEvents?.(afterSequence, options.signal) ??
+            waitForDurableJobEventPoll(pollIntervalMs, options.signal));
         }
       } finally {
         controller.close();

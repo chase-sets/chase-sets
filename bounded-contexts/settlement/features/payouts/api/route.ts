@@ -245,6 +245,7 @@ export function createPayoutRoutes(services: PayoutServices) {
           eventName: event.eventName,
           data: event.job,
         })),
+      waitForEvents: (_afterSequence, signal) => services.waitForPayoutReconciliationJobEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
     });
   });

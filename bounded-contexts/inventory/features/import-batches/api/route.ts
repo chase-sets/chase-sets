@@ -211,6 +211,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
           eventName: event.eventName,
           data: event.job,
         })),
+      waitForEvents: (_afterSequence, signal) => services.waitForImportBatchJobEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
     });
   });
