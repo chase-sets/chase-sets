@@ -192,15 +192,24 @@ describe("settlement payout routes", () => {
     });
   });
 
-  it("runs reconciliation only for payout reconcilers", async () => {
-    const reconcilePayoutsNeedingAttention = vi.fn(async () => ({
-      checked: 1,
-      reconciled: 1,
-      ignored: 0,
-      skipped: 0,
-      errors: [],
+  it("queues reconciliation only for payout reconcilers", async () => {
+    const enqueuePayoutReconciliationJob = vi.fn(async () => ({
+      jobId: "job_reconcile",
+      jobKind: "payout-reconciliation",
+      status: "queued",
+      payload: { limit: 25 },
+      progress: { phase: "queued", completed: 0, total: 0, message: "Payout reconciliation queued." },
+      result: null,
+      errorMessage: null,
+      eventContext: context,
+      claimOwnerId: null,
+      claimedUntil: null,
+      createdAt: "2026-05-28T00:00:00.000Z",
+      startedAt: null,
+      completedAt: null,
+      updatedAt: "2026-05-28T00:00:00.000Z",
     }));
-    const app = createAuthenticatedApp({ reconcilePayoutsNeedingAttention }, ["payouts.reconcile"]);
+    const app = createAuthenticatedApp({ enqueuePayoutReconciliationJob }, ["payouts.reconcile"]);
 
     const response = await app.request("/payouts/reconciliation/run", {
       method: "POST",
@@ -208,15 +217,13 @@ describe("settlement payout routes", () => {
       headers: { "Content-Type": "application/json" },
     });
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      checked: 1,
-      reconciled: 1,
-      ignored: 0,
-      skipped: 0,
-      errors: [],
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      jobId: "job_reconcile",
+      status: "queued",
+      payload: { limit: 25 },
     });
-    expect(reconcilePayoutsNeedingAttention).toHaveBeenCalledWith({ limit: 25 }, context);
+    expect(enqueuePayoutReconciliationJob).toHaveBeenCalledWith({ limit: 25 }, context);
   });
 });
 

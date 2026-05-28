@@ -85,6 +85,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.api.route.authentication.context.missing.2": "Authentication context missing.",
   "settlement.features.payouts.api.route.authentication.required": "Authentication required.",
   "settlement.features.payouts.api.route.forbidden": "Forbidden.",
+  "settlement.features.payouts.api.route.job.not.found": "Payout reconciliation job not found.",
   "settlement.features.payouts.api.route.payout.not.found": "Payout not found.",
   "settlement.features.payouts.api.route.request.failed": "Request failed.",
   "settlement.features.payouts.api.runtime.payout.completed": "Payout completed",

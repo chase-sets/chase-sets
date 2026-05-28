@@ -265,19 +265,18 @@ describe("marketplace inventory routes", () => {
         return Promise.resolve(
           jsonResponse(
             {
-              batch_id: "imb_1",
-              account_id: "acc_1",
-              status: "uploaded",
-              source_filename: "stock.csv",
-              total_count: 1,
-              accepted_count: 1,
-              rejected_count: 0,
-              committed_count: 0,
-              created_at: "2026-05-09T00:00:00.000Z",
-              updated_at: "2026-05-09T00:00:00.000Z",
-              rows: [],
+              jobId: url.includes("/commit") ? "job_commit" : "job_create",
+              status: "queued",
+              payload: { accountId: "acc_1", batchId: url.includes("/commit") ? "imb_1" : undefined },
+              progress: { phase: "queued", completed: 0, total: 1, currentRowId: null, message: null },
+              result: null,
+              errorMessage: null,
+              createdAt: "2026-05-09T00:00:00.000Z",
+              startedAt: null,
+              completedAt: null,
+              updatedAt: "2026-05-09T00:00:00.000Z",
             },
-            201,
+            202,
           ),
         );
       }),
@@ -311,7 +310,7 @@ describe("marketplace inventory routes", () => {
     } as never);
 
     expect(createResponse).toBeInstanceOf(Response);
-    expect((createResponse as Response).headers.get("Location")).toBe("/account/inventory/imports/imb_1");
+    expect((createResponse as Response).headers.get("Location")).toBe("/account/inventory/imports?jobId=job_create");
     expect(commitResponse).toBeInstanceOf(Response);
     expect(requestedUrls.some((url) => url.includes("/api/inventory/import-batches/imb_1/commit"))).toBe(true);
   });

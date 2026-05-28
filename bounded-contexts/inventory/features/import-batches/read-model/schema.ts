@@ -1,3 +1,5 @@
+import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+
 export const inventoryImportBatchSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_import_batches (
   batch_id text PRIMARY KEY,
@@ -68,4 +70,9 @@ ALTER TABLE inventory_import_batch_rows
   ADD COLUMN IF NOT EXISTS set_quantity integer NULL,
   ADD COLUMN IF NOT EXISTS source_price_amount numeric(12, 2) NULL,
   ADD COLUMN IF NOT EXISTS resolution_status text NOT NULL DEFAULT 'native';
+
+${durableJobSchemaSql({
+  jobsTable: "inventory_import_batch_jobs",
+  eventsTable: "inventory_import_batch_job_events",
+})}
 `;

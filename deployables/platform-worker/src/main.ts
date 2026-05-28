@@ -146,7 +146,12 @@ const projectionRunners = collectWorkerRunners(runtime, {
   projectionOperationLeaseRenewIntervalMs: config.leaseRenewIntervalMs,
   observer: createWorkerObserver("platform-worker"),
 });
-const bulkJobRunners = createCatalogBulkJobRunners(runtime.services, config);
+const bulkJobRunners = [
+  ...createCatalogBulkJobRunners(runtime.services, config),
+  ...createInventoryJobRunners(runtime.services, config),
+  ...createPricingJobRunners(runtime.services, config),
+  ...createSettlementJobRunners(runtime.services, config),
+];
 const notificationDispatchRunners = createNotificationDispatchRunners(
   runtime,
   config.workerId,
@@ -502,12 +507,16 @@ function createCatalogBulkJobRunners(
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
         };
+        authoringBulkJobs?: {
+          processNext?: (input: { claimOwnerId: string; claimTtlMs: number; services: never }) => Promise<boolean>;
+        };
       }
     | undefined;
   const processNextBulkReviewJob = catalog?.sourceObservations?.processNextBulkReviewJob;
   const processNextIntegrationJob = catalog?.sourceObservations?.processNextIntegrationJob;
+  const processNextAuthoringBulkJob = catalog?.authoringBulkJobs?.processNext;
 
-  if (!processNextBulkReviewJob && !processNextIntegrationJob) {
+  if (!processNextBulkReviewJob && !processNextIntegrationJob && !processNextAuthoringBulkJob) {
     return [];
   }
 
@@ -545,7 +554,184 @@ function createCatalogBulkJobRunners(
     });
   }
 
+  if (processNextAuthoringBulkJob && catalog) {
+    runners.push({
+      name: "catalog.authoring-bulk-jobs",
+      kind: "job",
+      runOnce: async () => ({
+        processed: (await processNextAuthoringBulkJob({
+          claimOwnerId: input.workerId,
+          claimTtlMs: input.leaseTtlMs * 4,
+          services: catalog as never,
+        }))
+          ? 1
+          : 0,
+        lastGlobalPosition: "0" as never,
+      }),
+    });
+  }
+
   return runners;
+}
+
+function createInventoryJobRunners(
+  services: Readonly<Record<string, unknown>>,
+  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
+): readonly WorkerRunner[] {
+  const inventory = services.inventory as
+    | {
+        importBatches?: {
+          processNextImportBatchJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
+        };
+      }
+    | undefined;
+  const processNextImportBatchJob = inventory?.importBatches?.processNextImportBatchJob;
+
+  if (!processNextImportBatchJob) {
+    return [];
+  }
+
+  return [
+    {
+      name: "inventory.import-batch-jobs",
+      kind: "job",
+      runOnce: async (context) => ({
+        processed: await processNextImportBatchJob({
+          claimOwnerId: input.workerId,
+          claimTtlMs: input.leaseTtlMs * 4,
+          signal: context?.signal,
+          throwIfLeaseLost: context?.throwIfLeaseLost,
+        }),
+        lastGlobalPosition: "0" as never,
+      }),
+    },
+  ];
+}
+
+function createPricingJobRunners(
+  services: Readonly<Record<string, unknown>>,
+  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
+): readonly WorkerRunner[] {
+  const pricing = services.pricing as
+    | {
+        recommendations?: {
+          processNextRecommendationJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            marketplaceListingGatewayForAccount: (accountId: string) => {
+              previewListingTerms: (body: { priceAmount: string }) => Promise<{ fee_quote_fingerprint: string }>;
+              updateListingPrice: (
+                listingId: string,
+                body: { priceAmount: string; feeQuoteFingerprint?: string | null },
+              ) => Promise<unknown>;
+              createListing: (body: {
+                inventoryItemId: string;
+                priceAmount: string;
+                quantityCap: number;
+              }) => Promise<{ id?: string; listing_id?: string }>;
+              staleFeeQuoteFingerprint?: (error: unknown) => string | null;
+            };
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
+        };
+      }
+    | undefined;
+  const marketplace = services.marketplace as
+    | {
+        listings?: {
+          previewListingTerms?: (params: {
+            accountId: string;
+            priceAmount: string;
+          }) => Promise<{ fee_quote_fingerprint: string }>;
+          updateListingPrice?: (
+            params: { accountId: string; listingId: string; priceAmount: string; feeQuoteFingerprint?: string | null },
+            context: typeof SYSTEM_CONTEXT,
+          ) => Promise<unknown>;
+          createListing?: (
+            params: { accountId: string; inventoryItemId: string; priceAmount: string; quantityCap: number },
+            context: typeof SYSTEM_CONTEXT,
+          ) => Promise<{ listingId?: string; id?: string; listing_id?: string }>;
+        };
+      }
+    | undefined;
+  const processNextRecommendationJob = pricing?.recommendations?.processNextRecommendationJob;
+
+  if (!processNextRecommendationJob || !marketplace?.listings) {
+    return [];
+  }
+
+  return [
+    {
+      name: "pricing.recommendation-jobs",
+      kind: "job",
+      runOnce: async (context) => ({
+        processed: await processNextRecommendationJob({
+          claimOwnerId: input.workerId,
+          claimTtlMs: input.leaseTtlMs * 4,
+          marketplaceListingGatewayForAccount: (accountId) => ({
+            previewListingTerms: (body) => marketplace.listings!.previewListingTerms!({ accountId, ...body }),
+            updateListingPrice: (listingId, body) =>
+              marketplace.listings!.updateListingPrice!({ accountId, listingId, ...body }, SYSTEM_CONTEXT),
+            createListing: async (body) => {
+              const result = await marketplace.listings!.createListing!({ accountId, ...body }, SYSTEM_CONTEXT);
+              return {
+                id: result.id ?? result.listingId,
+                listing_id: result.listing_id ?? result.listingId,
+              };
+            },
+          }),
+          signal: context?.signal,
+          throwIfLeaseLost: context?.throwIfLeaseLost,
+        }),
+        lastGlobalPosition: "0" as never,
+      }),
+    },
+  ];
+}
+
+function createSettlementJobRunners(
+  services: Readonly<Record<string, unknown>>,
+  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
+): readonly WorkerRunner[] {
+  const settlement = services.settlement as
+    | {
+        payouts?: {
+          processNextPayoutReconciliationJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
+        };
+      }
+    | undefined;
+  const processNextPayoutReconciliationJob = settlement?.payouts?.processNextPayoutReconciliationJob;
+
+  if (!processNextPayoutReconciliationJob) {
+    return [];
+  }
+
+  return [
+    {
+      name: "settlement.payout-reconciliation-jobs",
+      kind: "job",
+      runOnce: async (context) => ({
+        processed: await processNextPayoutReconciliationJob({
+          claimOwnerId: input.workerId,
+          claimTtlMs: input.leaseTtlMs * 4,
+          signal: context?.signal,
+          throwIfLeaseLost: context?.throwIfLeaseLost,
+        }),
+        lastGlobalPosition: "0" as never,
+      }),
+    },
+  ];
 }
 
 function createCatalogAssetStorage(storageConfig: PlatformWorkerCatalogAssetStorageConfig): ObjectStorage {

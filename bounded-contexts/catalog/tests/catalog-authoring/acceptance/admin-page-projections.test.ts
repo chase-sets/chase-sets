@@ -869,9 +869,16 @@ describeWithDatabase("Admin page projections", () => {
         body: JSON.stringify({ itemIds: preview.item_ids }),
       }),
     );
-    const result = await confirmResponse.json();
+    const job = await confirmResponse.json();
 
-    expect(confirmResponse.status).toBe(200);
+    expect(confirmResponse.status).toBe(202);
+    await services.authoringBulkJobs.processNext({
+      claimOwnerId: "catalog_authoring_test",
+      claimTtlMs: 60_000,
+      services,
+    });
+    const completedJob = await services.authoringBulkJobs.get(job.jobId);
+    const result = completedJob?.result;
     expect(result).toMatchObject({
       total: 2,
       published_count: 1,

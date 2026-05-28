@@ -1,5 +1,7 @@
 import { Hono } from "hono";
+import { t } from "@chase-sets/localization";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
+import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { CatalogServices } from "./services";
 import { blueprintRoutes } from "../../features/blueprints/api/route";
 import { catalogItemRoutes } from "../../features/catalog-items/api/route";
@@ -20,14 +22,64 @@ export type CatalogAuthoringEnv = {
 export function buildCatalogAuthoringApi(services: CatalogServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
-  app.route("/dimensions", dimensionRoutes(services.dimensions));
+  app.get("/bulk-authoring-jobs/active", async (c) => {
+    const items = await services.authoringBulkJobs.listActive();
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/bulk-authoring-jobs/:jobId", async (c) => {
+    const job = await services.authoringBulkJobs.get(c.req.param("jobId"));
+    if (!job) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("catalog.support.authoringSupport.api.bulk.authoring.job.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return c.json(job);
+  });
+
+  app.get("/bulk-authoring-jobs/:jobId/events", async (c) => {
+    const jobId = c.req.param("jobId");
+    const job = await services.authoringBulkJobs.get(jobId);
+    if (!job) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("catalog.support.authoringSupport.api.bulk.authoring.job.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return createDurableJobEventStream({
+      request: c.req.raw,
+      signal: c.req.raw.signal,
+      loadEvents: async (afterSequence) =>
+        (await services.authoringBulkJobs.listEvents(jobId, afterSequence)).map((event) => ({
+          sequence: event.sequence,
+          eventName: event.eventName,
+          data: event.job,
+        })),
+      isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+    });
+  });
+
+  app.route("/dimensions", dimensionRoutes(services.dimensions, services.authoringBulkJobs));
   app.route("/display-templates", displayTemplateRoutes(services.displayTemplates));
-  app.route("/fields", fieldRoutes(services.fields));
-  app.route("/", referenceDataRoutes(services.referenceData));
-  app.route("/components", componentRoutes(services.components));
-  app.route("/blueprints", blueprintRoutes(services.blueprints));
-  app.route("/categories", categoryRoutes(services.categories));
-  app.route("/items", catalogItemRoutes(services.items));
+  app.route("/fields", fieldRoutes(services.fields, services.authoringBulkJobs));
+  app.route("/", referenceDataRoutes(services.referenceData, services.authoringBulkJobs));
+  app.route("/components", componentRoutes(services.components, services.authoringBulkJobs));
+  app.route("/blueprints", blueprintRoutes(services.blueprints, services.authoringBulkJobs));
+  app.route("/categories", categoryRoutes(services.categories, services.authoringBulkJobs));
+  app.route("/items", catalogItemRoutes(services.items, services.authoringBulkJobs));
   app.route("/source-observations", sourceObservationRoutes(services.sourceObservations));
 
   return app;

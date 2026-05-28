@@ -81,6 +81,20 @@ export type CatalogIntegrationJob<T = unknown> = Readonly<{
   updatedAt: string;
 }>;
 
+export type CatalogAuthoringBulkJob<T = unknown> = Readonly<{
+  jobId: string;
+  kind: string;
+  action: string;
+  status: "queued" | "running" | "completed" | "failed";
+  progress: CatalogBulkActionProgress;
+  result: T | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}>;
+
 type CatalogIntegrationJobOutcome = Readonly<{
   providerKey: string;
   languageCode: string;
@@ -207,7 +221,12 @@ export function createCatalogApiClient({
         json: { action, selection },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
     async addOption<T>(dimensionId: string, body: unknown): Promise<T> {
       const response = await client.dimensions[":id"].options.$post({
@@ -310,7 +329,12 @@ export function createCatalogApiClient({
         json: { action, selection },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
 
     async listDisplayTemplates<T>(query: string): Promise<T> {
@@ -456,7 +480,12 @@ export function createCatalogApiClient({
         json: { action, selection },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
 
     async listBlueprints<T>(query: string): Promise<T> {
@@ -559,7 +588,12 @@ export function createCatalogApiClient({
         json: { action, selection },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
 
     async listCategories<T>(query: string): Promise<T> {
@@ -624,7 +658,12 @@ export function createCatalogApiClient({
         json: { action, selection },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
 
     async listReferenceTypes<T>(query: string): Promise<T> {
@@ -689,7 +728,12 @@ export function createCatalogApiClient({
         json: { action, selection },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
 
     async listReferenceRecords<T>(query: string): Promise<T> {
@@ -754,7 +798,12 @@ export function createCatalogApiClient({
         json: { action, selection },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
 
     async listCatalogItems<T>(query: string): Promise<T> {
@@ -835,7 +884,12 @@ export function createCatalogApiClient({
         json: { itemIds },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
     async reviseMetadata<T>(id: string, body: unknown): Promise<T> {
       const response = await client.items[":id"].metadata.$put({
@@ -871,7 +925,12 @@ export function createCatalogApiClient({
         json: { action, selection },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
     async previewBulkCatalogItemEdit<T>(operation: unknown, selection: unknown): Promise<T> {
       const response = await client.items["bulk-edit"].preview.$post({
@@ -885,7 +944,12 @@ export function createCatalogApiClient({
         json: { operation, selection },
         header: headers,
       });
-      return parseJsonResponse<T>(response);
+      return waitForAuthoringBulkJobResult<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        job: await parseJsonResponse<CatalogAuthoringBulkJob<T>>(response),
+      });
     },
     async setTags<T>(id: string, tags: string[]): Promise<T> {
       const response = await client.items[":id"].tags.$put({
@@ -1371,6 +1435,29 @@ async function streamIntegrationJob<T>(input: {
   return streamJobEvents<CatalogIntegrationJob<T>, T>({
     ...input,
     url: `${input.baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs/${encodeURIComponent(input.jobId)}/events`,
+  });
+}
+
+async function waitForAuthoringBulkJobResult<T>(input: {
+  baseUrl: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  job: CatalogAuthoringBulkJob<T>;
+}): Promise<T> {
+  if (input.job.status === "completed" && input.job.result) {
+    return input.job.result;
+  }
+
+  if (input.job.status === "failed") {
+    throw new Error(input.job.errorMessage ?? "Catalog authoring bulk job failed.");
+  }
+
+  return streamJobEvents<CatalogAuthoringBulkJob<T>, T>({
+    url: `${input.baseUrl.replace(/\/$/, "")}/bulk-authoring-jobs/${encodeURIComponent(input.job.jobId)}/events`,
+    fetch: input.fetch,
+    headers: input.headers,
+    onProgress: () => {},
+    errorMessage: "Catalog authoring bulk job failed.",
   });
 }
 

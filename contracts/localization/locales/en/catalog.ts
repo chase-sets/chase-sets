@@ -1,5 +1,6 @@
 export const catalogEnglishTranslations = {
   "catalog.features.displayTemplates.api.route.display.template.not.found": "Display Template not found.",
+  "catalog.support.authoringSupport.api.bulk.authoring.job.not.found": "Catalog authoring bulk job not found.",
   "catalog.features.displayTemplates.ui.displayTemplateDetailPage.archive": "Archive",
   "catalog.features.displayTemplates.ui.displayTemplateDetailPage.archived": "archived",
   "catalog.features.displayTemplates.ui.displayTemplateDetailPage.deprecate": "Deprecate",

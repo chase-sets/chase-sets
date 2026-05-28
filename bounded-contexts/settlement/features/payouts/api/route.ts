@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { SettlementApiEnv } from "../../../api";
 import type { PayoutServices } from "./runtime";
@@ -198,9 +199,54 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     const body = await c.req.json().catch(() => ({}));
     const limit = Number((body as { limit?: unknown }).limit ?? 100);
-    const result = await services.reconcilePayoutsNeedingAttention({ limit }, context);
+    const result = await services.enqueuePayoutReconciliationJob({ limit }, context);
 
-    return c.json(result);
+    return c.json(result, 202);
+  });
+
+  app.get("/payouts/reconciliation/jobs/:jobId", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.reconcile");
+    if (access.response) {
+      return access.response;
+    }
+
+    const job = await services.getPayoutReconciliationJob(c.req.param("jobId"));
+    if (!job) {
+      return c.json(
+        { error: { code: "not_found", message: t("settlement.features.payouts.api.route.job.not.found") } },
+        404,
+      );
+    }
+
+    return c.json(job);
+  });
+
+  app.get("/payouts/reconciliation/jobs/:jobId/events", async (c) => {
+    const access = requirePayoutAccess(c, "payouts.reconcile");
+    if (access.response) {
+      return access.response;
+    }
+
+    const jobId = c.req.param("jobId");
+    const job = await services.getPayoutReconciliationJob(jobId);
+    if (!job) {
+      return c.json(
+        { error: { code: "not_found", message: t("settlement.features.payouts.api.route.job.not.found") } },
+        404,
+      );
+    }
+
+    return createDurableJobEventStream({
+      request: c.req.raw,
+      signal: c.req.raw.signal,
+      loadEvents: async (afterSequence) =>
+        (await services.listPayoutReconciliationJobEvents(jobId, afterSequence)).map((event) => ({
+          sequence: event.sequence,
+          eventName: event.eventName,
+          data: event.job,
+        })),
+      isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+    });
   });
 
   app.get("/payouts/:id", async (c) => {

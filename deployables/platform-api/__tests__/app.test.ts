@@ -290,6 +290,7 @@ describe("platform api app", () => {
           failProjectionOperation: vi.fn(async () => false),
           cancelProjectionOperation: vi.fn(async () => false),
           getProjectionOperation: vi.fn(async () => null),
+          listProjectionOperationEvents: vi.fn(async () => []),
           listProjectionOperations: vi.fn(async () => []),
           summarizeProjectionOperations: vi.fn(async () => ({
             queuedCount: "0",

@@ -6,6 +6,11 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresDurableJobStore,
+  type DurableJobEvent,
+  type DurableJobRecord,
+} from "@chase-sets/platform-runtime/durable-job-store";
 import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { recordProviderWebhookEvent as recordProviderWebhookInboxEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -64,6 +69,31 @@ type PayoutRuntimeDeps = Readonly<{
   operationsRecorder?: SettlementOperationsRecorder;
   transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
+
+export type PayoutReconciliationJobPayload = Readonly<{
+  limit: number;
+}>;
+
+export type PayoutReconciliationJobProgress = Readonly<{
+  phase: "queued" | "processing" | "completed" | "failed";
+  completed: number;
+  total: number;
+  message: string | null;
+}>;
+
+export type PayoutReconciliationJobResult = Readonly<{
+  checked: number;
+  reconciled: number;
+  ignored: number;
+  skipped: number;
+  errors: readonly Readonly<{ payoutId: string; message: string }>[];
+}>;
+
+export type PayoutReconciliationJob = DurableJobRecord<
+  PayoutReconciliationJobPayload,
+  PayoutReconciliationJobProgress,
+  PayoutReconciliationJobResult
+>;
 
 export type PayoutServices = Readonly<{
   commandHandler: CommandHandler<PayoutCommand, PayoutState, PayoutEvent>;
@@ -178,6 +208,27 @@ export type PayoutServices = Readonly<{
     skipped: number;
     errors: readonly Readonly<{ payoutId: string; message: string }>[];
   }>;
+  enqueuePayoutReconciliationJob: (
+    params: Readonly<{ limit?: number }>,
+    context: EventStoreContext,
+  ) => Promise<PayoutReconciliationJob>;
+  getPayoutReconciliationJob: (jobId: string) => Promise<PayoutReconciliationJob | null>;
+  listPayoutReconciliationJobEvents: (
+    jobId: string,
+    afterSequence?: number,
+  ) => Promise<
+    readonly DurableJobEvent<
+      PayoutReconciliationJobPayload,
+      PayoutReconciliationJobProgress,
+      PayoutReconciliationJobResult
+    >[]
+  >;
+  processNextPayoutReconciliationJob: (input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+  }) => Promise<number>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -208,6 +259,14 @@ function subtractMoney(left: string, right: string) {
 }
 
 export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
+  const jobStore = createPostgresDurableJobStore<
+    PayoutReconciliationJobPayload,
+    PayoutReconciliationJobProgress,
+    PayoutReconciliationJobResult
+  >(deps.db, {
+    jobsTable: "settlement_payout_reconciliation_jobs",
+    eventsTable: "settlement_payout_reconciliation_job_events",
+  });
   const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
   const operationsRecorder = deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const commandHandler = createCommandHandler({
@@ -466,6 +525,69 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
 
     return { received: true, ignored: true };
   }
+
+  const reconcilePayoutsNeedingAttention: PayoutServices["reconcilePayoutsNeedingAttention"] = async (
+    params,
+    context,
+  ) => {
+    const startedAt = new Date().toISOString();
+    const payouts = await listPayoutsNeedingReconciliation(deps.db, {
+      limit: params.limit,
+      claimOwnerId: params.claimOwnerId,
+      claimTtlMs: params.claimTtlMs,
+    });
+    let reconciled = 0;
+    let ignored = 0;
+    let skipped = 0;
+    const errors: Array<Readonly<{ payoutId: string; message: string }>> = [];
+
+    for (const payout of payouts) {
+      if (!payout.provider_payout_reference) {
+        skipped += 1;
+        continue;
+      }
+
+      try {
+        const result = await reconcileProviderPayout(
+          { providerPayoutReference: payout.provider_payout_reference },
+          context,
+        );
+        if (result.ignored) {
+          ignored += 1;
+        } else {
+          reconciled += 1;
+        }
+      } catch (error) {
+        errors.push({
+          payoutId: payout.payout_id,
+          message: error instanceof Error ? error.message : "Reconciliation failed.",
+        });
+      }
+    }
+
+    const result = {
+      checked: payouts.length,
+      reconciled,
+      ignored,
+      skipped,
+      errors,
+    };
+    await recordSettlementReconciliationRun(deps.db, {
+      reconciliationRunId: createId("rec"),
+      kind: "payouts",
+      checked: result.checked,
+      reconciled: result.reconciled,
+      ignored: result.ignored,
+      skipped: result.skipped,
+      errorCount: result.errors.length,
+      status: result.errors.length > 0 ? "completed-with-errors" : "completed",
+      summary: result,
+      startedAt,
+      completedAt: new Date().toISOString(),
+    });
+
+    return result;
+  };
 
   return {
     commandHandler,
@@ -1010,6 +1132,76 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
 
       return result;
     },
+    enqueuePayoutReconciliationJob: (params, context) =>
+      jobStore.enqueue({
+        jobId: createId("job"),
+        jobKind: "payout-reconciliation",
+        payload: {
+          limit: Math.max(1, Math.min(params.limit ?? 100, 500)),
+        },
+        progress: payoutReconciliationJobProgress("queued", 0, 0, "Payout reconciliation queued."),
+        eventContext: context,
+      }),
+    getPayoutReconciliationJob: (jobId) => jobStore.get(jobId),
+    listPayoutReconciliationJobEvents: (jobId, afterSequence = 0) => jobStore.listEvents(jobId, afterSequence),
+    processNextPayoutReconciliationJob: async (input) => {
+      const claimed = await jobStore.claimNext({
+        claimOwnerId: input.claimOwnerId,
+        claimTtlMs: input.claimTtlMs,
+        jobKinds: ["payout-reconciliation"],
+      });
+      if (!claimed) {
+        return 0;
+      }
+
+      try {
+        input.throwIfLeaseLost?.();
+        if (input.signal?.aborted) {
+          throw new SettlementDomainError("Payout reconciliation job was cancelled.");
+        }
+        if (!claimed.eventContext) {
+          throw new SettlementDomainError("Payout reconciliation job is missing event context.");
+        }
+
+        await jobStore.updateProgress({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: payoutReconciliationJobProgress("processing", 0, claimed.payload.limit, "Reconciling payouts."),
+        });
+        const result = await reconcilePayoutsNeedingAttention(
+          {
+            limit: claimed.payload.limit,
+            claimOwnerId: input.claimOwnerId,
+            claimTtlMs: input.claimTtlMs,
+          },
+          claimed.eventContext,
+        );
+        await jobStore.complete({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: payoutReconciliationJobProgress(
+            "completed",
+            result.checked,
+            result.checked,
+            "Payout reconciliation completed.",
+          ),
+          result,
+        });
+        return 1;
+      } catch (error) {
+        await jobStore.fail({
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          progress: {
+            ...claimed.progress,
+            phase: "failed",
+            message: error instanceof Error ? error.message : "Payout reconciliation failed.",
+          },
+          errorMessage: error instanceof Error ? error.message : "Payout reconciliation failed.",
+        });
+        return 1;
+      }
+    },
     projectors: [
       createProjectionHandlerSet({
         projectionName: "settlement-payout-projection",
@@ -1023,5 +1215,19 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         ),
       }),
     ],
+  };
+}
+
+function payoutReconciliationJobProgress(
+  phase: PayoutReconciliationJobProgress["phase"],
+  completed: number,
+  total: number,
+  message: string | null,
+): PayoutReconciliationJobProgress {
+  return {
+    phase,
+    completed,
+    total,
+    message,
   };
 }
