@@ -148,6 +148,54 @@ describe("worker runner loop", () => {
     expect(calls.filter((call) => call === "high-backlog-projection")).toHaveLength(1);
   });
 
+  it("temporarily backs off failing high-priority runners so other ready runners can make progress", async () => {
+    const calls: string[] = [];
+    const failed: string[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const failingBacklogRunner: WorkerRunner = {
+      name: "failing-backlog-projection",
+      kind: "projection-group",
+      priority: () => 500n,
+      runOnce: async () => {
+        calls.push("failing-backlog-projection");
+        throw new Error("stale lease fencing token");
+      },
+    };
+    const readyRunner: WorkerRunner = {
+      name: "source-observation-projection",
+      kind: "projection-group",
+      priority: () => 1n,
+      runOnce: async () => {
+        calls.push("source-observation-projection");
+        return { processed: 1, lastGlobalPosition: "1" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [failingBacklogRunner, readyRunner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      failureBackoffBaseMs: 50,
+      failureBackoffMaxMs: 50,
+      onError: (_error, runner) => failed.push(runner.name),
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls).toContain("source-observation-projection");
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(calls[0]).toBe("failing-backlog-projection");
+    expect(failed).toContain("failing-backlog-projection");
+  });
+
   it("records degraded when a projection runner reports blocked streams", async () => {
     const statuses: Array<Readonly<{ runnerName: string; state: string; lastError?: string | null }>> = [];
     const controlPlane = createAlwaysLeasedControlPlane({

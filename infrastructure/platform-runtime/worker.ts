@@ -118,6 +118,8 @@ type WorkerRunnerLoopOptions = Readonly<{
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
   pollIntervalMs: number;
+  failureBackoffBaseMs?: number;
+  failureBackoffMaxMs?: number;
   observer?: WorkerRuntimeObserver;
   onError?: (error: unknown, runner: WorkerRunner) => void;
 }>;
@@ -223,22 +225,32 @@ export function collectWorkerRunners(
 export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): WorkerRunnerLoop {
   const active = new Set<Promise<void>>();
   const activeRunnerNames = new Set<string>();
+  const failedRunnerBackoffs = new Map<string, Readonly<{ attempt: number; eligibleAt: number }>>();
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let nextRunnerIndex = 0;
   let leaseMissCount = 0;
+  const failureBackoffBaseMs = Math.max(0, Math.floor(options.failureBackoffBaseMs ?? options.pollIntervalMs * 5));
+  const failureBackoffMaxMs = Math.max(failureBackoffBaseMs, Math.floor(options.failureBackoffMaxMs ?? 30_000));
 
   const schedule = () => {
     if (stopped) {
       return;
     }
 
+    const now = Date.now();
     for (
       let attempts = 0;
       attempts < options.runners.length && active.size < options.maxConcurrentRunners;
       attempts += 1
     ) {
-      const selection = selectNextRunner(options.runners, activeRunnerNames, nextRunnerIndex);
+      const selection = selectNextRunner(
+        options.runners,
+        activeRunnerNames,
+        failedRunnerBackoffs,
+        nextRunnerIndex,
+        now,
+      );
       if (!selection) {
         break;
       }
@@ -249,9 +261,23 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         .then((leaseAcquired) => {
           if (!leaseAcquired) {
             leaseMissCount += 1;
+            return;
           }
+          failedRunnerBackoffs.delete(runner.name);
         })
-        .catch((error) => options.onError?.(error, runner))
+        .catch((error) => {
+          const previous = failedRunnerBackoffs.get(runner.name);
+          const attempt = (previous?.attempt ?? 0) + 1;
+          const backoffMs =
+            failureBackoffBaseMs <= 0
+              ? 0
+              : Math.min(failureBackoffMaxMs, failureBackoffBaseMs * 2 ** Math.min(attempt - 1, 10));
+          failedRunnerBackoffs.set(runner.name, {
+            attempt,
+            eligibleAt: Date.now() + backoffMs,
+          });
+          options.onError?.(error, runner);
+        })
         .finally(() => {
           active.delete(promise);
           activeRunnerNames.delete(runner.name);
@@ -285,7 +311,9 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
 function selectNextRunner(
   runners: readonly WorkerRunner[],
   activeRunnerNames: ReadonlySet<string>,
+  failedRunnerBackoffs: ReadonlyMap<string, Readonly<{ eligibleAt: number }>>,
   startIndex: number,
+  now: number,
 ): Readonly<{ runner: WorkerRunner; index: number }> | null {
   let fallback: Readonly<{ runner: WorkerRunner; index: number }> | null = null;
 
@@ -293,6 +321,10 @@ function selectNextRunner(
     const index = (startIndex + offset) % runners.length;
     const runner = runners[index];
     if (activeRunnerNames.has(runner.name)) {
+      continue;
+    }
+    const failedBackoff = failedRunnerBackoffs.get(runner.name);
+    if (failedBackoff && failedBackoff.eligibleAt > now) {
       continue;
     }
 

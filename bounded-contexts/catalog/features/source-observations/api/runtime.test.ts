@@ -530,6 +530,44 @@ describe("source observation runtime", () => {
     expect(harness.job.result?.outcomes).toHaveLength(30);
     expect(harness.appendedEvents).toHaveLength(30);
   });
+
+  it("reuses an active provider integration job with the same actor action and scope", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      existingJob: integrationJobRow({
+        jobId: "job_existing",
+        action: "import",
+        scope: { provider: "tcgdex", language: "en" },
+        eventContext: context,
+      }),
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const job = await services.enqueueIntegrationJob({
+      action: "import",
+      scope: { provider: "tcgdex", language: "en", seriesId: undefined, setId: undefined },
+      context,
+    });
+
+    expect(job.jobId).toBe("job_existing");
+    expect(harness.insertedJobs).toEqual([]);
+    expect(harness.activeLookupValues[1]).toBe(JSON.stringify({ provider: "tcgdex", language: "en" }));
+  });
+
+  it("returns an empty active integration job list when request context is missing", async () => {
+    const harness = createIntegrationJobDedupeHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    await expect(services.listActiveIntegrationJobs({ context: null })).resolves.toEqual([]);
+    expect(harness.queryCount).toBe(0);
+  });
 });
 
 function pokemonObservation(input: {
@@ -575,6 +613,105 @@ function pokemonObservation(input: {
     imageDisclaimer:
       "TCGDex provides one image for this card number. This Catalog Item represents the Parallel Set - Reverse Foil variant, so the image may not show the exact foil or pattern.",
     variants: {},
+  };
+}
+
+function createIntegrationJobDedupeHarness(input: { existingJob?: Record<string, unknown> } = {}) {
+  const insertedJobs: Record<string, unknown>[] = [];
+  let queryCount = 0;
+  let activeLookupValues: readonly unknown[] = [];
+
+  const deps = {
+    db: {
+      query: async <T>(sql: string, values: readonly unknown[] = []) => {
+        queryCount += 1;
+
+        if (
+          sql.includes("FROM catalog_source_observation_integration_jobs") &&
+          sql.includes("status IN ('queued', 'running')") &&
+          sql.includes("AND action = $1")
+        ) {
+          activeLookupValues = values;
+          return {
+            rowCount: input.existingJob ? 1 : 0,
+            rows: (input.existingJob ? [input.existingJob] : []) as T[],
+          };
+        }
+
+        if (sql.includes("INSERT INTO catalog_source_observation_integration_jobs")) {
+          const row = integrationJobRow({
+            jobId: String(values[0]),
+            action: String(values[1]),
+            scope: JSON.parse(String(values[2])) as Record<string, unknown>,
+            eventContext: JSON.parse(String(values[3])) as EventStoreContext,
+            progress: JSON.parse(String(values[4])) as Record<string, unknown>,
+          });
+          insertedJobs.push(row);
+          return { rowCount: 1, rows: [] as T[] };
+        }
+
+        if (sql.includes("FROM catalog_source_observation_integration_jobs") && sql.includes("WHERE job_id = $1")) {
+          const row = insertedJobs.find((job) => job.job_id === values[0]);
+          return {
+            rowCount: row ? 1 : 0,
+            rows: (row ? [row] : []) as T[],
+          };
+        }
+
+        return { rowCount: 0, rows: [] as T[] };
+      },
+    },
+    eventStore: {
+      readStream: async () => [],
+      appendToStream: async () => [],
+      readAll: async () => [],
+    },
+    checkpointStore: {
+      loadCheckpoint: async () => "0",
+      saveCheckpoint: async () => undefined,
+    },
+  } as unknown as CatalogRuntimeDeps;
+
+  return {
+    deps,
+    insertedJobs,
+    get activeLookupValues() {
+      return activeLookupValues;
+    },
+    get queryCount() {
+      return queryCount;
+    },
+  };
+}
+
+function integrationJobRow(input: {
+  jobId: string;
+  action: string;
+  scope: Record<string, unknown>;
+  eventContext: EventStoreContext;
+  progress?: Record<string, unknown>;
+}) {
+  return {
+    job_id: input.jobId,
+    action: input.action,
+    scope: input.scope,
+    event_context: input.eventContext,
+    status: "queued",
+    progress:
+      input.progress ??
+      ({
+        phase: "queued",
+        completed: 0,
+        total: 0,
+        currentName: null,
+        status: null,
+      } as const),
+    result: null,
+    error_message: null,
+    created_at: "2026-05-28T00:00:00.000Z",
+    started_at: null,
+    completed_at: null,
+    updated_at: "2026-05-28T00:00:00.000Z",
   };
 }
 

@@ -272,7 +272,7 @@ export type SourceObservationServices = Readonly<{
   }) => Promise<SourceObservationIntegrationJob>;
   getIntegrationJob: (jobId: string) => Promise<SourceObservationIntegrationJob | null>;
   listActiveIntegrationJobs: (input: {
-    context: EventStoreContext;
+    context?: EventStoreContext | null;
   }) => Promise<readonly SourceObservationIntegrationJob[]>;
   processNextIntegrationJob: (
     input: { claimOwnerId: string; claimTtlMs: number } & SourceObservationJobRunContext,
@@ -878,6 +878,15 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const scope = normalizeIntegrationJobScope(input.scope);
+    const existingJob = await getActiveIntegrationJobForScope(deps.db, {
+      action: input.action,
+      scope,
+      context: input.context,
+    });
+    if (existingJob) {
+      return existingJob;
+    }
+
     const jobId = createId("job");
     const progress = bulkProgress(0, 0, null, null, "queued");
 
@@ -2557,8 +2566,12 @@ async function getIntegrationJob(
 
 async function listActiveIntegrationJobs(
   db: CatalogRuntimeDeps["db"],
-  context: EventStoreContext,
+  context?: EventStoreContext | null,
 ): Promise<readonly SourceObservationIntegrationJob[]> {
+  if (!context?.tenantId || !context.audit?.performedByUserId) {
+    return [];
+  }
+
   const result = await db.query<SourceObservationIntegrationJobRow>(
     `SELECT
        job_id,
@@ -2582,6 +2595,42 @@ async function listActiveIntegrationJobs(
   );
 
   return result.rows.map(mapIntegrationJobRow);
+}
+
+async function getActiveIntegrationJobForScope(
+  db: CatalogRuntimeDeps["db"],
+  input: Readonly<{
+    action: SourceObservationIntegrationJobAction;
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+  }>,
+): Promise<SourceObservationIntegrationJob | null> {
+  const result = await db.query<SourceObservationIntegrationJobRow>(
+    `SELECT
+       job_id,
+       action,
+       scope,
+       event_context,
+       status,
+       progress,
+       result,
+       error_message,
+       created_at::text,
+       started_at::text,
+       completed_at::text,
+       updated_at::text
+     FROM catalog_source_observation_integration_jobs
+     WHERE status IN ('queued', 'running')
+       AND action = $1
+       AND scope = $2::jsonb
+       AND event_context ->> 'tenantId' = $3
+       AND event_context #>> '{audit,performedByUserId}' = $4
+     ORDER BY created_at ASC
+     LIMIT 1`,
+    [input.action, JSON.stringify(input.scope), input.context.tenantId, input.context.audit.performedByUserId],
+  );
+
+  return result.rows[0] ? mapIntegrationJobRow(result.rows[0]) : null;
 }
 
 async function claimNextIntegrationJob(

@@ -224,6 +224,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.list.bulk.job.failed": "Bulk job failed.",
   "catalog.features.sourceObservations.ui.list.bulk.progress.completed": "Completed {completed} of {total}.",
   "catalog.features.sourceObservations.ui.list.bulk.progress.preparing": "Preparing records.",
+  "catalog.features.sourceObservations.ui.list.bulk.progress.queued": "Queued.",
   "catalog.features.sourceObservations.ui.list.bulk.progress.processing": "{completed} of {total} processed.",
   "catalog.features.sourceObservations.ui.list.bulk.reject.running": "Rejecting Source Observations",
   "catalog.features.sourceObservations.ui.list.cancel": "Cancel",

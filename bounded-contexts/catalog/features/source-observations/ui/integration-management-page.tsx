@@ -737,6 +737,10 @@ function bulkActionProgressPercent(progress: CatalogBulkActionProgress): number 
 }
 
 function formatBulkActionProgress(progress: CatalogBulkActionProgress): string {
+  if (progress.phase === "queued") {
+    return t("catalog.features.sourceObservations.ui.list.bulk.progress.queued");
+  }
+
   if (progress.total <= 0) {
     return t("catalog.features.sourceObservations.ui.list.bulk.progress.preparing");
   }
