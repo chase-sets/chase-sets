@@ -3,10 +3,14 @@ import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationNormalized } from "../domain/domain";
 import type { CatalogAssetStorage } from "./asset-storage";
 import { normalizeProductAssetSet, type CatalogImageProcessor } from "./product-asset-normalization";
+import {
+  tcgdexPokemonTcgProviderProfile,
+  type CatalogProviderExternalReferenceRule,
+  type CatalogProviderVariantRule,
+} from "./provider-integration-profiles";
 
-const TCGDEX_BASE_URL = "https://api.tcgdex.net/v2";
-const PROVIDER_KEY = "tcgdex";
-const HIGH_QUALITY_ASSET_VARIANT = "high.webp";
+const TCGDEX_PROFILE = tcgdexPokemonTcgProviderProfile;
+const PROVIDER_KEY = TCGDEX_PROFILE.providerKey;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -112,6 +116,7 @@ type PokemonCardVariant = Readonly<{
   displayName: string;
   sourceKey: string | null;
   isPrimaryImage: boolean;
+  parallelSet: boolean;
 }>;
 
 export type TcgdexSetImportResult = Readonly<{
@@ -129,28 +134,8 @@ export type TcgdexSetImportProgress = Readonly<{
   currentName: string | null;
 }>;
 
-const TCGDEX_LANGUAGE_OPTIONS: readonly TcgdexLanguageOption[] = [
-  { languageCode: "en" },
-  { languageCode: "fr" },
-  { languageCode: "es" },
-  { languageCode: "it" },
-  { languageCode: "pt" },
-  { languageCode: "pt-br" },
-  { languageCode: "pt-pt" },
-  { languageCode: "de" },
-  { languageCode: "nl" },
-  { languageCode: "pl" },
-  { languageCode: "ru" },
-  { languageCode: "ja" },
-  { languageCode: "ko" },
-  { languageCode: "zh-tw" },
-  { languageCode: "id" },
-  { languageCode: "th" },
-  { languageCode: "zh-cn" },
-];
-
 export function listTcgdexLanguageOptions(): readonly TcgdexLanguageOption[] {
-  return TCGDEX_LANGUAGE_OPTIONS;
+  return TCGDEX_PROFILE.languageOptions.map((languageCode) => ({ languageCode }));
 }
 
 export async function fetchTcgdexSeriesOptions(input: {
@@ -159,7 +144,7 @@ export async function fetchTcgdexSeriesOptions(input: {
 }): Promise<readonly TcgdexSeriesOption[]> {
   const languageCode = normalizeKey(input.languageCode || "en");
   const fetcher = input.fetch ?? globalThis.fetch;
-  const url = `${TCGDEX_BASE_URL}/${languageCode}/series`;
+  const url = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.seriesList, { language: languageCode });
   const series = await fetchJson<readonly Omit<TcgdexSeries, "sets">[]>(fetcher, url);
 
   return series
@@ -181,13 +166,13 @@ export async function fetchTcgdexExpansionOptions(input: {
   const fetcher = input.fetch ?? globalThis.fetch;
 
   if (seriesId) {
-    const url = `${TCGDEX_BASE_URL}/${languageCode}/series/${encodeURIComponent(seriesId)}`;
+    const url = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.seriesDetail, { language: languageCode, seriesId });
     const series = await fetchJson<TcgdexSeries>(fetcher, url);
 
     return series.sets.map((item) => toExpansionOption(item, series));
   }
 
-  const url = `${TCGDEX_BASE_URL}/${languageCode}/sets`;
+  const url = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.expansionList, { language: languageCode });
   const sets = await fetchJson<readonly TcgdexSetBrief[]>(fetcher, url);
 
   return sets.map((item) => toExpansionOption(item, null));
@@ -202,7 +187,10 @@ export async function fetchTcgdexSetObservations(input: {
   const languageCode = normalizeKey(input.languageCode || "en");
   const setId = input.setId.trim();
   const fetcher = input.fetch ?? globalThis.fetch;
-  const setUrl = `${TCGDEX_BASE_URL}/${languageCode}/sets/${encodeURIComponent(setId)}`;
+  const setUrl = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.expansionDetail, {
+    language: languageCode,
+    expansionId: setId,
+  });
   const set = await fetchJson<TcgdexSet>(fetcher, setUrl);
   const observedAt = new Date().toISOString();
   const observations: TcgdexObservationInput[] = [];
@@ -214,7 +202,10 @@ export async function fetchTcgdexSetObservations(input: {
   });
 
   for (const [index, cardBrief] of set.cards.entries()) {
-    const cardUrl = `${TCGDEX_BASE_URL}/${languageCode}/cards/${encodeURIComponent(cardBrief.id)}`;
+    const cardUrl = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.productDetail, {
+      language: languageCode,
+      cardId: cardBrief.id,
+    });
     const card = await fetchJson<TcgdexCard>(fetcher, cardUrl);
     observations.push(
       ...(await toObservations({
@@ -261,7 +252,9 @@ async function toObservations(input: {
 }): Promise<readonly TcgdexObservationInput[]> {
   const releaseYear = releaseYearFromDate(input.set.releaseDate);
   const sourcePayload = toJsonValue(sanitizeTcgdexCardPayload(input.card));
-  const sourceImageUrls = input.card.image ? [`${input.card.image}/${HIGH_QUALITY_ASSET_VARIANT}`] : [];
+  const sourceImageUrls = input.card.image
+    ? [`${input.card.image}/${TCGDEX_PROFILE.connector.highQualityAssetVariant}`]
+    : [];
   const variants = normalizeVariants(input.card.variants);
   const cardVariants = normalizeCardVariants(input.card.variants);
   const externalCatalogItemReferencesByVariant = marketplaceCatalogItemReferencesByVariantKey(input.card, cardVariants);
@@ -290,7 +283,7 @@ async function toObservations(input: {
       imageBaseUrl: input.card.image ?? null,
       imageUrls: sourceImageUrls,
       productAssetSet: null,
-      parallelSet: isParallelSetVariant(variant.key),
+      parallelSet: variant.parallelSet,
       cardVariantKey: variant.key,
       cardVariantLabel: variant.displayName,
       cardVariantSourceKey: variant.sourceKey,
@@ -331,7 +324,7 @@ export async function normalizeTcgdexImageAsset(input: {
   assetStorage: CatalogAssetStorage;
   imageProcessor?: CatalogImageProcessor;
 }): Promise<NonNullable<SourceObservationNormalized["productAssetSet"]>> {
-  const assetUrl = `${input.imageBaseUrl}/${HIGH_QUALITY_ASSET_VARIANT}`;
+  const assetUrl = `${input.imageBaseUrl}/${TCGDEX_PROFILE.connector.highQualityAssetVariant}`;
   const response = await input.fetcher(assetUrl);
   if (!response.ok) {
     throw new Error(`TCGdex asset request failed with ${response.status} for ${assetUrl}.`);
@@ -418,68 +411,48 @@ function marketplaceReferencesFromPricing(
     return [];
   }
 
-  const tcgplayerPricing = recordField(pricing, ["tcgplayer", "tcgPlayer"]);
-  const tcgplayerVariantPricing = tcgplayerPricing
-    ? recordField(tcgplayerPricing, [tcgplayerPricingKey(variant.key), variant.sourceKey ?? "", variant.key])
-    : null;
-  const cardmarketPricing = recordField(pricing, ["cardmarket", "cardMarket"]);
+  return marketplaceReferenceRules().flatMap((rule) => {
+    const providerPricing = recordField(pricing, rule.pricingRootKeys);
+    if (!providerPricing) {
+      return [];
+    }
 
-  return [
-    ...providerReferencesFromValue("tcgplayer", tcgplayerVariantPricing),
-    ...providerReferencesFromValue("cardmarket", cardmarketPricing),
-  ];
+    if (rule.pricingScope === "card") {
+      return providerReferencesFromValue(rule, providerPricing);
+    }
+
+    const variantPricing = recordField(providerPricing, pricingKeysForVariant(rule, variant));
+    return providerReferencesFromValue(rule, variantPricing);
+  });
 }
 
 function marketplaceReferencesFromRecord(
   record: JsonRecord,
 ): NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][] {
-  const containers = [
-    record,
-    recordField(record, ["ids", "marketplaceIds", "marketplaces", "markets", "pricing", "prices"]),
-  ].filter((value): value is JsonRecord => Boolean(value));
-
   return uniqueExternalReferences(
-    containers.flatMap((container) => [
-      ...providerReferencesFromValue(
-        "tcgplayer",
-        valueField(container, [
-          "tcgplayer",
-          "tcgPlayer",
-          "tcgplayerId",
-          "tcgPlayerId",
-          "tcgplayerProductId",
-          "tcgPlayerProductId",
-          "tcgplayer_product_id",
-        ]),
-      ),
-      ...providerReferencesFromValue(
-        "cardmarket",
-        valueField(container, [
-          "cardmarket",
-          "cardMarket",
-          "cardmarketId",
-          "cardMarketId",
-          "cardmarketProductId",
-          "cardMarketProductId",
-          "idProduct",
-          "id_product",
-        ]),
-      ),
-    ]),
+    marketplaceReferenceRules().flatMap((rule) => {
+      const containers = [record, ...rule.containerKeys.map((key) => recordField(record, [key]))].filter(
+        (value): value is JsonRecord => Boolean(value),
+      );
+
+      return containers.flatMap((container) =>
+        providerReferencesFromValue(rule, valueField(container, rule.valueKeys)),
+      );
+    }),
   );
 }
 
 function providerReferencesFromValue(
-  providerKey: "tcgplayer" | "cardmarket",
+  rule: CatalogProviderExternalReferenceRule,
   value: unknown,
 ): NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][] {
   if (Array.isArray(value)) {
-    return value.flatMap((entry) => providerReferencesFromValue(providerKey, entry));
+    return value.flatMap((entry) => providerReferencesFromValue(rule, entry));
   }
 
   if (isRecord(value)) {
-    return providerReferenceIdsFromRecord(providerKey, value)
-      .map((id) => toMarketplaceReference(providerKey, id))
+    return providerReferenceIdsFromRecord(rule, value)
+      .map((id) => toMarketplaceReference(rule, id))
       .filter(
         (reference): reference is NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number] =>
           Boolean(reference),
@@ -487,24 +460,19 @@ function providerReferencesFromValue(
   }
 
   return cleanMarketplaceId(value)
-    .map((id) => toMarketplaceReference(providerKey, id))
+    .map((id) => toMarketplaceReference(rule, id))
     .filter(
       (reference): reference is NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number] =>
         Boolean(reference),
     );
 }
 
-function providerReferenceIdsFromRecord(providerKey: "tcgplayer" | "cardmarket", record: JsonRecord): string[] {
-  const candidateKeys =
-    providerKey === "tcgplayer"
-      ? ["productId", "productID", "id", "tcgplayerId", "tcgPlayerId", "tcgplayerProductId", "tcgPlayerProductId"]
-      : ["idProduct", "productId", "productID", "id", "cardmarketId", "cardMarketId", "cardmarketProductId"];
-
-  return candidateKeys.flatMap((key) => cleanMarketplaceId(record[key]));
+function providerReferenceIdsFromRecord(rule: CatalogProviderExternalReferenceRule, record: JsonRecord): string[] {
+  return rule.recordIdKeys.flatMap((key) => cleanMarketplaceId(record[key]));
 }
 
 function toMarketplaceReference(
-  providerKey: "tcgplayer" | "cardmarket",
+  rule: CatalogProviderExternalReferenceRule,
   id: string,
 ): NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number] | null {
   const normalizedId = id.trim().toLowerCase();
@@ -513,13 +481,11 @@ function toMarketplaceReference(
   }
 
   return {
-    providerKey,
-    externalKey: providerKey === "cardmarket" ? cardmarketProductExternalKey(normalizedId) : `product:${normalizedId}`,
+    providerKey: rule.providerKey,
+    externalKey: normalizedId.startsWith(rule.externalKeyPrefix)
+      ? normalizedId
+      : `${rule.externalKeyPrefix}${normalizedId}`,
   };
-}
-
-function cardmarketProductExternalKey(id: string): string {
-  return id.startsWith("product:") ? id : `product:${id}`;
 }
 
 function cleanMarketplaceId(value: unknown): string[] {
@@ -549,17 +515,6 @@ function externalReferenceIdentity(
   reference: NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number],
 ): string {
   return `${reference.providerKey.trim().toLowerCase()}:${reference.externalKey.trim().toLowerCase()}`;
-}
-
-function tcgplayerPricingKey(variantKey: string): string {
-  switch (variantKey) {
-    case "standard":
-      return "normal";
-    case "reverse-holo":
-      return "reverse-holofoil";
-    default:
-      return variantKey;
-  }
 }
 
 function valueField(record: JsonRecord, keys: readonly string[]): unknown {
@@ -620,6 +575,7 @@ function normalizeCardVariants(variants: Readonly<Record<string, boolean>> | und
         displayName: "Standard Set",
         sourceKey: null,
         isPrimaryImage: true,
+        parallelSet: false,
       },
     ];
   }
@@ -634,6 +590,7 @@ function normalizeCardVariants(variants: Readonly<Record<string, boolean>> | und
       displayName: variantLabel(sourceKey),
       sourceKey,
       isPrimaryImage: sourceKey === primaryKey,
+      parallelSet: isParallelSetVariant(key),
     };
   });
 }
@@ -646,83 +603,71 @@ function compareVariantSourceKeys(left: string, right: string): number {
 }
 
 function variantSortOrder(sourceKey: string): number {
-  switch (normalizeVariantKey(sourceKey)) {
-    case "standard":
-      return 0;
-    case "holofoil":
-      return 10;
-    case "1st-edition":
-      return 20;
-    case "reverse-holo":
-      return 30;
-    case "poke-ball":
-      return 40;
-    case "master-ball":
-      return 50;
-    default:
-      return 100;
-  }
+  return variantRuleBySourceKey(sourceKey)?.sortOrder ?? 100;
 }
 
 function isParallelSetVariant(variantKey: string): boolean {
-  switch (variantKey) {
-    case "reverse-holo":
-    case "poke-ball":
-    case "master-ball":
-      return true;
-    default:
-      return false;
-  }
+  return variantRuleByVariantKey(variantKey)?.parallelSet ?? false;
 }
 
 function normalizeVariantKey(sourceKey: string): string {
   const key = sourceKey.trim();
   const compact = key.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const rule = variantRuleByCompactSourceKey(compact);
 
-  switch (compact) {
-    case "normal":
-    case "standard":
-      return "standard";
-    case "holo":
-    case "holofoil":
-      return "holofoil";
-    case "reverse":
-    case "reverseholo":
-    case "reverseholofoil":
-      return "reverse-holo";
-    case "firstedition":
-    case "1stedition":
-      return "1st-edition";
-    case "pokeball":
-      return "poke-ball";
-    case "masterball":
-      return "master-ball";
-    default:
-      return key
-        .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/(^-|-$)/g, "");
+  if (rule) {
+    return rule.variantKey;
   }
+
+  return key
+    .replace(/([a-z0-9])([A-Z])/g, "$1-$2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
 }
 
 function variantLabel(sourceKey: string): string {
-  switch (normalizeVariantKey(sourceKey)) {
-    case "standard":
-      return "Standard Set";
-    case "holofoil":
-      return "Standard Set Foil";
-    case "reverse-holo":
-      return "Parallel Set - Reverse Foil";
-    case "1st-edition":
-      return "1st Edition";
-    case "poke-ball":
-      return "Premium Parallel Set - Poke Ball";
-    case "master-ball":
-      return "Premium Parallel Set - Master Ball";
-    default:
-      return `Unclassified Variant - ${humanizeVariantKey(sourceKey)}`;
-  }
+  return (
+    variantRuleBySourceKey(sourceKey)?.displayName ??
+    `${TCGDEX_PROFILE.normalizedObservationMapping.unknownVariantLabelPrefix} - ${humanizeVariantKey(sourceKey)}`
+  );
+}
+
+function marketplaceReferenceRules(): readonly CatalogProviderExternalReferenceRule[] {
+  return TCGDEX_PROFILE.externalReferenceExtractionRules.rules;
+}
+
+function pricingKeysForVariant(
+  rule: CatalogProviderExternalReferenceRule,
+  variant: PokemonCardVariant,
+): readonly string[] {
+  const variantRule = variantRuleByVariantKey(variant.key);
+  return [
+    ...(variantRule?.pricingKeys ?? []),
+    ...(variant.sourceKey ? [variant.sourceKey] : []),
+    variant.key,
+    ...rule.valueKeys,
+  ];
+}
+
+function variantRules(): readonly CatalogProviderVariantRule[] {
+  return TCGDEX_PROFILE.normalizedObservationMapping.variantRules;
+}
+
+function variantRuleBySourceKey(sourceKey: string): CatalogProviderVariantRule | null {
+  return variantRuleByCompactSourceKey(sourceKey.toLowerCase().replace(/[^a-z0-9]+/g, ""));
+}
+
+function variantRuleByCompactSourceKey(compactSourceKey: string): CatalogProviderVariantRule | null {
+  return (
+    variantRules().find((rule) =>
+      rule.sourceKeys.some((sourceKey) => sourceKey.toLowerCase().replace(/[^a-z0-9]+/g, "") === compactSourceKey),
+    ) ?? null
+  );
+}
+
+function variantRuleByVariantKey(variantKey: string): CatalogProviderVariantRule | null {
+  return variantRules().find((rule) => rule.variantKey === variantKey) ?? null;
 }
 
 function humanizeVariantKey(sourceKey: string): string {
@@ -817,4 +762,12 @@ async function fetchJson<T>(fetcher: typeof globalThis.fetch, url: string): Prom
 
 function normalizeKey(value: string): string {
   return value.trim().toLowerCase();
+}
+
+function tcgdexUrl(template: string, params: Readonly<Record<string, string>>): string {
+  const path = Object.entries(params).reduce(
+    (current, [key, value]) => current.replace(`{${key}}`, encodeURIComponent(value)),
+    template,
+  );
+  return `${TCGDEX_PROFILE.connector.baseUrl}${path}`;
 }

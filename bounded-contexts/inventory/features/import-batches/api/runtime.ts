@@ -216,6 +216,7 @@ function normalizeExternalReference(
     providerKey: reference.providerKey.trim().toLowerCase(),
     externalKey: reference.externalKey.trim().toLowerCase(),
     displayName: clean(reference.displayName ?? undefined),
+    targetIntent: reference.targetIntent,
   };
 }
 
@@ -274,15 +275,14 @@ function rowValueForKey(record: Readonly<Record<string, string>>, keys: readonly
 }
 
 function optionCandidateValue(dimension: InventoryProductDimension, row: NormalizedInventoryImportRow): string | null {
-  const keys = [
-    `option:${dimension.dimensionId}`,
-    dimension.dimensionId,
-    dimension.dimensionName,
-    ...(normalizeChoiceText(dimension.dimensionName) === "condition" ||
-    normalizeChoiceText(dimension.dimensionId) === "condition"
-      ? ["Condition", "Printing Condition"]
-      : []),
-  ];
+  const profileCandidate = row.selectedOptionCandidates.find(
+    (candidate) => normalizeChoiceText(candidate.dimensionKey) === normalizeChoiceText(dimension.dimensionId),
+  );
+  if (profileCandidate?.value.trim()) {
+    return profileCandidate.value;
+  }
+
+  const keys = [`option:${dimension.dimensionId}`, dimension.dimensionId, dimension.dimensionName];
 
   return rowValueForKey(row.values, keys) ?? rowValueForKey(row.rawRow, keys);
 }
@@ -411,27 +411,31 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
 
     if (!catalogItemId && externalReferences.length > 0) {
       for (const candidate of externalReferences) {
-        const mapping = await deps.catalogItems.getExternalProductReference(
-          candidate.providerKey,
-          candidate.externalKey,
-        );
-        if (mapping) {
-          externalReference = candidate;
-          catalogItemId = mapping.catalog_item_id;
-          selectedOptions = mapping.selected_options;
-          resolutionStatus = "resolved";
-          break;
+        if (candidate.targetIntent !== "catalog-item-reference" && candidate.targetIntent !== "account-sku") {
+          const mapping = await deps.catalogItems.getExternalProductReference(
+            candidate.providerKey,
+            candidate.externalKey,
+          );
+          if (mapping) {
+            externalReference = candidate;
+            catalogItemId = mapping.catalog_item_id;
+            selectedOptions = mapping.selected_options;
+            resolutionStatus = "resolved";
+            break;
+          }
         }
 
-        const catalogItemMapping = await deps.catalogItems.getExternalCatalogItemReference(
-          candidate.providerKey,
-          candidate.externalKey,
-        );
-        if (catalogItemMapping) {
-          externalReference = candidate;
-          catalogItemId = catalogItemMapping.catalog_item_id;
-          resolutionStatus = "resolved";
-          break;
+        if (candidate.targetIntent !== "product-reference" && candidate.targetIntent !== "account-sku") {
+          const catalogItemMapping = await deps.catalogItems.getExternalCatalogItemReference(
+            candidate.providerKey,
+            candidate.externalKey,
+          );
+          if (catalogItemMapping) {
+            externalReference = candidate;
+            catalogItemId = catalogItemMapping.catalog_item_id;
+            resolutionStatus = "resolved";
+            break;
+          }
         }
       }
 

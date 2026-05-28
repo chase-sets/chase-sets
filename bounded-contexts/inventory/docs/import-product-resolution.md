@@ -6,24 +6,25 @@ Manual product selection per row is not the intended workflow. Import adapters s
 
 ## Resolution Flow
 
-1. The import source adapter normalizes CSV, API, or scheduled sync input into Inventory import rows.
-2. Each row carries source quantity, price, listing draft fields, seller SKU, row evidence, and ordered external reference candidates.
-3. Inventory validates quantity, storage location, listing draft fields, and product resolution.
-4. If a native Chase Sets row includes `catalogItemId` and selected `option:<dimensionId>` columns, Inventory resolves the Product directly through the Catalog projection.
-5. If a platform row includes external reference candidates, Inventory asks its Catalog projection for each candidate and accepts the first mapped reference.
-6. Unmapped rows remain rejected for review instead of forcing per-row manual selection.
-7. Committing accepted rows creates or adjusts Inventory Items and may create Marketplace draft Listings through the existing host port.
+1. The import source profile defines the file/API kind, header aliases, field mappings, ordered external reference candidates, target intent, and selected option inference rules.
+2. The small connector parses CSV or fetches provider rows, then the profile-driven adapter normalizes that input into Inventory import rows.
+3. Each row carries source quantity, price, listing draft fields, seller SKU, row evidence, selected option candidates, and ordered external reference candidates.
+4. Inventory validates quantity, storage location, listing draft fields, and product resolution.
+5. If a native Chase Sets row includes `catalogItemId` and selected `option:<dimensionId>` columns, Inventory resolves the Product directly through the Catalog projection.
+6. If a platform row includes external reference candidates, Inventory follows each candidate's target intent. Product-reference candidates check Catalog Product references; Catalog Item-reference candidates check Catalog Item references; account SKU candidates are retained as evidence for future account mapping and are not treated as global Catalog truth.
+7. Unmapped rows remain rejected for review instead of forcing per-row manual selection.
+8. Committing accepted rows creates or adjusts Inventory Items and may create Marketplace draft Listings through the existing host port.
 
 ## Supported CSV Sources
 
 - Chase Sets CSV: native IDs and selected options.
-- TCGplayer CSV: tries `tcgplayer:sku:<id>` first, then `tcgplayer:product:<id>`.
-- eBay CSV: tries listing ID, variation ID, seller SKU, ePID, GTIN, and UPC namespaces.
-- Shopify CSV: tries variant ID, product ID, SKU, barcode, and handle namespaces.
-- Whatnot CSV: tries product ID, listing ID, inventory ID, and SKU namespaces.
-- CardTrader CSV: tries CardTrader product, blueprint, article, and SKU identifiers, then exposed TCGplayer/Cardmarket identifiers.
+- TCGplayer CSV: tries `tcgplayer:sku:<id>` as a Product reference, then `tcgplayer:product:<id>` as a Catalog Item reference. Seller SKU is captured separately as an account SKU candidate when present.
+- eBay CSV: tries listing and variation identifiers as Product references, seller SKU as an account SKU candidate, then ePID, GTIN, and UPC as Catalog Item candidates.
+- Shopify CSV: tries variant ID as a Product reference, product ID/barcode/handle as Catalog Item candidates, and SKU as an account SKU candidate.
+- Whatnot CSV: tries product ID as a Catalog Item candidate, listing and inventory IDs as Product references, and SKU as an account SKU candidate.
+- CardTrader CSV: tries CardTrader product and blueprint identifiers as Catalog Item candidates, article identifiers as Product references, SKU as an account SKU candidate, then exposed TCGplayer/Cardmarket Product IDs as Catalog Item candidates.
 
-API and scheduled sync integrations should produce the same normalized row shape and default to `replace` quantity mode. They should not bypass import review, Inventory availability rules, or Marketplace draft publication rules.
+API and scheduled sync integrations should produce the same normalized row shape and default to `replace` quantity mode. Shopify, eBay, and other API connectors should fetch provider rows only; the source profile decides header aliases, field meaning, option inference, reference ordering, and target intent. They should not bypass import review, Inventory availability rules, or Marketplace draft publication rules.
 
 ## Review Expectations
 

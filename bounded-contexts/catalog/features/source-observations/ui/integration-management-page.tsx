@@ -49,10 +49,6 @@ const ALL_LANGUAGES = "__all__";
 const ALL_EXPANSIONS = "__all__";
 const ALL_SERIES = "__all__";
 
-const providerOptions = [
-  { label: t("catalog.features.sourceObservations.ui.integrations.provider.tcgdex"), value: "tcgdex" },
-];
-
 export function IntegrationManagementPage({ data, query }: CatalogListRouteData<SourceObservationIntegrationScope>) {
   const listControls = useCatalogListQueryControls(query);
   const revalidator = useRevalidator();
@@ -76,6 +72,10 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   const [promoteAllProgress, setPromoteAllProgress] = useState<CatalogBulkActionProgress | null>(null);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const activeIntegrationJobs = useActiveSourceObservationIntegrationJobs();
+  const integrationProviders = useSourceObservationIntegrationOptions({
+    providerKey: "tcgdex",
+    queryKind: "providers",
+  });
   const columns = useMemo(
     () =>
       buildColumns({
@@ -114,6 +114,14 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   const filterExpansionOptions = useMemo(
     () => toSelectItems(filterExpansions.data?.items ?? []),
     [filterExpansions.data],
+  );
+  const providerOptions = useMemo(
+    () =>
+      (integrationProviders.data?.items ?? []).map((item) => ({
+        label: item.label,
+        value: item.value,
+      })),
+    [integrationProviders.data],
   );
 
   useEffect(() => {
@@ -341,6 +349,7 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
               },
               ...providerOptions,
             ]}
+            error={integrationProviders.error ?? undefined}
           />
           <Select
             label={t("catalog.features.sourceObservations.ui.list.language")}

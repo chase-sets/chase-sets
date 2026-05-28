@@ -21,6 +21,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Display Template`
 - `External Catalog Item Reference`
 - `External Product Reference`
+- `Provider Integration Profile`
 - `Catalog Item Image Fallback`
 - `Product Measure Profile`
 - `Resolved Product Measure`
@@ -53,6 +54,7 @@ The current implementation also uses four supporting authoring concepts:
 - `Display Template` — a reusable rule that resolves Catalog Item title and subtitle copy from Fields, Reference Records, Categories, Blueprints, or item-specific overrides
 - `External Catalog Item Reference` — a provider-scoped product identifier mapped to one Catalog Item
 - `External Product Reference` — a provider-scoped SKU or sellable identifier mapped to one Catalog Item plus selected Options for Product resolution
+- `Provider Integration Profile` — Catalog-owned configuration that defines how one provider's observations, lookup scopes, normalized facts, Catalog mappings, external references, and ambiguity rules are interpreted
 - `Catalog Item Image Fallback` — the configured fallback image for a Catalog Item, including whether it is permanent item imagery or loading-only presentation imagery
 - `Product Measure Profile` — a reusable Catalog-owned physical measurement rule for Products that share size, weight, stack behavior, and physical flags
 - `Resolved Product Measure` — the per-Product measurement snapshot published for downstream shipping quote and fulfillment use
