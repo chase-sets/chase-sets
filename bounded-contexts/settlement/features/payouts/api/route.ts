@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { SettlementApiEnv } from "../../../api";
-import type { PayoutServices } from "./runtime";
+import { toPayoutReconciliationJobStatus, type PayoutServices } from "./runtime";
 
 function requirePayoutAccess(
   c: {
@@ -201,7 +201,7 @@ export function createPayoutRoutes(services: PayoutServices) {
     const limit = Number((body as { limit?: unknown }).limit ?? 100);
     const result = await services.enqueuePayoutReconciliationJob({ limit }, context);
 
-    return c.json(result, 202);
+    return c.json(toPayoutReconciliationJobStatus(result), 202);
   });
 
   app.get("/payouts/reconciliation/jobs/:jobId", async (c) => {
@@ -218,7 +218,7 @@ export function createPayoutRoutes(services: PayoutServices) {
       );
     }
 
-    return c.json(job);
+    return c.json(toPayoutReconciliationJobStatus(job));
   });
 
   app.get("/payouts/reconciliation/jobs/:jobId/events", async (c) => {

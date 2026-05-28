@@ -16,7 +16,7 @@ Do not stream long-running work from the request path with NDJSON or ad hoc poll
 
 Each durable job workflow has four parts:
 
-1. Context-owned job tables for the job snapshot and ordered event snapshots.
+1. Context-owned job tables for the private worker job snapshot and ordered public event snapshots.
 2. A `POST` endpoint that validates intent, persists the job, appends the first event, and returns `202`.
 3. A worker runner that claims one job turn, records progress, completes or fails the job, and releases work through persisted state.
 4. A `GET /jobs/:jobId/events` SSE endpoint that replays ordered events after `Last-Event-ID`.
@@ -26,7 +26,7 @@ The shared infrastructure is intentionally small:
 - `durable-job-store.ts` provides the Postgres claim/update/event mechanics.
 - `durable-job-events.ts` provides SSE cursor parsing, keepalive, and event formatting.
 
-Domain payloads, progress language, result shapes, permissions, and worker composition stay in the owning bounded context.
+Domain payloads, progress language, result shapes, permissions, and worker composition stay in the owning bounded context. The payload is worker-private. API and SSE responses must return public job status snapshots that exclude worker payload, event context, claim owner, and claim expiration fields.
 
 ## Schema Shape
 
@@ -39,14 +39,16 @@ durableJobSchemaSql({
 });
 ```
 
-The job table stores the latest snapshot. The event table stores append-only snapshots with a monotonically increasing `sequence` per job. SSE clients use that sequence as the event id.
+The job table stores the latest private worker snapshot. The event table stores append-only public status snapshots with a monotonically increasing `sequence` per job. SSE clients use that sequence as the event id.
+
+Do not store large request bodies directly in a durable job payload when the job will emit many progress events. Stage bulky or sensitive inputs in context-owned storage and put only a stable staging reference in the job payload.
 
 ## API Shape
 
 Use explicit job endpoints rather than overloading synchronous result language:
 
-- `POST /.../run` or `POST /.../commit` returns the job snapshot with `202`.
-- `GET /.../jobs/:jobId` returns the current job snapshot.
+- `POST /.../run` or `POST /.../commit` returns the public job status snapshot with `202`.
+- `GET /.../jobs/:jobId` returns the current public job status snapshot.
 - `GET /.../jobs/:jobId/events` streams status events.
 
 Event streams must use `text/event-stream`, must honor `Last-Event-ID`, and must terminate after `completed`, `failed`, or the domain terminal state.
@@ -57,9 +59,12 @@ Workers should register a `job` runner that:
 
 - claims queued or expired running work with `FOR UPDATE SKIP LOCKED`,
 - passes a worker id as `claimOwnerId`,
-- persists progress before and after meaningful phases,
+- persists progress before and after meaningful phases, renewing the durable job claim while progress is written,
 - checks abort and lease-loss callbacks between batches or external calls,
+- treats failed claimed writes as lease loss instead of silently continuing,
 - completes with a domain result or fails with an error message.
+
+`updateProgress` renews the claim. `complete` and `fail` only succeed for the live claim owner before claim expiry. A processor must check those boolean results and stop work when ownership is lost.
 
 Scheduled jobs can remain scheduled triggers, but a manual operator trigger should enqueue a durable job when it needs visible progress or provider durability.
 

@@ -9,7 +9,9 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   createPostgresDurableJobStore,
   type DurableJobEvent,
+  type DurableJobPublicSnapshot,
   type DurableJobRecord,
+  toDurableJobPublicSnapshot,
 } from "@chase-sets/platform-runtime/durable-job-store";
 import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { recordProviderWebhookEvent as recordProviderWebhookInboxEvent } from "@chase-sets/provider-webhook-inbox";
@@ -94,6 +96,15 @@ export type PayoutReconciliationJob = DurableJobRecord<
   PayoutReconciliationJobProgress,
   PayoutReconciliationJobResult
 >;
+
+export type PayoutReconciliationJobStatus = DurableJobPublicSnapshot<
+  PayoutReconciliationJobProgress,
+  PayoutReconciliationJobResult
+>;
+
+export function toPayoutReconciliationJobStatus(job: PayoutReconciliationJob): PayoutReconciliationJobStatus {
+  return toDurableJobPublicSnapshot(job);
+}
 
 export type PayoutServices = Readonly<{
   commandHandler: CommandHandler<PayoutCommand, PayoutState, PayoutEvent>;
@@ -1163,11 +1174,14 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           throw new SettlementDomainError("Payout reconciliation job is missing event context.");
         }
 
-        await jobStore.updateProgress({
-          jobId: claimed.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: payoutReconciliationJobProgress("processing", 0, claimed.payload.limit, "Reconciling payouts."),
-        });
+        await requirePayoutReconciliationJobClaim(
+          jobStore.updateProgress({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            claimTtlMs: input.claimTtlMs,
+            progress: payoutReconciliationJobProgress("processing", 0, claimed.payload.limit, "Reconciling payouts."),
+          }),
+        );
         const result = await reconcilePayoutsNeedingAttention(
           {
             limit: claimed.payload.limit,
@@ -1176,29 +1190,36 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           },
           claimed.eventContext,
         );
-        await jobStore.complete({
-          jobId: claimed.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: payoutReconciliationJobProgress(
-            "completed",
-            result.checked,
-            result.checked,
-            "Payout reconciliation completed.",
-          ),
-          result,
-        });
+        await requirePayoutReconciliationJobClaim(
+          jobStore.complete({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: payoutReconciliationJobProgress(
+              "completed",
+              result.checked,
+              result.checked,
+              "Payout reconciliation completed.",
+            ),
+            result,
+          }),
+        );
         return 1;
       } catch (error) {
-        await jobStore.fail({
-          jobId: claimed.jobId,
-          claimOwnerId: input.claimOwnerId,
-          progress: {
-            ...claimed.progress,
-            phase: "failed",
-            message: error instanceof Error ? error.message : "Payout reconciliation failed.",
-          },
-          errorMessage: error instanceof Error ? error.message : "Payout reconciliation failed.",
-        });
+        if (isPayoutReconciliationJobHandoff(error, input)) {
+          return 0;
+        }
+        await requirePayoutReconciliationJobClaim(
+          jobStore.fail({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: {
+              ...claimed.progress,
+              phase: "failed",
+              message: error instanceof Error ? error.message : "Payout reconciliation failed.",
+            },
+            errorMessage: error instanceof Error ? error.message : "Payout reconciliation failed.",
+          }),
+        );
         return 1;
       }
     },
@@ -1230,4 +1251,17 @@ function payoutReconciliationJobProgress(
     total,
     message,
   };
+}
+
+async function requirePayoutReconciliationJobClaim(succeeded: Promise<boolean> | boolean) {
+  if (!(await succeeded)) {
+    throw new SettlementDomainError("Payout reconciliation job claim was lost before the status update completed.");
+  }
+}
+
+function isPayoutReconciliationJobHandoff(error: unknown, input?: { signal?: AbortSignal }) {
+  return (
+    input?.signal?.aborted ||
+    (error instanceof Error && (error.message.startsWith("Lost lease ") || error.message.includes("claim was lost")))
+  );
 }

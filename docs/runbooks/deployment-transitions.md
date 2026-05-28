@@ -45,9 +45,11 @@ provider calls, and before final completion writes.
 On cooperative stop, jobs should preserve progress and release or let their
 claim expire. They should not mark deployment cancellation as business failure.
 
-Catalog Source Observation bulk/reapply/promote/reject work is durable job-first.
-Legacy mutating endpoints enqueue jobs and return `202`; progress endpoints
-stream from durable job state.
+Catalog Source Observation bulk/reapply/promote/reject work and Catalog
+authoring bulk work are durable job-first. Legacy mutating endpoints enqueue
+jobs and return `202`; progress endpoints stream from durable job state.
+Progress writes renew durable job ownership, while completion and failure writes
+are rejected after lease loss so a replacement worker can safely resume.
 
 ## Scheduled Cadence
 

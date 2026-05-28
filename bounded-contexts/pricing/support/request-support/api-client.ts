@@ -5,7 +5,7 @@ import { readApiErrorMessage } from "@chase-sets/http/responses";
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import type { buildPricingApi } from "../../api";
 import type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
-import type { PricingRecommendationJob } from "../../features/recommendations/api/runtime";
+import type { PricingRecommendationJobStatus } from "../../features/recommendations/api/runtime";
 
 export type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
 
@@ -73,7 +73,7 @@ export function createPricingApiClient({
         }),
       );
     },
-    async refreshRecommendations(): Promise<PricingRecommendationJob> {
+    async refreshRecommendations(): Promise<PricingRecommendationJobStatus> {
       return parseJsonResponse(
         await client.account.recommendations.refresh.$post({
           json: {},
@@ -81,7 +81,7 @@ export function createPricingApiClient({
         }),
       );
     },
-    async applyRecommendations(recommendationIds: readonly string[]): Promise<PricingRecommendationJob> {
+    async applyRecommendations(recommendationIds: readonly string[]): Promise<PricingRecommendationJobStatus> {
       return parseJsonResponse(
         await client.account.recommendations.apply.$post({
           json: { recommendationIds },
@@ -89,7 +89,7 @@ export function createPricingApiClient({
         }),
       );
     },
-    async dismissRecommendations(recommendationIds: readonly string[]): Promise<PricingRecommendationJob> {
+    async dismissRecommendations(recommendationIds: readonly string[]): Promise<PricingRecommendationJobStatus> {
       return parseJsonResponse(
         await client.account.recommendations.dismiss.$post({
           json: { recommendationIds },

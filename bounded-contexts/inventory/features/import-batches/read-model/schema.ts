@@ -56,6 +56,21 @@ CREATE INDEX IF NOT EXISTS inventory_import_batches_account_idx
 CREATE INDEX IF NOT EXISTS inventory_import_batch_rows_batch_idx
   ON inventory_import_batch_rows (batch_id, row_number ASC);
 
+CREATE TABLE IF NOT EXISTS inventory_import_batch_job_inputs (
+  input_id text PRIMARY KEY,
+  account_id text NOT NULL,
+  csv_text text NULL,
+  parsed_rows jsonb NULL,
+  source_key text NULL,
+  quantity_mode text NULL,
+  default_storage_location_id text NULL,
+  source_filename text NULL,
+  created_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS inventory_import_batch_job_inputs_account_idx
+  ON inventory_import_batch_job_inputs (account_id, created_at DESC);
+
 ALTER TABLE inventory_import_batches
   ADD COLUMN IF NOT EXISTS source_key text NOT NULL DEFAULT 'native-csv',
   ADD COLUMN IF NOT EXISTS adapter_version integer NOT NULL DEFAULT 1,

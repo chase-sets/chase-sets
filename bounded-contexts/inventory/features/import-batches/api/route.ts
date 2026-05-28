@@ -2,7 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { InventoryApiEnv } from "../../../api";
-import type { InventoryImportBatchServices } from "./runtime";
+import { toInventoryImportBatchJobStatus, type InventoryImportBatchServices } from "./runtime";
 import type { ImportCsvRow } from "../domain/csv";
 import { listInventoryImportSourceProfiles } from "../domain/import-source-profiles";
 
@@ -105,7 +105,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         },
         c.get("context"),
       );
-      return c.json(job, 202);
+      return c.json(toInventoryImportBatchJobStatus(job), 202);
     } catch (error) {
       return c.json(
         {
@@ -156,7 +156,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
         },
         c.get("context"),
       );
-      return c.json(job, 202);
+      return c.json(toInventoryImportBatchJobStatus(job), 202);
     } catch (error) {
       return c.json(
         {
@@ -184,7 +184,7 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
       );
     }
 
-    return c.json(job);
+    return c.json(toInventoryImportBatchJobStatus(job));
   });
 
   app.get("/jobs/:jobId/events", async (c) => {
