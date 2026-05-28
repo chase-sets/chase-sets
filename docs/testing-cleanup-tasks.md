@@ -3,6 +3,9 @@
 This list tracks the cleanup work from the full test-suite review.
 
 - [x] Keep fast test runs from dropping pure tests that live in database-capable workspaces.
+- [x] Route DB-backed Catalog, Discovery, and Inventory acceptance tests through DB-profile CI coverage.
+- [x] Run full DB-profile tests in PR CI instead of only the fast DB subset.
+- [x] Align local fast test workspace concurrency with CI.
 - [x] Move shared marketplace seed test support out of the payments bounded context.
 - [ ] Relocate deployable route behavior tests into the bounded contexts that own the behavior.
 - [ ] Split oversized test files by responsibility:

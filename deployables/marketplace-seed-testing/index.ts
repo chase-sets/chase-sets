@@ -18,6 +18,7 @@ import { module as fulfillmentModule } from "@chase-sets/fulfillment";
 import { module as identityModule } from "@chase-sets/identity";
 import { module as inventoryModule } from "@chase-sets/inventory";
 import { module as marketplaceModule } from "@chase-sets/marketplace";
+import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { module as orderingModule } from "@chase-sets/ordering";
 import { module as paymentsModule } from "@chase-sets/payments";
 import { module as pricingModule } from "@chase-sets/pricing";
@@ -44,6 +45,8 @@ export const marketplaceSeedContextNames = [
 ] as const;
 
 export const marketplaceSeedLifecycleContextOrder = [
+  "catalog",
+  // Catalog resolves product measurements from its item read model, so it needs one reconciliation pass after item projections drain.
   "catalog",
   "commercial-terms",
   "discovery",
@@ -122,6 +125,7 @@ export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools)
   const commercialTermsResolver = createCommercialTermsResolver({
     db: pools["commercial-terms"],
   });
+  const listingPhotoStorage = createMarketplaceSeedListingPhotoStorage();
 
   return createMountedContextTestRuntime([
     { contextName: "catalog", module: catalogModule, pool: pools.catalog, ports: undefined },
@@ -150,7 +154,7 @@ export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools)
       contextName: "marketplace",
       module: marketplaceModule,
       pool: pools.marketplace,
-      ports: { commercialTermsResolver },
+      ports: { commercialTermsResolver, listingPhotoStorage },
     },
     {
       contextName: "ordering",
@@ -186,4 +190,15 @@ export function createMarketplaceSeedRuntime(pools: MarketplaceSeedRuntimePools)
       ports: undefined,
     },
   ] as const);
+}
+
+function createMarketplaceSeedListingPhotoStorage(): ListingPhotoStorage {
+  return {
+    async putObject(input) {
+      return {
+        key: input.key,
+        publicUrl: `https://assets.test/${input.key}`,
+      };
+    },
+  };
 }

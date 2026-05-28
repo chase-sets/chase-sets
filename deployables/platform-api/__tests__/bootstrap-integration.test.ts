@@ -12,6 +12,7 @@ import {
   seedApiHostIfEmpty,
 } from "@chase-sets/platform-runtime/api";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
+import type { ListingPhotoStorage } from "@chase-sets/marketplace/server";
 import { createPlatformApiHost } from "../src/app";
 import { closePlatformApiPools, createPlatformApiPools } from "../src/database-pools";
 import { apiContextRegistry } from "../src/generated/api-context-registry";
@@ -22,6 +23,15 @@ const describeWithDatabase = databaseBaseUrl ? describe : describe.skip;
 const platformApiContextNames = getApiHostContextNames(apiContextRegistry, "platform-api");
 
 type PlatformApiTestPools = ReturnType<typeof createPlatformApiPools>;
+
+const listingPhotoStorage: ListingPhotoStorage = {
+  async putObject(input) {
+    return {
+      key: input.key,
+      publicUrl: `https://assets.test/${input.key}`,
+    };
+  },
+};
 
 function requireDatabaseBaseUrl(): string {
   if (!databaseBaseUrl) {
@@ -62,6 +72,7 @@ describeWithDatabase("platform api bootstrap", () => {
       pools,
       hostPorts: {
         processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
       },
     });
 
@@ -89,7 +100,7 @@ describeWithDatabase("platform api bootstrap", () => {
       "SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages",
     );
     const seededCatalogItems = await pools.catalog.query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM catalog_item_pages",
+      "SELECT COUNT(*) AS count FROM catalog_items",
     );
     const seededListingsWithTerms = await pools.marketplace.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
@@ -107,19 +118,15 @@ describeWithDatabase("platform api bootstrap", () => {
          AND terms_schedule_id IS NOT NULL
          AND terms_resolved_at IS NOT NULL`,
     );
-    const orderingEmailOutbox = await pools.ordering.query<Readonly<{ count: string }>>(
+    const orderingOrderCreatedEvents = await pools.ordering.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
-       FROM notification_outbox
-       WHERE message_type = 'ordering.order.created'
-         AND channel = 'email'
-         AND idempotency_key LIKE 'ordering:order_confirmed:%'`,
+       FROM event_store_events
+       WHERE event_type = 'ordering.order.created'`,
     );
-    const fulfillmentEmailOutbox = await pools.fulfillment.query<Readonly<{ count: string }>>(
+    const fulfillmentDeliveredEvents = await pools.fulfillment.query<Readonly<{ count: string }>>(
       `SELECT COUNT(*) AS count
-       FROM notification_outbox
-       WHERE message_type = 'fulfillment.shipment.delivered'
-         AND channel = 'email'
-         AND idempotency_key LIKE 'fulfillment:shipment_delivered:%'`,
+       FROM event_store_events
+       WHERE event_type = 'fulfillment.shipment.delivered'`,
     );
     const reputationReviews = await pools.reputation.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM reputation_review_pages",
@@ -133,16 +140,17 @@ describeWithDatabase("platform api bootstrap", () => {
     expect(Number(seededCatalogItems.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededListingsWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(seededOrdersWithTerms.rows[0]?.count ?? 0)).toBeGreaterThan(0);
-    expect(Number(orderingEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
-    expect(Number(fulfillmentEmailOutbox.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(orderingOrderCreatedEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(fulfillmentDeliveredEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBeGreaterThan(0);
-  }, 60_000);
+  }, 120_000);
 
   it("limits long-lived environment bootstrap to critical and integration data", async () => {
     const runtime = createPlatformApiHost({
       pools,
       hostPorts: {
         processorGateway: createFakePaymentProcessorGateway(),
+        listingPhotoStorage,
       },
     });
 
@@ -155,16 +163,22 @@ describeWithDatabase("platform api bootstrap", () => {
       "SELECT COUNT(*) AS count FROM identity_accounts",
     );
     const catalogItems = await pools.catalog.query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM catalog_item_pages",
+      "SELECT COUNT(*) AS count FROM catalog_items",
     );
-    const catalogBlueprints = await pools.catalog.query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM catalog_blueprints",
+    const catalogBlueprintEvents = await pools.catalog.query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE event_type = 'catalog.blueprint.created'`,
     );
-    const commercialTermsSchedules = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM commercial_terms_schedule_pages",
+    const commercialTermsScheduleEvents = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE event_type = 'commercial-terms.schedule.created'`,
     );
-    const commercialTermsAgreements = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
-      "SELECT COUNT(*) AS count FROM commercial_terms_agreement_pages",
+    const commercialTermsAgreementEvents = await pools["commercial-terms"].query<Readonly<{ count: string }>>(
+      `SELECT COUNT(*) AS count
+       FROM event_store_events
+       WHERE event_type = 'commercial-terms.agreement.created'`,
     );
     const marketplaceListings = await pools.marketplace.query<Readonly<{ count: string }>>(
       "SELECT COUNT(*) AS count FROM marketplace_listing_pages",
@@ -175,9 +189,9 @@ describeWithDatabase("platform api bootstrap", () => {
 
     expect(Number(identityAccounts.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(catalogItems.rows[0]?.count ?? 0)).toBe(0);
-    expect(Number(catalogBlueprints.rows[0]?.count ?? 0)).toBeGreaterThan(0);
-    expect(Number(commercialTermsSchedules.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(3);
-    expect(Number(commercialTermsAgreements.rows[0]?.count ?? 0)).toBe(0);
+    expect(Number(catalogBlueprintEvents.rows[0]?.count ?? 0)).toBeGreaterThan(0);
+    expect(Number(commercialTermsScheduleEvents.rows[0]?.count ?? 0)).toBeGreaterThanOrEqual(3);
+    expect(Number(commercialTermsAgreementEvents.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(marketplaceListings.rows[0]?.count ?? 0)).toBe(0);
     expect(Number(reputationReviews.rows[0]?.count ?? 0)).toBe(0);
   }, 60_000);

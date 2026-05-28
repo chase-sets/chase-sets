@@ -93,6 +93,22 @@ describe("run-workspaces", () => {
       },
     });
     expect(runs).toEqual(["@test/db"]);
+
+    runs.length = 0;
+    await runWorkspaceScripts({
+      argv: ["test:fast", "--test-profile=db"],
+      buildInvocation,
+      listWorkspaces: () => [
+        workspace("@test/db-fast", { test: "test", "test:fast": "test:fast" }, "db"),
+        workspace("@test/db-full-only", { test: "test" }, "db"),
+        workspace("@test/fast", { test: "test", "test:fast": "test:fast" }),
+      ],
+      loadEnvironment: () => {},
+      run: async (_command, args) => {
+        runs.push(args[1]);
+      },
+    });
+    expect(runs).toEqual(["@test/db-fast"]);
   });
 
   it("returns nonzero semantics with a failed-workspace summary", async () => {

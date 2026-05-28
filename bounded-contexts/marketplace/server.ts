@@ -3,6 +3,7 @@ export type {
   MarketplaceListingInventoryItemOption,
   MarketplaceListingTermsPreview,
 } from "./support/request-support/api-client";
+export type { ListingPhotoStorage } from "./support/runtime-support";
 export {
   marketplaceRealtimeManifest,
   marketplaceRealtimeRegistration,

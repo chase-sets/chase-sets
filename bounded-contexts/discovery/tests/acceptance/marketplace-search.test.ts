@@ -101,7 +101,7 @@ describeWithDatabase("marketplace search", () => {
         module: catalogModule,
         services: catalogServices,
         pool: pools.catalog,
-        projectors: catalogModule.projectors(catalogServices),
+        projectionHandlerSets: catalogModule.projectionHandlerSets?.(catalogServices) ?? [],
       },
       {
         contextName: "identity",
@@ -109,7 +109,7 @@ describeWithDatabase("marketplace search", () => {
         module: identityModule,
         services: identityServices,
         pool: pools.identity,
-        projectors: [],
+        projectionHandlerSets: [],
       },
       {
         contextName: "marketplace",
@@ -117,7 +117,7 @@ describeWithDatabase("marketplace search", () => {
         module: marketplaceModule,
         services: marketplaceServices,
         pool: pools.marketplace,
-        projectors: [],
+        projectionHandlerSets: [],
       },
       {
         contextName: "reputation",
@@ -125,14 +125,14 @@ describeWithDatabase("marketplace search", () => {
         module: reputationModule,
         services: reputationServices,
         pool: pools.reputation,
-        projectors: [],
+        projectionHandlerSets: [],
       },
       {
         contextName: "discovery",
         module: discoveryModule,
         services: discoveryServices,
         pool: pools.discovery,
-        projectors: discoveryModule.projectors(discoveryServices),
+        projectionHandlerSets: discoveryModule.projectionHandlerSets?.(discoveryServices) ?? [],
       },
     ] as const;
     subscriptionRunners = resolveModuleSubscriptions(mountedContexts);
@@ -278,7 +278,6 @@ describeWithDatabase("marketplace search", () => {
     });
 
     await drainContextProcesses({
-      projectors: discoveryServices.projectors,
       subscriptionRunners,
     });
 
@@ -382,7 +381,6 @@ describeWithDatabase("marketplace search", () => {
     });
 
     await drainContextProcesses({
-      projectors: discoveryServices.projectors,
       subscriptionRunners,
     });
 
@@ -521,7 +519,6 @@ describeWithDatabase("marketplace search", () => {
     });
 
     await drainContextProcesses({
-      projectors: discoveryServices.projectors,
       subscriptionRunners,
     });
 
@@ -675,7 +672,6 @@ describeWithDatabase("marketplace search", () => {
     );
 
     await drainContextProcesses({
-      projectors: discoveryServices.projectors,
       subscriptionRunners,
     });
 
@@ -919,7 +915,6 @@ describeWithDatabase("marketplace search", () => {
     });
 
     await drainContextProcesses({
-      projectors: discoveryServices.projectors,
       subscriptionRunners,
     });
 

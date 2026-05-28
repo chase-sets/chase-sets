@@ -103,7 +103,7 @@ describeWithDatabase("inventory api", () => {
           module: catalogModule,
           services: catalogServices,
           pool: pools.catalog,
-          projectors: catalogModule.projectors(catalogServices),
+          projectionHandlerSets: catalogModule.projectionHandlerSets?.(catalogServices) ?? [],
         },
         {
           contextName: "ordering",
@@ -111,14 +111,14 @@ describeWithDatabase("inventory api", () => {
           module: orderingModule,
           services: orderingServices,
           pool: pools.ordering,
-          projectors: [],
+          projectionHandlerSets: [],
         },
         {
           contextName: "inventory",
           module: inventoryModule,
           services,
           pool: pools.inventory,
-          projectors: inventoryModule.projectors(services),
+          projectionHandlerSets: inventoryModule.projectionHandlerSets?.(services) ?? [],
         },
       ] as const,
       subscriptionRunners: [],
@@ -157,7 +157,6 @@ describeWithDatabase("inventory api", () => {
 
       if (c.req.method !== "GET" && c.req.method !== "HEAD") {
         await drainContextProcesses({
-          projectors: services.projectors,
           subscriptionRunners,
         });
       }
@@ -358,7 +357,6 @@ describeWithDatabase("inventory api", () => {
 
       if (c.req.method !== "GET" && c.req.method !== "HEAD") {
         await drainContextProcesses({
-          projectors: services.projectors,
           subscriptionRunners,
         });
       }
@@ -396,7 +394,6 @@ describeWithDatabase("inventory api", () => {
       otherContext,
     );
     await drainContextProcesses({
-      projectors: services.projectors,
       subscriptionRunners,
     });
 
@@ -420,7 +417,6 @@ describeWithDatabase("inventory api", () => {
       otherContext,
     );
     await drainContextProcesses({
-      projectors: services.projectors,
       subscriptionRunners,
     });
 
@@ -438,7 +434,6 @@ describeWithDatabase("inventory api", () => {
     await syncContextProjectionGroups(runtime, "inventory", { requiredOnly: true });
     await inventoryModule.seed?.(pools.inventory);
     await drainContextProcesses({
-      projectors: services.projectors,
       subscriptionRunners,
     });
 
