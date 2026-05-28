@@ -2,6 +2,7 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import { platformUcpRuntimeSchemaSql } from "./ucp";
 
 const DEFAULT_PROJECTION_OPERATION_LIMIT = 50;
+const PROJECTION_OPERATION_NOTIFY_CHANNEL = "platform_projection_operation_events";
 
 export const platformControlPlaneSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_control_leases (
@@ -71,6 +72,7 @@ CREATE TABLE IF NOT EXISTS platform_projection_operations (
   claim_owner_id text NULL,
   claim_fencing_token bigint NULL,
   claimed_until timestamptz NULL,
+  event_sequence integer NOT NULL DEFAULT 0 CHECK (event_sequence >= 0),
   progress jsonb NOT NULL DEFAULT '{}'::jsonb,
   result jsonb NULL,
   error jsonb NULL,
@@ -88,6 +90,9 @@ CREATE INDEX IF NOT EXISTS platform_projection_operations_target_idx
 
 CREATE INDEX IF NOT EXISTS platform_projection_operations_actor_requested_idx
   ON platform_projection_operations (requested_by_user_id, requested_at DESC);
+
+ALTER TABLE platform_projection_operations
+  ADD COLUMN IF NOT EXISTS event_sequence integer NOT NULL DEFAULT 0;
 
 CREATE TABLE IF NOT EXISTS platform_projection_operation_events (
   operation_id text NOT NULL REFERENCES platform_projection_operations(operation_id) ON DELETE CASCADE,
@@ -260,6 +265,7 @@ export type PlatformControlPlane = Readonly<{
       operationId: string;
       ownerId: string;
       fencingToken: string;
+      claimTtlMs: number;
       progress: Record<string, unknown>;
     }>,
   ) => Promise<boolean>;
@@ -291,6 +297,9 @@ export type PlatformControlPlane = Readonly<{
     operationId: string,
     afterSequence?: number,
   ) => Promise<readonly ProjectionOperationEvent[]>;
+  waitForProjectionOperationEvents: (
+    input: Readonly<{ operationId: string; signal?: AbortSignal; timeoutMs?: number }>,
+  ) => Promise<void>;
   listProjectionOperations: (input?: ProjectionOperationListFilter) => Promise<readonly ProjectionOperationRecord[]>;
   summarizeProjectionOperations: (
     input?: Omit<ProjectionOperationListFilter, "limit">,
@@ -345,6 +354,8 @@ export async function bootstrapPlatformControlPlane(db: PgQueryable): Promise<vo
 }
 
 export function createPostgresPlatformControlPlane(db: PgTransactionalPool): PlatformControlPlane {
+  const projectionOperationWaiter = createProjectionOperationNotificationWaiter(db);
+
   return {
     bootstrap: () => bootstrapPlatformControlPlane(db),
     acquireLease: async (input) => {
@@ -529,8 +540,9 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
         )
       ).rows,
     enqueueProjectionOperation: async (input) => {
-      const result = await db.query<ProjectionOperationRow>(
-        `INSERT INTO platform_projection_operations (
+      return runControlPlaneWrite(db, async (queryable) => {
+        const result = await queryable.query<ProjectionOperationRow>(
+          `INSERT INTO platform_projection_operations (
            operation_id,
            operation_kind,
            state,
@@ -545,28 +557,30 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
            updated_at
          ) VALUES ($1, $2, 'queued', $3, $4, $5, $6, $7, $8, $9::jsonb, now(), now())
          RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
-        [
-          createProjectionOperationId(),
-          input.operationKind,
-          input.contextName,
-          input.projectionName ?? null,
-          input.projectionKey ?? null,
-          input.streamId ?? null,
-          input.requestedByUserId ?? null,
-          input.requestedByAccountId ?? null,
-          JSON.stringify(input.progress ?? {}),
-        ],
-      );
+          [
+            createProjectionOperationId(),
+            input.operationKind,
+            input.contextName,
+            input.projectionName ?? null,
+            input.projectionKey ?? null,
+            input.streamId ?? null,
+            input.requestedByUserId ?? null,
+            input.requestedByAccountId ?? null,
+            JSON.stringify(input.progress ?? {}),
+          ],
+        );
 
-      const operation = mapProjectionOperationRow(result.rows[0]);
-      await appendProjectionOperationEvent(db, operation);
+        const operation = mapProjectionOperationRow(result.rows[0]);
+        await appendProjectionOperationEvent(queryable, operation);
 
-      return operation;
+        return operation;
+      });
     },
     claimProjectionOperation: async (input) => {
       const operationKinds = input.operationKinds?.length ? [...new Set(input.operationKinds)] : null;
-      const result = await db.query<ProjectionOperationRow>(
-        `WITH claimable AS (
+      return runControlPlaneWrite(db, async (queryable) => {
+        const result = await queryable.query<ProjectionOperationRow>(
+          `WITH claimable AS (
            SELECT operation_id
            FROM platform_projection_operations
            WHERE (
@@ -591,41 +605,46 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
          FROM claimable
          WHERE operation.operation_id = claimable.operation_id
          RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
-        [input.ownerId, input.claimTtlMs, operationKinds],
-      );
+          [input.ownerId, input.claimTtlMs, operationKinds],
+        );
 
-      if (!result.rows[0]) {
-        return null;
-      }
+        if (!result.rows[0]) {
+          return null;
+        }
 
-      const operation = mapProjectionOperationRow(result.rows[0]);
-      await appendProjectionOperationEvent(db, operation);
+        const operation = mapProjectionOperationRow(result.rows[0]);
+        await appendProjectionOperationEvent(queryable, operation);
 
-      return operation;
+        return operation;
+      });
     },
     recordProjectionOperationProgress: async (input) => {
-      const result = await db.query<ProjectionOperationRow>(
-        `UPDATE platform_projection_operations
+      return runControlPlaneWrite(db, async (queryable) => {
+        const result = await queryable.query<ProjectionOperationRow>(
+          `UPDATE platform_projection_operations
          SET progress = $4::jsonb,
-             claimed_until = GREATEST(claimed_until, now()),
+             claimed_until = now() + ($5::text || ' milliseconds')::interval,
              updated_at = now()
          WHERE operation_id = $1
            AND claim_owner_id = $2
            AND claim_fencing_token = $3::bigint
            AND state IN ('running', 'cancel_requested')
+           AND claimed_until > now()
          RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
-        [input.operationId, input.ownerId, input.fencingToken, JSON.stringify(input.progress)],
-      );
-      if (!result.rows[0]) {
-        return false;
-      }
+          [input.operationId, input.ownerId, input.fencingToken, JSON.stringify(input.progress), input.claimTtlMs],
+        );
+        if (!result.rows[0]) {
+          return false;
+        }
 
-      await appendProjectionOperationEvent(db, mapProjectionOperationRow(result.rows[0]));
-      return true;
+        await appendProjectionOperationEvent(queryable, mapProjectionOperationRow(result.rows[0]));
+        return true;
+      });
     },
     completeProjectionOperation: async (input) => {
-      const result = await db.query<ProjectionOperationRow>(
-        `UPDATE platform_projection_operations
+      return runControlPlaneWrite(db, async (queryable) => {
+        const result = await queryable.query<ProjectionOperationRow>(
+          `UPDATE platform_projection_operations
          SET state = CASE WHEN state = 'cancel_requested' THEN 'cancelled' ELSE 'succeeded' END,
              result = $4::jsonb,
              error = NULL,
@@ -636,19 +655,22 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
            AND claim_owner_id = $2
            AND claim_fencing_token = $3::bigint
            AND state IN ('running', 'cancel_requested')
+           AND claimed_until > now()
          RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
-        [input.operationId, input.ownerId, input.fencingToken, JSON.stringify(input.result ?? {})],
-      );
-      if (!result.rows[0]) {
-        return false;
-      }
+          [input.operationId, input.ownerId, input.fencingToken, JSON.stringify(input.result ?? {})],
+        );
+        if (!result.rows[0]) {
+          return false;
+        }
 
-      await appendProjectionOperationEvent(db, mapProjectionOperationRow(result.rows[0]));
-      return true;
+        await appendProjectionOperationEvent(queryable, mapProjectionOperationRow(result.rows[0]));
+        return true;
+      });
     },
     failProjectionOperation: async (input) => {
-      const result = await db.query<ProjectionOperationRow>(
-        `UPDATE platform_projection_operations
+      return runControlPlaneWrite(db, async (queryable) => {
+        const result = await queryable.query<ProjectionOperationRow>(
+          `UPDATE platform_projection_operations
          SET state = $4,
              error = $5::jsonb,
              claimed_until = NULL,
@@ -658,25 +680,28 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
            AND claim_owner_id = $2
            AND claim_fencing_token = $3::bigint
            AND state IN ('running', 'cancel_requested')
+           AND claimed_until > now()
          RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
-        [
-          input.operationId,
-          input.ownerId,
-          input.fencingToken,
-          input.retryable ? "queued" : "failed",
-          JSON.stringify(input.error),
-        ],
-      );
-      if (!result.rows[0]) {
-        return false;
-      }
+          [
+            input.operationId,
+            input.ownerId,
+            input.fencingToken,
+            input.retryable ? "queued" : "failed",
+            JSON.stringify(input.error),
+          ],
+        );
+        if (!result.rows[0]) {
+          return false;
+        }
 
-      await appendProjectionOperationEvent(db, mapProjectionOperationRow(result.rows[0]));
-      return true;
+        await appendProjectionOperationEvent(queryable, mapProjectionOperationRow(result.rows[0]));
+        return true;
+      });
     },
     cancelProjectionOperation: async (input) => {
-      const result = await db.query<ProjectionOperationRow>(
-        `UPDATE platform_projection_operations
+      return runControlPlaneWrite(db, async (queryable) => {
+        const result = await queryable.query<ProjectionOperationRow>(
+          `UPDATE platform_projection_operations
          SET state = CASE
                WHEN state = 'queued' THEN 'cancelled'
                WHEN state = 'running' THEN 'cancel_requested'
@@ -694,20 +719,21 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
          WHERE operation_id = $1
            AND state IN ('queued', 'running')
          RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
-        [
-          input.operationId,
-          JSON.stringify({
-            code: "cancel_requested",
-            requestedByUserId: input.requestedByUserId ?? null,
-          }),
-        ],
-      );
-      if (!result.rows[0]) {
-        return false;
-      }
+          [
+            input.operationId,
+            JSON.stringify({
+              code: "cancel_requested",
+              requestedByUserId: input.requestedByUserId ?? null,
+            }),
+          ],
+        );
+        if (!result.rows[0]) {
+          return false;
+        }
 
-      await appendProjectionOperationEvent(db, mapProjectionOperationRow(result.rows[0]));
-      return true;
+        await appendProjectionOperationEvent(queryable, mapProjectionOperationRow(result.rows[0]));
+        return true;
+      });
     },
     getProjectionOperation: async (operationId) => {
       const result = await db.query<ProjectionOperationRow>(
@@ -721,6 +747,7 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
     },
     listProjectionOperationEvents: async (operationId, afterSequence = 0) =>
       listProjectionOperationEvents(db, operationId, afterSequence),
+    waitForProjectionOperationEvents: (input) => projectionOperationWaiter.wait(input),
     listProjectionOperations: async (input = {}) => {
       const { predicates, params } = buildProjectionOperationPredicates(input);
 
@@ -916,6 +943,18 @@ function mapProjectionOperationRow(row: ProjectionOperationRow | undefined): Pro
 }
 
 async function appendProjectionOperationEvent(db: PgQueryable, operation: ProjectionOperationRecord): Promise<void> {
+  const sequenceResult = await db.query<{ event_sequence: number | string }>(
+    `UPDATE platform_projection_operations
+     SET event_sequence = event_sequence + 1
+     WHERE operation_id = $1
+     RETURNING event_sequence`,
+    [operation.operationId],
+  );
+  const sequence = Number(sequenceResult.rows[0]?.event_sequence ?? 0);
+  if (!sequence) {
+    throw new Error("Projection operation event sequence was not reserved.");
+  }
+
   await db.query(
     `INSERT INTO platform_projection_operation_events (
        operation_id,
@@ -923,17 +962,13 @@ async function appendProjectionOperationEvent(db: PgQueryable, operation: Projec
        event_name,
        snapshot,
        created_at
-     )
-     SELECT
-       $1,
-       coalesce(max(sequence), 0) + 1,
-       'status',
-       $2::jsonb,
-       now()
-     FROM platform_projection_operation_events
-     WHERE operation_id = $1`,
-    [operation.operationId, JSON.stringify(operation)],
+     ) VALUES ($1, $2, 'status', $3::jsonb, now())`,
+    [operation.operationId, sequence, JSON.stringify(operation)],
   );
+  await db.query(`SELECT pg_notify($1, $2)`, [
+    PROJECTION_OPERATION_NOTIFY_CHANNEL,
+    JSON.stringify({ operationId: operation.operationId, sequence }),
+  ]);
 }
 
 async function listProjectionOperationEvents(
@@ -992,4 +1027,110 @@ function readJsonRecord(value: unknown): Record<string, unknown> | null {
   }
 
   return null;
+}
+
+async function runControlPlaneWrite<T>(db: PgTransactionalPool, work: (queryable: PgQueryable) => Promise<T>) {
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await work(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+type ProjectionOperationNotificationClient = Awaited<ReturnType<PgTransactionalPool["connect"]>> & {
+  on?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
+  off?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
+};
+
+function createProjectionOperationNotificationWaiter(db: PgTransactionalPool) {
+  let clientPromise: Promise<ProjectionOperationNotificationClient> | null = null;
+
+  async function getClient() {
+    clientPromise ??= (async () => {
+      const client = (await db.connect()) as ProjectionOperationNotificationClient;
+      const reset = () => {
+        client.off?.("error", reset);
+        clientPromise = null;
+        client.release();
+      };
+      client.on?.("error", reset);
+      await client.query(`LISTEN ${PROJECTION_OPERATION_NOTIFY_CHANNEL}`);
+      return client;
+    })();
+
+    return clientPromise;
+  }
+
+  return {
+    wait: async (input: Readonly<{ operationId: string; signal?: AbortSignal; timeoutMs?: number }>) => {
+      const timeoutMs = Math.max(100, Math.floor(input.timeoutMs ?? 500));
+      if (input.signal?.aborted) {
+        return waitForProjectionOperationTimeout(timeoutMs, input.signal);
+      }
+
+      const eventClient = await getClient();
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const cleanup = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(timer);
+          input.signal?.removeEventListener("abort", cleanup);
+          eventClient.off?.("notification", onNotification);
+          eventClient.off?.("error", cleanup);
+          resolve();
+        };
+        const onNotification = (message?: { payload?: string }) => {
+          if (projectionOperationNotificationMatches(message?.payload, input.operationId)) {
+            cleanup();
+          }
+        };
+        const timer = setTimeout(cleanup, timeoutMs);
+
+        input.signal?.addEventListener("abort", cleanup, { once: true });
+        eventClient.on?.("notification", onNotification);
+        eventClient.on?.("error", cleanup);
+      });
+    },
+  };
+}
+
+function projectionOperationNotificationMatches(payload: string | undefined, operationId: string): boolean {
+  if (!payload) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(payload) as { operationId?: unknown };
+    return parsed.operationId === operationId;
+  } catch {
+    return false;
+  }
+}
+
+function waitForProjectionOperationTimeout(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 }

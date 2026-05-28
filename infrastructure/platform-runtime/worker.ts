@@ -584,6 +584,7 @@ function createProjectionOperationWorkerRunner(
           operationId: operation.operationId,
           ownerId,
           fencingToken: operation.claimFencingToken,
+          claimTtlMs: options.claimTtlMs,
           progress: {
             ...operation.progress,
             state: "running",

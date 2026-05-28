@@ -2257,6 +2257,68 @@ export async function runStructureCheck(options = {}) {
       }
 
       if (
+        normalizedFile === "bounded-contexts/catalog/features/source-observations/api/runtime.ts" &&
+        /function\s+importIntegrationExpansion/.test(content) &&
+        !/importIntegrationExpansion[\s\S]*onProgress\?:\s*\(progress:\s*TcgdexSetImportProgress\)/.test(content)
+      ) {
+        addViolation(
+          file,
+          "TCGdex durable integration imports must forward per-set progress so long set recording renews the job claim",
+        );
+      }
+
+      if (
+        normalizedFile === "bounded-contexts/inventory/features/import-batches/api/runtime.ts" &&
+        !/create\?:\s*Readonly<\{[\s\S]*batchId\?:\s*string/.test(content)
+      ) {
+        addViolation(
+          file,
+          "inventory create import jobs must carry a stable batchId in the durable payload for replay-safe retries",
+        );
+      }
+
+      if (
+        normalizedFile === "bounded-contexts/inventory/features/import-batches/api/runtime.ts" &&
+        /DELETE FROM inventory_import_batch_job_inputs/.test(content) &&
+        !/NOT EXISTS \([\s\S]*inventory_import_batch_jobs[\s\S]*status IN \('queued', 'running'\)/.test(content)
+      ) {
+        addViolation(
+          file,
+          "inventory staged input retention must exclude inputs referenced by queued or running durable jobs",
+        );
+      }
+
+      if (
+        normalizedFile === "bounded-contexts/pricing/features/recommendations/api/runtime.ts" &&
+        /createListing\(\{[\s\S]*inventoryItemId[\s\S]*quantityCap/.test(content) &&
+        !/listingIdOverride:\s*listingIdForPricingRecommendation/.test(content)
+      ) {
+        addViolation(
+          file,
+          "pricing apply jobs that create draft listings must provide a deterministic listingIdOverride for replay safety",
+        );
+      }
+
+      if (
+        normalizedFile === "infrastructure/platform-runtime/control-plane.ts" &&
+        (!/event_sequence integer NOT NULL DEFAULT 0/.test(content) ||
+          !/RETURNING event_sequence/.test(content) ||
+          !/claimed_until = now\(\) \+ \(\$5::text \|\| ' milliseconds'\)::interval/.test(content))
+      ) {
+        addViolation(
+          file,
+          "projection operation jobs must renew claims and reserve event sequences through the control-plane row",
+        );
+      }
+
+      if (
+        normalizedFile === "infrastructure/platform-runtime/durable-job-events.ts" &&
+        (!/createInMemoryDurableJobStreamLimiter/.test(content) || !/too_many_durable_job_streams/.test(content))
+      ) {
+        addViolation(file, "durable job SSE streams must use a shared in-process stream limiter");
+      }
+
+      if (
         normalizedFile.startsWith("bounded-contexts/") &&
         normalizedFile.endsWith("/api/route.ts") &&
         !normalizedFile.endsWith("/source-observations/api/route.ts") &&

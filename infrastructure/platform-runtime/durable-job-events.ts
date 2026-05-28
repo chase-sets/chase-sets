@@ -9,13 +9,25 @@ export type DurableJobEventStreamOptions<T> = Readonly<{
   signal?: AbortSignal;
   pollIntervalMs?: number;
   keepaliveIntervalMs?: number;
+  streamLimiter?: DurableJobStreamLimiter;
+  streamLimitKey?: string;
   loadEvents: (afterSequence: number) => Promise<readonly DurableJobStreamEvent<T>[]>;
   waitForEvents?: (afterSequence: number, signal?: AbortSignal) => Promise<void>;
   isTerminal: (event: DurableJobStreamEvent<T>) => boolean;
 }>;
 
+export type DurableJobStreamLease = Readonly<{
+  release: () => void | Promise<void>;
+}>;
+
+export type DurableJobStreamLimiter = Readonly<{
+  acquire: (input: Readonly<{ connectionKey: string }>) => DurableJobStreamLease | null;
+}>;
+
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const DEFAULT_KEEPALIVE_INTERVAL_MS = 15_000;
+const DEFAULT_MAX_ACTIVE_STREAMS = 500;
+const defaultStreamLimiter = createInMemoryDurableJobStreamLimiter({ maxActiveStreams: DEFAULT_MAX_ACTIVE_STREAMS });
 
 export function createDurableJobEventStream<T>(options: DurableJobEventStreamOptions<T>): Response {
   const encoder = new TextEncoder();
@@ -25,6 +37,15 @@ export function createDurableJobEventStream<T>(options: DurableJobEventStreamOpt
     Math.floor(options.keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS),
   );
   let closed = false;
+  const streamLimiter = options.streamLimiter ?? defaultStreamLimiter;
+  const streamLimitKey = options.streamLimitKey ?? durableJobStreamLimitKey(options.request);
+  const lease = streamLimiter.acquire({ connectionKey: streamLimitKey });
+  if (!lease) {
+    return Response.json(
+      { error: { code: "too_many_durable_job_streams", message: "Too many durable job status streams." } },
+      { status: 429 },
+    );
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
@@ -64,6 +85,7 @@ export function createDurableJobEventStream<T>(options: DurableJobEventStreamOpt
             waitForDurableJobEventPoll(pollIntervalMs, options.signal));
         }
       } finally {
+        await lease.release();
         controller.close();
       }
     },
@@ -80,6 +102,47 @@ export function createDurableJobEventStream<T>(options: DurableJobEventStreamOpt
       connection: "keep-alive",
     },
   });
+}
+
+export function createInMemoryDurableJobStreamLimiter(
+  options: Readonly<{ maxActiveStreams?: number; maxActiveStreamsPerConnectionKey?: number }> = {},
+): DurableJobStreamLimiter & Readonly<{ activeConnectionCount: () => number }> {
+  const maxActiveStreams = Math.max(1, Math.floor(options.maxActiveStreams ?? DEFAULT_MAX_ACTIVE_STREAMS));
+  const maxActiveStreamsPerConnectionKey = Math.max(
+    1,
+    Math.floor(options.maxActiveStreamsPerConnectionKey ?? Math.min(20, maxActiveStreams)),
+  );
+  let active = 0;
+  const perKey = new Map<string, number>();
+
+  return {
+    activeConnectionCount: () => active,
+    acquire: (input) => {
+      const keyCount = perKey.get(input.connectionKey) ?? 0;
+      if (active >= maxActiveStreams || keyCount >= maxActiveStreamsPerConnectionKey) {
+        return null;
+      }
+
+      active += 1;
+      perKey.set(input.connectionKey, keyCount + 1);
+      let released = false;
+      return {
+        release: () => {
+          if (released) {
+            return;
+          }
+          released = true;
+          active = Math.max(0, active - 1);
+          const nextKeyCount = Math.max(0, (perKey.get(input.connectionKey) ?? 1) - 1);
+          if (nextKeyCount === 0) {
+            perKey.delete(input.connectionKey);
+          } else {
+            perKey.set(input.connectionKey, nextKeyCount);
+          }
+        },
+      };
+    },
+  };
 }
 
 export function readDurableJobEventCursor(request?: Request): number {
@@ -113,6 +176,15 @@ export function parseDurableJobEventCursor(value: string | null | undefined): nu
 
 export function formatDurableJobSseEvent<T>(event: DurableJobStreamEvent<T>): string {
   return `id: ${event.sequence}\nevent: ${event.eventName}\ndata: ${JSON.stringify(event.data)}\n\n`;
+}
+
+function durableJobStreamLimitKey(request?: Request): string {
+  if (!request) {
+    return "unknown";
+  }
+
+  const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  return forwarded || request.headers.get("x-real-ip") || "unknown";
 }
 
 function waitForDurableJobEventPoll(ms: number, signal?: AbortSignal): Promise<void> {

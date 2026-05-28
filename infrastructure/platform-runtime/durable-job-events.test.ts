@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  createInMemoryDurableJobStreamLimiter,
   createDurableJobEventStream,
   formatDurableJobSseEvent,
   parseDurableJobEventCursor,
@@ -44,5 +45,20 @@ describe("durable job event streams", () => {
     expect(body).toContain("id: 3");
     expect(body).toContain('"status":"completed"');
     expect(loadEvents).toHaveBeenCalledWith(1);
+  });
+
+  it("rejects durable job streams when the limiter is exhausted", () => {
+    const limiter = createInMemoryDurableJobStreamLimiter({ maxActiveStreams: 1, maxActiveStreamsPerConnectionKey: 1 });
+    const held = limiter.acquire({ connectionKey: "account_1" });
+
+    const response = createDurableJobEventStream({
+      streamLimiter: limiter,
+      streamLimitKey: "account_1",
+      loadEvents: async () => [],
+      isTerminal: () => false,
+    });
+
+    expect(response.status).toBe(429);
+    held?.release();
   });
 });

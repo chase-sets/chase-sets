@@ -295,6 +295,7 @@ describe("pricing recommendation runtime", () => {
       inventoryItemId: "inv_2",
       priceAmount: "5.00",
       quantityCap: 3,
+      listingIdOverride: "lst_pricing_rec_create",
     });
     expect(events.at(-1)?.payload).toMatchObject({
       appliedListingId: "lst_created",
