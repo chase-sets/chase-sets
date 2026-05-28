@@ -108,18 +108,29 @@ export type SourceObservationCommand =
   | PromoteSourceObservationCommand
   | RejectSourceObservationCommand;
 
+type SourceObservationRecordEventData = JsonObject &
+  Omit<RecordSourceObservationCommand, "type" | "sourceUpdatedAt"> &
+  Readonly<{ sourceUpdatedAt: string | null }>;
+
 export type SourceObservationRecordedEvent = DomainEvent<
   "catalog.source-observation.recorded",
-  JsonObject &
-    Omit<RecordSourceObservationCommand, "type" | "sourceUpdatedAt"> &
-    Readonly<{ sourceUpdatedAt: string | null }>
+  SourceObservationRecordEventData
 >;
 
 export type SourceObservationChangedEvent = DomainEvent<
   "catalog.source-observation.changed",
-  JsonObject &
-    Omit<RecordSourceObservationCommand, "type" | "sourceUpdatedAt"> &
-    Readonly<{ sourceUpdatedAt: string | null }>
+  SourceObservationRecordEventData
+>;
+
+export type SourceObservationRefreshedEvent = DomainEvent<
+  "catalog.source-observation.refreshed",
+  SourceObservationRecordEventData &
+    Readonly<{
+      status: SourceObservationStatus;
+      statusReason: string | null;
+      promotedCatalogItemId: string | null;
+      promotedAt: string | null;
+    }>
 >;
 
 export type SourceObservationPromotedEvent = DomainEvent<
@@ -140,6 +151,7 @@ export type SourceObservationRejectedEvent = DomainEvent<
 export type SourceObservationEvent =
   | SourceObservationRecordedEvent
   | SourceObservationChangedEvent
+  | SourceObservationRefreshedEvent
   | SourceObservationPromotedEvent
   | SourceObservationRejectedEvent;
 
@@ -160,7 +172,18 @@ export const decideSourceObservation: AggregateDecider<
           state.sourceRecordHash === command.sourceRecordHash &&
           state.sourceUpdatedAt === (command.sourceUpdatedAt ?? null)
         ) {
-          return [];
+          return [
+            {
+              type: "catalog.source-observation.refreshed",
+              data: {
+                ...recordEventData(command),
+                status: state.status,
+                statusReason: state.statusReason,
+                promotedCatalogItemId: state.promotedCatalogItemId,
+                promotedAt: state.promotedAt,
+              },
+            },
+          ];
         }
 
         assert(
@@ -251,6 +274,24 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
         status: "changed",
         statusReason: null,
       };
+    case "catalog.source-observation.refreshed":
+      return {
+        ...state,
+        id: event.data.observationId,
+        providerKey: event.data.providerKey,
+        externalKey: event.data.externalKey,
+        sourceUrl: event.data.sourceUrl,
+        languageCode: event.data.languageCode,
+        sourceRecordHash: event.data.sourceRecordHash,
+        sourceUpdatedAt: event.data.sourceUpdatedAt,
+        observedAt: event.data.observedAt,
+        normalized: event.data.normalized,
+        sourcePayload: event.data.sourcePayload,
+        status: event.data.status,
+        statusReason: event.data.statusReason,
+        promotedCatalogItemId: event.data.promotedCatalogItemId,
+        promotedAt: event.data.promotedAt,
+      };
     case "catalog.source-observation.promoted":
       return {
         ...state,
@@ -282,7 +323,7 @@ function requirePromotable(state: SourceObservationState): void {
   );
 }
 
-function recordEventData(command: RecordSourceObservationCommand): SourceObservationRecordedEvent["data"] {
+function recordEventData(command: RecordSourceObservationCommand): SourceObservationRecordEventData {
   return {
     observationId: command.observationId,
     providerKey: normalizeKey(command.providerKey),
