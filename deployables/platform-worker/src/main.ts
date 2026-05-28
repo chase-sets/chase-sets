@@ -406,6 +406,7 @@ function createScheduledJobRunners(
 ): readonly WorkerRunner[] {
   const payments = services.payments as PaymentsServices | undefined;
   const settlement = services.settlement as SettlementServices | undefined;
+  const durableJobRetention = createDurableJobRetentionTask(services);
   const runners: WorkerRunner[] = [];
 
   if (payments && input.paymentReconciliationIntervalMs) {
@@ -484,7 +485,109 @@ function createScheduledJobRunners(
     );
   }
 
+  if (durableJobRetention) {
+    runners.push(createScheduledJobRunner("durable-jobs.retention", 60 * 60 * 1000, controlPlane, durableJobRetention));
+  }
+
   return runners;
+}
+
+function createDurableJobRetentionTask(services: Readonly<Record<string, unknown>>): (() => Promise<number>) | null {
+  const tasks: Array<() => Promise<number>> = [];
+  const catalog = services.catalog as
+    | {
+        authoringBulkJobs?: {
+          pruneRetention?: (input?: { completedBefore?: Date; limit?: number }) => Promise<number>;
+        };
+        sourceObservations?: {
+          pruneSourceObservationJobRetention?: (input?: {
+            completedBefore?: Date;
+            limit?: number;
+          }) => Promise<{ bulkReviewJobs: number; integrationJobs: number }>;
+        };
+      }
+    | undefined;
+  const inventory = services.inventory as
+    | {
+        importBatches?: {
+          pruneImportBatchJobRetention?: (input?: {
+            completedBefore?: Date;
+            stagedInputCreatedBefore?: Date;
+            limit?: number;
+          }) => Promise<{ jobs: number; stagedInputs: number }>;
+        };
+      }
+    | undefined;
+  const pricing = services.pricing as
+    | {
+        recommendations?: {
+          pruneRecommendationJobRetention?: (input?: { completedBefore?: Date; limit?: number }) => Promise<number>;
+        };
+      }
+    | undefined;
+  const settlement = services.settlement as
+    | {
+        payouts?: {
+          prunePayoutReconciliationJobRetention?: (input?: {
+            completedBefore?: Date;
+            limit?: number;
+          }) => Promise<number>;
+        };
+      }
+    | undefined;
+
+  const completedBefore = () => new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const stagedInputCreatedBefore = () => new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+  if (catalog?.authoringBulkJobs?.pruneRetention) {
+    tasks.push(() => catalog.authoringBulkJobs!.pruneRetention!({ completedBefore: completedBefore(), limit: 500 }));
+  }
+  if (catalog?.sourceObservations?.pruneSourceObservationJobRetention) {
+    tasks.push(async () => {
+      const result = await catalog.sourceObservations!.pruneSourceObservationJobRetention!({
+        completedBefore: completedBefore(),
+        limit: 500,
+      });
+      return result.bulkReviewJobs + result.integrationJobs;
+    });
+  }
+  if (inventory?.importBatches?.pruneImportBatchJobRetention) {
+    tasks.push(async () => {
+      const result = await inventory.importBatches!.pruneImportBatchJobRetention!({
+        completedBefore: completedBefore(),
+        stagedInputCreatedBefore: stagedInputCreatedBefore(),
+        limit: 500,
+      });
+      return result.jobs + result.stagedInputs;
+    });
+  }
+  if (pricing?.recommendations?.pruneRecommendationJobRetention) {
+    tasks.push(() =>
+      pricing.recommendations!.pruneRecommendationJobRetention!({ completedBefore: completedBefore(), limit: 500 }),
+    );
+  }
+  if (settlement?.payouts?.prunePayoutReconciliationJobRetention) {
+    tasks.push(() =>
+      settlement.payouts!.prunePayoutReconciliationJobRetention!({
+        completedBefore: completedBefore(),
+        limit: 500,
+      }),
+    );
+  }
+
+  if (tasks.length === 0) {
+    return null;
+  }
+
+  return async () => {
+    const counts = await Promise.all(tasks.map((task) => task()));
+    const deleted = counts.reduce((sum, count) => sum + count, 0);
+    logger.info("Durable job retention completed.", {
+      type: "durable-jobs.retention",
+      deleted,
+    });
+    return deleted;
+  };
 }
 
 function createCatalogBulkJobRunners(

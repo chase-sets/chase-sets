@@ -37,6 +37,18 @@ export type BulkLifecycleResult = Readonly<{
   candidates: readonly BulkLifecycleCandidate[];
 }>;
 
+export type BulkLifecycleExecutionProgress = Readonly<{
+  completed: number;
+  total: number;
+  currentName: string | null;
+  status: BulkLifecycleCandidateOutcome | null;
+}>;
+
+export type BulkLifecycleExecutionOptions = Readonly<{
+  throwIfCancelled?: () => void;
+  onProgress?: (progress: BulkLifecycleExecutionProgress) => Promise<void> | void;
+}>;
+
 export type BulkLifecycleActionDefinition<Command> = Readonly<{
   action: string;
   readyStatus: string;
@@ -57,6 +69,7 @@ export type BulkLifecycleOperations<Query, Command, State, Event extends DomainE
     selection: BulkSelection<Query>,
     action: string,
     context: EventStoreContext,
+    options?: BulkLifecycleExecutionOptions,
   ) => Promise<BulkLifecycleResult>;
 }>;
 
@@ -89,15 +102,25 @@ export function createBulkLifecycleOperations<Query, Command, State, Event exten
     selection: BulkSelection<Query>,
     action: string,
     context: EventStoreContext,
+    options: BulkLifecycleExecutionOptions = {},
   ): Promise<BulkLifecycleResult> {
     const definition = resolveAction(config.actions, action);
     const ids = normalizeBulkIds(await config.resolveIds(selection));
     const previewCandidates = await classifyCandidates(config.loadRows, ids, definition);
     const candidates: BulkLifecycleCandidate[] = [];
+    let completed = 0;
 
     for (const candidate of previewCandidates) {
+      options.throwIfCancelled?.();
       if (candidate.outcome !== "ready") {
         candidates.push({ ...candidate, outcome: "skipped" });
+        completed += 1;
+        await options.onProgress?.({
+          completed,
+          total: previewCandidates.length,
+          currentName: candidate.label,
+          status: "skipped",
+        });
         continue;
       }
 
@@ -116,11 +139,25 @@ export function createBulkLifecycleOperations<Query, Command, State, Event exten
           outcome: "succeeded",
           reason: null,
         });
+        completed += 1;
+        await options.onProgress?.({
+          completed,
+          total: previewCandidates.length,
+          currentName: candidate.label,
+          status: "succeeded",
+        });
       } catch (error) {
         candidates.push({
           ...candidate,
           outcome: "failed",
           reason: error instanceof Error ? error.message : "Bulk action failed.",
+        });
+        completed += 1;
+        await options.onProgress?.({
+          completed,
+          total: previewCandidates.length,
+          currentName: candidate.label,
+          status: "failed",
         });
       }
     }

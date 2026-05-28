@@ -7,8 +7,10 @@ import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
+  createDurableJobExecutionContext,
   createPostgresDurableJobStore,
   type DurableJobEvent,
+  type DurableJobExecutionContext,
   type DurableJobPublicSnapshot,
   type DurableJobRecord,
   toDurableJobPublicSnapshot,
@@ -39,6 +41,7 @@ import {
   listSettlementProviderIdempotencyKeys,
   listSettlementReconciliationRuns,
   listPayoutsNeedingReconciliation,
+  renewPayoutReconciliationWorkClaim,
   listPayouts,
   recordSettlementReconciliationRun,
   recordSettlementProviderIdempotencyKey,
@@ -212,6 +215,7 @@ export type PayoutServices = Readonly<{
   reconcilePayoutsNeedingAttention: (
     params: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
     context: EventStoreContext,
+    jobContext?: DurableJobExecutionContext<PayoutReconciliationJobProgress, PayoutReconciliationJobResult>,
   ) => Promise<{
     checked: number;
     reconciled: number;
@@ -234,6 +238,11 @@ export type PayoutServices = Readonly<{
       PayoutReconciliationJobResult
     >[]
   >;
+  waitForPayoutReconciliationJobEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
+  prunePayoutReconciliationJobRetention: (input?: {
+    completedBefore?: string | Date;
+    limit?: number;
+  }) => Promise<number>;
   processNextPayoutReconciliationJob: (input: {
     claimOwnerId: string;
     claimTtlMs: number;
@@ -540,6 +549,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   const reconcilePayoutsNeedingAttention: PayoutServices["reconcilePayoutsNeedingAttention"] = async (
     params,
     context,
+    jobContext,
   ) => {
     const startedAt = new Date().toISOString();
     const payouts = await listPayoutsNeedingReconciliation(deps.db, {
@@ -551,10 +561,28 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
     let ignored = 0;
     let skipped = 0;
     const errors: Array<Readonly<{ payoutId: string; message: string }>> = [];
+    let completed = 0;
 
     for (const payout of payouts) {
+      jobContext?.throwIfCancelled();
+      if (params.claimOwnerId && params.claimTtlMs) {
+        const claimRenewed = await renewPayoutReconciliationWorkClaim(deps.db, {
+          payoutId: payout.payout_id,
+          claimOwnerId: params.claimOwnerId,
+          claimTtlMs: params.claimTtlMs,
+        });
+        if (!claimRenewed) {
+          throw new SettlementDomainError("Payout reconciliation work claim was lost before processing completed.");
+        }
+      }
+
       if (!payout.provider_payout_reference) {
         skipped += 1;
+        completed += 1;
+        await jobContext?.checkpointProgress(
+          payoutReconciliationJobProgress("processing", completed, payouts.length, "Skipped payout."),
+          { checked: completed, reconciled, ignored, skipped, errors },
+        );
         continue;
       }
 
@@ -574,6 +602,11 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           message: error instanceof Error ? error.message : "Reconciliation failed.",
         });
       }
+      completed += 1;
+      await jobContext?.checkpointProgress(
+        payoutReconciliationJobProgress("processing", completed, payouts.length, "Reconciled payout."),
+        { checked: completed, reconciled, ignored, skipped, errors },
+      );
     }
 
     const result = {
@@ -1084,65 +1117,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       return handleMoneyMovementEvent(event, context);
     },
     reconcileProviderPayout,
-    async reconcilePayoutsNeedingAttention(params, context) {
-      const startedAt = new Date().toISOString();
-      const payouts = await listPayoutsNeedingReconciliation(deps.db, {
-        limit: params.limit,
-        claimOwnerId: params.claimOwnerId,
-        claimTtlMs: params.claimTtlMs,
-      });
-      let reconciled = 0;
-      let ignored = 0;
-      let skipped = 0;
-      const errors: Array<Readonly<{ payoutId: string; message: string }>> = [];
-
-      for (const payout of payouts) {
-        if (!payout.provider_payout_reference) {
-          skipped += 1;
-          continue;
-        }
-
-        try {
-          const result = await reconcileProviderPayout(
-            { providerPayoutReference: payout.provider_payout_reference },
-            context,
-          );
-          if (result.ignored) {
-            ignored += 1;
-          } else {
-            reconciled += 1;
-          }
-        } catch (error) {
-          errors.push({
-            payoutId: payout.payout_id,
-            message: error instanceof Error ? error.message : "Reconciliation failed.",
-          });
-        }
-      }
-
-      const result = {
-        checked: payouts.length,
-        reconciled,
-        ignored,
-        skipped,
-        errors,
-      };
-      await recordSettlementReconciliationRun(deps.db, {
-        reconciliationRunId: createId("rec"),
-        kind: "payouts",
-        checked: result.checked,
-        reconciled: result.reconciled,
-        ignored: result.ignored,
-        skipped: result.skipped,
-        errorCount: result.errors.length,
-        status: result.errors.length > 0 ? "completed-with-errors" : "completed",
-        summary: result,
-        startedAt,
-        completedAt: new Date().toISOString(),
-      });
-
-      return result;
-    },
+    reconcilePayoutsNeedingAttention,
     enqueuePayoutReconciliationJob: (params, context) =>
       jobStore.enqueue({
         jobId: createId("job"),
@@ -1155,6 +1130,12 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       }),
     getPayoutReconciliationJob: (jobId) => jobStore.get(jobId),
     listPayoutReconciliationJobEvents: (jobId, afterSequence = 0) => jobStore.listEvents(jobId, afterSequence),
+    waitForPayoutReconciliationJobEvents: (jobId, signal) => jobStore.waitForEvents({ jobId, signal }),
+    prunePayoutReconciliationJobRetention: (input = {}) =>
+      jobStore.pruneTerminalJobs({
+        completedBefore: input.completedBefore ?? payoutReconciliationRetentionCutoff(7),
+        limit: input.limit,
+      }),
     processNextPayoutReconciliationJob: async (input) => {
       const claimed = await jobStore.claimNext({
         claimOwnerId: input.claimOwnerId,
@@ -1182,6 +1163,15 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             progress: payoutReconciliationJobProgress("processing", 0, claimed.payload.limit, "Reconciling payouts."),
           }),
         );
+        const jobContext = createDurableJobExecutionContext(jobStore, {
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          signal: input.signal,
+          throwIfLeaseLost: input.throwIfLeaseLost,
+          cancelledMessage: "Payout reconciliation job was cancelled.",
+          claimLostMessage: "Payout reconciliation job claim was lost before the status update completed.",
+        });
         const result = await reconcilePayoutsNeedingAttention(
           {
             limit: claimed.payload.limit,
@@ -1189,6 +1179,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
             claimTtlMs: input.claimTtlMs,
           },
           claimed.eventContext,
+          jobContext,
         );
         await requirePayoutReconciliationJobClaim(
           jobStore.complete({
@@ -1257,6 +1248,10 @@ async function requirePayoutReconciliationJobClaim(succeeded: Promise<boolean> |
   if (!(await succeeded)) {
     throw new SettlementDomainError("Payout reconciliation job claim was lost before the status update completed.");
   }
+}
+
+function payoutReconciliationRetentionCutoff(daysAgo: number): Date {
+  return new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
 }
 
 function isPayoutReconciliationJobHandoff(error: unknown, input?: { signal?: AbortSignal }) {

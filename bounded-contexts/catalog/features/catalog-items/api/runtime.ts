@@ -10,6 +10,7 @@ import type { BlueprintId, CatalogItemId, CategoryId, FieldId } from "../../../i
 import {
   createBulkLifecycleOperations,
   type BulkLifecycleOperations,
+  type BulkLifecycleExecutionOptions,
   type BulkSelection,
 } from "../../../support/runtime-support/bulk-lifecycle";
 import {
@@ -132,7 +133,11 @@ export type CatalogItemServices = Readonly<{
   listCatalogItems: (params?: Parameters<typeof listCatalogItems>[1]) => ReturnType<typeof listCatalogItems>;
   getCatalogItemDetail: (itemId: string) => ReturnType<typeof getCatalogItemDetail>;
   previewBulkPublish: (selection: BulkPublishSelection) => Promise<BulkPublishPreview>;
-  publishBulk: (itemIds: readonly string[], context: EventStoreContext) => Promise<BulkPublishResult>;
+  publishBulk: (
+    itemIds: readonly string[],
+    context: EventStoreContext,
+    options?: BulkLifecycleExecutionOptions,
+  ) => Promise<BulkPublishResult>;
   previewBulkEdit: (
     selection: BulkSelection<CatalogItemListParams>,
     operation: BulkEditCatalogItemOperation,
@@ -141,6 +146,7 @@ export type CatalogItemServices = Readonly<{
     selection: BulkSelection<CatalogItemListParams>,
     operation: BulkEditCatalogItemOperation,
     context: EventStoreContext,
+    options?: BulkLifecycleExecutionOptions,
   ) => Promise<BulkEditCatalogItemResult>;
   bulkLifecycle: BulkLifecycleOperations<CatalogItemListParams, CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
   projectors: readonly ProjectionHandlerSet[];
@@ -197,9 +203,10 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
     listCatalogItems: (params) => listCatalogItems(deps.db, params),
     getCatalogItemDetail: (itemId) => getCatalogItemDetail(deps.db, itemId),
     previewBulkPublish: async (selection) => previewBulkPublish(deps, selection),
-    publishBulk: async (itemIds, context) => publishBulk(deps, commandHandler, itemIds, context),
+    publishBulk: async (itemIds, context, options) => publishBulk(deps, commandHandler, itemIds, context, options),
     previewBulkEdit: async (selection, operation) => previewBulkEdit(deps, selection, operation),
-    editBulk: async (selection, operation, context) => editBulk(deps, commandHandler, selection, operation, context),
+    editBulk: async (selection, operation, context, options) =>
+      editBulk(deps, commandHandler, selection, operation, context, options),
     bulkLifecycle,
     projectors,
   };
@@ -228,14 +235,24 @@ async function publishBulk(
   commandHandler: CatalogItemServices["commandHandler"],
   itemIds: readonly string[],
   context: EventStoreContext,
+  options: BulkLifecycleExecutionOptions = {},
 ): Promise<BulkPublishResult> {
   const normalizedIds = normalizeRequestedItemIds(itemIds);
   const preview = await classifyBulkPublishCandidates(deps, normalizedIds);
   const results: BulkPublishCandidate[] = [];
+  let completed = 0;
 
   for (const candidate of preview) {
+    options.throwIfCancelled?.();
     if (candidate.outcome !== "ready") {
       results.push({ ...candidate, outcome: "skipped" });
+      completed += 1;
+      await options.onProgress?.({
+        completed,
+        total: preview.length,
+        currentName: candidate.title,
+        status: "skipped",
+      });
       continue;
     }
 
@@ -256,11 +273,25 @@ async function publishBulk(
         outcome: "published",
         reason: null,
       });
+      completed += 1;
+      await options.onProgress?.({
+        completed,
+        total: preview.length,
+        currentName: candidate.title,
+        status: "succeeded",
+      });
     } catch (error) {
       results.push({
         ...candidate,
         outcome: "failed",
         reason: error instanceof Error ? error.message : String(error),
+      });
+      completed += 1;
+      await options.onProgress?.({
+        completed,
+        total: preview.length,
+        currentName: candidate.title,
+        status: "failed",
       });
     }
   }
@@ -389,15 +420,25 @@ async function editBulk(
   selection: BulkSelection<CatalogItemListParams>,
   operation: BulkEditCatalogItemOperation,
   context: EventStoreContext,
+  options: BulkLifecycleExecutionOptions = {},
 ): Promise<BulkEditCatalogItemResult> {
   const normalizedOperation = normalizeBulkEditOperation(operation);
   const itemIds = await resolveBulkEditItemIds(deps, selection);
   const preview = await classifyBulkEditCandidates(deps, itemIds, normalizedOperation);
   const candidates: BulkEditCatalogItemCandidate[] = [];
+  let completed = 0;
 
   for (const candidate of preview) {
+    options.throwIfCancelled?.();
     if (candidate.outcome !== "ready") {
       candidates.push({ ...candidate, outcome: "skipped" });
+      completed += 1;
+      await options.onProgress?.({
+        completed,
+        total: preview.length,
+        currentName: candidate.title,
+        status: "skipped",
+      });
       continue;
     }
 
@@ -417,11 +458,25 @@ async function editBulk(
         outcome: "succeeded",
         reason: null,
       });
+      completed += 1;
+      await options.onProgress?.({
+        completed,
+        total: preview.length,
+        currentName: candidate.title,
+        status: "succeeded",
+      });
     } catch (error) {
       candidates.push({
         ...candidate,
         outcome: "failed",
         reason: error instanceof Error ? error.message : "Bulk edit failed.",
+      });
+      completed += 1;
+      await options.onProgress?.({
+        completed,
+        total: preview.length,
+        currentName: candidate.title,
+        status: "failed",
       });
     }
   }

@@ -223,6 +223,24 @@ export async function listPayoutsNeedingReconciliation(
   return result.rows;
 }
 
+export async function renewPayoutReconciliationWorkClaim(
+  db: PgQueryable,
+  params: Readonly<{ payoutId: string; claimOwnerId: string; claimTtlMs: number }>,
+): Promise<boolean> {
+  const result = await db.query(
+    `UPDATE settlement_work_claims
+     SET claim_expires_at = now() + ($3::text || ' milliseconds')::interval,
+         updated_at = now()
+     WHERE work_kind = 'payout-reconciliation'
+       AND entity_id = $1
+       AND owner_id = $2
+       AND claim_expires_at > now()`,
+    [params.payoutId, params.claimOwnerId, params.claimTtlMs],
+  );
+
+  return Number(result.rowCount ?? 0) > 0;
+}
+
 export async function getPayout(
   db: PgQueryable,
   payoutId: string,

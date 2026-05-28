@@ -288,6 +288,7 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
           eventName: event.eventName,
           data: event.job,
         })),
+      waitForEvents: (_afterSequence, signal) => services.waitForRecommendationJobEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
     });
   });

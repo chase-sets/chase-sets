@@ -554,7 +554,7 @@ describe("source observation runtime", () => {
 
     expect(job.jobId).toBe("job_existing");
     expect(harness.insertedJobs).toEqual([]);
-    expect(harness.activeLookupValues[1]).toBe(JSON.stringify({ provider: "tcgdex", language: "en" }));
+    expect(harness.activeLookupValues[0]).toEqual(["import"]);
   });
 
   it("records a durable status event when enqueueing a provider integration job", async () => {
@@ -655,9 +655,8 @@ function createIntegrationJobDedupeHarness(input: { existingJob?: Record<string,
         queryCount += 1;
 
         if (
-          sql.includes("FROM catalog_source_observation_integration_jobs") &&
-          sql.includes("status IN ('queued', 'running')") &&
-          sql.includes("AND action = $1")
+          sql.includes("FROM catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("status IN ('queued', 'running')")
         ) {
           activeLookupValues = values;
           return {
@@ -666,28 +665,36 @@ function createIntegrationJobDedupeHarness(input: { existingJob?: Record<string,
           };
         }
 
-        if (sql.includes("INSERT INTO catalog_source_observation_integration_jobs")) {
+        if (sql.includes("INSERT INTO catalog_source_observation_integration_durable_jobs")) {
+          const payload = JSON.parse(String(values[2])) as Record<string, unknown>;
           const row = integrationJobRow({
             jobId: String(values[0]),
             action: String(values[1]),
-            scope: JSON.parse(String(values[2])) as Record<string, unknown>,
-            eventContext: JSON.parse(String(values[3])) as EventStoreContext,
-            progress: JSON.parse(String(values[4])) as Record<string, unknown>,
+            scope: payload.scope as Record<string, unknown>,
+            eventContext: JSON.parse(String(values[4])) as EventStoreContext,
+            progress: JSON.parse(String(values[3])) as Record<string, unknown>,
           });
           insertedJobs.push(row);
-          return { rowCount: 1, rows: [] as T[] };
+          return { rowCount: 1, rows: [row] as T[] };
         }
 
-        if (sql.includes("INSERT INTO catalog_source_observation_job_events")) {
+        if (sql.includes("INSERT INTO catalog_source_observation_integration_job_events")) {
           jobEvents.push({
-            jobKind: values[0],
-            jobId: values[1],
-            snapshot: JSON.parse(String(values[2])) as Record<string, unknown>,
+            jobKind: "integration",
+            jobId: values[0],
+            snapshot: JSON.parse(String(values[1])) as Record<string, unknown>,
           });
+          return { rowCount: 1, rows: [{ sequence: jobEvents.length }] as T[] };
+        }
+
+        if (sql.includes("SELECT pg_notify")) {
           return { rowCount: 1, rows: [] as T[] };
         }
 
-        if (sql.includes("FROM catalog_source_observation_integration_jobs") && sql.includes("WHERE job_id = $1")) {
+        if (
+          sql.includes("FROM catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("WHERE job_id = $1")
+        ) {
           const row = insertedJobs.find((job) => job.job_id === values[0]);
           return {
             rowCount: row ? 1 : 0,
@@ -731,8 +738,11 @@ function integrationJobRow(input: {
 }) {
   return {
     job_id: input.jobId,
-    action: input.action,
-    scope: input.scope,
+    job_kind: input.action,
+    payload: {
+      action: input.action,
+      scope: input.scope,
+    },
     event_context: input.eventContext,
     status: "queued",
     progress:
@@ -746,6 +756,8 @@ function integrationJobRow(input: {
       } as const),
     result: null,
     error_message: null,
+    claim_owner_id: null,
+    claimed_until: null,
     created_at: "2026-05-28T00:00:00.000Z",
     started_at: null,
     completed_at: null,
@@ -1069,11 +1081,14 @@ function createBulkReviewJobHarness(count: number) {
   );
   const job = {
     job_id: "job_bulk_review",
-    action: "reject",
-    selection_mode: "ids",
-    observation_ids: observationIds,
-    scope: {},
-    reason: "Out of scope.",
+    job_kind: "reject",
+    payload: {
+      action: "reject",
+      selectionMode: "ids",
+      observationIds,
+      scope: {},
+      reason: "Out of scope.",
+    },
     event_context: context,
     status: "queued",
     progress: {
@@ -1085,6 +1100,8 @@ function createBulkReviewJobHarness(count: number) {
     },
     result: null as null | Record<string, unknown>,
     error_message: null as string | null,
+    claim_owner_id: null as string | null,
+    claimed_until: null as string | null,
     created_at: "2026-05-20T00:00:00.000Z",
     started_at: null as string | null,
     completed_at: null as string | null,
@@ -1095,40 +1112,60 @@ function createBulkReviewJobHarness(count: number) {
   const deps = {
     db: {
       query: async <T>(sql: string, values: readonly unknown[] = []) => {
-        if (sql.includes("UPDATE catalog_source_observation_bulk_jobs AS job")) {
+        if (sql.includes("UPDATE catalog_source_observation_bulk_review_jobs AS job")) {
           if (job.status !== "queued") {
             return { rowCount: 0, rows: [] as T[] };
           }
           job.status = "running";
+          job.claim_owner_id = String(values[0]);
+          job.claimed_until = "2026-05-20T00:02:00.000Z";
           job.started_at ??= "2026-05-20T00:00:00.000Z";
           return { rowCount: 1, rows: [job] as T[] };
         }
 
-        if (sql.includes("UPDATE catalog_source_observation_bulk_jobs")) {
+        if (sql.includes("UPDATE catalog_source_observation_bulk_review_jobs")) {
+          if (String(values[1]) !== job.claim_owner_id) {
+            return { rowCount: 0, rows: [] as T[] };
+          }
           if (sql.includes("status = 'queued'")) {
             job.status = "queued";
-            job.progress = JSON.parse(String(values[1]));
-            job.result = JSON.parse(String(values[2]));
+            job.progress = JSON.parse(String(values[2]));
+            job.result = values[3] === null || values[3] === undefined ? job.result : JSON.parse(String(values[3]));
+            job.claim_owner_id = null;
+            job.claimed_until = null;
           } else if (sql.includes("status = 'completed'")) {
             job.status = "completed";
-            job.progress = JSON.parse(String(values[1]));
-            job.result = JSON.parse(String(values[2]));
+            job.progress = JSON.parse(String(values[2]));
+            job.result = JSON.parse(String(values[3]));
+            job.claim_owner_id = null;
+            job.claimed_until = null;
             job.completed_at = "2026-05-20T00:00:00.000Z";
           } else if (sql.includes("status = 'failed'")) {
             job.status = "failed";
-            job.progress = JSON.parse(String(values[1]));
-            job.error_message = String(values[2]);
+            job.progress = JSON.parse(String(values[2]));
+            job.error_message = String(values[3]);
+            job.claim_owner_id = null;
+            job.claimed_until = null;
             job.completed_at = "2026-05-20T00:00:00.000Z";
-          } else if (sql.includes("result = $3::jsonb")) {
-            job.progress = JSON.parse(String(values[1]));
-            job.result = JSON.parse(String(values[2]));
           } else {
-            job.progress = JSON.parse(String(values[1]));
+            job.progress = JSON.parse(String(values[2]));
+            if (values[3] !== null && values[3] !== undefined) {
+              job.result = JSON.parse(String(values[3]));
+            }
+            job.claimed_until = "2026-05-20T00:02:00.000Z";
           }
+          return { rowCount: 1, rows: [job] as T[] };
+        }
+
+        if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_job_events")) {
+          return { rowCount: 1, rows: [{ sequence: 1 }] as T[] };
+        }
+
+        if (sql.includes("SELECT pg_notify")) {
           return { rowCount: 1, rows: [] as T[] };
         }
 
-        if (sql.includes("FROM catalog_source_observation_bulk_jobs")) {
+        if (sql.includes("FROM catalog_source_observation_bulk_review_jobs")) {
           return { rowCount: 1, rows: [job] as T[] };
         }
 
