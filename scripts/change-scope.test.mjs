@@ -161,6 +161,7 @@ describe("change-scope", () => {
 
     expect(domainScope.unitTestsRequired).toBe(true);
     expect(domainScope.e2eTestsRequired).toBe(false);
+    expect(domainScope.e2eSuiteIds).toEqual([]);
 
     const routeScope = classifyChanges({
       baseDir,
@@ -169,6 +170,7 @@ describe("change-scope", () => {
     });
 
     expect(routeScope.e2eTestsRequired).toBe(true);
+    expect(routeScope.e2eSuiteIds).toEqual(["marketplace_account", "marketplace_seller"]);
 
     const deployableScope = classifyChanges({
       baseDir,
@@ -177,6 +179,76 @@ describe("change-scope", () => {
     });
 
     expect(deployableScope.e2eTestsRequired).toBe(true);
+    expect(deployableScope.e2eSuiteIds).toEqual([
+      "marketplace_browse",
+      "marketplace_account",
+      "marketplace_checkout",
+      "marketplace_seller",
+    ]);
+  });
+
+  it("routes root browser runtime changes to marketplace E2E suites", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["package.json", "pnpm-lock.yaml"],
+      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+    });
+
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual([
+      "marketplace_browse",
+      "marketplace_account",
+      "marketplace_checkout",
+      "marketplace_seller",
+    ]);
+  });
+
+  it("routes context UI and API slices to owned E2E suites", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: [
+        "bounded-contexts/discovery/features/search/ui/search-page.tsx",
+        "bounded-contexts/checkout/features/cart/api/cart-routes.ts",
+        "bounded-contexts/inventory/features/inventory/ui/account-inventory.tsx",
+      ],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "discovery", "@test/discovery"),
+        workspace(baseDir, "bounded-contexts", "checkout", "@test/checkout"),
+        workspace(baseDir, "bounded-contexts", "inventory", "@test/inventory"),
+      ],
+    });
+
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout", "marketplace_seller"]);
+  });
+
+  it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/ordering/features/orders/domain/order.ts"],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "ordering", "@test/ordering"),
+        {
+          ...workspace(baseDir, "deployables", "marketplace-seed-testing", "@test/marketplace-seed-testing", {
+            "@test/ordering": "workspace:*",
+          }),
+          packageJson: {
+            name: "@test/marketplace-seed-testing",
+            dependencies: {
+              "@test/ordering": "workspace:*",
+            },
+            chaseSets: { testProfile: "db" },
+            scripts: { "test:db": "test:db" },
+          },
+        },
+      ],
+    });
+
+    expect(scope.affectedWorkspaces).toEqual(["@test/ordering", "@test/marketplace-seed-testing"]);
+    expect(scope.dbTestsRequired).toBe(true);
   });
 
   it("keeps workflow-only changes out of deployment", () => {

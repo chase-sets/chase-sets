@@ -3,6 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "chaseSets": {
+    "testProfile": "db"
+  },
+  "scripts": {
+    "test:db": "vitest run --config ./tests/vitest.config.mjs"
+  },
   "exports": {
     ".": "./index.ts"
   },

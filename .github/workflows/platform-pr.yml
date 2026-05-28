@@ -26,6 +26,8 @@ jobs:
       docker_image: ${{ steps.scope.outputs.docker_image }}
       docs_only: ${{ steps.scope.outputs.docs_only }}
       e2e_tests: ${{ steps.scope.outputs.e2e_tests }}
+      e2e_suites: ${{ steps.scope.outputs.e2e_suites }}
+      e2e_suites_json: ${{ steps.scope.outputs.e2e_suites_json }}
       local_checks: ${{ steps.scope.outputs.local_checks }}
       terraform: ${{ steps.scope.outputs.terraform }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
@@ -145,11 +147,15 @@ jobs:
         run: node ./scripts/run-workspaces.mjs test:db --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   e2e-tests:
-    name: E2E Tests
+    name: E2E Tests (${{ matrix.suite }})
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: change-scope
     if: needs['change-scope'].outputs.e2e_tests == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: ${{ fromJson(needs['change-scope'].outputs.e2e_suites_json) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -160,17 +166,86 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run marketplace e2e tests
-        run: pnpm run test:e2e
+      - name: Run marketplace e2e suite
+        run: pnpm run test:e2e:suite "${{ matrix.suite }}"
 
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-e2e-artifacts
+          name: playwright-${{ matrix.suite }}-artifacts
           path: |
             artifacts/playwright/report
             artifacts/playwright/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  coverage:
+    name: Coverage (non-blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    needs: change-scope
+    if: needs['change-scope'].outputs.local_checks == 'true'
+    continue-on-error: true
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Run affected fast coverage
+        run: |
+          set +e
+          timeout 8m node ./scripts/run-workspaces.mjs test --exclude-test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" -- --coverage --coverage.reporter=text --coverage.reporter=lcov
+          test_status=$?
+          if [ "$test_status" -ne 0 ]; then
+            echo "Non-DB coverage finished with status ${test_status}; keeping coverage non-blocking."
+          fi
+
+          timeout 8m node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" -- --coverage --coverage.reporter=text --coverage.reporter=lcov
+          unit_status=$?
+          if [ "$unit_status" -ne 0 ]; then
+            echo "DB-profile unit coverage finished with status ${unit_status}; keeping coverage non-blocking."
+          fi
+
+      - name: Run affected DB coverage
+        if: needs['change-scope'].outputs.db_tests == 'true'
+        run: |
+          set +e
+          timeout 8m node ./scripts/run-workspaces.mjs test:db --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" -- --coverage --coverage.reporter=text --coverage.reporter=lcov
+          db_status=$?
+          if [ "$db_status" -ne 0 ]; then
+            echo "DB coverage finished with status ${db_status}; keeping coverage non-blocking."
+          fi
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-artifacts
+          path: |
+            bounded-contexts/*/coverage
+            contracts/*/coverage
+            deployables/*/coverage
+            infrastructure/*/coverage
+            packages/*/coverage
           if-no-files-found: ignore
           retention-days: 7
 

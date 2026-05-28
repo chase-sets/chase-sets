@@ -3,15 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "chaseSets": {
-    "testProfile": "db"
-  },
-  "scripts": {
-    "test": "vitest run --config ./tests/vitest.config.mjs",
-    "test:fast": "vitest run --config ./tests/vitest.config.mjs --exclude tests/seed.test.ts",
-    "test:unit": "vitest run --config ./tests/vitest.config.mjs --exclude tests/seed.test.ts",
-    "test:db": "vitest run --config ./tests/vitest.config.mjs tests/seed.test.ts"
-  },
   "exports": {
     ".": "./index.ts",
     "./context": "./context.json",
@@ -34,9 +25,5 @@
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "hono": "^4.12.12"
-  },
-  "devDependencies": {
-    "@chase-sets/marketplace-seed-testing": "workspace:*",
-    "vitest": "^4.1.4"
   }
 }

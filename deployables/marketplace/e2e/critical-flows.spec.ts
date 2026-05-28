@@ -168,7 +168,7 @@ async function authenticateAccount(page: Page, testInfo: TestInfo) {
 }
 
 test.describe("marketplace critical flows", () => {
-  test("signed-out shoppers can browse, search, and reach auth entry points", async ({ page }) => {
+  test("signed-out shoppers can browse, search, and reach auth entry points @marketplace-browse", async ({ page }) => {
     await expectPageOk(page, "/search");
 
     const searchBox = page.getByRole("searchbox").first();
@@ -193,7 +193,7 @@ test.describe("marketplace critical flows", () => {
     await expect(page.getByText("Passkey").first()).toBeVisible();
   });
 
-  test("protected account routes preserve the requested return path", async ({ page }) => {
+  test("protected account routes preserve the requested return path @marketplace-account", async ({ page }) => {
     await page.goto("/account/listings");
     await expect(page).toHaveURL(/\/sign-in/);
 
@@ -202,7 +202,7 @@ test.describe("marketplace critical flows", () => {
     await expect(page.getByText(/^Sign in$/i).first()).toBeVisible();
   });
 
-  test("account can authenticate, review cart, and reach seller listings", async ({ page }, testInfo) => {
+  test("account can authenticate and review cart @marketplace-checkout", async ({ page }, testInfo) => {
     test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");
@@ -212,7 +212,9 @@ test.describe("marketplace critical flows", () => {
     await expectAccountRouteReady(page, accountCriticalRoutes[2]);
   });
 
-  test("signed-in account can reach critical marketplace commerce surfaces", async ({ page }, testInfo) => {
+  test("signed-in account can reach critical marketplace commerce surfaces @marketplace-seller", async ({
+    page,
+  }, testInfo) => {
     test.setTimeout(120_000);
 
     await page.goto("/sign-in?returnTo=%2Faccount%2Fcart");

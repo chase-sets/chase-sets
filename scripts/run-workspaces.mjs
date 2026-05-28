@@ -123,13 +123,7 @@ async function runWorkspace(workspace, options) {
   const { buildInvocation, passthroughArgs, run, scriptName, usePrefixedLogs } = options;
 
   console.log(`Running ${scriptName} in ${workspace.name}...`);
-  const invocation = buildInvocation([
-    "--filter",
-    workspace.name,
-    "run",
-    scriptName,
-    ...(passthroughArgs.length > 0 ? ["--", ...passthroughArgs] : []),
-  ]);
+  const invocation = buildInvocation(["--filter", workspace.name, "run", scriptName, ...passthroughArgs]);
   await run(invocation.command, invocation.args, {
     ...(usePrefixedLogs ? { prefix: workspace.name } : { stdio: "inherit" }),
   });
