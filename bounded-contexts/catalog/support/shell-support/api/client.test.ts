@@ -1,0 +1,160 @@
+import { describe, expect, it, vi } from "vitest";
+import { createCatalogApiClient } from "./client";
+
+describe("catalog API durable job client", () => {
+  it("reconnects job event streams with the last durable event id", async () => {
+    const completedResult = {
+      requested: 1,
+      imported: 1,
+      observed: 204,
+      reapplied: 0,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        sseResponse(
+          `id: 1
+event: status
+data: ${JSON.stringify(jobSnapshot({ status: "running", result: null }))}
+
+`,
+        ),
+      )
+      .mockResolvedValueOnce(
+        sseResponse(
+          `id: 2
+event: status
+data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResult }))}
+
+`,
+        ),
+      );
+    const progress = vi.fn();
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(
+      client.watchSourceObservationIntegrationJob("job_1", {
+        onProgress: progress,
+      }),
+    ).resolves.toEqual(completedResult);
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch.mock.calls[1][1]?.headers).toMatchObject({
+      "last-event-id": "1",
+    });
+    expect(progress).toHaveBeenCalledTimes(2);
+  });
+
+  it("imports a TCGdex set through an integration job and maps the completed result", async () => {
+    const completedResult = {
+      requested: 1,
+      imported: 1,
+      observed: 204,
+      reapplied: 0,
+      skipped: 0,
+      failed: 0,
+      outcomes: [
+        {
+          providerKey: "tcgdex",
+          languageCode: "en",
+          expansionId: "base1",
+          status: "imported",
+          observed: 204,
+          reapplied: 0,
+          reason: null,
+        },
+      ],
+    };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        jsonResponse({
+          jobId: "job_import",
+          action: "import",
+          scope: { provider: "tcgdex", language: "en", setId: "base1" },
+          status: "queued",
+          progress: jobProgress("queued"),
+          result: null,
+          errorMessage: null,
+          createdAt: "2026-05-28T00:00:00.000Z",
+          startedAt: null,
+          completedAt: null,
+          updatedAt: "2026-05-28T00:00:00.000Z",
+        }),
+      )
+      .mockResolvedValueOnce(
+        sseResponse(
+          `id: 1
+event: status
+data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResult }))}
+
+`,
+        ),
+      );
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(
+      client.importTcgdexSet<{ expansionId: string; languageCode: string; observed: number }>({
+        languageCode: "en",
+        expansionId: "base1",
+      }),
+    ).resolves.toEqual({
+      setId: "base1",
+      expansionId: "base1",
+      languageCode: "en",
+      observed: 204,
+      observationIds: [],
+    });
+
+    expect(String(fetch.mock.calls[0][0])).toBe("/api/catalog/source-observations/integration-jobs");
+    expect(fetch.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({
+        action: "import",
+        scope: { provider: "tcgdex", language: "en", setId: "base1" },
+      }),
+    );
+  });
+});
+
+function sseResponse(body: string): Response {
+  return new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/event-stream; charset=utf-8" },
+  });
+}
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 202,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function jobSnapshot(input: { status: "queued" | "running" | "completed" | "failed"; result: unknown }) {
+  return {
+    jobId: "job_1",
+    action: "import",
+    scope: { provider: "tcgdex", language: "en", setId: "base1" },
+    status: input.status,
+    progress: jobProgress(input.status === "completed" ? "completed" : "processing"),
+    result: input.result,
+    errorMessage: null,
+    createdAt: "2026-05-28T00:00:00.000Z",
+    startedAt: input.status === "queued" ? null : "2026-05-28T00:00:01.000Z",
+    completedAt: input.status === "completed" ? "2026-05-28T00:00:02.000Z" : null,
+    updatedAt: "2026-05-28T00:00:02.000Z",
+  };
+}
+
+function jobProgress(phase: string) {
+  return {
+    phase,
+    completed: phase === "queued" ? 0 : 1,
+    total: 1,
+    currentName: null,
+    status: phase === "completed" ? "imported" : null,
+  };
+}

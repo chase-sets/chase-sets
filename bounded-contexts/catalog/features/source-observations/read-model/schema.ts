@@ -76,4 +76,17 @@ CREATE INDEX IF NOT EXISTS catalog_source_observation_integration_jobs_status_id
   ON catalog_source_observation_integration_jobs (status, created_at);
 CREATE INDEX IF NOT EXISTS catalog_source_observation_integration_jobs_claim_idx
   ON catalog_source_observation_integration_jobs (claim_expires_at)
-  WHERE status = 'running';`;
+  WHERE status = 'running';
+
+CREATE TABLE IF NOT EXISTS catalog_source_observation_job_events (
+  job_kind text NOT NULL CHECK (job_kind IN ('bulk-review', 'integration')),
+  job_id text NOT NULL,
+  sequence bigint NOT NULL,
+  event_name text NOT NULL,
+  snapshot jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (job_kind, job_id, sequence)
+);
+
+CREATE INDEX IF NOT EXISTS catalog_source_observation_job_events_lookup_idx
+  ON catalog_source_observation_job_events (job_kind, job_id, sequence);`;

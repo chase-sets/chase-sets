@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { SourceObservationServices } from "./runtime";
@@ -45,52 +46,17 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
 
   app.post("/imports/tcgdex-set", async (c) => {
     const body = await c.req.json();
-    const result = await services.importTcgdexSet({
-      languageCode: String(body.languageCode ?? "en"),
-      setId: String(body.expansionId ?? body.setId ?? ""),
+    const job = await services.enqueueIntegrationJob({
+      action: "import",
+      scope: {
+        provider: "tcgdex",
+        language: String(body.languageCode ?? "en"),
+        setId: String(body.expansionId ?? body.setId ?? ""),
+      },
       context: c.get("context"),
     });
 
-    return c.json(result, 201);
-  });
-
-  app.post("/imports/tcgdex-set/progress", async (c) => {
-    const body = await c.req.json();
-    const context = c.get("context");
-    const encoder = new TextEncoder();
-
-    const stream = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        const write = (event: unknown) => {
-          controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-        };
-
-        try {
-          const result = await services.importTcgdexSet({
-            languageCode: String(body.languageCode ?? "en"),
-            setId: String(body.expansionId ?? body.setId ?? ""),
-            context,
-            onProgress: (progress) => write({ type: "progress", progress }),
-          });
-          write({ type: "result", result });
-        } catch (error) {
-          write({
-            type: "error",
-            message: error instanceof Error ? error.message : "TCGdex import failed.",
-          });
-        } finally {
-          controller.close();
-        }
-      },
-    });
-
-    return new Response(stream, {
-      status: 200,
-      headers: {
-        "content-type": "application/x-ndjson; charset=utf-8",
-        "cache-control": "no-store",
-      },
-    });
+    return c.json(job, 202);
   });
 
   app.get("/tcgdex/languages", async (c) => {
@@ -158,30 +124,6 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(job, 202);
   });
 
-  app.post("/reapply/progress", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      observationIds?: unknown;
-      scope?: unknown;
-    };
-    if (body.scope) {
-      const job = await services.enqueueIntegrationJob({
-        action: "reapply",
-        scope: promotionScopeToIntegrationScope(parsePromotionScope(body.scope)),
-        context: c.get("context"),
-      });
-
-      return streamIntegrationJobNdjson(services, job.jobId, "Source Observation reapply failed.", c.req.raw.signal);
-    }
-
-    const job = await services.enqueueBulkReviewJob({
-      action: "reapply",
-      observationIds: parseObservationIds(body.observationIds),
-      context: c.get("context"),
-    });
-
-    return streamBulkJobNdjson(services, job.jobId, "Source Observation reapply failed.", c.req.raw.signal);
-  });
-
   app.post("/bulk-promote/jobs", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
@@ -211,21 +153,6 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     });
 
     return c.json(job, 202);
-  });
-
-  app.post("/bulk-promote/progress", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      observationIds?: unknown;
-      scope?: unknown;
-    };
-    const job = await services.enqueueBulkReviewJob({
-      action: "promote",
-      observationIds: parseObservationIds(body.observationIds),
-      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
-      context: c.get("context"),
-    });
-
-    return streamBulkJobNdjson(services, job.jobId, "Bulk Source Observation promotion failed.", c.req.raw.signal);
   });
 
   app.post("/bulk-reject", async (c) => {
@@ -284,35 +211,6 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     return c.json(job, 202);
   });
 
-  app.post("/bulk-reject/progress", async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as {
-      observationIds?: unknown;
-      scope?: unknown;
-      reason?: unknown;
-    };
-    const reason = String(body.reason ?? "").trim();
-
-    if (!reason) {
-      return c.json(
-        {
-          error: t("catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason"),
-        },
-        400,
-      );
-    }
-
-    const context = c.get("context");
-    const job = await services.enqueueBulkReviewJob({
-      action: "reject",
-      observationIds: parseObservationIds(body.observationIds),
-      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
-      reason,
-      context,
-    });
-
-    return streamBulkJobNdjson(services, job.jobId, "Bulk Source Observation rejection failed.", c.req.raw.signal);
-  });
-
   app.get("/bulk-jobs/active", async (c) => {
     const items = await services.listActiveBulkReviewJobs({
       context: c.get("context"),
@@ -353,7 +251,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       );
     }
 
-    return streamBulkJobEvents(services, jobId, c.req.raw.signal);
+    return streamBulkJobEvents(services, jobId, c.req.raw);
   });
 
   app.post("/integration-jobs", async (c) => {
@@ -424,7 +322,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       );
     }
 
-    return streamIntegrationJobEvents(services, jobId, c.req.raw.signal);
+    return streamIntegrationJobEvents(services, jobId, c.req.raw);
   });
 
   app.get("/:id", async (c) => {
@@ -514,312 +412,30 @@ function parseObservationIds(input: unknown): string[] {
   return Array.isArray(input) ? input.map((observationId: unknown) => String(observationId)) : [];
 }
 
-function streamBulkJobNdjson(
-  services: SourceObservationServices,
-  jobId: string,
-  fallbackMessage: string,
-  signal?: AbortSignal,
-) {
-  const encoder = new TextEncoder();
-  let closed = false;
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const write = (event: unknown) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-      };
-      let lastProgress = "";
-
-      try {
-        for (;;) {
-          if (signal?.aborted || closed) {
-            break;
-          }
-
-          const job = await services.getBulkReviewJob(jobId);
-          if (!job) {
-            write({
-              type: "error",
-              message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
-            });
-            break;
-          }
-
-          const progressKey = JSON.stringify(job.progress);
-          if (progressKey !== lastProgress) {
-            write({ type: "progress", progress: job.progress, jobId });
-            lastProgress = progressKey;
-          }
-
-          if (job.status === "completed") {
-            if (job.result) {
-              write({ type: "result", result: job.result, jobId });
-            } else {
-              write({ type: "error", message: fallbackMessage, jobId });
-            }
-            break;
-          }
-
-          if (job.status === "failed") {
-            write({ type: "error", message: job.errorMessage ?? fallbackMessage, jobId });
-            break;
-          }
-
-          await sleep(500);
-        }
-      } finally {
-        controller.close();
-      }
-    },
-    cancel() {
-      closed = true;
-    },
-  });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "content-type": "application/x-ndjson; charset=utf-8",
-      "cache-control": "no-store",
-    },
+function streamBulkJobEvents(services: SourceObservationServices, jobId: string, request: Request) {
+  return createDurableJobEventStream({
+    request,
+    signal: request.signal,
+    loadEvents: async (afterSequence) =>
+      (await services.listBulkReviewJobEvents(jobId, afterSequence)).map((event) => ({
+        sequence: event.sequence,
+        eventName: event.eventName,
+        data: event.job,
+      })),
+    isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
   });
 }
 
-function streamReapplyNdjson(
-  run: (
-    onProgress: NonNullable<Parameters<SourceObservationServices["reapplyObservationScope"]>[0]["onProgress"]>,
-  ) => Promise<unknown>,
-  signal?: AbortSignal,
-) {
-  const encoder = new TextEncoder();
-  let closed = false;
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const write = (event: unknown) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-      };
-
-      try {
-        const result = await run((progress) => {
-          if (!closed && !signal?.aborted) {
-            write({ type: "progress", progress });
-          }
-        });
-        if (!closed && !signal?.aborted) {
-          write({ type: "result", result });
-        }
-      } catch (error) {
-        if (!closed && !signal?.aborted) {
-          write({
-            type: "error",
-            message: error instanceof Error ? error.message : "Source Observation reapply failed.",
-          });
-        }
-      } finally {
-        controller.close();
-      }
-    },
-    cancel() {
-      closed = true;
-    },
+function streamIntegrationJobEvents(services: SourceObservationServices, jobId: string, request: Request) {
+  return createDurableJobEventStream({
+    request,
+    signal: request.signal,
+    loadEvents: async (afterSequence) =>
+      (await services.listIntegrationJobEvents(jobId, afterSequence)).map((event) => ({
+        sequence: event.sequence,
+        eventName: event.eventName,
+        data: event.job,
+      })),
+    isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
   });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "content-type": "application/x-ndjson; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
-}
-
-function streamIntegrationJobNdjson(
-  services: SourceObservationServices,
-  jobId: string,
-  fallbackMessage: string,
-  signal?: AbortSignal,
-) {
-  const encoder = new TextEncoder();
-  let closed = false;
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const write = (event: unknown) => {
-        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
-      };
-      let lastProgress = "";
-
-      try {
-        for (;;) {
-          if (signal?.aborted || closed) {
-            break;
-          }
-
-          const job = await services.getIntegrationJob(jobId);
-          if (!job) {
-            write({
-              type: "error",
-              message: t("catalog.features.sourceObservations.api.route.integration.job.not.found"),
-              jobId,
-            });
-            break;
-          }
-
-          const progressKey = JSON.stringify(job.progress);
-          if (progressKey !== lastProgress) {
-            write({ type: "progress", progress: job.progress, jobId });
-            lastProgress = progressKey;
-          }
-
-          if (job.status === "completed") {
-            if (job.result) {
-              write({ type: "result", result: job.result, jobId });
-            } else {
-              write({ type: "error", message: fallbackMessage, jobId });
-            }
-            break;
-          }
-
-          if (job.status === "failed") {
-            write({ type: "error", message: job.errorMessage ?? fallbackMessage, jobId });
-            break;
-          }
-
-          await sleep(500);
-        }
-      } finally {
-        controller.close();
-      }
-    },
-    cancel() {
-      closed = true;
-    },
-  });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "content-type": "application/x-ndjson; charset=utf-8",
-      "cache-control": "no-store",
-    },
-  });
-}
-
-function streamBulkJobEvents(services: SourceObservationServices, jobId: string, signal?: AbortSignal) {
-  const encoder = new TextEncoder();
-  let closed = false;
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const write = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-      };
-      let lastStatus = "";
-
-      try {
-        for (;;) {
-          if (signal?.aborted || closed) {
-            break;
-          }
-
-          const job = await services.getBulkReviewJob(jobId);
-          if (!job) {
-            write("error", {
-              message: t("catalog.features.sourceObservations.api.route.bulk.job.not.found"),
-              jobId,
-            });
-            break;
-          }
-
-          const statusKey = JSON.stringify(job);
-          if (statusKey !== lastStatus) {
-            write("status", job);
-            lastStatus = statusKey;
-          }
-
-          if (job.status === "completed" || job.status === "failed") {
-            break;
-          }
-
-          await sleep(500);
-        }
-      } finally {
-        controller.close();
-      }
-    },
-    cancel() {
-      closed = true;
-    },
-  });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-store",
-      connection: "keep-alive",
-    },
-  });
-}
-
-function streamIntegrationJobEvents(services: SourceObservationServices, jobId: string, signal?: AbortSignal) {
-  const encoder = new TextEncoder();
-  let closed = false;
-
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      const write = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
-      };
-      let lastStatus = "";
-
-      try {
-        for (;;) {
-          if (signal?.aborted || closed) {
-            break;
-          }
-
-          const job = await services.getIntegrationJob(jobId);
-          if (!job) {
-            write("error", {
-              message: t("catalog.features.sourceObservations.api.route.integration.job.not.found"),
-              jobId,
-            });
-            break;
-          }
-
-          const statusKey = JSON.stringify(job);
-          if (statusKey !== lastStatus) {
-            write("status", job);
-            lastStatus = statusKey;
-          }
-
-          if (job.status === "completed" || job.status === "failed") {
-            break;
-          }
-
-          await sleep(500);
-        }
-      } finally {
-        controller.close();
-      }
-    },
-    cancel() {
-      closed = true;
-    },
-  });
-
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "content-type": "text/event-stream; charset=utf-8",
-      "cache-control": "no-store",
-      connection: "keep-alive",
-    },
-  });
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

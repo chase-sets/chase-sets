@@ -557,6 +557,33 @@ describe("source observation runtime", () => {
     expect(harness.activeLookupValues[1]).toBe(JSON.stringify({ provider: "tcgdex", language: "en" }));
   });
 
+  it("records a durable status event when enqueueing a provider integration job", async () => {
+    const harness = createIntegrationJobDedupeHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const job = await services.enqueueIntegrationJob({
+      action: "import",
+      scope: { provider: "tcgdex", language: "en", setId: "base1" },
+      context,
+    });
+
+    expect(harness.jobEvents).toEqual([
+      {
+        jobKind: "integration",
+        jobId: job.jobId,
+        snapshot: expect.objectContaining({
+          jobId: job.jobId,
+          action: "import",
+          status: "queued",
+        }),
+      },
+    ]);
+  });
+
   it("returns an empty active integration job list when request context is missing", async () => {
     const harness = createIntegrationJobDedupeHarness();
     const services = createSourceObservationRuntime(
@@ -618,6 +645,7 @@ function pokemonObservation(input: {
 
 function createIntegrationJobDedupeHarness(input: { existingJob?: Record<string, unknown> } = {}) {
   const insertedJobs: Record<string, unknown>[] = [];
+  const jobEvents: Record<string, unknown>[] = [];
   let queryCount = 0;
   let activeLookupValues: readonly unknown[] = [];
 
@@ -650,6 +678,15 @@ function createIntegrationJobDedupeHarness(input: { existingJob?: Record<string,
           return { rowCount: 1, rows: [] as T[] };
         }
 
+        if (sql.includes("INSERT INTO catalog_source_observation_job_events")) {
+          jobEvents.push({
+            jobKind: values[0],
+            jobId: values[1],
+            snapshot: JSON.parse(String(values[2])) as Record<string, unknown>,
+          });
+          return { rowCount: 1, rows: [] as T[] };
+        }
+
         if (sql.includes("FROM catalog_source_observation_integration_jobs") && sql.includes("WHERE job_id = $1")) {
           const row = insertedJobs.find((job) => job.job_id === values[0]);
           return {
@@ -675,6 +712,7 @@ function createIntegrationJobDedupeHarness(input: { existingJob?: Record<string,
   return {
     deps,
     insertedJobs,
+    jobEvents,
     get activeLookupValues() {
       return activeLookupValues;
     },

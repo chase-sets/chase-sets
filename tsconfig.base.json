@@ -339,6 +339,9 @@
       "@chase-sets/platform-runtime/control-plane": [
         "./infrastructure/platform-runtime/control-plane.ts"
       ],
+      "@chase-sets/platform-runtime/durable-job-events": [
+        "./infrastructure/platform-runtime/durable-job-events.ts"
+      ],
       "@chase-sets/platform-runtime/health": [
         "./infrastructure/platform-runtime/health.ts"
       ],

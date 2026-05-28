@@ -63,6 +63,8 @@ The persisted job record owns:
 
 The API exposes job start, status, and event-stream routes. Any API instance can serve status for a job because the status is stored in the Catalog schema. Disconnecting from the status stream stops only that stream; it does not cancel the worker-owned job. Operators can reconnect by job ID and continue reading the latest status.
 
+Every visible job transition also appends a Catalog-owned job status event with a monotonically increasing sequence. Job event streams emit standard SSE frames with `id`, `event: status`, and the job snapshot as `data`. Clients reconnect with `Last-Event-ID`; API instances replay events after that sequence from Catalog storage. Request-tied NDJSON progress streams are retired and guarded by the structure check.
+
 Workers process long-running jobs in bounded turns. Each turn claims one job, processes a small batch, persists the mixed outcomes and progress, releases the claim, and requeues unfinished work. This makes progress durable across frequent infrastructure deployments: a replacement worker continues from the persisted outcomes instead of restarting the full selection. Filter-scoped jobs re-resolve the current eligible scope each turn while preserving completed outcomes; explicit-ID jobs skip IDs already represented in the persisted result.
 
 ## Realtime Projection Refresh

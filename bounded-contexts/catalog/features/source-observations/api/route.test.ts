@@ -140,15 +140,14 @@ describe("source observation routes", () => {
   });
 
   it("accepts TCGdex expansion ID as the Catalog-facing import request field", async () => {
-    const importTcgdexSet = vi.fn(async () => ({
-      setId: "base1",
-      expansionId: "base1",
-      languageCode: "en",
-      observed: 102,
-      observationIds: [],
-    }));
+    const job = integrationJobFixture({
+      jobId: "job_import_base1",
+      action: "import",
+      scope: { provider: "tcgdex", language: "en", setId: "base1" },
+    });
+    const enqueueIntegrationJob = vi.fn(async () => job);
     const services = {
-      importTcgdexSet,
+      enqueueIntegrationJob,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -158,69 +157,62 @@ describe("source observation routes", () => {
       headers: { "content-type": "application/json" },
     });
 
-    expect(response.status).toBe(201);
-    expect(importTcgdexSet).toHaveBeenCalledWith({
-      languageCode: "en",
-      setId: "base1",
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({
+      jobId: "job_import_base1",
+      action: "import",
+      status: "queued",
+    });
+    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
+      action: "import",
+      scope: {
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
       context,
     });
   });
 
-  it("streams TCGdex import progress events", async () => {
-    const importTcgdexSet = vi.fn(async (input: { onProgress?: (progress: unknown) => void }) => {
-      input.onProgress?.({
-        phase: "fetching",
+  it("streams TCGdex import job status events", async () => {
+    const job = integrationJobFixture({
+      jobId: "job_import_base1",
+      action: "import",
+      scope: { provider: "tcgdex", language: "en", setId: "base1" },
+      status: "completed",
+      progress: {
+        phase: "completed",
         completed: 1,
-        total: 2,
-        currentName: "Bulbasaur",
-      });
-
-      return {
-        setId: "base1",
-        expansionId: "base1",
-        languageCode: "en",
+        total: 1,
+        currentName: null,
+        status: "imported",
+      },
+      result: {
+        requested: 1,
+        imported: 1,
         observed: 2,
-        observationIds: ["obs_1", "obs_2"],
-      };
+        reapplied: 0,
+        skipped: 0,
+        failed: 0,
+        outcomes: [],
+      },
     });
+    const getIntegrationJob = vi.fn(async () => job);
+    const listIntegrationJobEvents = vi.fn(async () => [jobEvent(job)]);
     const services = {
-      importTcgdexSet,
+      getIntegrationJob,
+      listIntegrationJobEvents,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
-    const response = await app.request("/source-observations/imports/tcgdex-set/progress", {
-      method: "POST",
-      body: JSON.stringify({ languageCode: "en", expansionId: "base1" }),
-      headers: { "content-type": "application/json" },
-    });
+    const response = await app.request("/source-observations/integration-jobs/job_import_base1/events");
 
     expect(response.status).toBe(200);
-    const events = (await response.text())
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-
-    expect(events).toEqual([
-      {
-        type: "progress",
-        progress: {
-          phase: "fetching",
-          completed: 1,
-          total: 2,
-          currentName: "Bulbasaur",
-        },
-      },
-      {
-        type: "result",
-        result: {
-          setId: "base1",
-          expansionId: "base1",
-          languageCode: "en",
-          observed: 2,
-          observationIds: ["obs_1", "obs_2"],
-        },
-      },
-    ]);
+    const text = await response.text();
+    expect(text).toContain("id: 1");
+    expect(text).toContain("event: status");
+    expect(readSseData(text)).toEqual([job]);
+    expect(listIntegrationJobEvents).toHaveBeenCalledWith("job_import_base1", 0);
   });
 
   it("lists TCGdex metadata for language, series, and expansion selectors", async () => {
@@ -373,8 +365,10 @@ describe("source observation routes", () => {
   it("streams provider integration job status events until completion", async () => {
     const completedJob = integrationJob({ status: "completed" });
     const getIntegrationJob = vi.fn(async () => completedJob);
+    const listIntegrationJobEvents = vi.fn(async () => [jobEvent(completedJob)]);
     const services = {
       getIntegrationJob,
+      listIntegrationJobEvents,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
@@ -382,10 +376,12 @@ describe("source observation routes", () => {
 
     expect(response.status).toBe(200);
     const events = await response.text();
+    expect(events).toContain("id: 1");
     expect(events).toContain("event: status");
     expect(events).toContain('"jobId":"job_integration"');
     expect(events).toContain('"status":"completed"');
     expect(getIntegrationJob).toHaveBeenCalledWith("job_integration");
+    expect(listIntegrationJobEvents).toHaveBeenCalledWith("job_integration", 0);
   });
 
   it("enqueues bulk promotion jobs for observations matching an explicit filter scope", async () => {
@@ -509,7 +505,7 @@ describe("source observation routes", () => {
     });
   });
 
-  it("streams durable reapply job progress events", async () => {
+  it("streams durable reapply job status events", async () => {
     const job = integrationJobFixture({
       jobId: "job_reapply_progress",
       action: "reapply",
@@ -532,63 +528,21 @@ describe("source observation routes", () => {
         outcomes: [],
       },
     });
-    const enqueueIntegrationJob = vi.fn(async () => job);
     const getIntegrationJob = vi.fn(async () => job);
+    const listIntegrationJobEvents = vi.fn(async () => [jobEvent(job)]);
     const services = {
-      enqueueIntegrationJob,
       getIntegrationJob,
+      listIntegrationJobEvents,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
-    const response = await app.request("/source-observations/reapply/progress", {
-      method: "POST",
-      body: JSON.stringify({
-        scope: { source: "tcgdex", language: "en", setId: "base1" },
-      }),
-      headers: { "content-type": "application/json" },
-    });
+    const response = await app.request("/source-observations/integration-jobs/job_reapply_progress/events");
 
     expect(response.status).toBe(200);
-    const events = (await response.text())
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-
-    expect(events).toEqual([
-      {
-        type: "progress",
-        progress: {
-          phase: "processing",
-          completed: 1,
-          total: 2,
-          currentName: "Bulbasaur",
-          status: "reapplied",
-        },
-        jobId: "job_reapply_progress",
-      },
-      {
-        type: "result",
-        result: {
-          requested: 2,
-          imported: 0,
-          observed: 0,
-          reapplied: 1,
-          skipped: 1,
-          failed: 0,
-          outcomes: [],
-        },
-        jobId: "job_reapply_progress",
-      },
-    ]);
-    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
-      action: "reapply",
-      scope: {
-        provider: "tcgdex",
-        language: "en",
-        setId: "base1",
-      },
-      context,
-    });
+    const text = await response.text();
+    expect(text).toContain("id: 1");
+    expect(readSseData(text)).toEqual([job]);
+    expect(listIntegrationJobEvents).toHaveBeenCalledWith("job_reapply_progress", 0);
   });
 
   it("enqueues bulk promotion jobs for explicit observation ids from the request body", async () => {
@@ -623,7 +577,7 @@ describe("source observation routes", () => {
     });
   });
 
-  it("streams bulk promotion progress events", async () => {
+  it("streams bulk promotion job status events", async () => {
     const job = {
       jobId: "job_1",
       action: "promote",
@@ -652,64 +606,21 @@ describe("source observation routes", () => {
       completedAt: "2026-05-21T00:00:02.000Z",
       updatedAt: "2026-05-21T00:00:02.000Z",
     } as const;
-    const enqueueBulkReviewJob = vi.fn(async () => job);
     const getBulkReviewJob = vi.fn(async () => job);
+    const listBulkReviewJobEvents = vi.fn(async () => [jobEvent(job)]);
     const services = {
-      enqueueBulkReviewJob,
       getBulkReviewJob,
+      listBulkReviewJobEvents,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
-    const response = await app.request("/source-observations/bulk-promote/progress", {
-      method: "POST",
-      body: JSON.stringify({
-        scope: { status: "observed", source: "tcgdex", language: "en", setId: "base1" },
-      }),
-      headers: { "content-type": "application/json" },
-    });
+    const response = await app.request("/source-observations/bulk-jobs/job_1/events");
 
     expect(response.status).toBe(200);
-    const events = (await response.text())
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-
-    expect(events).toEqual([
-      {
-        type: "progress",
-        progress: {
-          phase: "processing",
-          completed: 1,
-          total: 2,
-          currentName: "Bulbasaur",
-          status: "promoted",
-        },
-        jobId: "job_1",
-      },
-      {
-        type: "result",
-        result: {
-          requested: 2,
-          promoted: 1,
-          skipped: 1,
-          failed: 0,
-          outcomes: [],
-        },
-        jobId: "job_1",
-      },
-    ]);
-    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
-      action: "promote",
-      observationIds: [],
-      scope: {
-        search: undefined,
-        status: "observed",
-        provider: "tcgdex",
-        language: "en",
-        setId: "base1",
-      },
-      context,
-    });
+    const text = await response.text();
+    expect(text).toContain("id: 1");
+    expect(readSseData(text)).toEqual([job]);
+    expect(listBulkReviewJobEvents).toHaveBeenCalledWith("job_1", 0);
   });
 
   it("requires a reason for bulk rejection", async () => {
@@ -808,7 +719,7 @@ describe("source observation routes", () => {
     });
   });
 
-  it("streams bulk rejection progress events", async () => {
+  it("streams bulk rejection job status events", async () => {
     const job = {
       jobId: "job_2",
       action: "reject",
@@ -838,61 +749,21 @@ describe("source observation routes", () => {
       completedAt: "2026-05-21T00:00:02.000Z",
       updatedAt: "2026-05-21T00:00:02.000Z",
     } as const;
-    const enqueueBulkReviewJob = vi.fn(async () => job);
     const getBulkReviewJob = vi.fn(async () => job);
+    const listBulkReviewJobEvents = vi.fn(async () => [jobEvent(job)]);
     const services = {
-      enqueueBulkReviewJob,
       getBulkReviewJob,
+      listBulkReviewJobEvents,
     } as unknown as SourceObservationServices;
     const app = buildApp(services);
 
-    const response = await app.request("/source-observations/bulk-reject/progress", {
-      method: "POST",
-      body: JSON.stringify({
-        observationIds: ["obs_1"],
-        reason: "Duplicate provider row.",
-      }),
-      headers: { "content-type": "application/json" },
-    });
+    const response = await app.request("/source-observations/bulk-jobs/job_2/events");
 
     expect(response.status).toBe(200);
-    const events = (await response.text())
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line));
-
-    expect(events).toEqual([
-      {
-        type: "progress",
-        progress: {
-          phase: "processing",
-          completed: 1,
-          total: 1,
-          currentName: "Ivysaur",
-          status: "rejected",
-        },
-        jobId: "job_2",
-      },
-      {
-        type: "result",
-        result: {
-          requested: 1,
-          promoted: 0,
-          rejected: 1,
-          skipped: 0,
-          failed: 0,
-          outcomes: [],
-        },
-        jobId: "job_2",
-      },
-    ]);
-    expect(enqueueBulkReviewJob).toHaveBeenCalledWith({
-      action: "reject",
-      observationIds: ["obs_1"],
-      scope: undefined,
-      reason: "Duplicate provider row.",
-      context,
-    });
+    const text = await response.text();
+    expect(text).toContain("id: 1");
+    expect(readSseData(text)).toEqual([job]);
+    expect(listBulkReviewJobEvents).toHaveBeenCalledWith("job_2", 0);
   });
 
   it("lists active bulk review jobs for the current request context", async () => {
@@ -946,6 +817,25 @@ describe("source observation routes", () => {
     expect(listActiveBulkReviewJobs).toHaveBeenCalledWith({ context });
   });
 });
+
+function jobEvent<TJob>(job: TJob, sequence = 1) {
+  return {
+    sequence,
+    eventName: "status" as const,
+    job,
+    createdAt: "2026-05-28T00:00:00.000Z",
+  };
+}
+
+function readSseData(text: string): unknown[] {
+  return text
+    .split("\n\n")
+    .map((frame) => frame.trim())
+    .filter(Boolean)
+    .map((frame) => frame.split("\n").find((line) => line.startsWith("data:")))
+    .filter((line): line is string => Boolean(line))
+    .map((line) => JSON.parse(line.slice("data:".length).trim()));
+}
 
 function integrationJob(input: { status: "queued" | "running" | "completed" | "failed" }) {
   return integrationJobFixture({

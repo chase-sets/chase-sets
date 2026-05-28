@@ -81,6 +81,36 @@ export type CatalogIntegrationJob<T = unknown> = Readonly<{
   updatedAt: string;
 }>;
 
+type CatalogIntegrationJobOutcome = Readonly<{
+  providerKey: string;
+  languageCode: string;
+  expansionId: string | null;
+  status: "imported" | "reapplied" | "skipped" | "failed";
+  observed: number;
+  reapplied: number;
+  reason: string | null;
+}>;
+
+type CatalogSourceObservationIntegrationJobResult = Readonly<{
+  requested: number;
+  imported: number;
+  observed: number;
+  reapplied: number;
+  skipped: number;
+  failed: number;
+  outcomes: readonly CatalogIntegrationJobOutcome[];
+}>;
+
+type CatalogTcgdexSetImportResult = Readonly<{
+  setId: string;
+  expansionId: string;
+  languageCode: string;
+  observed: number;
+  observationIds: readonly string[];
+}>;
+
+type CatalogIntegrationJobScopeInput = Readonly<Record<string, string | undefined>>;
+
 function queryFromString(query: string) {
   return Object.fromEntries(new URLSearchParams(query).entries());
 }
@@ -958,21 +988,24 @@ export function createCatalogApiClient({
       return parseJsonResponse<T>(response);
     },
     async importTcgdexSet<T>(body: unknown, options: CatalogImportProgressOptions = {}): Promise<T> {
-      if (options.onProgress) {
-        return streamImportTcgdexSet<T>({
-          baseUrl,
-          fetch: configuredFetch,
-          headers,
-          body,
-          onProgress: options.onProgress,
-        });
-      }
-
-      const response = await client["source-observations"].imports["tcgdex-set"].$post({
-        json: body,
-        header: headers,
+      const scope = tcgdexImportScope(body);
+      const job = await startIntegrationJob<CatalogSourceObservationIntegrationJobResult>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        action: "import",
+        scope,
       });
-      return parseJsonResponse<T>(response);
+      const result = await streamIntegrationJob<CatalogSourceObservationIntegrationJobResult>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        jobId: job.jobId,
+        onProgress: options.onProgress ?? (() => {}),
+        errorMessage: "TCGdex import failed.",
+      });
+
+      return integrationImportResultToTcgdexSetResult(scope, result) as T;
     },
     async listTcgdexLanguages<T>(): Promise<T> {
       const response = await client["source-observations"].tcgdex.languages.$get({
@@ -1073,13 +1106,22 @@ export function createCatalogApiClient({
       options: CatalogBulkActionProgressOptions = {},
     ): Promise<T> {
       if (options.onProgress) {
-        return streamSourceObservationReapply<T>({
+        const job = await startBulkJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
+          path: "/source-observations/reapply",
           body: { observationIds },
+          errorMessage: "Source Observation reapply failed.",
+        });
+        return streamBulkJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
           onProgress: options.onProgress,
           signal: options.signal,
+          errorMessage: "Source Observation reapply failed.",
         });
       }
 
@@ -1094,13 +1136,21 @@ export function createCatalogApiClient({
       options: CatalogBulkActionProgressOptions = {},
     ): Promise<T> {
       if (options.onProgress) {
-        return streamSourceObservationReapply<T>({
+        const job = await startIntegrationJob<T>({
           baseUrl,
           fetch: configuredFetch,
           headers,
-          body: { scope },
+          action: "reapply",
+          scope,
+        });
+        return streamIntegrationJob<T>({
+          baseUrl,
+          fetch: configuredFetch,
+          headers,
+          jobId: job.jobId,
           onProgress: options.onProgress,
           signal: options.signal,
+          errorMessage: "Source Observation reapply failed.",
         });
       }
 
@@ -1245,157 +1295,6 @@ export function createCatalogApiClient({
 
 export const api = createCatalogApiClient();
 
-async function streamImportTcgdexSet<T>(input: {
-  baseUrl: string;
-  fetch: typeof globalThis.fetch;
-  headers?: HeadersInit;
-  body: unknown;
-  onProgress: (progress: CatalogImportProgress) => void;
-}): Promise<T> {
-  const response = await input.fetch(
-    `${input.baseUrl.replace(/\/$/, "")}/source-observations/imports/tcgdex-set/progress`,
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...headersToRecord(input.headers),
-      },
-      body: JSON.stringify(input.body),
-    },
-  );
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new ApiError(response.status, errorBody);
-  }
-
-  if (!response.body) {
-    throw new Error("TCGdex import progress stream was not available.");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let result: T | null = null;
-
-  for (;;) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.trim()) {
-        continue;
-      }
-
-      const event = JSON.parse(line) as {
-        type?: string;
-        progress?: CatalogImportProgress;
-        result?: T;
-        message?: string;
-      };
-
-      if (event.type === "progress" && event.progress) {
-        input.onProgress(event.progress);
-      }
-
-      if (event.type === "result" && event.result) {
-        result = event.result;
-      }
-
-      if (event.type === "error") {
-        throw new Error(event.message ?? "TCGdex import failed.");
-      }
-    }
-
-    if (done) {
-      break;
-    }
-  }
-
-  if (!result) {
-    throw new Error("TCGdex import finished without a result.");
-  }
-
-  return result;
-}
-
-async function streamSourceObservationReapply<T>(input: {
-  baseUrl: string;
-  fetch: typeof globalThis.fetch;
-  headers?: HeadersInit;
-  body: unknown;
-  onProgress: (progress: CatalogBulkActionProgress) => void;
-  signal?: AbortSignal;
-}): Promise<T> {
-  const response = await input.fetch(`${input.baseUrl.replace(/\/$/, "")}/source-observations/reapply/progress`, {
-    method: "POST",
-    signal: input.signal,
-    headers: {
-      "content-type": "application/json",
-      ...headersToRecord(input.headers),
-    },
-    body: JSON.stringify(input.body),
-  });
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new ApiError(response.status, errorBody);
-  }
-
-  if (!response.body) {
-    throw new Error("Source Observation reapply progress stream was not available.");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let result: T | null = null;
-
-  for (;;) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.trim()) {
-        continue;
-      }
-
-      const event = JSON.parse(line) as {
-        type?: string;
-        progress?: CatalogBulkActionProgress;
-        result?: T;
-        message?: string;
-      };
-
-      if (event.type === "progress" && event.progress) {
-        input.onProgress(event.progress);
-      }
-
-      if (event.type === "result" && event.result) {
-        result = event.result;
-      }
-
-      if (event.type === "error") {
-        throw new Error(event.message ?? "Source Observation reapply failed.");
-      }
-    }
-
-    if (done) {
-      break;
-    }
-  }
-
-  if (!result) {
-    throw new Error("Source Observation reapply finished without a result.");
-  }
-
-  return result;
-}
-
 async function startBulkJob<T>(input: {
   baseUrl: string;
   path: string;
@@ -1421,6 +1320,30 @@ async function startBulkJob<T>(input: {
   return response.json() as Promise<CatalogBulkReviewJob<T>>;
 }
 
+async function startIntegrationJob<T>(input: {
+  baseUrl: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  action: "import" | "reapply";
+  scope: unknown;
+}): Promise<CatalogIntegrationJob<T>> {
+  const response = await input.fetch(`${input.baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...headersToRecord(input.headers),
+    },
+    body: JSON.stringify({ action: input.action, scope: input.scope }),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.json().catch(() => null);
+    throw new ApiError(response.status, errorBody);
+  }
+
+  return response.json() as Promise<CatalogIntegrationJob<T>>;
+}
+
 async function streamBulkJob<T>(input: {
   baseUrl: string;
   fetch: typeof globalThis.fetch;
@@ -1430,69 +1353,10 @@ async function streamBulkJob<T>(input: {
   signal?: AbortSignal;
   errorMessage: string;
 }): Promise<T> {
-  const response = await input.fetch(
-    `${input.baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/${encodeURIComponent(input.jobId)}/events`,
-    {
-      method: "GET",
-      signal: input.signal,
-      headers: {
-        accept: "text/event-stream",
-        ...headersToRecord(input.headers),
-      },
-    },
-  );
-
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new ApiError(response.status, errorBody);
-  }
-
-  if (!response.body) {
-    throw new Error(`${input.errorMessage} Status stream was not available.`);
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let result: T | null = null;
-
-  for (;;) {
-    const { value, done } = await reader.read();
-    buffer += decoder.decode(value ?? new Uint8Array(), { stream: !done });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-
-    for (const line of lines) {
-      if (!line.trim()) {
-        continue;
-      }
-
-      if (!line.startsWith("data:")) {
-        continue;
-      }
-
-      const job = JSON.parse(line.slice("data:".length).trim()) as CatalogBulkReviewJob<T>;
-      input.onProgress(job.progress);
-
-      if (job.status === "completed" && job.result) {
-        result = job.result;
-      }
-
-      if (job.status === "failed") {
-        throw new Error(job.errorMessage ?? input.errorMessage);
-      }
-    }
-
-    if (done) {
-      break;
-    }
-  }
-
-  if (!result) {
-    throw new Error(`${input.errorMessage} Finished without a result.`);
-  }
-
-  return result;
+  return streamJobEvents<CatalogBulkReviewJob<T>, T>({
+    ...input,
+    url: `${input.baseUrl.replace(/\/$/, "")}/source-observations/bulk-jobs/${encodeURIComponent(input.jobId)}/events`,
+  });
 }
 
 async function streamIntegrationJob<T>(input: {
@@ -1504,31 +1368,122 @@ async function streamIntegrationJob<T>(input: {
   signal?: AbortSignal;
   errorMessage: string;
 }): Promise<T> {
-  const response = await input.fetch(
-    `${input.baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs/${encodeURIComponent(input.jobId)}/events`,
-    {
+  return streamJobEvents<CatalogIntegrationJob<T>, T>({
+    ...input,
+    url: `${input.baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs/${encodeURIComponent(input.jobId)}/events`,
+  });
+}
+
+async function streamJobEvents<
+  TJob extends Readonly<{
+    status: "queued" | "running" | "completed" | "failed";
+    progress: CatalogBulkActionProgress;
+    result: TResult | null;
+    errorMessage: string | null;
+  }>,
+  TResult,
+>(input: {
+  url: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  onProgress: (progress: CatalogBulkActionProgress) => void;
+  signal?: AbortSignal;
+  errorMessage: string;
+}): Promise<TResult> {
+  let lastEventId: string | null = null;
+
+  for (;;) {
+    if (input.signal?.aborted) {
+      throw new DOMException("Job status stream was aborted.", "AbortError");
+    }
+
+    const requestHeaders: Record<string, string> = {
+      accept: "text/event-stream",
+      ...headersToRecord(input.headers),
+    };
+    if (lastEventId) {
+      requestHeaders["last-event-id"] = lastEventId;
+    }
+
+    const response = await input.fetch(input.url, {
       method: "GET",
       signal: input.signal,
-      headers: {
-        accept: "text/event-stream",
-        ...headersToRecord(input.headers),
+      headers: requestHeaders,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      throw new ApiError(response.status, errorBody);
+    }
+
+    if (!response.body) {
+      throw new Error(`${input.errorMessage} Status stream was not available.`);
+    }
+
+    const result = await readJobEventStream<TJob, TResult>({
+      body: response.body,
+      onProgress: input.onProgress,
+      setLastEventId: (eventId) => {
+        lastEventId = eventId;
       },
-    },
-  );
+      errorMessage: input.errorMessage,
+    });
 
-  if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new ApiError(response.status, errorBody);
+    if (result.done) {
+      return result.result;
+    }
+
+    await waitForJobReconnect(750, input.signal);
   }
+}
 
-  if (!response.body) {
-    throw new Error(`${input.errorMessage} Status stream was not available.`);
-  }
-
-  const reader = response.body.getReader();
+async function readJobEventStream<
+  TJob extends Readonly<{
+    status: "queued" | "running" | "completed" | "failed";
+    progress: CatalogBulkActionProgress;
+    result: TResult | null;
+    errorMessage: string | null;
+  }>,
+  TResult,
+>(input: {
+  body: ReadableStream<Uint8Array>;
+  onProgress: (progress: CatalogBulkActionProgress) => void;
+  setLastEventId: (eventId: string) => void;
+  errorMessage: string;
+}): Promise<Readonly<{ done: true; result: TResult } | { done: false }>> {
+  const reader = input.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  let result: T | null = null;
+  let eventId: string | null = null;
+  let dataLines: string[] = [];
+
+  const dispatch = (): Readonly<{ done: true; result: TResult } | { done: false }> | null => {
+    if (eventId) {
+      input.setLastEventId(eventId);
+    }
+    if (dataLines.length === 0) {
+      eventId = null;
+      return null;
+    }
+
+    const job = JSON.parse(dataLines.join("\n")) as TJob;
+    eventId = null;
+    dataLines = [];
+    input.onProgress(job.progress);
+
+    if (job.status === "completed") {
+      if (!job.result) {
+        throw new Error(`${input.errorMessage} Finished without a result.`);
+      }
+      return { done: true, result: job.result };
+    }
+
+    if (job.status === "failed") {
+      throw new Error(job.errorMessage ?? input.errorMessage);
+    }
+
+    return null;
+  };
 
   for (;;) {
     const { value, done } = await reader.read();
@@ -1536,33 +1491,85 @@ async function streamIntegrationJob<T>(input: {
     const lines = buffer.split("\n");
     buffer = lines.pop() ?? "";
 
-    for (const line of lines) {
-      if (!line.trim() || !line.startsWith("data:")) {
+    for (const rawLine of lines) {
+      const line = rawLine.endsWith("\r") ? rawLine.slice(0, -1) : rawLine;
+      if (line === "") {
+        const result = dispatch();
+        if (result?.done) {
+          return result;
+        }
         continue;
       }
 
-      const job = JSON.parse(line.slice("data:".length).trim()) as CatalogIntegrationJob<T>;
-      input.onProgress(job.progress);
-
-      if (job.status === "completed" && job.result) {
-        result = job.result;
+      if (line.startsWith(":")) {
+        continue;
       }
 
-      if (job.status === "failed") {
-        throw new Error(job.errorMessage ?? input.errorMessage);
+      if (line.startsWith("id:")) {
+        eventId = line.slice("id:".length).trim();
+        continue;
+      }
+
+      if (line.startsWith("data:")) {
+        dataLines.push(line.slice("data:".length).trimStart());
       }
     }
 
     if (done) {
-      break;
+      const result = dispatch();
+      return result?.done ? result : { done: false };
     }
   }
+}
 
-  if (!result) {
-    throw new Error(`${input.errorMessage} Finished without a result.`);
+function tcgdexImportScope(body: unknown): CatalogIntegrationJobScopeInput {
+  const record = isRecord(body) ? body : {};
+  return {
+    provider: "tcgdex",
+    language: String(record.languageCode ?? record.language ?? "en"),
+    setId: String(record.expansionId ?? record.setId ?? ""),
+  };
+}
+
+function integrationImportResultToTcgdexSetResult(
+  scope: CatalogIntegrationJobScopeInput,
+  result: CatalogSourceObservationIntegrationJobResult,
+): CatalogTcgdexSetImportResult {
+  const matchingOutcome =
+    result.outcomes.find((outcome) => outcome.expansionId === scope.setId && outcome.languageCode === scope.language) ??
+    result.outcomes[0];
+  const expansionId = matchingOutcome?.expansionId ?? scope.setId ?? "";
+  const languageCode = matchingOutcome?.languageCode || scope.language || "en";
+
+  return {
+    setId: expansionId,
+    expansionId,
+    languageCode,
+    observed: matchingOutcome?.observed ?? result.observed,
+    observationIds: [],
+  };
+}
+
+function waitForJobReconnect(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) {
+    return Promise.resolve();
   }
 
-  return result;
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function headersToRecord(headers?: HeadersInit): Record<string, string> {
