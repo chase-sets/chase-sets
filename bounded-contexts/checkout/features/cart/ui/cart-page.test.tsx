@@ -55,7 +55,10 @@ describe("checkout cart page", () => {
   it("presents cart totals as saved buyer intent before checkout creates purchases", () => {
     const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
 
-    expect(markup).toContain("Calculated during checkout");
+    expect(markup).toContain("Estimated item subtotal");
+    expect(markup).toContain("$778.00");
+    expect(markup).toContain("Estimated shipping credit");
+    expect(markup).toContain("$38.90");
     expect(markup).toContain("Ready for checkout");
     expect(markup).toContain("Buy cart status");
     expect(markup).toContain("Smart Match settings");
@@ -72,6 +75,8 @@ describe("checkout cart page", () => {
     expect(markup).toContain("No feedback yet");
     expect(markup).toContain("Card Vault - $389.00 - 2 available");
     expect(markup).toContain("Lock seller");
+    expect(markup).toContain("Decrease");
+    expect(markup).toContain("Increase");
     expect(markup).toContain("Start checkout");
     expect(markup).not.toContain("Estimated total");
     expect(markup).not.toContain(">Pending<");

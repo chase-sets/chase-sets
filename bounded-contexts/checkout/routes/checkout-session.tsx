@@ -293,6 +293,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         paymentMethodCategory: String(formData.get("paymentMethodCategory") ?? "card"),
         fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
         acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
+        deferPayment: Boolean(actor && actor.roleKey !== "guest-buyer"),
         shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData),
       });
       if (result.offer_id) {
@@ -301,7 +302,16 @@ export async function action({ request, params }: ActionFunctionArgs) {
         );
       }
       if (!result.payment_id) {
-        throw new Error("Checkout confirmation did not return a payment.");
+        if (result.order_ids && result.order_ids.length > 0 && actor && actor.roleKey !== "guest-buyer") {
+          return redirect(
+            appendFreshWriteToken(
+              `/account/payments/new?orderIds=${encodeURIComponent(result.order_ids.join(","))}`,
+              result,
+            ),
+          );
+        }
+
+        throw new Error("Checkout confirmation did not return payment or purchases.");
       }
       return redirect(appendFreshWriteToken(paymentPathForActor(actor, result.payment_id), result));
     }

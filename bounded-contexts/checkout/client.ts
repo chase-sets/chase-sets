@@ -295,6 +295,9 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async checkoutSellList() {
+      return parseJsonResponse(await client.account["sell-list"].checkout.$post({ json: {}, header: headers }));
+    },
     async removeGuestSellListLine(anonymousSellListId: string, lineId: string) {
       return parseJsonResponse(
         await client.guest["sell-list"][":lineId"].remove.$post({
@@ -436,6 +439,7 @@ export function createCheckoutApiClient({
         marketplaceCheckoutFeeQuoteFingerprint?: string | null;
         fulfillmentPreviewRevision?: string | null;
         acknowledgedMaterialChanges?: boolean;
+        deferPayment?: boolean;
         shippingAddress?: CheckoutShippingAddressInput | null;
       }> = {},
     ): Promise<{

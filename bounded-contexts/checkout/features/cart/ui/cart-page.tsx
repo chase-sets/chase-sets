@@ -90,6 +90,35 @@ function sellerOptionLabel(option: CheckoutCartLine["seller_options"][number]) {
   return `${seller} - $${option.price_amount} - ${option.available_quantity} available`;
 }
 
+function formatMoney(amount: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(amount);
+}
+
+function lowestKnownUnitPrice(line: CheckoutCartLineGroup) {
+  const optionPrices = line.seller_options
+    .map((option) => Number(option.price_amount))
+    .filter((price) => Number.isFinite(price) && price >= 0);
+  if (optionPrices.length === 0) {
+    return null;
+  }
+
+  return Math.min(...optionPrices);
+}
+
+function estimateCartSubtotal(lines: readonly CheckoutCartLineGroup[]) {
+  return lines.reduce((sum, line) => {
+    const unitPrice = lowestKnownUnitPrice(line);
+    return unitPrice === null ? sum : sum + unitPrice * line.quantity;
+  }, 0);
+}
+
+function countPricedLines(lines: readonly CheckoutCartLineGroup[]) {
+  return lines.filter((line) => lowestKnownUnitPrice(line) !== null).length;
+}
+
 function marketRecoveryHref(itemTitle: string) {
   return `/search?q=${encodeURIComponent(itemTitle)}`;
 }
@@ -119,6 +148,9 @@ export function CheckoutCartPage({
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
   const selectedListingLineGroups = cartLineGroups.filter((line) => line.fulfillment_mode === "locked-listing");
   const productLineGroups = cartLineGroups.filter((line) => line.fulfillment_mode !== "locked-listing");
+  const estimatedSubtotal = estimateCartSubtotal(cartLineGroups);
+  const estimatedShippingCredit = estimatedSubtotal * 0.05;
+  const pricedLineCount = countPricedLines(cartLineGroups);
 
   function renderCartLine(line: CheckoutCartLineGroup) {
     return (
@@ -173,13 +205,23 @@ export function CheckoutCartPage({
             </Stack>
           }
           quantityControl={
-            <NumberInput
-              label={t("checkout.features.cart.ui.cartPage.quantity.2")}
-              name="quantity"
-              min="1"
-              defaultValue={String(line.quantity)}
-              required
-            />
+            <Stack gap={2}>
+              <NumberInput
+                label={t("checkout.features.cart.ui.cartPage.quantity.2")}
+                name="quantity"
+                min="1"
+                defaultValue={String(line.quantity)}
+                required
+              />
+              <Inline gap={2}>
+                <Button type="submit" size="sm" tone="secondary" name="quantityDelta" value="-1" leadingIcon="minus">
+                  {t("checkout.features.cart.ui.cartPage.decrease")}
+                </Button>
+                <Button type="submit" size="sm" tone="secondary" name="quantityDelta" value="1" leadingIcon="plus">
+                  {t("checkout.features.cart.ui.cartPage.increase")}
+                </Button>
+              </Inline>
+            </Stack>
           }
           actions={
             <>
@@ -368,8 +410,18 @@ export function CheckoutCartPage({
                   { label: t("checkout.features.cart.ui.cartPage.items"), value: cartLineCount },
                   { label: t("checkout.features.cart.ui.cartPage.buy.cart.lines"), value: cartLineGroups.length },
                   {
-                    label: t("checkout.features.cart.ui.cartPage.pricing"),
-                    value: t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
+                    label: t("checkout.features.cart.ui.cartPage.estimated.item.subtotal"),
+                    value:
+                      pricedLineCount > 0
+                        ? formatMoney(estimatedSubtotal)
+                        : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
+                  },
+                  {
+                    label: t("checkout.features.cart.ui.cartPage.estimated.shipping.credit"),
+                    value:
+                      pricedLineCount > 0
+                        ? formatMoney(estimatedShippingCredit)
+                        : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
                   },
                   {
                     label: t("checkout.features.cart.ui.cartPage.fulfillment"),

@@ -39,6 +39,7 @@ function createServices(): CheckoutSellListServices {
   return {
     addLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 1, status: "added" })),
     removeLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 2 })),
+    checkoutSellList: vi.fn(async () => ({ sellerAccountId: "acc_seller" as never, version: 3, status: "reviewed" })),
     mergeSellListIntoAccount: vi.fn(async () => ({ mergedLineCount: 1 })),
     listLines: vi.fn(async () => []),
     projectors: [],
@@ -200,6 +201,30 @@ describe("checkout sell list routes", () => {
       expect.objectContaining({
         sellerAccountId: "acc_seller",
         lineId: "sll_1",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("records Sell List checkout review for a seller account", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/checkout", {
+        method: "POST",
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      id: "acc_seller",
+      version: 3,
+      status: "reviewed",
+    });
+    expect(services.checkoutSellList).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sellerAccountId: "acc_seller",
       }),
       expect.any(Object),
     );

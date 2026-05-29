@@ -19,6 +19,7 @@ const {
   mockGetGuestSellList,
   mockGetOfferMatch,
   mockAddSellListLine,
+  mockCheckoutSellList,
   mockRemoveGuestSellListLine,
   mockMergeGuestSellListToAccount,
 } = vi.hoisted(() => ({
@@ -40,6 +41,7 @@ const {
   mockGetGuestSellList: vi.fn(),
   mockGetOfferMatch: vi.fn(),
   mockAddSellListLine: vi.fn(),
+  mockCheckoutSellList: vi.fn(),
   mockRemoveGuestSellListLine: vi.fn(),
   mockMergeGuestSellListToAccount: vi.fn(),
 }));
@@ -239,6 +241,31 @@ describe("checkout web routes", () => {
     expect(response.headers.get("Location")).toBe("/account/sell-list");
   });
 
+  it("records sale checkout review from the Sell List", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockCheckoutSellList.mockResolvedValue({ status: "reviewed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      checkoutSellList: mockCheckoutSellList,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockCheckoutSellList).toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/sell-list?review=completed");
+  });
+
   it("shows anonymous Sell List lines before account creation", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetGuestSellList.mockResolvedValue({ items: [{ line_id: "sll_1", quantity: 1 }], count: 1 });
@@ -257,6 +284,7 @@ describe("checkout web routes", () => {
 
     expect(result).toEqual({
       isSignedIn: false,
+      reviewCompleted: false,
       sellList: { items: [{ line_id: "sll_1", quantity: 1 }], count: 1 },
     });
     expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
@@ -281,6 +309,22 @@ describe("checkout web routes", () => {
 
     expect(result.isSignedIn).toBe(true);
     expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
+  });
+
+  it("passes sale checkout review completion to the Sell List page", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [], count: 0 })),
+    });
+
+    const { loader: accountSellListLoader } = await import("./account-sell-list");
+    const result = await accountSellListLoader({
+      request: new Request("http://localhost/account/sell-list?review=completed"),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result.reviewCompleted).toBe(true);
   });
 
   it("removes anonymous Sell List lines before sign-in", async () => {
@@ -643,10 +687,10 @@ describe("checkout web routes", () => {
     ).not.toContain("Guest");
   });
 
-  it("confirms checkout and redirects to the payment detail", async () => {
+  it("confirms signed-in checkout and redirects to payment total review", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({});
     mockSelectShippingOption.mockResolvedValue({});
-    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"] });
+    mockConfirmCheckoutSession.mockResolvedValue({ order_ids: ["ord_1"], status: "orders-created" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
       confirmCheckoutSession: mockConfirmCheckoutSession,
@@ -682,6 +726,7 @@ describe("checkout web routes", () => {
       paymentMethodCategory: "bank-account",
       fulfillmentPreviewRevision: null,
       acknowledgedMaterialChanges: false,
+      deferPayment: true,
       shippingAddress: {
         shippingAddressId: null,
         name: "Jane Smith",
@@ -697,7 +742,7 @@ describe("checkout web routes", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
+    expect(response.headers.get("Location")).toBe("/account/payments/new?orderIds=ord_1");
   });
 
   it("keeps guest checkout confirmation on the guest payment route", async () => {
@@ -732,6 +777,12 @@ describe("checkout web routes", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/payments/pay_1");
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        deferPayment: false,
+      }),
+    );
   });
 
   it("redirects confirmed purchase intent to the submitted offer", async () => {

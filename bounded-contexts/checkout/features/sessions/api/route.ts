@@ -326,6 +326,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
     const fulfillmentPreviewRevision =
       typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : null;
     const acknowledgedMaterialChanges = body.acknowledgedMaterialChanges === true;
+    const deferPayment = body.deferPayment === true && access.actor.roleKey !== "guest-buyer";
 
     try {
       let session = await services.getSession(sessionId, access.actor.accountId);
@@ -346,6 +347,14 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
           payment_id: session.payment_id,
           order_ids: session.order_ids,
           status: "confirmed",
+        });
+      }
+
+      if (deferPayment && session.order_ids.length > 0) {
+        return c.json({
+          order_ids: session.order_ids,
+          status: "orders-created",
+          session,
         });
       }
 
@@ -428,6 +437,15 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
           },
           context,
         );
+      }
+
+      if (deferPayment) {
+        session = await services.getSession(sessionId, access.actor.accountId);
+        return c.json({
+          order_ids: orderIds,
+          status: "orders-created",
+          session,
+        });
       }
 
       const paymentId = await createCheckoutPaymentThroughPayments(
