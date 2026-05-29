@@ -1401,8 +1401,10 @@ export function MarketingVisualCard({
             <Badge tone={badgeTone}>{badge}</Badge>
           </div>
         ) : null}
-        <div className="space-y-2">
-          <h3 className="font-heading text-2xl font-semibold leading-snug text-foreground">{title}</h3>
+        <div className="max-w-full space-y-2">
+          <h3 className="max-w-[34rem] text-pretty font-heading text-xl font-semibold leading-snug text-foreground md:text-2xl">
+            {title}
+          </h3>
           {description ? <p className="text-sm leading-6 text-secondary">{description}</p> : null}
         </div>
       </div>

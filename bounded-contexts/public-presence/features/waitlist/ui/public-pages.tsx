@@ -244,6 +244,33 @@ export function PublicPresencePageShell({ children }: { children: ReactNode }) {
 }
 
 function MobileStickyWaitlistCta() {
+  const [isVisible, setIsVisible] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("IntersectionObserver" in window)) {
+      return undefined;
+    }
+
+    const heroForm = document.getElementById("waitlist-form");
+    if (!heroForm) {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        setIsVisible(!entry?.isIntersecting);
+      },
+      { threshold: 0.08 },
+    );
+
+    observer.observe(heroForm);
+    return () => observer.disconnect();
+  }, []);
+
+  if (!isVisible) {
+    return null;
+  }
+
   return (
     <div className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/88 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl md:hidden">
       <Container width="wide">
@@ -252,12 +279,12 @@ function MobileStickyWaitlistCta() {
             {t("publicPresence.home.stickyCta.label")}
           </Text>
           <LinkButton
-            href="#waitlist-form"
+            href="#waitlist-form-final"
             tone="primary"
             size="sm"
             block
             leadingIcon="rocket"
-            onClick={() => trackCtaClick("mobile_sticky", "waitlist_form")}
+            onClick={() => trackCtaClick("mobile_sticky", "waitlist_form_final")}
           >
             {t("publicPresence.home.stickyCta.action")}
           </LinkButton>
