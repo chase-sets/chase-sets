@@ -48,6 +48,10 @@ export default defineConfig({
         target: platformApiTarget,
         changeOrigin: true,
       },
+      "/api/commercial-terms": {
+        target: platformApiTarget,
+        changeOrigin: true,
+      },
       "/api/identity": {
         target: platformApiTarget,
         changeOrigin: true,

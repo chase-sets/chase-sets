@@ -52,6 +52,19 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("commercialTerms.features.schedules.api.route.request.failed");
 }
 
+function scheduleCommandBody(body: Record<string, unknown>) {
+  return {
+    label: String(body.label ?? ""),
+    marketplaceSalesFeePercentageBps: Number(body.marketplaceSalesFeePercentageBps ?? 0),
+    marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
+    shippingAllowancePercentageBps: Number(body.shippingAllowancePercentageBps ?? 500),
+    status: String(body.status ?? "active") as never,
+    effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
+    effectiveUntil:
+      typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0 ? body.effectiveUntil : null,
+  };
+}
+
 export function createScheduleRoutes(services: ScheduleServices, resolutions: ResolutionServices) {
   const app = new Hono<CommercialTermsApiEnv>();
 
@@ -112,17 +125,8 @@ export function createScheduleRoutes(services: ScheduleServices, resolutions: Re
     try {
       const result = await services.createSchedule(
         {
-          label: String(body.label ?? ""),
+          ...scheduleCommandBody(body),
           accountType: String(body.accountType ?? "") as never,
-          marketplaceSalesFeePercentageBps: Number(body.marketplaceSalesFeePercentageBps ?? 0),
-          marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
-          shippingAllowancePercentageBps: Number(body.shippingAllowancePercentageBps ?? 500),
-          status: String(body.status ?? "active") as never,
-          effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
-          effectiveUntil:
-            typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0
-              ? body.effectiveUntil
-              : null,
         },
         context,
       );
@@ -139,6 +143,34 @@ export function createScheduleRoutes(services: ScheduleServices, resolutions: Re
           : null;
 
       return c.json({ id: result.scheduleId, version: result.version, preview }, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.put("/:id", async (c) => {
+    const access = requireAccess(c, "commercial-terms.manage");
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("commercialTerms.features.schedules.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json();
+
+    try {
+      const result = await services.reviseSchedule(c.req.param("id"), scheduleCommandBody(body), context);
+      return c.json({ id: result.scheduleId, version: result.version });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

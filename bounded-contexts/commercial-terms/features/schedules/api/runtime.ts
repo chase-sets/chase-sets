@@ -34,6 +34,11 @@ export type ScheduleServices = Readonly<{
     params: Omit<Extract<CommercialTermsScheduleCommand, { type: "CreateSchedule" }>, "type" | "scheduleId">,
     context: EventStoreContext,
   ) => Promise<{ scheduleId: string; version: number }>;
+  reviseSchedule: (
+    scheduleId: string,
+    params: Omit<Extract<CommercialTermsScheduleCommand, { type: "ReviseSchedule" }>, "type">,
+    context: EventStoreContext,
+  ) => Promise<{ scheduleId: string; version: number }>;
   listSchedules: (params: Readonly<{ limit?: number; offset?: number }>) => ReturnType<typeof listSchedules>;
   getSchedule: (scheduleId: string) => ReturnType<typeof getSchedule>;
   projectors: readonly ProjectionHandlerSet[];
@@ -60,6 +65,17 @@ export function createScheduleRuntime(deps: ScheduleRuntimeDeps): ScheduleServic
         command: {
           type: "CreateSchedule",
           scheduleId,
+          ...params,
+        },
+        context,
+      });
+      return { scheduleId, version: result.version };
+    },
+    async reviseSchedule(scheduleId, params, context) {
+      const result = await commandHandler({
+        streamId: `commercial-terms.schedule-${scheduleId}`,
+        command: {
+          type: "ReviseSchedule",
           ...params,
         },
         context,

@@ -29,6 +29,23 @@ export function ensureIsoTimestamp(value: string, message: string) {
   return value;
 }
 
+export function normalizeEffectiveWindow(
+  effectiveFrom: string,
+  effectiveUntil: string | null,
+  labels: Readonly<{ from: string; until: string }>,
+) {
+  const normalizedFrom = ensureIsoTimestamp(effectiveFrom, `${labels.from} must be an ISO timestamp.`);
+  const normalizedUntil =
+    effectiveUntil === null ? null : ensureIsoTimestamp(effectiveUntil, `${labels.until} must be an ISO timestamp.`);
+
+  assert(
+    normalizedUntil === null || Date.parse(normalizedUntil) > Date.parse(normalizedFrom),
+    `${labels.until} must be after ${labels.from}.`,
+  );
+
+  return { effectiveFrom: normalizedFrom, effectiveUntil: normalizedUntil };
+}
+
 export function normalizeLabel(value: string, fieldName: string) {
   const normalized = value.trim();
   assert(normalized.length > 0, `${fieldName} is required.`);
@@ -56,6 +73,7 @@ export function normalizeMoneyAmount(
 export function normalizePercentageBps(value: number, fieldName: string) {
   assert(Number.isInteger(value), `${fieldName} must be a whole number of basis points.`);
   assert(value >= 0, `${fieldName} must be zero or greater.`);
+  assert(value <= 10_000, `${fieldName} cannot exceed 10000 basis points.`);
   return value;
 }
 

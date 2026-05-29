@@ -1,12 +1,31 @@
 import { t } from "@chase-sets/localization";
-import { Badge, Card, LinkButton, Page, PageHeader, PageSection, Stack, Text } from "@chase-sets/design-system";
+import {
+  Badge,
+  Button,
+  Card,
+  LinkButton,
+  NativeSelect,
+  NumberInput,
+  Page,
+  PageHeader,
+  PageSection,
+  Stack,
+  Text,
+  TextInput,
+} from "@chase-sets/design-system";
 import type { CommercialAgreementViewModel } from "./contracts";
 
 function statusTone(status: string) {
   return status === "active" ? "accent" : "warning";
 }
 
-export function AgreementDetailPage({ agreement }: { agreement: CommercialAgreementViewModel }) {
+export function AgreementDetailPage({
+  agreement,
+  errorMessage,
+}: {
+  agreement: CommercialAgreementViewModel;
+  errorMessage?: string | null;
+}) {
   return (
     <Page>
       <PageHeader
@@ -16,7 +35,7 @@ export function AgreementDetailPage({ agreement }: { agreement: CommercialAgreem
           "commercialTerms.features.agreements.ui.agreementDetailPage.inspect.the.account.specific.commercial.fee",
         )}
         actions={
-          <LinkButton href="/commercial-terms/agreements" tone="secondary">
+          <LinkButton href="/identity/commercial-terms/agreements" tone="secondary">
             {t("commercialTerms.features.agreements.ui.agreementDetailPage.back.to.agreements")}
           </LinkButton>
         }
@@ -61,6 +80,73 @@ export function AgreementDetailPage({ agreement }: { agreement: CommercialAgreem
               {agreement.updated_at}
             </Text>
           </Stack>
+        </Card>
+      </PageSection>
+
+      <PageSection title={t("commercialTerms.features.agreements.ui.agreementDetailPage.revise.agreement")}>
+        <Card>
+          <form method="post">
+            <Stack gap={3}>
+              {errorMessage ? <Text>{errorMessage}</Text> : null}
+              <TextInput
+                label={t("commercialTerms.features.agreements.ui.agreementDetailPage.label")}
+                name="label"
+                defaultValue={agreement.label}
+                required
+              />
+              <NumberInput
+                label={t("commercialTerms.features.agreements.ui.agreementDetailPage.marketplace.fee.bps")}
+                name="marketplaceSalesFeePercentageBps"
+                min="0"
+                max="10000"
+                defaultValue={String(agreement.marketplace_sales_fee_percentage_bps)}
+                required
+              />
+              <TextInput
+                label={t("commercialTerms.features.agreements.ui.agreementDetailPage.marketplace.fixed.amount")}
+                name="marketplaceSalesFeeFixedAmount"
+                inputMode="decimal"
+                defaultValue={agreement.marketplace_sales_fee_fixed_amount}
+                required
+              />
+              <NumberInput
+                label={t("commercialTerms.features.agreements.ui.agreementDetailPage.shipping.allowance.bps")}
+                name="shippingAllowancePercentageBps"
+                min="0"
+                max="10000"
+                defaultValue={String(agreement.shipping_allowance_percentage_bps)}
+                required
+              />
+              <NativeSelect
+                label={t("commercialTerms.features.agreements.ui.agreementDetailPage.status")}
+                name="status"
+                required
+                defaultValue={agreement.status}
+                items={[
+                  { value: "active", label: t("commercialTerms.features.agreements.ui.agreementDetailPage.active") },
+                  {
+                    value: "inactive",
+                    label: t("commercialTerms.features.agreements.ui.agreementDetailPage.inactive"),
+                  },
+                ]}
+              />
+              <TextInput
+                label={t("commercialTerms.features.agreements.ui.agreementDetailPage.effective.from")}
+                name="effectiveFrom"
+                defaultValue={agreement.effective_from}
+                required
+              />
+              <TextInput
+                label={t("commercialTerms.features.agreements.ui.agreementDetailPage.effective.until")}
+                name="effectiveUntil"
+                defaultValue={agreement.effective_until ?? ""}
+                placeholder={t("commercialTerms.features.agreements.ui.agreementDetailPage.optional.iso.timestamp")}
+              />
+              <Button type="submit">
+                {t("commercialTerms.features.agreements.ui.agreementDetailPage.save.agreement")}
+              </Button>
+            </Stack>
+          </form>
         </Card>
       </PageSection>
     </Page>

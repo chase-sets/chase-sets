@@ -9,6 +9,8 @@ describe("identity role permissions", () => {
         "accounts.view",
         "catalog.manage",
         "catalog.view",
+        "commercial-terms.manage",
+        "commercial-terms.view",
         "memberships.manage",
         "memberships.view",
         "platform-feedback.manage",
@@ -25,6 +27,8 @@ describe("identity role permissions", () => {
       expect.arrayContaining([
         "inventory.manage",
         "inventory.view",
+        "commercial-terms.manage",
+        "commercial-terms.view",
         "listings.manage",
         "listings.view",
         "offers.manage",

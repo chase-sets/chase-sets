@@ -10,6 +10,16 @@ A **Wallet** is the balance container for an account within the marketplace ledg
 
 A **Ledger Entry** is the atomic accounting record that explains a balance change.
 
+## Rebate
+
+A **Rebate** is the Settlement-owned ledger entry kind used when the marketplace credits an account for a Commercial Terms-derived allowance, such as a shipping allowance.
+
+Notes:
+
+- Settlement owns rebate postings and balance effects.
+- Commercial Terms owns the configurable Shipping Allowance percentage that creates the upstream economics snapshot.
+- A Commercial Terms revision affects only future resolved snapshots; existing rebate ledger entries remain historical accounting facts.
+
 ## Balance
 
 A **Balance** is the current computed financial position of an account derived from ledger entries.
