@@ -784,6 +784,8 @@ jobs:
           TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}
+          TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}
           TF_VAR_stripe_secret_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_SECRET_KEY || '' }}
           TF_VAR_stripe_publishable_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
           TF_VAR_stripe_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_WEBHOOK_SECRET || '' }}
@@ -843,6 +845,11 @@ jobs:
 
             if [ "${TF_VAR_easypost_mode:-}" != "production" ]; then
               echo "Production marketplace promotion requires EASYPOST_MODE=production." >&2
+              exit 1
+            fi
+
+            if [ "${TF_VAR_production_tax_readiness_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_tax_readiness_reference:-}" ]; then
+              echo "Production marketplace promotion requires approved Tax readiness evidence." >&2
               exit 1
             fi
 
@@ -959,6 +966,8 @@ jobs:
           TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
           TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}
+          TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}
           TF_VAR_stripe_secret_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_SECRET_KEY || '' }}
           TF_VAR_stripe_publishable_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
           TF_VAR_stripe_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_WEBHOOK_SECRET || '' }}
@@ -1016,6 +1025,8 @@ jobs:
           TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
           TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}
+          TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}
           TF_VAR_stripe_secret_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_SECRET_KEY || '' }}
           TF_VAR_stripe_publishable_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
           TF_VAR_stripe_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_WEBHOOK_SECRET || '' }}

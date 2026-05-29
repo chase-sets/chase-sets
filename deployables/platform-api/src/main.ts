@@ -66,6 +66,7 @@ import {
   type PlatformApiListingPhotoStorageConfig,
 } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
+import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 
 const observability = getObservabilityRuntime();
 const logger = observability.logger;
@@ -137,6 +138,9 @@ const mobileMessageWebhookGateway =
     : undefined;
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
+const taxQuoteResolver = shouldBlockProductionTaxQuotes(config.deploymentEnvironment)
+  ? createProductionTaxQuoteResolverBlocker()
+  : undefined;
 
 if (config.paymentProcessor.kind === "fake") {
   logger.warn("Platform API is using the fake payment processor.", {
@@ -170,6 +174,7 @@ const runtime = createPlatformApiHost({
     postageLabelProvider,
     catalogAssetStorage,
     listingPhotoStorage,
+    ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),

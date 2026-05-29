@@ -36,6 +36,17 @@ check "production_marketplace_promotion" {
   }
 }
 
+check "production_tax_readiness" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_tax_readiness_approved &&
+      trimspace(var.production_tax_readiness_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved Tax readiness evidence before live order creation."
+  }
+}
+
 resource "digitalocean_database_db" "contexts" {
   for_each   = local.context_databases
   cluster_id = digitalocean_database_cluster.postgres.id
