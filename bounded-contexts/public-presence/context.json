@@ -1,10 +1,10 @@
 {
   "contextName": "public-presence",
   "packageName": "@chase-sets/public-presence",
-  "ownedNouns": ["public-presence", "waitlist-signup"],
+  "ownedNouns": ["public-presence", "waitlist-signup", "promo-bar-message"],
   "streamPrefix": "public-presence.",
   "apiBasePath": "/api/public-presence",
-  "slices": ["waitlist"],
+  "slices": ["waitlist", "promo-bar"],
   "allowedSupportDirectories": ["request-support", "runtime-support", "shell-support", "ui-support"],
   "publicExports": [".", "./context", "./routes/*", "./server", "./web"],
   "allowedContextDependencies": [],
@@ -144,6 +144,13 @@
           "fileExport": "./routes/admin/waitlist",
           "routeType": "route",
           "sourceContext": "public-presence"
+        },
+        {
+          "routeId": "promo-bar",
+          "routePath": "promo-bar",
+          "fileExport": "./routes/admin/promo-bar",
+          "routeType": "route",
+          "sourceContext": "public-presence"
         }
       ]
     }
@@ -157,6 +164,17 @@
       "icon": "message",
       "href": "/waitlist",
       "order": 20,
+      "visibility": "signed-in",
+      "requiredPermissions": ["public-presence.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "promo-bar",
+      "label": "Promo Bar",
+      "icon": "spark",
+      "href": "/promo-bar",
+      "order": 21,
       "visibility": "signed-in",
       "requiredPermissions": ["public-presence.view"]
     }
@@ -204,6 +222,12 @@
       "justification": "The waitlist slice owns analytics event names and public-page UI vocabulary; public-web needs the event allowlist and scoped translator without duplicating bounded-context terms or importing unrelated localization namespaces.",
       "createdFor": "Public Presence waitlist analytics capture and public-page localization.",
       "sunsetWhen": "Remove if analytics capture and public-page translation move fully into feature-local browser entrypoints or an approved experimentation context."
+    },
+    "promo-bar": {
+      "classification": "slice",
+      "purpose": "Own public marketplace promo-bar-message management, read models, and public rendering contracts.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": ["Public marketplace page shell", "Admin promo bar route"]
     },
     "routes": {
       "classification": "routes",

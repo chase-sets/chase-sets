@@ -37,7 +37,9 @@ import {
   MoreVertical,
   Package,
   Pencil,
+  Pause,
   Plus,
+  Play,
   RefreshCcw,
   Rocket,
   Search,
@@ -87,6 +89,8 @@ export type IconName =
   | "starEmpty"
   | "copy"
   | "plus"
+  | "pause"
+  | "play"
   | "minus"
   | "edit"
   | "trash"
@@ -164,6 +168,8 @@ const iconMap: Record<IconName, LucideIcon> = {
   starEmpty: Star,
   copy: Copy,
   plus: Plus,
+  pause: Pause,
+  play: Play,
   minus: Minus,
   edit: Pencil,
   trash: Trash2,

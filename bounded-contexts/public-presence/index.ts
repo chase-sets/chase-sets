@@ -8,6 +8,7 @@ import type {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildPublicPresenceAdminApi, buildPublicPresencePublicApi } from "./api";
+import { seedPublicPresencePromoBarMessages } from "./features/promo-bar/api/seed";
 import { buildWaitlistTransactionalEmailProjectionHandlers } from "./features/waitlist/integrations/transactional-email/transactional-email-projector";
 import { buildWaitlistProjectionHandlers } from "./features/waitlist/read-model/projection";
 import type { PublicPresenceServices } from "./support/runtime-support/services";
@@ -81,5 +82,10 @@ export const module: BcApiModule<
         order: waitlistEmailSubscription.order,
       },
     ];
+  },
+  seedProfiles: ["critical-bootstrap", "scenario-seed"],
+  seed: async (pool, services, options) => {
+    const publicPresenceServices = services ?? createPublicPresenceServices(pool);
+    await seedPublicPresencePromoBarMessages(publicPresenceServices.db, options);
   },
 };

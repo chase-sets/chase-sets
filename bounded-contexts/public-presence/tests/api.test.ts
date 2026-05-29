@@ -1,7 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import type { ResolvedActor } from "@chase-sets/auth-context";
-import { createAdminWaitlistRoutes, createPublicWaitlistRoutes, type PublicPresenceApiEnv } from "../api";
+import {
+  createAdminPromoBarRoutes,
+  createAdminWaitlistRoutes,
+  createPublicPromoBarRoutes,
+  createPublicWaitlistRoutes,
+  type PublicPresenceApiEnv,
+} from "../api";
+import type { PromoBarServices } from "../features/promo-bar/api/runtime";
+import type { PromoBarMessage } from "../features/promo-bar/api/contracts";
 import type { WaitlistServices } from "../features/waitlist/api/runtime";
 
 function createServices(overrides: Partial<WaitlistServices> = {}) {
@@ -33,6 +41,33 @@ function actorWithPermissions(permissions: readonly string[] = []): ResolvedActo
   };
 }
 
+function createPromoBarServices(overrides: Partial<PromoBarServices> = {}) {
+  const message = {
+    id: "pbm_test",
+    title: "Earn 5% toward shipping.",
+    description: null,
+    href: "/order-protection",
+    link_label: "Learn more",
+    tone: "success",
+    is_active: true,
+    display_order: 10,
+    starts_at: null,
+    ends_at: null,
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  } satisfies PromoBarMessage;
+  const services = {
+    listActivePromoBarMessages: vi.fn(async () => []),
+    listPromoBarMessages: vi.fn(async () => []),
+    createPromoBarMessage: vi.fn(async () => message),
+    updatePromoBarMessage: vi.fn(async () => null),
+    setPromoBarMessageActive: vi.fn(async () => null),
+    deletePromoBarMessage: vi.fn(async () => false),
+  } satisfies PromoBarServices;
+
+  return { ...services, ...overrides } satisfies PromoBarServices;
+}
+
 function publicAppFor(services: WaitlistServices) {
   const app = new Hono<PublicPresenceApiEnv>();
   app.route("/", createPublicWaitlistRoutes(services));
@@ -49,6 +84,25 @@ function adminAppFor(
     await next();
   });
   app.route("/", createAdminWaitlistRoutes(services));
+  return app;
+}
+
+function publicPromoBarAppFor(services: PromoBarServices) {
+  const app = new Hono<PublicPresenceApiEnv>();
+  app.route("/", createPublicPromoBarRoutes(services));
+  return app;
+}
+
+function adminPromoBarAppFor(
+  services: PromoBarServices,
+  actor: ResolvedActor | null = actorWithPermissions(["public-presence.view"]),
+) {
+  const app = new Hono<PublicPresenceApiEnv>();
+  app.use("*", async (c, next) => {
+    c.set("actor", actor);
+    await next();
+  });
+  app.route("/", createAdminPromoBarRoutes(services));
   return app;
 }
 
@@ -164,5 +218,63 @@ describe("public presence API", () => {
       interest: "low-sales-fees",
       search: "todd",
     });
+  });
+
+  it("exposes active promo bar messages publicly", async () => {
+    const services = createPromoBarServices({
+      listActivePromoBarMessages: vi.fn(async () => [
+        {
+          id: "pbm_shipping",
+          title: "Earn 5% toward shipping.",
+          description: null,
+          href: "/order-protection",
+          link_label: "Learn more",
+          tone: "success",
+          is_active: true,
+          display_order: 10,
+          starts_at: null,
+          ends_at: null,
+          created_at: new Date(0).toISOString(),
+          updated_at: new Date(0).toISOString(),
+        } satisfies PromoBarMessage,
+      ]),
+    });
+    const response = await publicPromoBarAppFor(services).request("/promo-bar-messages");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ id: "pbm_shipping", title: "Earn 5% toward shipping." }],
+    });
+  });
+
+  it("protects promo bar management with public-presence.view", async () => {
+    const services = createPromoBarServices();
+    const forbidden = adminPromoBarAppFor(services, actorWithPermissions()).request("/promo-bar-messages");
+    await expect(forbidden).resolves.toHaveProperty("status", 403);
+
+    const app = adminPromoBarAppFor(services);
+    const list = await app.request("/promo-bar-messages");
+    const create = await app.request("/promo-bar-messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title: "0% fees on beta listings.",
+        href: "/sales-fees",
+        linkLabel: "Seller fees",
+        tone: "success",
+        isActive: true,
+        displayOrder: 20,
+      }),
+    });
+
+    expect(list.status).toBe(200);
+    expect(create.status).toBe(201);
+    expect(services.createPromoBarMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "0% fees on beta listings.",
+        href: "/sales-fees",
+        linkLabel: "Seller fees",
+      }),
+    );
   });
 });
