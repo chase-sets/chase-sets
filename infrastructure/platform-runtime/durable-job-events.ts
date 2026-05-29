@@ -6,6 +6,12 @@ export type DurableJobStreamEvent<T> = Readonly<{
   data: T;
 }>;
 
+export type DurableJobReplaySyncRequired<T> = Readonly<{
+  kind: "sync.required";
+  reason: "replay-backpressure";
+  snapshot: T;
+}>;
+
 export type DurableJobEventStreamOptions<T> = Readonly<{
   request?: Request;
   signal?: AbortSignal;
@@ -18,6 +24,8 @@ export type DurableJobEventStreamOptions<T> = Readonly<{
   waitForEvents?: (afterSequence: number, signal?: AbortSignal) => Promise<void>;
   isTerminal: (event: DurableJobStreamEvent<T>) => boolean;
   isTerminalSnapshot?: (snapshot: T) => boolean;
+  maxReplayEvents?: number;
+  maxReplayBytes?: number;
 }>;
 
 export type DurableJobStreamLease = Readonly<{
@@ -34,6 +42,8 @@ const DEFAULT_POLL_INTERVAL_MS = 500;
 const DEFAULT_KEEPALIVE_INTERVAL_MS = 15_000;
 const DEFAULT_MAX_ACTIVE_STREAMS = 500;
 const DEFAULT_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY = 20;
+const DEFAULT_MAX_REPLAY_EVENTS = 250;
+const DEFAULT_MAX_REPLAY_BYTES = 256 * 1024;
 let defaultStreamLimiter: DurableJobStreamLimiter = createInMemoryDurableJobStreamLimiter({
   maxActiveStreams: DEFAULT_MAX_ACTIVE_STREAMS,
 });
@@ -45,6 +55,8 @@ export async function createDurableJobEventStream<T>(options: DurableJobEventStr
     pollIntervalMs,
     Math.floor(options.keepaliveIntervalMs ?? DEFAULT_KEEPALIVE_INTERVAL_MS),
   );
+  const maxReplayEvents = Math.max(1, Math.floor(options.maxReplayEvents ?? DEFAULT_MAX_REPLAY_EVENTS));
+  const maxReplayBytes = Math.max(1024, Math.floor(options.maxReplayBytes ?? DEFAULT_MAX_REPLAY_BYTES));
   let closed = false;
   const streamLimiter = options.streamLimiter ?? defaultStreamLimiter;
   const streamLimitKey = options.streamLimitKey ?? durableJobStreamLimitKey(options.request);
@@ -73,6 +85,8 @@ export async function createDurableJobEventStream<T>(options: DurableJobEventStr
     async start(controller) {
       let afterSequence = readDurableJobEventCursor(options.request);
       let lastWriteAt = Date.now();
+      let replayEventCount = 0;
+      let replayByteCount = 0;
 
       const write = (chunk: string) => {
         controller.enqueue(encoder.encode(chunk));
@@ -87,13 +101,39 @@ export async function createDurableJobEventStream<T>(options: DurableJobEventStr
 
           const events = await options.loadEvents(afterSequence);
           let wroteEvent = false;
-          for (const event of events) {
+          for (let index = 0; index < events.length; index += 1) {
+            const event = events[index];
             if (event.sequence <= afterSequence) {
               continue;
             }
 
+            const eventBytes = estimateDurableJobSseEventBytes(event);
+            if (
+              options.loadCurrentSnapshot &&
+              (replayEventCount + 1 > maxReplayEvents || replayByteCount + eventBytes > maxReplayBytes)
+            ) {
+              const snapshot = await options.loadCurrentSnapshot();
+              const pageEndSequence = events[events.length - 1]?.sequence ?? event.sequence;
+              if (snapshot) {
+                write(
+                  formatDurableJobSseEvent<DurableJobReplaySyncRequired<T>>({
+                    sequence: pageEndSequence,
+                    eventName: "sync.required",
+                    data: {
+                      kind: "sync.required",
+                      reason: "replay-backpressure",
+                      snapshot,
+                    },
+                  }),
+                );
+                return;
+              }
+            }
+
             write(formatDurableJobSseEvent(event));
             wroteEvent = true;
+            replayEventCount += 1;
+            replayByteCount += eventBytes;
             afterSequence = event.sequence;
 
             if (options.isTerminal(event)) {
@@ -114,6 +154,8 @@ export async function createDurableJobEventStream<T>(options: DurableJobEventStr
 
           await (options.waitForEvents?.(afterSequence, options.signal) ??
             waitForDurableJobEventPoll(pollIntervalMs, options.signal));
+          replayEventCount = 0;
+          replayByteCount = 0;
         }
       } finally {
         await lease.release();
@@ -241,6 +283,10 @@ export function parseDurableJobEventCursor(value: string | null | undefined): nu
 
 export function formatDurableJobSseEvent<T>(event: DurableJobStreamEvent<T>): string {
   return `id: ${event.sequence}\nevent: ${event.eventName}\ndata: ${JSON.stringify(event.data)}\n\n`;
+}
+
+function estimateDurableJobSseEventBytes<T>(event: DurableJobStreamEvent<T>): number {
+  return event.eventName.length + JSON.stringify(event.data).length + 32;
 }
 
 function durableJobStreamLimitKey(request?: Request): string {

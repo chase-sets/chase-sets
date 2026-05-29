@@ -229,12 +229,14 @@ describe("durable job store", () => {
   it("falls back to polling when notification LISTEN cannot be established", async () => {
     vi.useFakeTimers();
     const release = vi.fn();
+    const listenAttempts: string[] = [];
     const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
       {
         query: async () => ({ rows: [], rowCount: 0 }),
         connect: async () => ({
           query: async (sql: string) => {
             if (sql.includes("LISTEN")) {
+              listenAttempts.push(sql);
               throw new Error("LISTEN is unavailable on this connection.");
             }
             return { rows: [], rowCount: 0 };
@@ -248,12 +250,20 @@ describe("durable job store", () => {
         jobsTable: "inventory_import_batch_jobs",
         eventsTable: "inventory_import_batch_job_events",
       },
+      { notificationRetryCooldownMs: 10_000 },
     );
 
     const wait = store.waitForEvents({ jobId: "job_1", timeoutMs: 100 });
     await vi.advanceTimersByTimeAsync(100);
 
     await expect(wait).resolves.toBeUndefined();
+    expect(release).toHaveBeenCalledTimes(1);
+
+    const secondWait = store.waitForEvents({ jobId: "job_1", timeoutMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(secondWait).resolves.toBeUndefined();
+    expect(listenAttempts).toHaveLength(1);
     expect(release).toHaveBeenCalledTimes(1);
   });
 

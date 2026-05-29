@@ -42,13 +42,13 @@ durableJobSchemaSql({
 
 The job table stores the latest private worker snapshot. The event table stores append-only public status snapshots with a monotonically increasing `sequence` per job. SSE clients use that sequence as the event id.
 
-State transitions and event appends must be committed atomically. The shared Postgres store wraps enqueue, claim, progress, release, complete, and fail transitions with their corresponding event append, then emits a `pg_notify` wakeup after the event row is written. Notification waits are best-effort because some deployed runtime pool URLs are PgBouncer transaction pools; if `LISTEN` is unavailable or a waiter fails, the SSE route must fall back to a short poll timeout. A missed notification is acceptable because SSE replay always reloads ordered events.
+State transitions and event appends must be committed atomically. The shared Postgres store wraps enqueue, claim, progress, release, complete, and fail transitions with their corresponding event append, then emits a `pg_notify` wakeup after the event row is written. Notification waits are best-effort because some deployed runtime pool URLs are PgBouncer transaction pools; if `LISTEN` is unavailable or a waiter fails, the SSE route must fall back to a short poll timeout. Listener setup failures are circuit-broken before retry so open streams do not repeatedly churn pooled transaction connections. A missed notification is acceptable because SSE replay always reloads ordered events.
 
 Do not store large request bodies directly in a durable job payload when the job will emit many progress events. Stage bulky or sensitive inputs in context-owned storage and put only a stable staging reference in the job payload.
 
 Replayable create-style jobs must also store the deterministic target id they will mutate. Inventory import create jobs, for example, persist the target `batchId` in the job payload before row validation begins and derive row ids from `(batchId, rowNumber)`. If a worker loses its claim after partial inserts, the next worker resumes the same batch instead of creating a second one.
 
-Projection operations are platform control-plane jobs rather than bounded-context jobs, but they follow the same durability contract: progress writes renew the claim to `now + ttl`, terminal writes require the live claim, operation state and event append commit together, SSE uses notification-backed waits, and event sequence numbers are reserved through the operation row instead of recomputing from event history.
+Projection operations are platform control-plane jobs rather than bounded-context jobs, but they follow the same durability contract: progress writes renew the claim to `now + ttl`, terminal writes require the live claim, operation state and event append commit together, SSE uses notification-backed waits, and event sequence numbers are reserved through the operation row instead of recomputing from event history. Long rebuild and retry operations must renew the operation claim while the inner projection-group lease is held, and the inner operation must abort when either claim is lost.
 
 ## API Shape
 
@@ -58,11 +58,11 @@ Use explicit job endpoints rather than overloading synchronous result language:
 - `GET /.../jobs/:jobId` returns the current public job status snapshot.
 - `GET /.../jobs/:jobId/events` streams status events.
 
-Event streams must use `text/event-stream`, must honor `Last-Event-ID`, and must terminate after `completed`, `failed`, or the domain terminal state. Reconnects whose `Last-Event-ID` already points past the terminal event must also close by checking the current public job snapshot.
+Event streams must use `text/event-stream`, must honor `Last-Event-ID`, and must terminate after `completed`, `failed`, or the domain terminal state. Reconnects whose `Last-Event-ID` already points past the terminal event must also close by checking the current public job snapshot. Stale cursors must have a replay budget; if replay would send too many events or bytes, emit `sync.required` with the current public snapshot and resume from the advanced event id.
 
 Bounded-context job SSE routes must pass the store `waitForEvents` hook into `createDurableJobEventStream`; the structure check rejects new bounded-context durable job routes that omit this hook.
 
-Every durable job SSE stream is subject to the shared in-process limiter. Routes should pass a stable authenticated account or actor key as `streamLimitKey`; proxy IP headers are only a fallback. When the limiter is exhausted the route returns `429 too_many_durable_job_streams`; clients should retry with backoff and reconnect with the last received event id.
+Every durable job SSE stream is subject to the shared stream limiter. Routes should pass a stable authenticated account or actor key as `streamLimitKey`; proxy IP headers are only a fallback. When the limiter is exhausted the route returns `429 too_many_durable_job_streams`; clients should retry with backoff and reconnect with the last received event id. The Postgres limiter maintains bounded counter rows for global and per-key counts; production can use the Redis limiter when stream churn is high.
 
 ## Worker Shape
 

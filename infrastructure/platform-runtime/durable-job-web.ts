@@ -7,6 +7,11 @@ export type DurableJobStatusSubscription<TJob extends DurableJobBrowserStatus> =
   current: () => TJob | null;
 }>;
 
+type DurableJobSyncRequiredMessage<TJob extends DurableJobBrowserStatus> = Readonly<{
+  kind: "sync.required";
+  snapshot: TJob;
+}>;
+
 export function subscribeDurableJobStatus<TJob extends DurableJobBrowserStatus>(
   options: Readonly<{
     url: string;
@@ -48,15 +53,31 @@ export function subscribeDurableJobStatus<TJob extends DurableJobBrowserStatus>(
       return;
     }
 
+    const applyJob = (job: TJob) => {
+      currentJob = job;
+      options.onStatus(job);
+      if (job.status === "completed" || job.status === "failed") {
+        closeSource();
+        options.onTerminal?.(job);
+      }
+    };
     source = new EventSource(sourceUrl());
     source.addEventListener("status", (event) => {
       lastEventId = (event as MessageEvent).lastEventId || lastEventId;
-      const nextJob = JSON.parse((event as MessageEvent).data) as TJob;
-      currentJob = nextJob;
-      options.onStatus(nextJob);
-      if (nextJob.status === "completed" || nextJob.status === "failed") {
+      applyJob(JSON.parse((event as MessageEvent).data) as TJob);
+    });
+    source.addEventListener("sync.required", (event) => {
+      lastEventId = (event as MessageEvent).lastEventId || lastEventId;
+      const message = JSON.parse((event as MessageEvent).data) as DurableJobSyncRequiredMessage<TJob>;
+      applyJob(message.snapshot);
+      if (!closed && message.snapshot.status !== "completed" && message.snapshot.status !== "failed") {
         closeSource();
-        options.onTerminal?.(nextJob);
+        if (!reconnectTimer) {
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            open();
+          }, reconnectDelayMs);
+        }
       }
     });
     source.addEventListener("error", (event) => {

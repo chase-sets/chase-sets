@@ -1428,8 +1428,14 @@ describe("realtime outbox", () => {
     const client = {
       query: async (sql: string) => {
         statements.push(sql);
-        if (sql.includes("SELECT") && sql.includes("active_count")) {
-          return { rows: [{ active_count: "1", connection_count: "0" }], rowCount: 1 };
+        if (sql.includes("SELECT counter_key, active_count")) {
+          return {
+            rows: [
+              { counter_key: "global", active_count: "1" },
+              { counter_key: "connection:account:account_1", active_count: "0" },
+            ],
+            rowCount: 2,
+          };
         }
         return { rows: [], rowCount: 1 };
       },
@@ -1458,10 +1464,10 @@ describe("realtime outbox", () => {
 
     expect(lease).toMatchObject({ activeConnectionCount: 2 });
     expect(statements).toContain("BEGIN");
+    expect(statements.some((sql) => sql.includes("INSERT INTO platform_realtime_stream_counters"))).toBe(true);
     expect(statements.some((sql) => sql.includes("INSERT INTO platform_realtime_stream_leases"))).toBe(true);
-    expect(statements.some((sql) => sql.includes("DELETE FROM platform_realtime_stream_leases WHERE lease_id"))).toBe(
-      true,
-    );
+    expect(statements.some((sql) => sql.includes("UPDATE platform_realtime_stream_counters"))).toBe(true);
+    expect(statements.some((sql) => sql.includes("DELETE FROM platform_realtime_stream_leases"))).toBe(true);
   });
 
   it("exercises a synthetic multi-instance stream-limit load harness", async () => {

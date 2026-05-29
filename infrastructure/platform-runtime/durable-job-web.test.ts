@@ -74,4 +74,28 @@ describe("durable job web subscriptions", () => {
 
     subscription.close();
   });
+
+  it("applies sync-required snapshots and reconnects with the sync cursor", () => {
+    const statuses: unknown[] = [];
+    const subscription = subscribeDurableJobStatus({
+      url: "/api/catalog/source-observations/integration-jobs/job_1/events",
+      onStatus: (job) => statuses.push(job),
+      reconnectDelayMs: 500,
+    });
+
+    FakeEventSource.instances[0]?.emit(
+      "sync.required",
+      { kind: "sync.required", snapshot: { status: "running", progress: { completed: 50 } } },
+      "42",
+    );
+    vi.advanceTimersByTime(500);
+
+    expect(statuses).toEqual([{ status: "running", progress: { completed: 50 } }]);
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances[1]?.url).toBe(
+      "https://admin.test/api/catalog/source-observations/integration-jobs/job_1/events?cursor=42",
+    );
+
+    subscription.close();
+  });
 });

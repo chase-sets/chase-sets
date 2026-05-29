@@ -7,6 +7,7 @@ import {
   createDurableJobExecutionContext,
   createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
+  isDurableJobHandoffError,
   runDurableJobSideEffect,
   type DurableJobEvent,
   type DurableJobExecutionContext,
@@ -376,7 +377,7 @@ export function createSourceObservationRuntime(
       eventsTable: "catalog_source_observation_bulk_review_job_events",
       notifyChannel: "catalog_source_observation_durable_job_events",
     },
-    { eventSnapshot: toSourceObservationBulkJob },
+    { eventSnapshot: toSourceObservationBulkJobEventSnapshot },
   );
   const integrationJobStore = createPostgresDurableJobStore<
     SourceObservationIntegrationJobPayload,
@@ -488,6 +489,7 @@ export function createSourceObservationRuntime(
     observationIds: readonly string[];
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
+    runPromoteObservation?: DurableSideEffectRunner;
   }): Promise<BulkSourceObservationPromotionResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationPromotionOutcome[] = [];
@@ -495,6 +497,7 @@ export function createSourceObservationRuntime(
 
     for (const observationId of requestedIds) {
       let currentName: string | null = null;
+      const outcomeCountBefore = outcomes.length;
       try {
         const observation = await getSourceObservationDetail(deps.db, observationId);
         currentName = observation?.normalized.name ?? null;
@@ -519,10 +522,12 @@ export function createSourceObservationRuntime(
           continue;
         }
 
-        const promoted = await promoteObservationFromRow({
-          observation,
-          context: input.context,
-        });
+        const promoted = await (input.runPromoteObservation ?? runSourceObservationSideEffectImmediately)(() =>
+          promoteObservationFromRow({
+            observation,
+            context: input.context,
+          }),
+        );
         outcomes.push({
           observationId,
           status: "promoted",
@@ -530,6 +535,9 @@ export function createSourceObservationRuntime(
           reason: null,
         });
       } catch (error) {
+        if (isDurableJobHandoffError(error)) {
+          throw error;
+        }
         outcomes.push({
           observationId,
           status: "failed",
@@ -537,10 +545,12 @@ export function createSourceObservationRuntime(
           reason: error instanceof Error ? error.message : "Promotion failed.",
         });
       } finally {
-        const outcome = outcomes[outcomes.length - 1];
-        await input.onProgress?.(
-          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
-        );
+        if (outcomes.length > outcomeCountBefore) {
+          const outcome = outcomes[outcomes.length - 1];
+          await input.onProgress?.(
+            bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+          );
+        }
       }
     }
 
@@ -593,6 +603,7 @@ export function createSourceObservationRuntime(
 
     for (const observationId of requestedIds) {
       let currentName: string | null = null;
+      const outcomeCountBefore = outcomes.length;
       try {
         const observation = await getSourceObservationDetail(deps.db, observationId);
         currentName = observation?.normalized.name ?? null;
@@ -630,6 +641,9 @@ export function createSourceObservationRuntime(
           reason: null,
         });
       } catch (error) {
+        if (isDurableJobHandoffError(error)) {
+          throw error;
+        }
         outcomes.push({
           observationId,
           status: "failed",
@@ -637,10 +651,12 @@ export function createSourceObservationRuntime(
           reason: error instanceof Error ? error.message : "Reapply failed.",
         });
       } finally {
-        const outcome = outcomes[outcomes.length - 1];
-        await input.onProgress?.(
-          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
-        );
+        if (outcomes.length > outcomeCountBefore) {
+          const outcome = outcomes[outcomes.length - 1];
+          await input.onProgress?.(
+            bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+          );
+        }
       }
     }
 
@@ -654,6 +670,7 @@ export function createSourceObservationRuntime(
     reason: string;
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
+    runRejectObservation?: DurableSideEffectRunner;
   }): Promise<BulkSourceObservationPromotionResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationPromotionOutcome[] = [];
@@ -661,6 +678,7 @@ export function createSourceObservationRuntime(
 
     for (const observationId of requestedIds) {
       let currentName: string | null = null;
+      const outcomeCountBefore = outcomes.length;
       try {
         const observation = await getSourceObservationDetail(deps.db, observationId);
         currentName = observation?.normalized.name ?? null;
@@ -685,14 +703,16 @@ export function createSourceObservationRuntime(
           continue;
         }
 
-        await commandHandler({
-          streamId: sourceObservationStreamId(observationId),
-          command: {
-            type: "RejectSourceObservation",
-            reason: input.reason,
-          },
-          context: input.context,
-        });
+        await (input.runRejectObservation ?? runSourceObservationSideEffectImmediately)(() =>
+          commandHandler({
+            streamId: sourceObservationStreamId(observationId),
+            command: {
+              type: "RejectSourceObservation",
+              reason: input.reason,
+            },
+            context: input.context,
+          }),
+        );
         outcomes.push({
           observationId,
           status: "rejected",
@@ -700,6 +720,9 @@ export function createSourceObservationRuntime(
           reason: null,
         });
       } catch (error) {
+        if (isDurableJobHandoffError(error)) {
+          throw error;
+        }
         outcomes.push({
           observationId,
           status: "failed",
@@ -707,10 +730,12 @@ export function createSourceObservationRuntime(
           reason: error instanceof Error ? error.message : "Rejection failed.",
         });
       } finally {
-        const outcome = outcomes[outcomes.length - 1];
-        await input.onProgress?.(
-          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
-        );
+        if (outcomes.length > outcomeCountBefore) {
+          const outcome = outcomes[outcomes.length - 1];
+          await input.onProgress?.(
+            bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+          );
+        }
       }
     }
 
@@ -818,9 +843,24 @@ export function createSourceObservationRuntime(
 
     try {
       throwIfJobRunCancelled(input);
+      const jobContext = createDurableJobExecutionContext(bulkReviewJobStore, {
+        jobId: claimed.jobId,
+        claimOwnerId: input.claimOwnerId,
+        claimTtlMs: input.claimTtlMs,
+        signal: input.signal,
+        throwIfLeaseLost: input.throwIfLeaseLost,
+        cancelledMessage: "Source Observation bulk review job was cancelled.",
+        claimLostMessage: "Source Observation bulk review job claim was lost.",
+      });
+      const runBulkReviewSideEffect = createSourceObservationSideEffectRunner(jobContext);
       const context = claimed.eventContext;
       if (claimed.action === "reapply") {
-        await processBulkReapplyJobTurn({ job: claimed, claimTtlMs: input.claimTtlMs, context: input });
+        await processBulkReapplyJobTurn({
+          job: claimed,
+          claimTtlMs: input.claimTtlMs,
+          context: input,
+          runReapplyObservation: runBulkReviewSideEffect,
+        });
         return 1;
       }
 
@@ -856,11 +896,13 @@ export function createSourceObservationRuntime(
             ? await promoteObservationIds({
                 observationIds: [observationId],
                 context,
+                runPromoteObservation: runBulkReviewSideEffect,
               })
             : await rejectObservationIds({
                 observationIds: [observationId],
                 reason: claimed.reason ?? "Rejected during review.",
                 context,
+                runRejectObservation: runBulkReviewSideEffect,
               });
         turnOutcomes.push(...itemResult.outcomes);
         const partialResult = summarizePromotionOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
@@ -906,7 +948,7 @@ export function createSourceObservationRuntime(
       }
       return 1;
     } catch (error) {
-      if (error instanceof SourceObservationJobCancelledError) {
+      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error, input)) {
         return 0;
       }
 
@@ -926,6 +968,7 @@ export function createSourceObservationRuntime(
     job: ClaimedSourceObservationBulkJob;
     claimTtlMs: number;
     context: SourceObservationJobRunContext;
+    runReapplyObservation: DurableSideEffectRunner;
   }): Promise<void> {
     const previousResult = reapplyJobResultOrEmpty(input.job.result, input.job.progress.total);
     const completedObservationIds = new Set(previousResult.outcomes.map((outcome) => outcome.observationId));
@@ -957,6 +1000,7 @@ export function createSourceObservationRuntime(
       const itemResult = await reapplyObservationIds({
         observationIds: [observationId],
         context: input.job.eventContext,
+        runReapplyObservation: input.runReapplyObservation,
       });
       turnOutcomes.push(...itemResult.outcomes);
       const partialResult = summarizeReapplyOutcomes(total, [...previousResult.outcomes, ...turnOutcomes]);
@@ -2518,6 +2562,18 @@ function toSourceObservationBulkJob(
     completedAt: job.completedAt,
     updatedAt: job.updatedAt,
   };
+}
+
+function toSourceObservationBulkJobEventSnapshot(
+  job: DurableJobRecord<SourceObservationBulkJobPayload, BulkSourceObservationProgress, SourceObservationBulkJobResult>,
+): SourceObservationBulkJob {
+  const snapshot = toSourceObservationBulkJob(job);
+  return snapshot.status === "completed" || snapshot.status === "failed"
+    ? snapshot
+    : {
+        ...snapshot,
+        result: null,
+      };
 }
 
 function toClaimedSourceObservationBulkJob(
