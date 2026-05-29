@@ -179,6 +179,7 @@ export function createPostgresDurableJobStore<
   const jobsTable = sqlIdentifier(tables.jobsTable);
   const eventsTable = sqlIdentifier(tables.eventsTable);
   const notifyChannel = sqlNotifyChannel(tables.notifyChannel ?? "durable_job_events");
+  const notificationWaiter = isTransactionalPool(db) ? createDurableJobNotificationWaiter(db, notifyChannel) : null;
   const eventSnapshot =
     options.eventSnapshot ??
     ((job: DurableJobRecord<TPayload, TProgress, TResult>) =>
@@ -345,12 +346,11 @@ export function createPostgresDurableJobStore<
       return Boolean(job);
     },
     waitForEvents: async (input) => {
-      await waitForDurableJobNotification(db, {
-        channel: notifyChannel,
+      await (notificationWaiter?.wait({
         jobId: input.jobId,
         signal: input.signal,
         timeoutMs: input.timeoutMs,
-      });
+      }) ?? waitForDurableJobTimeout(Math.max(100, Math.floor(input.timeoutMs ?? 500)), input.signal));
     },
     pruneTerminalJobs: async (input) => {
       const result = await db.query<{ job_id: string }>(
@@ -647,51 +647,64 @@ async function runDurableJobWrite<T>(db: PgQueryable, work: (queryable: PgQuerya
   }
 }
 
-async function waitForDurableJobNotification(
-  db: PgQueryable,
-  input: Readonly<{ channel: string; jobId: string; signal?: AbortSignal; timeoutMs?: number }>,
-): Promise<void> {
-  const timeoutMs = Math.max(100, Math.floor(input.timeoutMs ?? 500));
-  if (input.signal?.aborted || !isTransactionalPool(db)) {
-    return waitForDurableJobTimeout(timeoutMs, input.signal);
+type DurableJobNotificationClient = PgPoolClient & {
+  on?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
+  off?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
+};
+
+function createDurableJobNotificationWaiter(db: PgTransactionalPool, channel: string) {
+  let clientPromise: Promise<DurableJobNotificationClient> | null = null;
+
+  async function getClient() {
+    clientPromise ??= (async () => {
+      const client = (await db.connect()) as DurableJobNotificationClient;
+      const reset = () => {
+        client.off?.("error", reset);
+        clientPromise = null;
+        client.release();
+      };
+      client.on?.("error", reset);
+      await client.query(`LISTEN ${channel}`);
+      return client;
+    })();
+
+    return clientPromise;
   }
 
-  const client = await db.connect();
-  const eventClient = client as PgPoolClient & {
-    on?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
-    off?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
+  return {
+    wait: async (input: Readonly<{ jobId: string; signal?: AbortSignal; timeoutMs?: number }>) => {
+      const timeoutMs = Math.max(100, Math.floor(input.timeoutMs ?? 500));
+      if (input.signal?.aborted) {
+        return waitForDurableJobTimeout(timeoutMs, input.signal);
+      }
+
+      const eventClient = await getClient();
+      await new Promise<void>((resolve) => {
+        let settled = false;
+        const cleanup = () => {
+          if (settled) {
+            return;
+          }
+          settled = true;
+          clearTimeout(timer);
+          input.signal?.removeEventListener("abort", cleanup);
+          eventClient.off?.("notification", onNotification);
+          eventClient.off?.("error", cleanup);
+          resolve();
+        };
+        const onNotification = (message?: { payload?: string }) => {
+          if (notificationMatchesJob(message?.payload, input.jobId)) {
+            cleanup();
+          }
+        };
+        const timer = setTimeout(cleanup, timeoutMs);
+
+        input.signal?.addEventListener("abort", cleanup, { once: true });
+        eventClient.on?.("notification", onNotification);
+        eventClient.on?.("error", cleanup);
+      });
+    },
   };
-
-  try {
-    await client.query(`LISTEN ${input.channel}`);
-    await new Promise<void>((resolve) => {
-      let settled = false;
-      const cleanup = () => {
-        if (settled) {
-          return;
-        }
-        settled = true;
-        clearTimeout(timer);
-        input.signal?.removeEventListener("abort", cleanup);
-        eventClient.off?.("notification", onNotification);
-        eventClient.off?.("error", cleanup);
-        resolve();
-      };
-      const onNotification = (message?: { payload?: string }) => {
-        if (notificationMatchesJob(message?.payload, input.jobId)) {
-          cleanup();
-        }
-      };
-      const timer = setTimeout(cleanup, timeoutMs);
-
-      input.signal?.addEventListener("abort", cleanup, { once: true });
-      eventClient.on?.("notification", onNotification);
-      eventClient.on?.("error", cleanup);
-    });
-    await client.query(`UNLISTEN ${input.channel}`);
-  } finally {
-    client.release();
-  }
 }
 
 function notificationMatchesJob(payload: string | undefined, jobId: string): boolean {

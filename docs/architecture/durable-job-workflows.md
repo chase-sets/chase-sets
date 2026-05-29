@@ -24,7 +24,7 @@ Each durable job workflow has four parts:
 The shared infrastructure is intentionally small:
 
 - `durable-job-store.ts` provides the Postgres claim/update/event mechanics, notification wakeups, claimed release, and terminal-row pruning.
-- `durable-job-events.ts` provides SSE cursor parsing, keepalive, event formatting, and polling fallback.
+- `durable-job-events.ts` provides SSE cursor parsing, keepalive, event formatting, stream limiting, and polling fallback.
 
 Domain payloads, progress language, result shapes, permissions, and worker composition stay in the owning bounded context. The payload is worker-private. API and SSE responses must return public job status snapshots that exclude worker payload, event context, claim owner, and claim expiration fields.
 
@@ -46,6 +46,10 @@ State transitions and event appends must be committed atomically. The shared Pos
 
 Do not store large request bodies directly in a durable job payload when the job will emit many progress events. Stage bulky or sensitive inputs in context-owned storage and put only a stable staging reference in the job payload.
 
+Replayable create-style jobs must also store the deterministic target id they will mutate. Inventory import create jobs, for example, persist the target `batchId` in the job payload before row validation begins and derive row ids from `(batchId, rowNumber)`. If a worker loses its claim after partial inserts, the next worker resumes the same batch instead of creating a second one.
+
+Projection operations are platform control-plane jobs rather than bounded-context jobs, but they follow the same durability contract: progress writes renew the claim to `now + ttl`, terminal writes require the live claim, operation state and event append commit together, SSE uses notification-backed waits, and event sequence numbers are reserved through the operation row instead of recomputing from event history.
+
 ## API Shape
 
 Use explicit job endpoints rather than overloading synchronous result language:
@@ -57,6 +61,8 @@ Use explicit job endpoints rather than overloading synchronous result language:
 Event streams must use `text/event-stream`, must honor `Last-Event-ID`, and must terminate after `completed`, `failed`, or the domain terminal state.
 
 Bounded-context job SSE routes must pass the store `waitForEvents` hook into `createDurableJobEventStream`; the structure check rejects new bounded-context durable job routes that omit this hook.
+
+Every durable job SSE stream is subject to the shared in-process limiter. When the limiter is exhausted the route returns `429 too_many_durable_job_streams`; clients should retry with backoff and reconnect with the last received event id.
 
 ## Worker Shape
 
@@ -71,7 +77,9 @@ Workers should register a `job` runner that:
 
 Use `createDurableJobExecutionContext` for long side-effect loops. It exposes `throwIfCancelled`, `renew`, and `checkpointProgress`, and it converts failed claimed writes into lease-loss errors. `updateProgress` renews the claim. `releaseClaim` requeues bounded-turn jobs only for the live claim owner. `complete` and `fail` only succeed for the live claim owner before claim expiry. A processor must check those boolean results and stop work when ownership is lost.
 
-Retention belongs outside hot execution. Workers run the `durable-jobs.retention` scheduled runner, which prunes terminal durable job rows after the context retention window and removes orphaned staged Inventory import inputs. Event rows cascade from job deletion.
+External or cross-context calls inside a durable job need a checkpoint immediately before the call and again before recording the resulting domain fact. If a create operation can be replayed, pass a deterministic target id or provider idempotency key. Pricing recommendation apply jobs use this rule when creating marketplace draft listings.
+
+Retention belongs outside hot execution. Workers run the `durable-jobs.retention` scheduled runner, which prunes terminal durable job rows after the context retention window and removes orphaned staged Inventory import inputs. Retention must never remove staged inputs referenced by queued or running jobs. Event rows cascade from job deletion.
 
 Scheduled jobs can remain scheduled triggers, but a manual operator trigger should enqueue a durable job when it needs visible progress or provider durability.
 

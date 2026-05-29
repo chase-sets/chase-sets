@@ -156,6 +156,7 @@ export type InventoryImportBatchJobPayload = Readonly<{
   accountId: string;
   create?: Readonly<{
     inputId: string;
+    batchId?: string;
   }>;
 }>;
 
@@ -452,6 +453,10 @@ function listingIdForRow(rowId: string): ListingId {
   return rowId.replace(/^imr_/, "lst_") as ListingId;
 }
 
+function rowIdForBatchRow(batchId: string, rowNumber: number): string {
+  return `imr_${batchId.replace(/^imb_/, "")}_${rowNumber}`;
+}
+
 async function refreshBatchCounts(db: PgQueryable, batchId: string) {
   await db.query(
     `UPDATE inventory_import_batches AS batch
@@ -712,6 +717,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     params: Readonly<{ batchId: string; accountId: AccountId }>,
     context: EventStoreContext,
     onProgress?: (progress: InventoryImportBatchJobProgress) => Promise<void>,
+    options: Readonly<{ throwIfCancelled?: () => void }> = {},
   ): Promise<InventoryImportBatchDetail> {
     const detail = await getImportBatch(deps.db, params.batchId, params.accountId);
     if (!detail) {
@@ -723,7 +729,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     await onProgress?.(importBatchJobProgress("processing", completed, rowsToCommit.length, null, "Committing rows."));
 
     for (const row of rowsToCommit) {
-      throwIfImportBatchJobCancelled();
+      options.throwIfCancelled?.();
 
       if (row.status === "committed") {
         continue;
@@ -851,6 +857,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
   async function createBatchRows(
     params: Parameters<InventoryImportBatchServices["createBatch"]>[0],
     onProgress?: (progress: InventoryImportBatchJobProgress) => Promise<void>,
+    options: Readonly<{ batchId?: string; throwIfCancelled?: () => void }> = {},
   ) {
     const quantityMode = params.quantityMode ?? "add";
     const adapter = getInventoryImportSourceAdapter(params.sourceKey);
@@ -864,7 +871,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       throw new InventoryDomainError("Import CSV must include at least one data row.");
     }
 
-    const batchId = createId("imb");
+    const batchId = options.batchId ?? createId("imb");
     await deps.db.query(
       `INSERT INTO inventory_import_batches (
         batch_id,
@@ -877,7 +884,19 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         source_filename,
         created_at,
         updated_at
-      ) VALUES ($1, $2, 'uploaded', $3, $4, $5, $6, $7, now(), now())`,
+      ) VALUES ($1, $2, 'uploaded', $3, $4, $5, $6, $7, now(), now())
+      ON CONFLICT (batch_id) DO UPDATE
+      SET account_id = EXCLUDED.account_id,
+          status = CASE
+            WHEN inventory_import_batches.status = 'committed' THEN inventory_import_batches.status
+            ELSE EXCLUDED.status
+          END,
+          source_key = EXCLUDED.source_key,
+          adapter_version = EXCLUDED.adapter_version,
+          quantity_mode = EXCLUDED.quantity_mode,
+          default_storage_location_id = EXCLUDED.default_storage_location_id,
+          source_filename = EXCLUDED.source_filename,
+          updated_at = now()`,
       [
         batchId,
         params.accountId,
@@ -891,8 +910,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
 
     let completed = 0;
     for (const row of rows) {
-      const rowId = createId("imr");
+      options.throwIfCancelled?.();
+      const rowId = rowIdForBatchRow(batchId, row.rowNumber);
       const validated = await validateRow(params.accountId, row, quantityMode);
+      options.throwIfCancelled?.();
       await deps.db.query(
         `INSERT INTO inventory_import_batch_rows (
           row_id,
@@ -924,7 +945,31 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
           $11, $12, $13, $14, $15, $16, $17, $18,
           $19, $20, $21, $22, $23, now(), now()
-        )`,
+        )
+        ON CONFLICT (batch_id, row_number) DO UPDATE
+        SET row_id = EXCLUDED.row_id,
+            status = EXCLUDED.status,
+            raw_row = EXCLUDED.raw_row,
+            external_reference = EXCLUDED.external_reference,
+            row_fingerprint = EXCLUDED.row_fingerprint,
+            quantity_mode = EXCLUDED.quantity_mode,
+            quantity_delta = EXCLUDED.quantity_delta,
+            set_quantity = EXCLUDED.set_quantity,
+            source_price_amount = EXCLUDED.source_price_amount,
+            resolution_status = EXCLUDED.resolution_status,
+            catalog_item_id = EXCLUDED.catalog_item_id,
+            product_id = EXCLUDED.product_id,
+            selected_options = EXCLUDED.selected_options,
+            storage_location_id = EXCLUDED.storage_location_id,
+            total_quantity = EXCLUDED.total_quantity,
+            acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
+            seller_sku = EXCLUDED.seller_sku,
+            listing_price_amount = EXCLUDED.listing_price_amount,
+            listing_quantity_cap = EXCLUDED.listing_quantity_cap,
+            row_note = EXCLUDED.row_note,
+            validation_errors = EXCLUDED.validation_errors,
+            updated_at = now()
+        WHERE inventory_import_batch_rows.status <> 'committed'`,
         [
           rowId,
           batchId,
@@ -970,13 +1015,16 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     commitBatch: (params, context) => commitBatchRows(params, context),
     enqueueCreateBatchJob: async (params, context) => {
       const inputId = await stageCreateBatchJobInput(params);
+      const batchId = createId("imb");
       return jobStore.enqueue({
         jobId: createId("job"),
         jobKind: IMPORT_BATCH_JOB_KIND_CREATE,
         payload: {
+          batchId,
           accountId: params.accountId,
           create: {
             inputId,
+            batchId,
           },
         },
         progress: importBatchJobProgress("queued", 0, 1, null, "Import validation queued."),
@@ -1012,8 +1060,14 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         limit: input.limit,
       });
       const result = await deps.db.query(
-        `DELETE FROM inventory_import_batch_job_inputs
-         WHERE created_at < $1::timestamptz`,
+        `DELETE FROM inventory_import_batch_job_inputs AS input
+         WHERE input.created_at < $1::timestamptz
+           AND NOT EXISTS (
+             SELECT 1
+             FROM inventory_import_batch_jobs AS job
+             WHERE job.status IN ('queued', 'running')
+               AND job.payload #>> '{create,inputId}' = input.input_id
+           )`,
         [formatRetentionDate(stagedInputCreatedBefore)],
       );
 
@@ -1067,6 +1121,10 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
                   }),
                 );
               },
+              {
+                batchId: requireCreateBatchId(claimed.payload),
+                throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
+              },
             )
           : await commitBatchRows(
               {
@@ -1085,6 +1143,9 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
                     progress,
                   }),
                 );
+              },
+              {
+                throwIfCancelled: () => throwIfImportBatchJobCancelled(input),
               },
             );
         await requireImportBatchJobClaim(
@@ -1160,6 +1221,15 @@ function requireCreateInputId(payload: InventoryImportBatchJobPayload) {
   }
 
   return payload.create.inputId;
+}
+
+function requireCreateBatchId(payload: InventoryImportBatchJobPayload) {
+  const batchId = payload.create?.batchId ?? payload.batchId;
+  if (!batchId) {
+    throw new InventoryDomainError("Import batch job is missing a create batch ID.");
+  }
+
+  return batchId;
 }
 
 async function requireImportBatchJobClaim(succeeded: Promise<boolean> | boolean) {

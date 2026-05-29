@@ -49,6 +49,7 @@ export type PricingMarketplaceListingGateway = Readonly<{
       inventoryItemId: string;
       priceAmount: string;
       quantityCap: number;
+      listingIdOverride?: string;
     }>,
   ) => Promise<{ id?: string; listing_id?: string }>;
   staleFeeQuoteFingerprint?: (error: unknown) => string | null;
@@ -482,23 +483,30 @@ export function createPricingRecommendationRuntime(
           if (!row.listing_id) {
             throw new Error("Recommendation is missing a listing target.");
           }
-          const quote = await params.marketplaceListings.previewListingTerms({
-            priceAmount: price,
-          });
-          try {
-            await params.marketplaceListings.updateListingPrice(row.listing_id, {
+          const listingId = row.listing_id;
+          const quote = await runPricingJobSideEffect(jobContext, () =>
+            params.marketplaceListings.previewListingTerms({
               priceAmount: price,
-              feeQuoteFingerprint: quote.fee_quote_fingerprint,
-            });
+            }),
+          );
+          try {
+            await runPricingJobSideEffect(jobContext, () =>
+              params.marketplaceListings.updateListingPrice(listingId, {
+                priceAmount: price,
+                feeQuoteFingerprint: quote.fee_quote_fingerprint,
+              }),
+            );
           } catch (error) {
             const retryFingerprint = params.marketplaceListings.staleFeeQuoteFingerprint?.(error);
             if (!retryFingerprint) {
               throw error;
             }
-            await params.marketplaceListings.updateListingPrice(row.listing_id, {
-              priceAmount: price,
-              feeQuoteFingerprint: retryFingerprint,
-            });
+            await runPricingJobSideEffect(jobContext, () =>
+              params.marketplaceListings.updateListingPrice(listingId, {
+                priceAmount: price,
+                feeQuoteFingerprint: retryFingerprint,
+              }),
+            );
           }
         } else {
           if (!row.inventory_item_id) {
@@ -507,34 +515,43 @@ export function createPricingRecommendationRuntime(
           if (!row.quantity_cap) {
             throw new Error("Recommendation is missing a draft quantity cap.");
           }
-          const created = await params.marketplaceListings.createListing({
-            inventoryItemId: row.inventory_item_id,
-            priceAmount: price,
-            quantityCap: row.quantity_cap,
-          });
+          const inventoryItemId = row.inventory_item_id;
+          const quantityCap = row.quantity_cap;
+          const created = await runPricingJobSideEffect(jobContext, () =>
+            params.marketplaceListings.createListing({
+              inventoryItemId,
+              priceAmount: price,
+              quantityCap,
+              listingIdOverride: listingIdForPricingRecommendation(row.recommendation_id),
+            }),
+          );
           appliedListingId = created.id ?? created.listing_id ?? row.inventory_item_id;
         }
 
-        await commandHandler({
-          streamId: `pricing.recommendation-${row.recommendation_id}`,
-          command: {
-            type: "MarkRecommendationApplied",
-            appliedListingId: appliedListingId ?? row.recommendation_id,
-            appliedAt: new Date().toISOString(),
-          },
-          context,
-        });
+        await runPricingJobSideEffect(jobContext, () =>
+          commandHandler({
+            streamId: `pricing.recommendation-${row.recommendation_id}`,
+            command: {
+              type: "MarkRecommendationApplied",
+              appliedListingId: appliedListingId ?? row.recommendation_id,
+              appliedAt: new Date().toISOString(),
+            },
+            context,
+          }),
+        );
         appliedCount += 1;
       } catch (error) {
-        await commandHandler({
-          streamId: `pricing.recommendation-${row.recommendation_id}`,
-          command: {
-            type: "MarkRecommendationFailed",
-            errorMessage: error instanceof Error ? error.message : "Recommendation apply failed.",
-            failedAt: new Date().toISOString(),
-          },
-          context,
-        });
+        await runPricingJobSideEffect(jobContext, () =>
+          commandHandler({
+            streamId: `pricing.recommendation-${row.recommendation_id}`,
+            command: {
+              type: "MarkRecommendationFailed",
+              errorMessage: error instanceof Error ? error.message : "Recommendation apply failed.",
+              failedAt: new Date().toISOString(),
+            },
+            context,
+          }),
+        );
         failedCount += 1;
       }
       completed += 1;
@@ -765,6 +782,21 @@ function pricingJobProgress(
   message: string | null,
 ): PricingRecommendationJobProgress {
   return { phase, completed, total, message };
+}
+
+async function runPricingJobSideEffect<T>(
+  jobContext: DurableJobExecutionContext<PricingRecommendationJobProgress, PricingRecommendationJobResult> | undefined,
+  work: () => Promise<T>,
+): Promise<T> {
+  jobContext?.throwIfCancelled();
+  await jobContext?.renew();
+  const result = await work();
+  await jobContext?.renew();
+  return result;
+}
+
+function listingIdForPricingRecommendation(recommendationId: string): string {
+  return `lst_pricing_${recommendationId.replace(/[^A-Za-z0-9_]+/g, "_")}`;
 }
 
 function createPricingRecommendationJobId(): string {

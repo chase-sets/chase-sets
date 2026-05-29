@@ -33,8 +33,9 @@ Expected client behavior:
 - Realtime clients reconnect with `Last-Event-ID` or cursor query state.
 - Durable job clients reconnect to the owning context's `/jobs/:jobId/events`
   endpoint with `Last-Event-ID`.
-- A temporary `429 too_many_realtime_streams` can be retried with backoff while
-  forced-exit leases expire.
+- Temporary `429 too_many_realtime_streams` and
+  `429 too_many_durable_job_streams` responses can be retried with backoff while
+  stream slots or forced-exit leases clear.
 
 ## Worker Jobs
 
@@ -52,6 +53,12 @@ endpoints enqueue jobs and return `202`; progress endpoints stream from durable
 job state. Progress writes renew durable job ownership, bounded-turn jobs
 release the live claim back to `queued`, and completion/failure writes are
 rejected after lease loss so a replacement worker can safely resume.
+
+Replayable jobs should resume the same target after worker replacement.
+Inventory import create jobs persist their target batch id before validation and
+protect active staged inputs from retention cleanup; Pricing recommendation
+apply jobs use deterministic marketplace draft listing ids for replayed create
+work.
 
 ## Scheduled Cadence
 
@@ -81,6 +88,8 @@ operation state and business facts.
 - Active request and stream counts should fall before pool close.
 - Realtime `process_draining`, `sync.required`, and `too_many_realtime_streams`
   rates should settle after deployment.
+- Durable job `too_many_durable_job_streams` rates should be brief and should
+  not coincide with sustained Postgres pool pressure.
 - Worker active runner count should fall to zero during drain.
 - Catalog job progress should resume after worker replacement.
 - Scheduled runner `next_run_at` should not jump backward after restart.

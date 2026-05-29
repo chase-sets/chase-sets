@@ -217,7 +217,7 @@ export type SourceObservationServices = Readonly<{
     languageCode: string;
     setId: string;
     context: EventStoreContext;
-    onProgress?: (progress: TcgdexSetImportProgress) => void;
+    onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
   }) => Promise<TcgdexSetImportResult>;
   listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
   listTcgdexSeries: (input: { languageCode: string }) => Promise<readonly TcgdexSeriesOption[]>;
@@ -702,7 +702,7 @@ export function createSourceObservationRuntime(
     languageCode: string;
     setId: string;
     context: EventStoreContext;
-    onProgress?: (progress: TcgdexSetImportProgress) => void;
+    onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
   }): Promise<TcgdexSetImportResult> {
     const observations = await fetchTcgdexSetObservations({
       languageCode: input.languageCode,
@@ -721,14 +721,14 @@ export function createSourceObservationRuntime(
 
     for (const [index, observation] of observations.entries()) {
       await recordObservation(observation, input.context);
-      input.onProgress?.({
+      await input.onProgress?.({
         phase: "recording",
         completed: index + 1,
         total: observations.length,
         currentName: observation.normalized.name,
       });
     }
-    input.onProgress?.({
+    await input.onProgress?.({
       phase: "completed",
       completed: observations.length,
       total: observations.length,
@@ -1132,6 +1132,23 @@ export function createSourceObservationRuntime(
       languageCode,
       providerProfile,
       context: input.job.eventContext,
+      onProgress: async (setProgress) => {
+        throwIfJobRunCancelled(input.context);
+        await requireSourceObservationJobClaim(
+          integrationJobStore.updateProgress({
+            jobId: input.job.jobId,
+            claimOwnerId: input.job.claimOwnerId,
+            claimTtlMs: input.claimTtlMs,
+            progress: bulkProgress(
+              previousResult.outcomes.length,
+              expansions.length,
+              setProgress.currentName ?? nextExpansion.name,
+              null,
+              "processing",
+            ),
+          }),
+        );
+      },
     });
     const result = summarizeIntegrationJobOutcomes(expansions.length, [...previousResult.outcomes, outcome]);
     const progress = bulkProgress(result.outcomes.length, result.requested, nextExpansion.name, outcome.status);
@@ -1257,6 +1274,16 @@ export function createSourceObservationRuntime(
           languageCode,
           setId: expansion.expansionId,
           context: input.context,
+          onProgress: (progress) =>
+            input.onProgress?.(
+              bulkProgress(
+                outcomes.length,
+                expansions.length,
+                progress.currentName ?? expansion.name,
+                null,
+                "processing",
+              ),
+            ),
         });
         outcomes.push({
           providerKey: providerProfile.providerKey,
@@ -1293,12 +1320,14 @@ export function createSourceObservationRuntime(
     languageCode: string;
     providerProfile: CatalogProviderIntegrationProfile;
     context: EventStoreContext;
+    onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
   }): Promise<SourceObservationIntegrationJobOutcome> {
     try {
       const result = await importTcgdexSetScope({
         languageCode: input.languageCode,
         setId: input.expansion.expansionId,
         context: input.context,
+        onProgress: input.onProgress,
       });
       return {
         providerKey: input.providerProfile.providerKey,

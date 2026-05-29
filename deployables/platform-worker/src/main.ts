@@ -744,6 +744,7 @@ function createPricingJobRunners(
                 inventoryItemId: string;
                 priceAmount: string;
                 quantityCap: number;
+                listingIdOverride?: string;
               }) => Promise<{ id?: string; listing_id?: string }>;
               staleFeeQuoteFingerprint?: (error: unknown) => string | null;
             };
@@ -765,7 +766,13 @@ function createPricingJobRunners(
             context: typeof SYSTEM_CONTEXT,
           ) => Promise<unknown>;
           createListing?: (
-            params: { accountId: string; inventoryItemId: string; priceAmount: string; quantityCap: number },
+            params: {
+              accountId: string;
+              inventoryItemId: string;
+              priceAmount: string;
+              quantityCap: number;
+              listingIdOverride?: string;
+            },
             context: typeof SYSTEM_CONTEXT,
           ) => Promise<{ listingId?: string; id?: string; listing_id?: string }>;
         };

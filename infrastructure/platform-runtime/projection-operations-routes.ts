@@ -240,6 +240,8 @@ export function createProjectionOperationsRoutes(
           eventName: event.eventName,
           data: event.operation,
         })),
+      waitForEvents: (_afterSequence, signal) =>
+        options.controlPlane!.waitForProjectionOperationEvents({ operationId, signal }),
       isTerminal: (event) =>
         event.data.state === "succeeded" || event.data.state === "failed" || event.data.state === "cancelled",
     });

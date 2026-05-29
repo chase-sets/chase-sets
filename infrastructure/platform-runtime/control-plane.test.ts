@@ -168,25 +168,35 @@ describe("platform control plane", () => {
     };
     const controlPlane = createPostgresPlatformControlPlane({
       connect: async () => {
-        throw new Error("not used");
+        const query = async (sql: string, params?: readonly unknown[]) => {
+          calls.push({ sql, params });
+          if (sql.includes("RETURNING event_sequence")) {
+            return {
+              rows: [{ event_sequence: calls.filter((call) => call.sql.includes("RETURNING event_sequence")).length }],
+              rowCount: 1,
+            };
+          }
+          if (sql.includes("RETURNING") && sql.includes("platform_projection_operations")) {
+            return {
+              rows: [
+                {
+                  ...operationRow,
+                  state: sql.includes("WITH claimable") ? "running" : operationRow.state,
+                  claim_owner_id: sql.includes("WITH claimable") ? "worker-a" : null,
+                  claim_fencing_token: sql.includes("WITH claimable") ? "1" : null,
+                  claimed_until: sql.includes("WITH claimable") ? "2026-05-26T00:01:00.000Z" : null,
+                },
+              ],
+              rowCount: 1,
+            };
+          }
+
+          return { rows: [], rowCount: 1 };
+        };
+        return { query, release: () => undefined };
       },
       query: async (sql, params) => {
         calls.push({ sql, params });
-        if (sql.includes("RETURNING") && sql.includes("platform_projection_operations")) {
-          return {
-            rows: [
-              {
-                ...operationRow,
-                state: sql.includes("WITH claimable") ? "running" : operationRow.state,
-                claim_owner_id: sql.includes("WITH claimable") ? "worker-a" : null,
-                claim_fencing_token: sql.includes("WITH claimable") ? "1" : null,
-                claimed_until: sql.includes("WITH claimable") ? "2026-05-26T00:01:00.000Z" : null,
-              },
-            ],
-            rowCount: 1,
-          };
-        }
-
         return { rows: [], rowCount: 1 };
       },
     });
@@ -213,8 +223,10 @@ describe("platform control plane", () => {
       claimOwnerId: "worker-a",
       claimFencingToken: "1",
     });
-    expect(calls[2].sql).toContain("FOR UPDATE SKIP LOCKED");
-    expect(calls[2].sql).toContain("claim_fencing_token = COALESCE");
+    const claimCall = calls.find((call) => call.sql.includes("FOR UPDATE SKIP LOCKED"));
+    expect(claimCall?.sql).toContain("FOR UPDATE SKIP LOCKED");
+    expect(claimCall?.sql).toContain("claim_fencing_token = COALESCE");
+    expect(calls.some((call) => call.sql.includes("RETURNING event_sequence"))).toBe(true);
   });
 
   it("filters projection operation history by target, state, and actor", async () => {
