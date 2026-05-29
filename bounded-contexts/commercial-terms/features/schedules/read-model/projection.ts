@@ -56,5 +56,41 @@ export function buildScheduleProjectionHandlers(db: PgQueryable): ProjectorHandl
         ],
       );
     },
+    "commercial-terms.schedule.revised": async (event) => {
+      const data = event.data as {
+        scheduleId: string;
+        label: string;
+        marketplaceSalesFeePercentageBps: number;
+        marketplaceSalesFeeFixedAmount: string;
+        shippingAllowancePercentageBps: number;
+        status: string;
+        effectiveFrom: string;
+        effectiveUntil: string | null;
+      };
+
+      await db.query(
+        `UPDATE commercial_terms_schedule_pages
+         SET label = $2,
+             marketplace_sales_fee_percentage_bps = $3,
+             marketplace_sales_fee_fixed_amount = $4,
+             shipping_allowance_percentage_bps = $5,
+             status = $6,
+             effective_from = $7,
+             effective_until = $8,
+             updated_at = $9
+         WHERE schedule_id = $1`,
+        [
+          data.scheduleId,
+          data.label,
+          data.marketplaceSalesFeePercentageBps,
+          data.marketplaceSalesFeeFixedAmount,
+          data.shippingAllowancePercentageBps,
+          data.status,
+          data.effectiveFrom,
+          data.effectiveUntil,
+          event.timing.recordedAt,
+        ],
+      );
+    },
   };
 }

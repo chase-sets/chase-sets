@@ -7,8 +7,11 @@ export class CommercialTermsApiError extends Error {
     public readonly body: unknown,
   ) {
     super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
+      typeof body === "object" &&
+        body !== null &&
+        "error" in body &&
+        typeof (body as { error?: { message?: unknown } }).error?.message === "string"
+        ? (body as { error: { message: string } }).error.message
         : `API error ${status}`,
     );
   }
@@ -80,6 +83,15 @@ export function createCommercialTermsRequestApiClient(request: Request) {
         }),
       );
     },
+    async updateSchedule(id: string, body: Record<string, unknown>) {
+      return parseJsonResponse<{ id: string; version: number }>(
+        await fetch(`${baseUrl}/schedules/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    },
     async listAgreements(query = "") {
       return parseJsonResponse<{ items: CommercialAgreement[] }>(
         await fetch(`${baseUrl}/agreements${queryFromString(query)}`),
@@ -92,6 +104,15 @@ export function createCommercialTermsRequestApiClient(request: Request) {
       return parseJsonResponse<{ id: string; version: number }>(
         await fetch(`${baseUrl}/agreements`, {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async updateAgreement(id: string, body: Record<string, unknown>) {
+      return parseJsonResponse<{ id: string; version: number }>(
+        await fetch(`${baseUrl}/agreements/${id}`, {
+          method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         }),

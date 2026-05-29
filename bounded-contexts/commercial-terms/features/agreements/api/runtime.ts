@@ -30,6 +30,11 @@ export type AgreementServices = Readonly<{
     params: Omit<Extract<CommercialAgreementCommand, { type: "CreateAgreement" }>, "type" | "agreementId">,
     context: EventStoreContext,
   ) => Promise<{ agreementId: string; version: number }>;
+  reviseAgreement: (
+    agreementId: string,
+    params: Omit<Extract<CommercialAgreementCommand, { type: "ReviseAgreement" }>, "type">,
+    context: EventStoreContext,
+  ) => Promise<{ agreementId: string; version: number }>;
   listAgreements: (params: Readonly<{ limit?: number; offset?: number }>) => ReturnType<typeof listAgreements>;
   getAgreement: (agreementId: string) => ReturnType<typeof getAgreement>;
   projectors: readonly ProjectionHandlerSet[];
@@ -56,6 +61,17 @@ export function createAgreementRuntime(deps: AgreementRuntimeDeps): AgreementSer
         command: {
           type: "CreateAgreement",
           agreementId,
+          ...params,
+        },
+        context,
+      });
+      return { agreementId, version: result.version };
+    },
+    async reviseAgreement(agreementId, params, context) {
+      const result = await commandHandler({
+        streamId: `commercial-terms.agreement-${agreementId}`,
+        command: {
+          type: "ReviseAgreement",
           ...params,
         },
         context,

@@ -51,6 +51,19 @@ function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("commercialTerms.features.agreements.api.route.request.failed");
 }
 
+function agreementCommandBody(body: Record<string, unknown>) {
+  return {
+    label: String(body.label ?? ""),
+    marketplaceSalesFeePercentageBps: Number(body.marketplaceSalesFeePercentageBps ?? 0),
+    marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
+    shippingAllowancePercentageBps: Number(body.shippingAllowancePercentageBps ?? 500),
+    status: String(body.status ?? "active") as never,
+    effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
+    effectiveUntil:
+      typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0 ? body.effectiveUntil : null,
+  };
+}
+
 export function createAgreementRoutes(services: AgreementServices) {
   const app = new Hono<CommercialTermsApiEnv>();
 
@@ -113,22 +126,41 @@ export function createAgreementRoutes(services: AgreementServices) {
     try {
       const result = await services.createAgreement(
         {
+          ...agreementCommandBody(body),
           accountId: String(body.accountId ?? ""),
-          label: String(body.label ?? ""),
-          marketplaceSalesFeePercentageBps: Number(body.marketplaceSalesFeePercentageBps ?? 0),
-          marketplaceSalesFeeFixedAmount: String(body.marketplaceSalesFeeFixedAmount ?? ""),
-          shippingAllowancePercentageBps: Number(body.shippingAllowancePercentageBps ?? 500),
-          status: String(body.status ?? "active") as never,
-          effectiveFrom: typeof body.effectiveFrom === "string" ? body.effectiveFrom : new Date().toISOString(),
-          effectiveUntil:
-            typeof body.effectiveUntil === "string" && body.effectiveUntil.trim().length > 0
-              ? body.effectiveUntil
-              : null,
         },
         context,
       );
 
       return c.json({ id: result.agreementId, version: result.version }, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.put("/:id", async (c) => {
+    const access = requireAccess(c, "commercial-terms.manage");
+    if (access.response) {
+      return access.response;
+    }
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("commercialTerms.features.agreements.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json();
+
+    try {
+      const result = await services.reviseAgreement(c.req.param("id"), agreementCommandBody(body), context);
+      return c.json({ id: result.agreementId, version: result.version });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }

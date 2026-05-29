@@ -3,8 +3,8 @@ import {
   assert,
   assertNever,
   DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
-  ensureIsoTimestamp,
   normalizeCommercialTermsStatus,
+  normalizeEffectiveWindow,
   normalizeLabel,
   normalizeMoneyAmount,
   normalizePercentageBps,
@@ -48,7 +48,18 @@ export type CreateAgreementCommand = Readonly<{
   effectiveUntil: string | null;
 }>;
 
-export type CommercialAgreementCommand = CreateAgreementCommand;
+export type ReviseAgreementCommand = Readonly<{
+  type: "ReviseAgreement";
+  label: string;
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  shippingAllowancePercentageBps: number;
+  status: CommercialTermsStatus;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+}>;
+
+export type CommercialAgreementCommand = CreateAgreementCommand | ReviseAgreementCommand;
 
 export type AgreementCreatedEvent = DomainEvent<
   "commercial-terms.agreement.created",
@@ -65,7 +76,28 @@ export type AgreementCreatedEvent = DomainEvent<
   }>
 >;
 
-export type CommercialAgreementEvent = AgreementCreatedEvent;
+export type AgreementRevisedEvent = DomainEvent<
+  "commercial-terms.agreement.revised",
+  Readonly<{
+    agreementId: string;
+    label: string;
+    marketplaceSalesFeePercentageBps: number;
+    marketplaceSalesFeeFixedAmount: string;
+    shippingAllowancePercentageBps: number;
+    status: CommercialTermsStatus;
+    effectiveFrom: string;
+    effectiveUntil: string | null;
+  }>
+>;
+
+export type CommercialAgreementEvent = AgreementCreatedEvent | AgreementRevisedEvent;
+
+function normalizeAgreementWindow(effectiveFrom: string, effectiveUntil: string | null) {
+  return normalizeEffectiveWindow(effectiveFrom, effectiveUntil, {
+    from: "Agreement effective from",
+    until: "Agreement effective until",
+  });
+}
 
 export const decideCommercialAgreement: AggregateDecider<
   CommercialAgreementState,
@@ -75,6 +107,7 @@ export const decideCommercialAgreement: AggregateDecider<
   switch (command.type) {
     case "CreateAgreement":
       assert(state.agreementId === null, "Agreement has already been created.");
+      const createWindow = normalizeAgreementWindow(command.effectiveFrom, command.effectiveUntil);
       return [
         {
           type: "commercial-terms.agreement.created",
@@ -95,14 +128,35 @@ export const decideCommercialAgreement: AggregateDecider<
               "Shipping allowance percentage",
             ),
             status: normalizeCommercialTermsStatus(command.status),
-            effectiveFrom: ensureIsoTimestamp(
-              command.effectiveFrom,
-              "Agreement effective from must be an ISO timestamp.",
+            effectiveFrom: createWindow.effectiveFrom,
+            effectiveUntil: createWindow.effectiveUntil,
+          },
+        },
+      ];
+    case "ReviseAgreement":
+      assert(state.agreementId !== null, "Agreement must be created before it can be revised.");
+      const reviseWindow = normalizeAgreementWindow(command.effectiveFrom, command.effectiveUntil);
+      return [
+        {
+          type: "commercial-terms.agreement.revised",
+          data: {
+            agreementId: state.agreementId,
+            label: normalizeLabel(command.label, "Agreement label"),
+            marketplaceSalesFeePercentageBps: normalizePercentageBps(
+              command.marketplaceSalesFeePercentageBps,
+              "Marketplace sales fee percentage",
             ),
-            effectiveUntil:
-              command.effectiveUntil === null
-                ? null
-                : ensureIsoTimestamp(command.effectiveUntil, "Agreement effective until must be an ISO timestamp."),
+            marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(command.marketplaceSalesFeeFixedAmount, {
+              fieldName: "Marketplace sales fee fixed amount",
+              allowZero: true,
+            }),
+            shippingAllowancePercentageBps: normalizePercentageBps(
+              command.shippingAllowancePercentageBps,
+              "Shipping allowance percentage",
+            ),
+            status: normalizeCommercialTermsStatus(command.status),
+            effectiveFrom: reviseWindow.effectiveFrom,
+            effectiveUntil: reviseWindow.effectiveUntil,
           },
         },
       ];
@@ -120,6 +174,17 @@ export const evolveCommercialAgreement: AggregateEvolver<CommercialAgreementStat
       return {
         agreementId: event.data.agreementId,
         accountId: event.data.accountId,
+        label: event.data.label,
+        marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps,
+        marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount,
+        shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
+        status: event.data.status,
+        effectiveFrom: event.data.effectiveFrom,
+        effectiveUntil: event.data.effectiveUntil,
+      };
+    case "commercial-terms.agreement.revised":
+      return {
+        ...state,
         label: event.data.label,
         marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps,
         marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount,

@@ -16,6 +16,8 @@ export const ROLE_PERMISSIONS: Record<RoleKey, readonly PermissionKey[]> = {
     "accounts.view",
     "catalog.manage",
     "catalog.view",
+    "commercial-terms.manage",
+    "commercial-terms.view",
     "memberships.manage",
     "memberships.view",
     "platform-feedback.manage",

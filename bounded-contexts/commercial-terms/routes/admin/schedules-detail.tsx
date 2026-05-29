@@ -1,8 +1,11 @@
 import { t } from "@chase-sets/localization";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData } from "react-router";
+import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
 import { ScheduleDetailPage } from "../../features/schedules/ui/schedule-detail-page";
-import { createCommercialTermsRequestApiClient } from "../../support/request-support/api-client";
+import {
+  CommercialTermsApiError,
+  createCommercialTermsRequestApiClient,
+} from "../../support/request-support/api-client";
 
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
@@ -11,11 +14,35 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   };
 }
 
+export async function action({ request, params }: ActionFunctionArgs) {
+  const formData = await request.formData();
+  const api = createCommercialTermsRequestApiClient(request);
+
+  try {
+    await api.updateSchedule(params.id!, {
+      label: formData.get("label"),
+      marketplaceSalesFeePercentageBps: Number(formData.get("marketplaceSalesFeePercentageBps") ?? 0),
+      marketplaceSalesFeeFixedAmount: formData.get("marketplaceSalesFeeFixedAmount"),
+      shippingAllowancePercentageBps: Number(formData.get("shippingAllowancePercentageBps") ?? 500),
+      status: formData.get("status"),
+      effectiveFrom: formData.get("effectiveFrom"),
+      effectiveUntil: formData.get("effectiveUntil"),
+    });
+    return redirect(`/identity/commercial-terms/schedules/${params.id}`);
+  } catch (error) {
+    if (error instanceof CommercialTermsApiError || error instanceof Error) {
+      return { error: error.message };
+    }
+    throw error;
+  }
+}
+
 export const meta: MetaFunction = () => [
   { title: t("commercialTerms.routes.admin.schedulesDetail.fee.schedule.detail.commercial.terms") },
 ];
 
 export default function CommercialTermsScheduleDetailRoute() {
   const data = useLoaderData<typeof loader>();
-  return <ScheduleDetailPage schedule={data.schedule} />;
+  const actionData = useActionData<typeof action>();
+  return <ScheduleDetailPage schedule={data.schedule} errorMessage={actionData?.error ?? null} />;
 }

@@ -2,10 +2,10 @@ import type { AggregateDecider, AggregateEvolver, DomainEvent } from "@chase-set
 import {
   assert,
   assertNever,
-  ensureIsoTimestamp,
   DEFAULT_SHIPPING_ALLOWANCE_PERCENTAGE_BPS,
   normalizeCommercialAccountType,
   normalizeCommercialTermsStatus,
+  normalizeEffectiveWindow,
   normalizeLabel,
   normalizeMoneyAmount,
   normalizePercentageBps,
@@ -50,7 +50,18 @@ export type CreateScheduleCommand = Readonly<{
   effectiveUntil: string | null;
 }>;
 
-export type CommercialTermsScheduleCommand = CreateScheduleCommand;
+export type ReviseScheduleCommand = Readonly<{
+  type: "ReviseSchedule";
+  label: string;
+  marketplaceSalesFeePercentageBps: number;
+  marketplaceSalesFeeFixedAmount: string;
+  shippingAllowancePercentageBps: number;
+  status: CommercialTermsStatus;
+  effectiveFrom: string;
+  effectiveUntil: string | null;
+}>;
+
+export type CommercialTermsScheduleCommand = CreateScheduleCommand | ReviseScheduleCommand;
 
 export type ScheduleCreatedEvent = DomainEvent<
   "commercial-terms.schedule.created",
@@ -67,7 +78,28 @@ export type ScheduleCreatedEvent = DomainEvent<
   }>
 >;
 
-export type CommercialTermsScheduleEvent = ScheduleCreatedEvent;
+export type ScheduleRevisedEvent = DomainEvent<
+  "commercial-terms.schedule.revised",
+  Readonly<{
+    scheduleId: string;
+    label: string;
+    marketplaceSalesFeePercentageBps: number;
+    marketplaceSalesFeeFixedAmount: string;
+    shippingAllowancePercentageBps: number;
+    status: CommercialTermsStatus;
+    effectiveFrom: string;
+    effectiveUntil: string | null;
+  }>
+>;
+
+export type CommercialTermsScheduleEvent = ScheduleCreatedEvent | ScheduleRevisedEvent;
+
+function normalizeScheduleWindow(effectiveFrom: string, effectiveUntil: string | null) {
+  return normalizeEffectiveWindow(effectiveFrom, effectiveUntil, {
+    from: "Schedule effective from",
+    until: "Schedule effective until",
+  });
+}
 
 export const decideCommercialTermsSchedule: AggregateDecider<
   CommercialTermsScheduleState,
@@ -77,6 +109,7 @@ export const decideCommercialTermsSchedule: AggregateDecider<
   switch (command.type) {
     case "CreateSchedule":
       assert(state.scheduleId === null, "Schedule has already been created.");
+      const createWindow = normalizeScheduleWindow(command.effectiveFrom, command.effectiveUntil);
       return [
         {
           type: "commercial-terms.schedule.created",
@@ -97,14 +130,35 @@ export const decideCommercialTermsSchedule: AggregateDecider<
               "Shipping allowance percentage",
             ),
             status: normalizeCommercialTermsStatus(command.status),
-            effectiveFrom: ensureIsoTimestamp(
-              command.effectiveFrom,
-              "Schedule effective from must be an ISO timestamp.",
+            effectiveFrom: createWindow.effectiveFrom,
+            effectiveUntil: createWindow.effectiveUntil,
+          },
+        },
+      ];
+    case "ReviseSchedule":
+      assert(state.scheduleId !== null, "Schedule must be created before it can be revised.");
+      const reviseWindow = normalizeScheduleWindow(command.effectiveFrom, command.effectiveUntil);
+      return [
+        {
+          type: "commercial-terms.schedule.revised",
+          data: {
+            scheduleId: state.scheduleId,
+            label: normalizeLabel(command.label, "Schedule label"),
+            marketplaceSalesFeePercentageBps: normalizePercentageBps(
+              command.marketplaceSalesFeePercentageBps,
+              "Marketplace sales fee percentage",
             ),
-            effectiveUntil:
-              command.effectiveUntil === null
-                ? null
-                : ensureIsoTimestamp(command.effectiveUntil, "Schedule effective until must be an ISO timestamp."),
+            marketplaceSalesFeeFixedAmount: normalizeMoneyAmount(command.marketplaceSalesFeeFixedAmount, {
+              fieldName: "Marketplace sales fee fixed amount",
+              allowZero: true,
+            }),
+            shippingAllowancePercentageBps: normalizePercentageBps(
+              command.shippingAllowancePercentageBps,
+              "Shipping allowance percentage",
+            ),
+            status: normalizeCommercialTermsStatus(command.status),
+            effectiveFrom: reviseWindow.effectiveFrom,
+            effectiveUntil: reviseWindow.effectiveUntil,
           },
         },
       ];
@@ -123,6 +177,17 @@ export const evolveCommercialTermsSchedule: AggregateEvolver<
         scheduleId: event.data.scheduleId,
         label: event.data.label,
         accountType: event.data.accountType,
+        marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps,
+        marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount,
+        shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
+        status: event.data.status,
+        effectiveFrom: event.data.effectiveFrom,
+        effectiveUntil: event.data.effectiveUntil,
+      };
+    case "commercial-terms.schedule.revised":
+      return {
+        ...state,
+        label: event.data.label,
         marketplaceSalesFeePercentageBps: event.data.marketplaceSalesFeePercentageBps,
         marketplaceSalesFeeFixedAmount: event.data.marketplaceSalesFeeFixedAmount,
         shippingAllowancePercentageBps: event.data.shippingAllowancePercentageBps,
