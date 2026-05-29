@@ -268,10 +268,6 @@ export function writeCoverageSummary({
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary, "utf8");
   }
 
-  for (const warning of coverageWarnings({ totals, statuses, warningThresholds })) {
-    console.log(`::warning title=Coverage summary::${warning}`);
-  }
-
   console.log(summary);
   return { lcovFiles: selectedLcovFiles, totals, summary };
 }
