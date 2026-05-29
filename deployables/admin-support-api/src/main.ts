@@ -6,7 +6,12 @@ import {
   bootstrapPlatformControlPlane,
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
+import {
+  configureDefaultDurableJobStreamLimiter,
+  createDurableJobStreamLimiterFromRealtime,
+} from "@chase-sets/platform-runtime/durable-job-events";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
+import { createPostgresRealtimeStreamLimiter } from "@chase-sets/platform-runtime/realtime";
 import {
   createFilesystemObjectStorage,
   createS3ObjectStorage,
@@ -25,6 +30,9 @@ const config = loadConfig();
 const pools = createAdminSupportApiPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
+configureDefaultDurableJobStreamLimiter(
+  createDurableJobStreamLimiterFromRealtime(createPostgresRealtimeStreamLimiter({ pool: pools.control })),
+);
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 const socialLoginProviders = [
   ...(config.socialLogin.google

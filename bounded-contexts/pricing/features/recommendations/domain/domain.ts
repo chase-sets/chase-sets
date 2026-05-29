@@ -335,6 +335,9 @@ export const decidePricingRecommendation: AggregateDecider<
       if (!state.recommendationId) {
         throw new Error("Recommendation must exist before failure can be recorded.");
       }
+      if (state.status === "applied" || state.status === "dismissed") {
+        return [];
+      }
       return [
         {
           type: "pricing.recommendation.failed",

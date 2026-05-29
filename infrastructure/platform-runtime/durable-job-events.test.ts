@@ -32,7 +32,7 @@ describe("durable job event streams", () => {
       headers: { "Last-Event-ID": "1" },
     });
 
-    const response = createDurableJobEventStream({
+    const response = await createDurableJobEventStream({
       request,
       loadEvents,
       isTerminal: (event) => event.data.status === "completed",
@@ -47,11 +47,28 @@ describe("durable job event streams", () => {
     expect(loadEvents).toHaveBeenCalledWith(1);
   });
 
-  it("rejects durable job streams when the limiter is exhausted", () => {
-    const limiter = createInMemoryDurableJobStreamLimiter({ maxActiveStreams: 1, maxActiveStreamsPerConnectionKey: 1 });
-    const held = limiter.acquire({ connectionKey: "account_1" });
+  it("closes terminal reconnects when the cursor already passed the terminal event", async () => {
+    const waitForEvents = vi.fn(async () => undefined);
+    const response = await createDurableJobEventStream({
+      request: new Request("https://admin.test/jobs/job_1/events", {
+        headers: { "Last-Event-ID": "3" },
+      }),
+      loadEvents: vi.fn(async () => []),
+      loadCurrentSnapshot: vi.fn(async () => ({ status: "completed" })),
+      waitForEvents,
+      isTerminal: (event) => event.data.status === "completed",
+      isTerminalSnapshot: (snapshot) => snapshot.status === "completed",
+    });
 
-    const response = createDurableJobEventStream({
+    await expect(response.text()).resolves.toBe("");
+    expect(waitForEvents).not.toHaveBeenCalled();
+  });
+
+  it("rejects durable job streams when the limiter is exhausted", async () => {
+    const limiter = createInMemoryDurableJobStreamLimiter({ maxActiveStreams: 1, maxActiveStreamsPerConnectionKey: 1 });
+    const held = await limiter.acquire({ connectionKey: "account_1" });
+
+    const response = await createDurableJobEventStream({
       streamLimiter: limiter,
       streamLimitKey: "account_1",
       loadEvents: async () => [],

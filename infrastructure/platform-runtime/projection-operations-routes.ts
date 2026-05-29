@@ -234,16 +234,20 @@ export function createProjectionOperationsRoutes(
     return createDurableJobEventStream({
       request: c.req.raw,
       signal: c.req.raw.signal,
+      streamLimitKey: `account:${actorResponse.accountId}:user:${actorResponse.userId}`,
       loadEvents: async (afterSequence) =>
         (await options.controlPlane!.listProjectionOperationEvents(operationId, afterSequence)).map((event) => ({
           sequence: event.sequence,
           eventName: event.eventName,
           data: event.operation,
         })),
+      loadCurrentSnapshot: async () => options.controlPlane!.getProjectionOperation(operationId),
       waitForEvents: (_afterSequence, signal) =>
         options.controlPlane!.waitForProjectionOperationEvents({ operationId, signal }),
       isTerminal: (event) =>
         event.data.state === "succeeded" || event.data.state === "failed" || event.data.state === "cancelled",
+      isTerminalSnapshot: (snapshot) =>
+        snapshot.state === "succeeded" || snapshot.state === "failed" || snapshot.state === "cancelled",
     });
   });
 

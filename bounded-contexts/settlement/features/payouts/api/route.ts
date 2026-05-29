@@ -239,14 +239,20 @@ export function createPayoutRoutes(services: PayoutServices) {
     return createDurableJobEventStream({
       request: c.req.raw,
       signal: c.req.raw.signal,
+      streamLimitKey: `account:${access.actor.accountId}`,
       loadEvents: async (afterSequence) =>
         (await services.listPayoutReconciliationJobEvents(jobId, afterSequence)).map((event) => ({
           sequence: event.sequence,
           eventName: event.eventName,
           data: event.job,
         })),
+      loadCurrentSnapshot: async () => {
+        const current = await services.getPayoutReconciliationJob(jobId);
+        return current ? toPayoutReconciliationJobStatus(current) : null;
+      },
       waitForEvents: (_afterSequence, signal) => services.waitForPayoutReconciliationJobEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+      isTerminalSnapshot: (snapshot) => snapshot.status === "completed" || snapshot.status === "failed",
     });
   });
 

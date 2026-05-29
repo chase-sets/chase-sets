@@ -1,7 +1,15 @@
-import { describe, expect, it } from "vitest";
-import { createPostgresDurableJobStore, durableJobSchemaSql } from "./durable-job-store";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  createDurableJobProgressCheckpoint,
+  createPostgresDurableJobStore,
+  durableJobSchemaSql,
+} from "./durable-job-store";
 
 describe("durable job store", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("defines context-owned job and event tables", () => {
     const sql = durableJobSchemaSql({
       jobsTable: "inventory_import_batch_jobs",
@@ -215,5 +223,63 @@ describe("durable job store", () => {
     expect(calls[0].sql).toContain("status IN ('completed', 'failed')");
     expect(calls[0].sql).toContain("DELETE FROM inventory_import_batch_jobs");
     expect(calls[0].values[1]).toBe(2);
+  });
+
+  it("falls back to polling when notification LISTEN cannot be established", async () => {
+    vi.useFakeTimers();
+    const release = vi.fn();
+    const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
+      {
+        query: async () => ({ rows: [], rowCount: 0 }),
+        connect: async () => ({
+          query: async (sql: string) => {
+            if (sql.includes("LISTEN")) {
+              throw new Error("LISTEN is unavailable on this connection.");
+            }
+            return { rows: [], rowCount: 0 };
+          },
+          release,
+          on: vi.fn(),
+          off: vi.fn(),
+        }),
+      },
+      {
+        jobsTable: "inventory_import_batch_jobs",
+        eventsTable: "inventory_import_batch_job_events",
+      },
+    );
+
+    const wait = store.waitForEvents({ jobId: "job_1", timeoutMs: 100 });
+    await vi.advanceTimersByTimeAsync(100);
+
+    await expect(wait).resolves.toBeUndefined();
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("throttles public checkpoints while still renewing the durable claim", async () => {
+    const checkpointProgress = vi.fn(async () => undefined);
+    const renew = vi.fn(async () => undefined);
+    const checkpoint = createDurableJobProgressCheckpoint<{ completed: number; phase: string }, { done: number }>(
+      {
+        throwIfCancelled: vi.fn(),
+        renew,
+        checkpointProgress,
+      },
+      {
+        minIntervalMs: 10_000,
+        minCompletedDelta: 10,
+        completed: (progress) => progress.completed,
+        isTerminal: (progress) => progress.phase === "completed",
+      },
+    );
+
+    await checkpoint.checkpoint({ phase: "processing", completed: 1 });
+    await checkpoint.checkpoint({ phase: "processing", completed: 2 });
+    await checkpoint.checkpoint({ phase: "processing", completed: 11 });
+    await checkpoint.checkpoint({ phase: "completed", completed: 12 }, { done: 12 });
+
+    expect(checkpointProgress).toHaveBeenCalledTimes(3);
+    expect(renew).toHaveBeenCalledTimes(1);
+    expect(checkpointProgress).toHaveBeenLastCalledWith({ phase: "completed", completed: 12 }, { done: 12 });
   });
 });

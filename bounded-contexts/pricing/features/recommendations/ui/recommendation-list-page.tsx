@@ -300,9 +300,13 @@ function usePricingRecommendationJob(jobId?: string | null) {
       const nextJob = JSON.parse((event as MessageEvent).data) as PricingRecommendationJobStatus;
       setJob(nextJob);
       if (nextJob.status === "completed") {
+        source.close();
         window.setTimeout(() => {
           window.location.assign("/account/repricing");
         }, 250);
+      }
+      if (nextJob.status === "failed") {
+        source.close();
       }
     });
     return () => {

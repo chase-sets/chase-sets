@@ -205,14 +205,22 @@ export function inventoryImportBatchRoutes(services: InventoryImportBatchService
     return createDurableJobEventStream({
       request: c.req.raw,
       signal: c.req.raw.signal,
+      streamLimitKey: `account:${c.get("actor").accountId}`,
       loadEvents: async (afterSequence) =>
         (await services.listImportBatchJobEvents(jobId, afterSequence)).map((event) => ({
           sequence: event.sequence,
           eventName: event.eventName,
           data: event.job,
         })),
+      loadCurrentSnapshot: async () => {
+        const current = await services.getImportBatchJob(jobId);
+        return current && current.payload.accountId === c.get("actor").accountId
+          ? toInventoryImportBatchJobStatus(current)
+          : null;
+      },
       waitForEvents: (_afterSequence, signal) => services.waitForImportBatchJobEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+      isTerminalSnapshot: (snapshot) => snapshot.status === "completed" || snapshot.status === "failed",
     });
   });
 

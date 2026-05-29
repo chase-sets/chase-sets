@@ -42,7 +42,7 @@ durableJobSchemaSql({
 
 The job table stores the latest private worker snapshot. The event table stores append-only public status snapshots with a monotonically increasing `sequence` per job. SSE clients use that sequence as the event id.
 
-State transitions and event appends must be committed atomically. The shared Postgres store wraps enqueue, claim, progress, release, complete, and fail transitions with their corresponding event append, then emits a `pg_notify` wakeup after the event row is written. A missed notification is acceptable because SSE replay always reloads ordered events and falls back to a short poll timeout.
+State transitions and event appends must be committed atomically. The shared Postgres store wraps enqueue, claim, progress, release, complete, and fail transitions with their corresponding event append, then emits a `pg_notify` wakeup after the event row is written. Notification waits are best-effort because some deployed runtime pool URLs are PgBouncer transaction pools; if `LISTEN` is unavailable or a waiter fails, the SSE route must fall back to a short poll timeout. A missed notification is acceptable because SSE replay always reloads ordered events.
 
 Do not store large request bodies directly in a durable job payload when the job will emit many progress events. Stage bulky or sensitive inputs in context-owned storage and put only a stable staging reference in the job payload.
 
@@ -58,11 +58,11 @@ Use explicit job endpoints rather than overloading synchronous result language:
 - `GET /.../jobs/:jobId` returns the current public job status snapshot.
 - `GET /.../jobs/:jobId/events` streams status events.
 
-Event streams must use `text/event-stream`, must honor `Last-Event-ID`, and must terminate after `completed`, `failed`, or the domain terminal state.
+Event streams must use `text/event-stream`, must honor `Last-Event-ID`, and must terminate after `completed`, `failed`, or the domain terminal state. Reconnects whose `Last-Event-ID` already points past the terminal event must also close by checking the current public job snapshot.
 
 Bounded-context job SSE routes must pass the store `waitForEvents` hook into `createDurableJobEventStream`; the structure check rejects new bounded-context durable job routes that omit this hook.
 
-Every durable job SSE stream is subject to the shared in-process limiter. When the limiter is exhausted the route returns `429 too_many_durable_job_streams`; clients should retry with backoff and reconnect with the last received event id.
+Every durable job SSE stream is subject to the shared in-process limiter. Routes should pass a stable authenticated account or actor key as `streamLimitKey`; proxy IP headers are only a fallback. When the limiter is exhausted the route returns `429 too_many_durable_job_streams`; clients should retry with backoff and reconnect with the last received event id.
 
 ## Worker Shape
 
@@ -71,13 +71,14 @@ Workers should register a `job` runner that:
 - claims queued or expired running work with `FOR UPDATE SKIP LOCKED`,
 - passes a worker id as `claimOwnerId`,
 - persists progress before and after meaningful phases, renewing the durable job claim while progress is written,
+- renews cheaply between public checkpoints when processing hot per-row or per-card loops,
 - checks abort and lease-loss callbacks between batches or external calls,
 - treats failed claimed writes as lease loss instead of silently continuing,
 - completes with a domain result or fails with an error message.
 
-Use `createDurableJobExecutionContext` for long side-effect loops. It exposes `throwIfCancelled`, `renew`, and `checkpointProgress`, and it converts failed claimed writes into lease-loss errors. `updateProgress` renews the claim. `releaseClaim` requeues bounded-turn jobs only for the live claim owner. `complete` and `fail` only succeed for the live claim owner before claim expiry. A processor must check those boolean results and stop work when ownership is lost.
+Use `createDurableJobExecutionContext` for long side-effect loops. It exposes `throwIfCancelled`, `renew`, and `checkpointProgress`, and it converts failed claimed writes into lease-loss errors. Use `createDurableJobProgressCheckpoint` when a loop can process many records quickly; it writes public progress at bounded intervals while renewing the claim for intermediate records. `updateProgress` renews the claim. `releaseClaim` requeues bounded-turn jobs only for the live claim owner. `complete` and `fail` only succeed for the live claim owner before claim expiry. A processor must check those boolean results and stop work when ownership is lost.
 
-External or cross-context calls inside a durable job need a checkpoint immediately before the call and again before recording the resulting domain fact. If a create operation can be replayed, pass a deterministic target id or provider idempotency key. Pricing recommendation apply jobs use this rule when creating marketplace draft listings.
+External or cross-context calls inside a durable job need a checkpoint or renew immediately before the call and again before recording the resulting domain fact. If a create operation can be replayed, pass a deterministic target id or provider idempotency key. Pricing recommendation apply jobs use this rule when creating marketplace draft listings. Lease-loss or cancellation errors are job control-flow outcomes, not business failures; per-item failure handlers must rethrow them instead of recording domain failure facts.
 
 Retention belongs outside hot execution. Workers run the `durable-jobs.retention` scheduled runner, which prunes terminal durable job rows after the context retention window and removes orphaned staged Inventory import inputs. Retention must never remove staged inputs referenced by queued or running jobs. Event rows cascade from job deletion.
 

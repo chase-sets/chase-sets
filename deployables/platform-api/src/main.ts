@@ -28,6 +28,10 @@ import {
   type RealtimeWakeSignal,
 } from "@chase-sets/platform-runtime/realtime";
 import {
+  configureDefaultDurableJobStreamLimiter,
+  createDurableJobStreamLimiterFromRealtime,
+} from "@chase-sets/platform-runtime/durable-job-events";
+import {
   createPostgresUcpIdempotencyStore,
   createUcpProfileKeyResolver,
   type UcpRuntimeObserver,
@@ -336,6 +340,14 @@ const ucpObserver = {
   },
 } satisfies UcpRuntimeObserver;
 const realtimeStreamLimiter = await createPlatformRealtimeStreamLimiter();
+configureDefaultDurableJobStreamLimiter(
+  realtimeStreamLimiter.limiter
+    ? createDurableJobStreamLimiterFromRealtime(realtimeStreamLimiter.limiter, {
+        maxActiveStreams: config.realtime.maxActiveStreams,
+        maxActiveStreamsPerConnectionKey: config.realtime.maxActiveStreamsPerConnectionKey,
+      })
+    : undefined,
+);
 const drainState = createProcessDrainState();
 const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,

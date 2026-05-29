@@ -541,6 +541,10 @@ export function createPricingRecommendationRuntime(
         );
         appliedCount += 1;
       } catch (error) {
+        if (isPricingRecommendationJobHandoff(error, jobContext)) {
+          throw error;
+        }
+
         await runPricingJobSideEffect(jobContext, () =>
           commandHandler({
             streamId: `pricing.recommendation-${row.recommendation_id}`,

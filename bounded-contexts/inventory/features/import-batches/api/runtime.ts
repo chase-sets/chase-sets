@@ -1,6 +1,8 @@
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
+  createDurableJobExecutionContext,
+  createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
   type DurableJobEvent,
   type DurableJobPublicSnapshot,
@@ -1060,15 +1062,23 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         limit: input.limit,
       });
       const result = await deps.db.query(
-        `DELETE FROM inventory_import_batch_job_inputs AS input
-         WHERE input.created_at < $1::timestamptz
-           AND NOT EXISTS (
-             SELECT 1
-             FROM inventory_import_batch_jobs AS job
-             WHERE job.status IN ('queued', 'running')
-               AND job.payload #>> '{create,inputId}' = input.input_id
-           )`,
-        [formatRetentionDate(stagedInputCreatedBefore)],
+        `WITH expired AS (
+           SELECT input.input_id
+           FROM inventory_import_batch_job_inputs AS input
+           WHERE input.created_at < $1::timestamptz
+             AND NOT EXISTS (
+               SELECT 1
+               FROM inventory_import_batch_jobs AS job
+               WHERE job.status IN ('queued', 'running')
+                 AND job.payload #>> '{create,inputId}' = input.input_id
+             )
+           ORDER BY input.created_at ASC, input.input_id ASC
+           LIMIT $2
+         )
+         DELETE FROM inventory_import_batch_job_inputs AS input
+         USING expired
+         WHERE input.input_id = expired.input_id`,
+        [formatRetentionDate(stagedInputCreatedBefore), Math.max(1, Math.min(input.limit ?? 500, 5_000))],
       );
 
       return { jobs, stagedInputs: Number(result.rowCount ?? 0) };
@@ -1091,6 +1101,20 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
           throw new InventoryDomainError("Import batch job is missing event context.");
         }
 
+        const jobContext = createDurableJobExecutionContext(jobStore, {
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          signal: input.signal,
+          throwIfLeaseLost: input.throwIfLeaseLost,
+          cancelledMessage: "Import batch job was cancelled.",
+          claimLostMessage: "Import batch job claim was lost before the status update completed.",
+        });
+        const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
+          completed: (progress) => progress.completed,
+          isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+        });
+
         stagedInput =
           claimed.jobKind === IMPORT_BATCH_JOB_KIND_CREATE
             ? await loadCreateBatchJobInput(
@@ -1110,16 +1134,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
                 sourceFilename: stagedInput.sourceFilename,
               },
               async (progress) => {
-                input.throwIfLeaseLost?.();
-                throwIfImportBatchJobCancelled(input);
-                await requireImportBatchJobClaim(
-                  jobStore.updateProgress({
-                    jobId: claimed.jobId,
-                    claimOwnerId: input.claimOwnerId,
-                    claimTtlMs: input.claimTtlMs,
-                    progress,
-                  }),
-                );
+                await progressCheckpoint.checkpoint(progress);
               },
               {
                 batchId: requireCreateBatchId(claimed.payload),
@@ -1133,16 +1148,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
               },
               context,
               async (progress) => {
-                input.throwIfLeaseLost?.();
-                throwIfImportBatchJobCancelled(input);
-                await requireImportBatchJobClaim(
-                  jobStore.updateProgress({
-                    jobId: claimed.jobId,
-                    claimOwnerId: input.claimOwnerId,
-                    claimTtlMs: input.claimTtlMs,
-                    progress,
-                  }),
-                );
+                await progressCheckpoint.checkpoint(progress);
               },
               {
                 throwIfCancelled: () => throwIfImportBatchJobCancelled(input),

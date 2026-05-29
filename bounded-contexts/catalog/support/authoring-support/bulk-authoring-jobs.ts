@@ -61,7 +61,8 @@ export type CatalogAuthoringBulkJob = Readonly<{
 export type CatalogAuthoringBulkJobEvent = DurableJobEvent<
   CatalogAuthoringBulkJobPayload,
   CatalogAuthoringBulkJobProgress,
-  CatalogAuthoringBulkJobResult
+  CatalogAuthoringBulkJobResult,
+  CatalogAuthoringBulkJob
 >;
 
 export type CatalogAuthoringBulkJobServices = Readonly<{
@@ -96,8 +97,9 @@ export function createCatalogAuthoringBulkJobServices(db: PgQueryable): CatalogA
   const store = createPostgresDurableJobStore<
     CatalogAuthoringBulkJobPayload,
     CatalogAuthoringBulkJobProgress,
-    CatalogAuthoringBulkJobResult
-  >(db, storeTables);
+    CatalogAuthoringBulkJobResult,
+    CatalogAuthoringBulkJob
+  >(db, storeTables, { eventSnapshot: toCatalogAuthoringBulkJob });
 
   return {
     enqueue: async (input) => {

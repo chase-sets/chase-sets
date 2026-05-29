@@ -62,14 +62,17 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
     return createDurableJobEventStream({
       request: c.req.raw,
       signal: c.req.raw.signal,
+      streamLimitKey: catalogAuthoringStreamLimitKey(c.get("context")),
       loadEvents: async (afterSequence) =>
         (await services.authoringBulkJobs.listEvents(jobId, afterSequence)).map((event) => ({
           sequence: event.sequence,
           eventName: event.eventName,
           data: event.job,
         })),
+      loadCurrentSnapshot: () => services.authoringBulkJobs.get(jobId),
       waitForEvents: (_afterSequence, signal) => services.authoringBulkJobs.waitForEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+      isTerminalSnapshot: (snapshot) => snapshot.status === "completed" || snapshot.status === "failed",
     });
   });
 
@@ -84,4 +87,8 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/source-observations", sourceObservationRoutes(services.sourceObservations));
 
   return app;
+}
+
+function catalogAuthoringStreamLimitKey(context: CatalogAuthoringEnv["Variables"]["context"]) {
+  return `account:${context.audit.forAccountId}:user:${context.audit.performedByUserId}`;
 }
