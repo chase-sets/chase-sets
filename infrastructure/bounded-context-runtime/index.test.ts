@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BcApiModule, BcProjectionGroupDeclaration } from "@chase-sets/bounded-context-module";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
 
 type MockStoredEvent = Readonly<{
   eventId: string;
@@ -487,6 +492,7 @@ vi.mock("@chase-sets/event-core-postgres", () => ({
 }));
 
 import {
+  attachReadConsistencyMiddleware,
   createSubscriptionRunner,
   compactRuntimeSubscriptionLedgers,
   cleanupRuntimeProjectionGenerations,
@@ -501,6 +507,8 @@ import {
   summarizeRuntimeSubscriptionLedgers,
   summarizeProjectionReplayStatuses,
   syncContextProjectionGroups,
+  waitForProjectionFreshness,
+  ProjectionFreshnessTimeoutError,
 } from "./index";
 
 function createStoredEvent(
@@ -1815,5 +1823,215 @@ describe("bounded context projection replay", () => {
     expect(optionalSeen).toEqual([]);
     expect(getCheckpointStore(targetPool).get("pricing-market-input-projection:marketplace:v1")).toBe("1");
     expect(getCheckpointStore(targetPool).get("pricing-market-analytics-projection:marketplace:v1")).toBeUndefined();
+  });
+
+  it("waits for matching projection runners to reach a write receipt", async () => {
+    let lastGlobalPosition = "1";
+    let refreshCount = 0;
+
+    await waitForProjectionFreshness({
+      projectionGroups: [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              refreshStatus: async () => {
+                refreshCount += 1;
+                if (refreshCount > 1) {
+                  lastGlobalPosition = "5";
+                }
+
+                return {
+                  lastGlobalPosition,
+                  state: "behind",
+                  lastError: null,
+                };
+              },
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["marketplace"],
+      receipt: {
+        observedAtMs: 1,
+        sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+      },
+      timeoutMs: 100,
+      pollIntervalMs: 1,
+    });
+
+    expect(refreshCount).toBe(2);
+  });
+
+  it("fails closed when projections do not reach the receipt before timeout", async () => {
+    await expect(
+      waitForProjectionFreshness({
+        projectionGroups: [
+          {
+            targetContextName: "marketplace",
+            projectionName: "marketplace-listing-projection",
+            subscriptionRunners: [
+              {
+                sourceContextName: "marketplace",
+                refreshStatus: async () => ({
+                  lastGlobalPosition: "1",
+                  state: "behind",
+                  lastError: null,
+                }),
+              },
+            ],
+          },
+        ],
+        targetContextNames: ["marketplace"],
+        receipt: {
+          observedAtMs: 1,
+          sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+        },
+        timeoutMs: 0,
+        pollIntervalMs: 1,
+      }),
+    ).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
+  });
+
+  it("returns a projection freshness timeout response before serving stale API reads", async () => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+    });
+
+    attachReadConsistencyMiddleware(
+      {
+        use: (_path, middleware) => {
+          middlewares.push(middleware);
+        },
+      },
+      [{ contextName: "marketplace", mountPath: "/api/marketplace" }],
+      [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              refreshStatus: async () => ({
+                lastGlobalPosition: "1",
+                state: "behind",
+                lastError: null,
+              }),
+            },
+          ],
+        },
+      ],
+      { timeoutMs: 0, pollIntervalMs: 1 },
+    );
+
+    let nextCalled = false;
+    const result = await middlewares[0](
+      {
+        req: {
+          method: "GET",
+          header: (name: string) => (name === CHASE_SETS_READ_AFTER_WRITE_HEADER ? receipt : undefined),
+        },
+        json: (body: unknown, status: number) => ({ body, status }),
+      },
+      async () => {
+        nextCalled = true;
+      },
+    );
+
+    expect(nextCalled).toBe(false);
+    expect(result).toMatchObject({
+      status: 503,
+      body: {
+        error: {
+          code: "projection_freshness_timeout",
+          pending: [
+            {
+              targetContextName: "marketplace",
+              projectionName: "marketplace-listing-projection",
+              sourceContextName: "marketplace",
+              requiredGlobalPosition: "5",
+              lastGlobalPosition: "1",
+            },
+          ],
+        },
+      },
+    });
+  });
+
+  it("uses the request target context to avoid waiting on unrelated projections mounted at the same path", async () => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+    });
+
+    attachReadConsistencyMiddleware(
+      {
+        use: (_path, middleware) => {
+          middlewares.push(middleware);
+        },
+      },
+      [
+        { contextName: "marketplace", mountPath: "/api/marketplace" },
+        { contextName: "pricing", mountPath: "/api/marketplace" },
+      ],
+      [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              refreshStatus: async () => ({
+                lastGlobalPosition: "5",
+                state: "caught-up",
+                lastError: null,
+              }),
+            },
+          ],
+        },
+        {
+          targetContextName: "pricing",
+          projectionName: "pricing-market-input-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              refreshStatus: async () => ({
+                lastGlobalPosition: "1",
+                state: "behind",
+                lastError: null,
+              }),
+            },
+          ],
+        },
+      ],
+      { timeoutMs: 0, pollIntervalMs: 1 },
+    );
+
+    let nextCalled = false;
+    await middlewares[0](
+      {
+        req: {
+          method: "GET",
+          header: (name: string) => {
+            if (name === CHASE_SETS_READ_AFTER_WRITE_HEADER) {
+              return receipt;
+            }
+
+            return name === CHASE_SETS_READ_TARGET_CONTEXT_HEADER ? "marketplace" : undefined;
+          },
+        },
+        json: (body: unknown, status: number) => ({ body, status }),
+      },
+      async () => {
+        nextCalled = true;
+      },
+    );
+
+    expect(nextCalled).toBe(true);
   });
 });

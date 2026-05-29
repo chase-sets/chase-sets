@@ -132,7 +132,7 @@ export function createAuthRequestApiClient(request: Request) {
 function createAuthRequestApiClientInternal(request: Request) {
   return createAuthApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/auth"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "auth" }),
   });
 }
 

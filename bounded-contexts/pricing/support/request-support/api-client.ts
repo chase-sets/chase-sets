@@ -1,7 +1,6 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
-import type { ListResponse } from "@chase-sets/http/responses";
-import { readApiErrorMessage } from "@chase-sets/http/responses";
+import { attachResponseMetadata, readApiErrorMessage, type ListResponse } from "@chase-sets/http/responses";
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import type { buildPricingApi } from "../../api";
 import type { AccountRecommendationListItem } from "../../features/recommendations/read-model/queries";
@@ -37,7 +36,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new PricingApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createPricingApiClient({
@@ -105,6 +104,6 @@ export const pricingApi = createPricingApiClient();
 export function createPricingRequestApiClient(request: Request) {
   return createPricingApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "pricing" }),
   });
 }

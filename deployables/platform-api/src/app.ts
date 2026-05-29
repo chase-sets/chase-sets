@@ -17,6 +17,7 @@ import { marketplaceRealtimeManifest, marketplaceRealtimeTopicPolicyManifest } f
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   attachApiMountMiddleware,
+  attachReadConsistencyMiddleware,
   attachWriteConsistencyMiddleware,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
@@ -302,6 +303,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
   );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
+  attachReadConsistencyMiddleware(app, apiMounts, runtime.projectionGroups);
   mountApiRouters(app, apiMounts);
 
   return app;

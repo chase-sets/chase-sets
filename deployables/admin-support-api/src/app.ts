@@ -3,6 +3,7 @@ import { module as authModule } from "@chase-sets/auth";
 import { module as identityModule } from "@chase-sets/identity";
 import {
   attachApiMountMiddleware,
+  attachReadConsistencyMiddleware,
   attachWriteConsistencyMiddleware,
   mountApiRouters,
 } from "@chase-sets/bounded-context-runtime";
@@ -104,6 +105,7 @@ export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildA
   );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
+  attachReadConsistencyMiddleware(app, apiMounts, runtime.projectionGroups);
   mountApiRouters(app, apiMounts);
 
   return app;

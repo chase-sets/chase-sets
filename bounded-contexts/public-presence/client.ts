@@ -1,4 +1,4 @@
-import type { ListResponse } from "@chase-sets/http/responses";
+import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type {
   SubmitWaitlistSignupRequest,
   WaitlistMetrics,
@@ -39,7 +39,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new PublicPresenceApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createPublicPresenceApiClient({

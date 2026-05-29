@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { action as listingsAction, loader as listingsLoader } from "@chase-sets/marketplace/routes/account-listings";
+import { readFreshWriteToken } from "@chase-sets/http/responses";
 
 function jsonResponse(body: unknown, status = 200, headers: HeadersInit = {}) {
   return new Response(JSON.stringify(body), {
@@ -153,6 +154,7 @@ describe("marketplace listing routes", () => {
     } as never);
 
     const location = (result as Response).headers.get("Location") ?? "";
-    expect(location).toMatch(/^\/account\/listings\/lst_1\?afterWrite=42\./);
+    expect(location).toMatch(/^\/account\/listings\/lst_1\?afterWrite=/);
+    expect(readFreshWriteToken(location)?.commitPosition).toBe("42");
   });
 });

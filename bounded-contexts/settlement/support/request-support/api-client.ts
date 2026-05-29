@@ -15,6 +15,6 @@ import { createSettlementApiClient } from "../../client";
 export function createSettlementRequestApiClient(request: Request) {
   return createSettlementApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/settlement"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" }),
   });
 }

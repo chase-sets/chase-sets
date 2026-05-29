@@ -191,18 +191,19 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "disable-listing-availability") {
-      await api.disableSellerListingAvailability({
-        reasonCategory: String(formData.get("reasonCategory") ?? ""),
-        availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
-      });
-
-      return redirect("/account/listings");
+      return redirect(
+        appendFreshWriteToken(
+          "/account/listings",
+          await api.disableSellerListingAvailability({
+            reasonCategory: String(formData.get("reasonCategory") ?? ""),
+            availableAgainOn: String(formData.get("availableAgainOn") ?? ""),
+          }),
+        ),
+      );
     }
 
     if (intent === "enable-listing-availability") {
-      await api.enableSellerListingAvailability();
-
-      return redirect("/account/listings");
+      return redirect(appendFreshWriteToken("/account/listings", await api.enableSellerListingAvailability()));
     }
 
     if (intent === "preview-listing") {
@@ -249,18 +250,19 @@ export async function action({ request }: ActionFunctionArgs) {
           : await api.createListing(listingBody)
       ) as { id: string; feeQuoteFingerprint?: string };
 
-      if (intent === "create-and-publish-listing") {
-        await api.publishListing(result.id, {
-          feeQuoteFingerprint: result.feeQuoteFingerprint,
-        });
-      }
+      const redirectReceipt =
+        intent === "create-and-publish-listing"
+          ? await api.publishListing(result.id, {
+              feeQuoteFingerprint: result.feeQuoteFingerprint,
+            })
+          : result;
 
       return redirect(
         appendFreshWriteToken(
           intent === "create-and-publish-listing"
             ? `/account/listings/${result.id}?feedbackWorkflow=listing-publish`
             : `/account/listings/${result.id}`,
-          result,
+          redirectReceipt,
         ),
       );
     }

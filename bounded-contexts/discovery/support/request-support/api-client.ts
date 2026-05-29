@@ -18,6 +18,6 @@ import { createDiscoveryApiClient } from "../../client";
 export function createDiscoveryRequestApiClient(request: Request) {
   return createDiscoveryApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "discovery" }),
   });
 }

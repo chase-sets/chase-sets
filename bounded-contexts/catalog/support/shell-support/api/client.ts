@@ -1,5 +1,6 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
+import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCatalogAuthoringApi } from "../../authoring-support/api";
 
 type CatalogAuthoringApiApp = ReturnType<typeof buildCatalogAuthoringApi>;
@@ -135,7 +136,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new ApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
@@ -1381,7 +1382,7 @@ async function startBulkJob<T>(input: {
     throw new ApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<CatalogBulkReviewJob<T>>;
+  return attachResponseMetadata(await response.json(), response) as CatalogBulkReviewJob<T>;
 }
 
 async function startIntegrationJob<T>(input: {
@@ -1405,7 +1406,7 @@ async function startIntegrationJob<T>(input: {
     throw new ApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<CatalogIntegrationJob<T>>;
+  return attachResponseMetadata(await response.json(), response) as CatalogIntegrationJob<T>;
 }
 
 async function streamBulkJob<T>(input: {

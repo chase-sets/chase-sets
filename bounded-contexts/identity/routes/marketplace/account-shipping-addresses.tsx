@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
-import type { ListResponse } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   createIdentityRequestApiClient,
@@ -60,20 +60,36 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "create") {
-      await api.createShippingAddress(actor.accountId, addressBody(formData));
-      return redirect("/account/shipping-addresses");
+      return redirect(
+        appendFreshWriteToken(
+          "/account/shipping-addresses",
+          await api.createShippingAddress(actor.accountId, addressBody(formData)),
+        ),
+      );
     }
     if (intent === "update" && shippingAddressId) {
-      await api.updateShippingAddress(actor.accountId, shippingAddressId, addressBody(formData));
-      return redirect("/account/shipping-addresses");
+      return redirect(
+        appendFreshWriteToken(
+          "/account/shipping-addresses",
+          await api.updateShippingAddress(actor.accountId, shippingAddressId, addressBody(formData)),
+        ),
+      );
     }
     if (intent === "default" && shippingAddressId) {
-      await api.setDefaultShippingAddress(actor.accountId, shippingAddressId);
-      return redirect("/account/shipping-addresses");
+      return redirect(
+        appendFreshWriteToken(
+          "/account/shipping-addresses",
+          await api.setDefaultShippingAddress(actor.accountId, shippingAddressId),
+        ),
+      );
     }
     if (intent === "archive" && shippingAddressId) {
-      await api.archiveShippingAddress(actor.accountId, shippingAddressId);
-      return redirect("/account/shipping-addresses");
+      return redirect(
+        appendFreshWriteToken(
+          "/account/shipping-addresses",
+          await api.archiveShippingAddress(actor.accountId, shippingAddressId),
+        ),
+      );
     }
     return { error: t("identity.routes.marketplace.accountShippingAddresses.unknown.action") };
   } catch (error) {

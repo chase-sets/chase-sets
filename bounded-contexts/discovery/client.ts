@@ -1,5 +1,6 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
+import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildDiscoveryApi } from "./api";
 import type { CategoryListResponse, DiscoveryCategoryItem } from "./features/categories/api/contracts";
 import type { CreateProductAlertRequest, ProductAlertListResponse } from "./features/product-alerts/api/contracts";
@@ -59,7 +60,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new DiscoveryApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createDiscoveryApiClient({

@@ -1,4 +1,5 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import { attachResponseMetadata } from "@chase-sets/http/responses";
 
 export class CommercialTermsApiError extends Error {
   public constructor(
@@ -19,7 +20,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new CommercialTermsApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 function queryFromString(query: string) {
@@ -59,7 +60,7 @@ export type CommercialAgreement = Readonly<{
 
 export function createCommercialTermsRequestApiClient(request: Request) {
   const baseUrl = resolveRequestApiBaseUrl(request, "/api/commercial-terms");
-  const fetch = createForwardedAuthFetch(request);
+  const fetch = createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "commercial-terms" });
 
   return {
     async listSchedules(query = "") {

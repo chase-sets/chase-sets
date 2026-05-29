@@ -10,6 +10,7 @@ import {
   createForwardedAuthFetch,
   resolveRequestApiBaseUrl,
 } from "@chase-sets/platform-runtime/http";
+import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { PermissionKey } from "./support/runtime-support/common";
 import { createIdentityApiClient, IdentityApiError } from "./support/request-support/api-client";
 import { hasPermission } from "./support/request-support/permissions";
@@ -40,7 +41,7 @@ export function getSafeReturnTo(request: Request, fallback: string) {
 export function createIdentityRequestApiClient(request: Request) {
   return createIdentityApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "identity" }),
   });
 }
 
@@ -115,11 +116,11 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new IdentityApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createIdentityAuthRequestClient(request: Request): IdentityAuthMutationClient {
-  const fetch = createForwardedAuthFetch(request);
+  const fetch = createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "identity" });
   const baseUrl = resolveRequestApiBaseUrl(request, "/api/identity/internal/auth");
   const postJson = async <T>(path: string, body: Record<string, unknown>) =>
     parseJsonResponse<T>(

@@ -1,3 +1,5 @@
+import { attachResponseMetadata } from "@chase-sets/http/responses";
+
 export type NotificationCenterFeedItem = Readonly<{
   deliveryId: string;
   messageType: string;
@@ -31,7 +33,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new Error(`Notifications API request failed with ${response.status}`);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createNotificationCenterApiClient({

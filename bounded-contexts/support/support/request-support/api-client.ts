@@ -1,4 +1,5 @@
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
+import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type {
   SupportFlowSummary,
   SupportRequestDetail,
@@ -27,7 +28,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new Error(body?.error?.message ?? `API error ${response.status}`);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createSupportRequestApiClient(options: SupportRequestApiClientOptions = {}) {
@@ -82,6 +83,6 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
 export function createSupportRequestRequestApiClient(request: Request) {
   return createSupportRequestApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "support" }),
   });
 }

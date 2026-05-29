@@ -11,7 +11,7 @@ import { createAuthApiClient } from "../../client";
 export function createAuthRequestApiClient(request: Request) {
   return createAuthApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/auth"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "auth" }),
   });
 }
 
@@ -22,7 +22,7 @@ export function createInternalAuthRequestApiClient(request: Request) {
 
   return createAuthApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/auth"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "auth" }),
     headers: () => createPlatformInternalAuthHeaders(undefined, internalAuthSecret),
   });
 }

@@ -13,6 +13,6 @@ import { createFulfillmentApiClient } from "../../client";
 export function createFulfillmentRequestApiClient(request: Request) {
   return createFulfillmentApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "fulfillment" }),
   });
 }

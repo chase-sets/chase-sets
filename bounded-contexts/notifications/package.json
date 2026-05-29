@@ -26,6 +26,7 @@
     "@chase-sets/design-system": "workspace:*",
     "@chase-sets/event-core": "workspace:*",
     "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/http": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/notification-outbox": "workspace:*",
     "@chase-sets/notifications": "workspace:*",

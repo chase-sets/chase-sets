@@ -1,3 +1,10 @@
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  encodeFreshWriteReceipt,
+  readFreshWriteToken,
+} from "@chase-sets/http/responses";
+
 export const PLATFORM_INTERNAL_AUTH_HEADER = "x-chase-sets-internal-auth";
 export const PLATFORM_INTERNAL_AUTH_SECRET_ENV = "PLATFORM_INTERNAL_AUTH_SECRET";
 export const CHASE_SETS_INTERNAL_API_ORIGIN_ENV = "CHASE_SETS_INTERNAL_API_ORIGIN";
@@ -21,10 +28,15 @@ export function createPlatformInternalAuthHeaders(
   return headers;
 }
 
-export function createForwardedAuthHeaders(request: Request, initHeaders?: HeadersInit): Headers {
+export function createForwardedAuthHeaders(
+  request: Request,
+  initHeaders?: HeadersInit,
+  options: Readonly<{ readTargetContextName?: string }> = {},
+): Headers {
   const headers = new Headers(initHeaders);
   const cookie = request.headers.get("cookie");
   const authorization = request.headers.get("authorization");
+  const freshWrite = readFreshWriteToken(request);
 
   if (cookie && !headers.has("cookie")) {
     headers.set("cookie", cookie);
@@ -34,18 +46,27 @@ export function createForwardedAuthHeaders(request: Request, initHeaders?: Heade
     headers.set("authorization", authorization);
   }
 
+  if (freshWrite && !headers.has(CHASE_SETS_READ_AFTER_WRITE_HEADER)) {
+    headers.set(CHASE_SETS_READ_AFTER_WRITE_HEADER, encodeFreshWriteReceipt(freshWrite));
+  }
+
+  if (options.readTargetContextName && !headers.has(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)) {
+    headers.set(CHASE_SETS_READ_TARGET_CONTEXT_HEADER, options.readTargetContextName);
+  }
+
   return headers;
 }
 
 export function createForwardedAuthFetch(
   request: Request,
   fetchImpl: typeof globalThis.fetch = globalThis.fetch,
+  options: Readonly<{ readTargetContextName?: string }> = {},
 ): typeof globalThis.fetch {
   return (input, init = {}) =>
     fetchImpl(input, {
       ...init,
       credentials: init.credentials ?? "include",
-      headers: createForwardedAuthHeaders(request, init.headers),
+      headers: createForwardedAuthHeaders(request, init.headers, options),
     });
 }
 

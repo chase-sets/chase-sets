@@ -19,6 +19,6 @@ import { createInventoryApiClient } from "../../client";
 export function createInventoryRequestApiClient(request: Request) {
   return createInventoryApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/inventory"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "inventory" }),
   });
 }

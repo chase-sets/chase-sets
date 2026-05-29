@@ -1,3 +1,5 @@
+import { attachResponseMetadata } from "@chase-sets/http/responses";
+
 const DEFAULT_BASE_URL = "/api/auth";
 
 function getApiErrorMessage(status: number, body: unknown) {
@@ -41,7 +43,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new AuthApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 async function postJson<T>(
