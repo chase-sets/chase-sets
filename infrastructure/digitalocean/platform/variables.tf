@@ -34,6 +34,28 @@ variable "production_marketplace_public_enabled" {
   }
 }
 
+variable "production_tax_readiness_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit evidence gate that Tax launch readiness has been approved before public production marketplace order creation."
+
+  validation {
+    condition     = var.environment == "production" || var.production_tax_readiness_approved == false
+    error_message = "production_tax_readiness_approved may only be true for production."
+  }
+}
+
+variable "production_tax_readiness_reference" {
+  type        = string
+  default     = ""
+  description = "Operator-owned evidence reference for approved production Tax readiness, such as a counsel/accounting ticket or launch review record."
+
+  validation {
+    condition     = !var.production_tax_readiness_approved || trimspace(var.production_tax_readiness_reference) != ""
+    error_message = "production_tax_readiness_reference is required when production_tax_readiness_approved is true."
+  }
+}
+
 variable "preview_identifier" {
   type        = string
   default     = ""

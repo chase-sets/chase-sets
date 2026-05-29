@@ -1601,6 +1601,9 @@ importers:
       '@chase-sets/support':
         specifier: workspace:*
         version: link:../../bounded-contexts/support
+      '@chase-sets/tax':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/tax
       '@chase-sets/ucp':
         specifier: workspace:*
         version: link:../../contracts/ucp

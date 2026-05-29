@@ -10,6 +10,7 @@ import { createPlatformApiHost } from "./app";
 import { loadBootstrapConfig } from "./config";
 import { closePlatformApiPools, createPlatformApiPools } from "./database-pools";
 import { apiContextRegistry } from "./generated/api-context-registry";
+import { createProductionTaxQuoteResolverBlocker, shouldBlockProductionTaxQuotes } from "./tax-readiness";
 
 async function bootstrap() {
   const config = loadBootstrapConfig();
@@ -17,6 +18,9 @@ async function bootstrap() {
 
   try {
     await bootstrapPlatformControlPlane(pools.control);
+    const taxQuoteResolver = shouldBlockProductionTaxQuotes(config.deploymentEnvironment)
+      ? createProductionTaxQuoteResolverBlocker()
+      : undefined;
     const runtime = createPlatformApiHost({
       pools,
       hostPorts: {
@@ -26,6 +30,7 @@ async function bootstrap() {
           config.listingPhotoStorage.kind === "s3"
             ? createS3ObjectStorage(config.listingPhotoStorage)
             : createFilesystemObjectStorage(config.listingPhotoStorage),
+        ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
       },
     });
     await seedApiHostIfEmpty(apiContextRegistry, "platform-api", runtime, {

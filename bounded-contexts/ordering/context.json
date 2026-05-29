@@ -149,7 +149,13 @@
       "resetStrategy": "replay-only"
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "taxQuoteResolver",
+      "providedBy": "platform-api",
+      "purpose": "Consume the Tax-owned provider-agnostic quote resolver when creating order tax snapshots."
+    }
+  ],
   "apiDeployables": ["platform-api"],
   "sourceRuntimeDeployables": ["platform-api"],
   "apiMounts": [
