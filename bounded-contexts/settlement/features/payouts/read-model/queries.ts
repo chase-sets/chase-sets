@@ -130,6 +130,7 @@ export async function getPayoutByProviderPayoutReference(
 export async function listPayoutsNeedingReconciliation(
   db: PgQueryable,
   params: Readonly<{
+    accountId?: string | null;
     limit?: number;
     filter?: string | null;
     claimOwnerId?: string;
@@ -164,6 +165,7 @@ export async function listPayoutsNeedingReconciliation(
              AND updated_at < NOW() - INTERVAL '15 minutes'
            )
          )
+         AND ($4::text IS NULL OR account_id = $4)
          ${filterSql}
          ORDER BY updated_at ASC, payout_id ASC
          LIMIT $1
@@ -198,7 +200,7 @@ export async function listPayoutsNeedingReconciliation(
        ${payoutSelect}
        WHERE payout_id IN (SELECT entity_id FROM claimed)
        ORDER BY updated_at ASC, payout_id ASC`,
-      [limit, params.claimOwnerId, params.claimTtlMs ?? 120_000],
+      [limit, params.claimOwnerId, params.claimTtlMs ?? 120_000, params.accountId ?? null],
     );
 
     return result.rows;
@@ -214,10 +216,11 @@ export async function listPayoutsNeedingReconciliation(
          AND updated_at < NOW() - INTERVAL '15 minutes'
        )
      )
+     AND ($2::text IS NULL OR account_id = $2)
      ${filterSql}
      ORDER BY updated_at ASC, payout_id ASC
      LIMIT $1`,
-    [limit],
+    [limit, params.accountId ?? null],
   );
 
   return result.rows;

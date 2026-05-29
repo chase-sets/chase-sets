@@ -197,7 +197,7 @@ describe("settlement payout routes", () => {
       jobId: "job_reconcile",
       jobKind: "payout-reconciliation",
       status: "queued",
-      payload: { limit: 25 },
+      payload: { accountId: "acc_seller", limit: 25 },
       progress: { phase: "queued", completed: 0, total: 0, message: "Payout reconciliation queued." },
       result: null,
       errorMessage: null,
@@ -223,6 +223,30 @@ describe("settlement payout routes", () => {
       status: "queued",
     });
     expect(enqueuePayoutReconciliationJob).toHaveBeenCalledWith({ limit: 25 }, context);
+  });
+
+  it("does not expose reconciliation jobs queued for another account", async () => {
+    const getPayoutReconciliationJob = vi.fn(async () => ({
+      jobId: "job_other",
+      jobKind: "payout-reconciliation",
+      status: "queued" as const,
+      payload: { accountId: "acc_other", limit: 25 },
+      progress: { phase: "queued" as const, completed: 0, total: 0, message: "Payout reconciliation queued." },
+      result: null,
+      errorMessage: null,
+      eventContext: context,
+      claimOwnerId: null,
+      claimedUntil: null,
+      createdAt: "2026-05-28T00:00:00.000Z",
+      startedAt: null,
+      completedAt: null,
+      updatedAt: "2026-05-28T00:00:00.000Z",
+    }));
+    const app = createAuthenticatedApp({ getPayoutReconciliationJob }, ["payouts.reconcile"]);
+
+    const response = await app.request("/payouts/reconciliation/jobs/job_other");
+
+    expect(response.status).toBe(404);
   });
 });
 

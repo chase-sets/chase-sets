@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
   Badge,
   Button,
@@ -295,22 +296,19 @@ function usePricingRecommendationJob(jobId?: string | null) {
       return;
     }
 
-    const source = new EventSource(`/api/marketplace/account/recommendation-jobs/${encodeURIComponent(jobId)}/events`);
-    source.addEventListener("status", (event) => {
-      const nextJob = JSON.parse((event as MessageEvent).data) as PricingRecommendationJobStatus;
-      setJob(nextJob);
-      if (nextJob.status === "completed") {
-        source.close();
-        window.setTimeout(() => {
-          window.location.assign("/account/repricing");
-        }, 250);
-      }
-      if (nextJob.status === "failed") {
-        source.close();
-      }
+    const subscription = subscribeDurableJobStatus<PricingRecommendationJobStatus>({
+      url: `/api/marketplace/account/recommendation-jobs/${encodeURIComponent(jobId)}/events`,
+      onStatus: setJob,
+      onTerminal: (nextJob) => {
+        if (nextJob.status === "completed") {
+          window.setTimeout(() => {
+            window.location.assign("/account/repricing");
+          }, 250);
+        }
+      },
     });
     return () => {
-      source.close();
+      subscription.close();
     };
   }, [jobId]);
 

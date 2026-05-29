@@ -8,7 +8,10 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   createDurableJobExecutionContext,
+  createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
+  isDurableJobHandoffError,
+  runDurableJobSideEffect,
   type DurableJobEvent,
   type DurableJobExecutionContext,
   type DurableJobPublicSnapshot,
@@ -76,6 +79,7 @@ type PayoutRuntimeDeps = Readonly<{
 }>;
 
 export type PayoutReconciliationJobPayload = Readonly<{
+  accountId: string;
   limit: number;
 }>;
 
@@ -133,6 +137,7 @@ export type PayoutServices = Readonly<{
     params?: Readonly<{
       limit?: number;
       filter?: string | null;
+      accountId?: string | null;
       claimOwnerId?: string;
       claimTtlMs?: number;
     }>,
@@ -213,7 +218,7 @@ export type PayoutServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ received: boolean; ignored: boolean }>;
   reconcilePayoutsNeedingAttention: (
-    params: Readonly<{ limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
+    params: Readonly<{ accountId?: string | null; limit?: number; claimOwnerId?: string; claimTtlMs?: number }>,
     context: EventStoreContext,
     jobContext?: DurableJobExecutionContext<PayoutReconciliationJobProgress, PayoutReconciliationJobResult>,
   ) => Promise<{
@@ -553,10 +558,12 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   ) => {
     const startedAt = new Date().toISOString();
     const payouts = await listPayoutsNeedingReconciliation(deps.db, {
+      accountId: params.accountId,
       limit: params.limit,
       claimOwnerId: params.claimOwnerId,
       claimTtlMs: params.claimTtlMs,
     });
+    const progressCheckpoint = jobContext ? createPayoutReconciliationProgressCheckpoint(jobContext) : null;
     let reconciled = 0;
     let ignored = 0;
     let skipped = 0;
@@ -579,7 +586,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       if (!payout.provider_payout_reference) {
         skipped += 1;
         completed += 1;
-        await jobContext?.checkpointProgress(
+        await progressCheckpoint?.checkpoint(
           payoutReconciliationJobProgress("processing", completed, payouts.length, "Skipped payout."),
           { checked: completed, reconciled, ignored, skipped, errors },
         );
@@ -587,9 +594,14 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       }
 
       try {
-        const result = await reconcileProviderPayout(
-          { providerPayoutReference: payout.provider_payout_reference },
-          context,
+        const providerPayoutReference = payout.provider_payout_reference;
+        const result = await runDurableJobSideEffect(
+          jobContext,
+          () => reconcileProviderPayout({ providerPayoutReference }, context),
+          {
+            renewIntervalMs: 5_000,
+            claimLostMessage: "Payout reconciliation job claim was lost while reconciling a payout.",
+          },
         );
         if (result.ignored) {
           ignored += 1;
@@ -603,7 +615,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         });
       }
       completed += 1;
-      await jobContext?.checkpointProgress(
+      await progressCheckpoint?.checkpoint(
         payoutReconciliationJobProgress("processing", completed, payouts.length, "Reconciled payout."),
         { checked: completed, reconciled, ignored, skipped, errors },
       );
@@ -1123,6 +1135,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         jobId: createId("job"),
         jobKind: "payout-reconciliation",
         payload: {
+          accountId: context.audit.forAccountId,
           limit: Math.max(1, Math.min(params.limit ?? 100, 500)),
         },
         progress: payoutReconciliationJobProgress("queued", 0, 0, "Payout reconciliation queued."),
@@ -1174,6 +1187,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         });
         const result = await reconcilePayoutsNeedingAttention(
           {
+            accountId: claimed.payload.accountId,
             limit: claimed.payload.limit,
             claimOwnerId: input.claimOwnerId,
             claimTtlMs: input.claimTtlMs,
@@ -1255,8 +1269,17 @@ function payoutReconciliationRetentionCutoff(daysAgo: number): Date {
 }
 
 function isPayoutReconciliationJobHandoff(error: unknown, input?: { signal?: AbortSignal }) {
-  return (
-    input?.signal?.aborted ||
-    (error instanceof Error && (error.message.startsWith("Lost lease ") || error.message.includes("claim was lost")))
-  );
+  return isDurableJobHandoffError(error, input);
+}
+
+function createPayoutReconciliationProgressCheckpoint(
+  jobContext: DurableJobExecutionContext<PayoutReconciliationJobProgress, PayoutReconciliationJobResult>,
+) {
+  return createDurableJobProgressCheckpoint(jobContext, {
+    minIntervalMs: 1_000,
+    minCompletedDelta: 10,
+    minRenewIntervalMs: 5_000,
+    completed: (progress) => progress.completed,
+    isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+  });
 }

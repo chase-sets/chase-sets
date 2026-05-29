@@ -22,4 +22,19 @@ CREATE INDEX IF NOT EXISTS inventory_items_storage_location_idx
 
 CREATE INDEX IF NOT EXISTS inventory_items_catalog_version_idx
   ON inventory_items (product_id);
+
+CREATE TABLE IF NOT EXISTS inventory_item_adjustment_idempotency (
+  idempotency_key text PRIMARY KEY,
+  account_id text NOT NULL,
+  item_id text NOT NULL,
+  command_fingerprint text NOT NULL,
+  status text NOT NULL CHECK (status IN ('in_progress', 'completed')),
+  result_item_id text NULL,
+  result_version bigint NULL CHECK (result_version IS NULL OR result_version >= 0),
+  created_at timestamptz NOT NULL,
+  completed_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS inventory_item_adjustment_idempotency_item_idx
+  ON inventory_item_adjustment_idempotency (account_id, item_id, created_at DESC);
 `;

@@ -8,7 +8,10 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   createDurableJobExecutionContext,
+  createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
+  isDurableJobHandoffError,
+  runDurableJobSideEffect,
   type DurableJobEvent,
   type DurableJobExecutionContext,
   type DurableJobPublicSnapshot,
@@ -397,6 +400,7 @@ export function createPricingRecommendationRuntime(
     jobContext,
   ) => {
     const candidates = await listRefreshCandidates(deps.db, params.accountId);
+    const progressCheckpoint = jobContext ? createPricingJobProgressCheckpoint(jobContext) : null;
     const observedAt = new Date().toISOString();
     let proposedCount = 0;
     let completed = 0;
@@ -407,7 +411,7 @@ export function createPricingRecommendationRuntime(
       const currentPriceAmount = moneyNumber(candidate.currentPriceAmount);
       if (!recommendation) {
         completed += 1;
-        await jobContext?.checkpointProgress(
+        await progressCheckpoint?.checkpoint(
           pricingJobProgress("processing", completed, candidates.length, "Checked recommendation candidate."),
           { proposedCount },
         );
@@ -415,7 +419,7 @@ export function createPricingRecommendationRuntime(
       }
       if (currentPriceAmount !== null && currentPriceAmount === recommendation.recommendedListAmount) {
         completed += 1;
-        await jobContext?.checkpointProgress(
+        await progressCheckpoint?.checkpoint(
           pricingJobProgress("processing", completed, candidates.length, "Checked recommendation candidate."),
           { proposedCount },
         );
@@ -423,30 +427,32 @@ export function createPricingRecommendationRuntime(
       }
 
       const recommendationId = recommendationIdFor(candidate);
-      await commandHandler({
-        streamId: `pricing.recommendation-${recommendationId}`,
-        command: {
-          type: "ProposeRecommendation",
-          recommendationId,
-          catalogItemId: candidate.catalogItemId,
-          sellerAccountId: candidate.sellerAccountId,
-          actionType: candidate.actionType,
-          listingId: candidate.listingId,
-          inventoryItemId: candidate.inventoryItemId,
-          marketPriceAmount: recommendation.marketPriceAmount,
-          marketCurrency: "USD",
-          marketSignalType: recommendation.marketSignalType,
-          currentPriceAmount,
-          recommendedListAmount: recommendation.recommendedListAmount,
-          reason: recommendation.reason,
-          quantityCap: candidate.quantityCap,
-          observedAt,
-        },
-        context,
-      });
+      await runPricingJobSideEffect(jobContext, () =>
+        commandHandler({
+          streamId: `pricing.recommendation-${recommendationId}`,
+          command: {
+            type: "ProposeRecommendation",
+            recommendationId,
+            catalogItemId: candidate.catalogItemId,
+            sellerAccountId: candidate.sellerAccountId,
+            actionType: candidate.actionType,
+            listingId: candidate.listingId,
+            inventoryItemId: candidate.inventoryItemId,
+            marketPriceAmount: recommendation.marketPriceAmount,
+            marketCurrency: "USD",
+            marketSignalType: recommendation.marketSignalType,
+            currentPriceAmount,
+            recommendedListAmount: recommendation.recommendedListAmount,
+            reason: recommendation.reason,
+            quantityCap: candidate.quantityCap,
+            observedAt,
+          },
+          context,
+        }),
+      );
       proposedCount += 1;
       completed += 1;
-      await jobContext?.checkpointProgress(
+      await progressCheckpoint?.checkpoint(
         pricingJobProgress("processing", completed, candidates.length, "Proposed recommendation."),
         { proposedCount },
       );
@@ -465,6 +471,7 @@ export function createPricingRecommendationRuntime(
       recommendationIds: params.recommendationIds,
     });
     const selectedRows = rows.filter(isSelectedProposedRecommendation);
+    const progressCheckpoint = jobContext ? createPricingJobProgressCheckpoint(jobContext) : null;
     let appliedCount = 0;
     let failedCount = 0;
     let completed = 0;
@@ -559,7 +566,7 @@ export function createPricingRecommendationRuntime(
         failedCount += 1;
       }
       completed += 1;
-      await jobContext?.checkpointProgress(
+      await progressCheckpoint?.checkpoint(
         pricingJobProgress("processing", completed, selectedRows.length, "Applied recommendation."),
         { appliedCount, failedCount },
       );
@@ -578,22 +585,25 @@ export function createPricingRecommendationRuntime(
       recommendationIds: params.recommendationIds,
     });
     const selectedRows = rows.filter(isSelectedProposedRecommendation);
+    const progressCheckpoint = jobContext ? createPricingJobProgressCheckpoint(jobContext) : null;
     let dismissedCount = 0;
     let completed = 0;
 
     for (const row of selectedRows) {
       jobContext?.throwIfCancelled();
-      await commandHandler({
-        streamId: `pricing.recommendation-${row.recommendation_id}`,
-        command: {
-          type: "DismissRecommendation",
-          dismissedAt: new Date().toISOString(),
-        },
-        context,
-      });
+      await runPricingJobSideEffect(jobContext, () =>
+        commandHandler({
+          streamId: `pricing.recommendation-${row.recommendation_id}`,
+          command: {
+            type: "DismissRecommendation",
+            dismissedAt: new Date().toISOString(),
+          },
+          context,
+        }),
+      );
       dismissedCount += 1;
       completed += 1;
-      await jobContext?.checkpointProgress(
+      await progressCheckpoint?.checkpoint(
         pricingJobProgress("processing", completed, selectedRows.length, "Dismissed recommendation."),
         { dismissedCount },
       );
@@ -792,23 +802,22 @@ async function runPricingJobSideEffect<T>(
   jobContext: DurableJobExecutionContext<PricingRecommendationJobProgress, PricingRecommendationJobResult> | undefined,
   work: () => Promise<T>,
 ): Promise<T> {
-  jobContext?.throwIfCancelled();
-  await jobContext?.renew();
-  const renewalTimer = jobContext
-    ? setInterval(() => {
-        void jobContext.renew().catch(() => undefined);
-      }, 10_000)
-    : null;
-  renewalTimer?.unref?.();
-  try {
-    const result = await work();
-    await jobContext?.renew();
-    return result;
-  } finally {
-    if (renewalTimer) {
-      clearInterval(renewalTimer);
-    }
-  }
+  return runDurableJobSideEffect(jobContext, () => work(), {
+    renewIntervalMs: 5_000,
+    claimLostMessage: "Pricing recommendation job claim was lost while applying a side effect.",
+  });
+}
+
+function createPricingJobProgressCheckpoint(
+  jobContext: DurableJobExecutionContext<PricingRecommendationJobProgress, PricingRecommendationJobResult>,
+) {
+  return createDurableJobProgressCheckpoint(jobContext, {
+    minIntervalMs: 1_000,
+    minCompletedDelta: 10,
+    minRenewIntervalMs: 5_000,
+    completed: (progress) => progress.completed,
+    isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+  });
 }
 
 function listingIdForPricingRecommendation(recommendationId: string): string {
@@ -831,8 +840,5 @@ async function requirePricingRecommendationJobClaim(succeeded: Promise<boolean> 
 }
 
 function isPricingRecommendationJobHandoff(error: unknown, input?: { signal?: AbortSignal }) {
-  return (
-    input?.signal?.aborted ||
-    (error instanceof Error && (error.message.startsWith("Lost lease ") || error.message.includes("claim was lost")))
-  );
+  return isDurableJobHandoffError(error, input);
 }

@@ -466,6 +466,15 @@ export type DurableJobExecutionContext<TProgress, TResult> = Readonly<{
   checkpointProgress: (progress: TProgress, result?: TResult | null) => Promise<void>;
 }>;
 
+export class DurableJobHandoffError extends Error {
+  readonly code = "durable_job_handoff";
+
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "DurableJobHandoffError";
+  }
+}
+
 export type DurableJobProgressCheckpoint<TProgress, TResult> = Readonly<{
   checkpoint: (progress: TProgress, result?: TResult | null) => Promise<void>;
   flush: (progress: TProgress, result?: TResult | null) => Promise<void>;
@@ -586,6 +595,90 @@ export function createDurableJobProgressCheckpoint<TProgress, TResult>(
     },
     flush: recordCheckpoint,
   };
+}
+
+export async function runDurableJobSideEffect<TProgress, TResult, T>(
+  context: DurableJobExecutionContext<TProgress, TResult> | undefined,
+  work: (signal: AbortSignal) => Promise<T>,
+  options: Readonly<{
+    renewIntervalMs?: number;
+    claimLostMessage?: string;
+  }> = {},
+): Promise<T> {
+  if (!context) {
+    return work(new AbortController().signal);
+  }
+
+  const renewIntervalMs = Math.max(250, Math.floor(options.renewIntervalMs ?? 5_000));
+  const abortController = new AbortController();
+  const claimLostMessage = options.claimLostMessage ?? "Durable job claim was lost while running a side effect.";
+  let settled = false;
+  let rejectHandoff: ((error: Error) => void) | null = null;
+
+  const handoff = new Promise<never>((_resolve, reject) => {
+    rejectHandoff = reject;
+  });
+  handoff.catch(() => undefined);
+  const handOff = (error: unknown) => {
+    if (settled) {
+      return;
+    }
+
+    const cause = error instanceof Error ? error : undefined;
+    const handoffError =
+      error instanceof DurableJobHandoffError
+        ? error
+        : new DurableJobHandoffError(cause?.message ?? claimLostMessage, { cause });
+    abortController.abort(handoffError);
+    rejectHandoff?.(handoffError);
+  };
+  const abortFromParent = () => handOff(new DurableJobHandoffError("Durable job was cancelled."));
+
+  context.signal?.addEventListener("abort", abortFromParent, { once: true });
+  await context.renew().catch((error) => {
+    handOff(error);
+    throw error;
+  });
+  let renewalInFlight = false;
+  const renewalTimer = setInterval(() => {
+    if (renewalInFlight) {
+      return;
+    }
+    renewalInFlight = true;
+    void context
+      .renew()
+      .catch(handOff)
+      .finally(() => {
+        renewalInFlight = false;
+      });
+  }, renewIntervalMs);
+  renewalTimer.unref?.();
+
+  try {
+    context.throwIfCancelled();
+    const workPromise = work(abortController.signal);
+    workPromise.catch(() => undefined);
+    const result = await Promise.race([workPromise, handoff]);
+    await context.renew().catch((error) => {
+      throw new DurableJobHandoffError(error instanceof Error ? error.message : claimLostMessage, {
+        cause: error instanceof Error ? error : undefined,
+      });
+    });
+    return result;
+  } finally {
+    settled = true;
+    clearInterval(renewalTimer);
+    context.signal?.removeEventListener("abort", abortFromParent);
+    abortController.abort();
+  }
+}
+
+export function isDurableJobHandoffError(error: unknown, input?: { signal?: AbortSignal }): boolean {
+  return (
+    input?.signal?.aborted ||
+    error instanceof DurableJobHandoffError ||
+    (error instanceof Error && (error.message.startsWith("Lost lease ") || error.message.includes("claim was lost")))
+  );
 }
 
 const DURABLE_JOB_COLUMNS = `

@@ -3,6 +3,7 @@ import {
   createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
   durableJobSchemaSql,
+  runDurableJobSideEffect,
 } from "./durable-job-store";
 
 describe("durable job store", () => {
@@ -289,6 +290,33 @@ describe("durable job store", () => {
     expect(renew).toHaveBeenCalledTimes(1);
     expect(throwIfCancelled).toHaveBeenCalledTimes(3);
     expect(checkpointProgress).toHaveBeenLastCalledWith({ phase: "completed", completed: 12 }, { done: 12 });
+    vi.useRealTimers();
+  });
+
+  it("fails an in-flight side effect when renewal loses the durable claim", async () => {
+    vi.useFakeTimers();
+    const renew = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Durable job claim was lost before renewal completed."));
+    const sideEffect = runDurableJobSideEffect(
+      {
+        throwIfCancelled: vi.fn(),
+        renew,
+        checkpointProgress: vi.fn(),
+      },
+      (signal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+      { renewIntervalMs: 1_000 },
+    );
+
+    const assertion = expect(sideEffect).rejects.toThrow("claim was lost");
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await assertion;
+    expect(renew).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
   });
 });

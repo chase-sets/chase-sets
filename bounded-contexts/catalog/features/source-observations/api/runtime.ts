@@ -7,7 +7,9 @@ import {
   createDurableJobExecutionContext,
   createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
+  runDurableJobSideEffect,
   type DurableJobEvent,
+  type DurableJobExecutionContext,
   type DurableJobRecord,
 } from "@chase-sets/platform-runtime/durable-job-store";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
@@ -112,6 +114,7 @@ export type BulkSourceObservationProgress = Readonly<{
 }>;
 
 type SourceObservationProgressHandler = (progress: BulkSourceObservationProgress) => void | Promise<void>;
+type DurableSideEffectRunner = <T>(work: () => Promise<T>) => Promise<T>;
 
 export type SourceObservationBulkJobAction = "promote" | "reject" | "reapply";
 
@@ -223,6 +226,7 @@ export type SourceObservationServices = Readonly<{
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
+    runRecordObservation?: DurableSideEffectRunner;
   }) => Promise<TcgdexSetImportResult>;
   listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
   listTcgdexSeries: (input: { languageCode: string }) => Promise<readonly TcgdexSeriesOption[]>;
@@ -386,7 +390,7 @@ export function createSourceObservationRuntime(
       eventsTable: "catalog_source_observation_integration_job_events",
       notifyChannel: "catalog_source_observation_durable_job_events",
     },
-    { eventSnapshot: toSourceObservationIntegrationJob },
+    { eventSnapshot: toSourceObservationIntegrationJobEventSnapshot },
   );
 
   async function recordObservation(
@@ -581,6 +585,7 @@ export function createSourceObservationRuntime(
     observationIds: readonly string[];
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
+    runReapplyObservation?: DurableSideEffectRunner;
   }): Promise<BulkSourceObservationReapplyResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationReapplyOutcome[] = [];
@@ -612,10 +617,12 @@ export function createSourceObservationRuntime(
           continue;
         }
 
-        const reapplied = await reapplyObservationFromRow({
-          observation,
-          context: input.context,
-        });
+        const reapplied = await (input.runReapplyObservation ?? ((work) => work()))(() =>
+          reapplyObservationFromRow({
+            observation,
+            context: input.context,
+          }),
+        );
         outcomes.push({
           observationId,
           status: "reapplied",
@@ -718,6 +725,7 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
+    runRecordObservation?: DurableSideEffectRunner;
   }): Promise<TcgdexSetImportResult> {
     const observations = await fetchTcgdexSetObservations({
       languageCode: input.languageCode,
@@ -736,7 +744,7 @@ export function createSourceObservationRuntime(
 
     for (const [index, observation] of observations.entries()) {
       await input.beforeRecordObservation?.();
-      await recordObservation(observation, input.context);
+      await (input.runRecordObservation ?? ((work) => work()))(() => recordObservation(observation, input.context));
       await input.onProgress?.({
         phase: "recording",
         completed: index + 1,
@@ -1166,6 +1174,7 @@ export function createSourceObservationRuntime(
           lastRecordRenewedAt = Date.now();
         }
       },
+      runRecordObservation: createSourceObservationSideEffectRunner(jobContext),
       onProgress: async (setProgress) => {
         throwIfJobRunCancelled(input.context);
         await progressCheckpoint.checkpoint(
@@ -1240,11 +1249,21 @@ export function createSourceObservationRuntime(
         }),
       );
     };
+    const jobContext = createDurableJobExecutionContext(integrationJobStore, {
+      jobId: input.job.jobId,
+      claimOwnerId: input.job.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      signal: input.context.signal,
+      throwIfLeaseLost: input.context.throwIfLeaseLost,
+      cancelledMessage: "Source Observation job run was cancelled.",
+      claimLostMessage: "Source Observation job claim was lost before the status update completed.",
+    });
     throwIfJobRunCancelled(input.context);
     const batchResult = await reapplyObservationIds({
       observationIds: batchObservationIds,
       context: input.job.eventContext,
       onProgress: progressHandler,
+      runReapplyObservation: createSourceObservationSideEffectRunner(jobContext),
     });
     throwIfJobRunCancelled(input.context);
 
@@ -1349,6 +1368,7 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
+    runRecordObservation?: DurableSideEffectRunner;
   }): Promise<SourceObservationIntegrationJobOutcome> {
     try {
       const result = await importTcgdexSetScope({
@@ -1357,6 +1377,7 @@ export function createSourceObservationRuntime(
         context: input.context,
         onProgress: input.onProgress,
         beforeRecordObservation: input.beforeRecordObservation,
+        runRecordObservation: input.runRecordObservation,
       });
       return {
         providerKey: input.providerProfile.providerKey,
@@ -2535,6 +2556,22 @@ function toSourceObservationIntegrationJob(
   };
 }
 
+function toSourceObservationIntegrationJobEventSnapshot(
+  job: DurableJobRecord<
+    SourceObservationIntegrationJobPayload,
+    BulkSourceObservationProgress,
+    SourceObservationIntegrationJobResult
+  >,
+): SourceObservationIntegrationJob {
+  const snapshot = toSourceObservationIntegrationJob(job);
+  return snapshot.status === "completed" || snapshot.status === "failed"
+    ? snapshot
+    : {
+        ...snapshot,
+        result: null,
+      };
+}
+
 function toClaimedSourceObservationIntegrationJob(
   job: DurableJobRecord<
     SourceObservationIntegrationJobPayload,
@@ -2680,6 +2717,16 @@ class SourceObservationJobCancelledError extends Error {
   constructor() {
     super("Source Observation job run was cancelled.");
   }
+}
+
+function createSourceObservationSideEffectRunner<TResult>(
+  jobContext: DurableJobExecutionContext<BulkSourceObservationProgress, TResult>,
+): DurableSideEffectRunner {
+  return (work) =>
+    runDurableJobSideEffect(jobContext, () => work(), {
+      renewIntervalMs: 5_000,
+      claimLostMessage: "Source Observation job claim was lost while applying a side effect.",
+    });
 }
 
 function isJobRunCancelled(context: SourceObservationJobRunContext): boolean {

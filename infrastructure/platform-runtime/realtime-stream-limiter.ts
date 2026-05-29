@@ -112,9 +112,11 @@ export function createPostgresRealtimeStreamLimiter(
           connection_count: string;
         }>(
           `SELECT
-             COUNT(*)::text AS active_count,
-             COUNT(*) FILTER (WHERE connection_key = $1)::text AS connection_count
-           FROM platform_realtime_stream_leases`,
+             COUNT(*) FILTER (WHERE expires_at > now())::text AS active_count,
+             COUNT(*) FILTER (WHERE connection_key = $1 AND expires_at > now())::text AS connection_count
+           FROM platform_realtime_stream_leases
+           WHERE expires_at > now()
+              OR connection_key = $1`,
           [request.connectionKey],
         );
         const counts = countResult.rows[0] ?? {

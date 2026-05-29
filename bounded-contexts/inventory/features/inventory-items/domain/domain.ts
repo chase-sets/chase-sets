@@ -19,7 +19,6 @@ export type InventoryItemState = Readonly<{
   storageLocationId: string | null;
   totalQuantity: number;
   acquisitionCostAmount: string | null;
-  appliedAdjustmentKeys: readonly string[];
 }>;
 
 export type GradedCardPopulation = Readonly<{
@@ -47,7 +46,6 @@ export const initialInventoryItemState: InventoryItemState = {
   storageLocationId: null,
   totalQuantity: 0,
   acquisitionCostAmount: null,
-  appliedAdjustmentKeys: [],
 };
 
 export type CreateInventoryItemCommand = Readonly<{
@@ -67,7 +65,6 @@ export type AdjustInventoryItemQuantityCommand = Readonly<{
   type: "AdjustInventoryItemQuantity";
   quantityDelta: number;
   reason: string;
-  idempotencyKey?: string | null;
 }>;
 
 export type InventoryItemCommand = CreateInventoryItemCommand | AdjustInventoryItemQuantityCommand;
@@ -93,7 +90,6 @@ export type InventoryItemAdjustedEvent = DomainEvent<
     itemId: InventoryItemId;
     quantityDelta: number;
     reason: string;
-    idempotencyKey?: string | null;
   }>
 >;
 
@@ -130,10 +126,6 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
       requireCreatedInventoryItem(state);
       ensureInteger(command.quantityDelta, "Inventory adjustments must use a whole-number quantity delta.");
       assert(command.quantityDelta !== 0, "Quantity adjustments must change inventory.");
-      const idempotencyKey = normalizeOptionalText(command.idempotencyKey);
-      if (idempotencyKey && state.appliedAdjustmentKeys.includes(idempotencyKey)) {
-        return [];
-      }
       assert(state.totalQuantity + command.quantityDelta >= 0, "Inventory quantity cannot fall below zero.");
       return [
         {
@@ -142,7 +134,6 @@ export const decideInventoryItem: AggregateDecider<InventoryItemState, Inventory
             itemId: state.id!,
             quantityDelta: command.quantityDelta,
             reason: normalizeLabel(command.reason),
-            idempotencyKey,
           },
         },
       ];
@@ -164,15 +155,11 @@ export const evolveInventoryItem: AggregateEvolver<InventoryItemState, Inventory
         storageLocationId: event.data.storageLocationId,
         totalQuantity: event.data.totalQuantity,
         acquisitionCostAmount: event.data.acquisitionCostAmount,
-        appliedAdjustmentKeys: [],
       };
     case "inventory.item.adjusted":
       return {
         ...state,
         totalQuantity: state.totalQuantity + event.data.quantityDelta,
-        appliedAdjustmentKeys: event.data.idempotencyKey
-          ? [...state.appliedAdjustmentKeys, event.data.idempotencyKey]
-          : state.appliedAdjustmentKeys,
       };
     default:
       return assertNever(event);
