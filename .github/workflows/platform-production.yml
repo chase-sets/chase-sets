@@ -733,6 +733,9 @@ jobs:
       TF_VAR_environment: production
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
+      TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
+      TF_VAR_stripe_connect_return_url: https://marketplace.chasesets.com/account/payouts
+      TF_VAR_stripe_connect_refresh_url: https://marketplace.chasesets.com/account/payouts/setup
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
@@ -781,6 +784,11 @@ jobs:
           TF_VAR_platform_admin_email: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_SECRET_KEY || '' }}
+          TF_VAR_stripe_publishable_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+          TF_VAR_stripe_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_WEBHOOK_SECRET || '' }}
+          TF_VAR_easypost_api_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_API_KEY || '' }}
+          TF_VAR_easypost_mode: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.EASYPOST_MODE || 'production') || 'test' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
           TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
           TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
@@ -808,6 +816,40 @@ jobs:
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing required production configuration: %s\n' "${missing[*]}" >&2
             exit 1
+          fi
+
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            marketplace_missing=()
+            for name in \
+              TF_VAR_stripe_secret_key \
+              TF_VAR_stripe_publishable_key \
+              TF_VAR_stripe_webhook_secret \
+              TF_VAR_easypost_api_key
+            do
+              if [ -z "${!name:-}" ]; then
+                marketplace_missing+=("$name")
+              fi
+            done
+
+            if [ "${#marketplace_missing[@]}" -gt 0 ]; then
+              printf 'Missing required production marketplace promotion configuration: %s\n' "${marketplace_missing[*]}" >&2
+              exit 1
+            fi
+
+            if [[ "${TF_VAR_stripe_secret_key}" != sk_live* || "${TF_VAR_stripe_publishable_key}" != pk_live* ]]; then
+              echo "Production marketplace promotion requires Stripe live-mode keys." >&2
+              exit 1
+            fi
+
+            if [ "${TF_VAR_easypost_mode:-}" != "production" ]; then
+              echo "Production marketplace promotion requires EASYPOST_MODE=production." >&2
+              exit 1
+            fi
+
+            if [ "${TF_VAR_notification_email_provider:-}" != "amazon-ses" ]; then
+              echo "Production marketplace promotion requires NOTIFICATION_EMAIL_PROVIDER=amazon-ses." >&2
+              exit 1
+            fi
           fi
 
           if [ "${TF_VAR_notification_email_provider:-}" = "amazon-ses" ]; then
@@ -917,6 +959,13 @@ jobs:
           TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
           TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_SECRET_KEY || '' }}
+          TF_VAR_stripe_publishable_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+          TF_VAR_stripe_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_WEBHOOK_SECRET || '' }}
+          TF_VAR_stripe_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.STRIPE_API_BASE_URL || '' }}
+          TF_VAR_easypost_api_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_API_KEY || '' }}
+          TF_VAR_easypost_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.EASYPOST_API_BASE_URL || '' }}
+          TF_VAR_easypost_mode: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.EASYPOST_MODE || 'production') || 'test' }}
           TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
@@ -967,6 +1016,13 @@ jobs:
           TF_VAR_platform_admin_password: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           TF_VAR_platform_admin_display_name: ${{ vars.PLATFORM_ADMIN_DISPLAY_NAME || 'Platform Admin' }}
           TF_VAR_discord_invite_url: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL }}
+          TF_VAR_stripe_secret_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_SECRET_KEY || '' }}
+          TF_VAR_stripe_publishable_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_PUBLISHABLE_KEY || '' }}
+          TF_VAR_stripe_webhook_secret: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.STRIPE_WEBHOOK_SECRET || '' }}
+          TF_VAR_stripe_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.STRIPE_API_BASE_URL || '' }}
+          TF_VAR_easypost_api_key: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && secrets.EASYPOST_API_KEY || '' }}
+          TF_VAR_easypost_api_base_url: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && vars.EASYPOST_API_BASE_URL || '' }}
+          TF_VAR_easypost_mode: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' && (vars.EASYPOST_MODE || 'production') || 'test' }}
           TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}
           TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}
           TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}
@@ -1013,15 +1069,21 @@ jobs:
           set -euo pipefail
           app_id="$(terraform output -raw app_id)"
           mapfile -t public_domains < <(terraform output -json public_domains | jq -r '.[]')
+          mapfile -t marketplace_domains < <(terraform output -json marketplace_domains | jq -r '.[]')
           admin_domain="$(terraform output -raw admin_domain)"
           if [ "${#public_domains[@]}" -eq 0 ] || [ -z "$admin_domain" ]; then
             echo "Required production domains were not present in Terraform outputs." >&2
+            exit 1
+          fi
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ] && [ "${#marketplace_domains[@]}" -eq 0 ]; then
+            echo "Production marketplace promotion was enabled but no marketplace domains were present in Terraform outputs." >&2
             exit 1
           fi
 
           node ../../../scripts/digitalocean-app-deployment.mjs wait-domains \
             "$app_id" \
             "${public_domains[@]}" \
+            "${marketplace_domains[@]}" \
             "$admin_domain" \
             --timeout-seconds=3600 \
             --poll-seconds=30
@@ -1045,8 +1107,18 @@ jobs:
           public_domain="$(terraform output -raw landing_domain)"
           admin_domain="$(terraform output -raw admin_domain)"
           catalog_asset_public_base_url="$(terraform output -raw catalog_asset_public_base_url)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          smoke_urls=("https://${public_domain}" "https://${admin_domain}")
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            if [ -z "$marketplace_domain" ]; then
+              echo "Production marketplace promotion was enabled but no marketplace domain was present in Terraform outputs." >&2
+              exit 1
+            fi
+            export SMOKE_REQUIRE_MARKETPLACE="true"
+            smoke_urls+=("https://${marketplace_domain}")
+          fi
           cd ../../..
-          pnpm run smoke:platform -- "https://${public_domain}" "https://${admin_domain}"
+          pnpm run smoke:platform -- "${smoke_urls[@]}"
           curl --fail --silent --show-error --head --retry 12 --retry-delay 10 --retry-all-errors \
             "${catalog_asset_public_base_url}/" >/dev/null
 

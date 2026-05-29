@@ -20,6 +20,22 @@ check "api_realtime_coordination" {
   }
 }
 
+check "production_marketplace_promotion" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.notification_email_provider == "amazon-ses" &&
+      trimspace(var.ses_aws_region) != "" &&
+      trimspace(var.ses_aws_access_key_id) != "" &&
+      trimspace(var.ses_aws_secret_access_key) != "" &&
+      trimspace(var.ses_from_email) != "" &&
+      trimspace(var.ses_configuration_set_name) != "" &&
+      trimspace(var.ses_source_arn) != ""
+    )
+    error_message = "Production marketplace promotion requires production environment and complete Amazon SES transactional email configuration."
+  }
+}
+
 resource "digitalocean_database_db" "contexts" {
   for_each   = local.context_databases
   cluster_id = digitalocean_database_cluster.postgres.id
@@ -207,7 +223,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_non_production ? [1] : []
+      for_each = local.marketplace_platform_enabled ? [1] : []
       content {
         name               = "marketplace"
         run_command        = "pnpm --filter @chase-sets/app-marketplace-web run start"
@@ -296,7 +312,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_non_production ? [1] : []
+      for_each = local.marketplace_platform_enabled ? [1] : []
       content {
         name               = "platform-api"
         run_command        = "pnpm --filter @chase-sets/app-platform-api run start:production"
@@ -541,7 +557,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_non_production ? [] : [1]
+      for_each = local.marketplace_platform_enabled ? [] : [1]
       content {
         name               = "admin-support-api"
         run_command        = "pnpm --filter @chase-sets/app-admin-support-api run start:production"
@@ -696,7 +712,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.is_non_production ? [1] : []
+      for_each = local.marketplace_platform_enabled ? [1] : []
       content {
         name               = "platform-worker"
         run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
@@ -985,7 +1001,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "worker" {
-      for_each = local.is_non_production ? [] : [1]
+      for_each = local.marketplace_platform_enabled ? [] : [1]
       content {
         name               = "admin-support-worker"
         run_command        = "pnpm --filter @chase-sets/app-admin-support-worker run start:production"
@@ -1108,7 +1124,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "job" {
-      for_each = local.is_non_production ? [1] : []
+      for_each = local.marketplace_platform_enabled ? [1] : []
       content {
         name               = "platform-bootstrap"
         kind               = "PRE_DEPLOY"
@@ -1241,7 +1257,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "job" {
-      for_each = local.is_non_production ? [] : [1]
+      for_each = local.marketplace_platform_enabled ? [] : [1]
       content {
         name               = "admin-support-bootstrap"
         kind               = "PRE_DEPLOY"

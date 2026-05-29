@@ -154,6 +154,32 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain('name                 = "platform-api"');
   });
 
+  it("keeps production marketplace promotion explicitly gated", () => {
+    expect(platformVariables).toContain('variable "production_marketplace_public_enabled"');
+    expect(platformVariables).toContain("production_marketplace_public_enabled may only be true for production.");
+    expect(platformVariables).toContain('startswith(var.stripe_secret_key, "sk_live")');
+    expect(platformVariables).toContain('startswith(var.stripe_publishable_key, "pk_live")');
+    expect(platformVariables).toContain('var.easypost_mode == "production"');
+    expect(platformLocals).toContain("marketplace_platform_enabled = (");
+    expect(platformLocals).toContain("local.is_non_production || var.production_marketplace_public_enabled");
+    expect(platformLocals).toContain('local.is_production ? "marketplace.${var.root_domain}"');
+    expect(platformLocals).toContain("context_names = local.marketplace_platform_enabled");
+    expect(platformMain).toContain('check "production_marketplace_promotion"');
+    expect(platformMain).toContain(
+      'error_message = "Production marketplace promotion requires production environment and complete Amazon SES transactional email configuration."',
+    );
+    expect(platformMain).toContain("for_each = local.marketplace_platform_enabled ? [1] : []");
+    expect(platformMain).toContain("for_each = local.marketplace_platform_enabled ? [] : [1]");
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain("Production marketplace promotion requires Stripe live-mode keys.");
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace promotion requires NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
+    );
+    expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_MARKETPLACE="true"');
+  });
+
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {
     expect(environmentDnsVariables).toContain('condition     = var.environment == "staging"');
     expect(environmentDnsLocals).toContain('environment_zone = "${var.environment}.${var.root_domain}"');

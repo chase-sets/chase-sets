@@ -28,4 +28,4 @@ Cancellation refund effects must be idempotent across event replay and provider 
 
 ## Launch Review
 
-Before launch, counsel/provider review should approve final buyer-facing copy and any state-specific disclosure requirements.
+Before marketplace production promotion, counsel/provider review should approve final buyer-facing copy, fee labels, refund handling language, and any state-specific disclosure requirements. Public Presence may describe the intended model during prelaunch, but live checkout must not open until approved terms are published and the production marketplace gate is explicitly enabled.

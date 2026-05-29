@@ -23,6 +23,17 @@ variable "environment" {
   }
 }
 
+variable "production_marketplace_public_enabled" {
+  type        = bool
+  default     = false
+  description = "Explicit gate for deploying public marketplace, platform API, worker, and commerce contexts in production. Keep false until marketplace production promotion is approved."
+
+  validation {
+    condition     = var.environment == "production" || var.production_marketplace_public_enabled == false
+    error_message = "production_marketplace_public_enabled may only be true for production."
+  }
+}
+
 variable "preview_identifier" {
   type        = string
   default     = ""
@@ -137,8 +148,10 @@ variable "stripe_secret_key" {
   default   = ""
 
   validation {
-    condition     = var.environment == "production" || startswith(var.stripe_secret_key, "sk_test")
-    error_message = "stripe_secret_key must be a Stripe test-mode secret key for non-production environments."
+    condition = var.environment == "production" ? (
+      !var.production_marketplace_public_enabled || startswith(var.stripe_secret_key, "sk_live")
+    ) : startswith(var.stripe_secret_key, "sk_test")
+    error_message = "stripe_secret_key must be test-mode outside production and live-mode when production marketplace promotion is enabled."
   }
 }
 
@@ -148,8 +161,10 @@ variable "stripe_publishable_key" {
   default   = ""
 
   validation {
-    condition     = var.environment == "production" || startswith(var.stripe_publishable_key, "pk_test")
-    error_message = "stripe_publishable_key must be a Stripe test-mode publishable key for non-production environments."
+    condition = var.environment == "production" ? (
+      !var.production_marketplace_public_enabled || startswith(var.stripe_publishable_key, "pk_live")
+    ) : startswith(var.stripe_publishable_key, "pk_test")
+    error_message = "stripe_publishable_key must be test-mode outside production and live-mode when production marketplace promotion is enabled."
   }
 }
 
@@ -159,8 +174,8 @@ variable "stripe_webhook_secret" {
   default   = ""
 
   validation {
-    condition     = var.environment == "production" || trimspace(var.stripe_webhook_secret) != ""
-    error_message = "stripe_webhook_secret is required for non-production environments."
+    condition     = (var.environment == "production" && !var.production_marketplace_public_enabled) || trimspace(var.stripe_webhook_secret) != ""
+    error_message = "stripe_webhook_secret is required outside gated landing-only production and during production marketplace promotion."
   }
 }
 
@@ -175,14 +190,17 @@ variable "stripe_connect_return_url" {
 
   validation {
     condition = (
-      var.environment == "production" ||
+      (var.environment == "production" && !var.production_marketplace_public_enabled) ||
       var.stripe_connect_return_url == (
-        var.environment == "preview" ?
-        format("https://marketplace.%s.preview.%s/account/payouts", var.preview_identifier, var.root_domain) :
-        format("https://marketplace.%s.%s/account/payouts", var.environment, var.root_domain)
+        var.environment == "production" ?
+        format("https://marketplace.%s/account/payouts", var.root_domain) :
+        (var.environment == "preview" ?
+          format("https://marketplace.%s.preview.%s/account/payouts", var.preview_identifier, var.root_domain) :
+          format("https://marketplace.%s.%s/account/payouts", var.environment, var.root_domain)
+        )
       )
     )
-    error_message = "stripe_connect_return_url must match the non-production marketplace domain."
+    error_message = "stripe_connect_return_url must match the marketplace domain whenever marketplace platform deployment is enabled."
   }
 }
 
@@ -192,14 +210,17 @@ variable "stripe_connect_refresh_url" {
 
   validation {
     condition = (
-      var.environment == "production" ||
+      (var.environment == "production" && !var.production_marketplace_public_enabled) ||
       var.stripe_connect_refresh_url == (
-        var.environment == "preview" ?
-        format("https://marketplace.%s.preview.%s/account/payouts/setup", var.preview_identifier, var.root_domain) :
-        format("https://marketplace.%s.%s/account/payouts/setup", var.environment, var.root_domain)
+        var.environment == "production" ?
+        format("https://marketplace.%s/account/payouts/setup", var.root_domain) :
+        (var.environment == "preview" ?
+          format("https://marketplace.%s.preview.%s/account/payouts/setup", var.preview_identifier, var.root_domain) :
+          format("https://marketplace.%s.%s/account/payouts/setup", var.environment, var.root_domain)
+        )
       )
     )
-    error_message = "stripe_connect_refresh_url must match the non-production marketplace domain."
+    error_message = "stripe_connect_refresh_url must match the marketplace domain whenever marketplace platform deployment is enabled."
   }
 }
 
@@ -209,8 +230,10 @@ variable "easypost_api_key" {
   default   = ""
 
   validation {
-    condition     = var.environment == "production" || startswith(var.easypost_api_key, "EZTK")
-    error_message = "easypost_api_key must be an EasyPost test API key for non-production environments."
+    condition = var.environment == "production" ? (
+      !var.production_marketplace_public_enabled || trimspace(var.easypost_api_key) != ""
+    ) : startswith(var.easypost_api_key, "EZTK")
+    error_message = "easypost_api_key must be an EasyPost test API key outside production and must be present when production marketplace promotion is enabled."
   }
 }
 
@@ -231,6 +254,11 @@ variable "easypost_mode" {
   validation {
     condition     = var.environment == "production" || var.easypost_mode == "test"
     error_message = "easypost_mode must be test for non-production environments."
+  }
+
+  validation {
+    condition     = var.environment != "production" || !var.production_marketplace_public_enabled || var.easypost_mode == "production"
+    error_message = "easypost_mode must be production when production marketplace promotion is enabled."
   }
 }
 

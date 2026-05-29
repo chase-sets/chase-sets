@@ -1,7 +1,10 @@
 locals {
-  is_production       = var.environment == "production"
-  is_staging          = var.environment == "staging"
-  is_non_production   = !local.is_production
+  is_production     = var.environment == "production"
+  is_staging        = var.environment == "staging"
+  is_non_production = !local.is_production
+  marketplace_platform_enabled = (
+    local.is_non_production || var.production_marketplace_public_enabled
+  )
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
   environment_zone    = "${var.environment}.${var.root_domain}"
   database_name_token = replace(local.environment_slug, "-", "_")
@@ -18,8 +21,8 @@ locals {
     "landing-${var.environment}.${var.root_domain}",
   ] : []
 
-  marketplace_domains = local.is_non_production ? [
-    local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
+  marketplace_domains = local.marketplace_platform_enabled ? [
+    local.is_production ? "marketplace.${var.root_domain}" : local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
   ] : []
 
   staging_root_marketplace_domains = local.is_staging ? [
@@ -36,8 +39,8 @@ locals {
     "marketplace-${var.environment}.${var.root_domain}" = local.marketplace_domain
     "admin-${var.environment}.${var.root_domain}"       = local.admin_domain
   } : {}
-  api_component_name = local.is_non_production ? "platform-api" : "admin-support-api"
-  api_private_url    = local.is_non_production ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
+  api_component_name = local.marketplace_platform_enabled ? "platform-api" : "admin-support-api"
+  api_private_url    = local.marketplace_platform_enabled ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
   marketplace_origin = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
   database_size      = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
 
@@ -98,7 +101,7 @@ locals {
     "support",
   ]
 
-  context_names = local.is_non_production ? local.platform_context_names : local.landing_context_names
+  context_names = local.marketplace_platform_enabled ? local.platform_context_names : local.landing_context_names
 
   context_databases = {
     for context_name in local.context_names :
@@ -155,7 +158,7 @@ locals {
 
   all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.all_marketplace_domains)
   ucp_route_prefixes   = ["/.well-known", "/ucp"]
-  ucp_route_domains    = local.is_non_production ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
+  ucp_route_domains    = local.marketplace_platform_enabled ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
   app_domain_zones = merge(
     {
       for domain in local.public_domains :
