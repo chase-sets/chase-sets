@@ -86,10 +86,13 @@ export function createPostgresRealtimeStreamLimiter(
     pool: PostgresRealtimeStreamLimiterPool;
     leaseTtlMs?: number;
     renewIntervalMs?: number;
+    cleanupIntervalMs?: number;
   }>,
 ): RealtimeStreamLimiter {
   const leaseTtlMs = options.leaseTtlMs ?? 30_000;
   const renewIntervalMs = options.renewIntervalMs ?? 10_000;
+  const cleanupIntervalMs = options.cleanupIntervalMs ?? 10_000;
+  let lastCleanupAt = 0;
 
   return {
     activeConnectionCount: () => 0,
@@ -99,7 +102,11 @@ export function createPostgresRealtimeStreamLimiter(
 
       try {
         await client.query("BEGIN");
-        await client.query("DELETE FROM platform_realtime_stream_leases WHERE expires_at <= now()");
+        const now = Date.now();
+        if (lastCleanupAt === 0 || now - lastCleanupAt >= cleanupIntervalMs) {
+          await client.query("DELETE FROM platform_realtime_stream_leases WHERE expires_at <= now()");
+          lastCleanupAt = now;
+        }
         const countResult = await client.query<{
           active_count: string;
           connection_count: string;

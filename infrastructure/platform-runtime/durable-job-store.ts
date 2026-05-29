@@ -529,14 +529,17 @@ export function createDurableJobProgressCheckpoint<TProgress, TResult>(
   options: Readonly<{
     minIntervalMs?: number;
     minCompletedDelta?: number;
+    minRenewIntervalMs?: number;
     completed?: (progress: TProgress) => number | null | undefined;
     isTerminal?: (progress: TProgress) => boolean;
   }> = {},
 ): DurableJobProgressCheckpoint<TProgress, TResult> {
   const minIntervalMs = Math.max(0, Math.floor(options.minIntervalMs ?? 1_000));
   const minCompletedDelta = Math.max(1, Math.floor(options.minCompletedDelta ?? 25));
+  const minRenewIntervalMs = Math.max(0, Math.floor(options.minRenewIntervalMs ?? 5_000));
   let lastCheckpointAt = 0;
   let lastCompleted: number | null = null;
+  let lastRenewedAt = 0;
 
   const shouldCheckpoint = (progress: TProgress) => {
     if (options.isTerminal?.(progress)) {
@@ -562,6 +565,7 @@ export function createDurableJobProgressCheckpoint<TProgress, TResult>(
   const recordCheckpoint = async (progress: TProgress, result?: TResult | null) => {
     await context.checkpointProgress(progress, result);
     lastCheckpointAt = Date.now();
+    lastRenewedAt = lastCheckpointAt;
     const completed = options.completed?.(progress);
     lastCompleted = typeof completed === "number" && Number.isFinite(completed) ? completed : lastCompleted;
   };
@@ -573,7 +577,12 @@ export function createDurableJobProgressCheckpoint<TProgress, TResult>(
         return;
       }
 
-      await context.renew();
+      context.throwIfCancelled();
+      const now = Date.now();
+      if (lastRenewedAt === 0 || now - lastRenewedAt >= minRenewIntervalMs) {
+        await context.renew();
+        lastRenewedAt = Date.now();
+      }
     },
     flush: recordCheckpoint,
   };
@@ -719,16 +728,47 @@ type DurableJobNotificationClient = PgPoolClient & {
 
 function createDurableJobNotificationWaiter(db: PgTransactionalPool, channel: string) {
   let clientPromise: Promise<DurableJobNotificationClient> | null = null;
+  const waitersByJobId = new Map<string, Set<() => void>>();
+
+  const resolveJobWaiters = (jobId: string) => {
+    const waiters = waitersByJobId.get(jobId);
+    if (!waiters) {
+      return;
+    }
+
+    waitersByJobId.delete(jobId);
+    for (const resolve of waiters) {
+      resolve();
+    }
+  };
+
+  const resolveAllWaiters = () => {
+    const waiters = [...waitersByJobId.values()].flatMap((waitersForJob) => [...waitersForJob]);
+    waitersByJobId.clear();
+    for (const resolve of waiters) {
+      resolve();
+    }
+  };
+
+  const onNotification = (message?: { payload?: string }) => {
+    const jobId = notificationJobId(message?.payload);
+    if (jobId) {
+      resolveJobWaiters(jobId);
+    }
+  };
 
   async function getClient() {
     clientPromise ??= (async () => {
       const client = (await db.connect()) as DurableJobNotificationClient;
       const reset = () => {
         client.off?.("error", reset);
+        client.off?.("notification", onNotification);
         clientPromise = null;
+        resolveAllWaiters();
         client.release();
       };
       client.on?.("error", reset);
+      client.on?.("notification", onNotification);
       try {
         await client.query(`LISTEN ${channel}`);
         return client;
@@ -748,9 +788,11 @@ function createDurableJobNotificationWaiter(db: PgTransactionalPool, channel: st
         return waitForDurableJobTimeout(timeoutMs, input.signal);
       }
 
-      const eventClient = await getClient();
+      await getClient();
       await new Promise<void>((resolve) => {
         let settled = false;
+        const waitersForJob = waitersByJobId.get(input.jobId) ?? new Set<() => void>();
+        waitersByJobId.set(input.jobId, waitersForJob);
         const cleanup = () => {
           if (settled) {
             return;
@@ -758,35 +800,31 @@ function createDurableJobNotificationWaiter(db: PgTransactionalPool, channel: st
           settled = true;
           clearTimeout(timer);
           input.signal?.removeEventListener("abort", cleanup);
-          eventClient.off?.("notification", onNotification);
-          eventClient.off?.("error", cleanup);
-          resolve();
-        };
-        const onNotification = (message?: { payload?: string }) => {
-          if (notificationMatchesJob(message?.payload, input.jobId)) {
-            cleanup();
+          waitersForJob.delete(cleanup);
+          if (waitersForJob.size === 0) {
+            waitersByJobId.delete(input.jobId);
           }
+          resolve();
         };
         const timer = setTimeout(cleanup, timeoutMs);
 
         input.signal?.addEventListener("abort", cleanup, { once: true });
-        eventClient.on?.("notification", onNotification);
-        eventClient.on?.("error", cleanup);
+        waitersForJob.add(cleanup);
       });
     },
   };
 }
 
-function notificationMatchesJob(payload: string | undefined, jobId: string): boolean {
+function notificationJobId(payload: string | undefined): string | null {
   if (!payload) {
-    return false;
+    return null;
   }
 
   try {
     const parsed = JSON.parse(payload) as { jobId?: unknown };
-    return parsed.jobId === jobId;
+    return typeof parsed.jobId === "string" ? parsed.jobId : null;
   } catch {
-    return false;
+    return null;
   }
 }
 

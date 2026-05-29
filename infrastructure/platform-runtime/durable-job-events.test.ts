@@ -78,4 +78,25 @@ describe("durable job event streams", () => {
     expect(response.status).toBe(429);
     held?.release();
   });
+
+  it("returns a structured unavailable response when the limiter backend fails", async () => {
+    const response = await createDurableJobEventStream({
+      streamLimiter: {
+        acquire: async () => {
+          throw new Error("limiter unavailable");
+        },
+      },
+      streamLimitKey: "account_1",
+      loadEvents: async () => [],
+      isTerminal: () => false,
+    });
+
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "durable_job_stream_limiter_unavailable",
+        message: "Durable job status streams are temporarily unavailable.",
+      },
+    });
+    expect(response.status).toBe(503);
+  });
 });

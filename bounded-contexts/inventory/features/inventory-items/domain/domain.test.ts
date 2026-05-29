@@ -26,6 +26,38 @@ describe("inventory item domain", () => {
     expect(adjustedState.totalQuantity).toBe(8);
   });
 
+  it("ignores duplicate inventory adjustments with the same idempotency key", async () => {
+    const created = await decideInventoryItem(initialInventoryItemState, {
+      type: "CreateInventoryItem",
+      itemId: "inv_1" as never,
+      accountId: "acc_1" as never,
+      catalogItemId: "cat_1",
+      productId: "cat_1::" as never,
+      selectedOptions: [],
+      storageLocationId: "loc_1",
+      totalQuantity: 12,
+      acquisitionCostAmount: "4.25",
+    });
+    const createdState = created.reduce(evolveInventoryItem, initialInventoryItemState);
+    const adjusted = await decideInventoryItem(createdState, {
+      type: "AdjustInventoryItemQuantity",
+      quantityDelta: 3,
+      reason: "Import quantity adjustment",
+      idempotencyKey: "inventory-import-row:imr_1:adjustment",
+    });
+    const adjustedState = adjusted.reduce(evolveInventoryItem, createdState);
+    const replay = await decideInventoryItem(adjustedState, {
+      type: "AdjustInventoryItemQuantity",
+      quantityDelta: 3,
+      reason: "Import quantity adjustment",
+      idempotencyKey: "inventory-import-row:imr_1:adjustment",
+    });
+
+    expect(adjusted).toHaveLength(1);
+    expect(replay).toEqual([]);
+    expect(adjustedState.totalQuantity).toBe(15);
+  });
+
   it("keeps graded card details on the inventory item", async () => {
     const created = await decideInventoryItem(initialInventoryItemState, {
       type: "CreateInventoryItem",

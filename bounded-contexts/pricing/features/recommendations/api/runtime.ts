@@ -794,9 +794,21 @@ async function runPricingJobSideEffect<T>(
 ): Promise<T> {
   jobContext?.throwIfCancelled();
   await jobContext?.renew();
-  const result = await work();
-  await jobContext?.renew();
-  return result;
+  const renewalTimer = jobContext
+    ? setInterval(() => {
+        void jobContext.renew().catch(() => undefined);
+      }, 10_000)
+    : null;
+  renewalTimer?.unref?.();
+  try {
+    const result = await work();
+    await jobContext?.renew();
+    return result;
+  } finally {
+    if (renewalTimer) {
+      clearInterval(renewalTimer);
+    }
+  }
 }
 
 function listingIdForPricingRecommendation(recommendationId: string): string {

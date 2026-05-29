@@ -409,6 +409,10 @@ function itemIdForRow(rowId: string): InventoryItemId {
   return rowId.replace(/^imr_/, "inv_") as InventoryItemId;
 }
 
+function importRowInventoryAdjustmentKey(rowId: string): string {
+  return `inventory-import-row:${rowId}:adjustment`;
+}
+
 async function findExistingImportTargetItem(
   db: PgQueryable,
   params: Readonly<{
@@ -783,6 +787,7 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             itemId: existingItem.item_id,
             quantityDelta,
             reason: row.quantity_mode === "replace" ? "Import exact quantity" : "Import quantity adjustment",
+            idempotencyKey: importRowInventoryAdjustmentKey(row.row_id),
           },
           context,
         );

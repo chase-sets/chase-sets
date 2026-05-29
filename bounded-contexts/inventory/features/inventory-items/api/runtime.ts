@@ -70,6 +70,7 @@ export type InventoryItemServices = Readonly<{
       itemId: string;
       quantityDelta: number;
       reason: string;
+      idempotencyKey?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ itemId: string; version: number }>;
@@ -241,6 +242,7 @@ export function createInventoryItemRuntime(
           type: "AdjustInventoryItemQuantity",
           quantityDelta: params.quantityDelta,
           reason: params.reason,
+          idempotencyKey: params.idempotencyKey ?? null,
         },
         context,
       });

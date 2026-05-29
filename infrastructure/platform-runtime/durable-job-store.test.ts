@@ -256,18 +256,22 @@ describe("durable job store", () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
-  it("throttles public checkpoints while still renewing the durable claim", async () => {
+  it("throttles public checkpoints and skipped renew writes separately", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-29T00:00:00.000Z"));
     const checkpointProgress = vi.fn(async () => undefined);
     const renew = vi.fn(async () => undefined);
+    const throwIfCancelled = vi.fn();
     const checkpoint = createDurableJobProgressCheckpoint<{ completed: number; phase: string }, { done: number }>(
       {
-        throwIfCancelled: vi.fn(),
+        throwIfCancelled,
         renew,
         checkpointProgress,
       },
       {
         minIntervalMs: 10_000,
         minCompletedDelta: 10,
+        minRenewIntervalMs: 1_000,
         completed: (progress) => progress.completed,
         isTerminal: (progress) => progress.phase === "completed",
       },
@@ -275,11 +279,16 @@ describe("durable job store", () => {
 
     await checkpoint.checkpoint({ phase: "processing", completed: 1 });
     await checkpoint.checkpoint({ phase: "processing", completed: 2 });
+    await checkpoint.checkpoint({ phase: "processing", completed: 3 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await checkpoint.checkpoint({ phase: "processing", completed: 4 });
     await checkpoint.checkpoint({ phase: "processing", completed: 11 });
     await checkpoint.checkpoint({ phase: "completed", completed: 12 }, { done: 12 });
 
     expect(checkpointProgress).toHaveBeenCalledTimes(3);
     expect(renew).toHaveBeenCalledTimes(1);
+    expect(throwIfCancelled).toHaveBeenCalledTimes(3);
     expect(checkpointProgress).toHaveBeenLastCalledWith({ phase: "completed", completed: 12 }, { done: 12 });
+    vi.useRealTimers();
   });
 });
