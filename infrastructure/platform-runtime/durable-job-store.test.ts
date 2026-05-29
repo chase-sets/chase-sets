@@ -3,6 +3,7 @@ import {
   createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
   durableJobSchemaSql,
+  DurableJobHandoffError,
   runDurableJobSideEffect,
 } from "./durable-job-store";
 
@@ -328,5 +329,23 @@ describe("durable job store", () => {
     await assertion;
     expect(renew).toHaveBeenCalledTimes(2);
     vi.useRealTimers();
+  });
+
+  it("normalizes initial side-effect renewal failures as durable handoffs", async () => {
+    const cause = new Error("database connection reset");
+    const renew = vi.fn<() => Promise<void>>().mockRejectedValueOnce(cause);
+    const work = vi.fn(async () => "should not run");
+
+    await expect(
+      runDurableJobSideEffect(
+        {
+          throwIfCancelled: vi.fn(),
+          renew,
+          checkpointProgress: vi.fn(),
+        },
+        work,
+      ),
+    ).rejects.toBeInstanceOf(DurableJobHandoffError);
+    expect(work).not.toHaveBeenCalled();
   });
 });

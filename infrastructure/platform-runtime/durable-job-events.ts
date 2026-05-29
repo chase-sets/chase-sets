@@ -141,6 +141,10 @@ export async function createDurableJobEventStream<T>(options: DurableJobEventStr
             }
           }
 
+          if (wroteEvent) {
+            continue;
+          }
+
           if (!wroteEvent && options.loadCurrentSnapshot && options.isTerminalSnapshot) {
             const snapshot = await options.loadCurrentSnapshot();
             if (snapshot && options.isTerminalSnapshot(snapshot)) {

@@ -1128,7 +1128,7 @@ export function createSourceObservationRuntime(
       }
       return 1;
     } catch (error) {
-      if (error instanceof SourceObservationJobCancelledError) {
+      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error, input)) {
         return 0;
       }
 
@@ -1435,6 +1435,10 @@ export function createSourceObservationRuntime(
         reason: null,
       };
     } catch (error) {
+      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
+        throw error;
+      }
+
       return {
         providerKey: input.providerProfile.providerKey,
         languageCode: input.languageCode,
@@ -2677,6 +2681,7 @@ function jobMatchesContext(
 ): boolean {
   return (
     job.eventContext?.tenantId === context.tenantId &&
+    job.eventContext?.audit?.forAccountId === context.audit?.forAccountId &&
     job.eventContext?.audit?.performedByUserId === context.audit?.performedByUserId
   );
 }

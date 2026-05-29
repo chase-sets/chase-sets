@@ -557,6 +557,37 @@ describe("source observation runtime", () => {
     expect(harness.activeLookupValues[0]).toEqual(["import"]);
   });
 
+  it("does not reuse active provider integration jobs from a different account context", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      existingJob: integrationJobRow({
+        jobId: "job_other_account",
+        action: "import",
+        scope: { provider: "tcgdex", language: "en" },
+        eventContext: {
+          ...context,
+          audit: {
+            ...context.audit,
+            forAccountId: "acc_other" as never,
+          },
+        },
+      }),
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const job = await services.enqueueIntegrationJob({
+      action: "import",
+      scope: { provider: "tcgdex", language: "en", seriesId: undefined, setId: undefined },
+      context,
+    });
+
+    expect(job.jobId).not.toBe("job_other_account");
+    expect(harness.insertedJobs).toHaveLength(1);
+  });
+
   it("records a durable status event when enqueueing a provider integration job", async () => {
     const harness = createIntegrationJobDedupeHarness();
     const services = createSourceObservationRuntime(
@@ -582,6 +613,52 @@ describe("source observation runtime", () => {
         }),
       },
     ]);
+  });
+
+  it("hands off provider integration imports when the durable claim is lost before recording observations", async () => {
+    const harness = createIntegrationJobClaimHandoffHarness();
+    const originalFetch = globalThis.fetch;
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      const body =
+        fetchCount === 1
+          ? {
+              id: "base1",
+              name: "Base Set",
+              serie: { id: "base", name: "Base" },
+              cardCount: { official: 102, total: 102 },
+              cards: [{ id: "base1-1", localId: "1", name: "Abra" }],
+            }
+          : {
+              id: "base1-1",
+              localId: "1",
+              name: "Abra",
+              category: "Pokemon",
+              rarity: "Common",
+              set: { id: "base1", name: "Base Set" },
+              variants: { normal: true },
+            };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof globalThis.fetch;
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+    try {
+      await expect(
+        services.processNextIntegrationJob({
+          claimOwnerId: "worker-1",
+          claimTtlMs: 120_000,
+        }),
+      ).resolves.toBe(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(harness.job.status).toBe("running");
+    expect(harness.job.result).toBeNull();
+    expect(harness.job.error_message).toBeNull();
+    expect(harness.appendedSourceEvents).toEqual([]);
+    expect(harness.renewAttempts).toBe(1);
   });
 
   it("returns an empty active integration job list when request context is missing", async () => {
@@ -762,6 +839,148 @@ function integrationJobRow(input: {
     started_at: null,
     completed_at: null,
     updated_at: "2026-05-28T00:00:00.000Z",
+  };
+}
+
+function createIntegrationJobClaimHandoffHarness() {
+  const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
+  let renewAttempts = 0;
+  const job = {
+    job_id: "job_import_base1",
+    job_kind: "import",
+    payload: {
+      action: "import",
+      scope: {
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      },
+    },
+    event_context: context,
+    status: "queued",
+    progress: {
+      phase: "queued",
+      completed: 0,
+      total: 0,
+      currentName: null,
+      status: null,
+    },
+    result: null as null | Record<string, unknown>,
+    error_message: null as string | null,
+    claim_owner_id: null as string | null,
+    claimed_until: null as string | null,
+    created_at: "2026-05-20T00:00:00.000Z",
+    started_at: null as string | null,
+    completed_at: null as string | null,
+    updated_at: "2026-05-20T00:00:00.000Z",
+  };
+
+  const deps = {
+    db: {
+      query: async <T>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("UPDATE catalog_source_observation_integration_durable_jobs AS job")) {
+          if (job.status !== "queued") {
+            return { rowCount: 0, rows: [] as T[] };
+          }
+          job.status = "running";
+          job.claim_owner_id = String(values[0]);
+          job.claimed_until = "2026-05-20T00:02:00.000Z";
+          job.started_at ??= "2026-05-20T00:00:00.000Z";
+          return { rowCount: 1, rows: [job] as T[] };
+        }
+
+        if (
+          sql.includes("UPDATE catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("SET claimed_until") &&
+          !sql.includes("RETURNING")
+        ) {
+          renewAttempts += 1;
+          return { rowCount: 0, rows: [] as T[] };
+        }
+
+        if (sql.includes("UPDATE catalog_source_observation_integration_durable_jobs")) {
+          if (String(values[1]) !== job.claim_owner_id) {
+            return { rowCount: 0, rows: [] as T[] };
+          }
+          if (sql.includes("status = 'completed'")) {
+            job.status = "completed";
+            job.progress = JSON.parse(String(values[2]));
+            job.result = JSON.parse(String(values[3]));
+            job.claim_owner_id = null;
+            job.claimed_until = null;
+            job.completed_at = "2026-05-20T00:00:00.000Z";
+          } else if (sql.includes("status = 'failed'")) {
+            job.status = "failed";
+            job.progress = JSON.parse(String(values[2]));
+            job.error_message = String(values[3]);
+            job.claim_owner_id = null;
+            job.claimed_until = null;
+            job.completed_at = "2026-05-20T00:00:00.000Z";
+          } else {
+            job.progress = JSON.parse(String(values[2]));
+            if (values[3] !== null && values[3] !== undefined) {
+              job.result = JSON.parse(String(values[3]));
+            }
+            job.claimed_until = "2026-05-20T00:02:00.000Z";
+          }
+          return { rowCount: 1, rows: [job] as T[] };
+        }
+
+        if (sql.includes("INSERT INTO catalog_source_observation_integration_job_events")) {
+          return { rowCount: 1, rows: [{ sequence: 1 }] as T[] };
+        }
+
+        if (sql.includes("SELECT pg_notify")) {
+          return { rowCount: 1, rows: [] as T[] };
+        }
+
+        if (sql.includes("FROM catalog_reference_types")) {
+          return { rowCount: 1, rows: [{ reference_type_id: String(values[0]) }] as T[] };
+        }
+
+        if (sql.includes("WHERE reference_record_id = $1")) {
+          return { rowCount: 1, rows: [{ attributes: {} }] as T[] };
+        }
+
+        if (sql.includes("FROM catalog_reference_records")) {
+          return { rowCount: 1, rows: [{ reference_record_id: `ref_${String(values[1] ?? "existing")}` }] as T[] };
+        }
+
+        return { rowCount: 0, rows: [] as T[] };
+      },
+    },
+    eventStore: {
+      readStream: async () => [],
+      appendToStream: async (input: {
+        events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
+      }) => {
+        appendedSourceEvents.push(...input.events);
+        return input.events.map((event, index) =>
+          storedEvent(index + 1, "catalog.source-observation-obs_1", event.eventType, event.payload),
+        );
+      },
+      readAll: async () => [],
+    },
+    checkpointStore: {
+      loadCheckpoint: async () => "0",
+      saveCheckpoint: async () => undefined,
+    },
+  } as unknown as CatalogRuntimeDeps;
+
+  const referenceData = {
+    referenceTypeCommandHandler: async () => ({ version: 1, state: {} }),
+    referenceRecordCommandHandler: async () => ({ version: 1, state: {} }),
+    projectors: [],
+  } as unknown as ReferenceDataServices;
+
+  return {
+    deps,
+    referenceData,
+    job,
+    appendedSourceEvents,
+    get renewAttempts() {
+      return renewAttempts;
+    },
   };
 }
 
