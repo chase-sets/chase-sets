@@ -65,6 +65,31 @@ const contextSuiteOwnership = new Map([
   ["support", ["marketplace_account"]],
 ]);
 
+const marketplaceRouteSuiteOwnership = [
+  {
+    pattern: /^deployables\/marketplace\/app\/routes\/(?:search|_index)\./,
+    suites: ["marketplace_browse"],
+  },
+  {
+    pattern: /^deployables\/marketplace\/app\/routes\/(?:account-payment|checkout-payment)/,
+    suites: ["marketplace_checkout"],
+  },
+  {
+    pattern:
+      /^deployables\/marketplace\/app\/routes\/(?:account-listing|account-listings|account-inventory|account-offers|account-repricing)/,
+    suites: ["marketplace_seller"],
+  },
+  {
+    pattern:
+      /^deployables\/marketplace\/app\/routes\/(?:account-purchase|account-sale|account-review|account-payout|account-settlement|account-support)/,
+    suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^deployables\/marketplace\/app\/(?:auth\.server|root)\./,
+    suites: ["marketplace_account", "marketplace_browse"],
+  },
+];
+
 function normalizeFilePath(filePath) {
   return filePath.replace(/\\/g, "/").replace(/^\.\//, "");
 }
@@ -85,6 +110,28 @@ export function e2eSuiteById(suiteId) {
   return e2eSuites.find((suite) => suite.id === suiteId);
 }
 
+function isTestOnlyOrDocumentationFile(filePath) {
+  return (
+    /\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(filePath) ||
+    /(?:^|\/)(?:__tests__|tests)\//.test(filePath) ||
+    /\.(?:md|mdx)$/.test(filePath)
+  );
+}
+
+function marketplaceDeployableSuiteIdsForChangedFile(filePath) {
+  if (isTestOnlyOrDocumentationFile(filePath)) {
+    return [];
+  }
+
+  for (const routeOwnership of marketplaceRouteSuiteOwnership) {
+    if (routeOwnership.pattern.test(filePath)) {
+      return routeOwnership.suites;
+    }
+  }
+
+  return allMarketplaceSuiteIds;
+}
+
 export function e2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
 
@@ -92,11 +139,19 @@ export function e2eSuiteIdsForChangedFile(filePath) {
     return allMarketplaceSuiteIds;
   }
 
-  if (
-    normalized.startsWith("deployables/marketplace/") ||
-    normalized.startsWith("deployables/platform-api/") ||
-    normalized.startsWith("packages/design-system/")
-  ) {
+  if (normalized.startsWith("deployables/marketplace/")) {
+    return marketplaceDeployableSuiteIdsForChangedFile(normalized);
+  }
+
+  if (normalized.startsWith("deployables/platform-api/")) {
+    return isTestOnlyOrDocumentationFile(normalized) ? [] : allMarketplaceSuiteIds;
+  }
+
+  if (normalized.startsWith("packages/design-system/")) {
+    if (isTestOnlyOrDocumentationFile(normalized)) {
+      return [];
+    }
+
     return allMarketplaceSuiteIds;
   }
 

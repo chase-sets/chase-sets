@@ -147,15 +147,11 @@ jobs:
         run: node ./scripts/run-workspaces.mjs test:db --concurrency=2 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   e2e-tests:
-    name: E2E Tests (${{ matrix.suite }})
+    name: E2E Tests
     runs-on: ubuntu-latest
     timeout-minutes: 25
     needs: change-scope
     if: needs['change-scope'].outputs.e2e_tests == 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        suite: ${{ fromJson(needs['change-scope'].outputs.e2e_suites_json) }}
     steps:
       - uses: actions/checkout@v6
 
@@ -166,14 +162,14 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run marketplace e2e suite
-        run: pnpm run test:e2e:suite "${{ matrix.suite }}"
+      - name: Run marketplace e2e suites
+        run: pnpm run test:e2e:suite "${{ needs['change-scope'].outputs.e2e_suites }}"
 
       - name: Upload Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-${{ matrix.suite }}-artifacts
+          name: playwright-e2e-artifacts
           path: |
             artifacts/playwright/report
             artifacts/playwright/test-results
@@ -218,12 +214,14 @@ jobs:
           if [ "$test_status" -ne 0 ]; then
             echo "Non-DB coverage finished with status ${test_status}; keeping coverage non-blocking."
           fi
+          echo "COVERAGE_FAST_STATUS=${test_status}" >> "$GITHUB_ENV"
 
           timeout 8m node ./scripts/run-workspaces.mjs test:unit --test-profile=db --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}" -- --coverage --coverage.reporter=text --coverage.reporter=lcov
           unit_status=$?
           if [ "$unit_status" -ne 0 ]; then
             echo "DB-profile unit coverage finished with status ${unit_status}; keeping coverage non-blocking."
           fi
+          echo "COVERAGE_UNIT_STATUS=${unit_status}" >> "$GITHUB_ENV"
 
       - name: Run affected DB coverage
         if: needs['change-scope'].outputs.db_tests == 'true'
@@ -234,6 +232,24 @@ jobs:
           if [ "$db_status" -ne 0 ]; then
             echo "DB coverage finished with status ${db_status}; keeping coverage non-blocking."
           fi
+          echo "COVERAGE_DB_STATUS=${db_status}" >> "$GITHUB_ENV"
+
+      - name: Summarize aggregate coverage
+        if: always()
+        run: |
+          set -euo pipefail
+          statuses=(
+            "--status=non-db:${COVERAGE_FAST_STATUS:-not-run}"
+            "--status=db-profile-unit:${COVERAGE_UNIT_STATUS:-not-run}"
+          )
+
+          if [ "${{ needs['change-scope'].outputs.db_tests }}" = "true" ]; then
+            statuses+=("--status=db:${COVERAGE_DB_STATUS:-not-run}")
+          else
+            statuses+=("--status=db:skipped")
+          fi
+
+          pnpm run coverage:summary -- "${statuses[@]}"
 
       - name: Upload coverage artifacts
         if: always()
@@ -246,6 +262,7 @@ jobs:
             deployables/*/coverage
             infrastructure/*/coverage
             packages/*/coverage
+            artifacts/coverage
           if-no-files-found: ignore
           retention-days: 7
 

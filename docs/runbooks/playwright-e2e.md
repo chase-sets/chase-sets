@@ -18,6 +18,12 @@ pnpm run test:e2e
 
 The Playwright config starts `pnpm run dev:marketplace-full` when the marketplace sandbox server is not already running. That command boots platform API, platform worker, and marketplace web for the current worktree.
 
+Run one or more named suites with a comma-separated list:
+
+```powershell
+pnpm run test:e2e:suite marketplace_browse,marketplace_account
+```
+
 Reports and failure artifacts are written under ignored `artifacts/playwright/` folders.
 
 ## Deployed Targets
@@ -43,8 +49,10 @@ pnpm exec playwright install --with-deps chromium
 The job then runs:
 
 ```bash
-pnpm run test:e2e
+pnpm run test:e2e:suite "$E2E_SUITES"
 ```
+
+The selected suite list comes from change-scope metadata. CI runs those suites in one Playwright invocation so Chromium installation and the marketplace sandbox boot happen once per PR job.
 
 On failure, CI uploads `artifacts/playwright/report` and `artifacts/playwright/test-results` as `playwright-e2e-artifacts`.
 
