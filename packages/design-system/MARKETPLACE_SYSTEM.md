@@ -149,6 +149,10 @@ Each marketplace route should keep the most decision-critical information visibl
 - Trust copy should be calm and specific: explain verification, payment safety, return paths, delivery expectations, and support options without using alarmist language.
 - Promotional copy should not compete with checkout, policy, or payment comprehension.
 
+## Promo Bar
+
+Use `PromoBar` for marketplace-wide announcements, fee promotions, shipping-credit reminders, and short operational notices. The bar should stay above public marketplace content, use concise copy, link to durable policy pages when the message affects money or expectations, and cycle only when more than one active message is present. It must not replace required checkout, fee, policy, or payment disclosure inside transactional flows.
+
 ## Progressive Disclosure Defaults
 
 Use progressive disclosure for advanced marketplace depth, not for required account or transaction-party comprehension. Required decision facts stay visible; optional controls and deeper explanation use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup`.

@@ -2,6 +2,9 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 export { createPublicPresenceApiClient, PublicPresenceApiError, publicPresenceApi } from "../../client";
 export type {
   PublicPresenceApiClientOptions,
+  PromoBarMessage,
+  PromoBarMessageTone,
+  SavePromoBarMessageRequest,
   SubmitWaitlistSignupRequest,
   WaitlistMetrics,
   WaitlistSignupListItem,

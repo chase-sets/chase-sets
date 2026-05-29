@@ -21,6 +21,7 @@ import {
   Page,
   PageHeader,
   PageSection,
+  PromoBar,
   SegmentedControl,
   SkipLink,
   Stack,
@@ -28,6 +29,7 @@ import {
   PriceBreakdown,
   Text,
   TextInput,
+  type PromoBarMessage,
 } from "@chase-sets/design-system";
 import prelaunchHeroUrl from "./assets/chase-sets-prelaunch-hero.webp?url";
 import pikachuIllustrationRareUrl from "./assets/pikachu-illustration-rare-preview.webp?url";
@@ -195,13 +197,53 @@ function BadgeRow({ children }: { children: ReactNode }) {
   return <Inline gap={1}>{children}</Inline>;
 }
 
+function usePromoBarMessages() {
+  const [messages, setMessages] = useState<PromoBarMessage[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch("/api/public-presence/promo-bar-messages", { credentials: "same-origin" })
+      .then((response) => (response.ok ? response.json() : { items: [] }))
+      .then((body: { items?: readonly Record<string, unknown>[] }) => {
+        if (cancelled || !Array.isArray(body.items)) {
+          return;
+        }
+
+        setMessages(
+          body.items.map((message) => ({
+            id: String(message.id),
+            title: String(message.title ?? ""),
+            description: typeof message.description === "string" ? message.description : null,
+            href: typeof message.href === "string" ? message.href : null,
+            linkLabel: typeof message.link_label === "string" ? message.link_label : null,
+            tone:
+              message.tone === "success" || message.tone === "warning" || message.tone === "info"
+                ? message.tone
+                : "info",
+          })),
+        );
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return messages;
+}
+
 export function PublicPresencePageShell({ children }: { children: ReactNode }) {
+  const promoBarMessages = usePromoBarMessages();
+
   return (
     <ChaseRoot colorMode="system">
       <SkipLink />
       <div className="pb-24 md:pb-0">
         <Container width="wide">
           <Stack gap={4}>
+            <PromoBar messages={promoBarMessages} />
             <Surface element="nav" tone="subtle" padding={2}>
               <Cluster gap={2}>
                 <Inline gap={3} align="center">

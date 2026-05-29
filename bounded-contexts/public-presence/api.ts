@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PublicPresenceServices } from "./support/runtime-support/services";
+import type { PromoBarServices } from "./features/promo-bar/api/runtime";
 import type { WaitlistServices } from "./features/waitlist/api/runtime";
 
 export type PublicPresenceApiEnv = AuthenticatedApiEnv;
@@ -82,6 +83,20 @@ function requireActor(
   return { actor, response: null };
 }
 
+function readPromoBarMessageBody(body: Record<string, unknown>) {
+  return {
+    title: String(body.title ?? ""),
+    description: typeof body.description === "string" ? body.description : null,
+    href: typeof body.href === "string" ? body.href : null,
+    linkLabel: typeof body.linkLabel === "string" ? body.linkLabel : null,
+    tone: typeof body.tone === "string" ? (body.tone as never) : undefined,
+    isActive: typeof body.isActive === "boolean" ? body.isActive : true,
+    displayOrder: Number(body.displayOrder ?? 100),
+    startsAt: typeof body.startsAt === "string" ? body.startsAt : null,
+    endsAt: typeof body.endsAt === "string" ? body.endsAt : null,
+  };
+}
+
 function csvCell(value: unknown) {
   const text = Array.isArray(value) ? value.join("; ") : String(value ?? "");
   return `"${text.replace(/"/g, '""')}"`;
@@ -124,6 +139,16 @@ export function createPublicWaitlistRoutes(services: WaitlistServices) {
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
+  });
+
+  return app;
+}
+
+export function createPublicPromoBarRoutes(services: PromoBarServices) {
+  const app = new Hono<PublicPresenceApiEnv>();
+
+  app.get("/promo-bar-messages", async (c) => {
+    return c.json({ items: await services.listActivePromoBarMessages() });
   });
 
   return app;
@@ -216,10 +241,103 @@ export function createAdminWaitlistRoutes(services: WaitlistServices) {
   return app;
 }
 
+export function createAdminPromoBarRoutes(services: PromoBarServices) {
+  const app = new Hono<PublicPresenceApiEnv>();
+
+  app.get("/promo-bar-messages", async (c) => {
+    const access = requireActor(c, "public-presence.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json({ items: await services.listPromoBarMessages() });
+  });
+
+  app.post("/promo-bar-messages", async (c) => {
+    const access = requireActor(c, "public-presence.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    try {
+      const message = await services.createPromoBarMessage(readPromoBarMessageBody(body));
+      return c.json(message, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.put("/promo-bar-messages/:messageId", async (c) => {
+    const access = requireActor(c, "public-presence.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    try {
+      const message = await services.updatePromoBarMessage(c.req.param("messageId"), readPromoBarMessageBody(body));
+      if (!message) {
+        return c.json({ error: { code: "not_found", message: t("publicPresence.api.promoBar.notFound") } }, 404);
+      }
+      return c.json(message);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/promo-bar-messages/:messageId/activate", async (c) => {
+    const access = requireActor(c, "public-presence.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const message = await services.setPromoBarMessageActive(c.req.param("messageId"), true);
+    if (!message) {
+      return c.json({ error: { code: "not_found", message: t("publicPresence.api.promoBar.notFound") } }, 404);
+    }
+    return c.json(message);
+  });
+
+  app.post("/promo-bar-messages/:messageId/deactivate", async (c) => {
+    const access = requireActor(c, "public-presence.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const message = await services.setPromoBarMessageActive(c.req.param("messageId"), false);
+    if (!message) {
+      return c.json({ error: { code: "not_found", message: t("publicPresence.api.promoBar.notFound") } }, 404);
+    }
+    return c.json(message);
+  });
+
+  app.delete("/promo-bar-messages/:messageId", async (c) => {
+    const access = requireActor(c, "public-presence.view");
+    if (access.response) {
+      return access.response;
+    }
+
+    const deleted = await services.deletePromoBarMessage(c.req.param("messageId"));
+    if (!deleted) {
+      return c.json({ error: { code: "not_found", message: t("publicPresence.api.promoBar.notFound") } }, 404);
+    }
+    return c.json({ status: "deleted" });
+  });
+
+  return app;
+}
+
 export function buildPublicPresencePublicApi(services: PublicPresenceServices) {
-  return createPublicWaitlistRoutes(services.waitlist);
+  const app = new Hono<PublicPresenceApiEnv>();
+  app.route("/", createPublicWaitlistRoutes(services.waitlist));
+  app.route("/", createPublicPromoBarRoutes(services.promoBar));
+  return app;
 }
 
 export function buildPublicPresenceAdminApi(services: PublicPresenceServices) {
-  return createAdminWaitlistRoutes(services.waitlist);
+  const app = new Hono<PublicPresenceApiEnv>();
+  app.route("/", createAdminWaitlistRoutes(services.waitlist));
+  app.route("/", createAdminPromoBarRoutes(services.promoBar));
+  return app;
 }

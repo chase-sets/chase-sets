@@ -7,6 +7,7 @@ import {
 import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createPromoBarRuntime } from "../../features/promo-bar/api/runtime";
 import { createWaitlistRuntime } from "../../features/waitlist/api/runtime";
 
 export type PublicPresenceHostPorts = Readonly<{
@@ -15,6 +16,7 @@ export type PublicPresenceHostPorts = Readonly<{
 
 export type PublicPresenceServices = Readonly<{
   waitlist: ReturnType<typeof createWaitlistRuntime>;
+  promoBar: ReturnType<typeof createPromoBarRuntime>;
   transactionalEmailOutbox: TransactionalEmailOutbox;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
@@ -29,6 +31,7 @@ export function createPublicPresenceServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const transactionalEmailOutbox = ports.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
+  const promoBar = createPromoBarRuntime(db);
   const waitlist = createWaitlistRuntime({
     eventStore,
     checkpointStore,
@@ -38,6 +41,7 @@ export function createPublicPresenceServices(
 
   return {
     waitlist,
+    promoBar,
     transactionalEmailOutbox,
     projectors: [...waitlist.projectors],
     pool,

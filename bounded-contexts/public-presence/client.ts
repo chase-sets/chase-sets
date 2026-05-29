@@ -4,6 +4,7 @@ import type {
   WaitlistMetrics,
   WaitlistSignupListItem,
 } from "./features/waitlist/api/contracts";
+import type { PromoBarMessage, SavePromoBarMessageRequest } from "./features/promo-bar/api/contracts";
 
 const DEFAULT_BASE_URL = "/api/public-presence";
 
@@ -12,6 +13,11 @@ export type {
   WaitlistMetrics,
   WaitlistSignupListItem,
 } from "./features/waitlist/api/contracts";
+export type {
+  PromoBarMessage,
+  PromoBarMessageTone,
+  SavePromoBarMessageRequest,
+} from "./features/promo-bar/api/contracts";
 
 export class PublicPresenceApiError extends Error {
   public constructor(
@@ -73,6 +79,49 @@ export function createPublicPresenceApiClient({
     },
     async getWaitlistMetrics(): Promise<WaitlistMetrics> {
       return parseJsonResponse(await configuredFetch(`${baseUrl}/admin/waitlist/metrics`));
+    },
+    async listActivePromoBarMessages(): Promise<ListResponse<PromoBarMessage>> {
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/promo-bar-messages`));
+    },
+    async listPromoBarMessages(): Promise<ListResponse<PromoBarMessage>> {
+      return parseJsonResponse(await configuredFetch(`${baseUrl}/admin/promo-bar-messages`));
+    },
+    async createPromoBarMessage(body: SavePromoBarMessageRequest): Promise<PromoBarMessage> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/promo-bar-messages`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async updatePromoBarMessage(id: string, body: SavePromoBarMessageRequest): Promise<PromoBarMessage> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/promo-bar-messages/${encodeURIComponent(id)}`, {
+          method: "PUT",
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async activatePromoBarMessage(id: string): Promise<PromoBarMessage> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/promo-bar-messages/${encodeURIComponent(id)}/activate`, {
+          method: "POST",
+        }),
+      );
+    },
+    async deactivatePromoBarMessage(id: string): Promise<PromoBarMessage> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/promo-bar-messages/${encodeURIComponent(id)}/deactivate`, {
+          method: "POST",
+        }),
+      );
+    },
+    async deletePromoBarMessage(id: string): Promise<{ status: string }> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/promo-bar-messages/${encodeURIComponent(id)}`, {
+          method: "DELETE",
+        }),
+      );
     },
   };
 }

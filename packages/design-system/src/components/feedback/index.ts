@@ -5,6 +5,9 @@ export type { Tone } from "./shared";
 export { Banner } from "./banner";
 export type { BannerProps } from "./banner";
 
+export { PromoBar } from "./promo-bar";
+export type { PromoBarMessage, PromoBarProps, PromoBarTone } from "./promo-bar";
+
 export { Dialog } from "./dialog";
 export type { DialogProps, PanelBodyLayout } from "./dialog";
 
