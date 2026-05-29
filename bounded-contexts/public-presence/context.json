@@ -198,12 +198,12 @@
     },
     "ui-support": {
       "classification": "support",
-      "purpose": "Expose the public-presence waitlist analytics event contract to deployable browser bridges without moving waitlist behavior out of the slice.",
-      "allowedWhen": "Allowed only for browser-safe Public Presence UI contracts consumed through the context web export.",
-      "expectedConsumers": ["Public web deployable analytics bridge"],
-      "justification": "The waitlist slice owns analytics event names; public-web needs the event allowlist to validate provider-neutral analytics without duplicating bounded-context vocabulary.",
-      "createdFor": "Public Presence waitlist analytics capture.",
-      "sunsetWhen": "Remove if analytics capture moves fully into a bounded context browser entrypoint or an approved experimentation context."
+      "purpose": "Expose browser-safe Public Presence UI contracts and scoped translation helpers without moving waitlist behavior out of the slice.",
+      "allowedWhen": "Allowed only for browser-safe Public Presence UI contracts consumed through the context web export or waitlist UI.",
+      "expectedConsumers": ["waitlist"],
+      "justification": "The waitlist slice owns analytics event names and public-page UI vocabulary; public-web needs the event allowlist and scoped translator without duplicating bounded-context terms or importing unrelated localization namespaces.",
+      "createdFor": "Public Presence waitlist analytics capture and public-page localization.",
+      "sunsetWhen": "Remove if analytics capture and public-page translation move fully into feature-local browser entrypoints or an approved experimentation context."
     },
     "routes": {
       "classification": "routes",

@@ -1,4 +1,3 @@
-import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
 import type { ReactNode } from "react";
 import type { LoaderFunctionArgs } from "react-router";
@@ -15,7 +14,7 @@ import {
 } from "react-router";
 import { ChaseRoot, Container, LinkButton, MarketplaceEmptyState, Page, Stack } from "@chase-sets/design-system";
 import { buildCanonicalUrl, resolvePublicOrigin, shouldIndexPublicWeb } from "./seo";
-import { waitlistAnalyticsEventNames } from "@chase-sets/public-presence/web";
+import { publicPresenceT as t, waitlistAnalyticsEventNames } from "@chase-sets/public-presence/web";
 
 export const waitlistAnalyticsBridgeScript = `
 (() => {
@@ -140,9 +139,9 @@ export function ErrorBoundary() {
     ? error.statusText
     : error instanceof Error
       ? error.message
-      : t("marketplace.app.root.unknown.error");
-  const title = isNotFound ? t("marketplace.app.root.page.not.found") : t("marketplace.app.root.marketplace.error");
-  const description = isNotFound ? t("marketplace.app.root.page.not.found.description") : message;
+      : t("publicPresence.appRoot.unknownError");
+  const title = isNotFound ? t("publicPresence.appRoot.pageNotFound") : t("publicPresence.appRoot.publicError");
+  const description = isNotFound ? t("publicPresence.appRoot.pageNotFound.description") : message;
 
   return (
     <html lang="en">
@@ -164,8 +163,8 @@ export function ErrorBoundary() {
                   <MarketplaceEmptyState
                     title={title}
                     description={description}
-                    trustCue={t("marketplace.app.root.error.trust.cue")}
-                    recoveryActions={<LinkButton href="/">{t("marketplace.app.root.go.home")}</LinkButton>}
+                    trustCue={t("publicPresence.appRoot.error.trustCue")}
+                    recoveryActions={<LinkButton href="/">{t("publicPresence.appRoot.goHome")}</LinkButton>}
                   />
                 </Stack>
               </Container>

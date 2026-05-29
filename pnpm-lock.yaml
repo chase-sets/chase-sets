@@ -1762,9 +1762,6 @@ importers:
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
-      '@chase-sets/localization':
-        specifier: workspace:*
-        version: link:../../contracts/localization
       '@chase-sets/observability':
         specifier: workspace:*
         version: link:../../infrastructure/observability

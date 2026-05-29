@@ -235,6 +235,7 @@ describe("design-system", () => {
         imageFetchPriority="high"
         imageWidth={1600}
         imageHeight={1000}
+        density="compact"
         title="List cards without giving up margin"
       />,
     );
@@ -244,6 +245,7 @@ describe("design-system", () => {
     expect(markup).toContain('decoding="async"');
     expect(markup).toContain('fetchPriority="high"');
     expect(markup).toContain('width="1600"');
+    expect(markup).toContain("min-h-[18rem]");
   });
 
   it("renders conversion-first marketplace listing signals", () => {

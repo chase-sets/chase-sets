@@ -129,7 +129,7 @@ describe("public web deployable", () => {
           target: "waitlist_form",
           role: "sell",
           interest: "low-sales-fees",
-          variant: "landing-audit-remediation",
+          variant: "seller_first_v1",
           page_path: "/?utm_source=launch&utm_campaign=beta",
           utm_source: "launch",
           utm_medium: "social",

@@ -1235,6 +1235,7 @@ export interface MarketingImageHeroProps {
   actions?: ReactNode;
   conversionPanel?: ReactNode;
   highlights?: MarketingHeroHighlight[];
+  density?: "default" | "compact";
 }
 
 export function MarketingImageHero({
@@ -1252,12 +1253,19 @@ export function MarketingImageHero({
   actions,
   conversionPanel,
   highlights = [],
+  density = "default",
 }: MarketingImageHeroProps) {
   const imagePositionClass =
     imagePosition === "left" ? "object-left" : imagePosition === "right" ? "object-right" : "object-[18%_72%]";
+  const isCompact = density === "compact";
 
   return (
-    <section className="relative min-h-[22rem] overflow-hidden rounded-tokenLg border border-[var(--border)] bg-[var(--card)] shadow-tokenLg">
+    <section
+      className={cx(
+        "relative overflow-hidden rounded-tokenLg border border-[var(--border)] bg-[var(--card)] shadow-tokenLg",
+        isCompact ? "min-h-[18rem] sm:min-h-[20rem]" : "min-h-[22rem]",
+      )}
+    >
       <img
         src={imageSrc}
         alt={imageAlt}
@@ -1269,17 +1277,38 @@ export function MarketingImageHero({
         className={cx("absolute inset-0 h-full w-full object-cover", imagePositionClass)}
       />
       <div className="absolute inset-0 bg-[linear-gradient(180deg,color-mix(in_srgb,var(--background)_92%,transparent)_0%,color-mix(in_srgb,var(--background)_78%,transparent)_48%,color-mix(in_srgb,var(--background)_46%,transparent)_100%)] lg:bg-[linear-gradient(90deg,color-mix(in_srgb,var(--background)_94%,transparent)_0%,color-mix(in_srgb,var(--background)_76%,transparent)_44%,color-mix(in_srgb,var(--background)_14%,transparent)_100%)]" />
-      <div className="relative grid min-h-[22rem] gap-4 p-4 sm:gap-5 sm:p-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(18rem,0.55fr)] lg:p-6">
-        <div className="flex max-w-3xl flex-col justify-start gap-4 lg:justify-center">
-          <div className="grid gap-3">
+      <div
+        className={cx(
+          "relative grid lg:grid-cols-[minmax(0,0.9fr)_minmax(18rem,0.55fr)]",
+          isCompact
+            ? "min-h-[18rem] gap-3 p-3 sm:min-h-[20rem] sm:p-5 lg:p-6"
+            : "min-h-[22rem] gap-4 p-4 sm:gap-5 sm:p-6 lg:p-6",
+        )}
+      >
+        <div className={cx("flex max-w-3xl flex-col justify-start lg:justify-center", isCompact ? "gap-3" : "gap-4")}>
+          <div className={cx("grid", isCompact ? "gap-2" : "gap-3")}>
             {eyebrow ? (
               <div className="text-xs font-semibold uppercase tracking-wide text-[var(--primary)]">{eyebrow}</div>
             ) : null}
-            <h1 className="max-w-2xl font-display text-3xl font-semibold leading-tight text-[var(--foreground)] sm:text-4xl md:text-5xl md:leading-[1.08]">
+            <h1
+              className={cx(
+                "max-w-2xl font-display font-semibold leading-tight text-[var(--foreground)] md:leading-[1.08]",
+                isCompact ? "text-3xl sm:text-4xl md:text-5xl" : "text-3xl sm:text-4xl md:text-5xl",
+              )}
+            >
               {title}
             </h1>
             {description ? (
-              <p className="max-w-2xl text-base leading-7 text-[var(--text-secondary)] md:text-lg">{description}</p>
+              <p
+                className={cx(
+                  "max-w-2xl text-[var(--text-secondary)]",
+                  isCompact
+                    ? "text-sm leading-6 sm:text-base md:text-lg md:leading-7"
+                    : "text-base leading-7 md:text-lg",
+                )}
+              >
+                {description}
+              </p>
             ) : null}
           </div>
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}

@@ -1,8 +1,8 @@
-import { t } from "@chase-sets/localization";
 import { LinkButton, MarketplaceEmptyState, Page, PlatformCredibilityCue } from "@chase-sets/design-system";
+import { publicPresenceT as t } from "@chase-sets/public-presence/web";
 
 export function meta() {
-  return [{ title: [t("marketplace.app.root.page.not.found"), "Chase Sets"].join(" | ") }];
+  return [{ title: [t("publicPresence.appRoot.pageNotFound"), "Chase Sets"].join(" | ") }];
 }
 
 export function loader() {
@@ -13,15 +13,15 @@ export default function PublicNotFoundRoute() {
   return (
     <Page width="narrow">
       <MarketplaceEmptyState
-        title={t("marketplace.app.root.page.not.found")}
-        description={t("marketplace.app.root.page.not.found.description")}
+        title={t("publicPresence.appRoot.pageNotFound")}
+        description={t("publicPresence.appRoot.pageNotFound.description")}
         trustCue={
           <PlatformCredibilityCue
-            title={t("marketplace.app.root.marketplace.error")}
-            description={t("marketplace.app.root.error.trust.cue")}
+            title={t("publicPresence.appRoot.publicError")}
+            description={t("publicPresence.appRoot.error.trustCue")}
           />
         }
-        recoveryActions={<LinkButton href="/">{t("marketplace.app.root.go.home")}</LinkButton>}
+        recoveryActions={<LinkButton href="/">{t("publicPresence.appRoot.goHome")}</LinkButton>}
       />
     </Page>
   );
