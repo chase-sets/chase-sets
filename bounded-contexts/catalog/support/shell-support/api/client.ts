@@ -1500,6 +1500,10 @@ async function streamJobEvents<
 
     if (!response.ok) {
       const errorBody = await response.json().catch(() => null);
+      if (response.status === 429 || response.status === 503) {
+        await waitForJobReconnect(1_500, input.signal);
+        continue;
+      }
       throw new ApiError(response.status, errorBody);
     }
 

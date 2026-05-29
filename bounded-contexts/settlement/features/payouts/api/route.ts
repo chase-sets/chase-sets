@@ -84,7 +84,7 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     const limit = Number(c.req.query("limit") ?? 100);
     const filter = c.req.query("filter") ?? null;
-    const items = await services.listPayoutsNeedingReconciliation({ limit, filter });
+    const items = await services.listPayoutsNeedingReconciliation({ accountId: access.actor.accountId, limit, filter });
 
     return c.json({
       items,
@@ -155,7 +155,7 @@ export function createPayoutRoutes(services: PayoutServices) {
     }
 
     const [payouts, reconciliationRuns, platformBalanceForecast, providerHealth] = await Promise.all([
-      services.listPayoutsNeedingReconciliation({ limit: 25 }),
+      services.listPayoutsNeedingReconciliation({ accountId: access.actor.accountId, limit: 25 }),
       services.listReconciliationRuns({ limit: 10 }),
       services.getPlatformBalanceForecast({ currencyCode: "usd" }),
       services.getProviderHealth(),
@@ -211,7 +211,7 @@ export function createPayoutRoutes(services: PayoutServices) {
     }
 
     const job = await services.getPayoutReconciliationJob(c.req.param("jobId"));
-    if (!job) {
+    if (!job || job.payload.accountId !== access.actor.accountId) {
       return c.json(
         { error: { code: "not_found", message: t("settlement.features.payouts.api.route.job.not.found") } },
         404,
@@ -229,7 +229,7 @@ export function createPayoutRoutes(services: PayoutServices) {
 
     const jobId = c.req.param("jobId");
     const job = await services.getPayoutReconciliationJob(jobId);
-    if (!job) {
+    if (!job || job.payload.accountId !== access.actor.accountId) {
       return c.json(
         { error: { code: "not_found", message: t("settlement.features.payouts.api.route.job.not.found") } },
         404,
@@ -248,7 +248,7 @@ export function createPayoutRoutes(services: PayoutServices) {
         })),
       loadCurrentSnapshot: async () => {
         const current = await services.getPayoutReconciliationJob(jobId);
-        return current ? toPayoutReconciliationJobStatus(current) : null;
+        return current?.payload.accountId === access.actor.accountId ? toPayoutReconciliationJobStatus(current) : null;
       },
       waitForEvents: (_afterSequence, signal) => services.waitForPayoutReconciliationJobEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",

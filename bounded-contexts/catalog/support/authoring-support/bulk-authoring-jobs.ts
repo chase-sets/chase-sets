@@ -2,6 +2,7 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
   createDurableJobExecutionContext,
+  createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
   type DurableJobEvent,
   type DurableJobExecutionContext,
@@ -318,9 +319,16 @@ function progress(phase: CatalogAuthoringBulkJobProgress["phase"]): CatalogAutho
 function catalogAuthoringProgressOptions(
   jobContext: DurableJobExecutionContext<CatalogAuthoringBulkJobProgress, CatalogAuthoringBulkJobResult>,
 ): BulkLifecycleExecutionOptions {
+  const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
+    minIntervalMs: 1_000,
+    minCompletedDelta: 10,
+    minRenewIntervalMs: 5_000,
+    completed: (progress) => progress.completed,
+    isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+  });
   return {
     throwIfCancelled: jobContext.throwIfCancelled,
-    onProgress: (progressUpdate) => jobContext.checkpointProgress(toCatalogAuthoringProgress(progressUpdate)),
+    onProgress: (progressUpdate) => progressCheckpoint.checkpoint(toCatalogAuthoringProgress(progressUpdate)),
   };
 }
 

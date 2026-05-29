@@ -220,7 +220,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
   });
 
   app.get("/bulk-jobs/:jobId", async (c) => {
-    const job = await services.getBulkReviewJob(c.req.param("jobId"));
+    const job = await services.getBulkReviewJob(c.req.param("jobId"), c.get("context"));
     if (!job) {
       return c.json(
         {
@@ -238,7 +238,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
 
   app.get("/bulk-jobs/:jobId/events", async (c) => {
     const jobId = c.req.param("jobId");
-    const job = await services.getBulkReviewJob(jobId);
+    const job = await services.getBulkReviewJob(jobId, c.get("context"));
     if (!job) {
       return c.json(
         {
@@ -291,7 +291,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
   });
 
   app.get("/integration-jobs/:jobId", async (c) => {
-    const job = await services.getIntegrationJob(c.req.param("jobId"));
+    const job = await services.getIntegrationJob(c.req.param("jobId"), c.get("context"));
     if (!job) {
       return c.json(
         {
@@ -309,7 +309,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
 
   app.get("/integration-jobs/:jobId/events", async (c) => {
     const jobId = c.req.param("jobId");
-    const job = await services.getIntegrationJob(jobId);
+    const job = await services.getIntegrationJob(jobId, c.get("context"));
     if (!job) {
       return c.json(
         {
@@ -428,7 +428,7 @@ function streamBulkJobEvents(
         eventName: event.eventName,
         data: event.job,
       })),
-    loadCurrentSnapshot: () => services.getBulkReviewJob(jobId),
+    loadCurrentSnapshot: () => services.getBulkReviewJob(jobId, context),
     waitForEvents: (_afterSequence, signal) => services.waitForBulkReviewJobEvents(jobId, signal),
     isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
     isTerminalSnapshot: (snapshot) => snapshot.status === "completed" || snapshot.status === "failed",
@@ -451,7 +451,7 @@ function streamIntegrationJobEvents(
         eventName: event.eventName,
         data: event.job,
       })),
-    loadCurrentSnapshot: () => services.getIntegrationJob(jobId),
+    loadCurrentSnapshot: () => services.getIntegrationJob(jobId, context),
     waitForEvents: (_afterSequence, signal) => services.waitForIntegrationJobEvents(jobId, signal),
     isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
     isTerminalSnapshot: (snapshot) => snapshot.status === "completed" || snapshot.status === "failed",

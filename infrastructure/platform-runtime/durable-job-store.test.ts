@@ -3,6 +3,7 @@ import {
   createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
   durableJobSchemaSql,
+  runDurableJobSideEffect,
 } from "./durable-job-store";
 
 describe("durable job store", () => {
@@ -256,18 +257,22 @@ describe("durable job store", () => {
     expect(release).toHaveBeenCalledTimes(1);
   });
 
-  it("throttles public checkpoints while still renewing the durable claim", async () => {
+  it("throttles public checkpoints and skipped renew writes separately", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-29T00:00:00.000Z"));
     const checkpointProgress = vi.fn(async () => undefined);
     const renew = vi.fn(async () => undefined);
+    const throwIfCancelled = vi.fn();
     const checkpoint = createDurableJobProgressCheckpoint<{ completed: number; phase: string }, { done: number }>(
       {
-        throwIfCancelled: vi.fn(),
+        throwIfCancelled,
         renew,
         checkpointProgress,
       },
       {
         minIntervalMs: 10_000,
         minCompletedDelta: 10,
+        minRenewIntervalMs: 1_000,
         completed: (progress) => progress.completed,
         isTerminal: (progress) => progress.phase === "completed",
       },
@@ -275,11 +280,43 @@ describe("durable job store", () => {
 
     await checkpoint.checkpoint({ phase: "processing", completed: 1 });
     await checkpoint.checkpoint({ phase: "processing", completed: 2 });
+    await checkpoint.checkpoint({ phase: "processing", completed: 3 });
+    await vi.advanceTimersByTimeAsync(1_000);
+    await checkpoint.checkpoint({ phase: "processing", completed: 4 });
     await checkpoint.checkpoint({ phase: "processing", completed: 11 });
     await checkpoint.checkpoint({ phase: "completed", completed: 12 }, { done: 12 });
 
     expect(checkpointProgress).toHaveBeenCalledTimes(3);
     expect(renew).toHaveBeenCalledTimes(1);
+    expect(throwIfCancelled).toHaveBeenCalledTimes(3);
     expect(checkpointProgress).toHaveBeenLastCalledWith({ phase: "completed", completed: 12 }, { done: 12 });
+    vi.useRealTimers();
+  });
+
+  it("fails an in-flight side effect when renewal loses the durable claim", async () => {
+    vi.useFakeTimers();
+    const renew = vi
+      .fn<() => Promise<void>>()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("Durable job claim was lost before renewal completed."));
+    const sideEffect = runDurableJobSideEffect(
+      {
+        throwIfCancelled: vi.fn(),
+        renew,
+        checkpointProgress: vi.fn(),
+      },
+      (signal) =>
+        new Promise((_resolve, reject) => {
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+        }),
+      { renewIntervalMs: 1_000 },
+    );
+
+    const assertion = expect(sideEffect).rejects.toThrow("claim was lost");
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    await assertion;
+    expect(renew).toHaveBeenCalledTimes(2);
+    vi.useRealTimers();
   });
 });

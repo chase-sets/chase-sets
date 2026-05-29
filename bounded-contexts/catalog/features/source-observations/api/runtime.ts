@@ -7,7 +7,9 @@ import {
   createDurableJobExecutionContext,
   createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
+  runDurableJobSideEffect,
   type DurableJobEvent,
+  type DurableJobExecutionContext,
   type DurableJobRecord,
 } from "@chase-sets/platform-runtime/durable-job-store";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
@@ -110,6 +112,9 @@ export type BulkSourceObservationProgress = Readonly<{
     | "imported"
     | null;
 }>;
+
+type SourceObservationProgressHandler = (progress: BulkSourceObservationProgress) => void | Promise<void>;
+type DurableSideEffectRunner = <T>(work: () => Promise<T>) => Promise<T>;
 
 export type SourceObservationBulkJobAction = "promote" | "reject" | "reapply";
 
@@ -220,6 +225,8 @@ export type SourceObservationServices = Readonly<{
     setId: string;
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
+    beforeRecordObservation?: () => Promise<void>;
+    runRecordObservation?: DurableSideEffectRunner;
   }) => Promise<TcgdexSetImportResult>;
   listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
   listTcgdexSeries: (input: { languageCode: string }) => Promise<readonly TcgdexSeriesOption[]>;
@@ -240,7 +247,7 @@ export type SourceObservationServices = Readonly<{
   promoteObservations: (input: {
     observationIds: readonly string[];
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationPromotionResult>;
   previewPromoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
@@ -248,7 +255,7 @@ export type SourceObservationServices = Readonly<{
   promoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationPromotionResult>;
   previewReapplyObservationScope: (input: {
     scope: SourceObservationFilterScope;
@@ -256,24 +263,24 @@ export type SourceObservationServices = Readonly<{
   reapplyObservations: (input: {
     observationIds: readonly string[];
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationReapplyResult>;
   reapplyObservationScope: (input: {
     scope: SourceObservationFilterScope;
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationReapplyResult>;
   rejectObservations: (input: {
     observationIds: readonly string[];
     reason: string;
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservationScope: (input: {
     scope: SourceObservationFilterScope;
     reason: string;
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationPromotionResult>;
   rejectObservation: (input: {
     observationId: string;
@@ -287,7 +294,7 @@ export type SourceObservationServices = Readonly<{
     reason?: string | null;
     context: EventStoreContext;
   }) => Promise<SourceObservationBulkJob>;
-  getBulkReviewJob: (jobId: string) => Promise<SourceObservationBulkJob | null>;
+  getBulkReviewJob: (jobId: string, context?: EventStoreContext | null) => Promise<SourceObservationBulkJob | null>;
   listBulkReviewJobEvents: (
     jobId: string,
     afterSequence?: number,
@@ -302,7 +309,10 @@ export type SourceObservationServices = Readonly<{
     scope: SourceObservationIntegrationJobScope;
     context: EventStoreContext;
   }) => Promise<SourceObservationIntegrationJob>;
-  getIntegrationJob: (jobId: string) => Promise<SourceObservationIntegrationJob | null>;
+  getIntegrationJob: (
+    jobId: string,
+    context?: EventStoreContext | null,
+  ) => Promise<SourceObservationIntegrationJob | null>;
   listIntegrationJobEvents: (
     jobId: string,
     afterSequence?: number,
@@ -380,7 +390,7 @@ export function createSourceObservationRuntime(
       eventsTable: "catalog_source_observation_integration_job_events",
       notifyChannel: "catalog_source_observation_durable_job_events",
     },
-    { eventSnapshot: toSourceObservationIntegrationJob },
+    { eventSnapshot: toSourceObservationIntegrationJobEventSnapshot },
   );
 
   async function recordObservation(
@@ -477,11 +487,11 @@ export function createSourceObservationRuntime(
   async function promoteObservationIds(input: {
     observationIds: readonly string[];
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }): Promise<BulkSourceObservationPromotionResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationPromotionOutcome[] = [];
-    input.onProgress?.(bulkProgress(0, requestedIds.length));
+    await input.onProgress?.(bulkProgress(0, requestedIds.length));
 
     for (const observationId of requestedIds) {
       let currentName: string | null = null;
@@ -528,11 +538,13 @@ export function createSourceObservationRuntime(
         });
       } finally {
         const outcome = outcomes[outcomes.length - 1];
-        input.onProgress?.(bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null));
+        await input.onProgress?.(
+          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+        );
       }
     }
 
-    input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
+    await input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
@@ -572,11 +584,12 @@ export function createSourceObservationRuntime(
   async function reapplyObservationIds(input: {
     observationIds: readonly string[];
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
+    runReapplyObservation?: DurableSideEffectRunner;
   }): Promise<BulkSourceObservationReapplyResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationReapplyOutcome[] = [];
-    input.onProgress?.(bulkProgress(0, requestedIds.length));
+    await input.onProgress?.(bulkProgress(0, requestedIds.length));
 
     for (const observationId of requestedIds) {
       let currentName: string | null = null;
@@ -604,10 +617,12 @@ export function createSourceObservationRuntime(
           continue;
         }
 
-        const reapplied = await reapplyObservationFromRow({
-          observation,
-          context: input.context,
-        });
+        const reapplied = await (input.runReapplyObservation ?? ((work) => work()))(() =>
+          reapplyObservationFromRow({
+            observation,
+            context: input.context,
+          }),
+        );
         outcomes.push({
           observationId,
           status: "reapplied",
@@ -623,11 +638,13 @@ export function createSourceObservationRuntime(
         });
       } finally {
         const outcome = outcomes[outcomes.length - 1];
-        input.onProgress?.(bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null));
+        await input.onProgress?.(
+          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+        );
       }
     }
 
-    input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
+    await input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizeReapplyOutcomes(requestedIds.length, outcomes);
   }
@@ -636,11 +653,11 @@ export function createSourceObservationRuntime(
     observationIds: readonly string[];
     reason: string;
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }): Promise<BulkSourceObservationPromotionResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationPromotionOutcome[] = [];
-    input.onProgress?.(bulkProgress(0, requestedIds.length));
+    await input.onProgress?.(bulkProgress(0, requestedIds.length));
 
     for (const observationId of requestedIds) {
       let currentName: string | null = null;
@@ -691,11 +708,13 @@ export function createSourceObservationRuntime(
         });
       } finally {
         const outcome = outcomes[outcomes.length - 1];
-        input.onProgress?.(bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null));
+        await input.onProgress?.(
+          bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+        );
       }
     }
 
-    input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
+    await input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
@@ -705,6 +724,8 @@ export function createSourceObservationRuntime(
     setId: string;
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
+    beforeRecordObservation?: () => Promise<void>;
+    runRecordObservation?: DurableSideEffectRunner;
   }): Promise<TcgdexSetImportResult> {
     const observations = await fetchTcgdexSetObservations({
       languageCode: input.languageCode,
@@ -722,7 +743,8 @@ export function createSourceObservationRuntime(
     }
 
     for (const [index, observation] of observations.entries()) {
-      await recordObservation(observation, input.context);
+      await input.beforeRecordObservation?.();
+      await (input.runRecordObservation ?? ((work) => work()))(() => recordObservation(observation, input.context));
       await input.onProgress?.({
         phase: "recording",
         completed: index + 1,
@@ -1129,9 +1151,12 @@ export function createSourceObservationRuntime(
       claimLostMessage: "Source Observation job claim was lost before the status update completed.",
     });
     const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
+      minRenewIntervalMs: Math.max(1_000, Math.floor(input.claimTtlMs / 3)),
       completed: (progress) => progress.completed,
       isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
     });
+    const recordRenewIntervalMs = Math.max(1_000, Math.floor(input.claimTtlMs / 3));
+    let lastRecordRenewedAt = 0;
 
     await progressCheckpoint.flush(bulkProgress(previousResult.outcomes.length, expansions.length, nextExpansion.name));
 
@@ -1141,6 +1166,15 @@ export function createSourceObservationRuntime(
       languageCode,
       providerProfile,
       context: input.job.eventContext,
+      beforeRecordObservation: async () => {
+        throwIfJobRunCancelled(input.context);
+        const now = Date.now();
+        if (lastRecordRenewedAt === 0 || now - lastRecordRenewedAt >= recordRenewIntervalMs) {
+          await jobContext.renew();
+          lastRecordRenewedAt = Date.now();
+        }
+      },
+      runRecordObservation: createSourceObservationSideEffectRunner(jobContext),
       onProgress: async (setProgress) => {
         throwIfJobRunCancelled(input.context);
         await progressCheckpoint.checkpoint(
@@ -1197,8 +1231,7 @@ export function createSourceObservationRuntime(
       };
     }
 
-    let progressWrite = Promise.resolve();
-    const progressHandler = (progress: BulkSourceObservationProgress) => {
+    const progressHandler = async (progress: BulkSourceObservationProgress) => {
       throwIfJobRunCancelled(input.context);
       const persistedProgress = bulkProgress(
         previousResult.outcomes.length + progress.completed,
@@ -1207,24 +1240,31 @@ export function createSourceObservationRuntime(
         progress.status,
         progress.phase === "failed" ? "failed" : "processing",
       );
-      progressWrite = progressWrite.then(() =>
-        requireSourceObservationJobClaim(
-          integrationJobStore.updateProgress({
-            jobId: input.job.jobId,
-            claimOwnerId: input.job.claimOwnerId,
-            claimTtlMs: input.claimTtlMs,
-            progress: persistedProgress,
-          }),
-        ),
+      await requireSourceObservationJobClaim(
+        integrationJobStore.updateProgress({
+          jobId: input.job.jobId,
+          claimOwnerId: input.job.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          progress: persistedProgress,
+        }),
       );
     };
+    const jobContext = createDurableJobExecutionContext(integrationJobStore, {
+      jobId: input.job.jobId,
+      claimOwnerId: input.job.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      signal: input.context.signal,
+      throwIfLeaseLost: input.context.throwIfLeaseLost,
+      cancelledMessage: "Source Observation job run was cancelled.",
+      claimLostMessage: "Source Observation job claim was lost before the status update completed.",
+    });
     throwIfJobRunCancelled(input.context);
     const batchResult = await reapplyObservationIds({
       observationIds: batchObservationIds,
       context: input.job.eventContext,
       onProgress: progressHandler,
+      runReapplyObservation: createSourceObservationSideEffectRunner(jobContext),
     });
-    await progressWrite;
     throwIfJobRunCancelled(input.context);
 
     const outcomes: SourceObservationIntegrationJobOutcome[] = [
@@ -1252,7 +1292,7 @@ export function createSourceObservationRuntime(
   async function processIntegrationImportJob(input: {
     scope: SourceObservationIntegrationJobScope;
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }): Promise<SourceObservationIntegrationJobResult> {
     const scope = normalizeIntegrationJobScope(input.scope);
     const providerProfile = requireCatalogImportProfile(scope.provider);
@@ -1270,7 +1310,7 @@ export function createSourceObservationRuntime(
           seriesId: scope.seriesId || null,
         });
     const outcomes: SourceObservationIntegrationJobOutcome[] = [];
-    input.onProgress?.(bulkProgress(0, expansions.length));
+    await input.onProgress?.(bulkProgress(0, expansions.length));
 
     for (const expansion of expansions) {
       try {
@@ -1310,11 +1350,13 @@ export function createSourceObservationRuntime(
         });
       } finally {
         const outcome = outcomes[outcomes.length - 1];
-        input.onProgress?.(bulkProgress(outcomes.length, expansions.length, expansion.name, outcome?.status ?? null));
+        await input.onProgress?.(
+          bulkProgress(outcomes.length, expansions.length, expansion.name, outcome?.status ?? null),
+        );
       }
     }
 
-    input.onProgress?.(bulkProgress(expansions.length, expansions.length, null, null, "completed"));
+    await input.onProgress?.(bulkProgress(expansions.length, expansions.length, null, null, "completed"));
 
     return summarizeIntegrationJobOutcomes(expansions.length, outcomes);
   }
@@ -1325,6 +1367,8 @@ export function createSourceObservationRuntime(
     providerProfile: CatalogProviderIntegrationProfile;
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
+    beforeRecordObservation?: () => Promise<void>;
+    runRecordObservation?: DurableSideEffectRunner;
   }): Promise<SourceObservationIntegrationJobOutcome> {
     try {
       const result = await importTcgdexSetScope({
@@ -1332,6 +1376,8 @@ export function createSourceObservationRuntime(
         setId: input.expansion.expansionId,
         context: input.context,
         onProgress: input.onProgress,
+        beforeRecordObservation: input.beforeRecordObservation,
+        runRecordObservation: input.runRecordObservation,
       });
       return {
         providerKey: input.providerProfile.providerKey,
@@ -1358,7 +1404,7 @@ export function createSourceObservationRuntime(
   async function processIntegrationReapplyJob(input: {
     scope: SourceObservationIntegrationJobScope;
     context: EventStoreContext;
-    onProgress?: (progress: BulkSourceObservationProgress) => void;
+    onProgress?: SourceObservationProgressHandler;
   }): Promise<SourceObservationIntegrationJobResult> {
     const scope = integrationScopeToObservationScope(input.scope);
     const result = await reapplyObservationIds({
@@ -1449,8 +1495,11 @@ export function createSourceObservationRuntime(
       return { observationId, status: "rejected" };
     },
     enqueueBulkReviewJob,
-    getBulkReviewJob: async (jobId) => {
+    getBulkReviewJob: async (jobId, context) => {
       const job = await bulkReviewJobStore.get(jobId);
+      if (job && context && !jobMatchesContext(job, context)) {
+        return null;
+      }
       return job ? toSourceObservationBulkJob(job) : null;
     },
     listBulkReviewJobEvents: async (jobId, afterSequence = 0) =>
@@ -1462,8 +1511,11 @@ export function createSourceObservationRuntime(
         .map(toSourceObservationBulkJob),
     processNextBulkReviewJob,
     enqueueIntegrationJob,
-    getIntegrationJob: async (jobId) => {
+    getIntegrationJob: async (jobId, context) => {
       const job = await integrationJobStore.get(jobId);
+      if (job && context && !jobMatchesContext(job, context)) {
+        return null;
+      }
       return job ? toSourceObservationIntegrationJob(job) : null;
     },
     listIntegrationJobEvents: async (jobId, afterSequence = 0) =>
@@ -2504,6 +2556,22 @@ function toSourceObservationIntegrationJob(
   };
 }
 
+function toSourceObservationIntegrationJobEventSnapshot(
+  job: DurableJobRecord<
+    SourceObservationIntegrationJobPayload,
+    BulkSourceObservationProgress,
+    SourceObservationIntegrationJobResult
+  >,
+): SourceObservationIntegrationJob {
+  const snapshot = toSourceObservationIntegrationJob(job);
+  return snapshot.status === "completed" || snapshot.status === "failed"
+    ? snapshot
+    : {
+        ...snapshot,
+        result: null,
+      };
+}
+
 function toClaimedSourceObservationIntegrationJob(
   job: DurableJobRecord<
     SourceObservationIntegrationJobPayload,
@@ -2649,6 +2717,16 @@ class SourceObservationJobCancelledError extends Error {
   constructor() {
     super("Source Observation job run was cancelled.");
   }
+}
+
+function createSourceObservationSideEffectRunner<TResult>(
+  jobContext: DurableJobExecutionContext<BulkSourceObservationProgress, TResult>,
+): DurableSideEffectRunner {
+  return (work) =>
+    runDurableJobSideEffect(jobContext, () => work(), {
+      renewIntervalMs: 5_000,
+      claimLostMessage: "Source Observation job claim was lost while applying a side effect.",
+    });
 }
 
 function isJobRunCancelled(context: SourceObservationJobRunContext): boolean {

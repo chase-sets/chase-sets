@@ -212,6 +212,7 @@ describe("source observation routes", () => {
     expect(text).toContain("id: 1");
     expect(text).toContain("event: status");
     expect(readSseData(text)).toEqual([job]);
+    expect(getIntegrationJob).toHaveBeenCalledWith("job_import_base1", context);
     expect(listIntegrationJobEvents).toHaveBeenCalledWith("job_import_base1", 0);
   });
 
@@ -380,7 +381,7 @@ describe("source observation routes", () => {
     expect(events).toContain("event: status");
     expect(events).toContain('"jobId":"job_integration"');
     expect(events).toContain('"status":"completed"');
-    expect(getIntegrationJob).toHaveBeenCalledWith("job_integration");
+    expect(getIntegrationJob).toHaveBeenCalledWith("job_integration", context);
     expect(listIntegrationJobEvents).toHaveBeenCalledWith("job_integration", 0);
   });
 
@@ -620,6 +621,7 @@ describe("source observation routes", () => {
     const text = await response.text();
     expect(text).toContain("id: 1");
     expect(readSseData(text)).toEqual([job]);
+    expect(getBulkReviewJob).toHaveBeenCalledWith("job_1", context);
     expect(listBulkReviewJobEvents).toHaveBeenCalledWith("job_1", 0);
   });
 

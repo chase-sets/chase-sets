@@ -117,6 +117,39 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
       }),
     );
   });
+
+  it("retries retryable durable job stream overload responses", async () => {
+    const completedResult = {
+      requested: 1,
+      imported: 1,
+      observed: 204,
+      reapplied: 0,
+      skipped: 0,
+      failed: 0,
+      outcomes: [],
+    };
+    const fetch = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: { code: "durable_job_stream_limiter_unavailable" } }), {
+          status: 503,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        sseResponse(
+          `id: 1
+event: status
+data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResult }))}
+
+`,
+        ),
+      );
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(client.watchSourceObservationIntegrationJob("job_1")).resolves.toEqual(completedResult);
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
 });
 
 function sseResponse(body: string): Response {

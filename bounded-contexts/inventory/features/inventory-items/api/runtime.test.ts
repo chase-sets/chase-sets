@@ -85,6 +85,153 @@ const shipFromAddress = {
 } as const;
 
 describe("inventory item runtime", () => {
+  it("uses a ledger to make keyed quantity adjustments replay-safe and shape-checked", async () => {
+    const { eventStore, streams } = createInMemoryEventStore();
+    const ledger = new Map<
+      string,
+      {
+        inserted: boolean;
+        command_fingerprint: string;
+        status: "in_progress" | "completed";
+        result_item_id: string | null;
+        result_version: number | null;
+      }
+    >();
+    const inventoryRow = {
+      item_id: "inv_1",
+      account_id: "acc_seller",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "cat_1::",
+      selected_options: [],
+      graded_card: null,
+      storage_location_id: "loc_1",
+      storage_location_name: "Main",
+      ship_from_code: "MAIN",
+      total_quantity: 10,
+      held_quantity: 0,
+      available_quantity: 10,
+      acquisition_cost_amount: null,
+      created_at: "2026-05-28T00:00:00.000Z",
+      updated_at: "2026-05-28T00:00:00.000Z",
+    };
+    const db = {
+      query: vi.fn(async (sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("WITH inserted")) {
+          const key = String(values[0]);
+          const existing = ledger.get(key);
+          if (existing) {
+            return { rows: [{ ...existing, inserted: false }], rowCount: 1 };
+          }
+          const row = {
+            inserted: true,
+            command_fingerprint: String(values[3]),
+            status: "in_progress" as const,
+            result_item_id: null,
+            result_version: null,
+          };
+          ledger.set(key, row);
+          return { rows: [row], rowCount: 1 };
+        }
+        if (sql.includes("UPDATE inventory_item_adjustment_idempotency")) {
+          const key = String(values[0]);
+          const existing = ledger.get(key);
+          if (existing) {
+            ledger.set(key, {
+              ...existing,
+              inserted: false,
+              status: "completed",
+              result_item_id: String(values[1]),
+              result_version: Number(values[2]),
+            });
+          }
+          return { rows: [], rowCount: existing ? 1 : 0 };
+        }
+        if (sql.includes("DELETE FROM inventory_item_adjustment_idempotency")) {
+          ledger.delete(String(values[0]));
+          return { rows: [], rowCount: 1 };
+        }
+        if (sql.includes("FROM inventory_items AS item")) {
+          return { rows: [inventoryRow] };
+        }
+        if (sql.includes("FROM inventory_holds")) {
+          return { rows: [] };
+        }
+        if (sql.includes("to_regclass")) {
+          return { rows: [{ table_name: null }] };
+        }
+
+        throw new Error(`Unexpected query: ${sql}`);
+      }),
+    };
+    const services = createInventoryItemRuntime(
+      {
+        eventStore,
+        checkpointStore: createCheckpointStore(),
+        db: db as never,
+      },
+      {
+        getCatalogItem: vi.fn(),
+      } as never,
+      {
+        listStorageLocations: vi.fn(),
+        createStorageLocation: vi.fn(),
+      } as never,
+    );
+    await services.commandHandler({
+      streamId: "inventory.item-inv_1",
+      command: {
+        type: "CreateInventoryItem",
+        itemId: "inv_1" as never,
+        accountId: "acc_seller" as never,
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        selectedOptions: [],
+        storageLocationId: "loc_1",
+        totalQuantity: 10,
+      },
+      context,
+    });
+
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: 3,
+          reason: "Import quantity adjustment",
+          idempotencyKey: "inventory-import-row:imr_1:adjustment",
+        },
+        context,
+      ),
+    ).resolves.toEqual({ itemId: "inv_1", version: 2 });
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: 3,
+          reason: "Import quantity adjustment",
+          idempotencyKey: "inventory-import-row:imr_1:adjustment",
+        },
+        context,
+      ),
+    ).resolves.toEqual({ itemId: "inv_1", version: 2 });
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: 4,
+          reason: "Import quantity adjustment",
+          idempotencyKey: "inventory-import-row:imr_1:adjustment",
+        },
+        context,
+      ),
+    ).rejects.toThrow("idempotency key was reused");
+
+    expect(streams.get("inventory.item-inv_1")).toHaveLength(2);
+  });
+
   it("ensures default listing stock without requiring manual inventory setup", async () => {
     const { eventStore, streams } = createInMemoryEventStore();
     let listingStockLocation: {

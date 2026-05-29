@@ -48,7 +48,20 @@ export async function createDurableJobEventStream<T>(options: DurableJobEventStr
   let closed = false;
   const streamLimiter = options.streamLimiter ?? defaultStreamLimiter;
   const streamLimitKey = options.streamLimitKey ?? durableJobStreamLimitKey(options.request);
-  const lease = await streamLimiter.acquire({ connectionKey: streamLimitKey });
+  let lease: DurableJobStreamLease | null;
+  try {
+    lease = await streamLimiter.acquire({ connectionKey: streamLimitKey });
+  } catch {
+    return Response.json(
+      {
+        error: {
+          code: "durable_job_stream_limiter_unavailable",
+          message: "Durable job status streams are temporarily unavailable.",
+        },
+      },
+      { status: 503 },
+    );
+  }
   if (!lease) {
     return Response.json(
       { error: { code: "too_many_durable_job_streams", message: "Too many durable job status streams." } },

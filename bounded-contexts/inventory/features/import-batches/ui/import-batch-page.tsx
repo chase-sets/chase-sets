@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
+import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
   Badge,
   Button,
@@ -434,23 +435,20 @@ function useInventoryImportBatchJob(jobId?: string | null) {
       return undefined;
     }
 
-    const source = new EventSource(`/api/inventory/import-batches/jobs/${encodeURIComponent(jobId)}/events`);
-    source.addEventListener("status", (event) => {
-      const nextJob = JSON.parse((event as MessageEvent).data) as InventoryImportBatchJobStatus;
-      setJob(nextJob);
-      if (nextJob.status === "completed") {
-        source.close();
-        const batchId = nextJob.result?.batch.batch_id;
-        window.location.replace(
-          batchId ? `/account/inventory/imports/${encodeURIComponent(batchId)}` : "/account/inventory/imports",
-        );
-      }
-      if (nextJob.status === "failed") {
-        source.close();
-      }
+    const subscription = subscribeDurableJobStatus<InventoryImportBatchJobStatus>({
+      url: `/api/inventory/import-batches/jobs/${encodeURIComponent(jobId)}/events`,
+      onStatus: setJob,
+      onTerminal: (nextJob) => {
+        if (nextJob.status === "completed") {
+          const batchId = nextJob.result?.batch.batch_id;
+          window.location.replace(
+            batchId ? `/account/inventory/imports/${encodeURIComponent(batchId)}` : "/account/inventory/imports",
+          );
+        }
+      },
     });
     return () => {
-      source.close();
+      subscription.close();
     };
   }, [jobId]);
 
