@@ -31,4 +31,8 @@ Promote new trust proof only when all of these are true:
 - stale or unavailable proof can be removed without changing the offer
 - the proof reinforces seller economics or buyer confidence without replacing the seller-first first screen
 
-The primary conversion action is joining the beta waitlist. The embedded hero form should remain compact, seller-first, and explicit that joining does not require buying, listing, or payment. It should also let visitors choose seller, buyer, or both intent before submitting so early invite signals are obvious inside the first screen.
+The primary conversion action is requesting early access. Use `seller beta` for the program and seller-economics context. Use `waitlist` only when naming the durable signup record, queue mechanics, consent/removal records, or internal review surfaces.
+
+The embedded hero form should remain compact, seller-first, and explicit that requesting early access does not require buying, listing, or payment. It should also let visitors choose seller, buyer, or both intent before submitting so invite signals are obvious inside the first screen.
+
+The first viewport should include a concrete product or economics signal in addition to the headline and form. Prefer design-system-owned marketing hero highlights, product previews, or seller math summaries over page-local decorative treatment.

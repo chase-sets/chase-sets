@@ -238,6 +238,11 @@ describe("design-system", () => {
         imageHeight={1000}
         density="compact"
         title="List cards without giving up margin"
+        conversionPanel={<form aria-label="Early access form" />}
+        highlights={[
+          { label: "Seller fee", value: "0% beta listings" },
+          { label: "Buyer totals", value: "Visible before payment" },
+        ]}
       />,
     );
 
@@ -247,6 +252,9 @@ describe("design-system", () => {
     expect(markup).toContain('fetchPriority="high"');
     expect(markup).toContain('width="1600"');
     expect(markup).toContain("min-h-[18rem]");
+    expect(markup).toContain("Marketing highlights");
+    expect(markup).toContain("Seller fee");
+    expect(markup).toContain("0% beta listings");
   });
 
   it("renders conversion-first marketplace listing signals", () => {

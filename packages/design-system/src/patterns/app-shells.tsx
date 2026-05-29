@@ -1312,6 +1312,23 @@ export function MarketingImageHero({
             ) : null}
           </div>
           {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+          {conversionPanel && highlights.length > 0 ? (
+            <div className="hidden max-w-2xl grid-cols-3 gap-2 md:grid" aria-label="Marketing highlights">
+              {highlights.map((highlight, index) => (
+                <div
+                  key={index}
+                  className="min-w-0 rounded-tokenSm border border-[var(--border)] bg-[color-mix(in_srgb,var(--card)_76%,transparent)] px-3 py-2 backdrop-blur"
+                >
+                  <div className="truncate text-xs font-semibold uppercase tracking-wide text-[var(--muted-foreground)]">
+                    {highlight.label}
+                  </div>
+                  <div className="mt-0.5 truncate text-sm font-semibold text-[var(--foreground)]">
+                    {highlight.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
         {conversionPanel ? (
           <div className="grid w-full min-w-0 content-center lg:justify-self-end">{conversionPanel}</div>

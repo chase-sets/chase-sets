@@ -75,9 +75,12 @@ describe("public presence homepage", () => {
     expect(screen.getAllByRole("button", { name: "Request early access" }).length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
-        "Answer three quick questions so early invites reach the accounts most likely to use the beta.",
+        "Answer three quick questions so early access reaches the accounts most likely to use the seller beta.",
       ).length,
     ).toBeGreaterThan(0);
+    expect(screen.getAllByText("Locked while unchanged").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("$0 separate line").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Costs visible before payment").length).toBeGreaterThan(0);
     expect(
       screen.getAllByRole("heading", { name: "A concrete reason for sellers to join early" }).length,
     ).toBeGreaterThan(0);
@@ -85,7 +88,7 @@ describe("public presence homepage", () => {
       0,
     );
     expect(screen.getAllByRole("heading", { name: "Preview the buying experience" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "After you join" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "After you request access" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Prelaunch only. No buying, listing, or payment required.").length).toBeGreaterThan(0);
     expect(
       screen.getAllByText("No live marketplace transactions are available during prelaunch.").length,
@@ -187,7 +190,7 @@ describe("public presence homepage", () => {
     );
 
     const consent = within(finalForm as HTMLElement).getByRole("checkbox", {
-      name: "Send early access updates.",
+      name: "Send me early access updates",
     });
     await user.click(consent);
 
@@ -222,7 +225,7 @@ describe("public presence homepage", () => {
     expect(form).toBeTruthy();
 
     const consent = within(form as HTMLElement).getByRole("checkbox", {
-      name: "Send early access updates.",
+      name: "Send me early access updates",
     }) as HTMLInputElement;
 
     expect(consent.checked).toBe(false);

@@ -39,7 +39,7 @@ export const publicPresenceEnglishTranslations = {
     "Listings created during beta are planned to keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers see any Marketplace Checkout Fee before payment.",
   "publicPresence.faq.fees.question": "What will sellers pay during beta?",
   "publicPresence.faq.launch.answer":
-    "Not yet. Chase Sets is preparing early access now. Join the list to tell us whether buying, selling, or both should be prioritized for you.",
+    "Not yet. Chase Sets is preparing early access now. Request access to tell us whether buying, selling, or both should be prioritized for you.",
   "publicPresence.faq.launch.question": "Is Chase Sets live yet?",
   "publicPresence.faq.safety.answer":
     "Before payment, checkout should show item details, account signals, shipping, return eligibility, and support coverage. After purchase, support can review tracking, payment status, listing evidence, and account context.",
@@ -58,7 +58,7 @@ export const publicPresenceEnglishTranslations = {
     "See shipping estimates, return eligibility, and order protection before payment.",
   "publicPresence.home.buying.title": "For collectors filling sets, decks, and wishlists",
   "publicPresence.home.description":
-    "Join the seller-first beta for 0% seller fee locks, no separate seller processing fee, bulk-friendly listing, and buyer-visible totals.",
+    "Request early access to the seller-first beta for 0% seller fee locks, no separate seller processing fee, bulk-friendly listing, and buyer-visible totals.",
   "publicPresence.home.buyerProof.badge": "Set-completion proof",
   "publicPresence.home.buyerProof.description":
     "The buyer promise is not only cheaper-looking prices. It is seeing the delivered total, shipping credit, account signal, and protection before a small card order becomes a surprise.",
@@ -102,26 +102,25 @@ export const publicPresenceEnglishTranslations = {
     "Order and fulfillment design should make cards and collectibles practical to buy, bundle, and ship.",
   "publicPresence.home.economics.shipping.title": "Efficient fulfillment",
   "publicPresence.home.economics.title": "Marketplace economics built for collectible inventory",
-  "publicPresence.home.eyebrow": "Trading card marketplace waitlist",
+  "publicPresence.home.eyebrow": "Trading card marketplace early access",
   "publicPresence.home.finalCta.action": "Request early access",
   "publicPresence.home.finalCta.badge": "Takes under a minute",
   "publicPresence.home.finalCta.description":
-    "Tell us whether selling, buying, or both matters most. The earliest qualified beta accounts help shape launch, can receive Founding Account badge eligibility, and join the founders circle on Discord.",
+    "Tell us whether selling, buying, or both matters most. The earliest qualified beta accounts help shape launch and can receive Founding Account badge eligibility.",
   "publicPresence.home.finalCta.point.foundingBadge":
     "Earliest qualified beta accounts can receive Founding Account badge eligibility beside their marketplace account.",
   "publicPresence.home.finalCta.point.buyers":
-    "Collectors get clearer item, account, shipping, return, order processing, support, and shipping-credit details before checkout.",
+    "Collectors get item, account, shipping, return, support, and shipping-credit details before checkout.",
   "publicPresence.home.finalCta.point.sellers":
-    "Founding sellers get input on bulk listing, pricing, fulfillment, 0% beta fee-lock rules, and offer rebates.",
+    "Founding sellers get input on bulk listing, pricing, fulfillment, beta fee-lock rules, and offer rebates.",
   "publicPresence.home.finalCta.point.terms": "Public policies stay visible before marketplace transactions open.",
   "publicPresence.home.finalCta.title": "Help shape the founding seller wave",
   "publicPresence.home.heroHighlight.launch.label": "Buyer totals",
-  "publicPresence.home.heroHighlight.launch.value":
-    "Order processing, shipping credit, and order protection stay visible before payment",
+  "publicPresence.home.heroHighlight.launch.value": "Costs visible before payment",
   "publicPresence.home.heroHighlight.lowValue.label": "0% beta seller fees",
-  "publicPresence.home.heroHighlight.lowValue.value": "Beta listings keep 0% seller fees until sold while unchanged",
+  "publicPresence.home.heroHighlight.lowValue.value": "Locked while unchanged",
   "publicPresence.home.heroHighlight.workflow.label": "No seller processing fee",
-  "publicPresence.home.heroHighlight.workflow.value": "No separate 2.9% plus $0.30 payment-processing line for sellers",
+  "publicPresence.home.heroHighlight.workflow.value": "$0 separate line",
   "publicPresence.home.heroImageAlt":
     "Trading cards being sorted, priced, and prepared for shipment on an account workspace.",
   "publicPresence.home.howItWorks.badge": "Workflow preview",
@@ -486,9 +485,10 @@ export const publicPresenceEnglishTranslations = {
     "Answers about Chase Sets launch timing, beta seller fees, order processing, shipping, and safety.",
   "publicPresence.routes.faq.meta.title": "FAQ | Chase Sets",
   "publicPresence.routes.home.meta.description":
-    "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
-  "publicPresence.routes.home.meta.title": "Chase Sets Seller Beta Waitlist | Trading Card Marketplace",
-  "publicPresence.routes.home.waitlist.failed": "We could not join the waitlist. Please check the form and try again.",
+    "Request Chase Sets early access for the seller beta: 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
+  "publicPresence.routes.home.meta.title": "Chase Sets Seller Beta Early Access | Trading Card Marketplace",
+  "publicPresence.routes.home.waitlist.failed":
+    "We could not request early access. Please check the form and try again.",
   "publicPresence.routes.privacy.meta.description": "Read the Chase Sets prelaunch privacy policy.",
   "publicPresence.routes.privacy.meta.title": "Privacy | Chase Sets",
   "publicPresence.routes.refunds.meta.description": "Read the Chase Sets prelaunch refunds and returns policy.",
@@ -501,26 +501,26 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.badge": "Early access",
   "publicPresence.waitlist.compactDescription": "Prelaunch only. No buying, listing, or payment required.",
   "publicPresence.waitlist.compactTitle": "Request early access",
-  "publicPresence.waitlist.consent": "Send early access updates.",
+  "publicPresence.waitlist.consent": "Send me early access updates",
   "publicPresence.waitlist.consent.description":
     "Ask support@chasesets.com to remove you from prelaunch updates or waitlist records.",
-  "publicPresence.waitlist.afterSignup.join": "Join with your email, marketplace intent, and first priority.",
+  "publicPresence.waitlist.afterSignup.join": "Sign up with your email, marketplace intent, and first priority.",
   "publicPresence.waitlist.afterSignup.signal":
     "Tell us whether seller economics, bulk listing, buying, pricing, or shipping should open first.",
   "publicPresence.waitlist.afterSignup.title": "What you get after signup",
   "publicPresence.waitlist.afterSignup.updates": "Get launch updates and early access consideration as invites open.",
   "publicPresence.waitlist.description":
-    "Answer three quick questions so early invites reach the accounts most likely to use the beta.",
+    "Answer three quick questions so early access reaches the accounts most likely to use the seller beta.",
   "publicPresence.waitlist.email": "Email",
   "publicPresence.waitlist.email.placeholder": "you@example.com",
   "publicPresence.waitlist.error.title": "Waitlist signup failed",
-  "publicPresence.waitlist.expectations.title": "After you join",
+  "publicPresence.waitlist.expectations.title": "After you request access",
   "publicPresence.waitlist.formDescription":
     "Tell us your marketplace intent and first priority so invites reach the right accounts first.",
-  "publicPresence.waitlist.formTitle": "Request beta access",
+  "publicPresence.waitlist.formTitle": "Request early access",
   "publicPresence.waitlist.heroPromise":
-    "Prelaunch only: no live transactions yet. Join for email-consented early access updates; final checkout, return, fee, and payout terms will be published before payments open.",
-  "publicPresence.waitlist.heroTitle": "Join the waitlist",
+    "Prelaunch only: no live transactions yet. Request email-consented early access updates; final checkout, return, fee, and payout terms will be published before payments open.",
+  "publicPresence.waitlist.heroTitle": "Request early access",
   "publicPresence.waitlist.interest.bulkListing": "Bulk listing",
   "publicPresence.waitlist.interest.bulkListing.description": "Listing many cards without one-by-one setup.",
   "publicPresence.waitlist.interest.efficientShipping": "Efficient shipping",
@@ -548,7 +548,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.heroIntent.buy": "Buy",
   "publicPresence.waitlist.heroIntent.sell": "Sell",
   "publicPresence.waitlist.promise":
-    "One signup helps shape the first buyer and seller tools and reserves Founding Account badge eligibility for the earliest accounts.",
+    "One signup helps shape the first buyer and seller tools and reserves Founding Account badge eligibility for the earliest qualified accounts.",
   "publicPresence.waitlist.submit": "Request early access",
   "publicPresence.waitlist.success.description":
     "You are on the Chase Sets early access list. We will use your priorities to shape beta invites, Founding Account badge eligibility, and founders circle product feedback.",
