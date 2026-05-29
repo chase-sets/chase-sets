@@ -187,6 +187,29 @@ describe("change-scope", () => {
     expect(deployableTestScope.e2eTestsRequired).toBe(false);
     expect(deployableTestScope.e2eSuiteIds).toEqual([]);
 
+    const deployableTestSupportScope = classifyChanges({
+      baseDir,
+      changedFiles: ["deployables/marketplace/app/routes/test-support/http.ts"],
+      workspaces: [
+        {
+          ...workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web"),
+          packageJson: {
+            name: "@test/marketplace-web",
+            dependencies: {},
+            scripts: { test: "vitest run" },
+          },
+        },
+      ],
+    });
+
+    expect(deployableTestSupportScope.affectedWorkspaces).toEqual(["@test/marketplace-web"]);
+    expect(deployableTestSupportScope.runtimeAffectedWorkspaces).toEqual([]);
+    expect(deployableTestSupportScope.unitTestsRequired).toBe(true);
+    expect(deployableTestSupportScope.buildRequired).toBe(false);
+    expect(deployableTestSupportScope.dockerImageRequired).toBe(false);
+    expect(deployableTestSupportScope.e2eTestsRequired).toBe(false);
+    expect(deployableTestSupportScope.e2eSuiteIds).toEqual([]);
+
     const deployableRouteScope = classifyChanges({
       baseDir,
       changedFiles: ["deployables/marketplace/app/routes/account-listing.tsx"],
