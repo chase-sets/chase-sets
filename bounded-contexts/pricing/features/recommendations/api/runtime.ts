@@ -42,10 +42,14 @@ type PricingRecommendationRuntimeDeps = Readonly<{
 }>;
 
 export type PricingMarketplaceListingGateway = Readonly<{
-  previewListingTerms: (body: Readonly<{ priceAmount: string }>) => Promise<{ fee_quote_fingerprint: string }>;
+  previewListingTerms: (
+    body: Readonly<{ priceAmount: string }>,
+    options?: Readonly<{ signal?: AbortSignal }>,
+  ) => Promise<{ fee_quote_fingerprint: string }>;
   updateListingPrice: (
     listingId: string,
     body: Readonly<{ priceAmount: string; feeQuoteFingerprint?: string | null }>,
+    options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<unknown>;
   createListing: (
     body: Readonly<{
@@ -54,6 +58,7 @@ export type PricingMarketplaceListingGateway = Readonly<{
       quantityCap: number;
       listingIdOverride?: string;
     }>,
+    options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<{ id?: string; listing_id?: string }>;
   staleFeeQuoteFingerprint?: (error: unknown) => string | null;
 }>;
@@ -491,28 +496,39 @@ export function createPricingRecommendationRuntime(
             throw new Error("Recommendation is missing a listing target.");
           }
           const listingId = row.listing_id;
-          const quote = await runPricingJobSideEffect(jobContext, () =>
-            params.marketplaceListings.previewListingTerms({
-              priceAmount: price,
-            }),
+          const quote = await runPricingJobSideEffect(jobContext, (signal) =>
+            params.marketplaceListings.previewListingTerms(
+              {
+                priceAmount: price,
+              },
+              { signal },
+            ),
           );
           try {
-            await runPricingJobSideEffect(jobContext, () =>
-              params.marketplaceListings.updateListingPrice(listingId, {
-                priceAmount: price,
-                feeQuoteFingerprint: quote.fee_quote_fingerprint,
-              }),
+            await runPricingJobSideEffect(jobContext, (signal) =>
+              params.marketplaceListings.updateListingPrice(
+                listingId,
+                {
+                  priceAmount: price,
+                  feeQuoteFingerprint: quote.fee_quote_fingerprint,
+                },
+                { signal },
+              ),
             );
           } catch (error) {
             const retryFingerprint = params.marketplaceListings.staleFeeQuoteFingerprint?.(error);
             if (!retryFingerprint) {
               throw error;
             }
-            await runPricingJobSideEffect(jobContext, () =>
-              params.marketplaceListings.updateListingPrice(listingId, {
-                priceAmount: price,
-                feeQuoteFingerprint: retryFingerprint,
-              }),
+            await runPricingJobSideEffect(jobContext, (signal) =>
+              params.marketplaceListings.updateListingPrice(
+                listingId,
+                {
+                  priceAmount: price,
+                  feeQuoteFingerprint: retryFingerprint,
+                },
+                { signal },
+              ),
             );
           }
         } else {
@@ -524,13 +540,16 @@ export function createPricingRecommendationRuntime(
           }
           const inventoryItemId = row.inventory_item_id;
           const quantityCap = row.quantity_cap;
-          const created = await runPricingJobSideEffect(jobContext, () =>
-            params.marketplaceListings.createListing({
-              inventoryItemId,
-              priceAmount: price,
-              quantityCap,
-              listingIdOverride: listingIdForPricingRecommendation(row.recommendation_id),
-            }),
+          const created = await runPricingJobSideEffect(jobContext, (signal) =>
+            params.marketplaceListings.createListing(
+              {
+                inventoryItemId,
+                priceAmount: price,
+                quantityCap,
+                listingIdOverride: listingIdForPricingRecommendation(row.recommendation_id),
+              },
+              { signal },
+            ),
           );
           appliedListingId = created.id ?? created.listing_id ?? row.inventory_item_id;
         }
@@ -800,9 +819,9 @@ function pricingJobProgress(
 
 async function runPricingJobSideEffect<T>(
   jobContext: DurableJobExecutionContext<PricingRecommendationJobProgress, PricingRecommendationJobResult> | undefined,
-  work: () => Promise<T>,
+  work: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  return runDurableJobSideEffect(jobContext, () => work(), {
+  return runDurableJobSideEffect(jobContext, work, {
     renewIntervalMs: 5_000,
     claimLostMessage: "Pricing recommendation job claim was lost while applying a side effect.",
   });

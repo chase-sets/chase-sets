@@ -95,8 +95,10 @@ describe("inventory item runtime", () => {
         status: "in_progress" | "completed";
         result_item_id: string | null;
         result_version: number | null;
+        created_at: string;
       }
     >();
+    let failNextIdempotencyComplete = false;
     const inventoryRow = {
       item_id: "inv_1",
       account_id: "acc_seller",
@@ -128,6 +130,7 @@ describe("inventory item runtime", () => {
             status: "in_progress" as const,
             result_item_id: null,
             result_version: null,
+            created_at: new Date().toISOString(),
           };
           ledger.set(key, row);
           return { rows: [row], rowCount: 1 };
@@ -135,6 +138,10 @@ describe("inventory item runtime", () => {
         if (sql.includes("UPDATE inventory_item_adjustment_idempotency")) {
           const key = String(values[0]);
           const existing = ledger.get(key);
+          if (failNextIdempotencyComplete) {
+            failNextIdempotencyComplete = false;
+            throw new Error("ledger complete failed");
+          }
           if (existing) {
             ledger.set(key, {
               ...existing,
@@ -204,6 +211,31 @@ describe("inventory item runtime", () => {
         context,
       ),
     ).resolves.toEqual({ itemId: "inv_1", version: 2 });
+    failNextIdempotencyComplete = true;
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: 2,
+          reason: "Import quantity adjustment",
+          idempotencyKey: "inventory-import-row:imr_2:adjustment",
+        },
+        context,
+      ),
+    ).rejects.toThrow("ledger complete failed");
+    await expect(
+      services.adjustItem(
+        {
+          accountId: "acc_seller",
+          itemId: "inv_1",
+          quantityDelta: 2,
+          reason: "Import quantity adjustment",
+          idempotencyKey: "inventory-import-row:imr_2:adjustment",
+        },
+        context,
+      ),
+    ).resolves.toEqual({ itemId: "inv_1", version: 3 });
     await expect(
       services.adjustItem(
         {
@@ -229,7 +261,7 @@ describe("inventory item runtime", () => {
       ),
     ).rejects.toThrow("idempotency key was reused");
 
-    expect(streams.get("inventory.item-inv_1")).toHaveLength(2);
+    expect(streams.get("inventory.item-inv_1")).toHaveLength(3);
   });
 
   it("ensures default listing stock without requiring manual inventory setup", async () => {

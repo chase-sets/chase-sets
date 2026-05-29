@@ -484,6 +484,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
   async function reconcileProviderPayout(
     params: Readonly<{ providerPayoutReference: string }>,
     context: EventStoreContext,
+    options: Readonly<{ signal?: AbortSignal }> = {},
   ) {
     const payout = await getPayoutByProviderPayoutReference(deps.db, params.providerPayoutReference);
     if (!payout) {
@@ -500,10 +501,13 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       throw new SettlementDomainError("Payout setup must include a provider account for reconciliation.");
     }
 
-    const providerPayout = await deps.moneyMovementGateway.retrieveConnectedAccountPayout({
-      providerReference: readiness.provider_reference,
-      providerPayoutReference: params.providerPayoutReference,
-    });
+    const providerPayout = await deps.moneyMovementGateway.retrieveConnectedAccountPayout(
+      {
+        providerReference: readiness.provider_reference,
+        providerPayoutReference: params.providerPayoutReference,
+      },
+      options,
+    );
 
     if (["paid", "succeeded", "completed"].includes(providerPayout.providerStatus)) {
       const result = await commandHandler({
@@ -588,7 +592,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         completed += 1;
         await progressCheckpoint?.checkpoint(
           payoutReconciliationJobProgress("processing", completed, payouts.length, "Skipped payout."),
-          { checked: completed, reconciled, ignored, skipped, errors },
+          compactPayoutReconciliationJobResult({ checked: completed, reconciled, ignored, skipped }),
         );
         continue;
       }
@@ -597,7 +601,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         const providerPayoutReference = payout.provider_payout_reference;
         const result = await runDurableJobSideEffect(
           jobContext,
-          () => reconcileProviderPayout({ providerPayoutReference }, context),
+          (signal) => reconcileProviderPayout({ providerPayoutReference }, context, { signal }),
           {
             renewIntervalMs: 5_000,
             claimLostMessage: "Payout reconciliation job claim was lost while reconciling a payout.",
@@ -609,6 +613,10 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
           reconciled += 1;
         }
       } catch (error) {
+        if (isPayoutReconciliationJobHandoff(error, jobContext)) {
+          throw error;
+        }
+
         errors.push({
           payoutId: payout.payout_id,
           message: error instanceof Error ? error.message : "Reconciliation failed.",
@@ -617,7 +625,7 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       completed += 1;
       await progressCheckpoint?.checkpoint(
         payoutReconciliationJobProgress("processing", completed, payouts.length, "Reconciled payout."),
-        { checked: completed, reconciled, ignored, skipped, errors },
+        compactPayoutReconciliationJobResult({ checked: completed, reconciled, ignored, skipped }),
       );
     }
 
@@ -1255,6 +1263,15 @@ function payoutReconciliationJobProgress(
     completed,
     total,
     message,
+  };
+}
+
+function compactPayoutReconciliationJobResult(
+  input: Readonly<{ checked: number; reconciled: number; ignored: number; skipped: number }>,
+): PayoutReconciliationJobResult {
+  return {
+    ...input,
+    errors: [],
   };
 }
 

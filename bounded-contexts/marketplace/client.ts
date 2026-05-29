@@ -68,6 +68,13 @@ function resolveHeaders(headers?: HeadersInit | (() => HeadersInit)) {
   return typeof headers === "function" ? headers() : headers;
 }
 
+function headersToRecord(headers: HeadersInit | undefined): Record<string, string> {
+  if (!headers) {
+    return {};
+  }
+  return Object.fromEntries(new Headers(headers).entries());
+}
+
 function queryFromString(query: string) {
   const params = new URLSearchParams(query);
   return Object.fromEntries(params.entries());
@@ -184,11 +191,16 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async createListing(body: Record<string, unknown>) {
+    async createListing(body: Record<string, unknown>, options: Readonly<{ signal?: AbortSignal }> = {}) {
       return parseJsonResponse(
-        await client.account.listings.$post({
-          json: body,
-          header: headers,
+        await configuredFetch(joinApiPath(baseUrl, "/account/listings"), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(body),
+          signal: options.signal,
         }),
       );
     },
@@ -210,20 +222,36 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async previewListingTerms(body: Record<string, unknown>): Promise<MarketplaceListingTermsPreview> {
+    async previewListingTerms(
+      body: Record<string, unknown>,
+      options: Readonly<{ signal?: AbortSignal }> = {},
+    ): Promise<MarketplaceListingTermsPreview> {
       return parseJsonResponse(
-        await client.account.listings.preview.$post({
-          json: body,
-          header: headers,
+        await configuredFetch(joinApiPath(baseUrl, "/account/listings/preview"), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(body),
+          signal: options.signal,
         }),
       );
     },
-    async updateListingPrice(id: string, body: Record<string, unknown>) {
+    async updateListingPrice(
+      id: string,
+      body: Record<string, unknown>,
+      options: Readonly<{ signal?: AbortSignal }> = {},
+    ) {
       return parseJsonResponse(
-        await client.account.listings[":id"].price.$post({
-          param: { id },
-          json: body,
-          header: headers,
+        await configuredFetch(joinApiPath(baseUrl, `/account/listings/${encodeURIComponent(id)}/price`), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(body),
+          signal: options.signal,
         }),
       );
     },

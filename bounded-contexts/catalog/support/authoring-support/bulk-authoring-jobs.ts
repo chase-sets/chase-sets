@@ -75,9 +75,13 @@ export type CatalogAuthoringBulkJobServices = Readonly<{
     operation?: unknown;
     context: EventStoreContext;
   }) => Promise<CatalogAuthoringBulkJob>;
-  get: (jobId: string) => Promise<CatalogAuthoringBulkJob | null>;
-  listActive: () => Promise<readonly CatalogAuthoringBulkJob[]>;
-  listEvents: (jobId: string, afterSequence?: number) => Promise<readonly CatalogAuthoringBulkJobEvent[]>;
+  get: (jobId: string, context?: EventStoreContext | null) => Promise<CatalogAuthoringBulkJob | null>;
+  listActive: (context?: EventStoreContext | null) => Promise<readonly CatalogAuthoringBulkJob[]>;
+  listEvents: (
+    jobId: string,
+    afterSequence?: number,
+    context?: EventStoreContext | null,
+  ) => Promise<readonly CatalogAuthoringBulkJobEvent[]>;
   waitForEvents: (jobId: string, signal?: AbortSignal) => Promise<void>;
   pruneRetention: (input?: { completedBefore?: string | Date; limit?: number }) => Promise<number>;
   processNext: (input: {
@@ -121,12 +125,24 @@ export function createCatalogAuthoringBulkJobServices(db: PgQueryable): CatalogA
 
       return toCatalogAuthoringBulkJob(job);
     },
-    get: async (jobId) => {
+    get: async (jobId, context) => {
       const job = await store.get(jobId);
+      if (!job || !catalogAuthoringJobMatchesContext(job, context)) {
+        return null;
+      }
       return job ? toCatalogAuthoringBulkJob(job) : null;
     },
-    listActive: async () => (await store.listActive()).map(toCatalogAuthoringBulkJob),
-    listEvents: (jobId, afterSequence) => store.listEvents(jobId, afterSequence),
+    listActive: async (context) =>
+      (await store.listActive())
+        .filter((job) => catalogAuthoringJobMatchesContext(job, context))
+        .map(toCatalogAuthoringBulkJob),
+    listEvents: async (jobId, afterSequence, context) => {
+      const job = await store.get(jobId);
+      if (!job || !catalogAuthoringJobMatchesContext(job, context)) {
+        return [];
+      }
+      return store.listEvents(jobId, afterSequence);
+    },
     waitForEvents: (jobId, signal) => store.waitForEvents({ jobId, signal }),
     pruneRetention: (input = {}) =>
       store.pruneTerminalJobs({
@@ -233,6 +249,21 @@ export function toCatalogAuthoringBulkJob(
     completedAt: job.completedAt,
     updatedAt: job.updatedAt,
   };
+}
+
+function catalogAuthoringJobMatchesContext(
+  job: Readonly<{ eventContext: EventStoreContext | null }>,
+  context?: EventStoreContext | null,
+) {
+  if (!context) {
+    return true;
+  }
+
+  return (
+    job.eventContext?.tenantId === context.tenantId &&
+    job.eventContext?.audit?.forAccountId === context.audit?.forAccountId &&
+    job.eventContext?.audit?.performedByUserId === context.audit?.performedByUserId
+  );
 }
 
 async function executeCatalogAuthoringBulkJob(

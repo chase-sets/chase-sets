@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { EventStore } from "@chase-sets/event-core/event-store";
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type {
@@ -684,5 +684,65 @@ describe("settlement payout runtime", () => {
           (event.payload as { kind?: string }).kind === "payout-reversal",
       ),
     ).toHaveLength(1);
+  });
+
+  it("hands off reconciliation immediately when the durable job claim is lost", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const payoutRow = {
+      payout_id: "pay_handoff",
+      account_id: "acc_seller",
+      amount: "12.50",
+      currency_code: "usd",
+      destination_reference: null,
+      note: null,
+      status: "in-transit",
+      provider_transfer_reference: "tr_handoff",
+      provider_payout_reference: "po_handoff",
+      provider_status: "pending",
+      provider_failure_code: null,
+      provider_failure_message: null,
+      requested_at: "2026-04-02T00:00:00.000Z",
+      updated_at: "2026-04-02T00:00:00.000Z",
+      sent_at: "2026-04-02T00:00:00.000Z",
+      completed_at: null,
+      failed_at: null,
+      failure_reason: null,
+      last_provider_event_at: null,
+      last_reconciled_at: null,
+      retry_count: 0,
+      next_retry_at: null,
+      retry_reason: null,
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("settlement_payout_pages")) {
+          return { rows: [payoutRow], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const gateway = createFakeMoneyMovementGateway();
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets: {} as never,
+      payoutReadiness: createPayoutReadiness("ready"),
+      moneyMovementGateway: gateway,
+    });
+    const jobContext = {
+      signal: new AbortController().signal,
+      throwIfCancelled: vi.fn(),
+      renew: vi.fn(async () => {
+        throw new Error("Payout reconciliation job claim was lost.");
+      }),
+      checkpointProgress: vi.fn(),
+    };
+
+    await expect(
+      payouts.reconcilePayoutsNeedingAttention({ accountId: "acc_seller", limit: 1 }, context, jobContext),
+    ).rejects.toThrow("claim was lost");
+    expect(gateway.usedIdempotencyKeys).toEqual([]);
+    expect(jobContext.checkpointProgress).not.toHaveBeenCalled();
   });
 });

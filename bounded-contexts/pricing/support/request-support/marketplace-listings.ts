@@ -37,9 +37,9 @@ export function createPricingMarketplaceListingGateway(request: Request): Pricin
   const marketplaceApi = createMarketplaceRequestApiClient(request);
 
   return {
-    previewListingTerms: (body) => marketplaceApi.previewListingTerms(body),
-    updateListingPrice: (listingId, body) => marketplaceApi.updateListingPrice(listingId, body),
-    createListing: async (body) => createdListingResponse(await marketplaceApi.createListing(body)),
+    previewListingTerms: (body, options) => marketplaceApi.previewListingTerms(body, options),
+    updateListingPrice: (listingId, body, options) => marketplaceApi.updateListingPrice(listingId, body, options),
+    createListing: async (body, options) => createdListingResponse(await marketplaceApi.createListing(body, options)),
     staleFeeQuoteFingerprint: (error) =>
       error instanceof MarketplaceApiError ? readCurrentQuoteFingerprint(error.body) : null,
   };
