@@ -17,6 +17,8 @@ describe("platform control plane", () => {
     expect(statements[0]).toContain("FROM platform_control_leases");
     expect(statements[0]).toContain("FROM platform_runner_statuses");
     expect(statements[0]).toContain("FROM platform_projection_status_snapshots");
+    expect(statements[0]).toContain("max(seed.fencing_token)");
+    expect(statements[0]).toContain("GROUP BY seed.lease_name");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_realtime_stream_leases");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_realtime_stream_counters");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_scheduled_runners");

@@ -81,7 +81,7 @@ INSERT INTO platform_control_lease_fencing_tokens (
   fencing_token,
   updated_at
 )
-SELECT seed.lease_name, seed.fencing_token, now()
+SELECT seed.lease_name, max(seed.fencing_token), now()
 FROM (
   SELECT runner_kind || ':' || runner_name AS lease_name, fencing_token
   FROM platform_runner_statuses
@@ -91,6 +91,7 @@ FROM (
   FROM platform_projection_status_snapshots
   WHERE fencing_token IS NOT NULL
 ) AS seed
+GROUP BY seed.lease_name
 ON CONFLICT (lease_name)
 DO UPDATE SET
   fencing_token = GREATEST(
