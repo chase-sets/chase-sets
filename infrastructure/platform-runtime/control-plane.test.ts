@@ -315,7 +315,7 @@ describe("platform control plane", () => {
       },
       query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
-        return { rows: [], rowCount: sql.includes("UPDATE platform_scheduled_runners AS runner") ? 1 : 0 };
+        return { rows: [], rowCount: sql.includes("UPDATE platform_scheduled_runners") ? 1 : 0 };
       },
     });
 
@@ -328,9 +328,11 @@ describe("platform control plane", () => {
     await controlPlane.recordScheduledRunnerCompleted({ runnerName: "payments.reconciliation" });
 
     expect(calls[0].sql).toContain("INSERT INTO platform_scheduled_runners");
-    expect(calls[0].sql).toContain("next_run_at <= now()");
-    expect(calls[0].sql).toContain("next_run_at = now() +");
+    expect(calls[0].sql).toContain("ON CONFLICT (runner_name) DO NOTHING");
     expect(calls[0].params).toEqual(["payments.reconciliation", 60_000]);
-    expect(calls[1].sql).toContain("last_completed_at = now()");
+    expect(calls[1].sql).toContain("next_run_at <= now()");
+    expect(calls[1].sql).toContain("next_run_at = now() +");
+    expect(calls[1].params).toEqual(["payments.reconciliation", 60_000]);
+    expect(calls[2].sql).toContain("last_completed_at = now()");
   });
 });
