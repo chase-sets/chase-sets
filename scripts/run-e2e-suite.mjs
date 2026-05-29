@@ -6,26 +6,43 @@ import { buildPackageManagerInvocation, runCommand } from "./lib/process.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 
-function parseArgs(argv) {
+export function parseSuiteArgs(argv) {
   const args = argv[0] === "--" ? argv.slice(1) : argv;
-  const suiteId = args[0];
-  if (!suiteId) {
+  const suiteIds = args
+    .flatMap((arg) => arg.split(/[,\s]+/))
+    .map((suiteId) => suiteId.trim())
+    .filter(Boolean);
+  if (suiteIds.length === 0) {
     throw new Error(
-      `Usage: node ./scripts/run-e2e-suite.mjs <suite-id>\nKnown suites: ${e2eSuites.map((suite) => suite.id).join(", ")}`,
+      `Usage: node ./scripts/run-e2e-suite.mjs <suite-id>[,<suite-id>...]\nKnown suites: ${e2eSuites.map((suite) => suite.id).join(", ")}`,
     );
   }
 
-  const suite = e2eSuiteById(suiteId);
-  if (!suite) {
-    throw new Error(`Unknown E2E suite '${suiteId}'. Known suites: ${e2eSuites.map((entry) => entry.id).join(", ")}`);
+  const suites = [];
+  for (const suiteId of suiteIds) {
+    const suite = e2eSuiteById(suiteId);
+    if (!suite) {
+      throw new Error(`Unknown E2E suite '${suiteId}'. Known suites: ${e2eSuites.map((entry) => entry.id).join(", ")}`);
+    }
+    suites.push(suite);
   }
 
-  return suite;
+  return suites;
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export function buildSuiteGrep(suites) {
+  return suites.map((suite) => escapeRegExp(suite.grep)).join("|");
 }
 
 async function main() {
-  const suite = parseArgs(process.argv.slice(2));
-  const invocation = buildPackageManagerInvocation(["exec", "playwright", "test", "--grep", suite.grep]);
+  const suites = parseSuiteArgs(process.argv.slice(2));
+  const grep = buildSuiteGrep(suites);
+  console.log(`Running E2E suites: ${suites.map((suite) => suite.id).join(", ")}`);
+  const invocation = buildPackageManagerInvocation(["exec", "playwright", "test", "--grep", grep]);
   await runCommand(invocation.command, invocation.args, {
     cwd: rootDir,
     stdio: "inherit",

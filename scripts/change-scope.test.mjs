@@ -172,19 +172,23 @@ describe("change-scope", () => {
     expect(routeScope.e2eTestsRequired).toBe(true);
     expect(routeScope.e2eSuiteIds).toEqual(["marketplace_account", "marketplace_seller"]);
 
-    const deployableScope = classifyChanges({
+    const deployableTestScope = classifyChanges({
       baseDir,
       changedFiles: ["deployables/marketplace/app/routes/account-listing.test.tsx"],
       workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
     });
 
-    expect(deployableScope.e2eTestsRequired).toBe(true);
-    expect(deployableScope.e2eSuiteIds).toEqual([
-      "marketplace_browse",
-      "marketplace_account",
-      "marketplace_checkout",
-      "marketplace_seller",
-    ]);
+    expect(deployableTestScope.e2eTestsRequired).toBe(false);
+    expect(deployableTestScope.e2eSuiteIds).toEqual([]);
+
+    const deployableRouteScope = classifyChanges({
+      baseDir,
+      changedFiles: ["deployables/marketplace/app/routes/account-listing.tsx"],
+      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+    });
+
+    expect(deployableRouteScope.e2eTestsRequired).toBe(true);
+    expect(deployableRouteScope.e2eSuiteIds).toEqual(["marketplace_seller"]);
   });
 
   it("routes root browser runtime changes to marketplace E2E suites", () => {

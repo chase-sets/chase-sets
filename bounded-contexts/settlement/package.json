@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "typecheck": "tsc -p ./tests/tsconfig.json --noEmit"
+    "typecheck": "tsc -p ./tests/tsconfig.json --noEmit",
+    "test": "vitest run --config ./tests/vitest.config.mjs"
   },
   "exports": {
     ".": "./index.ts",
@@ -33,5 +34,8 @@
     "@chase-sets/provider-webhook-inbox": "workspace:*",
     "@chase-sets/transactional-email-outbox": "workspace:*",
     "hono": "^4.12.12"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
   }
 }

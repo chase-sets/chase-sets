@@ -11,7 +11,7 @@ import {
   findAccountCapabilityLanguageViolations,
   isAccountCapabilityLanguageGuardedFile,
 } from "./account-capability-language.mjs";
-import { repoRoot, workspaceRoots } from "../lib/repo.mjs";
+import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
 const roots = workspaceRoots;
@@ -867,6 +867,10 @@ function isTestFile(relativeFile) {
   );
 }
 
+function isRunnableWorkspaceTestFile(relativeFile) {
+  return /\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(relativeFile);
+}
+
 function isWebDeployableFile(relativeFile) {
   return /deployables\/(admin-web|marketplace)\//.test(relativeFile);
 }
@@ -1010,6 +1014,30 @@ export async function runStructureCheck(options = {}) {
       specifier === "@chase-sets/design-system" ||
       specifier.startsWith("@chase-sets/design-system/")
     );
+  }
+
+  async function validateWorkspaceTestScriptCoverage() {
+    for (const workspace of listWorkspacePackages({ repoRoot })) {
+      const { files } = await walk(workspace.dir);
+      const testFiles = files.map(normalizeRelative).filter(isRunnableWorkspaceTestFile);
+      if (testFiles.length === 0) {
+        continue;
+      }
+
+      const scripts = workspace.packageJson.scripts ?? {};
+      const hasRunnableTestScript =
+        typeof scripts.test === "string" ||
+        typeof scripts["test:unit"] === "string" ||
+        typeof scripts["test:db"] === "string";
+      if (hasRunnableTestScript) {
+        continue;
+      }
+
+      addPathViolation(
+        normalizeRelative(workspace.packageJsonPath),
+        `workspace has ${testFiles.length} test file(s) but no runnable test script (expected test, test:unit, or test:db)`,
+      );
+    }
   }
 
   async function validateContextManifest(context) {
@@ -2126,6 +2154,8 @@ export async function runStructureCheck(options = {}) {
       }
     }
   }
+
+  await validateWorkspaceTestScriptCoverage();
 
   await runManifestValidation({
     contextManifests,

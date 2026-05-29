@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "vitest run --config ./tests/vitest.config.mjs"
+  },
   "exports": {
     ".": "./index.ts",
     "./context": "./context.json",
@@ -27,5 +30,8 @@
     "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
     "hono": "^4.12.12"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.4"
   }
 }
