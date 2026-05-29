@@ -160,7 +160,7 @@ export function e2eSuiteById(suiteId) {
 function isTestOnlyOrDocumentationFile(filePath) {
   return (
     /\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(filePath) ||
-    /(?:^|\/)(?:__tests__|tests)\//.test(filePath) ||
+    /(?:^|\/)(?:__tests__|tests|test-support)\//.test(filePath) ||
     /\.(?:md|mdx)$/.test(filePath)
   );
 }
