@@ -32,7 +32,7 @@ const message: NotificationMessage = {
 
 describe("twilio messaging adapter", () => {
   it("sends RCS deliveries through Twilio Programmable Messaging", async () => {
-    const sendRequest = vi.fn(async () => ({
+    const sendRequest = vi.fn(async (_request: { url: string; body: URLSearchParams }) => ({
       sid: "SM123",
       status: "queued",
     }));

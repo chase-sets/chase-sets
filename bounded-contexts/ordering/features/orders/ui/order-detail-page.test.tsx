@@ -50,7 +50,7 @@ describe("ordering order detail page", () => {
         role="buyer"
         backHref="/account/purchases"
         paymentHref="/account/payments/new?orderIds=ord_1"
-        order={order}
+        order={order as never}
         supplementarySectionTitle="Review"
         supplementarySection={
           <Card>

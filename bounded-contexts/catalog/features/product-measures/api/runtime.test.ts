@@ -44,7 +44,7 @@ function createMeasureDb(item: CatalogItemRow) {
   const profiles: ProfileRow[] = [];
   const resolved = new Map<string, ResolvedMeasureRow>();
 
-  const db: PgQueryable = {
+  const db = {
     query: vi.fn(async <T>(sql: string, params?: readonly unknown[]) => {
       if (sql.includes("INSERT INTO catalog_product_measure_profiles")) {
         profiles.push({
@@ -104,7 +104,7 @@ function createMeasureDb(item: CatalogItemRow) {
 
       return { rows: [] as T[] };
     }),
-  };
+  } as unknown as PgQueryable;
 
   return { db, resolved };
 }
@@ -184,7 +184,7 @@ describe("product measure runtime", () => {
 
     await services.resolveCatalogItemMeasures("cat_1", {
       tenantId: "tnt_test" as never,
-      audit: { performedByUserId: "usr_test" as never },
+      audit: { performedByUserId: "usr_test" as never, forAccountId: "acc_test" as never },
     });
 
     expect(resolved.size).toBe(0);

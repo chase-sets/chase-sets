@@ -76,6 +76,7 @@ function percent(hit, found) {
 export function parseCoverageSummaryArgs(argv) {
   const args = argv[0] === "--" ? argv.slice(1) : argv;
   const options = {
+    lcovFiles: [],
     outputDir: defaultOutputDir,
     statuses: [],
   };
@@ -83,6 +84,11 @@ export function parseCoverageSummaryArgs(argv) {
   for (const arg of args) {
     if (arg.startsWith("--output-dir=")) {
       options.outputDir = arg.slice("--output-dir=".length);
+      continue;
+    }
+
+    if (arg.startsWith("--lcov-file=")) {
+      options.lcovFiles.push(arg.slice("--lcov-file=".length));
       continue;
     }
 
@@ -132,19 +138,69 @@ export function collectLcovFiles(rootDir = repoRoot) {
     .sort();
 }
 
-export function writeCoverageSummary({ rootDir = repoRoot, outputDir = defaultOutputDir, statuses = [] } = {}) {
-  const lcovFiles = collectLcovFiles(rootDir);
+function parseLcovRecords(content) {
+  return content
+    .split("end_of_record")
+    .map((record) => record.trim())
+    .filter(Boolean)
+    .map((record) => `${record}\nend_of_record`);
+}
+
+function recordSourceFile(record) {
+  return record
+    .split(/\r?\n/)
+    .find((line) => line.startsWith("SF:"))
+    ?.slice("SF:".length);
+}
+
+function recordScore(record) {
+  const totals = parseLcovTotals(record);
+  return totals.linesHit + totals.functionsHit + totals.branchesHit;
+}
+
+export function mergeLcovContents(lcovContents) {
+  const recordsBySourceFile = new Map();
+
+  for (const content of lcovContents) {
+    for (const record of parseLcovRecords(content)) {
+      const sourceFile = recordSourceFile(record);
+      if (!sourceFile) {
+        continue;
+      }
+
+      const existing = recordsBySourceFile.get(sourceFile);
+      if (!existing || recordScore(record) >= recordScore(existing)) {
+        recordsBySourceFile.set(sourceFile, record);
+      }
+    }
+  }
+
+  return [...recordsBySourceFile.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, record]) => record)
+    .join("\n");
+}
+
+export function writeCoverageSummary({
+  rootDir = repoRoot,
+  outputDir = defaultOutputDir,
+  statuses = [],
+  lcovFiles,
+} = {}) {
+  const selectedLcovFiles = (lcovFiles?.length ? lcovFiles : collectLcovFiles(rootDir))
+    .map((filePath) => (path.isAbsolute(filePath) ? filePath : path.join(rootDir, filePath)))
+    .filter((filePath) => existsSync(filePath))
+    .sort();
   const outputPath = path.join(rootDir, outputDir);
   mkdirSync(outputPath, { recursive: true });
 
-  const mergedLcov = lcovFiles
-    .map((filePath) => readFileSync(filePath, "utf8").trim())
-    .filter(Boolean)
-    .join("\n");
+  const mergedLcov = mergeLcovContents(
+    selectedLcovFiles.map((filePath) => readFileSync(filePath, "utf8").trim()).filter(Boolean),
+  );
   writeFileSync(path.join(outputPath, "lcov.info"), `${mergedLcov}\n`, "utf8");
 
   const totals = parseLcovTotals(mergedLcov);
-  const summary = buildCoverageSummary({ lcovFiles, totals, statuses });
+  const summary = buildCoverageSummary({ lcovFiles: selectedLcovFiles, totals, statuses });
   writeFileSync(path.join(outputPath, "summary.md"), summary, "utf8");
 
   if (process.env.GITHUB_STEP_SUMMARY) {
@@ -152,7 +208,7 @@ export function writeCoverageSummary({ rootDir = repoRoot, outputDir = defaultOu
   }
 
   console.log(summary);
-  return { lcovFiles, totals, summary };
+  return { lcovFiles: selectedLcovFiles, totals, summary };
 }
 
 function main() {

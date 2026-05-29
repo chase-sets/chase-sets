@@ -86,6 +86,7 @@ function queryStub(
 const proposedRecommendation = {
   recommendation_id: "rec_active",
   catalog_catalog_item_id: "cat_1",
+  catalog_item_language_code: "en",
   seller_account_id: "acc_1",
   action_type: "active-listing-price-update",
   status: "proposed",

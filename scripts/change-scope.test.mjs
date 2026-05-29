@@ -1,6 +1,6 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { classifyChanges } from "./change-scope.mjs";
+import { classifyChanges, toOutputMap } from "./change-scope.mjs";
 
 function workspace(baseDir, root, dirName, name, dependencies = {}, chaseSets) {
   return {
@@ -205,6 +205,20 @@ describe("change-scope", () => {
       "marketplace_account",
       "marketplace_checkout",
       "marketplace_seller",
+    ]);
+  });
+
+  it("emits suite batches for E2E matrix fanout", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["package.json"],
+      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+    });
+
+    expect(JSON.parse(toOutputMap(scope).e2e_suite_batches_json)).toEqual([
+      "marketplace_browse,marketplace_account",
+      "marketplace_checkout,marketplace_seller",
     ]);
   });
 

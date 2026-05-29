@@ -198,10 +198,10 @@ describe("realtime SSE routes", () => {
   });
 
   it("reconnects from Last-Event-ID and streams the next retained patch", async () => {
-    const queryParams: unknown[][] = [];
+    const queryParams: (readonly unknown[])[] = [];
     const sentMessages: unknown[] = [];
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         if (params) {
           queryParams.push(params);
         }
@@ -319,9 +319,9 @@ describe("realtime SSE routes", () => {
   });
 
   it("treats malformed Last-Event-ID as an empty cursor", async () => {
-    const queryParams: unknown[][] = [];
+    const queryParams: (readonly unknown[])[] = [];
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         if (params) {
           queryParams.push(params);
         }
@@ -373,9 +373,9 @@ describe("realtime SSE routes", () => {
   });
 
   it("applies per-topic-family replay budgets", async () => {
-    const queryParams: unknown[][] = [];
+    const queryParams: (readonly unknown[])[] = [];
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         if (params) {
           queryParams.push(params);
         }
@@ -697,9 +697,9 @@ describe("realtime outbox", () => {
   });
 
   it("maintains outbox partition metadata windows", async () => {
-    const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return { rows: [] };
       },
@@ -751,9 +751,9 @@ describe("realtime outbox", () => {
   });
 
   it("records idempotent projection patches with a retention cutoff", async () => {
-    const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         if (sql.includes("INSERT INTO realtime_projection_outbox")) {
           return { rows: [{ outbox_id: "42" }] };
@@ -975,7 +975,7 @@ describe("realtime outbox", () => {
 
   it("replays retained patches in per-context outbox order for matching topics", async () => {
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         if (sql.includes("DELETE FROM realtime_projection_outbox")) {
           return { rows: [] };
         }
@@ -1155,7 +1155,7 @@ describe("realtime outbox", () => {
       },
     }));
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         if (sql.includes("DELETE FROM realtime_projection_outbox")) {
           return { rows: [] };
         }
@@ -1443,7 +1443,7 @@ describe("realtime outbox", () => {
       },
     };
     const limiter = createPostgresRealtimeStreamLimiter({
-      pool,
+      pool: pool as never,
       leaseTtlMs: 30_000,
       renewIntervalMs: 60_000,
     });
@@ -1508,9 +1508,9 @@ describe("realtime outbox", () => {
   });
 
   it("prunes expired patches behind an advisory lock", async () => {
-    const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return { rows: [{ deleted_count: 3 }] };
       },

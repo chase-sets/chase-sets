@@ -15,6 +15,7 @@ const listing: MarketplaceListingListItem = {
   item_subtitle: null,
   selected_options: [],
   product_summary: "Condition: Raw",
+  product_measure_snapshot: null,
   graded_card: null,
   storage_location_name: "Main",
   ship_from_code: "STL",
@@ -59,6 +60,7 @@ describe("MarketplaceListingListPage", () => {
         feeLockReport={{ items: [] }}
         listingAvailability={unavailable}
         inventoryItems={[]}
+        hasListingStockLocation={true}
       />,
     );
 

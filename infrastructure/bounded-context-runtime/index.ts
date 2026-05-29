@@ -378,7 +378,7 @@ async function saveSubscriptionCheckpoint(
       fencingToken,
     ],
   );
-  if (result.rowCount !== null && result.rowCount < 1) {
+  if (result.rowCount != null && result.rowCount < 1) {
     throw new Error(
       `Subscription checkpoint '${createCheckpointKey(subscription)}' rejected stale lease fencing token.`,
     );
@@ -498,7 +498,7 @@ async function claimSubscriptionApplication(
        )`,
     [projectionKey, eventId, context?.ownerId ?? null, fencingToken],
   );
-  if (updateResult.rowCount !== null && updateResult.rowCount < 1) {
+  if (updateResult.rowCount != null && updateResult.rowCount < 1) {
     throw new Error(`Projection application '${projectionKey}:${eventId}' rejected stale lease fencing token.`);
   }
 
@@ -530,7 +530,7 @@ async function recordSubscriptionApplicationCompleted(
       fencingToken,
     ],
   );
-  if (result.rowCount !== null && result.rowCount < 1) {
+  if (result.rowCount != null && result.rowCount < 1) {
     throw new Error(`Projection application '${projectionKey}:${eventId}' was not claimed before completion.`);
   }
 }

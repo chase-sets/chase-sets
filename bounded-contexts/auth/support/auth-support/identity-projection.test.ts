@@ -14,7 +14,7 @@ const activeMembershipRow = Object.freeze({
 
 describe("auth identity membership reads", () => {
   it("resolves account membership from the user membership mirror used during sign-in", async () => {
-    const query = vi.fn(async () => ({ rows: [activeMembershipRow] }));
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [activeMembershipRow] }));
     const db = { query } as unknown as PgQueryable;
 
     await expect(
@@ -28,7 +28,7 @@ describe("auth identity membership reads", () => {
 
   it("falls back to the membership mirror for deployments that have not rebuilt user membership rows", async () => {
     const query = vi
-      .fn()
+      .fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] as (typeof activeMembershipRow)[] }))
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [activeMembershipRow] });
     const db = { query } as unknown as PgQueryable;

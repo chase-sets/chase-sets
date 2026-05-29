@@ -94,7 +94,7 @@ function marketplaceEvent(type: string, data: Record<string, unknown>): Transpor
     streamVersion: 1 as never,
     globalPosition: "1" as never,
     tenantId: "tnt_1" as never,
-    data,
+    data: data as never,
     metadata: {},
     audit: {
       performedByUserId: "usr_1" as never,
@@ -111,7 +111,7 @@ function marketplaceEvent(type: string, data: Record<string, unknown>): Transpor
 describe("Product Alert notification projector", () => {
   it("notifies a listing subscriber when a draft listing becomes active below threshold", async () => {
     const db = new ProductAlertProjectionDb();
-    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: { message: { title: string } }) => undefined) };
     db.alerts.set("pal_1", {
       alert_id: "pal_1",
       account_id: "acc_watcher",
@@ -152,7 +152,7 @@ describe("Product Alert notification projector", () => {
 
   it("emits limited offer demand notifications without buyer details", async () => {
     const db = new ProductAlertProjectionDb();
-    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: { message: { title: string } }) => undefined) };
     db.alerts.set("pal_2", {
       alert_id: "pal_2",
       account_id: "acc_seller",
@@ -187,7 +187,7 @@ describe("Product Alert notification projector", () => {
 
   it("does not notify listing subscribers while the seller's listings are unavailable", async () => {
     const db = new ProductAlertProjectionDb();
-    const outbox = { enqueueNotification: vi.fn(async () => undefined) };
+    const outbox = { enqueueNotification: vi.fn(async (_input: { message: { title: string } }) => undefined) };
     db.alerts.set("pal_3", {
       alert_id: "pal_3",
       account_id: "acc_watcher",

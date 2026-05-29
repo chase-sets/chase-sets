@@ -10,7 +10,7 @@ describe("platform feedback read-model queries", () => {
   it("applies queue filters and paging", async () => {
     const calls: unknown[][] = [];
     const db = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
         calls.push([sql, params ?? []]);
         if (sql.includes("COUNT(*) AS count")) {
           return { rows: [{ count: "1" }] };
@@ -60,7 +60,7 @@ describe("platform feedback read-model queries", () => {
   it("uses entity-wide duplicate checks and workflow 30 day duplicate checks", async () => {
     const calls: unknown[][] = [];
     const db = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
         calls.push([sql, params ?? []]);
         return { rows: [{ feedback_id: "pfb_existing" }] };
       }),
@@ -91,7 +91,7 @@ describe("platform feedback read-model queries", () => {
 
   it("checks active prompt snoozes and maps metrics groups", async () => {
     const db = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
         if (sql.includes("FROM experience_platform_feedback_prompt_pages")) {
           expect(params).toEqual([
             "acc_test",

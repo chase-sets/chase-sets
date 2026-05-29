@@ -28,7 +28,7 @@ function buildApp(services: AuthServices) {
   const app = new Hono<AuthApiEnv>();
   app.use("*", async (c, next) => {
     c.set("actor", null);
-    c.set("context", { causationId: "test" } as AuthApiEnv["Variables"]["context"]);
+    c.set("context", { causationId: "test" } as unknown as AuthApiEnv["Variables"]["context"]);
     await next();
   });
   registerPasskeyRoutes(app, services);

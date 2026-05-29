@@ -77,9 +77,9 @@ const context = {
 
 describe("reputation review runtime", () => {
   it("creates buyer and seller review eligibility from delivered local shipment and order sources", async () => {
-    const inserts: unknown[][] = [];
+    const inserts: (readonly unknown[])[] = [];
     const db = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
         if (sql.includes("FROM reputation_shipment_sources")) {
           return { rows: [{ order_id: "ord_1" }] };
         }

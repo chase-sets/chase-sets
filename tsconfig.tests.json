@@ -1,0 +1,30 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node", "vitest/globals"]
+  },
+  "include": [
+    "bounded-contexts/**/*.test.ts",
+    "bounded-contexts/**/*.test.tsx",
+    "bounded-contexts/**/*.spec.ts",
+    "bounded-contexts/**/*.spec.tsx",
+    "contracts/**/*.test.ts",
+    "contracts/**/*.test.tsx",
+    "contracts/**/*.spec.ts",
+    "contracts/**/*.spec.tsx",
+    "deployables/**/*.test.ts",
+    "deployables/**/*.test.tsx",
+    "deployables/**/*.spec.ts",
+    "deployables/**/*.spec.tsx",
+    "infrastructure/**/*.test.ts",
+    "infrastructure/**/*.test.tsx",
+    "infrastructure/**/*.spec.ts",
+    "infrastructure/**/*.spec.tsx",
+    "packages/**/*.test.ts",
+    "packages/**/*.test.tsx",
+    "packages/**/*.spec.ts",
+    "packages/**/*.spec.tsx",
+    "test-env.d.ts"
+  ],
+  "exclude": ["**/*.tmp.*", "**/build/**", "**/coverage/**", "**/dist/**", "**/node_modules/**"]
+}

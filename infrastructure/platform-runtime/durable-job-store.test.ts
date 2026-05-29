@@ -42,7 +42,7 @@ describe("durable job store", () => {
     };
     const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
       {
-        query: async (sql, values = []) => {
+        query: async (sql: string, values: readonly unknown[] = []) => {
           calls.push({ sql, values });
           if (sql.includes("RETURNING") && !sql.includes("INSERT INTO inventory_import_batch_job_events")) {
             return {
@@ -98,7 +98,7 @@ describe("durable job store", () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
       {
-        query: async (sql, values = []) => {
+        query: async (sql: string, values: readonly unknown[] = []) => {
           calls.push({ sql, values });
           if (sql.includes("INSERT INTO inventory_import_batch_job_events")) {
             return { rows: [{ sequence: 1 }], rowCount: 1 };
@@ -153,7 +153,7 @@ describe("durable job store", () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
       {
-        query: async (sql, values = []) => {
+        query: async (sql: string, values: readonly unknown[] = []) => {
           calls.push({ sql, values });
           if (sql.includes("INSERT INTO inventory_import_batch_job_events")) {
             return { rows: [{ sequence: 1 }], rowCount: 1 };
@@ -208,7 +208,7 @@ describe("durable job store", () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
       {
-        query: async (sql, values = []) => {
+        query: async (sql: string, values: readonly unknown[] = []) => {
           calls.push({ sql, values });
           return { rows: [{ job_id: "job_1" }, { job_id: "job_2" }], rowCount: 2 };
         },
@@ -243,7 +243,7 @@ describe("durable job store", () => {
           on: vi.fn(),
           off: vi.fn(),
         }),
-      },
+      } as never,
       {
         jobsTable: "inventory_import_batch_jobs",
         eventsTable: "inventory_import_batch_job_events",

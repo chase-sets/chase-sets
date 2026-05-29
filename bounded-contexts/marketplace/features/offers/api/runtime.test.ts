@@ -44,7 +44,7 @@ describe("marketplace offer runtime", () => {
       db,
       eventStore: {} as never,
       checkpointStore: {} as never,
-      commercialTermsResolver,
+      commercialTermsResolver: commercialTermsResolver as never,
     });
 
     await expect(

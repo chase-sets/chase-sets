@@ -31,6 +31,7 @@ export const e2eSuites = Object.freeze([
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
 const allMarketplaceSuiteIds = e2eSuites.filter((suite) => suite.deployable === "marketplace").map((suite) => suite.id);
+const defaultSuiteBatchSize = 2;
 
 const browserRuntimePatterns = [
   /^package\.json$/,
@@ -67,7 +68,7 @@ const contextSuiteOwnership = new Map([
 
 const marketplaceRouteSuiteOwnership = [
   {
-    pattern: /^deployables\/marketplace\/app\/routes\/(?:search|_index)\./,
+    pattern: /^deployables\/marketplace\/app\/routes\/(?:search|_index|index)\./,
     suites: ["marketplace_browse"],
   },
   {
@@ -104,6 +105,18 @@ export function isBrowserRuntimeFile(filePath) {
 
 export function orderE2eSuiteIds(suiteIds) {
   return [...new Set(suiteIds)].sort((left, right) => (suiteOrder.get(left) ?? 999) - (suiteOrder.get(right) ?? 999));
+}
+
+export function batchE2eSuiteIds(suiteIds, batchSize = defaultSuiteBatchSize) {
+  const orderedSuiteIds = orderE2eSuiteIds(suiteIds);
+  const safeBatchSize = Math.max(1, batchSize);
+  const batches = [];
+
+  for (let index = 0; index < orderedSuiteIds.length; index += safeBatchSize) {
+    batches.push(orderedSuiteIds.slice(index, index + safeBatchSize).join(","));
+  }
+
+  return batches;
 }
 
 export function e2eSuiteById(suiteId) {

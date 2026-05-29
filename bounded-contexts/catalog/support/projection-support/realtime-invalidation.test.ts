@@ -36,7 +36,7 @@ describe("catalog admin realtime invalidation", () => {
       timing: {
         recordedAt: "2026-05-20T12:00:00.000Z",
       },
-    });
+    } as never);
 
     expect(handler).toHaveBeenCalledOnce();
     const sqlCalls = query.mock.calls.map(([sql]) => sql);
@@ -94,8 +94,8 @@ describe("catalog admin realtime invalidation", () => {
         timing: {
           recordedAt: "2026-05-20T12:00:00.000Z",
         },
-      },
-      { db: txDb },
+      } as never,
+      { db: txDb as never },
     );
 
     expect(handler).toHaveBeenCalledWith(expect.any(Object), { db: txDb });

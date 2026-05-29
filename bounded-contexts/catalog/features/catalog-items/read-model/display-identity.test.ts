@@ -138,7 +138,7 @@ function displayIdentityDb(data: {
   }>;
 }) {
   return {
-    async query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> {
+    async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> {
       if (sql.includes("FROM catalog_fields")) {
         const ids = Array.isArray(params?.[0]) ? params[0] : [];
         return { rows: data.fields.filter((field) => ids.includes(field.field_id)) as T[] };

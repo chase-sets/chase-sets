@@ -198,10 +198,10 @@ describe("fulfillment shipment runtime", () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const postageLabelProvider: PostageLabelProvider = {
       providerName: "sandbox-usps",
-      providerMode: "test",
+      providerMode: "test" as const,
       purchaseUspsLabel: vi.fn(async () => ({
         providerName: "sandbox-usps",
-        providerMode: "test",
+        providerMode: "test" as const,
         providerShipmentId: "sandbox_shipment_1",
         providerLabelId: "sandbox_label_1",
         providerRateId: "sandbox_rate_1",
@@ -216,7 +216,7 @@ describe("fulfillment shipment runtime", () => {
       })),
       voidLabel: vi.fn(async () => ({
         providerName: "sandbox-usps",
-        providerMode: "test",
+        providerMode: "test" as const,
         refundReference: "sandbox_refund_1",
         refundStatus: "submitted",
         voidedAt: "2026-04-02T00:15:00.000Z",
@@ -346,11 +346,11 @@ describe("fulfillment shipment runtime", () => {
     const { eventStore } = createInMemoryEventStore();
     const postageLabelProvider: PostageLabelProvider = {
       providerName: "sandbox-usps",
-      providerMode: "test",
+      providerMode: "test" as const,
       purchaseUspsLabel: vi.fn(),
       voidLabel: vi.fn(async () => ({
         providerName: "sandbox-usps",
-        providerMode: "test",
+        providerMode: "test" as const,
         refundReference: "sandbox_refund_1",
         refundStatus: "submitted",
         voidedAt: "2026-04-02T00:15:00.000Z",
@@ -421,10 +421,10 @@ describe("fulfillment shipment runtime", () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const postageLabelProvider: PostageLabelProvider = {
       providerName: "sandbox-usps",
-      providerMode: "test",
+      providerMode: "test" as const,
       purchaseUspsLabel: vi.fn(async () => ({
         providerName: "sandbox-usps",
-        providerMode: "test",
+        providerMode: "test" as const,
         providerShipmentId: "sandbox_shipment_1",
         providerLabelId: "sandbox_label_1",
         providerRateId: "sandbox_rate_1",
@@ -439,7 +439,7 @@ describe("fulfillment shipment runtime", () => {
       })),
       voidLabel: vi.fn(async () => ({
         providerName: "sandbox-usps",
-        providerMode: "test",
+        providerMode: "test" as const,
         refundReference: "sandbox_refund_1",
         refundStatus: "submitted",
         voidedAt: "2026-04-02T00:15:00.000Z",

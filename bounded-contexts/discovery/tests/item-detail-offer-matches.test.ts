@@ -14,9 +14,9 @@ function createEvent(type: string, data: Record<string, unknown>, recordedAt: st
 
 describe("item detail offer matches", () => {
   it("projects public review feedback comments for account feedback pages", async () => {
-    const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return { rows: [] };
       },
@@ -52,9 +52,9 @@ describe("item detail offer matches", () => {
   });
 
   it("projects submitted and accepted offers into the public discovery market table", async () => {
-    const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return { rows: [] };
       },

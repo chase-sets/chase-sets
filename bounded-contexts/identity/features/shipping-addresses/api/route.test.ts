@@ -21,6 +21,7 @@ function buildApp(services: ShippingAddressServices) {
   app.use("*", async (c, next) => {
     c.set("actor", actor);
     c.set("context", {
+      tenantId: "tnt_identity" as never,
       audit: {
         performedByUserId: actor.userId as never,
         forAccountId: actor.accountId as never,

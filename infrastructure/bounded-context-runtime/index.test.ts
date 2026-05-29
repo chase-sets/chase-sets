@@ -541,7 +541,7 @@ function createProjectionGroupRuntime(
         module: module as BcApiModule,
         services: {},
         pool: targetPool as never,
-        projectors: [],
+        projectionHandlerSets: [],
       },
     ],
     runners,
@@ -563,10 +563,10 @@ function createMountedRuntime(
         module: {
           contextName: targetContextName,
           projectionGroups,
-        } as BcApiModule,
+        } as unknown as BcApiModule,
         services: {},
         pool: targetPool as never,
-        projectors: [],
+        projectionHandlerSets: [],
       },
     ],
     projectionGroups: groupRuntime,
@@ -606,10 +606,10 @@ describe("bounded context projection replay", () => {
           module: {
             contextName: "catalog",
             buildSubscriptions: () => [],
-          } as BcApiModule,
+          } as unknown as BcApiModule,
           services: {},
           pool: sourcePool as never,
-          projectors: [],
+          projectionHandlerSets: [],
         },
         {
           contextName: "inventory",
@@ -628,10 +628,10 @@ describe("bounded context projection replay", () => {
                 eventTypes: ["catalog.catalog-item.published"],
               },
             ],
-          } as BcApiModule,
+          } as unknown as BcApiModule,
           services: {},
           pool: targetPool as never,
-          projectors: [],
+          projectionHandlerSets: [],
         },
       ]),
     ).toThrow(
@@ -653,10 +653,10 @@ describe("bounded context projection replay", () => {
         module: {
           contextName: "catalog",
           buildSubscriptions: () => [],
-        } as BcApiModule,
+        } as unknown as BcApiModule,
         services: {},
         pool: sourcePool as never,
-        projectors: [],
+        projectionHandlerSets: [],
       },
       {
         contextName: "inventory",
@@ -673,10 +673,10 @@ describe("bounded context projection replay", () => {
               },
             },
           ],
-        } as BcApiModule,
+        } as unknown as BcApiModule,
         services: {},
         pool: targetPool as never,
-        projectors: [],
+        projectionHandlerSets: [],
       },
     ]);
 
@@ -1216,7 +1216,7 @@ describe("bounded context projection replay", () => {
         mountedContexts: [
           {
             contextName: "inventory",
-            module: {} as BcApiModule,
+            module: {} as unknown as BcApiModule,
             services: {},
             pool: targetPool as never,
             projectionHandlerSets: [],
@@ -1265,10 +1265,10 @@ describe("bounded context projection replay", () => {
           mountedContexts: [
             {
               contextName: "inventory",
-              module: {} as BcApiModule,
+              module: {} as unknown as BcApiModule,
               services: {},
               pool: targetPool as never,
-              projectors: [],
+              projectionHandlerSets: [],
             },
           ],
           subscriptionRunners: [runner],
@@ -1490,7 +1490,7 @@ describe("bounded context projection replay", () => {
         mountedContexts: [
           {
             contextName: "inventory",
-            module: {} as BcApiModule,
+            module: {} as unknown as BcApiModule,
             services: {},
             pool: targetPool as never,
             projectionHandlerSets: [],
@@ -1688,7 +1688,7 @@ describe("bounded context projection replay", () => {
     const targetPool = createMockPool();
     sourceEventsByPool.set(sourcePool, [createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" })]);
 
-    let releaseHandler: (() => void) | null = null;
+    let releaseHandler: () => void = () => undefined;
     const handlerBlocked = new Promise<void>((resolve) => {
       releaseHandler = resolve;
     });

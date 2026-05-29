@@ -12,7 +12,7 @@ const context = {
   },
 };
 
-function createApp(services: Partial<WalletServices>, permissions: readonly string[] | null) {
+function createApp(services: unknown, permissions: readonly string[] | null) {
   const app = new Hono<SettlementApiEnv>();
   app.use("*", async (c, next) => {
     c.set(
@@ -61,7 +61,7 @@ describe("settlement wallet routes", () => {
   });
 
   it("posts refund debits to the requested seller account with a deterministic ledger entry", async () => {
-    const postEntry = vi.fn(async () => ({ accountId: "acc_seller", version: 2 }));
+    const postEntry = vi.fn(async (_params: unknown) => ({ accountId: "acc_seller" as never, version: 2 }));
     const app = createApp({ postEntry }, ["payouts.manage"]);
     const body = {
       accountId: "acc_seller",
@@ -93,13 +93,15 @@ describe("settlement wallet routes", () => {
       paymentId: "pay_1",
       description: "Seller refund debit (Customer refund approved)",
     });
-    expect(postEntry.mock.calls[0]?.[0].ledgerEntryId).toBe(postEntry.mock.calls[1]?.[0].ledgerEntryId);
+    const firstEntry = postEntry.mock.calls[0]?.[0] as { ledgerEntryId: string } | undefined;
+    const secondEntry = postEntry.mock.calls[1]?.[0] as { ledgerEntryId: string } | undefined;
+    expect(firstEntry?.ledgerEntryId).toBe(secondEntry?.ledgerEntryId);
   });
 
   it("treats duplicate dispute holds as idempotent retries", async () => {
     const postEntry = vi
-      .fn()
-      .mockResolvedValueOnce({ accountId: "acc_seller", version: 2 })
+      .fn(async (_params: unknown) => ({ accountId: "acc_seller" as never, version: 2 }))
+      .mockResolvedValueOnce({ accountId: "acc_seller" as never, version: 2 })
       .mockRejectedValueOnce(new Error("Ledger entry has already been posted."));
     const app = createApp({ postEntry }, ["payouts.manage"]);
     const body = {
@@ -127,11 +129,13 @@ describe("settlement wallet routes", () => {
       idempotent: true,
       duplicate: true,
     });
-    expect(postEntry.mock.calls[0]?.[0].ledgerEntryId).toBe(postEntry.mock.calls[1]?.[0].ledgerEntryId);
+    const firstEntry = postEntry.mock.calls[0]?.[0] as { ledgerEntryId: string } | undefined;
+    const secondEntry = postEntry.mock.calls[1]?.[0] as { ledgerEntryId: string } | undefined;
+    expect(firstEntry?.ledgerEntryId).toBe(secondEntry?.ledgerEntryId);
   });
 
   it("posts dispute releases as credits with required operator audit", async () => {
-    const postEntry = vi.fn(async () => ({ accountId: "acc_seller", version: 3 }));
+    const postEntry = vi.fn(async (_params: unknown) => ({ accountId: "acc_seller" as never, version: 3 }));
     const app = createApp({ postEntry }, ["payouts.manage"]);
 
     const response = await app.request("/wallet/dispute-releases", {

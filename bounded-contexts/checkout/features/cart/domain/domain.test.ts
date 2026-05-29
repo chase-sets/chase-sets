@@ -12,6 +12,7 @@ describe("checkout cart domain", () => {
       itemLanguageCode: "ja",
       itemTitle: "Charizard",
       itemSubtitle: "Base Set",
+      itemImageUrl: null,
       selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
       productSummary: "Form: Raw",
       quantity: 1,
@@ -25,7 +26,7 @@ describe("checkout cart domain", () => {
     const updatedState = updated.reduce(evolveCheckoutCart, addedState);
 
     expect(updatedState.lines).toHaveLength(1);
-    expect(added[0]?.data.itemLanguageCode).toBe("ja");
+    expect(added[0]).toMatchObject({ data: { itemLanguageCode: "ja" } });
     expect(addedState.lines[0]?.itemLanguageCode).toBe("ja");
     expect(updatedState.lines[0]?.quantity).toBe(2);
 
@@ -44,6 +45,7 @@ describe("checkout cart domain", () => {
       productId: "cat_1::" as never,
       itemTitle: "Charizard",
       itemSubtitle: null,
+      itemImageUrl: null,
       selectedOptions: [],
       productSummary: null,
       quantity: 1,
@@ -68,6 +70,7 @@ describe("checkout cart domain", () => {
         productId: "cat_1::" as never,
         itemTitle: "Charizard",
         itemSubtitle: null,
+        itemImageUrl: null,
         selectedOptions: [],
         productSummary: null,
         quantity: 0,

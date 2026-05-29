@@ -67,6 +67,25 @@ const query: CatalogListQuery = {
   tag: "",
   setId: "",
   typeKey: "",
+  valueKind: "",
+  valueType: "",
+  filterable: "",
+  searchable: "",
+  sortable: "",
+  hasFieldRules: "",
+  hasDimensionRules: "",
+  hasComponents: "",
+  parentCategoryId: "",
+  hierarchy: "",
+  blueprintState: "",
+  hasImages: "",
+  hasSourceReferences: "",
+  missingRequiredFields: "",
+  attributeKey: "",
+  attributeValue: "",
+  relationshipType: "",
+  relatedReferenceId: "",
+  targetKind: "",
   page: 0,
   pageSize: 50,
 };
@@ -272,9 +291,13 @@ describe("SourceObservationListPage", () => {
         setId: "base1",
       },
     });
-    let resolveBulkPromotion:
-      | ((value: { requested: number; promoted: number; skipped: number; failed: number; outcomes: never[] }) => void)
-      | null = null;
+    let resolveBulkPromotion: (value: {
+      requested: number;
+      promoted: number;
+      skipped: number;
+      failed: number;
+      outcomes: never[];
+    }) => void = () => undefined;
     mockBulkPromoteSourceObservationsByScope.mockImplementation(
       async (_scope, options?: { onProgress?: (progress: unknown) => void }) => {
         options?.onProgress?.({
@@ -351,9 +374,13 @@ describe("SourceObservationListPage", () => {
 
   it("resumes progress for an active bulk review job after page refresh", async () => {
     const refreshActiveJobs = vi.fn();
-    let resolveWatch:
-      | ((value: { requested: number; promoted: number; skipped: number; failed: number; outcomes: never[] }) => void)
-      | null = null;
+    let resolveWatch: (value: {
+      requested: number;
+      promoted: number;
+      skipped: number;
+      failed: number;
+      outcomes: never[];
+    }) => void = () => undefined;
     mockUseActiveSourceObservationBulkJobs.mockReturnValue({
       data: {
         items: [

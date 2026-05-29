@@ -65,9 +65,9 @@ describe("marketplace realtime list patches", () => {
 
 describe("marketplace realtime offer-match patch payloads", () => {
   it("loads seller-specific offer match rows for multiple sellers in one query", async () => {
-    const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
     const db = {
-      query: async (sql: string, params?: unknown[]) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return {
           rows: [

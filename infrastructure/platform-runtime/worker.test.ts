@@ -140,7 +140,7 @@ describe("worker runner loop", () => {
         expect(calls).toContain("caught-up-projection");
       });
     } finally {
-      releaseHighBacklogRunner?.();
+      (releaseHighBacklogRunner as (() => void) | null)?.();
       await loop.stop();
     }
 
@@ -497,7 +497,7 @@ describe("worker runner loop", () => {
       expect(calls).toContain("same-order");
     });
     expect(calls).not.toContain("later-order");
-    releaseSlowRunner?.();
+    (releaseSlowRunner as (() => void) | null)?.();
     await expect(run).resolves.toMatchObject({ processed: 3, lastGlobalPosition: "4" });
     expect(calls).toEqual(["slow-start", "same-order", "slow-end", "later-order"]);
   });
@@ -673,6 +673,8 @@ function createAlwaysLeasedControlPlane(overrides: Partial<PlatformControlPlane>
     cancelProjectionOperation: overrides.cancelProjectionOperation ?? (async () => false),
     getProjectionOperation: overrides.getProjectionOperation ?? (async () => null),
     listProjectionOperations: overrides.listProjectionOperations ?? (async () => []),
+    listProjectionOperationEvents: overrides.listProjectionOperationEvents ?? (async () => []),
+    waitForProjectionOperationEvents: overrides.waitForProjectionOperationEvents ?? (async () => undefined),
     summarizeProjectionOperations:
       overrides.summarizeProjectionOperations ?? (async () => defaultProjectionOperationSummary()),
     claimScheduledRunner: overrides.claimScheduledRunner ?? (async () => true),
@@ -705,6 +707,8 @@ function createNeverLeasedControlPlane(
     cancelProjectionOperation: async () => false,
     getProjectionOperation: async () => null,
     listProjectionOperations: async () => [],
+    listProjectionOperationEvents: async () => [],
+    waitForProjectionOperationEvents: async () => undefined,
     summarizeProjectionOperations: async () => defaultProjectionOperationSummary(),
     claimScheduledRunner: async () => false,
     recordScheduledRunnerCompleted: async () => {},

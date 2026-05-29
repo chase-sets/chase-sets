@@ -1,10 +1,15 @@
 export type PgQueryResult<Row> = Readonly<{
   rows: Row[];
-  rowCount: number | null;
+  rowCount?: number | null;
 }>;
 
+export interface PgQueryFunction {
+  <Row = Record<string, unknown>>(text: string, values?: readonly unknown[]): Promise<PgQueryResult<Row>>;
+  (text: string, values?: readonly unknown[]): Promise<PgQueryResult<Record<string, unknown>>>;
+}
+
 export type PgQueryable = Readonly<{
-  query: <Row = Record<string, unknown>>(text: string, values?: readonly unknown[]) => Promise<PgQueryResult<Row>>;
+  query: PgQueryFunction;
 }>;
 
 export type PgPoolClient = PgQueryable &

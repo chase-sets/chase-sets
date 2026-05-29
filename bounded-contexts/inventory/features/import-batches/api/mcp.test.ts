@@ -68,7 +68,7 @@ function services(): InventoryImportBatchServices {
       updated_at: "2026-05-28T00:00:00.000Z",
       rows: [],
     })),
-  };
+  } as unknown as InventoryImportBatchServices;
 }
 
 describe("inventory import batch MCP handlers", () => {

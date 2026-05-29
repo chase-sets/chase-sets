@@ -4,7 +4,7 @@ import { getOrderingSupplyCandidateByListingId } from "./supply-queries";
 
 describe("ordering supply queries", () => {
   it("requires seller listing availability when loading a locked listing", async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
+    const query = vi.fn(async (_sql: string) => ({ rows: [] }));
     const db = { query } as unknown as PgQueryable;
 
     const candidate = await getOrderingSupplyCandidateByListingId(db, "lst_1");

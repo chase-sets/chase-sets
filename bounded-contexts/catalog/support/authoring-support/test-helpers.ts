@@ -10,7 +10,7 @@ export function givenEvents<State, Event extends DomainEvent>(
 }
 
 export function decide<State, Command, Event extends DomainEvent>(
-  decider: (state: Readonly<State>, command: Readonly<Command>) => readonly Event[] | Promise<readonly Event[]>,
+  decider: (state: Readonly<State>, command: Readonly<Command>) => readonly Event[],
   state: State,
   command: Command,
 ): readonly Event[] {

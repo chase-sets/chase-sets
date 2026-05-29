@@ -79,6 +79,12 @@ const context = {
   },
 };
 
+function createOrderingOrderRuntimeForTest(
+  deps: Parameters<typeof createOrderingOrderRuntime>[0] & Readonly<{ carts?: unknown }>,
+) {
+  return createOrderingOrderRuntime(deps);
+}
+
 const shippingAddress = {
   name: "Jane Smith",
   company: null,
@@ -241,11 +247,10 @@ describe("ordering order runtime", () => {
       },
     ]);
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
-      carts: carts as never,
       shippingQuotePolicy: {
         quote: () => ({
           shippingOption: "standard",
@@ -336,7 +341,7 @@ describe("ordering order runtime", () => {
       ];
     });
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
@@ -489,11 +494,10 @@ describe("ordering order runtime", () => {
       ];
     });
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
-      carts: carts as never,
       shippingQuotePolicy: {
         quote: ({ itemSubtotalAmount }) => ({
           shippingOption: "standard",
@@ -599,7 +603,7 @@ describe("ordering order runtime", () => {
       })),
     };
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
@@ -704,7 +708,7 @@ describe("ordering order runtime", () => {
       ];
     });
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
@@ -791,7 +795,7 @@ describe("ordering order runtime", () => {
       ];
     });
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
@@ -905,7 +909,7 @@ describe("ordering order runtime", () => {
       ];
     });
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
@@ -973,7 +977,7 @@ describe("ordering order runtime", () => {
       }),
     };
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
@@ -1094,7 +1098,7 @@ describe("ordering order runtime", () => {
       }),
     };
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
@@ -1126,6 +1130,7 @@ describe("ordering order runtime", () => {
         shippingBaseAmount: "4.99",
         shippingDiscountAmount: "0.00",
         shippingChargeAmount: "4.99",
+        shippingPlanSnapshot: {} as never,
         salesTaxAmount: "0.00",
         taxSnapshot,
         totalAmount: "24.99",
@@ -1255,7 +1260,7 @@ describe("ordering order runtime", () => {
       }),
     };
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,
@@ -1283,6 +1288,7 @@ describe("ordering order runtime", () => {
         shippingBaseAmount: "4.99",
         shippingDiscountAmount: "0.00",
         shippingChargeAmount: "4.99",
+        shippingPlanSnapshot: {} as never,
         salesTaxAmount: "0.00",
         taxSnapshot,
         totalAmount: "24.99",
@@ -1410,7 +1416,7 @@ describe("ordering order runtime", () => {
       }),
     };
 
-    const services = createOrderingOrderRuntime({
+    const services = createOrderingOrderRuntimeForTest({
       eventStore,
       checkpointStore: createCheckpointStore(),
       db: db as never,

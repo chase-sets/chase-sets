@@ -5,6 +5,10 @@ inputs:
     description: Run pnpm install after configuring the toolchain.
     required: false
     default: "false"
+  install-warning-seconds:
+    description: Warn in the job summary when pnpm install exceeds this duration.
+    required: false
+    default: "90"
 runs:
   using: composite
   steps:
@@ -26,4 +30,17 @@ runs:
         started_at="$(date +%s)"
         pnpm install --frozen-lockfile
         finished_at="$(date +%s)"
-        echo "pnpm install completed in $((finished_at - started_at))s"
+        install_seconds=$((finished_at - started_at))
+        echo "pnpm install completed in ${install_seconds}s"
+
+        if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+          {
+            echo "### pnpm install"
+            echo ""
+            echo "Completed in ${install_seconds}s."
+          } >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+        if [ "$install_seconds" -gt "${{ inputs.install-warning-seconds }}" ]; then
+          echo "::warning title=Slow pnpm install::pnpm install completed in ${install_seconds}s, above the ${{ inputs.install-warning-seconds }}s tracking threshold."
+        fi

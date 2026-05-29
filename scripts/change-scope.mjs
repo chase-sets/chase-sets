@@ -3,7 +3,7 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
-import { e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
+import { batchE2eSuiteIds, e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
@@ -213,7 +213,7 @@ function parseArgs(argv) {
   return { command, options };
 }
 
-function toOutputMap(scope) {
+export function toOutputMap(scope) {
   return {
     changed_files_json: JSON.stringify(scope.changedFiles),
     affected_workspaces: scope.affectedWorkspaces.join(","),
@@ -227,6 +227,7 @@ function toOutputMap(scope) {
     e2e_tests: String(scope.e2eTestsRequired),
     e2e_suites: scope.e2eSuiteIds.join(","),
     e2e_suites_json: JSON.stringify(scope.e2eSuiteIds),
+    e2e_suite_batches_json: JSON.stringify(batchE2eSuiteIds(scope.e2eSuiteIds)),
     build: String(scope.buildRequired),
     docker_image: String(scope.dockerImageRequired),
     terraform: String(scope.terraformRequired),

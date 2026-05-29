@@ -23,7 +23,7 @@ function createRequest(method: string, params?: unknown) {
 }
 
 function createActorApp(resolvedActor: ResolvedActor, options: Parameters<typeof createMcpRoutes>[0] = {}) {
-  const app = new Hono();
+  const app = new Hono<{ Variables: { actor: ResolvedActor } }>();
   app.use("*", async (c, next) => {
     c.set("actor", resolvedActor);
     await next();

@@ -111,7 +111,7 @@ function createPayoutReadiness(status: "not-started" | "pending" | "ready" | "re
       payout_destination_status: status === "ready" ? "ready" : "missing",
       updated_at: new Date().toISOString(),
     }),
-  } as PayoutReadinessServices;
+  } as unknown as PayoutReadinessServices;
 }
 
 describe("settlement payout runtime", () => {

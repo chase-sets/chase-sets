@@ -23,7 +23,7 @@ type FakePool = Readonly<{
 
 function createPool(): FakePool {
   return {
-    query: async (sql) => ({
+    query: async (sql: string) => ({
       rows: sql.includes("COUNT(*) AS count") ? [{ count: "0" }] : [],
     }),
   };
@@ -470,7 +470,7 @@ describe("platform host web registry", () => {
     const routeConfig = resolveWebHostRouteConfigRecords(webRegistry, "marketplace-web").map((routeRecord) =>
       toRouteConfigEntry(routeRecord, {
         index: (file, options) => ({ file, index: true, ...options }),
-        route: (path, file, options) => ({ path, file, ...options }),
+        route: (path, file, options) => ({ path: path ?? undefined, file, ...options }),
       }),
     );
 
@@ -506,6 +506,7 @@ describe("platform worker runner loop", () => {
       }),
     }));
     const controlPlane = {
+      bootstrap: vi.fn(async () => undefined),
       acquireLease: vi.fn(async (input) => ({
         leaseName: input.leaseName,
         ownerId: input.ownerId,
@@ -531,6 +532,8 @@ describe("platform worker runner loop", () => {
       cancelProjectionOperation: vi.fn(async () => false),
       getProjectionOperation: vi.fn(async () => null),
       listProjectionOperations: vi.fn(async () => []),
+      listProjectionOperationEvents: vi.fn(async () => []),
+      waitForProjectionOperationEvents: vi.fn(async () => undefined),
       summarizeProjectionOperations: vi.fn(async () => ({
         queuedCount: "0",
         runningCount: "0",
@@ -540,6 +543,8 @@ describe("platform worker runner loop", () => {
         oldestRunningAt: null,
         averageDurationMs: null,
       })),
+      claimScheduledRunner: vi.fn(async () => false),
+      recordScheduledRunnerCompleted: vi.fn(async () => undefined),
     };
 
     const loop = createWorkerRunnerLoop({

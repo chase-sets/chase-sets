@@ -6,7 +6,7 @@ describe("platform control plane", () => {
     const statements: string[] = [];
 
     await bootstrapPlatformControlPlane({
-      query: async (sql) => {
+      query: async (sql: string) => {
         statements.push(sql);
         return { rows: [], rowCount: 0 };
       },
@@ -26,7 +26,7 @@ describe("platform control plane", () => {
       connect: async () => {
         throw new Error("not used");
       },
-      query: async (sql, params) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         if (sql.includes("RETURNING lease_name")) {
           return {
@@ -69,7 +69,7 @@ describe("platform control plane", () => {
       connect: async () => {
         throw new Error("not used");
       },
-      query: async (sql, params) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         if (sql.includes("FROM platform_projection_status_snapshots")) {
           return {
@@ -126,7 +126,7 @@ describe("platform control plane", () => {
       connect: async () => {
         throw new Error("not used");
       },
-      query: async (sql, params) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return { rows: [], rowCount: 1 };
       },
@@ -195,7 +195,7 @@ describe("platform control plane", () => {
         };
         return { query, release: () => undefined };
       },
-      query: async (sql, params) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return { rows: [], rowCount: 1 };
       },
@@ -235,7 +235,7 @@ describe("platform control plane", () => {
       connect: async () => {
         throw new Error("not used");
       },
-      query: async (sql, params) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return { rows: [], rowCount: 0 };
       },
@@ -262,7 +262,7 @@ describe("platform control plane", () => {
       connect: async () => {
         throw new Error("not used");
       },
-      query: async (sql, params) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return {
           rows: [
@@ -301,7 +301,7 @@ describe("platform control plane", () => {
       connect: async () => {
         throw new Error("not used");
       },
-      query: async (sql, params) => {
+      query: async (sql: string, params?: readonly unknown[]) => {
         calls.push({ sql, params });
         return { rows: [], rowCount: sql.includes("UPDATE platform_scheduled_runners AS runner") ? 1 : 0 };
       },

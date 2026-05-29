@@ -45,6 +45,8 @@ function createJobServices(overrides: Partial<CatalogAuthoringBulkJobServices> =
     get: async () => null,
     listActive: async () => [],
     listEvents: async () => [],
+    waitForEvents: async () => undefined,
+    pruneRetention: async () => 0,
     processNext: async () => false,
     ...overrides,
   };
@@ -56,7 +58,7 @@ function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogIt
       throw new Error("command handler not expected");
     },
     listCatalogItems: async () => ({ items: [], total: 0 }),
-    getCatalogItemDetail: async () => null,
+    getCatalogItemDetail: async () => null as never,
     previewBulkPublish: async () => ({
       mode: "ids",
       item_ids: [],
@@ -379,7 +381,7 @@ describe("catalog item routes", () => {
       version: 2,
       state: { status: "removed" },
     }));
-    const app = buildApp(createServices({ commandHandler } as Partial<CatalogItemServices>));
+    const app = buildApp(createServices({ commandHandler } as unknown as Partial<CatalogItemServices>));
 
     const response = await app.fetch(new Request("http://catalog.test/items/cat_1", { method: "DELETE" }));
 

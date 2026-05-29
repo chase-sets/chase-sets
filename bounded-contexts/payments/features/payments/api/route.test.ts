@@ -203,7 +203,7 @@ function createServices(): PaymentServices {
       sensitivePaymentDetailsHandledByProcessor: true,
     },
     projectors: [],
-  };
+  } as unknown as PaymentServices;
 }
 
 describe("payments routes", () => {

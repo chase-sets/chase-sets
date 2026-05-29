@@ -4,7 +4,7 @@ import { bootstrapPlatformAdminPassword } from "./production-bootstrap";
 
 describe("platform admin password bootstrap", () => {
   it("upserts only the configured password credential", async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
     const hashSecret = vi.fn((value: string) => `hashed:${value}`);
     const services = {
       db: { query },

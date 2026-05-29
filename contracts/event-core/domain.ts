@@ -14,7 +14,7 @@ export type AggregateEvolver<State, Event extends DomainEvent = DomainEvent> = (
 export type AggregateDecider<State, Command, Event extends DomainEvent = DomainEvent> = (
   state: Readonly<State>,
   command: Readonly<Command>,
-) => readonly Event[] | Promise<readonly Event[]>;
+) => readonly Event[];
 
 export type RehydratedAggregate<State, Event extends DomainEvent = DomainEvent> = Readonly<{
   state: State;

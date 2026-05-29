@@ -90,10 +90,10 @@ describe("inventory api", () => {
     );
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
-    const catalogServices = catalogModule.createServices(pools.catalog, undefined);
+    const catalogServices = catalogModule.createServices(pools.catalog, {});
     const orderingServices = orderingModule.createServices(pools.ordering, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),
-    });
+    } as never);
     services = createInventoryServices(pools.inventory);
     runtime = {
       mountedContexts: [

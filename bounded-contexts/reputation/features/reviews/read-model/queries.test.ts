@@ -190,7 +190,7 @@ describe("reputation review queries", () => {
       feedback: "Prompt payment.",
     });
     const db = {
-      query: vi.fn(async (_sql: string, params?: unknown[]) => ({
+      query: vi.fn(async (_sql: string, params?: readonly unknown[]) => ({
         rows: params?.[1] === "acc_author" || params?.[1] === "acc_reviewed" ? [row] : [],
       })),
     };
