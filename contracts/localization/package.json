@@ -6,7 +6,8 @@
   "main": "./index.ts",
   "exports": {
     ".": "./index.ts",
-    "./locales/en": "./locales/en.ts"
+    "./locales/en": "./locales/en.ts",
+    "./locales/en/public-presence": "./locales/en/public-presence.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

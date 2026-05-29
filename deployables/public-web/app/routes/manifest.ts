@@ -1,4 +1,4 @@
-import { t } from "@chase-sets/localization";
+import { publicPresenceT as t } from "@chase-sets/public-presence/web";
 import type { LoaderFunctionArgs } from "react-router";
 
 function buildPublicManifest() {

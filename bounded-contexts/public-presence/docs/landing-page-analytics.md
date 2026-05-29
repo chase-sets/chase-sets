@@ -26,6 +26,8 @@ Event details include:
 - bounded-cardinality metric details such as `section`, `target`, `field`, `role`, `interest`, `status`, and `variant`
 - sanitized log-only source details such as `checked`, `page_path`, `utm_source`, `utm_medium`, and `utm_campaign`
 
+The current public landing experiment variant is `seller_first_v1`. Treat variants as durable public experiment keys, not remediation, audit, branch, or implementation labels.
+
 Keep event properties free of email addresses, account identifiers, user identifiers, raw URLs, and unbounded text. The public-web bridge may forward only bounded source fields for funnel analysis: `page_path`, `utm_source`, `utm_medium`, and `utm_campaign`. UTM values may contain normal campaign text such as spaces, percent signs, plus signs, periods, or hyphens, but must still reject emails, URLs, and long arbitrary strings. Referrer, `utm_content`, and `utm_term` remain durable waitlist source fields rather than operational analytics labels.
 
 Primary funnel metrics:
@@ -39,10 +41,10 @@ Primary funnel metrics:
 
 First experiments to run:
 
-- Hero promise: seller margin headline versus founder access headline.
-- CTA language: "Join early access" versus "Reserve founder access".
-- Section order: audience path immediately after hero versus after seller economics.
-- Founder proof: launch-priority panel near top versus near final CTA.
+- Hero promise: seller margin headline versus buyer-total clarity headline.
+- CTA language: "Join early access" versus "Request early access".
+- Section order: audience path immediately after seller economics versus after product preview.
+- Founder proof: eligibility language in final CTA versus a dedicated status panel.
 - Mobile sticky CTA enabled versus hidden.
 
 The OpenTelemetry bridge is directional funnel observability, not transactional truth. It may duplicate client events and must never block the landing page or waitlist submission. Durable signup truth remains the Public Presence waitlist domain and read model.

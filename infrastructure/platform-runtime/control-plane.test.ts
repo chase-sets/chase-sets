@@ -13,6 +13,12 @@ describe("platform control plane", () => {
     });
 
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_control_leases");
+    expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_control_lease_fencing_tokens");
+    expect(statements[0]).toContain("FROM platform_control_leases");
+    expect(statements[0]).toContain("FROM platform_runner_statuses");
+    expect(statements[0]).toContain("FROM platform_projection_status_snapshots");
+    expect(statements[0]).toContain("max(seed.fencing_token)");
+    expect(statements[0]).toContain("GROUP BY seed.lease_name");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_realtime_stream_leases");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_realtime_stream_counters");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_scheduled_runners");
@@ -60,6 +66,10 @@ describe("platform control plane", () => {
     });
     await expect(controlPlane.renewLease(lease!, 30_000)).resolves.toBe(true);
     await controlPlane.releaseLease(lease!);
+    expect(calls[0].sql).toContain("WITH claimable AS");
+    expect(calls[0].sql).toContain("INSERT INTO platform_control_lease_fencing_tokens");
+    expect(calls[0].sql).toContain("fencing_token = platform_control_lease_fencing_tokens.fencing_token + 1");
+    expect(calls[0].sql).toContain("FROM next_token");
     expect(calls[1].sql).toContain("AND fencing_token = $3::bigint");
     expect(calls[2].sql).toContain("AND fencing_token = $3::bigint");
   });
@@ -227,6 +237,7 @@ describe("platform control plane", () => {
     const claimCall = calls.find((call) => call.sql.includes("FOR UPDATE SKIP LOCKED"));
     expect(claimCall?.sql).toContain("FOR UPDATE SKIP LOCKED");
     expect(claimCall?.sql).toContain("claim_fencing_token = COALESCE");
+    expect(claimCall?.sql).toContain("RETURNING operation.operation_id");
     expect(calls.some((call) => call.sql.includes("RETURNING event_sequence"))).toBe(true);
   });
 

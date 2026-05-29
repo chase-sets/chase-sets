@@ -14,8 +14,8 @@ Use only repo-verifiable credibility until live marketplace proof exists:
 - visible support contact
 - waitlist consent and removal language
 - beta fee-lock terms
-- Founding Account badge access for first signups
-- founders circle access on Discord for first signups
+- Founding Account badge eligibility for qualified early beta accounts
+- founders circle access on Discord for qualified early beta accounts
 - sample product previews
 - provider-backed payment and visible-total language already present in Public Presence copy
 

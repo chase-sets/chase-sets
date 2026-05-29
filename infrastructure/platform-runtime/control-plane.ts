@@ -18,6 +18,27 @@ CREATE TABLE IF NOT EXISTS platform_control_leases (
 CREATE INDEX IF NOT EXISTS platform_control_leases_expires_at_idx
   ON platform_control_leases (expires_at);
 
+CREATE TABLE IF NOT EXISTS platform_control_lease_fencing_tokens (
+  lease_name text PRIMARY KEY,
+  fencing_token bigint NOT NULL CHECK (fencing_token >= 1),
+  updated_at timestamptz NOT NULL
+);
+
+INSERT INTO platform_control_lease_fencing_tokens (
+  lease_name,
+  fencing_token,
+  updated_at
+)
+SELECT lease_name, fencing_token, now()
+FROM platform_control_leases
+ON CONFLICT (lease_name)
+DO UPDATE SET
+  fencing_token = GREATEST(
+    platform_control_lease_fencing_tokens.fencing_token,
+    EXCLUDED.fencing_token
+  ),
+  updated_at = now();
+
 CREATE TABLE IF NOT EXISTS platform_worker_heartbeats (
   worker_id text PRIMARY KEY,
   worker_kind text NOT NULL,
@@ -54,6 +75,30 @@ ALTER TABLE platform_projection_status_snapshots
 
 CREATE INDEX IF NOT EXISTS platform_projection_status_snapshots_updated_at_idx
   ON platform_projection_status_snapshots (updated_at DESC);
+
+INSERT INTO platform_control_lease_fencing_tokens (
+  lease_name,
+  fencing_token,
+  updated_at
+)
+SELECT seed.lease_name, max(seed.fencing_token), now()
+FROM (
+  SELECT runner_kind || ':' || runner_name AS lease_name, fencing_token
+  FROM platform_runner_statuses
+  WHERE fencing_token IS NOT NULL
+  UNION ALL
+  SELECT 'projection-group:' || runner_name AS lease_name, fencing_token
+  FROM platform_projection_status_snapshots
+  WHERE fencing_token IS NOT NULL
+) AS seed
+GROUP BY seed.lease_name
+ON CONFLICT (lease_name)
+DO UPDATE SET
+  fencing_token = GREATEST(
+    platform_control_lease_fencing_tokens.fencing_token,
+    EXCLUDED.fencing_token
+  ),
+  updated_at = now();
 
 CREATE TABLE IF NOT EXISTS platform_projection_operations (
   operation_id text PRIMARY KEY,
@@ -369,7 +414,37 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
     bootstrap: () => bootstrapPlatformControlPlane(db),
     acquireLease: async (input) => {
       const result = await db.query<LeaseRow>(
-        `INSERT INTO platform_control_leases (
+        `WITH claimable AS (
+           SELECT $1::text AS lease_name
+           WHERE NOT EXISTS (
+             SELECT 1
+             FROM platform_control_leases
+             WHERE lease_name = $1
+           )
+           UNION ALL
+           SELECT lease_name
+           FROM platform_control_leases
+           WHERE lease_name = $1
+             AND (
+               expires_at <= now()
+               OR owner_id = $2
+             )
+         ),
+         next_token AS (
+           INSERT INTO platform_control_lease_fencing_tokens (
+             lease_name,
+             fencing_token,
+             updated_at
+           )
+           SELECT lease_name, 1, now()
+           FROM claimable
+           ON CONFLICT (lease_name)
+           DO UPDATE SET
+             fencing_token = platform_control_lease_fencing_tokens.fencing_token + 1,
+             updated_at = now()
+           RETURNING lease_name, fencing_token
+         )
+         INSERT INTO platform_control_leases (
            lease_name,
            owner_id,
            fencing_token,
@@ -377,19 +452,20 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
            metadata,
            acquired_at,
            renewed_at
-         ) VALUES (
+         )
+         SELECT
            $1,
            $2,
-           1,
+           next_token.fencing_token,
            now() + ($3::text || ' milliseconds')::interval,
            $4::jsonb,
            now(),
            now()
-         )
+         FROM next_token
          ON CONFLICT (lease_name)
          DO UPDATE SET
            owner_id = EXCLUDED.owner_id,
-           fencing_token = platform_control_leases.fencing_token + 1,
+           fencing_token = EXCLUDED.fencing_token,
            expires_at = EXCLUDED.expires_at,
            metadata = EXCLUDED.metadata,
            acquired_at = now(),
@@ -613,7 +689,7 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
              updated_at = now()
          FROM claimable
          WHERE operation.operation_id = claimable.operation_id
-         RETURNING ${PROJECTION_OPERATION_COLUMNS}`,
+          RETURNING ${projectionOperationColumns("operation")}`,
           [input.ownerId, input.claimTtlMs, operationKinds],
         );
 
@@ -887,27 +963,35 @@ function buildProjectionOperationPredicates(input: Omit<ProjectionOperationListF
   return { predicates, params };
 }
 
-const PROJECTION_OPERATION_COLUMNS = `
-  operation_id,
-  operation_kind,
-  state,
-  context_name,
-  projection_name,
-  projection_key,
-  stream_id,
-  requested_by_user_id,
-  requested_by_account_id,
-  claim_owner_id,
-  claim_fencing_token,
-  claimed_until,
-  progress,
-  result,
-  error,
-  requested_at,
-  started_at,
-  updated_at,
-  completed_at
-`;
+const PROJECTION_OPERATION_COLUMN_NAMES = [
+  "operation_id",
+  "operation_kind",
+  "state",
+  "context_name",
+  "projection_name",
+  "projection_key",
+  "stream_id",
+  "requested_by_user_id",
+  "requested_by_account_id",
+  "claim_owner_id",
+  "claim_fencing_token",
+  "claimed_until",
+  "progress",
+  "result",
+  "error",
+  "requested_at",
+  "started_at",
+  "updated_at",
+  "completed_at",
+] as const;
+
+const PROJECTION_OPERATION_COLUMNS = projectionOperationColumns();
+
+function projectionOperationColumns(alias?: string): string {
+  return PROJECTION_OPERATION_COLUMN_NAMES.map((columnName) => (alias ? `${alias}.${columnName}` : columnName)).join(
+    ",\n  ",
+  );
+}
 
 function createProjectionOperationId(): string {
   const cryptoLike = globalThis.crypto as { randomUUID?: () => string } | undefined;
