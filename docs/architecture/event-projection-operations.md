@@ -19,6 +19,8 @@ Every leased projection run receives a `ProjectionRunContext` with owner ID, fen
 
 Checkpoint saves, checkpoint deletion, subscription ledger claims, subscription ledger completion, runner status, and projection status snapshots reject stale fencing tokens. If a worker loses or outlives its lease, newer leased work wins.
 
+Control-plane runner leases keep a durable fencing-token floor per lease name, separate from the active lease row. Releasing a lease may remove the active ownership row, but the next claim must still receive a higher fencing token than any prior claim for the same runner. This keeps context-local subscription checkpoints from rejecting legitimate post-release workers as stale after restarts, deployments, or operation handoffs.
+
 ## Rebuild Semantics
 
 Projection groups that own tables must declare a reset strategy:
