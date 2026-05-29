@@ -3,6 +3,7 @@ import { appendFileSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { e2eSuiteIdsForChangedFile, orderE2eSuiteIds } from "./e2e-suites.mjs";
 import { listWorkspacePackages, normalizePath, repoRoot } from "./lib/repo.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
@@ -28,15 +29,6 @@ const deploymentScriptPatterns = [
   /^scripts\/stripe-money-smoke-test/,
   /^scripts\/apply-digitalocean-database-grant\.mjs$/,
 ];
-const marketplaceE2ePatterns = [
-  /^playwright\.config\.ts$/,
-  /^deployables\/marketplace\//,
-  /^deployables\/platform-api\//,
-  /^packages\/design-system\//,
-  /^bounded-contexts\/[^/]+\/routes\//,
-  /^bounded-contexts\/[^/]+\/features\/[^/]+\/(api|ui)\//,
-  /^bounded-contexts\/[^/]+\/support\/shell-support\//,
-];
 
 function normalizeFilePath(filePath) {
   return normalizePath(filePath).replace(/^\.\//, "");
@@ -48,10 +40,6 @@ function matchesAny(filePath, patterns) {
 
 function isDocsOnlyFile(filePath) {
   return matchesAny(filePath, docsOnlyPatterns);
-}
-
-function requiresMarketplaceE2e(filePath) {
-  return matchesAny(filePath, marketplaceE2ePatterns);
 }
 
 function workspaceDependencyNames(workspace) {
@@ -121,11 +109,13 @@ export function classifyChanges({
   let rootRuntimeChanged = false;
   let deploymentScriptChanged = false;
   let scriptOrConfigChanged = false;
-  let marketplaceE2eChanged = false;
+  const selectedE2eSuiteIds = new Set();
   let nonDocumentationChanged = false;
 
   for (const filePath of normalizedFiles) {
-    marketplaceE2eChanged ||= requiresMarketplaceE2e(filePath);
+    for (const suiteId of e2eSuiteIdsForChangedFile(filePath)) {
+      selectedE2eSuiteIds.add(suiteId);
+    }
 
     const workspace = workspaceForFile(filePath, workspaces, baseDir);
     if (workspace) {
@@ -163,6 +153,7 @@ export function classifyChanges({
   const terraformRequired = terraformChanged || deploymentScriptChanged;
   const deployRequired = dockerImageRequired || terraformRequired;
   const localChecksRequired = nonDocumentationChanged || workflowChanged || scriptOrConfigChanged;
+  const e2eSuiteIds = orderE2eSuiteIds(selectedE2eSuiteIds);
 
   return {
     changedFiles: normalizedFiles,
@@ -176,7 +167,8 @@ export function classifyChanges({
       const workspace = workspaces.find((entry) => entry.name === workspaceName);
       return typeof workspace?.packageJson.scripts?.["test:db"] === "string";
     }),
-    e2eTestsRequired: marketplaceE2eChanged,
+    e2eSuiteIds,
+    e2eTestsRequired: e2eSuiteIds.length > 0,
     buildRequired: affectedWorkspaces.length > 0 || rootRuntimeChanged,
     dockerImageRequired,
     terraformRequired,
@@ -233,6 +225,8 @@ function toOutputMap(scope) {
     unit_tests: String(scope.unitTestsRequired),
     db_tests: String(scope.dbTestsRequired),
     e2e_tests: String(scope.e2eTestsRequired),
+    e2e_suites: scope.e2eSuiteIds.join(","),
+    e2e_suites_json: JSON.stringify(scope.e2eSuiteIds),
     build: String(scope.buildRequired),
     docker_image: String(scope.dockerImageRequired),
     terraform: String(scope.terraformRequired),

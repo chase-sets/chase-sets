@@ -150,6 +150,22 @@ describe("run-workspaces", () => {
     });
   });
 
+  it("forwards passthrough arguments to the workspace script without a literal separator", async () => {
+    const runs = [];
+
+    await runWorkspaceScripts({
+      argv: ["test", "--workspace=@test/a", "--", "--coverage", "--coverage.reporter=lcov"],
+      buildInvocation,
+      listWorkspaces: () => [workspace("@test/a", { test: "test" })],
+      loadEnvironment: () => {},
+      run: async (_command, args) => {
+        runs.push(args);
+      },
+    });
+
+    expect(runs).toEqual([["--filter", "@test/a", "run", "test", "--coverage", "--coverage.reporter=lcov"]]);
+  });
+
   it("filters by explicit workspace names", async () => {
     const runs = [];
 

@@ -436,13 +436,6 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
-    devDependencies:
-      '@chase-sets/marketplace-seed-testing':
-        specifier: workspace:*
-        version: link:../../deployables/marketplace-seed-testing
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   bounded-contexts/identity:
     dependencies:
@@ -711,13 +704,6 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
-    devDependencies:
-      '@chase-sets/marketplace-seed-testing':
-        specifier: workspace:*
-        version: link:../../deployables/marketplace-seed-testing
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   bounded-contexts/payments:
     dependencies:
@@ -785,9 +771,6 @@ importers:
         specifier: ^4.12.12
         version: 4.12.18
     devDependencies:
-      '@chase-sets/marketplace-seed-testing':
-        specifier: workspace:*
-        version: link:../../deployables/marketplace-seed-testing
       vitest:
         specifier: ^4.1.4
         version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
@@ -958,13 +941,6 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
-    devDependencies:
-      '@chase-sets/marketplace-seed-testing':
-        specifier: workspace:*
-        version: link:../../deployables/marketplace-seed-testing
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   bounded-contexts/settlement:
     dependencies:
@@ -1022,13 +998,6 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
-    devDependencies:
-      '@chase-sets/marketplace-seed-testing':
-        specifier: workspace:*
-        version: link:../../deployables/marketplace-seed-testing
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   bounded-contexts/support:
     dependencies:
@@ -1071,13 +1040,6 @@ importers:
       hono:
         specifier: ^4.12.12
         version: 4.12.18
-    devDependencies:
-      '@chase-sets/marketplace-seed-testing':
-        specifier: workspace:*
-        version: link:../../deployables/marketplace-seed-testing
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.5(@opentelemetry/api@1.9.1)(@types/node@25.6.2)(@vitest/coverage-v8@4.1.5)(jsdom@29.1.1)(vite@8.0.11(@types/node@25.6.2)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)(yaml@2.8.4))
 
   bounded-contexts/tax:
     dependencies:
