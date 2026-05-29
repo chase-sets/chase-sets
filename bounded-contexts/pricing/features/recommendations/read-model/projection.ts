@@ -167,11 +167,12 @@ export function buildPricingRecommendationProjectionHandlers(db: PgQueryable): P
 
       await db.query(
         `UPDATE pricing_recommendation_pages
-         SET status = 'failed',
-             last_error = $2,
-             recommendation_published_at = $3,
-             updated_at = $3
-         WHERE recommendation_id = $1`,
+          SET status = 'failed',
+              last_error = $2,
+              recommendation_published_at = $3,
+              updated_at = $3
+          WHERE recommendation_id = $1
+            AND status NOT IN ('applied', 'dismissed')`,
         [data.recommendationId, data.errorMessage, data.failedAt],
       );
     },

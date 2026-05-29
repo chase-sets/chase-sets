@@ -519,4 +519,35 @@ describe("inventory import batch runtime", () => {
       listing_quantity_cap: 2,
     });
   });
+
+  it("bounds staged input retention deletes", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const services = createInventoryImportBatchRuntime({
+      db: {
+        query: async (sql, values = []) => {
+          calls.push({ sql, values });
+          return { rows: [], rowCount: 0 };
+        },
+      },
+      catalogItems: catalogServices(),
+      items: itemServices(() => undefined),
+      draftListingCreator: vi.fn(async (params) => ({
+        listingId: params.listingIdOverride,
+        version: 1,
+        feeQuoteFingerprint: "fee_1",
+      })),
+    });
+
+    await services.pruneImportBatchJobRetention({
+      completedBefore: "2026-05-01T00:00:00.000Z",
+      stagedInputCreatedBefore: "2026-05-02T00:00:00.000Z",
+      limit: 17,
+    });
+
+    const stagedInputDelete = calls.find((call) => call.sql.includes("inventory_import_batch_job_inputs AS input"));
+    expect(stagedInputDelete?.sql).toContain("WITH expired AS");
+    expect(stagedInputDelete?.sql).toContain("LIMIT $2");
+    expect(stagedInputDelete?.sql).toContain("status IN ('queued', 'running')");
+    expect(stagedInputDelete?.values[1]).toBe(17);
+  });
 });

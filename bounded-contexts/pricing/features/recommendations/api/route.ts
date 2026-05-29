@@ -282,14 +282,22 @@ export function createAccountRecommendationRoutes(services: PricingRecommendatio
     return createDurableJobEventStream({
       request: c.req.raw,
       signal: c.req.raw.signal,
+      streamLimitKey: `account:${access.actor.accountId}`,
       loadEvents: async (afterSequence) =>
         (await services.listRecommendationJobEvents(jobId, afterSequence)).map((event) => ({
           sequence: event.sequence,
           eventName: event.eventName,
           data: event.job,
         })),
+      loadCurrentSnapshot: async () => {
+        const current = await services.getRecommendationJob(jobId);
+        return current && current.payload.accountId === access.actor.accountId
+          ? toPricingRecommendationJobStatus(current)
+          : null;
+      },
       waitForEvents: (_afterSequence, signal) => services.waitForRecommendationJobEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+      isTerminalSnapshot: (snapshot) => snapshot.status === "completed" || snapshot.status === "failed",
     });
   });
 

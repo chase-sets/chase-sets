@@ -1,3 +1,5 @@
+import type { RealtimeStreamLimiter } from "./realtime-stream-limiter";
+
 export type DurableJobStreamEvent<T> = Readonly<{
   sequence: number;
   eventName: string;
@@ -12,8 +14,10 @@ export type DurableJobEventStreamOptions<T> = Readonly<{
   streamLimiter?: DurableJobStreamLimiter;
   streamLimitKey?: string;
   loadEvents: (afterSequence: number) => Promise<readonly DurableJobStreamEvent<T>[]>;
+  loadCurrentSnapshot?: () => Promise<T | null>;
   waitForEvents?: (afterSequence: number, signal?: AbortSignal) => Promise<void>;
   isTerminal: (event: DurableJobStreamEvent<T>) => boolean;
+  isTerminalSnapshot?: (snapshot: T) => boolean;
 }>;
 
 export type DurableJobStreamLease = Readonly<{
@@ -21,15 +25,20 @@ export type DurableJobStreamLease = Readonly<{
 }>;
 
 export type DurableJobStreamLimiter = Readonly<{
-  acquire: (input: Readonly<{ connectionKey: string }>) => DurableJobStreamLease | null;
+  acquire: (
+    input: Readonly<{ connectionKey: string }>,
+  ) => DurableJobStreamLease | null | Promise<DurableJobStreamLease | null>;
 }>;
 
 const DEFAULT_POLL_INTERVAL_MS = 500;
 const DEFAULT_KEEPALIVE_INTERVAL_MS = 15_000;
 const DEFAULT_MAX_ACTIVE_STREAMS = 500;
-const defaultStreamLimiter = createInMemoryDurableJobStreamLimiter({ maxActiveStreams: DEFAULT_MAX_ACTIVE_STREAMS });
+const DEFAULT_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY = 20;
+let defaultStreamLimiter: DurableJobStreamLimiter = createInMemoryDurableJobStreamLimiter({
+  maxActiveStreams: DEFAULT_MAX_ACTIVE_STREAMS,
+});
 
-export function createDurableJobEventStream<T>(options: DurableJobEventStreamOptions<T>): Response {
+export async function createDurableJobEventStream<T>(options: DurableJobEventStreamOptions<T>): Promise<Response> {
   const encoder = new TextEncoder();
   const pollIntervalMs = Math.max(100, Math.floor(options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS));
   const keepaliveIntervalMs = Math.max(
@@ -39,7 +48,7 @@ export function createDurableJobEventStream<T>(options: DurableJobEventStreamOpt
   let closed = false;
   const streamLimiter = options.streamLimiter ?? defaultStreamLimiter;
   const streamLimitKey = options.streamLimitKey ?? durableJobStreamLimitKey(options.request);
-  const lease = streamLimiter.acquire({ connectionKey: streamLimitKey });
+  const lease = await streamLimiter.acquire({ connectionKey: streamLimitKey });
   if (!lease) {
     return Response.json(
       { error: { code: "too_many_durable_job_streams", message: "Too many durable job status streams." } },
@@ -64,15 +73,24 @@ export function createDurableJobEventStream<T>(options: DurableJobEventStreamOpt
           }
 
           const events = await options.loadEvents(afterSequence);
+          let wroteEvent = false;
           for (const event of events) {
             if (event.sequence <= afterSequence) {
               continue;
             }
 
             write(formatDurableJobSseEvent(event));
+            wroteEvent = true;
             afterSequence = event.sequence;
 
             if (options.isTerminal(event)) {
+              return;
+            }
+          }
+
+          if (!wroteEvent && options.loadCurrentSnapshot && options.isTerminalSnapshot) {
+            const snapshot = await options.loadCurrentSnapshot();
+            if (snapshot && options.isTerminalSnapshot(snapshot)) {
               return;
             }
           }
@@ -104,13 +122,47 @@ export function createDurableJobEventStream<T>(options: DurableJobEventStreamOpt
   });
 }
 
+export function configureDefaultDurableJobStreamLimiter(streamLimiter: DurableJobStreamLimiter | null | undefined) {
+  defaultStreamLimiter =
+    streamLimiter ??
+    createInMemoryDurableJobStreamLimiter({
+      maxActiveStreams: DEFAULT_MAX_ACTIVE_STREAMS,
+    });
+}
+
+export function createDurableJobStreamLimiterFromRealtime(
+  streamLimiter: RealtimeStreamLimiter,
+  options: Readonly<{
+    maxActiveStreams?: number;
+    maxActiveStreamsPerConnectionKey?: number;
+  }> = {},
+): DurableJobStreamLimiter {
+  const maxActiveStreams = Math.max(1, Math.floor(options.maxActiveStreams ?? DEFAULT_MAX_ACTIVE_STREAMS));
+  const maxActiveStreamsPerConnectionKey = Math.max(
+    1,
+    Math.floor(options.maxActiveStreamsPerConnectionKey ?? DEFAULT_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY),
+  );
+
+  return {
+    acquire: (input) =>
+      streamLimiter.acquire({
+        connectionKey: input.connectionKey,
+        maxActiveStreams,
+        maxActiveStreamsPerConnectionKey,
+      }),
+  };
+}
+
 export function createInMemoryDurableJobStreamLimiter(
   options: Readonly<{ maxActiveStreams?: number; maxActiveStreamsPerConnectionKey?: number }> = {},
 ): DurableJobStreamLimiter & Readonly<{ activeConnectionCount: () => number }> {
   const maxActiveStreams = Math.max(1, Math.floor(options.maxActiveStreams ?? DEFAULT_MAX_ACTIVE_STREAMS));
   const maxActiveStreamsPerConnectionKey = Math.max(
     1,
-    Math.floor(options.maxActiveStreamsPerConnectionKey ?? Math.min(20, maxActiveStreams)),
+    Math.floor(
+      options.maxActiveStreamsPerConnectionKey ??
+        Math.min(DEFAULT_MAX_ACTIVE_STREAMS_PER_CONNECTION_KEY, maxActiveStreams),
+    ),
   );
   let active = 0;
   const perKey = new Map<string, number>();

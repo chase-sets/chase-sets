@@ -251,7 +251,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       );
     }
 
-    return streamBulkJobEvents(services, jobId, c.req.raw);
+    return streamBulkJobEvents(services, jobId, c.req.raw, c.get("context"));
   });
 
   app.post("/integration-jobs", async (c) => {
@@ -322,7 +322,7 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
       );
     }
 
-    return streamIntegrationJobEvents(services, jobId, c.req.raw);
+    return streamIntegrationJobEvents(services, jobId, c.req.raw, c.get("context"));
   });
 
   app.get("/:id", async (c) => {
@@ -412,32 +412,52 @@ function parseObservationIds(input: unknown): string[] {
   return Array.isArray(input) ? input.map((observationId: unknown) => String(observationId)) : [];
 }
 
-function streamBulkJobEvents(services: SourceObservationServices, jobId: string, request: Request) {
+function streamBulkJobEvents(
+  services: SourceObservationServices,
+  jobId: string,
+  request: Request,
+  context: CatalogAuthoringEnv["Variables"]["context"],
+) {
   return createDurableJobEventStream({
     request,
     signal: request.signal,
+    streamLimitKey: sourceObservationStreamLimitKey(context),
     loadEvents: async (afterSequence) =>
       (await services.listBulkReviewJobEvents(jobId, afterSequence)).map((event) => ({
         sequence: event.sequence,
         eventName: event.eventName,
         data: event.job,
       })),
+    loadCurrentSnapshot: () => services.getBulkReviewJob(jobId),
     waitForEvents: (_afterSequence, signal) => services.waitForBulkReviewJobEvents(jobId, signal),
     isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+    isTerminalSnapshot: (snapshot) => snapshot.status === "completed" || snapshot.status === "failed",
   });
 }
 
-function streamIntegrationJobEvents(services: SourceObservationServices, jobId: string, request: Request) {
+function streamIntegrationJobEvents(
+  services: SourceObservationServices,
+  jobId: string,
+  request: Request,
+  context: CatalogAuthoringEnv["Variables"]["context"],
+) {
   return createDurableJobEventStream({
     request,
     signal: request.signal,
+    streamLimitKey: sourceObservationStreamLimitKey(context),
     loadEvents: async (afterSequence) =>
       (await services.listIntegrationJobEvents(jobId, afterSequence)).map((event) => ({
         sequence: event.sequence,
         eventName: event.eventName,
         data: event.job,
       })),
+    loadCurrentSnapshot: () => services.getIntegrationJob(jobId),
     waitForEvents: (_afterSequence, signal) => services.waitForIntegrationJobEvents(jobId, signal),
     isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
+    isTerminalSnapshot: (snapshot) => snapshot.status === "completed" || snapshot.status === "failed",
   });
+}
+
+function sourceObservationStreamLimitKey(context: CatalogAuthoringEnv["Variables"]["context"]) {
+  return `account:${context.audit.forAccountId}:user:${context.audit.performedByUserId}`;
 }

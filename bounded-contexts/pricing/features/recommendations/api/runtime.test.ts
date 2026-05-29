@@ -335,6 +335,44 @@ describe("pricing recommendation runtime", () => {
     });
   });
 
+  it("hands off lease-loss during apply side effects without recording business failure", async () => {
+    const gateway: PricingMarketplaceListingGateway = {
+      previewListingTerms: vi.fn(async () => ({ fee_quote_fingerprint: "fee_1" })),
+      updateListingPrice: vi.fn(async () => ({})),
+      createListing: vi.fn(async () => ({ id: "lst_created" })),
+    };
+    const { services, events } = createRuntime(
+      queryStub({
+        recommendations: [proposedRecommendation],
+      }),
+    );
+    await seedRecommendation(services, proposedRecommendation);
+    const jobContext = {
+      throwIfCancelled: vi.fn(),
+      renew: vi
+        .fn()
+        .mockResolvedValueOnce(undefined)
+        .mockRejectedValueOnce(
+          new Error("Pricing recommendation job claim was lost before the status update completed."),
+        ),
+      checkpointProgress: vi.fn(),
+    };
+
+    await expect(
+      services.applyRecommendations(
+        {
+          accountId: "acc_1",
+          recommendationIds: ["rec_active"],
+          marketplaceListings: gateway,
+        },
+        context,
+        jobContext,
+      ),
+    ).rejects.toThrow("claim was lost");
+
+    expect(events.map((event) => event.eventType)).not.toContain("pricing.recommendation.failed");
+  });
+
   it("dismisses selected proposed recommendations", async () => {
     const { services, events } = createRuntime(
       queryStub({

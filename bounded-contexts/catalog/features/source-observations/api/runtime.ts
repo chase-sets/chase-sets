@@ -4,6 +4,8 @@ import { createCommandHandler, type CommandHandler } from "@chase-sets/event-cor
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import {
+  createDurableJobExecutionContext,
+  createDurableJobProgressCheckpoint,
   createPostgresDurableJobStore,
   type DurableJobEvent,
   type DurableJobRecord,
@@ -1117,14 +1119,21 @@ export function createSourceObservationRuntime(
       };
     }
 
-    await requireSourceObservationJobClaim(
-      integrationJobStore.updateProgress({
-        jobId: input.job.jobId,
-        claimOwnerId: input.job.claimOwnerId,
-        claimTtlMs: input.claimTtlMs,
-        progress: bulkProgress(previousResult.outcomes.length, expansions.length, nextExpansion.name),
-      }),
-    );
+    const jobContext = createDurableJobExecutionContext(integrationJobStore, {
+      jobId: input.job.jobId,
+      claimOwnerId: input.job.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      signal: input.context.signal,
+      throwIfLeaseLost: input.context.throwIfLeaseLost,
+      cancelledMessage: "Source Observation job run was cancelled.",
+      claimLostMessage: "Source Observation job claim was lost before the status update completed.",
+    });
+    const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
+      completed: (progress) => progress.completed,
+      isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+    });
+
+    await progressCheckpoint.flush(bulkProgress(previousResult.outcomes.length, expansions.length, nextExpansion.name));
 
     throwIfJobRunCancelled(input.context);
     const outcome = await importIntegrationExpansion({
@@ -1134,19 +1143,14 @@ export function createSourceObservationRuntime(
       context: input.job.eventContext,
       onProgress: async (setProgress) => {
         throwIfJobRunCancelled(input.context);
-        await requireSourceObservationJobClaim(
-          integrationJobStore.updateProgress({
-            jobId: input.job.jobId,
-            claimOwnerId: input.job.claimOwnerId,
-            claimTtlMs: input.claimTtlMs,
-            progress: bulkProgress(
-              previousResult.outcomes.length,
-              expansions.length,
-              setProgress.currentName ?? nextExpansion.name,
-              null,
-              "processing",
-            ),
-          }),
+        await progressCheckpoint.checkpoint(
+          bulkProgress(
+            previousResult.outcomes.length,
+            expansions.length,
+            setProgress.currentName ?? nextExpansion.name,
+            null,
+            "processing",
+          ),
         );
       },
     });

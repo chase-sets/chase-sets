@@ -346,11 +346,16 @@ export function createPostgresDurableJobStore<
       return Boolean(job);
     },
     waitForEvents: async (input) => {
-      await (notificationWaiter?.wait({
-        jobId: input.jobId,
-        signal: input.signal,
-        timeoutMs: input.timeoutMs,
-      }) ?? waitForDurableJobTimeout(Math.max(100, Math.floor(input.timeoutMs ?? 500)), input.signal));
+      const timeoutMs = Math.max(100, Math.floor(input.timeoutMs ?? 500));
+      try {
+        await (notificationWaiter?.wait({
+          jobId: input.jobId,
+          signal: input.signal,
+          timeoutMs,
+        }) ?? waitForDurableJobTimeout(timeoutMs, input.signal));
+      } catch {
+        await waitForDurableJobTimeout(timeoutMs, input.signal);
+      }
     },
     pruneTerminalJobs: async (input) => {
       const result = await db.query<{ job_id: string }>(
@@ -461,6 +466,11 @@ export type DurableJobExecutionContext<TProgress, TResult> = Readonly<{
   checkpointProgress: (progress: TProgress, result?: TResult | null) => Promise<void>;
 }>;
 
+export type DurableJobProgressCheckpoint<TProgress, TResult> = Readonly<{
+  checkpoint: (progress: TProgress, result?: TResult | null) => Promise<void>;
+  flush: (progress: TProgress, result?: TResult | null) => Promise<void>;
+}>;
+
 export function createDurableJobExecutionContext<TPayload, TProgress, TResult, TSnapshot>(
   store: DurableJobStore<TPayload, TProgress, TResult, TSnapshot>,
   input: Readonly<{
@@ -511,6 +521,61 @@ export function createDurableJobExecutionContext<TPayload, TProgress, TResult, T
         }),
       );
     },
+  };
+}
+
+export function createDurableJobProgressCheckpoint<TProgress, TResult>(
+  context: DurableJobExecutionContext<TProgress, TResult>,
+  options: Readonly<{
+    minIntervalMs?: number;
+    minCompletedDelta?: number;
+    completed?: (progress: TProgress) => number | null | undefined;
+    isTerminal?: (progress: TProgress) => boolean;
+  }> = {},
+): DurableJobProgressCheckpoint<TProgress, TResult> {
+  const minIntervalMs = Math.max(0, Math.floor(options.minIntervalMs ?? 1_000));
+  const minCompletedDelta = Math.max(1, Math.floor(options.minCompletedDelta ?? 25));
+  let lastCheckpointAt = 0;
+  let lastCompleted: number | null = null;
+
+  const shouldCheckpoint = (progress: TProgress) => {
+    if (options.isTerminal?.(progress)) {
+      return true;
+    }
+
+    const now = Date.now();
+    const completed = options.completed?.(progress);
+    if (lastCheckpointAt === 0) {
+      return true;
+    }
+
+    if (typeof completed === "number" && Number.isFinite(completed)) {
+      const previousCompleted = lastCompleted ?? 0;
+      if (completed - previousCompleted >= minCompletedDelta) {
+        return true;
+      }
+    }
+
+    return now - lastCheckpointAt >= minIntervalMs;
+  };
+
+  const recordCheckpoint = async (progress: TProgress, result?: TResult | null) => {
+    await context.checkpointProgress(progress, result);
+    lastCheckpointAt = Date.now();
+    const completed = options.completed?.(progress);
+    lastCompleted = typeof completed === "number" && Number.isFinite(completed) ? completed : lastCompleted;
+  };
+
+  return {
+    checkpoint: async (progress, result) => {
+      if (shouldCheckpoint(progress)) {
+        await recordCheckpoint(progress, result);
+        return;
+      }
+
+      await context.renew();
+    },
+    flush: recordCheckpoint,
   };
 }
 
@@ -664,8 +729,13 @@ function createDurableJobNotificationWaiter(db: PgTransactionalPool, channel: st
         client.release();
       };
       client.on?.("error", reset);
-      await client.query(`LISTEN ${channel}`);
-      return client;
+      try {
+        await client.query(`LISTEN ${channel}`);
+        return client;
+      } catch (error) {
+        reset();
+        throw error;
+      }
     })();
 
     return clientPromise;
