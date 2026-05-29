@@ -51,6 +51,8 @@ describe("change-scope", () => {
     expect(scope.affectedWorkspaces).toEqual(["@test/primitives", "@test/catalog", "@test/public-web"]);
     expect(scope.typecheckRequired).toBe(true);
     expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.coverageFastRequired).toBe(true);
+    expect(scope.coverageSummaryRequired).toBe(true);
     expect(scope.buildRequired).toBe(true);
     expect(scope.deployRequired).toBe(true);
   });
@@ -124,6 +126,8 @@ describe("change-scope", () => {
     expect(scope.runtimeAffectedWorkspaces).toEqual([]);
     expect(scope.unitTestsRequired).toBe(true);
     expect(scope.dbTestsRequired).toBe(true);
+    expect(scope.coverageFastRequired).toBe(true);
+    expect(scope.coverageSummaryRequired).toBe(true);
     expect(scope.buildRequired).toBe(false);
     expect(scope.e2eTestsRequired).toBe(false);
   });
@@ -155,6 +159,8 @@ describe("change-scope", () => {
 
     expect(scope.unitTestsRequired).toBe(true);
     expect(scope.dbTestsRequired).toBe(false);
+    expect(scope.coverageFastRequired).toBe(true);
+    expect(scope.coverageSummaryRequired).toBe(true);
   });
 
   it("narrows E2E requirements to marketplace-facing user journey surfaces", () => {
@@ -257,6 +263,8 @@ describe("change-scope", () => {
     expect(scope.localChecksRequired).toBe(true);
     expect(scope.typecheckRequired).toBe(true);
     expect(scope.unitTestsRequired).toBe(false);
+    expect(scope.coverageFastRequired).toBe(false);
+    expect(scope.coverageSummaryRequired).toBe(false);
     expect(scope.buildRequired).toBe(false);
     expect(scope.e2eTestsRequired).toBe(false);
   });
@@ -289,6 +297,8 @@ describe("change-scope", () => {
     expect(scope.runtimeAffectedWorkspaces).toEqual([]);
     expect(scope.unitTestsRequired).toBe(true);
     expect(scope.dbTestsRequired).toBe(false);
+    expect(scope.coverageFastRequired).toBe(true);
+    expect(scope.coverageSummaryRequired).toBe(true);
     expect(scope.buildRequired).toBe(false);
     expect(scope.deployRequired).toBe(false);
     expect(scope.e2eTestsRequired).toBe(false);
@@ -306,6 +316,8 @@ describe("change-scope", () => {
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
     ]);
+    expect(toOutputMap(scope).coverage_fast).toBe("true");
+    expect(toOutputMap(scope).coverage_summary).toBe("true");
   });
 
   it("routes context UI and API slices to owned E2E suites", () => {
@@ -348,6 +360,41 @@ describe("change-scope", () => {
     expect(scope.e2eSuiteIds).toEqual([]);
   });
 
+  it("routes bounded-context marketplace routes by owned journey and excludes admin routes", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const marketplaceAccountScope = classifyChanges({
+      baseDir,
+      changedFiles: [
+        "bounded-contexts/identity/routes/marketplace/account.tsx",
+        "bounded-contexts/support/routes/marketplace/account-support.tsx",
+        "bounded-contexts/reputation/routes/marketplace/account-written-reviews.tsx",
+      ],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "identity", "@test/identity"),
+        workspace(baseDir, "bounded-contexts", "support", "@test/support"),
+        workspace(baseDir, "bounded-contexts", "reputation", "@test/reputation"),
+      ],
+    });
+
+    expect(marketplaceAccountScope.e2eTestsRequired).toBe(true);
+    expect(marketplaceAccountScope.e2eSuiteIds).toEqual(["marketplace_account"]);
+
+    const adminScope = classifyChanges({
+      baseDir,
+      changedFiles: [
+        "bounded-contexts/identity/routes/admin/users.tsx",
+        "bounded-contexts/support/routes/admin/support-queue.tsx",
+      ],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "identity", "@test/identity"),
+        workspace(baseDir, "bounded-contexts", "support", "@test/support"),
+      ],
+    });
+
+    expect(adminScope.e2eTestsRequired).toBe(false);
+    expect(adminScope.e2eSuiteIds).toEqual([]);
+  });
+
   it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
@@ -385,6 +432,10 @@ describe("change-scope", () => {
 
     expect(scope.workflowLintRequired).toBe(true);
     expect(scope.localChecksRequired).toBe(true);
+    expect(scope.coverageFastRequired).toBe(false);
+    expect(scope.coverageSummaryRequired).toBe(false);
+    expect(toOutputMap(scope).coverage_fast).toBe("false");
+    expect(toOutputMap(scope).coverage_summary).toBe("false");
     expect(scope.deployRequired).toBe(false);
   });
 

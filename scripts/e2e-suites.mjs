@@ -112,6 +112,26 @@ const marketplaceRouteSuiteOwnership = [
 
 const boundedContextRouteSuiteOwnership = [
   {
+    pattern: /^bounded-contexts\/[^/]+\/routes\/admin\//,
+    suites: [],
+  },
+  {
+    pattern: /^bounded-contexts\/identity\/routes\/marketplace\//,
+    suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^bounded-contexts\/reputation\/routes\/marketplace\//,
+    suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^bounded-contexts\/support\/routes\/marketplace\//,
+    suites: ["marketplace_account"],
+  },
+  {
+    pattern: /^bounded-contexts\/marketplace\/routes\/account-listing\./,
+    suites: ["marketplace_account", "marketplace_seller"],
+  },
+  {
     pattern: /^bounded-contexts\/public-presence\/routes\/marketplace\//,
     suites: ["marketplace_browse"],
   },
@@ -188,6 +208,10 @@ function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
     if (routeOwnership.pattern.test(filePath)) {
       return routeOwnership.suites;
     }
+  }
+
+  if (/(?:^|\/)routes\//.test(filePath)) {
+    return [];
   }
 
   return contextSuiteOwnership.get(contextName) ?? [];
