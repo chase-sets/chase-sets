@@ -893,34 +893,26 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
     },
     claimScheduledRunner: async (input) => {
       const intervalMs = Math.max(1, Math.floor(input.intervalMs));
+      await db.query(
+        `INSERT INTO platform_scheduled_runners (
+           runner_name,
+           interval_ms,
+           next_run_at,
+           updated_at
+         ) VALUES ($1, $2, now(), now())
+         ON CONFLICT (runner_name) DO NOTHING`,
+        [input.runnerName, intervalMs],
+      );
+
       const result = await db.query(
-        `WITH ensured AS (
-           INSERT INTO platform_scheduled_runners (
-             runner_name,
-             interval_ms,
-             next_run_at,
-             updated_at
-           ) VALUES ($1, $2, now(), now())
-           ON CONFLICT (runner_name)
-           DO UPDATE SET
-             interval_ms = EXCLUDED.interval_ms,
-             updated_at = now()
-           RETURNING runner_name
-         ),
-         claimable AS (
-           SELECT runner_name
-           FROM platform_scheduled_runners
-           WHERE runner_name = $1
-             AND next_run_at <= now()
-           FOR UPDATE
-         )
-         UPDATE platform_scheduled_runners AS runner
+        `UPDATE platform_scheduled_runners
          SET
+           interval_ms = $2::integer,
            last_started_at = now(),
-           next_run_at = now() + ($2::text || ' milliseconds')::interval,
+           next_run_at = now() + ($2::integer::text || ' milliseconds')::interval,
            updated_at = now()
-         FROM claimable
-         WHERE runner.runner_name = claimable.runner_name`,
+         WHERE runner_name = $1
+           AND next_run_at <= now()`,
         [input.runnerName, intervalMs],
       );
 
