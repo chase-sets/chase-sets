@@ -241,11 +241,15 @@ describe("pricing recommendation runtime", () => {
     );
 
     expect(result).toEqual({ appliedCount: 1, failedCount: 0 });
-    expect(gateway.previewListingTerms).toHaveBeenCalledWith({ priceAmount: "17.99" });
-    expect(gateway.updateListingPrice).toHaveBeenCalledWith("lst_1", {
-      priceAmount: "17.99",
-      feeQuoteFingerprint: "fee_1",
-    });
+    expect(gateway.previewListingTerms).toHaveBeenCalledWith({ priceAmount: "17.99" }, expect.any(Object));
+    expect(gateway.updateListingPrice).toHaveBeenCalledWith(
+      "lst_1",
+      {
+        priceAmount: "17.99",
+        feeQuoteFingerprint: "fee_1",
+      },
+      expect.any(Object),
+    );
     expect(events.at(-1)?.eventType).toBe("pricing.recommendation.applied");
   });
 
@@ -292,12 +296,15 @@ describe("pricing recommendation runtime", () => {
     );
 
     expect(result).toEqual({ appliedCount: 1, failedCount: 0 });
-    expect(gateway.createListing).toHaveBeenCalledWith({
-      inventoryItemId: "inv_2",
-      priceAmount: "5.00",
-      quantityCap: 3,
-      listingIdOverride: "lst_pricing_rec_create",
-    });
+    expect(gateway.createListing).toHaveBeenCalledWith(
+      {
+        inventoryItemId: "inv_2",
+        priceAmount: "5.00",
+        quantityCap: 3,
+        listingIdOverride: "lst_pricing_rec_create",
+      },
+      expect.any(Object),
+    );
     expect(events.at(-1)?.payload).toMatchObject({
       appliedListingId: "lst_created",
     });

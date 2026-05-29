@@ -28,18 +28,29 @@ export function subscribeDurableJobStatus<TJob extends DurableJobBrowserStatus>(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let closed = false;
   let currentJob: TJob | null = null;
+  let lastEventId: string | null = null;
 
   const closeSource = () => {
     source?.close();
     source = null;
+  };
+  const sourceUrl = () => {
+    if (!lastEventId) {
+      return options.url;
+    }
+
+    const base = new URL(options.url, window.location.href);
+    base.searchParams.set("cursor", lastEventId);
+    return base.href;
   };
   const open = () => {
     if (closed || source) {
       return;
     }
 
-    source = new EventSource(options.url);
+    source = new EventSource(sourceUrl());
     source.addEventListener("status", (event) => {
+      lastEventId = (event as MessageEvent).lastEventId || lastEventId;
       const nextJob = JSON.parse((event as MessageEvent).data) as TJob;
       currentJob = nextJob;
       options.onStatus(nextJob);

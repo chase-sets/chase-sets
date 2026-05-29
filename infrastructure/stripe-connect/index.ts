@@ -520,12 +520,13 @@ export function createStripeConnectMoneyMovementGateway(
         providerStatus: payout.status?.trim() || "pending",
       };
     },
-    async retrieveConnectedAccountPayout(input) {
+    async retrieveConnectedAccountPayout(input, options = {}) {
       const payout = await stripeRequest<StripePayoutResponse>(
         `/v1/payouts/${encodeURIComponent(input.providerPayoutReference)}`,
         {
           method: "GET",
           stripeAccount: input.providerReference,
+          signal: options.signal,
         },
       );
 

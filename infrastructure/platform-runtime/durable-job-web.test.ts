@@ -1,0 +1,77 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { subscribeDurableJobStatus } from "./durable-job-web";
+
+class FakeEventSource {
+  static instances: FakeEventSource[] = [];
+
+  readonly listeners = new Map<string, Set<(event: Event) => void>>();
+  readonly close = vi.fn();
+
+  constructor(readonly url: string) {
+    FakeEventSource.instances.push(this);
+  }
+
+  addEventListener(type: string, listener: (event: Event) => void) {
+    const listeners = this.listeners.get(type) ?? new Set<(event: Event) => void>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  emit(type: string, data: unknown, lastEventId = "") {
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener({ data: JSON.stringify(data), lastEventId } as MessageEvent);
+    }
+  }
+}
+
+describe("durable job web subscriptions", () => {
+  const originalWindow = globalThis.window;
+  const originalEventSource = globalThis.EventSource;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    FakeEventSource.instances = [];
+    Object.defineProperty(globalThis, "window", {
+      value: { location: { href: "https://admin.test/catalog" } },
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "EventSource", {
+      value: FakeEventSource,
+      configurable: true,
+    });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    Object.defineProperty(globalThis, "window", {
+      value: originalWindow,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "EventSource", {
+      value: originalEventSource,
+      configurable: true,
+    });
+  });
+
+  it("reopens manual reconnects with the last durable event cursor", () => {
+    const statuses: unknown[] = [];
+    const subscription = subscribeDurableJobStatus({
+      url: "/api/catalog/source-observations/integration-jobs/job_1/events",
+      onStatus: (job) => statuses.push(job),
+      reconnectDelayMs: 500,
+    });
+
+    expect(FakeEventSource.instances[0]?.url).toBe("/api/catalog/source-observations/integration-jobs/job_1/events");
+    FakeEventSource.instances[0]?.emit("status", { status: "running" }, "7");
+    FakeEventSource.instances[0]?.emit("error", {});
+    vi.advanceTimersByTime(500);
+
+    expect(FakeEventSource.instances).toHaveLength(2);
+    expect(FakeEventSource.instances[1]?.url).toBe(
+      "https://admin.test/api/catalog/source-observations/integration-jobs/job_1/events?cursor=7",
+    );
+    expect(statuses).toEqual([{ status: "running" }]);
+
+    subscription.close();
+  });
+});

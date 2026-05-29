@@ -23,12 +23,12 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.get("/bulk-authoring-jobs/active", async (c) => {
-    const items = await services.authoringBulkJobs.listActive();
+    const items = await services.authoringBulkJobs.listActive(c.get("context"));
     return c.json({ items, total: items.length, count: items.length });
   });
 
   app.get("/bulk-authoring-jobs/:jobId", async (c) => {
-    const job = await services.authoringBulkJobs.get(c.req.param("jobId"));
+    const job = await services.authoringBulkJobs.get(c.req.param("jobId"), c.get("context"));
     if (!job) {
       return c.json(
         {
@@ -46,7 +46,7 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
 
   app.get("/bulk-authoring-jobs/:jobId/events", async (c) => {
     const jobId = c.req.param("jobId");
-    const job = await services.authoringBulkJobs.get(jobId);
+    const job = await services.authoringBulkJobs.get(jobId, c.get("context"));
     if (!job) {
       return c.json(
         {
@@ -64,12 +64,12 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
       signal: c.req.raw.signal,
       streamLimitKey: catalogAuthoringStreamLimitKey(c.get("context")),
       loadEvents: async (afterSequence) =>
-        (await services.authoringBulkJobs.listEvents(jobId, afterSequence)).map((event) => ({
+        (await services.authoringBulkJobs.listEvents(jobId, afterSequence, c.get("context"))).map((event) => ({
           sequence: event.sequence,
           eventName: event.eventName,
           data: event.job,
         })),
-      loadCurrentSnapshot: () => services.authoringBulkJobs.get(jobId),
+      loadCurrentSnapshot: () => services.authoringBulkJobs.get(jobId, c.get("context")),
       waitForEvents: (_afterSequence, signal) => services.authoringBulkJobs.waitForEvents(jobId, signal),
       isTerminal: (event) => event.data.status === "completed" || event.data.status === "failed",
       isTerminalSnapshot: (snapshot) => snapshot.status === "completed" || snapshot.status === "failed",

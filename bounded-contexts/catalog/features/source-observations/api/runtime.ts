@@ -114,7 +114,7 @@ export type BulkSourceObservationProgress = Readonly<{
 }>;
 
 type SourceObservationProgressHandler = (progress: BulkSourceObservationProgress) => void | Promise<void>;
-type DurableSideEffectRunner = <T>(work: () => Promise<T>) => Promise<T>;
+type DurableSideEffectRunner = <T>(work: (signal: AbortSignal) => Promise<T>) => Promise<T>;
 
 export type SourceObservationBulkJobAction = "promote" | "reject" | "reapply";
 
@@ -617,7 +617,7 @@ export function createSourceObservationRuntime(
           continue;
         }
 
-        const reapplied = await (input.runReapplyObservation ?? ((work) => work()))(() =>
+        const reapplied = await (input.runReapplyObservation ?? runSourceObservationSideEffectImmediately)(() =>
           reapplyObservationFromRow({
             observation,
             context: input.context,
@@ -744,7 +744,9 @@ export function createSourceObservationRuntime(
 
     for (const [index, observation] of observations.entries()) {
       await input.beforeRecordObservation?.();
-      await (input.runRecordObservation ?? ((work) => work()))(() => recordObservation(observation, input.context));
+      await (input.runRecordObservation ?? runSourceObservationSideEffectImmediately)(() =>
+        recordObservation(observation, input.context),
+      );
       await input.onProgress?.({
         phase: "recording",
         completed: index + 1,
@@ -2723,10 +2725,14 @@ function createSourceObservationSideEffectRunner<TResult>(
   jobContext: DurableJobExecutionContext<BulkSourceObservationProgress, TResult>,
 ): DurableSideEffectRunner {
   return (work) =>
-    runDurableJobSideEffect(jobContext, () => work(), {
+    runDurableJobSideEffect(jobContext, work, {
       renewIntervalMs: 5_000,
       claimLostMessage: "Source Observation job claim was lost while applying a side effect.",
     });
+}
+
+function runSourceObservationSideEffectImmediately<T>(work: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  return work(new AbortController().signal);
 }
 
 function isJobRunCancelled(context: SourceObservationJobRunContext): boolean {

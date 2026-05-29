@@ -135,6 +135,7 @@ export type MoneyMovementGateway = Readonly<{
       providerReference: string;
       providerPayoutReference: string;
     }>,
+    options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<RetrievedProviderPayout>;
   parseMoneyMovementWebhook: (
     input: Readonly<{ rawBody: string; signatureHeader: string | null }>,
