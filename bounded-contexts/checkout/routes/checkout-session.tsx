@@ -19,7 +19,7 @@ const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
 );
 
 async function loadWalletBalance(request: Request) {
-  const response = await createForwardedAuthFetch(request)(
+  const response = await createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" })(
     `${resolveRequestApiBaseUrl(request, "/api/settlement")}/wallet`,
   );
 

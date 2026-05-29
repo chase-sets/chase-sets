@@ -22,6 +22,6 @@ import { createMarketplaceApiClient } from "../../client";
 export function createMarketplaceRequestApiClient(request: Request) {
   return createMarketplaceApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "marketplace" }),
   });
 }

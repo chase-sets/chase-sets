@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
@@ -42,21 +43,33 @@ export async function action({ request, params }: ActionFunctionArgs) {
   try {
     switch (intent) {
       case "adjust-item":
-        await api.adjustItem(params.itemId!, {
-          quantityDelta: Number(formData.get("quantityDelta") ?? 0),
-          reason: formData.get("reason"),
-        });
-        return redirect(`${new URL(request.url).pathname}?feedbackWorkflow=inventory-adjust`);
+        return redirect(
+          appendFreshWriteToken(
+            `${new URL(request.url).pathname}?feedbackWorkflow=inventory-adjust`,
+            await api.adjustItem(params.itemId!, {
+              quantityDelta: Number(formData.get("quantityDelta") ?? 0),
+              reason: formData.get("reason"),
+            }),
+          ),
+        );
       case "create-hold":
-        await api.createHold(params.itemId!, {
-          quantity: Number(formData.get("quantity") ?? 0),
-          reason: formData.get("reason"),
-          notes: String(formData.get("notes") ?? "").trim() || null,
-        });
-        break;
+        return redirect(
+          appendFreshWriteToken(
+            new URL(request.url).pathname,
+            await api.createHold(params.itemId!, {
+              quantity: Number(formData.get("quantity") ?? 0),
+              reason: formData.get("reason"),
+              notes: String(formData.get("notes") ?? "").trim() || null,
+            }),
+          ),
+        );
       case "release-hold":
-        await api.releaseHold(String(formData.get("holdId") ?? ""));
-        break;
+        return redirect(
+          appendFreshWriteToken(
+            new URL(request.url).pathname,
+            await api.releaseHold(String(formData.get("holdId") ?? "")),
+          ),
+        );
       default:
         break;
     }

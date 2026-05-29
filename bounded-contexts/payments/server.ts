@@ -16,6 +16,6 @@ import { createPaymentsApiClient } from "./support/request-support/api-client";
 export function createPaymentsRequestApiClient(request: Request) {
   return createPaymentsApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "payments" }),
   });
 }

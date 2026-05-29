@@ -16,6 +16,6 @@ import { createIdentityApiClient } from "../../client";
 export function createIdentityRequestApiClient(request: Request) {
   return createIdentityApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/identity"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "identity" }),
   });
 }

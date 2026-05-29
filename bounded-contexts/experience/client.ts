@@ -1,4 +1,4 @@
-import type { ListResponse } from "@chase-sets/http/responses";
+import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type {
   DismissPlatformFeedbackPromptRequest,
   PlatformFeedbackDetail,
@@ -49,7 +49,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new ExperienceApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 function toQuery(params: Record<string, string | number | boolean | null | undefined>) {

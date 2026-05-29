@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
-import { loadFreshlyWrittenResource } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { PlatformFeedbackPrompt } from "@chase-sets/experience/server";
@@ -93,40 +93,58 @@ export async function action({ request, params }: ActionFunctionArgs) {
           }),
         };
       case "update-price":
-        await api.updateListingPrice(params.listingId!, {
-          priceAmount: priceDraftAmount,
-          feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
-        });
-        return redirect(`${pathname}?feedbackWorkflow=listing-update`);
+        return redirect(
+          appendFreshWriteToken(
+            `${pathname}?feedbackWorkflow=listing-update`,
+            await api.updateListingPrice(params.listingId!, {
+              priceAmount: priceDraftAmount,
+              feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
+            }),
+          ),
+        );
       case "update-quantity-cap":
-        await api.updateListingQuantityCap(params.listingId!, {
-          quantityCap: Number(formData.get("quantityCap") ?? 0),
-          feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
-        });
-        return redirect(`${pathname}?feedbackWorkflow=listing-update`);
+        return redirect(
+          appendFreshWriteToken(
+            `${pathname}?feedbackWorkflow=listing-update`,
+            await api.updateListingQuantityCap(params.listingId!, {
+              quantityCap: Number(formData.get("quantityCap") ?? 0),
+              feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
+            }),
+          ),
+        );
       case "update-purchase-limits":
-        await api.updateListingPurchaseLimits(params.listingId!, {
-          purchaseLimits: {
-            maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
-            maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
-            maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
-          },
-        });
-        return redirect(`${pathname}?feedbackWorkflow=listing-update`);
+        return redirect(
+          appendFreshWriteToken(
+            `${pathname}?feedbackWorkflow=listing-update`,
+            await api.updateListingPurchaseLimits(params.listingId!, {
+              purchaseLimits: {
+                maxUnitsPerOrder: optionalLimit(formData.get("maxUnitsPerOrder")),
+                maxUnitsPerDay: optionalLimit(formData.get("maxUnitsPerDay")),
+                maxUnitsPerCustomerAccount: optionalLimit(formData.get("maxUnitsPerCustomerAccount")),
+              },
+            }),
+          ),
+        );
       case "add-photos":
-        await api.addListingPhotos(params.listingId!, listingPhotoFormData(formData));
-        return redirect(`${pathname}?feedbackWorkflow=listing-update`);
+        return redirect(
+          appendFreshWriteToken(
+            `${pathname}?feedbackWorkflow=listing-update`,
+            await api.addListingPhotos(params.listingId!, listingPhotoFormData(formData)),
+          ),
+        );
       case "publish":
-        await api.publishListing(params.listingId!, {
-          feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
-        });
-        return redirect(`${pathname}?feedbackWorkflow=listing-publish`);
+        return redirect(
+          appendFreshWriteToken(
+            `${pathname}?feedbackWorkflow=listing-publish`,
+            await api.publishListing(params.listingId!, {
+              feeQuoteFingerprint: formData.get("feeQuoteFingerprint"),
+            }),
+          ),
+        );
       case "pause":
-        await api.pauseListing(params.listingId!);
-        break;
+        return redirect(appendFreshWriteToken(pathname, await api.pauseListing(params.listingId!)));
       case "withdraw":
-        await api.withdrawListing(params.listingId!);
-        break;
+        return redirect(appendFreshWriteToken(pathname, await api.withdrawListing(params.listingId!)));
       default:
         break;
     }

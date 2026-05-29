@@ -13,7 +13,7 @@ import { createCheckoutApiClient } from "../../client";
 export function createCheckoutRequestApiClient(request: Request, options: Readonly<{ headers?: HeadersInit }> = {}) {
   return createCheckoutApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "checkout" }),
     headers: options.headers,
   });
 }

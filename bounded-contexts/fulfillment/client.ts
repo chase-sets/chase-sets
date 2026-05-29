@@ -1,6 +1,6 @@
 import { hc } from "hono/client";
 import type { HonoClientResource } from "@chase-sets/http/hono-client";
-import type { ListResponse } from "@chase-sets/http/responses";
+import { attachResponseMetadata, type ListResponse } from "@chase-sets/http/responses";
 import type { buildFulfillmentApi } from "./api";
 
 export type {
@@ -53,7 +53,7 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
     throw new FulfillmentApiError(response.status, errorBody);
   }
 
-  return response.json() as Promise<T>;
+  return attachResponseMetadata(await response.json(), response) as T;
 }
 
 export function createFulfillmentApiClient({

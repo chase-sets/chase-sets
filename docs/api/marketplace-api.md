@@ -21,6 +21,8 @@ Account-scoped endpoints resolve tenant, user, account, and permissions from the
 
 - `traceparent`: optional W3C trace context propagated into request telemetry and stored event trace metadata.
 - `tracestate`: optional W3C vendor trace state.
+- `Chase-Sets-Read-After-Write`: short-lived source-context commit receipt used on read-model-backed `GET` and `HEAD` requests after a client follows a write redirect.
+- `Chase-Sets-Read-Target-Context`: server-set target context hint used by platform request clients on shared API mount paths.
 
 ## Responses
 
@@ -40,11 +42,12 @@ Write responses may also include consistency headers:
 
 - `Chase-Sets-Consistency: eventual`
 - `Chase-Sets-Commit-Position: <global event position>`
+- `Chase-Sets-Commit-Receipt: <encoded source-context receipt>` when committed events were recorded
 - `Chase-Sets-Commit-Event-Ids: <comma-separated event ids>` when the compact value fits in response headers
 
-Browser routes that redirect to a read-model-backed detail page after creating a resource carry the commit position as a short-lived `afterWrite` query token. Detail loaders use that token to retry bounded `404` reads before treating the resource as missing. Clients must not treat every `404` as retryable; only a fresh write token means the resource may still be waiting for projections.
+Browser routes that redirect to a read-model-backed page after a write carry the source-context receipt as a short-lived `afterWrite` query token. Server-side route fetches forward that token as `Chase-Sets-Read-After-Write`, and mounted APIs wait for relevant projection checkpoints before loading the read model. Detail loaders may still use bounded `404` retries as a compatibility fallback. Clients must not treat every `404` as retryable; only a fresh write token means the resource may still be waiting for projections.
 
-Command responses do not imply downstream projections have drained. Clients that need read-your-writes behavior should use the commit-position metadata and bounded retries rather than depending on synchronous projector drain.
+Command responses do not imply downstream projections have drained. Clients that need read-your-writes behavior should keep response metadata attached, redirect with `afterWrite`, and let the API read consistency gate wait on projection checkpoints rather than depending on synchronous projector drain.
 
 Errors use one envelope:
 
@@ -58,7 +61,9 @@ Errors use one envelope:
 }
 ```
 
-Standard error codes are `authentication_required`, `authorization_forbidden`, `validation_failed`, `not_found`, `conflict`, `provider_failed`, and `internal_error`.
+Standard error codes are `authentication_required`, `authorization_forbidden`, `validation_failed`, `not_found`, `conflict`, `projection_freshness_timeout`, `provider_failed`, and `internal_error`.
+
+`projection_freshness_timeout` returns HTTP `503` when a read-after-write receipt is fresh but the required projection checkpoints do not catch up before the bounded wait. Clients should retry the read with the same `afterWrite` token while it is still fresh or surface a temporary refresh state.
 
 Fee-confirmed listing and offer actions may also return `fee_quote_stale` with a `currentQuote` object. Clients should show the returned quote and retry with its `feeQuoteFingerprint`. Payment creation may return `fee_quote_stale` with `marketplace_checkout_fee` when the confirmed Marketplace Checkout Fee fingerprint is stale.
 

@@ -11,6 +11,6 @@ import { createPublicPresenceApiClient } from "../../client";
 export function createPublicPresenceRequestApiClient(request: Request) {
   return createPublicPresenceApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/public-presence"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "public-presence" }),
   });
 }

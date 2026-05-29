@@ -31,6 +31,6 @@ import { createCatalogApiClient } from "../../client";
 export function createCatalogRequestApiClient(request: Request) {
   return createCatalogApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/catalog"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "catalog" }),
   });
 }

@@ -12,6 +12,6 @@ import { createExperienceApiClient } from "../../client";
 export function createExperienceRequestApiClient(request: Request) {
   return createExperienceApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/experience"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "experience" }),
   });
 }

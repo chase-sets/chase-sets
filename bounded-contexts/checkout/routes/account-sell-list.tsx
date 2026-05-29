@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -52,7 +53,7 @@ export async function action({ request }: ActionFunctionArgs) {
       const offerId = String(formData.get("offerId") ?? "");
       const offer = await marketplaceApi.getOfferMatch(offerId);
 
-      await api.addSellListLine({
+      const result = await api.addSellListLine({
         lineType: "selected-offer",
         offerId: offer.offer_id,
         buyerAccountId: offer.buyer_account_id,
@@ -69,21 +70,26 @@ export async function action({ request }: ActionFunctionArgs) {
         minimumListingPriceAmount: null,
       });
 
-      return redirect("/account/sell-list");
+      return redirect(appendFreshWriteToken("/account/sell-list", result));
     }
 
     if (intent === "remove-sell-list-line") {
       if (!useAccountSellList && anonymousSellListId) {
-        await api.removeGuestSellListLine(anonymousSellListId, String(formData.get("lineId") ?? ""));
-        return redirect("/account/sell-list");
+        return redirect(
+          appendFreshWriteToken(
+            "/account/sell-list",
+            await api.removeGuestSellListLine(anonymousSellListId, String(formData.get("lineId") ?? "")),
+          ),
+        );
       }
 
       if (!useAccountSellList) {
         throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
       }
 
-      await api.removeSellListLine(String(formData.get("lineId") ?? ""));
-      return redirect("/account/sell-list");
+      return redirect(
+        appendFreshWriteToken("/account/sell-list", await api.removeSellListLine(String(formData.get("lineId") ?? ""))),
+      );
     }
 
     return null;

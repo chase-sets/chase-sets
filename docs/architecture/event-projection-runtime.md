@@ -43,7 +43,14 @@ Legacy `createProjector` consumers also push handler event types into `readAll` 
 
 When a subscription does not explicitly declare `eventTypes`, the runtime derives its event-type filter from the handler map. If a subscription declares `eventTypes`, startup validation fails when any handler event type is missing from that declaration. A projection must not be allowed to silently checkpoint past an event it has a handler for.
 
-API writes do not drain projections by default. Write responses expose commit-position metadata, and read-after-write surfaces use bounded retries against that position. Synchronous write-drain is an explicit compatibility mode only, not the normal consistency contract.
+API writes do not drain projections by default. Write responses expose source-context commit receipt metadata:
+
+- `Chase-Sets-Commit-Position` is the maximum global position across all committed events for legacy scalar checks.
+- `Chase-Sets-Commit-Receipt` is the canonical source-aware receipt. It carries each source context name, its committed event ids, and the maximum global position that projections must observe for that source.
+
+Browser redirects that lead to read-model-backed pages carry that receipt as a short-lived `afterWrite` token. The platform runtime forwards it to mounted APIs as `Chase-Sets-Read-After-Write`; context-owned request clients also set `Chase-Sets-Read-Target-Context` so shared mount paths such as `/api/marketplace` wait only on the context serving the read. API read consistency middleware then waits, within a bounded timeout, until every relevant projection group for that target context has checkpointed past the receipt for matching source contexts. If projections do not catch up in time, the API returns `projection_freshness_timeout` instead of serving a known-stale read model.
+
+Detail loaders may still use bounded not-found retry as a compatibility fallback, but the system-wide pattern is receipt propagation plus projection checkpoint gating. Synchronous write-drain is an explicit compatibility mode only, not the normal consistency contract.
 
 ## Idempotency
 

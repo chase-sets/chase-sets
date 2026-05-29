@@ -12,6 +12,6 @@ import { createReputationApiClient } from "../../client";
 export function createReputationRequestApiClient(request: Request) {
   return createReputationApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "reputation" }),
   });
 }

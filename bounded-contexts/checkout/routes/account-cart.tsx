@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { redirect, useActionData, useLoaderData } from "react-router";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
@@ -11,6 +12,10 @@ const MARKETPLACE_DESCRIPTION = t("checkout.routes.accountCart.review.cart.lines
 
 function canUseAccountCart(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
+}
+
+function latestWriteResult(results: readonly unknown[]): unknown {
+  return [...results].reverse().find((result) => result !== undefined && result !== null) ?? null;
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -46,22 +51,26 @@ export async function action({ request }: ActionFunctionArgs) {
       const [primaryLineId, ...duplicateLineIds] = lineIds;
 
       if (!useAccountCart && anonymousCartId) {
-        await api.updateGuestCartLineQuantity(anonymousCartId, primaryLineId ?? "", {
-          quantity: Number(formData.get("quantity") ?? 0),
-        });
-        await Promise.all(duplicateLineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)));
-        return redirect("/account/cart");
+        const results = await Promise.all([
+          api.updateGuestCartLineQuantity(anonymousCartId, primaryLineId ?? "", {
+            quantity: Number(formData.get("quantity") ?? 0),
+          }),
+          ...duplicateLineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)),
+        ]);
+        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
       }
 
       if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
-      await api.updateCartLineQuantity(primaryLineId ?? "", {
-        quantity: Number(formData.get("quantity") ?? 0),
-      });
-      await Promise.all(duplicateLineIds.map((lineId) => api.removeCartLine(lineId)));
-      return redirect("/account/cart");
+      const results = await Promise.all([
+        api.updateCartLineQuantity(primaryLineId ?? "", {
+          quantity: Number(formData.get("quantity") ?? 0),
+        }),
+        ...duplicateLineIds.map((lineId) => api.removeCartLine(lineId)),
+      ]);
+      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
     }
 
     if (intent === "remove-cart-line") {
@@ -71,16 +80,16 @@ export async function action({ request }: ActionFunctionArgs) {
         .filter(Boolean);
 
       if (!useAccountCart && anonymousCartId) {
-        await Promise.all(lineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)));
-        return redirect("/account/cart");
+        const results = await Promise.all(lineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)));
+        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
       }
 
       if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
-      await Promise.all(lineIds.map((lineId) => api.removeCartLine(lineId)));
-      return redirect("/account/cart");
+      const results = await Promise.all(lineIds.map((lineId) => api.removeCartLine(lineId)));
+      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
     }
 
     if (intent === "unlock-cart-line") {
@@ -90,7 +99,7 @@ export async function action({ request }: ActionFunctionArgs) {
         .filter(Boolean);
 
       if (!useAccountCart && anonymousCartId) {
-        await Promise.all(
+        const results = await Promise.all(
           lineIds.map((lineId) =>
             api.updateGuestCartLineFulfillment(anonymousCartId, lineId, {
               fulfillmentMode: "optimize",
@@ -100,14 +109,14 @@ export async function action({ request }: ActionFunctionArgs) {
             }),
           ),
         );
-        return redirect("/account/cart");
+        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
       }
 
       if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
-      await Promise.all(
+      const results = await Promise.all(
         lineIds.map((lineId) =>
           api.updateCartLineFulfillment(lineId, {
             fulfillmentMode: "optimize",
@@ -117,7 +126,7 @@ export async function action({ request }: ActionFunctionArgs) {
           }),
         ),
       );
-      return redirect("/account/cart");
+      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
     }
 
     if (intent === "lock-cart-line") {
@@ -131,7 +140,7 @@ export async function action({ request }: ActionFunctionArgs) {
       }
 
       if (!useAccountCart && anonymousCartId) {
-        await Promise.all(
+        const results = await Promise.all(
           lineIds.map((lineId) =>
             api.updateGuestCartLineFulfillment(anonymousCartId, lineId, {
               fulfillmentMode: "locked-listing",
@@ -141,14 +150,14 @@ export async function action({ request }: ActionFunctionArgs) {
             }),
           ),
         );
-        return redirect("/account/cart");
+        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
       }
 
       if (!useAccountCart) {
         throw new Error(t("checkout.routes.accountCart.request.failed"));
       }
 
-      await Promise.all(
+      const results = await Promise.all(
         lineIds.map((lineId) =>
           api.updateCartLineFulfillment(lineId, {
             fulfillmentMode: "locked-listing",
@@ -158,7 +167,7 @@ export async function action({ request }: ActionFunctionArgs) {
           }),
         ),
       );
-      return redirect("/account/cart");
+      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
     }
 
     return null;

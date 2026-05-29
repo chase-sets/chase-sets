@@ -13,6 +13,6 @@ import { createOrderingApiClient } from "../../client";
 export function createOrderingRequestApiClient(request: Request) {
   return createOrderingApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
-    fetch: createForwardedAuthFetch(request),
+    fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "ordering" }),
   });
 }
