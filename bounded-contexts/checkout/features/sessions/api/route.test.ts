@@ -390,6 +390,38 @@ describe("checkout session routes", () => {
     );
   });
 
+  it("can defer payment so signed-in checkout reviews exact fees before payment creation", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress, deferPayment: true }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      order_ids: ["ord_1"],
+      status: "orders-created",
+    });
+    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
+    expect(services.recordOrdersCreated).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "chk_1", orderIds: ["ord_1"] }),
+      expect.any(Object),
+    );
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
   it("retries payment recording without recreating orders", async () => {
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_existing");
     const services = createServices({

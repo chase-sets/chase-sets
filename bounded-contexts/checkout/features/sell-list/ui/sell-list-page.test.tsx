@@ -46,7 +46,18 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("Selected offers");
     expect(markup).toContain("Ash Ketchum");
     expect(markup).toContain("Accept selected offer during checkout review");
+    expect(markup).toContain("Sale checkout confidence");
+    expect(markup).toContain("Payout readiness");
+    expect(markup).toContain("Fallback listing floor");
     expect(markup).toContain("Smart Match offers for");
     expect(markup).toContain("Checkout owns the review step");
+    expect(markup).toContain("Review sale checkout");
+  });
+
+  it("confirms when sale checkout review is recorded", () => {
+    const markup = renderToString(<CheckoutSellListPage sellListLines={[]} reviewCompleted />);
+
+    expect(markup).toContain("Sale checkout review recorded");
+    expect(markup).toContain("cleared the Sell List items");
   });
 });

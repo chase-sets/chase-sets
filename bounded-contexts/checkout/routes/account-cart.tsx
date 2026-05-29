@@ -50,10 +50,15 @@ export async function action({ request }: ActionFunctionArgs) {
         .filter(Boolean);
       const [primaryLineId, ...duplicateLineIds] = lineIds;
 
+      const enteredQuantity = Number(formData.get("quantity") ?? 1);
+      const quantityDelta = Number(formData.get("quantityDelta") ?? 0);
+      const safeEnteredQuantity = Number.isFinite(enteredQuantity) ? enteredQuantity : 1;
+      const nextQuantity = Math.max(1, safeEnteredQuantity + (Number.isFinite(quantityDelta) ? quantityDelta : 0));
+
       if (!useAccountCart && anonymousCartId) {
         const results = await Promise.all([
           api.updateGuestCartLineQuantity(anonymousCartId, primaryLineId ?? "", {
-            quantity: Number(formData.get("quantity") ?? 0),
+            quantity: nextQuantity,
           }),
           ...duplicateLineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)),
         ]);
@@ -66,7 +71,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
       const results = await Promise.all([
         api.updateCartLineQuantity(primaryLineId ?? "", {
-          quantity: Number(formData.get("quantity") ?? 0),
+          quantity: nextQuantity,
         }),
         ...duplicateLineIds.map((lineId) => api.removeCartLine(lineId)),
       ]);

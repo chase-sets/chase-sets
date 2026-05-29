@@ -193,6 +193,39 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     }
   });
 
+  app.post("/sell-list/checkout", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.cart.api.route.authentication.context.missing.3"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.checkoutSellList(
+        {
+          sellerAccountId: access.actor.accountId as never,
+        },
+        context,
+      );
+
+      return c.json({ id: result.sellerAccountId, version: result.version, status: result.status });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   return app;
 }
 

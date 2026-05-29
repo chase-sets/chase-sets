@@ -38,14 +38,18 @@ export const checkoutEnglishTranslations = {
     "Continue to choose shipping and create purchases grouped by seller.",
   "checkout.features.cart.ui.cartPage.current.buy.cart": "Current buy cart",
   "checkout.features.cart.ui.cartPage.current.cart": "Current buy cart",
+  "checkout.features.cart.ui.cartPage.decrease": "Decrease",
   "checkout.features.cart.ui.cartPage.eligible.orders.are.protected.through.payment":
     "Eligible orders are protected through payment and fulfillment.",
   "checkout.features.cart.ui.cartPage.empty.cart.protection.description":
     "When you add items, checkout will show seller grouping, fees, fulfillment, and support paths before payment.",
   "checkout.features.cart.ui.cartPage.empty.cart.protection.title": "Checkout protection stays visible",
   "checkout.features.cart.ui.cartPage.fulfillment.ready": "Fulfillment Ready",
+  "checkout.features.cart.ui.cartPage.estimated.item.subtotal": "Estimated item subtotal",
+  "checkout.features.cart.ui.cartPage.estimated.shipping.credit": "Estimated shipping credit",
   "checkout.features.cart.ui.cartPage.fallback": "Fallback",
   "checkout.features.cart.ui.cartPage.items": "Items",
+  "checkout.features.cart.ui.cartPage.increase": "Increase",
   "checkout.features.cart.ui.cartPage.lowest.total.cost": "Lowest total cost",
   "checkout.features.cart.ui.cartPage.optimize.for": "Optimize for",
   "checkout.features.cart.ui.cartPage.payment.starts.only.after.orders.are":
@@ -139,8 +143,10 @@ export const checkoutEnglishTranslations = {
     "Eligible orders are protected through payment and fulfillment.",
   "checkout.features.sessions.ui.checkoutPage.expedited": "Expedited",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.ready": "Fulfillment Ready",
+  "checkout.features.sessions.ui.checkoutPage.fulfillment.changed": "Fulfillment changed since your last preview",
   "checkout.features.sessions.ui.checkoutPage.items": "Items",
   "checkout.features.sessions.ui.checkoutPage.lines": "Lines",
+  "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee": "Marketplace checkout fee",
   "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description":
     "Marketplace Checkout Fee covers payment costs and order protection, and may be reduced by eligible lower-cost payment methods.",
   "checkout.features.sessions.ui.checkoutPage.order.totals.created": "Order totals created",
@@ -149,6 +155,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.payment.method": "Payment method",
   "checkout.features.sessions.ui.checkoutPage.payment.ready": "Payment ready",
   "checkout.features.sessions.ui.checkoutPage.payment.ready.2": "Payment ready",
+  "checkout.features.sessions.ui.checkoutPage.payment.review.next": "Payment review comes next",
+  "checkout.features.sessions.ui.checkoutPage.payment.review.next.description":
+    "After purchases are created, the next page shows marketplace checkout fee, payment method choices, wallet credit, and final total before payment starts.",
+  "checkout.features.sessions.ui.checkoutPage.payment.review.next.with.wallet":
+    "After purchases are created, the next page can apply up to {amount} {currency} wallet balance and shows the final total before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are":
     "Payment starts only after orders are grouped by seller.",
   "checkout.features.sessions.ui.checkoutPage.platform.credit.only": "Platform credit only",
@@ -170,9 +181,12 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.quantity": "Quantity",
   "checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases": "Ready to create purchases",
   "checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent": "Ready to place purchase intent",
+  "checkout.features.sessions.ui.checkoutPage.ready.to.review.payment": "Ready to review payment",
   "checkout.features.sessions.ui.checkoutPage.recipient.name": "Recipient name",
   "checkout.features.sessions.ui.checkoutPage.recipient.placeholder": "Jane Smith",
   "checkout.features.sessions.ui.checkoutPage.review.items": "Review Items",
+  "checkout.features.sessions.ui.checkoutPage.review.payment.total": "Review payment total",
+  "checkout.features.sessions.ui.checkoutPage.reviewed.before.payment": "Reviewed before payment",
   "checkout.features.sessions.ui.checkoutPage.secure.checkout": "Secure Checkout",
   "checkout.features.sessions.ui.checkoutPage.secure.payment": "Secure Payment",
   "checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order":
@@ -195,6 +209,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.transparent.totals.description":
     "Shipping, taxes, service charges, and available balance credits are reviewed before the secure payment step.",
   "checkout.features.sessions.ui.checkoutPage.no.payment.today": "No payment today",
+  "checkout.features.sessions.ui.checkoutPage.orders.then.payment.review":
+    "Purchases are created first so fees, wallet credit, and final total can be reviewed before payment.",
   "checkout.features.sessions.ui.checkoutPage.place.purchase.intent": "Place purchase intent",
   "checkout.features.sessions.ui.checkoutPage.placing.purchase.intent": "Placing purchase intent",
   "checkout.features.sessions.ui.checkoutPage.shipping.saved.for.seller.acceptance":
@@ -211,26 +227,50 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.buyer": "Buyer",
   "checkout.features.sellList.ui.sellListPage.buyer.payment.already.authorized":
     "Buyer payment already authorized by offer",
+  "checkout.features.sellList.ui.sellListPage.buyer.payment.confidence": "Buyer payment confidence",
+  "checkout.features.sellList.ui.sellListPage.checked.before.commitment": "Checked before commitment",
   "checkout.features.sellList.ui.sellListPage.checkout": "Checkout",
   "checkout.features.sellList.ui.sellListPage.checkout.owns.the.review.step":
     "Checkout owns the review step because accepting offers uses payment triggers, sale commitment, payout, and fulfillment orchestration.",
   "checkout.features.sellList.ui.sellListPage.create.account": "Create account",
+  "checkout.features.sellList.ui.sellListPage.create.fallback.listing.after.review":
+    "Create fallback listing after review",
   "checkout.features.sellList.ui.sellListPage.create.listings": "create listings",
   "checkout.features.sellList.ui.sellListPage.disabled": "disabled",
   "checkout.features.sellList.ui.sellListPage.execution": "Execution",
+  "checkout.features.sellList.ui.sellListPage.accept.matching.offers.only": "Accept matching offers only",
+  "checkout.features.sellList.ui.sellListPage.fallback.listing.floor": "Fallback listing floor",
+  "checkout.features.sellList.ui.sellListPage.fulfillment.commitment": "Fulfillment commitment",
+  "checkout.features.sellList.ui.sellListPage.inventory.and.shipping.are.confirmed":
+    "Inventory, shipping method, and handoff requirements are confirmed before sale work begins.",
   "checkout.features.sellList.ui.sellListPage.items": "Items",
   "checkout.features.sellList.ui.sellListPage.keep.selling": "Keep selling",
+  "checkout.features.sellList.ui.sellListPage.minimum.listing.price": "Minimum listing price",
   "checkout.features.sellList.ui.sellListPage.no.product.lines": "No product lines",
   "checkout.features.sellList.ui.sellListPage.no.selected.offers": "No selected offers",
   "checkout.features.sellList.ui.sellListPage.product.level.smart.match.selling":
     "Product-level Smart Match selling will appear here.",
   "checkout.features.sellList.ui.sellListPage.product.lines": "Product lines",
+  "checkout.features.sellList.ui.sellListPage.payout.readiness": "Payout readiness",
+  "checkout.features.sellList.ui.sellListPage.payout.setup.is.checked.before":
+    "Payout setup and settlement readiness stay visible before accepting sale commitments.",
   "checkout.features.sellList.ui.sellListPage.products": "Products",
   "checkout.features.sellList.ui.sellListPage.quantity": "Quantity",
   "checkout.features.sellList.ui.sellListPage.remove": "Remove",
   "checkout.features.sellList.ui.sellListPage.review.sale.checkout": "Review sale checkout",
+  "checkout.features.sellList.ui.sellListPage.review.value": "Review value",
   "checkout.features.sellList.ui.sellListPage.review.selected.offers.and.product.level":
     "Review selected offers and product-level seller intent before Chase Sets creates commitments, payouts, and fulfillment work.",
+  "checkout.features.sellList.ui.sellListPage.sale.checkout.confidence": "Sale checkout confidence",
+  "checkout.features.sellList.ui.sellListPage.sale.checkout.review": "Sale checkout review",
+  "checkout.features.sellList.ui.sellListPage.sale.checkout.review.description":
+    "Selected offers, fallback listings, payout readiness, and fulfillment commitments are reviewed together before Checkout records sale intent.",
+  "checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded": "Sale checkout review recorded",
+  "checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded.description":
+    "Checkout recorded the seller-side review and cleared the Sell List items that were ready to execute.",
+  "checkout.features.sellList.ui.sellListPage.sale.checkout.summary": "Sale checkout summary",
+  "checkout.features.sellList.ui.sellListPage.sale.review.before.commitment":
+    "Review sale value, payout readiness, and fulfillment before commitment.",
   "checkout.features.sellList.ui.sellListPage.saved.for.later.description":
     "Keep adding products while signed out. Create an account when you are ready to review sale checkout, accept offers, create listings, and set up payouts.",
   "checkout.features.sellList.ui.sellListPage.saved.for.later.title": "Sell List saved on this device",
@@ -239,9 +279,12 @@ export const checkoutEnglishTranslations = {
     "Selected offer lines will appear here before sale checkout.",
   "checkout.features.sellList.ui.sellListPage.selected.offer.value": "Selected offer value",
   "checkout.features.sellList.ui.sellListPage.selected.offers": "Selected offers",
+  "checkout.features.sellList.ui.sellListPage.selected.offers.keep.buyer.payment":
+    "Selected offers keep buyer payment readiness attached while Checkout prepares sale execution.",
   "checkout.features.sellList.ui.sellListPage.sell.list": "Sell List",
   "checkout.features.sellList.ui.sellListPage.sell.list.lines": "Sell List lines",
   "checkout.features.sellList.ui.sellListPage.sign.in": "Sign in",
+  "checkout.features.sellList.ui.sellListPage.sign.in.required": "Sign in required",
   "checkout.features.sellList.ui.sellListPage.sign.in.to.review.sale.checkout":
     "Create an account or sign in to review sale checkout, confirm inventory, accept offers, create listings, and continue payout setup.",
   "checkout.features.sellList.ui.sellListPage.smart.match.offers.for.quantity":

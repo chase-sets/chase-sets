@@ -155,6 +155,14 @@ export function CheckoutSessionPage({
                 ? t("checkout.features.sessions.ui.checkoutPage.order.totals.created")
                 : "Previewed now, committed on confirmation",
           },
+          ...(!isOfferIntent
+            ? [
+                {
+                  label: t("checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee"),
+                  value: t("checkout.features.sessions.ui.checkoutPage.reviewed.before.payment"),
+                },
+              ]
+            : []),
           ...(wallet
             ? [
                 {
@@ -437,6 +445,13 @@ export function CheckoutSessionPage({
                           </Stack>
                         </Surface>
                       ) : null}
+                      {preview.materialChangeReasons.length > 0 ? (
+                        <MarketplaceNotice
+                          tone="warning"
+                          title={t("checkout.features.sessions.ui.checkoutPage.fulfillment.changed")}
+                          description={preview.materialChangeReasons.join(" ")}
+                        />
+                      ) : null}
                     </>
                   ) : null}
                 </Stack>
@@ -687,56 +702,18 @@ export function CheckoutSessionPage({
                         ]}
                       />
                       {!isOfferIntent ? (
-                        <>
-                          <NativeSelect
-                            label={t("checkout.features.sessions.ui.checkoutPage.payment.method")}
-                            name="paymentMethodCategory"
-                            defaultValue="card"
-                            items={[
-                              { value: "card", label: t("checkout.features.sessions.ui.checkoutPage.card") },
-                              {
-                                value: "bank-account",
-                                label: t("checkout.features.sessions.ui.checkoutPage.bank.account"),
-                              },
-                              {
-                                value: "platform-credit",
-                                label: t("checkout.features.sessions.ui.checkoutPage.platform.credit.only"),
-                              },
-                            ]}
-                            description={t(
-                              "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description",
-                            )}
-                          />
-                          <ProgressiveDisclosure
-                            title={t("checkout.features.sessions.ui.checkoutPage.use.balance")}
-                            summary={
-                              wallet
-                                ? t("checkout.features.sessions.ui.checkoutPage.wallet.available.description", {
-                                    amount: wallet.available_balance_amount,
-                                    currency: wallet.currency_code.toUpperCase(),
-                                  })
-                                : t("checkout.features.sessions.ui.checkoutPage.apply.available.wallet.balance.to.this")
-                            }
-                            tone="info"
-                          >
-                            <TextInput
-                              label={t("checkout.features.sessions.ui.checkoutPage.use.balance")}
-                              name="requestedBalanceCreditAmount"
-                              placeholder="0.00"
-                              inputMode="decimal"
-                              description={
-                                wallet
-                                  ? t("checkout.features.sessions.ui.checkoutPage.wallet.available.description", {
-                                      amount: wallet.available_balance_amount,
-                                      currency: wallet.currency_code.toUpperCase(),
-                                    })
-                                  : t(
-                                      "checkout.features.sessions.ui.checkoutPage.apply.available.wallet.balance.to.this",
-                                    )
-                              }
-                            />
-                          </ProgressiveDisclosure>
-                        </>
+                        <MarketplaceNotice
+                          tone="info"
+                          title={t("checkout.features.sessions.ui.checkoutPage.payment.review.next")}
+                          description={
+                            wallet
+                              ? t("checkout.features.sessions.ui.checkoutPage.payment.review.next.with.wallet", {
+                                  amount: wallet.available_balance_amount,
+                                  currency: wallet.currency_code.toUpperCase(),
+                                })
+                              : t("checkout.features.sessions.ui.checkoutPage.payment.review.next.description")
+                          }
+                        />
                       ) : null}
                       <Divider />
                       <Button
@@ -753,7 +730,7 @@ export function CheckoutSessionPage({
                           : canConfirm
                             ? isOfferIntent
                               ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
-                              : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")
+                              : t("checkout.features.sessions.ui.checkoutPage.review.payment.total")
                             : "No available supply"}
                       </Button>
                     </Stack>
@@ -767,12 +744,12 @@ export function CheckoutSessionPage({
                   ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
                   : hasPayment
                     ? t("checkout.features.sessions.ui.checkoutPage.payment.ready")
-                    : t("checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases")
+                    : t("checkout.features.sessions.ui.checkoutPage.ready.to.review.payment")
               }
               context={
                 isOfferIntent
                   ? t("checkout.features.sessions.ui.checkoutPage.shipping.saved.for.seller.acceptance")
-                  : t("checkout.features.sessions.ui.checkoutPage.final.totals.before.payment")
+                  : t("checkout.features.sessions.ui.checkoutPage.orders.then.payment.review")
               }
               primaryAction={
                 hasPayment && session.payment_id ? (
@@ -793,7 +770,7 @@ export function CheckoutSessionPage({
                         : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
                       : isOfferIntent
                         ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
-                        : t("checkout.features.sessions.ui.checkoutPage.continue.to.payment.2")}
+                        : t("checkout.features.sessions.ui.checkoutPage.review.payment.total")}
                   </Button>
                 )
               }

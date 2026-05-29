@@ -17,10 +17,12 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   const api = createCheckoutRequestApiClient(request);
   const anonymousSellListId = readAnonymousSellListId(request);
+  const reviewCompleted = new URL(request.url).searchParams.get("review") === "completed";
 
   if (!canUseAccountSellList(actor)) {
     return {
       isSignedIn: false,
+      reviewCompleted: false,
       sellList: await api.getGuestSellList(anonymousSellListId),
     };
   }
@@ -31,6 +33,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     isSignedIn: true,
+    reviewCompleted,
     sellList: await api.getSellList(),
   };
 }
@@ -92,6 +95,15 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
+    if (intent === "review-sell-list-checkout") {
+      if (!useAccountSellList) {
+        return redirect(`/sign-in?returnTo=${encodeURIComponent("/account/sell-list")}`);
+      }
+
+      await api.checkoutSellList();
+      return redirect("/account/sell-list?review=completed");
+    }
+
     return null;
   } catch (error) {
     return {
@@ -114,6 +126,7 @@ export default function CheckoutAccountSellListRoute() {
     <CheckoutSellListPage
       sellListLines={data.sellList.items}
       isSignedIn={data.isSignedIn}
+      reviewCompleted={data.reviewCompleted}
       errorMessage={actionData?.error ?? null}
     />
   );
