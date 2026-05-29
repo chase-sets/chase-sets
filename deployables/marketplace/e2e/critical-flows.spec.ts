@@ -26,7 +26,19 @@ const accountCriticalRoutes = [
   { path: "/account/payouts", heading: /^Payouts$/i, flow: "payouts" },
 ] as const;
 
-type AccountCriticalRoute = (typeof accountCriticalRoutes)[number];
+type AccountRoute = {
+  path: string;
+  heading: RegExp;
+  flow: string;
+};
+
+const protectedAccountRoutes = [
+  { path: "/account/listings", flow: "listings" },
+  { path: "/account/security", flow: "security" },
+  { path: "/account/shipping-addresses", flow: "shipping addresses" },
+  { path: "/account/support", flow: "support" },
+  { path: "/account/reviews/written", flow: "written reviews" },
+] as const;
 
 async function expectPageOk(page: Page, path: string) {
   const response = await page.goto(path, { waitUntil: "domcontentloaded" });
@@ -34,7 +46,7 @@ async function expectPageOk(page: Page, path: string) {
   expect(response!.status(), `${path} returned HTTP ${response!.status()}`).toBeLessThan(400);
 }
 
-async function expectAccountRouteReady(page: Page, route: AccountCriticalRoute) {
+async function expectAccountRouteReady(page: Page, route: AccountRoute) {
   const deadline = Date.now() + authProjectionTimeoutMs;
   let lastPathname = "";
 
@@ -99,25 +111,6 @@ async function addSessionCookie(page: Page, origin: string, sessionToken: string
   expect(sessionCookie, "browser context should store the auth session cookie").toBeTruthy();
 }
 
-async function submitBrowserForm(page: Page, fields: Record<string, string>) {
-  await page.locator("body").evaluate((body, formFields) => {
-    const form = document.createElement("form");
-    form.method = "post";
-    form.action = window.location.href;
-
-    for (const [name, value] of Object.entries(formFields)) {
-      const input = document.createElement("input");
-      input.type = "hidden";
-      input.name = name;
-      input.value = value;
-      form.append(input);
-    }
-
-    body.append(form);
-    form.submit();
-  }, fields);
-}
-
 async function signInWithConfiguredPassword(
   page: Page,
   origin: string,
@@ -137,21 +130,18 @@ async function signInWithConfiguredPassword(
 }
 
 async function registerSyntheticAccount(page: Page, origin: string, account: ReturnType<typeof marketplaceAccountFor>) {
-  await expectPageOk(page, "/register?returnTo=%2Faccount%2Fcart");
-
-  await Promise.all([
-    page.waitForURL(/\/account\/cart/, { timeout: authProjectionTimeoutMs }),
-    submitBrowserForm(page, {
-      intent: "password",
-      registrationMethod: "password",
+  const response = await page.request.post(`${origin}/api/auth/register`, {
+    data: {
       displayName: account.displayName,
       email: account.email,
       password: account.password,
-    }),
-  ]);
+    },
+  });
 
-  const sessionCookie = (await page.context().cookies(origin)).find((cookie) => cookie.name === "chase_sets_session");
-  expect(sessionCookie, "marketplace registration should set the browser auth session cookie").toBeTruthy();
+  expect(response.status(), "marketplace registration should start a session").toBe(201);
+  const body = (await response.json()) as { sessionToken?: string };
+  expect(body.sessionToken, "marketplace registration should return a session token").toBeTruthy();
+  await addSessionCookie(page, origin, body.sessionToken!);
 }
 
 async function authenticateAccount(page: Page, testInfo: TestInfo) {
@@ -194,12 +184,16 @@ test.describe("marketplace critical flows", () => {
   });
 
   test("protected account routes preserve the requested return path @marketplace-account", async ({ page }) => {
-    await page.goto("/account/listings");
-    await expect(page).toHaveURL(/\/sign-in/);
+    for (const route of protectedAccountRoutes) {
+      await test.step(`open ${route.flow}`, async () => {
+        await page.goto(route.path);
+        await expect(page).toHaveURL(/\/sign-in/);
 
-    const redirectedUrl = new URL(page.url());
-    expect(redirectedUrl.searchParams.get("returnTo")).toBe("/account/listings");
-    await expect(page.getByText(/^Sign in$/i).first()).toBeVisible();
+        const redirectedUrl = new URL(page.url());
+        expect(redirectedUrl.searchParams.get("returnTo")).toBe(route.path);
+        await expect(page.getByText(/^Sign in$/i).first()).toBeVisible();
+      });
+    }
   });
 
   test("account can authenticate and review cart @marketplace-checkout", async ({ page }, testInfo) => {

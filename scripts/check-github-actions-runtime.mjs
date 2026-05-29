@@ -107,10 +107,13 @@ function validateActionUse(actionUse) {
   if (minimumRef && !isVersionAtLeast(ref, minimumRef)) {
     return `${relativePath(actionUse.filePath)}:${actionUse.line}: ${actionName}@${ref} must stay on ${minimumRef} or newer documented Node 24 metadata.`;
   }
+  if (minimumRef) {
+    return null;
+  }
 
   const minimumMajor = minimumNode24ActionMajors.get(actionName);
   if (!minimumMajor) {
-    return null;
+    return `${relativePath(actionUse.filePath)}:${actionUse.line}: external action '${actionName}' is not in the Node 24 compatibility allowlist; verify its action metadata uses Node 24 and add it to check-github-actions-runtime.mjs.`;
   }
 
   const major = parseMajor(ref);

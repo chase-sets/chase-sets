@@ -21,6 +21,8 @@ jobs:
     outputs:
       affected_workspaces: ${{ steps.scope.outputs.affected_workspaces }}
       build: ${{ steps.scope.outputs.build }}
+      coverage_fast: ${{ steps.scope.outputs.coverage_fast }}
+      coverage_summary: ${{ steps.scope.outputs.coverage_summary }}
       db_tests: ${{ steps.scope.outputs.db_tests }}
       deploy: ${{ steps.scope.outputs.deploy }}
       docker_image: ${{ steps.scope.outputs.docker_image }}
@@ -195,7 +197,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs: change-scope
-    if: needs['change-scope'].outputs.local_checks == 'true'
+    if: needs['change-scope'].outputs.coverage_fast == 'true'
     continue-on-error: true
     outputs:
       fast_status: ${{ steps.coverage.outputs.fast_status }}
@@ -304,7 +306,7 @@ jobs:
       - change-scope
       - coverage-fast
       - coverage-db
-    if: always() && needs['change-scope'].outputs.local_checks == 'true'
+    if: always() && needs['change-scope'].outputs.coverage_summary == 'true'
     continue-on-error: true
     steps:
       - uses: actions/checkout@v6
