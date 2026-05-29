@@ -23,6 +23,7 @@ const rootRuntimePatterns = [
   /^tailwind\.config\.ts$/,
   /^playwright\.config\.ts$/,
 ];
+const rootTestTypecheckPatterns = [/^tsconfig\.tests\.json$/, /^test-env\.d\.ts$/];
 const deploymentScriptPatterns = [
   /^scripts\/digitalocean-/,
   /^scripts\/platform-smoke/,
@@ -40,6 +41,14 @@ function matchesAny(filePath, patterns) {
 
 function isDocsOnlyFile(filePath) {
   return matchesAny(filePath, docsOnlyPatterns);
+}
+
+function isTestOnlyOrDocumentationFile(filePath) {
+  return (
+    /\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(filePath) ||
+    /(?:^|\/)(?:__tests__|tests)\//.test(filePath) ||
+    /\.(?:md|mdx)$/.test(filePath)
+  );
 }
 
 function workspaceDependencyNames(workspace) {
@@ -102,11 +111,14 @@ export function classifyChanges({
   baseDir = rootDir,
 }) {
   const normalizedFiles = changedFiles.map(normalizeFilePath).filter(Boolean).sort();
-  const directlyAffectedWorkspaces = new Set();
+  const directlyRuntimeAffectedWorkspaces = new Set();
+  const directlyTestOnlyAffectedWorkspaces = new Set();
+  const testOnlyFilesByWorkspace = new Map();
   let workflowChanged = false;
   let terraformChanged = false;
   let dockerChanged = false;
   let rootRuntimeChanged = false;
+  let rootTestTypecheckChanged = false;
   let deploymentScriptChanged = false;
   let scriptOrConfigChanged = false;
   const selectedE2eSuiteIds = new Set();
@@ -119,8 +131,15 @@ export function classifyChanges({
 
     const workspace = workspaceForFile(filePath, workspaces, baseDir);
     if (workspace) {
-      directlyAffectedWorkspaces.add(workspace.name);
       nonDocumentationChanged = true;
+      if (isTestOnlyOrDocumentationFile(filePath)) {
+        directlyTestOnlyAffectedWorkspaces.add(workspace.name);
+        const existing = testOnlyFilesByWorkspace.get(workspace.name) ?? [];
+        existing.push(filePath);
+        testOnlyFilesByWorkspace.set(workspace.name, existing);
+      } else {
+        directlyRuntimeAffectedWorkspaces.add(workspace.name);
+      }
       continue;
     }
 
@@ -132,44 +151,75 @@ export function classifyChanges({
     terraformChanged ||= matchesAny(filePath, terraformPatterns);
     dockerChanged ||= matchesAny(filePath, dockerPatterns);
     rootRuntimeChanged ||= matchesAny(filePath, rootRuntimePatterns);
+    rootTestTypecheckChanged ||= matchesAny(filePath, rootTestTypecheckPatterns);
     deploymentScriptChanged ||= matchesAny(filePath, deploymentScriptPatterns);
-    scriptOrConfigChanged ||= filePath.startsWith("scripts/") || rootRuntimeChanged;
+    scriptOrConfigChanged ||= filePath.startsWith("scripts/") || rootRuntimeChanged || rootTestTypecheckChanged;
   }
 
   if (rootRuntimeChanged) {
     for (const workspace of workspaces) {
-      directlyAffectedWorkspaces.add(workspace.name);
+      directlyRuntimeAffectedWorkspaces.add(workspace.name);
     }
   }
 
   const reverseDependencyGraph = buildReverseDependencyGraph(workspaces);
-  const affectedWorkspaceSet = expandDependents(directlyAffectedWorkspaces, reverseDependencyGraph);
+  const runtimeAffectedWorkspaceSet = expandDependents(directlyRuntimeAffectedWorkspaces, reverseDependencyGraph);
+  const affectedWorkspaceSet = new Set([...runtimeAffectedWorkspaceSet, ...directlyTestOnlyAffectedWorkspaces]);
   const affectedWorkspaces = workspaces
     .map((workspace) => workspace.name)
     .filter((workspaceName) => affectedWorkspaceSet.has(workspaceName));
+  const runtimeAffectedWorkspaces = workspaces
+    .map((workspace) => workspace.name)
+    .filter((workspaceName) => runtimeAffectedWorkspaceSet.has(workspaceName));
 
-  const runtimeChanged = affectedWorkspaces.length > 0 || rootRuntimeChanged;
+  const runtimeChanged = runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged;
   const dockerImageRequired = runtimeChanged || dockerChanged;
   const terraformRequired = terraformChanged || deploymentScriptChanged;
   const deployRequired = dockerImageRequired || terraformRequired;
   const localChecksRequired = nonDocumentationChanged || workflowChanged || scriptOrConfigChanged;
   const e2eSuiteIds = orderE2eSuiteIds(selectedE2eSuiteIds);
+  const workspaceByName = new Map(workspaces.map((workspace) => [workspace.name, workspace]));
+
+  function workspaceRequiresDbForTestOnlyChange(workspaceName) {
+    const workspace = workspaceByName.get(workspaceName);
+    const scripts = workspace?.packageJson.scripts ?? {};
+    const testDbScript = scripts["test:db"];
+    if (typeof testDbScript !== "string") {
+      return false;
+    }
+
+    const hasNonDbTestScript = typeof scripts.test === "string" || typeof scripts["test:unit"] === "string";
+    if (!hasNonDbTestScript) {
+      return true;
+    }
+
+    const workspaceDir = normalizePath(path.relative(baseDir, workspace.dir));
+    return (testOnlyFilesByWorkspace.get(workspaceName) ?? [])
+      .map((filePath) => filePath.slice(`${workspaceDir}/`.length))
+      .some((relativeFilePath) => testDbScript.includes(relativeFilePath));
+  }
 
   return {
     changedFiles: normalizedFiles,
     affectedWorkspaces,
-    directlyAffectedWorkspaces: [...directlyAffectedWorkspaces].sort(),
+    runtimeAffectedWorkspaces,
+    directlyAffectedWorkspaces: [
+      ...new Set([...directlyRuntimeAffectedWorkspaces, ...directlyTestOnlyAffectedWorkspaces]),
+    ].sort(),
+    directlyRuntimeAffectedWorkspaces: [...directlyRuntimeAffectedWorkspaces].sort(),
+    directlyTestOnlyAffectedWorkspaces: [...directlyTestOnlyAffectedWorkspaces].sort(),
     docsOnly: normalizedFiles.length > 0 && !nonDocumentationChanged,
     localChecksRequired,
-    typecheckRequired: affectedWorkspaces.length > 0 || rootRuntimeChanged,
+    typecheckRequired: affectedWorkspaces.length > 0 || rootRuntimeChanged || rootTestTypecheckChanged,
     unitTestsRequired: affectedWorkspaces.length > 0,
-    dbTestsRequired: affectedWorkspaces.some((workspaceName) => {
-      const workspace = workspaces.find((entry) => entry.name === workspaceName);
-      return typeof workspace?.packageJson.scripts?.["test:db"] === "string";
-    }),
+    dbTestsRequired:
+      runtimeAffectedWorkspaces.some((workspaceName) => {
+        const workspace = workspaces.find((entry) => entry.name === workspaceName);
+        return typeof workspace?.packageJson.scripts?.["test:db"] === "string";
+      }) || [...directlyTestOnlyAffectedWorkspaces].some(workspaceRequiresDbForTestOnlyChange),
     e2eSuiteIds,
     e2eTestsRequired: e2eSuiteIds.length > 0,
-    buildRequired: affectedWorkspaces.length > 0 || rootRuntimeChanged,
+    buildRequired: runtimeAffectedWorkspaces.length > 0 || rootRuntimeChanged,
     dockerImageRequired,
     terraformRequired,
     workflowLintRequired: workflowChanged,

@@ -1023,10 +1023,16 @@ export async function runStructureCheck(options = {}) {
   async function validateWorkspaceTestScriptCoverage() {
     const rootPackageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
     const rootScripts = rootPackageJson.scripts ?? {};
+    const verifyTypecheckScript = path.join(repoRoot, "scripts", "verify-typecheck.mjs");
+    const verifyTypecheckScriptContent = existsSync(verifyTypecheckScript)
+      ? readFileSync(verifyTypecheckScript, "utf8")
+      : "";
     const hasCentralTestTypecheck =
       typeof rootScripts["test:typecheck"] === "string" &&
       typeof rootScripts["verify:typecheck"] === "string" &&
-      rootScripts["verify:typecheck"].includes("test:typecheck");
+      (rootScripts["verify:typecheck"].includes("test:typecheck") ||
+        (rootScripts["verify:typecheck"].includes("verify-typecheck.mjs") &&
+          verifyTypecheckScriptContent.includes("test:typecheck")));
 
     for (const workspace of listWorkspacePackages({ repoRoot })) {
       const { files } = await walk(workspace.dir);

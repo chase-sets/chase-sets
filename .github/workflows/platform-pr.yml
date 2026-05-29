@@ -92,10 +92,7 @@ jobs:
           install: true
 
       - name: Typecheck repository
-        run: |
-          pnpm run check:no-any
-          pnpm exec tsc -p ./tsconfig.json --noEmit
-          node ./scripts/run-workspaces.mjs typecheck --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+        run: pnpm run verify:typecheck -- --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   unit-tests:
     name: Unit Tests
@@ -164,15 +161,27 @@ jobs:
         with:
           install: true
 
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v5
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-
+
       - name: Install Playwright Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run marketplace e2e suites
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm run test:e2e:suite "${{ matrix.suite_batch }}"
 
       - name: Upload Playwright artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-e2e-artifacts-${{ strategy.job-index }}
           path: |
@@ -218,7 +227,7 @@ jobs:
 
       - name: Upload fast coverage artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-fast-artifacts
           path: |
@@ -275,7 +284,7 @@ jobs:
 
       - name: Upload DB coverage artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-db-artifacts
           path: |
@@ -301,7 +310,7 @@ jobs:
       - uses: actions/checkout@v6
 
       - name: Download coverage artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           pattern: coverage-*-artifacts
           merge-multiple: true
@@ -324,7 +333,7 @@ jobs:
 
       - name: Upload coverage artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-summary-artifacts
           path: |
