@@ -39,7 +39,7 @@ describe("public presence home route", () => {
           url: "https://chasesets.com/",
           potentialAction: {
             "@type": "RegisterAction",
-            name: "Join the beta waitlist",
+            name: "Request early access",
             target: "https://chasesets.com/#waitlist-form",
           },
         }),

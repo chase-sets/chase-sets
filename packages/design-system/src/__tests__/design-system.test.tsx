@@ -223,6 +223,7 @@ describe("design-system", () => {
     expect(markup).toContain('width="1200"');
     expect(markup).toContain("Beta signal");
     expect(markup).toContain("Move more inventory");
+    expect(markup).toContain("max-w-[34rem] text-pretty");
   });
 
   it("passes first-paint image hints through marketing heroes", () => {

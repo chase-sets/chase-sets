@@ -102,7 +102,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.economics.shipping.title": "Efficient fulfillment",
   "publicPresence.home.economics.title": "Marketplace economics built for collectible inventory",
   "publicPresence.home.eyebrow": "Trading card marketplace waitlist",
-  "publicPresence.home.finalCta.action": "Join the beta waitlist",
+  "publicPresence.home.finalCta.action": "Request early access",
   "publicPresence.home.finalCta.badge": "Takes under a minute",
   "publicPresence.home.finalCta.description":
     "Tell us whether selling, buying, or both matters most. The earliest qualified beta accounts help shape launch, can receive Founding Account badge eligibility, and join the founders circle on Discord.",
@@ -160,7 +160,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.stat.marketplace.value": "Purchase and sell",
   "publicPresence.home.stat.status": "Status",
   "publicPresence.home.stat.status.value": "Waitlist open",
-  "publicPresence.home.stickyCta.action": "Join early access",
+  "publicPresence.home.stickyCta.action": "Request early access",
   "publicPresence.home.stickyCta.label": "Early access eligibility",
   "publicPresence.home.betaFee.badge": "Founding seller fee lock",
   "publicPresence.home.betaFee.description":
@@ -366,7 +366,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.nav.contact": "Contact",
   "publicPresence.nav.faq": "FAQ",
   "publicPresence.nav.policies": "Policies",
-  "publicPresence.nav.waitlist": "Join early access",
+  "publicPresence.nav.waitlist": "Request early access",
   "publicPresence.nav.privacy": "Privacy",
   "publicPresence.nav.product": "Product",
   "publicPresence.nav.refunds": "Refunds and returns",
@@ -378,7 +378,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.preview.status": "Sample marketplace preview",
   "publicPresence.preview.listing.badge": "Sample listing",
   "publicPresence.preview.listing.title": "Pikachu Illustration Rare",
-  "publicPresence.preview.listing.action": "Join early access",
+  "publicPresence.preview.listing.action": "Request early access",
   "publicPresence.preview.listing.secondaryAction": "Order protection",
   "publicPresence.preview.listing.availability.value": "Sample: 3 available",
   "publicPresence.preview.listing.condition.value": "Raw Near Mint",
@@ -458,7 +458,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.badge": "Early access",
   "publicPresence.waitlist.compactDescription": "Prelaunch only. No buying, listing, or payment required.",
   "publicPresence.waitlist.compactTitle": "Request early access",
-  "publicPresence.waitlist.consent": "Email me early access updates.",
+  "publicPresence.waitlist.consent": "Send early access updates.",
   "publicPresence.waitlist.consent.description":
     "Ask support@chasesets.com to remove you from prelaunch updates or waitlist records.",
   "publicPresence.waitlist.afterSignup.join": "Join with your email, marketplace intent, and first priority.",
@@ -500,13 +500,13 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.role.sell": "List cards",
   "publicPresence.waitlist.heroFoundersCircle":
     "Earliest qualified beta accounts can receive Founding Account badge eligibility plus founders circle access on Discord.",
-  "publicPresence.waitlist.heroIntent.label": "What should Chase Sets prioritize for you?",
+  "publicPresence.waitlist.heroIntent.label": "What should we prioritize?",
   "publicPresence.waitlist.heroIntent.both": "Both",
   "publicPresence.waitlist.heroIntent.buy": "Buy",
   "publicPresence.waitlist.heroIntent.sell": "Sell",
   "publicPresence.waitlist.promise":
     "One signup helps shape the first buyer and seller tools and reserves Founding Account badge eligibility for the earliest accounts.",
-  "publicPresence.waitlist.submit": "Join the beta waitlist",
+  "publicPresence.waitlist.submit": "Request early access",
   "publicPresence.waitlist.success.description":
     "You are on the Chase Sets early access list. We will use your priorities to shape beta invites, Founding Account badge eligibility, and founders circle product feedback.",
   "publicPresence.waitlist.success.title": "You are on the list",

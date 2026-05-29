@@ -72,7 +72,7 @@ describe("public presence homepage", () => {
       "faq",
     ]);
     expect(container.querySelectorAll("form")).toHaveLength(2);
-    expect(screen.getAllByRole("button", { name: "Join the beta waitlist" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Request early access" }).length).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
         "Answer three quick questions so early invites reach the accounts most likely to use the beta.",
@@ -100,7 +100,7 @@ describe("public presence homepage", () => {
         "Earliest qualified beta accounts can receive Founding Account badge eligibility beside their marketplace account.",
       ).length,
     ).toBeGreaterThan(0);
-    expect(screen.getAllByText("Early access eligibility").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Join the beta waitlist")).toBeNull();
     expect(screen.queryByText("Get Founding Account access")).toBeNull();
     expect(
       screen.getAllByText("No separate seller payment-processing fee like 2.9% plus $0.30.").length,
@@ -166,7 +166,7 @@ describe("public presence homepage", () => {
       </MemoryRouter>,
     );
 
-    await user.click(screen.getAllByRole("link", { name: "Join early access" })[0]);
+    await user.click(screen.getAllByRole("link", { name: "Request early access" })[0]);
     await user.click(screen.getByRole("button", { name: "I plan to buy cards" }));
 
     const finalForm = container.querySelector("#waitlist-form-final form");
@@ -187,7 +187,7 @@ describe("public presence homepage", () => {
     );
 
     const consent = within(finalForm as HTMLElement).getByRole("checkbox", {
-      name: "Email me early access updates.",
+      name: "Send early access updates.",
     });
     await user.click(consent);
 
@@ -222,7 +222,7 @@ describe("public presence homepage", () => {
     expect(form).toBeTruthy();
 
     const consent = within(form as HTMLElement).getByRole("checkbox", {
-      name: "Email me early access updates.",
+      name: "Send early access updates.",
     }) as HTMLInputElement;
 
     expect(consent.checked).toBe(false);
