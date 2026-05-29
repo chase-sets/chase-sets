@@ -23,7 +23,8 @@ Deliver changes from inside an isolated git worktree, using the repo's bounded c
 7. Ask exactly one blocking question at a time. Include the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use `request_user_input` when available.
 8. Update the plan after each answer, repo finding, contradiction, recommendation, and doc change.
 9. When planning is complete, create a goal that references the worktree path, branch, plan path, implementation scope, verification, durable doc promotion, PR details containing the finished plan, CI, merge, deployment checks, generated plan deletion, local container deletion, worktree deletion, remote PR branch deletion, and local branch deletion.
-10. Treat submitting the PR, waiting for CI to pass, merging the PR, confirming staging and production deployments are green, and completing local cleanup as required goal work, not follow-up or optional release tasks.
+10. Before PR readiness, run a release hardening loop: review the feature end-to-end for user value, correctness, simplicity, maintainability, reliability, security, performance, and cost; fix every P0-P2 finding; rerun targeted verification; repeat until no P0-P2 findings remain. Document any remaining P3+ items as accepted follow-up with rationale.
+11. Treat submitting the PR, waiting for CI to pass, merging the PR, confirming staging and production deployments are green, and completing local cleanup as required goal work, not follow-up or optional release tasks.
 
 ## Worktree Setup
 
@@ -68,6 +69,7 @@ The `Worktree` section must list path, branch, sandbox id, dependency setup stat
 The `Goal Completion Criteria` section must always include:
 
 - PR submitted for the completed implementation or scoped non-product change, with the finished plan included in the PR body/details.
+- Release hardening loop completed with no unresolved P0-P2 findings; any remaining P3+ items documented as accepted follow-up with rationale.
 - CI passing on the PR before merge.
 - PR merged after required review and passing checks.
 - Staging deployment verified green after merge.
