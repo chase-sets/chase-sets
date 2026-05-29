@@ -64,6 +64,29 @@ describe("durable job event streams", () => {
     expect(waitForEvents).not.toHaveBeenCalled();
   });
 
+  it("coalesces stale replay history into a sync-required snapshot", async () => {
+    const response = await createDurableJobEventStream({
+      request: new Request("https://admin.test/jobs/job_1/events", {
+        headers: { "Last-Event-ID": "1" },
+      }),
+      loadEvents: vi.fn(async () => [
+        { sequence: 2, eventName: "status", data: { status: "running", progress: { completed: 1 } } },
+        { sequence: 3, eventName: "status", data: { status: "running", progress: { completed: 2 } } },
+      ]),
+      loadCurrentSnapshot: vi.fn(async () => ({ status: "running", progress: { completed: 50 } })),
+      isTerminal: (event) => event.data.status === "completed",
+      maxReplayEvents: 1,
+    });
+
+    const body = await response.text();
+    expect(body).toContain("id: 2");
+    expect(body).toContain("event: status");
+    expect(body).toContain("id: 3");
+    expect(body).toContain("event: sync.required");
+    expect(body).toContain('"kind":"sync.required"');
+    expect(body).toContain('"completed":50');
+  });
+
   it("rejects durable job streams when the limiter is exhausted", async () => {
     const limiter = createInMemoryDurableJobStreamLimiter({ maxActiveStreams: 1, maxActiveStreamsPerConnectionKey: 1 });
     const held = await limiter.acquire({ connectionKey: "account_1" });

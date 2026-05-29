@@ -14,6 +14,7 @@ describe("platform control plane", () => {
 
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_control_leases");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_realtime_stream_leases");
+    expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_realtime_stream_counters");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_scheduled_runners");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_operations");

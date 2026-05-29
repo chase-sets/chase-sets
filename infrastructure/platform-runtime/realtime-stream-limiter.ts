@@ -91,40 +91,39 @@ export function createPostgresRealtimeStreamLimiter(
 ): RealtimeStreamLimiter {
   const leaseTtlMs = options.leaseTtlMs ?? 30_000;
   const renewIntervalMs = options.renewIntervalMs ?? 10_000;
-  const cleanupIntervalMs = options.cleanupIntervalMs ?? 10_000;
-  let lastCleanupAt = 0;
+  void options.cleanupIntervalMs;
 
   return {
     activeConnectionCount: () => 0,
     acquire: async (request) => {
       const leaseId = `${Date.now().toString(36)}:${Math.random().toString(36).slice(2)}`;
       const client = await options.pool.connect();
+      const globalCounterKey = "global";
+      const connectionCounterKey = realtimeStreamConnectionCounterKey(request.connectionKey);
 
       try {
         await client.query("BEGIN");
-        const now = Date.now();
-        if (lastCleanupAt === 0 || now - lastCleanupAt >= cleanupIntervalMs) {
-          await client.query("DELETE FROM platform_realtime_stream_leases WHERE expires_at <= now()");
-          lastCleanupAt = now;
-        }
-        const countResult = await client.query<{
-          active_count: string;
-          connection_count: string;
-        }>(
-          `SELECT
-             COUNT(*) FILTER (WHERE expires_at > now())::text AS active_count,
-             COUNT(*) FILTER (WHERE connection_key = $1 AND expires_at > now())::text AS connection_count
-           FROM platform_realtime_stream_leases
-           WHERE expires_at > now()
-              OR connection_key = $1`,
-          [request.connectionKey],
+        await cleanupExpiredRealtimeStreamLeases(client);
+        await client.query(
+          `INSERT INTO platform_realtime_stream_counters (counter_key, active_count, updated_at)
+           VALUES ($1, 0, now()), ($2, 0, now())
+           ON CONFLICT (counter_key) DO NOTHING`,
+          [globalCounterKey, connectionCounterKey],
         );
-        const counts = countResult.rows[0] ?? {
-          active_count: "0",
-          connection_count: "0",
-        };
-        const activeCount = Number(counts.active_count ?? 0);
-        const connectionCount = Number(counts.connection_count ?? 0);
+        const countResult = await client.query<{
+          counter_key: string;
+          active_count: string | number;
+        }>(
+          `SELECT counter_key, active_count
+           FROM platform_realtime_stream_counters
+           WHERE counter_key = ANY($1::text[])
+           ORDER BY counter_key
+           FOR UPDATE`,
+          [[globalCounterKey, connectionCounterKey]],
+        );
+        const counts = new Map(countResult.rows.map((row) => [row.counter_key, Number(row.active_count)]));
+        const activeCount = counts.get(globalCounterKey) ?? 0;
+        const connectionCount = counts.get(connectionCounterKey) ?? 0;
 
         if (activeCount >= request.maxActiveStreams || connectionCount >= request.maxActiveStreamsPerConnectionKey) {
           await client.query("ROLLBACK");
@@ -142,8 +141,15 @@ export function createPostgresRealtimeStreamLimiter(
              $2,
              now() + ($3::text || ' milliseconds')::interval,
              now()
-           )`,
+          )`,
           [leaseId, request.connectionKey, leaseTtlMs],
+        );
+        await client.query(
+          `UPDATE platform_realtime_stream_counters
+           SET active_count = active_count + 1,
+               updated_at = now()
+           WHERE counter_key = ANY($1::text[])`,
+          [[globalCounterKey, connectionCounterKey]],
         );
         await client.query("COMMIT");
 
@@ -177,7 +183,25 @@ export function createPostgresRealtimeStreamLimiter(
 
             released = true;
             clearInterval(renewalTimer);
-            await options.pool.query("DELETE FROM platform_realtime_stream_leases WHERE lease_id = $1", [leaseId]);
+            await options.pool.query(
+              `WITH removed AS (
+                 DELETE FROM platform_realtime_stream_leases
+                 WHERE lease_id = $1
+                 RETURNING connection_key
+               ),
+               decrement_keys AS (
+                 SELECT 'global'::text AS counter_key
+                 FROM removed
+                 UNION ALL
+                 SELECT 'connection:' || connection_key
+                 FROM removed
+               )
+               UPDATE platform_realtime_stream_counters AS counter
+               SET active_count = GREATEST(0, counter.active_count - 1),
+                   updated_at = now()
+               WHERE counter.counter_key IN (SELECT counter_key FROM decrement_keys)`,
+              [leaseId],
+            );
           },
         };
       } catch (error) {
@@ -188,6 +212,45 @@ export function createPostgresRealtimeStreamLimiter(
       }
     },
   };
+}
+
+async function cleanupExpiredRealtimeStreamLeases(
+  client: Awaited<ReturnType<PostgresRealtimeStreamLimiterPool["connect"]>>,
+) {
+  await client.query(
+    `WITH expired AS (
+       DELETE FROM platform_realtime_stream_leases
+       WHERE expires_at <= now()
+       RETURNING connection_key
+     ),
+     expired_total AS (
+       SELECT COUNT(*)::integer AS active_count
+       FROM expired
+     ),
+     expired_by_key AS (
+       SELECT 'connection:' || connection_key AS counter_key,
+              COUNT(*)::integer AS active_count
+       FROM expired
+       GROUP BY connection_key
+     ),
+     decrement_global AS (
+       UPDATE platform_realtime_stream_counters AS counter
+       SET active_count = GREATEST(0, counter.active_count - expired_total.active_count),
+           updated_at = now()
+       FROM expired_total
+       WHERE counter.counter_key = 'global'
+         AND expired_total.active_count > 0
+     )
+     UPDATE platform_realtime_stream_counters AS counter
+     SET active_count = GREATEST(0, counter.active_count - expired_by_key.active_count),
+         updated_at = now()
+     FROM expired_by_key
+     WHERE counter.counter_key = expired_by_key.counter_key`,
+  );
+}
+
+function realtimeStreamConnectionCounterKey(connectionKey: string): string {
+  return `connection:${connectionKey}`;
 }
 
 export function createRedisRealtimeStreamLimiter(

@@ -1123,6 +1123,18 @@ function createBulkReviewJobHarness(count: number) {
           return { rowCount: 1, rows: [job] as T[] };
         }
 
+        if (
+          sql.includes("UPDATE catalog_source_observation_bulk_review_jobs") &&
+          sql.includes("SET claimed_until") &&
+          !sql.includes("RETURNING")
+        ) {
+          if (String(values[1]) !== job.claim_owner_id) {
+            return { rowCount: 0, rows: [] as T[] };
+          }
+          job.claimed_until = "2026-05-20T00:02:00.000Z";
+          return { rowCount: 1, rows: [] as T[] };
+        }
+
         if (sql.includes("UPDATE catalog_source_observation_bulk_review_jobs")) {
           if (String(values[1]) !== job.claim_owner_id) {
             return { rowCount: 0, rows: [] as T[] };

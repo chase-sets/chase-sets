@@ -1546,6 +1546,7 @@ async function readJobEventStream<
   const decoder = new TextDecoder();
   let buffer = "";
   let eventId: string | null = null;
+  let eventName = "message";
   let dataLines: string[] = [];
 
   const dispatch = (): Readonly<{ done: true; result: TResult } | { done: false }> | null => {
@@ -1554,11 +1555,14 @@ async function readJobEventStream<
     }
     if (dataLines.length === 0) {
       eventId = null;
+      eventName = "message";
       return null;
     }
 
-    const job = JSON.parse(dataLines.join("\n")) as TJob;
+    const payload = JSON.parse(dataLines.join("\n")) as TJob | { kind: "sync.required"; snapshot: TJob };
+    const job = eventName === "sync.required" ? (payload as { snapshot: TJob }).snapshot : (payload as TJob);
     eventId = null;
+    eventName = "message";
     dataLines = [];
     input.onProgress(job.progress);
 
@@ -1598,6 +1602,11 @@ async function readJobEventStream<
 
       if (line.startsWith("id:")) {
         eventId = line.slice("id:".length).trim();
+        continue;
+      }
+
+      if (line.startsWith("event:")) {
+        eventName = line.slice("event:".length).trim() || "message";
         continue;
       }
 

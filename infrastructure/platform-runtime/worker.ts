@@ -580,25 +580,32 @@ function createProjectionOperationWorkerRunner(
         options.observer?.projectionOperationStarted?.(
           projectionOperationEvent(operation, ownerId, operation.claimFencingToken),
         );
-        await options.controlPlane.recordProjectionOperationProgress({
-          operationId: operation.operationId,
-          ownerId,
-          fencingToken: operation.claimFencingToken,
-          claimTtlMs: options.claimTtlMs,
-          progress: {
-            ...operation.progress,
-            state: "running",
-          },
-        });
-        await runProjectionOperation(runtime, options, operation, ownerId, context);
-        await options.controlPlane.completeProjectionOperation({
-          operationId: operation.operationId,
-          ownerId,
-          fencingToken: operation.claimFencingToken,
-          result: {
-            state: "completed",
-          },
-        });
+        const runningProgress = {
+          ...operation.progress,
+          state: "running",
+        };
+        await requireProjectionOperationClaim(
+          options.controlPlane.recordProjectionOperationProgress({
+            operationId: operation.operationId,
+            ownerId,
+            fencingToken: operation.claimFencingToken,
+            claimTtlMs: options.claimTtlMs,
+            progress: runningProgress,
+          }),
+          operation.operationId,
+        );
+        await runProjectionOperationWithRenewedClaim(runtime, options, operation, ownerId, runningProgress, context);
+        await requireProjectionOperationClaim(
+          options.controlPlane.completeProjectionOperation({
+            operationId: operation.operationId,
+            ownerId,
+            fencingToken: operation.claimFencingToken,
+            result: {
+              state: "completed",
+            },
+          }),
+          operation.operationId,
+        );
         options.observer?.projectionOperationCompleted?.(
           projectionOperationEvent({ ...operation, state: "succeeded" }, ownerId, operation.claimFencingToken),
         );
@@ -611,15 +618,18 @@ function createProjectionOperationWorkerRunner(
       } catch (error) {
         const latestOperation = await options.controlPlane.getProjectionOperation(operation.operationId);
         if (latestOperation?.state === "cancel_requested") {
-          await options.controlPlane.completeProjectionOperation({
-            operationId: operation.operationId,
-            ownerId,
-            fencingToken: operation.claimFencingToken,
-            result: {
-              state: "cancelled",
-              message: error instanceof Error ? error.message : String(error),
-            },
-          });
+          await requireProjectionOperationClaim(
+            options.controlPlane.completeProjectionOperation({
+              operationId: operation.operationId,
+              ownerId,
+              fencingToken: operation.claimFencingToken,
+              result: {
+                state: "cancelled",
+                message: error instanceof Error ? error.message : String(error),
+              },
+            }),
+            operation.operationId,
+          );
           options.observer?.projectionOperationCompleted?.(
             projectionOperationEvent({ ...operation, state: "cancelled" }, ownerId, operation.claimFencingToken),
           );
@@ -630,14 +640,17 @@ function createProjectionOperationWorkerRunner(
           };
         }
 
-        await options.controlPlane.failProjectionOperation({
-          operationId: operation.operationId,
-          ownerId,
-          fencingToken: operation.claimFencingToken,
-          error: {
-            message: error instanceof Error ? error.message : String(error),
-          },
-        });
+        await requireProjectionOperationClaim(
+          options.controlPlane.failProjectionOperation({
+            operationId: operation.operationId,
+            ownerId,
+            fencingToken: operation.claimFencingToken,
+            error: {
+              message: error instanceof Error ? error.message : String(error),
+            },
+          }),
+          operation.operationId,
+        );
         options.observer?.projectionOperationFailed?.({
           ...projectionOperationEvent({ ...operation, state: "failed" }, ownerId, operation.claimFencingToken),
           error,
@@ -646,6 +659,81 @@ function createProjectionOperationWorkerRunner(
       }
     },
   };
+}
+
+async function runProjectionOperationWithRenewedClaim(
+  runtime: WorkerHostRuntime,
+  options: Readonly<{
+    controlPlane: PlatformControlPlane;
+    claimTtlMs: number;
+    leaseTtlMs: number;
+    leaseRenewIntervalMs: number;
+    statementTimeoutMs: number;
+    cancelPollIntervalMs: number;
+  }>,
+  operation: ProjectionOperationRecord,
+  ownerId: string,
+  progress: Record<string, unknown>,
+  runnerContext?: ProjectionRunContext,
+): Promise<void> {
+  const fencingToken = operation.claimFencingToken;
+  if (!fencingToken) {
+    throw new Error(`Projection operation '${operation.operationId}' is missing its claim fencing token.`);
+  }
+
+  let claimActive = true;
+  const abortController = new AbortController();
+  const abortFromParent = () => {
+    claimActive = false;
+    abortController.abort();
+  };
+  runnerContext?.signal?.addEventListener("abort", abortFromParent, { once: true });
+
+  const throwIfOperationClaimLost = () => {
+    runnerContext?.throwIfLeaseLost?.();
+    if (!claimActive || abortController.signal.aborted) {
+      throw new Error(`Projection operation '${operation.operationId}' claim was lost.`);
+    }
+  };
+  const renewOperationClaim = async () => {
+    throwIfOperationClaimLost();
+    const renewed = await options.controlPlane.recordProjectionOperationProgress({
+      operationId: operation.operationId,
+      ownerId,
+      fencingToken,
+      claimTtlMs: options.claimTtlMs,
+      progress,
+    });
+    if (!renewed) {
+      claimActive = false;
+      abortController.abort();
+      throw new Error(`Projection operation '${operation.operationId}' claim was lost.`);
+    }
+  };
+
+  const renewIntervalMs = Math.max(1_000, Math.min(options.leaseRenewIntervalMs, Math.floor(options.claimTtlMs / 3)));
+  const renewalTimer = setInterval(() => {
+    void renewOperationClaim().catch(() => {
+      claimActive = false;
+      abortController.abort();
+    });
+  }, renewIntervalMs);
+  renewalTimer.unref?.();
+
+  const operationContext: ProjectionRunContext = {
+    ...runnerContext,
+    signal: abortController.signal,
+    throwIfLeaseLost: throwIfOperationClaimLost,
+  };
+
+  try {
+    await runProjectionOperation(runtime, options, operation, ownerId, operationContext);
+    throwIfOperationClaimLost();
+  } finally {
+    clearInterval(renewalTimer);
+    runnerContext?.signal?.removeEventListener("abort", abortFromParent);
+    abortController.abort();
+  }
 }
 
 async function runProjectionOperation(
@@ -676,7 +764,7 @@ async function runProjectionOperation(
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
         statementTimeoutMs: options.statementTimeoutMs,
-        shouldAbort: () => isProjectionOperationCancelRequested(options.controlPlane, operation.operationId),
+        shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
         abortPollIntervalMs: options.cancelPollIntervalMs,
         metadata: {
           operationId: operation.operationId,
@@ -704,7 +792,7 @@ async function runProjectionOperation(
           ttlMs: options.leaseTtlMs,
           renewIntervalMs: options.leaseRenewIntervalMs,
           statementTimeoutMs: options.statementTimeoutMs,
-          shouldAbort: () => isProjectionOperationCancelRequested(options.controlPlane, operation.operationId),
+          shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
           abortPollIntervalMs: options.cancelPollIntervalMs,
           metadata: {
             operationId: operation.operationId,
@@ -737,7 +825,7 @@ async function runProjectionOperation(
         ttlMs: options.leaseTtlMs,
         renewIntervalMs: options.leaseRenewIntervalMs,
         statementTimeoutMs: options.statementTimeoutMs,
-        shouldAbort: () => isProjectionOperationCancelRequested(options.controlPlane, operation.operationId),
+        shouldAbort: () => shouldAbortProjectionOperation(options.controlPlane, operation.operationId, runnerContext),
         abortPollIntervalMs: options.cancelPollIntervalMs,
         metadata: {
           operationId: operation.operationId,
@@ -876,6 +964,30 @@ async function isProjectionOperationCancelRequested(
 ): Promise<boolean> {
   const operation = await controlPlane.getProjectionOperation(operationId);
   return operation?.state === "cancel_requested" || operation?.state === "cancelled";
+}
+
+async function shouldAbortProjectionOperation(
+  controlPlane: PlatformControlPlane,
+  operationId: string,
+  context?: ProjectionRunContext,
+): Promise<boolean> {
+  if (context?.signal?.aborted) {
+    return true;
+  }
+
+  try {
+    context?.throwIfLeaseLost?.();
+  } catch {
+    return true;
+  }
+
+  return isProjectionOperationCancelRequested(controlPlane, operationId);
+}
+
+async function requireProjectionOperationClaim(succeeded: Promise<boolean> | boolean, operationId: string) {
+  if (!(await succeeded)) {
+    throw new Error(`Projection operation '${operationId}' claim was lost before the status update completed.`);
+  }
 }
 
 function createSubscriptionLedgerCompactionRunner(runtime: WorkerHostRuntime): WorkerRunner {

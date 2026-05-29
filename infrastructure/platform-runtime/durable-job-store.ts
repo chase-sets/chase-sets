@@ -174,12 +174,17 @@ export function createPostgresDurableJobStore<
   tables: DurableJobTables,
   options: {
     eventSnapshot?: (job: DurableJobRecord<TPayload, TProgress, TResult>) => TSnapshot;
+    notificationRetryCooldownMs?: number;
   } = {},
 ): DurableJobStore<TPayload, TProgress, TResult, TSnapshot> {
   const jobsTable = sqlIdentifier(tables.jobsTable);
   const eventsTable = sqlIdentifier(tables.eventsTable);
   const notifyChannel = sqlNotifyChannel(tables.notifyChannel ?? "durable_job_events");
-  const notificationWaiter = isTransactionalPool(db) ? createDurableJobNotificationWaiter(db, notifyChannel) : null;
+  const notificationWaiter = isTransactionalPool(db)
+    ? createDurableJobNotificationWaiter(db, notifyChannel, {
+        retryCooldownMs: options.notificationRetryCooldownMs,
+      })
+    : null;
   const eventSnapshot =
     options.eventSnapshot ??
     ((job: DurableJobRecord<TPayload, TProgress, TResult>) =>
@@ -819,9 +824,15 @@ type DurableJobNotificationClient = PgPoolClient & {
   off?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
 };
 
-function createDurableJobNotificationWaiter(db: PgTransactionalPool, channel: string) {
+function createDurableJobNotificationWaiter(
+  db: PgTransactionalPool,
+  channel: string,
+  options: Readonly<{ retryCooldownMs?: number }> = {},
+) {
   let clientPromise: Promise<DurableJobNotificationClient> | null = null;
+  let disabledUntil = 0;
   const waitersByJobId = new Map<string, Set<() => void>>();
+  const retryCooldownMs = Math.max(1_000, Math.floor(options.retryCooldownMs ?? 60_000));
 
   const resolveJobWaiters = (jobId: string) => {
     const waiters = waitersByJobId.get(jobId);
@@ -851,6 +862,10 @@ function createDurableJobNotificationWaiter(db: PgTransactionalPool, channel: st
   };
 
   async function getClient() {
+    if (Date.now() < disabledUntil) {
+      return null;
+    }
+
     clientPromise ??= (async () => {
       const client = (await db.connect()) as DurableJobNotificationClient;
       const reset = () => {
@@ -866,6 +881,7 @@ function createDurableJobNotificationWaiter(db: PgTransactionalPool, channel: st
         await client.query(`LISTEN ${channel}`);
         return client;
       } catch (error) {
+        disabledUntil = Date.now() + retryCooldownMs;
         reset();
         throw error;
       }
@@ -881,7 +897,10 @@ function createDurableJobNotificationWaiter(db: PgTransactionalPool, channel: st
         return waitForDurableJobTimeout(timeoutMs, input.signal);
       }
 
-      await getClient();
+      const client = await getClient();
+      if (!client) {
+        return waitForDurableJobTimeout(timeoutMs, input.signal);
+      }
       await new Promise<void>((resolve) => {
         let settled = false;
         const waitersForJob = waitersByJobId.get(input.jobId) ?? new Set<() => void>();

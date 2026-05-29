@@ -122,6 +122,12 @@ CREATE INDEX IF NOT EXISTS platform_realtime_stream_leases_expires_at_idx
 CREATE INDEX IF NOT EXISTS platform_realtime_stream_leases_connection_expires_idx
   ON platform_realtime_stream_leases (connection_key, expires_at);
 
+CREATE TABLE IF NOT EXISTS platform_realtime_stream_counters (
+  counter_key text PRIMARY KEY,
+  active_count integer NOT NULL DEFAULT 0 CHECK (active_count >= 0),
+  updated_at timestamptz NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS platform_scheduled_runners (
   runner_name text PRIMARY KEY,
   interval_ms integer NOT NULL CHECK (interval_ms > 0),
