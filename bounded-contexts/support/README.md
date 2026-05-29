@@ -4,6 +4,10 @@ Support owns structured marketplace support requests. It keeps order workflows i
 
 The `support-requests` slice uses a flow catalog for issue-specific requirements. New support flows should add a catalog entry and tests before changing aggregate lifecycle behavior.
 
+## Docs
+
+- [Support operations readiness](docs/support-operations-readiness.md)
+
 Cross-context outcomes stay with the context that owns the consequence:
 
 - Payments listens for refund-producing support resolutions and issues order-scoped refunds.

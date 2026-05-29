@@ -247,18 +247,20 @@ If cleanup fails, rerun the cleanup workflow for the closed PR. If the state key
 
 Production deploys automatically through `.github/workflows/platform-production.yml` after the staging job succeeds. It promotes the same immutable commit-tagged image that staging just deployed, instead of rebuilding a second artifact. Non-deployable release commits do not reach production promotion because staging is intentionally skipped.
 
+Production is intentionally gated to landing and admin-support by default. The marketplace, full platform API, platform worker, and commerce bounded-context databases are deployed to production only when the production GitHub Environment sets `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`. Keep that variable unset or `false` until the [marketplace production promotion](./marketplace-production-promotion.md) gates are complete.
+
 The workflow:
 
 1. Checks out the release commit that already passed `PR Required` and staging deployment.
 2. Skips stale automatic deployments when the release commit is no longer the current `origin/main`.
-3. Validates required production secrets and variables.
+3. Validates required production secrets and variables. When `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, validation also requires Stripe live-mode keys, Stripe webhook secret, EasyPost production configuration, production Connect return/refresh URLs, and complete Amazon SES transactional email configuration.
 4. Verifies `registry.digitalocean.com/<account-registry>/chase-sets-platform:<release_commit>` already exists in DigitalOcean Container Registry. If it is missing, run a successful staging deployment for that commit before production promotion.
 5. Runs Terraform fmt and plan for `environment=production` with the staging-promoted image tag, blocks destructive changes unless `.github/deployment/production-destructive-change-approved.md` exists in the reviewed commit, and records whether `digitalocean_app.platform` will change.
 6. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
 7. Runs Terraform apply for `environment=production`.
 8. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
 9. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
-10. Runs `pnpm run smoke:platform` with required admin authentication, `ops+smoke@chasesets.com`, and smoke UTM markers.
+10. Runs `pnpm run smoke:platform` with required admin authentication, `ops+smoke@chasesets.com`, and smoke UTM markers. When marketplace promotion is enabled, production smoke also requires the production marketplace domain.
 11. Adds a matching `release-<yyyymmddHHMMSS>-<sha>` DOCR tag to the promoted image, creates the annotated Git release tag, and fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
 
 Production destructive-change overrides must be explicit in the pull request. Add `.github/deployment/production-destructive-change-approved.md` only for a deliberately reviewed infrastructure migration, and remove it in the same PR or an immediate follow-up when the migration is complete.
@@ -280,6 +282,8 @@ The platform smoke script checks:
 Catalog asset CDN smoke verifies that each environment's `CATALOG_ASSET_PUBLIC_BASE_URL` resolves over HTTPS after the `catalog-assets` Terraform root applies and during staging/production platform smoke. A full asset write smoke is covered by importing a provider Source Observation that has an image and confirming the stored URL starts with the environment CDN base URL.
 
 Set `SMOKE_REQUIRE_ADMIN=true` and `SMOKE_REQUIRE_MARKETPLACE=true` for preview CI and staging. Staging also sets `SMOKE_REQUIRE_LEGACY_REDIRECT=true` and `SMOKE_WRITE_WAITLIST=false`. Production sets `SMOKE_REQUIRE_ADMIN=true`. Set `SMOKE_WRITE_WAITLIST=false` only for an intentionally read-only smoke check.
+
+Production sets `SMOKE_REQUIRE_MARKETPLACE=true` only when `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`. The current production posture should not include a marketplace URL in smoke output.
 
 Production secrets are scoped to validation, Terraform, smoke, and Git release-marker steps. The production workflow must not run dependency installation, workspace builds, or Docker builds with production provider/admin secrets in scope.
 

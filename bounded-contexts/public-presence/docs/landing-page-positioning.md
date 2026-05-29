@@ -19,6 +19,8 @@ Use only repo-verifiable credibility until live marketplace proof exists:
 - sample product previews
 - provider-backed payment and visible-total language already present in Public Presence copy
 
+Until `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production copy must keep the marketplace framed as prelaunch. Do not publish live-buying, live-listing, transaction-volume, payout, or delivery promises on the public site while the production marketplace gate is closed.
+
 Do not invent testimonials, waitlist counts, partnerships, founder bios, launch dates, transaction volume, or community proof.
 
 Promote new trust proof only when all of these are true:

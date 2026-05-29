@@ -88,4 +88,6 @@ Before enabling SES in a shared environment:
 5. Deploy and verify `platform-worker` health is `ACTIVE`.
 6. Send a controlled transactional message from the environment and confirm the outbox row is marked sent with provider `amazon-ses`.
 
+Before setting `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production must pass the same SES checks. Marketplace launch depends on transactional email for sign-in, account security, order, payment, fulfillment, refund, support, and payout notices; a `noop` production provider is acceptable only while production remains landing/admin-support.
+
 Provider bounces, complaints, and delivery notifications should flow through SES/SNS into the provider webhook inbox path before tightening DMARC policy or broadening email volume.

@@ -23,10 +23,26 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.no.requests": "No support requests",
   "support.features.supportRequests.ui.supportRequestListPage.no.requests.description":
     "Structured requests will appear here when an order needs support.",
+  "support.features.supportRequests.ui.supportRequestListPage.open.title": "Open an order issue",
+  "support.features.supportRequests.ui.supportRequestListPage.open.description":
+    "Start a structured support request from the order, role, and issue type so deadlines, evidence, and money holds can be tracked.",
+  "support.features.supportRequests.ui.supportRequestListPage.open.order": "Order ID",
+  "support.features.supportRequests.ui.supportRequestListPage.open.order.placeholder": "ord_...",
+  "support.features.supportRequests.ui.supportRequestListPage.open.role": "Opening as",
+  "support.features.supportRequests.ui.supportRequestListPage.open.role.buyer": "Buyer",
+  "support.features.supportRequests.ui.supportRequestListPage.open.role.seller": "Seller",
+  "support.features.supportRequests.ui.supportRequestListPage.open.issue": "Issue",
+  "support.features.supportRequests.ui.supportRequestListPage.open.submit": "Open support request",
+  "support.features.supportRequests.ui.supportRequestListPage.open.success": "Support request {id} is open.",
   "support.features.supportRequests.ui.supportRequestListPage.issue": "Issue",
   "support.features.supportRequests.ui.supportRequestListPage.order": "Order",
   "support.features.supportRequests.ui.supportRequestListPage.status": "Status",
   "support.features.supportRequests.ui.supportRequestListPage.updated": "Updated",
+  "support.features.supportRequests.ui.supportRequestListPage.priority": "Priority",
+  "support.features.supportRequests.ui.supportRequestListPage.next.deadline": "Next deadline",
+  "support.features.supportRequests.ui.supportRequestListPage.checklist": "Checklist",
+  "support.features.supportRequests.ui.supportRequestListPage.checklist.summary": "{satisfied}/{required} required",
+  "support.features.supportRequests.ui.supportRequestListPage.not.applicable": "N/A",
   "support.features.supportRequests.ui.supportRequestListPage.available.flows": "Available flows",
   "support.features.supportRequests.ui.supportRequestListPage.available.flows.description":
     "Each flow defines evidence, response options, deadlines, and the default support outcome.",
@@ -35,5 +51,6 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.response.window": "Response window",
   "support.features.supportRequests.ui.supportRequestListPage.support.owned": "Support owned",
   "support.features.supportRequests.ui.supportRequestListPage.hours": "{hours} hours",
+  "support.routes.marketplace.accountSupport.open.failed": "Could not open support request.",
   "support.routes.marketplace.accountSupport.support.marketplace": "Support | Marketplace",
 } as const;

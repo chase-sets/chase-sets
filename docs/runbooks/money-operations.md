@@ -33,11 +33,13 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 ## Launch Readiness
 
 - Required environment: `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, Connect onboarding return URL, and Connect onboarding refresh URL.
+- Production marketplace launch additionally requires `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, Stripe live-mode keys, production Connect return and refresh URLs on `https://marketplace.chasesets.com`, EasyPost production mode, and complete Amazon SES transactional email configuration. Keep the switch off while production remains landing/admin-support only.
 - `STRIPE_API_BASE_URL` is optional and should normally be unset outside adapter tests or controlled sandbox endpoints.
 - Money Health must show provider diagnostics, platform balance forecast, payout issues, and reconciliation history.
 - Payout Operations must show recent provider idempotency keys.
 - Payment webhooks must cover checkout completion, async failure, expiration, refunds, and disputes.
 - Connect webhooks must cover account/readiness updates, `payout.paid`, and `payout.failed`.
+- Support must be able to open structured buyer and seller order issues before production marketplace launch, because support holds can block settlement release and support resolutions can produce refunds.
 - Run `pnpm run verify` before deployment. DB-backed rollout checks belong in `pnpm run verify:db` when database compatibility is in scope.
 
 ## Local Stripe Runtime
