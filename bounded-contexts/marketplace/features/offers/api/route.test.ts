@@ -73,7 +73,7 @@ function createServices(): MarketplaceOfferServices {
     listOfferMatches,
     getOfferMatch,
     projectors: [],
-  };
+  } as unknown as MarketplaceOfferServices;
 }
 
 describe("marketplace offer routes", () => {
@@ -213,7 +213,7 @@ describe("marketplace offer routes", () => {
       in_sell_list: false,
       created_at: "2026-03-31T00:00:00.000Z",
       updated_at: "2026-03-31T00:00:00.000Z",
-    });
+    } as never);
 
     const app = buildApp({
       actor: {
@@ -291,7 +291,7 @@ describe("marketplace offer routes", () => {
         agreement_id: null,
         resolved_at: "2026-03-31T00:00:00.000Z",
         fee_quote_fingerprint: "350.00|17.50|332.50|sch_standard|",
-      }),
+      } as never),
     );
     const app = buildApp({
       actor: {

@@ -65,8 +65,12 @@ describe("CatalogItem aggregate", () => {
 
       expect(events[0].type).toBe("catalog.catalog-item.created");
       expect(events[0].data).toMatchObject({ itemId, languageCode: "ja" });
-      expect(events[0].data.title.values).toMatchObject({ en: "Test Card", ja: "テストカード" });
-      expect(events[0].data.subtitle?.values.en).toBe("Subtitle");
+      expect(events[0]).toMatchObject({
+        data: {
+          title: { values: { en: "Test Card", ja: "テストカード" } },
+          subtitle: { values: { en: "Subtitle" } },
+        },
+      });
     });
 
     it("rejects non-BCP Japanese language code", () => {

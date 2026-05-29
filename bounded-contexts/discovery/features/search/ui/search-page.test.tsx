@@ -653,6 +653,7 @@ describe("SearchPage", () => {
                 title: "Bulbasaur",
                 subtitle: "Japanese Base Set",
                 image_url: null,
+                image_srcset: null,
                 image_loading_url: null,
                 image_loading_alt: null,
                 image_loading_srcset: null,

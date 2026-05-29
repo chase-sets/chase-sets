@@ -63,17 +63,19 @@ describe("DisplayTemplateListPage", () => {
     render(
       <DisplayTemplateListPage
         data={{ items: [displayTemplate], total: 1, count: 1 }}
-        query={{
-          search: "",
-          status: "",
-          language: "",
-          source: "",
-          setId: "",
-          typeKey: "",
-          targetKind: "",
-          page: 0,
-          pageSize: 50,
-        }}
+        query={
+          {
+            search: "",
+            status: "",
+            language: "",
+            source: "",
+            setId: "",
+            typeKey: "",
+            targetKind: "",
+            page: 0,
+            pageSize: 50,
+          } as never
+        }
       />,
     );
 

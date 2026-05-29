@@ -81,6 +81,7 @@ describe("marketplace offer domain", () => {
       offerId: "off_test" as never,
       buyerAccountId: "acc_buyer" as never,
       catalogItemId: "cat_charizard",
+      productId: "cat_charizard::" as never,
       itemTitle: "Charizard",
       itemSubtitle: null,
       selectedOptions: [],

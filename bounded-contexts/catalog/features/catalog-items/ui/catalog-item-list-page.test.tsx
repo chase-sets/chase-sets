@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CatalogRealtimeReloadActionBar } from "../../../support/shell-support/ui/realtime-reload-action-bar";
 import { CatalogItemListPage } from "./catalog-item-list-page";
+import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import type { CatalogItemListItem } from "./contracts";
 
 const {
@@ -58,6 +59,38 @@ const catalogItem: CatalogItemListItem = {
   updated_at: "2026-05-16T00:00:00.000Z",
 };
 
+const defaultQuery: CatalogListQuery = {
+  search: "",
+  status: "",
+  language: "",
+  source: "",
+  setId: "",
+  typeKey: "",
+  valueKind: "",
+  valueType: "",
+  filterable: "",
+  searchable: "",
+  sortable: "",
+  hasFieldRules: "",
+  hasDimensionRules: "",
+  hasComponents: "",
+  parentCategoryId: "",
+  hierarchy: "",
+  blueprintId: "",
+  blueprintState: "",
+  tag: "",
+  hasImages: "",
+  hasSourceReferences: "",
+  missingRequiredFields: "",
+  attributeKey: "",
+  attributeValue: "",
+  relationshipType: "",
+  relatedReferenceId: "",
+  targetKind: "",
+  page: 0,
+  pageSize: 50,
+};
+
 describe("CatalogItemListPage", () => {
   afterEach(() => {
     cleanup();
@@ -82,6 +115,7 @@ describe("CatalogItemListPage", () => {
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 2, count: 1 }}
         query={{
+          ...defaultQuery,
           search: "charizard",
           status: "draft",
           language: "en",
@@ -107,6 +141,7 @@ describe("CatalogItemListPage", () => {
       expect(mockPreviewBulkPublishCatalogItems).toHaveBeenCalledWith({
         mode: "filter",
         query: {
+          ...defaultQuery,
           search: "charizard",
           status: "draft",
           language: "en",
@@ -139,6 +174,7 @@ describe("CatalogItemListPage", () => {
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
         query={{
+          ...defaultQuery,
           search: "",
           status: "",
           language: "",
@@ -203,6 +239,7 @@ describe("CatalogItemListPage", () => {
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
         query={{
+          ...defaultQuery,
           search: "",
           status: "draft",
           language: "",
@@ -266,7 +303,15 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+        query={{
+          ...defaultQuery,
+          search: "",
+          status: "draft",
+          language: "",
+          source: "tcgplayer",
+          page: 0,
+          pageSize: 50,
+        }}
       />,
     );
 
@@ -301,7 +346,15 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+        query={{
+          ...defaultQuery,
+          search: "",
+          status: "draft",
+          language: "",
+          source: "tcgplayer",
+          page: 0,
+          pageSize: 50,
+        }}
       />,
     );
 
@@ -317,7 +370,15 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+        query={{
+          ...defaultQuery,
+          search: "",
+          status: "draft",
+          language: "",
+          source: "tcgplayer",
+          page: 0,
+          pageSize: 50,
+        }}
       />,
     );
 
@@ -348,7 +409,15 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "active", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+        query={{
+          ...defaultQuery,
+          search: "",
+          status: "active",
+          language: "",
+          source: "tcgplayer",
+          page: 0,
+          pageSize: 50,
+        }}
       />,
     );
 
@@ -370,7 +439,15 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "draft", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+        query={{
+          ...defaultQuery,
+          search: "",
+          status: "draft",
+          language: "",
+          source: "tcgplayer",
+          page: 0,
+          pageSize: 50,
+        }}
         realtimeReloadActionBar={
           <CatalogRealtimeReloadActionBar
             pendingChangeCount={3}
@@ -420,7 +497,15 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "active", language: "", source: "tcgplayer", page: 0, pageSize: 50 }}
+        query={{
+          ...defaultQuery,
+          search: "",
+          status: "active",
+          language: "",
+          source: "tcgplayer",
+          page: 0,
+          pageSize: 50,
+        }}
       />,
     );
 
@@ -438,7 +523,15 @@ describe("CatalogItemListPage", () => {
         { action: "assignBlueprint", blueprintId: "bpr_card" },
         {
           mode: "filter",
-          query: { search: "", status: "active", language: "", source: "tcgplayer", page: 0, pageSize: 50 },
+          query: {
+            ...defaultQuery,
+            search: "",
+            status: "active",
+            language: "",
+            source: "tcgplayer",
+            page: 0,
+            pageSize: 50,
+          },
         },
       );
     });
@@ -456,7 +549,7 @@ describe("CatalogItemListPage", () => {
     render(
       <CatalogItemListPage
         data={{ items: [catalogItem], total: 1, count: 1 }}
-        query={{ search: "", status: "draft", language: "", source: "", page: 0, pageSize: 50 }}
+        query={{ ...defaultQuery, search: "", status: "draft", language: "", source: "", page: 0, pageSize: 50 }}
       />,
     );
 

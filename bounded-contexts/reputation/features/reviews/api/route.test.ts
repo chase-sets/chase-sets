@@ -46,6 +46,7 @@ function createServices(): ReviewServices {
     submitReview: vi.fn(async () => ({ reviewId: "rev_1", version: 1 })),
     updateReview: vi.fn(async () => ({ reviewId: "rev_1", version: 2 })),
     withdrawReview: vi.fn(async () => ({ reviewId: "rev_1", version: 3 })),
+    recordDeliveredShipmentReviewEligibility: vi.fn(async () => undefined),
     listPublicAccountReviews: vi.fn(async () => ({ items: [], total: 0 })),
     listWrittenReviews: vi.fn(async () => ({ items: [], total: 0 })),
     listReceivedReviews: vi.fn(async () => ({ items: [], total: 0 })),
@@ -64,7 +65,7 @@ function createServices(): ReviewServices {
       updated_at: "2026-04-02T00:00:00.000Z",
     })),
     projectors: [],
-  };
+  } as unknown as ReviewServices;
 }
 
 describe("reputation review routes", () => {

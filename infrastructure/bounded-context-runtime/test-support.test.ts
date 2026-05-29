@@ -58,7 +58,7 @@ describe("test-support database ownership", () => {
   it("creates missing roles and databases with matching ownership", async () => {
     const { calls, pool } = createAdminPool();
 
-    await ensureOwnedPostgresDatabases(pool, {
+    await ensureOwnedPostgresDatabases(pool as never, {
       auth: "postgresql://auth:auth@localhost:5432/auth",
       identity: "postgresql://identity:identity@localhost:5432/identity",
     });
@@ -74,7 +74,7 @@ describe("test-support database ownership", () => {
       existingDatabases: ["auth"],
     });
 
-    await ensureOwnedPostgresDatabases(pool, {
+    await ensureOwnedPostgresDatabases(pool as never, {
       auth: "postgresql://auth:auth@localhost:5432/auth",
     });
 

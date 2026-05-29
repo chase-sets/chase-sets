@@ -4,7 +4,7 @@ import type { AuthServices } from "../runtime-support/services";
 import { registerPhoneCodeRoutes } from "./phone-code-routes";
 import type { AuthApiEnv } from "./support";
 
-function buildApp(services: Partial<AuthServices>) {
+function buildApp(services: unknown) {
   const app = new Hono<AuthApiEnv>();
   app.use("*", async (c, next) => {
     c.set("context", {
@@ -28,7 +28,7 @@ afterEach(() => {
 describe("phone code auth routes", () => {
   it("normalizes phone numbers and enqueues an SMS security notification", async () => {
     const enqueueNotification = vi.fn(async () => undefined);
-    const query = vi.fn(async () => ({ rows: [] }));
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
     const services = {
       db: { query },
       auth: {
@@ -80,7 +80,7 @@ describe("phone code auth routes", () => {
 
   it("rejects invalid or expired codes without starting a session", async () => {
     const services = {
-      db: { query: vi.fn(async () => ({ rows: [] })) },
+      db: { query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })) },
       auth: {
         hashSecret: vi.fn((value: string) => `hashed:${value}`),
       },

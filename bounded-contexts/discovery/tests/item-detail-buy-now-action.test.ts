@@ -102,7 +102,7 @@ describe("item detail buy now action", () => {
       request: new Request("http://localhost/items/charizard-base-set"),
       params: { id: "charizard-base-set" },
       context: {},
-    });
+    } as never);
 
     expect(result.canSubmitOffers).toBe(true);
     expect(result.viewerAccountId).toBe("acc_account");
@@ -134,7 +134,7 @@ describe("item detail buy now action", () => {
       request: new Request("http://localhost/items/charizard-base-set"),
       params: { id: "charizard-base-set" },
       context: {},
-    });
+    } as never);
 
     expect(result.canSubmitOffers).toBe(false);
     expect(result.viewerAccountId).toBeNull();
@@ -175,7 +175,7 @@ describe("item detail buy now action", () => {
     form.set("shippingPostalCode", "60601");
     form.set("shippingCountry", "US");
 
-    const response = await action({
+    const response = (await action({
       request: new Request("http://localhost/items/charizard-base-set", {
         method: "POST",
         body: form,
@@ -185,7 +185,7 @@ describe("item detail buy now action", () => {
       }),
       params: { id: "charizard-base-set" },
       context: {},
-    });
+    } as never)) as Response;
 
     expect(mockCreateSubmittedOffer).not.toHaveBeenCalled();
     expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
@@ -222,7 +222,7 @@ describe("item detail buy now action", () => {
     const form = new URLSearchParams();
     form.set("intent", "submit-offer");
 
-    const response = await action({
+    const response = (await action({
       request: new Request("http://localhost/items/charizard-base-set", {
         method: "POST",
         body: form,
@@ -232,7 +232,7 @@ describe("item detail buy now action", () => {
       }),
       params: { id: "charizard-base-set" },
       context: {},
-    });
+    } as never)) as Response;
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toContain("/checkout/start?source=offer-intent");

@@ -36,7 +36,7 @@ const normalized: SourceObservationNormalized = {
 
 describe("Source Observation projections", () => {
   it("repairs missing rows from refreshed unchanged observations", async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
     const handlers = buildSourceObservationProjectionHandlers({ query });
 
     await handlers["catalog.source-observation.refreshed"]?.({
@@ -73,7 +73,7 @@ describe("Source Observation projections", () => {
   });
 
   it("upserts changed observations so a new change can repair a missing row", async () => {
-    const query = vi.fn(async () => ({ rows: [] }));
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
     const handlers = buildSourceObservationProjectionHandlers({ query });
 
     await handlers["catalog.source-observation.changed"]?.({

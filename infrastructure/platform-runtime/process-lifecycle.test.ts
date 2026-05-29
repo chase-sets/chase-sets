@@ -59,7 +59,11 @@ describe("process lifecycle", () => {
           events.push(`drain:${drainState.isDraining()}`);
         },
       ],
-      onShutdown: [() => events.push("shutdown")],
+      onShutdown: [
+        () => {
+          events.push("shutdown");
+        },
+      ],
       logger: {
         info: vi.fn(),
         warn: vi.fn(),

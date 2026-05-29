@@ -35,8 +35,18 @@ function buildItems(overrides: Partial<DiscoveryItemsServices> = {}): DiscoveryI
             updated_at: "2026-05-16T00:00:00.000Z",
           },
         ],
+        facets: [],
         total: 1,
         nextCursor: null,
+      })),
+      previewBulkAdd: vi.fn(async () => ({
+        totalMatches: null,
+        eligibleCount: 0,
+        skippedCount: 0,
+        overLimit: false,
+        limit: 25,
+        lines: [],
+        skippedItems: [],
       })),
       rebuildSearchIndex: vi.fn(),
       projectors: [],
@@ -61,7 +71,7 @@ describe("Discovery UCP catalog handlers", () => {
         body: JSON.stringify({ query: "charizard", filters: { category: "Pokemon" } }),
       }),
       params: {},
-    });
+    } as never);
 
     expect(items.search.searchItems).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -121,7 +131,7 @@ describe("Discovery UCP catalog handlers", () => {
         body: JSON.stringify({ id: "missing" }),
       }),
       params: {},
-    });
+    } as never);
 
     expect(result).toMatchObject({
       ucp: { status: "error" },

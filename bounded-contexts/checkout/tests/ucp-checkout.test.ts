@@ -32,6 +32,7 @@ function session(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRo
     optimization_goal: "lowest-total",
     fulfillment_preview_revision: null,
     shipping_option: "standard",
+    shipping_address_id: null,
     shipping_address: null,
     lines: [
       {

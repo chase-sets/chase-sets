@@ -12,7 +12,7 @@ const context = {
   },
 };
 
-function createAuthenticatedApp(services: Partial<PayoutServices>, permissions: readonly string[] | null) {
+function createAuthenticatedApp(services: unknown, permissions: readonly string[] | null) {
   const app = new Hono<SettlementApiEnv>();
   app.use("*", async (c, next) => {
     c.set(

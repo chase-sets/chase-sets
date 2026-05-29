@@ -99,9 +99,10 @@ describe("Catalog Item projections", () => {
     const handlers = buildCatalogAdminCatalogItemProjectionHandlers({ query });
 
     await handlers["catalog.category.published"]?.({
-      ...event(),
       streamId: "catalog.category-cat_category_1",
-    });
+      data: {},
+      timing: { recordedAt: "2026-05-17T00:00:00.000Z" },
+    } as never);
 
     expect(maxActiveQueries()).toBe(1);
   });

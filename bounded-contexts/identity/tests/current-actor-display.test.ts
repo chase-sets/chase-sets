@@ -20,6 +20,7 @@ function buildApp(services: IdentityServices, resolvedActor: ResolvedActor | nul
   app.use("*", async (c, next) => {
     c.set("actor", resolvedActor);
     c.set("context", {
+      tenantId: "tnt_1" as never,
       audit: {
         performedByUserId: actor.userId as never,
         forAccountId: actor.accountId as never,

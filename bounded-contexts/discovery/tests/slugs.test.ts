@@ -31,9 +31,9 @@ describe("marketplace slugs", () => {
   });
 
   it("records previous slugs as redirects to the current slug", async () => {
-    const calls: unknown[][] = [];
+    const calls: (readonly unknown[])[] = [];
     const db = {
-      query: async (_sql: string, values: unknown[]) => {
+      query: async (_sql: string, values: readonly unknown[]) => {
         calls.push(values);
         return { rows: [] };
       },

@@ -871,6 +871,10 @@ function isRunnableWorkspaceTestFile(relativeFile) {
   return /\.(?:test|spec)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(relativeFile);
 }
 
+function isTypecheckableWorkspaceTestFile(relativeFile) {
+  return /\.(?:test|spec)\.tsx?$/.test(relativeFile);
+}
+
 function isWebDeployableFile(relativeFile) {
   return /deployables\/(admin-web|marketplace)\//.test(relativeFile);
 }
@@ -1017,6 +1021,13 @@ export async function runStructureCheck(options = {}) {
   }
 
   async function validateWorkspaceTestScriptCoverage() {
+    const rootPackageJson = JSON.parse(readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+    const rootScripts = rootPackageJson.scripts ?? {};
+    const hasCentralTestTypecheck =
+      typeof rootScripts["test:typecheck"] === "string" &&
+      typeof rootScripts["verify:typecheck"] === "string" &&
+      rootScripts["verify:typecheck"].includes("test:typecheck");
+
     for (const workspace of listWorkspacePackages({ repoRoot })) {
       const { files } = await walk(workspace.dir);
       const testFiles = files.map(normalizeRelative).filter(isRunnableWorkspaceTestFile);
@@ -1029,13 +1040,29 @@ export async function runStructureCheck(options = {}) {
         typeof scripts.test === "string" ||
         typeof scripts["test:unit"] === "string" ||
         typeof scripts["test:db"] === "string";
-      if (hasRunnableTestScript) {
+      if (!hasRunnableTestScript) {
+        addPathViolation(
+          normalizeRelative(workspace.packageJsonPath),
+          `workspace has ${testFiles.length} test file(s) but no runnable test script (expected test, test:unit, or test:db)`,
+        );
+      }
+
+      const typecheckableTestFiles = testFiles.filter(isTypecheckableWorkspaceTestFile);
+      if (typecheckableTestFiles.length === 0) {
+        continue;
+      }
+
+      const hasWorkspaceTypecheck =
+        typeof scripts.typecheck === "string" ||
+        typeof scripts["test:typecheck"] === "string" ||
+        typeof scripts["typecheck:tests"] === "string";
+      if (hasCentralTestTypecheck || hasWorkspaceTypecheck) {
         continue;
       }
 
       addPathViolation(
         normalizeRelative(workspace.packageJsonPath),
-        `workspace has ${testFiles.length} test file(s) but no runnable test script (expected test, test:unit, or test:db)`,
+        `workspace has ${typecheckableTestFiles.length} TypeScript test file(s) but no test typecheck coverage (expected root test:typecheck in verify:typecheck or a workspace typecheck script)`,
       );
     }
   }

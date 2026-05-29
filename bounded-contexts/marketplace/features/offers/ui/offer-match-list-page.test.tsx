@@ -15,6 +15,18 @@ const offer: OfferMatchListItem = {
   item_subtitle: "Base Set 4/102 Holo Rare",
   selected_options: [{ dimensionId: "condition", optionId: "raw" }],
   product_summary: "Raw / Near Mint",
+  shipping_destination_snapshot: {
+    name: "Ash Ketchum",
+    company: null,
+    line1: "100 Market Street",
+    line2: null,
+    city: "Chicago",
+    state: "IL",
+    postalCode: "60601",
+    country: "US",
+    phone: null,
+    email: null,
+  },
   price_amount: "20.00",
   quantity_requested: 1,
   status: "submitted",
@@ -48,7 +60,7 @@ describe("MarketplaceOfferMatchListPage", () => {
   });
 
   it("shows listing price next to the best offer so sellers can judge the gap", () => {
-    const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} cartData={{ items: [] }} />);
+    const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} />);
 
     expect(markup).toContain("Best Offer Matches");
     expect(markup).toContain("Your Listing");
@@ -60,7 +72,7 @@ describe("MarketplaceOfferMatchListPage", () => {
   });
 
   it("shows buyer reputation on offer match rows", () => {
-    const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} cartData={{ items: [] }} />);
+    const markup = renderToString(<MarketplaceOfferMatchListPage data={{ items: [offer] }} />);
 
     expect(markup).toContain("Buyer reputation");
     expect(markup).toContain("4.6");

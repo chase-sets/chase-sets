@@ -18,7 +18,7 @@ describe("ses email adapter", () => {
   };
 
   it("creates an AWS SDK send request from SES request input", async () => {
-    const send = vi.fn(async () => ({ MessageId: "ses_msg_sdk" }));
+    const send = vi.fn(async (_command: { input: { FromEmailAddress?: string } }) => ({ MessageId: "ses_msg_sdk" }));
     const sendRequest = createSesSendRequest({
       region: "us-east-2",
       client: { send },
@@ -46,7 +46,7 @@ describe("ses email adapter", () => {
   });
 
   it("maps transactional messages into SES SendEmail requests", async () => {
-    const sendRequest = vi.fn(async () => ({ MessageId: "ses_msg_123" }));
+    const sendRequest = vi.fn(async (_request: SesSendEmailRequest) => ({ MessageId: "ses_msg_123" }));
     const gateway = createSesTransactionalEmailGateway({
       fromEmail: "no-reply@chasesets.com",
       configurationSetName: "transactional",
@@ -84,7 +84,7 @@ describe("ses email adapter", () => {
     const onAttempt = vi.fn();
     const onResult = vi.fn();
     const sendRequest = vi
-      .fn()
+      .fn(async (_request: SesSendEmailRequest) => ({ MessageId: "ses_msg_retry" }))
       .mockRejectedValueOnce(new Error("temporary SES outage"))
       .mockResolvedValueOnce({ MessageId: "ses_msg_retry" });
 
@@ -140,7 +140,7 @@ describe("ses email adapter", () => {
   });
 
   it("adapts notification email channels through transactional SES rendering", async () => {
-    const sendRequest = vi.fn(async () => ({ MessageId: "ses_msg_notify" }));
+    const sendRequest = vi.fn(async (_request: SesSendEmailRequest) => ({ MessageId: "ses_msg_notify" }));
     const adapter = createSesEmailNotificationAdapter({
       fromEmail: "no-reply@chasesets.com",
       sendRequest,

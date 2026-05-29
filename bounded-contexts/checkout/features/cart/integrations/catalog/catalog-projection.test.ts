@@ -48,7 +48,7 @@ function event(type: string, data: Record<string, unknown>): TransportEvent {
     streamVersion: 1 as never,
     globalPosition: 1 as never,
     tenantId: "tnt_1" as never,
-    data,
+    data: data as never,
     metadata: {},
     audit: {
       performedByUserId: "usr_1" as never,

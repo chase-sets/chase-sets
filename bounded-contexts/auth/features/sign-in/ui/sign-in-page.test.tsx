@@ -146,7 +146,7 @@ describe("sign-in page magic link recovery", () => {
         }),
         params: {},
         context: {},
-      }),
+      } as never),
     ).resolves.toEqual({
       error: "Magic link token entry is not available here.",
     });

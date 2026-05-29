@@ -114,9 +114,9 @@ describe("platform feedback runtime", () => {
   it("checks the 30 day duplicate window when no related entity exists", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-05-07T12:00:00.000Z"));
-    const queryParams: unknown[][] = [];
+    const queryParams: (readonly unknown[])[] = [];
     const db = {
-      query: vi.fn(async (_sql: string, params?: unknown[]) => {
+      query: vi.fn(async (_sql: string, params?: readonly unknown[]) => {
         queryParams.push(params ?? []);
         return { rows: [] };
       }),

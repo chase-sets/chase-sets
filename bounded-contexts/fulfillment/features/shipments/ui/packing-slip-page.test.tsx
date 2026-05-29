@@ -68,6 +68,7 @@ const slip: FulfillmentPackingSlip = {
   dispatched_at: null,
   delivered_at: null,
   returned_at: null,
+  cancelled_at: null,
   exception_raised_at: null,
   line_count: 1,
   total_quantity: 2,

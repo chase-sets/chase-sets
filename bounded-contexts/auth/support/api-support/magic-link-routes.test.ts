@@ -29,7 +29,7 @@ vi.mock("@chase-sets/identity/server", () => ({
   createIdentityAuthRequestClient: mockCreateIdentityAuthRequestClient,
 }));
 
-function buildApp(services: Partial<AuthServices>) {
+function buildApp(services: unknown) {
   const app = new Hono<AuthApiEnv>();
   app.use("*", async (c, next) => {
     c.set("context", {
@@ -50,7 +50,7 @@ function buildApp(services: Partial<AuthServices>) {
 function createServices() {
   return {
     db: {
-      query: vi.fn(async () => ({ rows: [] })),
+      query: vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] })),
     },
     eventStore: {
       appendToStream: vi.fn(async () => ({ version: 1 })),

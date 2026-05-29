@@ -87,7 +87,7 @@ describe("marketplace search", () => {
     );
     await ensureMultiContextTestDatabases(requireDatabaseBaseUrl(), databaseUrls);
     pools = createMultiContextTestPools(databaseUrls);
-    catalogServices = catalogModule.createServices(pools.catalog, undefined);
+    catalogServices = catalogModule.createServices(pools.catalog, {});
     const identityServices = identityModule.createServices(pools.identity, undefined);
     const marketplaceServices = marketplaceModule.createServices(pools.marketplace, {
       commercialTermsResolver: createNoopCommercialTermsResolver(),

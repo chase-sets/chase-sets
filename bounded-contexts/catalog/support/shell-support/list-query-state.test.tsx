@@ -177,7 +177,7 @@ describe("catalog list query state", () => {
   });
 
   it("loads route data through the derived API query", async () => {
-    const list = vi.fn(async () => ({ items: [{ id: "item-1" }], total: 1 }));
+    const list = vi.fn(async () => ({ items: [{ id: "item-1" }], total: 1, count: 1 }));
 
     const result = await loadCatalogListRouteData(
       new Request("http://localhost/catalog-items?search=charizard&language=en&source=tcgplayer&setId=base1&page=2"),

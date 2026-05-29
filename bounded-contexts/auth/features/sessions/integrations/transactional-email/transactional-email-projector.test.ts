@@ -3,7 +3,9 @@ import { projectAuthSessionEventToTransactionalEmail } from "./transactional-ema
 
 describe("auth transactional email projector", () => {
   it("enqueues email from auth.magic-link.requested transport events without storing the secret on the event", async () => {
-    const outbox = { enqueueTransactionalEmail: vi.fn(async () => undefined) };
+    const outbox = {
+      enqueueTransactionalEmail: vi.fn(async (_input: { message: { templateData: unknown } }) => undefined),
+    };
     const deliveryTokens = {
       getMagicLinkDeliveryToken: vi.fn(async () => "https://chasesets.com/magic"),
       clearMagicLinkDeliveryToken: vi.fn(async () => undefined),

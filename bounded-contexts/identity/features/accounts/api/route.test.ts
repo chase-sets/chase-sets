@@ -21,6 +21,7 @@ function buildApp(services: AccountServices) {
   app.use("*", async (c, next) => {
     c.set("actor", actor);
     c.set("context", {
+      tenantId: "tnt_identity" as never,
       audit: {
         performedByUserId: actor.userId as never,
         forAccountId: actor.accountId as never,
@@ -90,7 +91,7 @@ describe("account API route", () => {
       commandHandler: vi.fn(async () => ({
         state: { status: "active", badges: [] },
         version: 3,
-      })),
+      })) as never,
     });
 
     const response = await buildApp(services).request("/accounts/acc_1/badges/founding-account", { method: "DELETE" });

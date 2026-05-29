@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { buildCoverageSummary, parseCoverageSummaryArgs, parseLcovTotals } from "./coverage-summary.mjs";
+import {
+  buildCoverageSummary,
+  mergeLcovContents,
+  parseCoverageSummaryArgs,
+  parseLcovTotals,
+} from "./coverage-summary.mjs";
 
 describe("coverage summary", () => {
   it("aggregates LCOV totals", () => {
@@ -51,5 +56,30 @@ end_of_record
 
   it("accepts the package-manager argument separator", () => {
     expect(parseCoverageSummaryArgs(["--", "--status=non-db:0"]).statuses).toEqual([{ name: "non-db", status: "0" }]);
+  });
+
+  it("accepts explicit LCOV inputs", () => {
+    expect(parseCoverageSummaryArgs(["--lcov-file=bounded-contexts/example/coverage/lcov.info"]).lcovFiles).toEqual([
+      "bounded-contexts/example/coverage/lcov.info",
+    ]);
+  });
+
+  it("de-duplicates LCOV records by source file and keeps the stronger record", () => {
+    const merged = mergeLcovContents([
+      `SF:bounded-contexts/example/index.ts
+LF:10
+LH:1
+end_of_record`,
+      `SF:bounded-contexts/example/index.ts
+LF:10
+LH:8
+end_of_record`,
+    ]);
+
+    expect(parseLcovTotals(merged)).toMatchObject({
+      files: 1,
+      linesFound: 10,
+      linesHit: 8,
+    });
   });
 });

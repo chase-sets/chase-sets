@@ -22,7 +22,11 @@ describe("auth session domain", () => {
       accountId: "acc_a" as never,
     });
 
-    expect(started[0]?.data.availableAccountIds).toEqual(["acc_a", "acc_b"]);
+    expect(started[0]).toMatchObject({
+      data: {
+        availableAccountIds: ["acc_a", "acc_b"],
+      },
+    });
     expect(apply([...started, ...switched]).accountId).toBe("acc_a");
   });
 

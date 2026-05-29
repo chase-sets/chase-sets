@@ -10,7 +10,7 @@ function event(type: string, data: Record<string, unknown>, streamVersion = 1): 
     streamVersion: streamVersion as never,
     globalPosition: streamVersion as never,
     tenantId: "tnt_test" as never,
-    data,
+    data: data as never,
     metadata: {},
     audit: {
       performedByUserId: "usr_test" as never,

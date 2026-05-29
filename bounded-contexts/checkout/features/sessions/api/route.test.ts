@@ -69,7 +69,10 @@ function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSes
     session_id: "chk_1",
     buyer_account_id: "acc_buyer",
     source_type: "cart",
+    optimization_goal: "lowest-total",
+    fulfillment_preview_revision: null,
     shipping_option: "standard",
+    shipping_address_id: null,
     lines: [
       {
         listingId: null,
@@ -99,6 +102,8 @@ function createServices(overrides: Partial<CheckoutSessionServices> = {}): Check
     createFromCart: vi.fn(async () => ({ sessionId: "chk_cart" as never })),
     createBuyNow: vi.fn(async () => ({ sessionId: "chk_buy_now" as never })),
     createOfferIntent: vi.fn(async () => ({ sessionId: "chk_offer" as never })),
+    selectOptimizationGoal: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    recordFulfillmentPreview: vi.fn(async ({ sessionId }) => ({ sessionId })),
     selectShippingOption: vi.fn(async ({ sessionId }) => ({ sessionId })),
     setShippingAddress: vi.fn(async ({ sessionId }) => ({ sessionId })),
     recordOrdersCreated: vi.fn(async ({ sessionId }) => ({ sessionId })),

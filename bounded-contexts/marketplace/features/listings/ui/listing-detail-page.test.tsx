@@ -15,6 +15,7 @@ const listing: MarketplaceListingDetail = {
   item_subtitle: null,
   selected_options: [],
   product_summary: "Condition: Near Mint",
+  product_measure_snapshot: null,
   graded_card: null,
   storage_location_name: "North shelf",
   ship_from_code: "CHI-WH-1",

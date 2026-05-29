@@ -275,6 +275,7 @@ function catalogServices(): InventoryCatalogItemServices {
 
       return {
         catalog_item_id: itemId,
+        language_code: "en",
         title: itemId,
         subtitle: null,
         blueprint_id: null,
@@ -300,6 +301,7 @@ function itemServices(onCreate: (itemId: InventoryItemId) => void): InventoryIte
     adjustItem: async () => {
       throw new Error("Not used by import batch tests.");
     },
+    ensureListingStock: vi.fn(async () => undefined) as never,
     listItems: async () => ({ items: [], total: 0 }),
     getItem: async () => null,
     projectors: [],
@@ -524,9 +526,9 @@ describe("inventory import batch runtime", () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const services = createInventoryImportBatchRuntime({
       db: {
-        query: async (sql, values = []) => {
+        query: async <Row = Record<string, unknown>>(sql: string, values: readonly unknown[] = []) => {
           calls.push({ sql, values });
-          return { rows: [], rowCount: 0 };
+          return { rows: [] as Row[], rowCount: 0 };
         },
       },
       catalogItems: catalogServices(),

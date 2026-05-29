@@ -93,7 +93,7 @@ export type ProjectorHandlerContext = Readonly<{
     query: <Row = Record<string, unknown>>(
       text: string,
       values?: readonly unknown[],
-    ) => Promise<Readonly<{ rows: readonly Row[]; rowCount: number | null }>>;
+    ) => Promise<Readonly<{ rows: readonly Row[]; rowCount?: number | null }>>;
   };
 }>;
 

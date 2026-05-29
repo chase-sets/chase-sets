@@ -3,9 +3,9 @@ import { buildReviewProjectionHandlers } from "./projection";
 
 describe("reputation review projection", () => {
   it("refreshes the unified subject account summary for seller-to-buyer reviews", async () => {
-    const queries: { sql: string; params: unknown[] }[] = [];
+    const queries: { sql: string; params: readonly unknown[] }[] = [];
     const db = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
+      query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
         queries.push({ sql, params: params ?? [] });
 
         if (sql.includes("RETURNING subject_account_id")) {

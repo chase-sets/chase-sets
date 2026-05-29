@@ -13,7 +13,7 @@ function event(type: string, data: Record<string, unknown>, streamId = "identity
     streamVersion: 1 as never,
     globalPosition: 1 as never,
     tenantId: "tnt_test" as never,
-    data,
+    data: data as never,
     metadata: {},
     audit: {
       performedByUserId: "usr_test" as never,

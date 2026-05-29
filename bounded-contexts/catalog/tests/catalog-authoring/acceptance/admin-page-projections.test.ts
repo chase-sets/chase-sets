@@ -807,7 +807,7 @@ describe("Admin page projections", () => {
     for (const itemId of [validItemId, invalidItemId]) {
       await sendCommand(services.items.commandHandler, `catalog.item-${itemId}`, {
         type: "CreateCatalogItem",
-        itemId,
+        itemId: itemId as never,
         title: l10n(itemId === validItemId ? "Valid Import" : "Invalid Import"),
         subtitle: null,
         description: l10n("Imported draft"),

@@ -396,7 +396,9 @@ describe("TCGdex client", () => {
       languageCode: "en",
       setId: "swsh3",
       fetch: fetcher,
-      onProgress: (event) => progress.push(event),
+      onProgress: (event) => {
+        progress.push(event);
+      },
     });
 
     expect(observations).toHaveLength(2);
