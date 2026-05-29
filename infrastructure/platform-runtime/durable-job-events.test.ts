@@ -87,6 +87,39 @@ describe("durable job event streams", () => {
     expect(body).toContain('"completed":50');
   });
 
+  it("applies replay budget across paged catch-up batches", async () => {
+    const loadEvents = vi.fn(async (afterSequence: number) =>
+      afterSequence < 4
+        ? [
+            {
+              sequence: afterSequence + 1,
+              eventName: "status",
+              data: { status: "running", progress: { completed: afterSequence } },
+            },
+          ]
+        : [],
+    );
+    const response = await createDurableJobEventStream({
+      request: new Request("https://admin.test/jobs/job_1/events", {
+        headers: { "Last-Event-ID": "1" },
+      }),
+      loadEvents,
+      loadCurrentSnapshot: vi.fn(async () => ({ status: "running", progress: { completed: 99 } })),
+      isTerminal: (event) => event.data.status === "completed",
+      maxReplayEvents: 2,
+    });
+
+    const body = await response.text();
+    expect(body).toContain("id: 2");
+    expect(body).toContain("id: 3");
+    expect(body).toContain("id: 4");
+    expect(body).toContain("event: sync.required");
+    expect(body).toContain('"completed":99');
+    expect(loadEvents).toHaveBeenCalledWith(1);
+    expect(loadEvents).toHaveBeenCalledWith(2);
+    expect(loadEvents).toHaveBeenCalledWith(3);
+  });
+
   it("rejects durable job streams when the limiter is exhausted", async () => {
     const limiter = createInMemoryDurableJobStreamLimiter({ maxActiveStreams: 1, maxActiveStreamsPerConnectionKey: 1 });
     const held = await limiter.acquire({ connectionKey: "account_1" });

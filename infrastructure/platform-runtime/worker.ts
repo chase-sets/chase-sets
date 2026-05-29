@@ -712,11 +712,20 @@ async function runProjectionOperationWithRenewedClaim(
   };
 
   const renewIntervalMs = Math.max(1_000, Math.min(options.leaseRenewIntervalMs, Math.floor(options.claimTtlMs / 3)));
+  let renewalInFlight = false;
   const renewalTimer = setInterval(() => {
-    void renewOperationClaim().catch(() => {
-      claimActive = false;
-      abortController.abort();
-    });
+    if (renewalInFlight) {
+      return;
+    }
+    renewalInFlight = true;
+    void renewOperationClaim()
+      .catch(() => {
+        claimActive = false;
+        abortController.abort();
+      })
+      .finally(() => {
+        renewalInFlight = false;
+      });
   }, renewIntervalMs);
   renewalTimer.unref?.();
 
@@ -906,7 +915,12 @@ async function runWithRenewedLease<T>(
       throw new Error(`Lost lease '${lease.leaseName}'.`);
     }
   };
+  let renewalInFlight = false;
   const renewalTimer = setInterval(() => {
+    if (renewalInFlight) {
+      return;
+    }
+    renewalInFlight = true;
     void controlPlane
       .renewLease(lease, input.ttlMs)
       .then((renewed) => {
@@ -918,6 +932,9 @@ async function runWithRenewedLease<T>(
       .catch(() => {
         leaseActive = false;
         abortController.abort();
+      })
+      .finally(() => {
+        renewalInFlight = false;
       });
   }, input.renewIntervalMs);
   renewalTimer.unref?.();

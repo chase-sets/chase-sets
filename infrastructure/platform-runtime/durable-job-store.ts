@@ -624,42 +624,46 @@ export async function runDurableJobSideEffect<TProgress, TResult, T>(
     rejectHandoff = reject;
   });
   handoff.catch(() => undefined);
+  const toHandoffError = (error: unknown) => {
+    const cause = error instanceof Error ? error : undefined;
+    return error instanceof DurableJobHandoffError
+      ? error
+      : new DurableJobHandoffError(cause?.message ?? claimLostMessage, { cause });
+  };
   const handOff = (error: unknown) => {
+    const handoffError = toHandoffError(error);
     if (settled) {
-      return;
+      return handoffError;
     }
 
-    const cause = error instanceof Error ? error : undefined;
-    const handoffError =
-      error instanceof DurableJobHandoffError
-        ? error
-        : new DurableJobHandoffError(cause?.message ?? claimLostMessage, { cause });
     abortController.abort(handoffError);
     rejectHandoff?.(handoffError);
+    return handoffError;
   };
   const abortFromParent = () => handOff(new DurableJobHandoffError("Durable job was cancelled."));
 
   context.signal?.addEventListener("abort", abortFromParent, { once: true });
-  await context.renew().catch((error) => {
-    handOff(error);
-    throw error;
-  });
-  let renewalInFlight = false;
-  const renewalTimer = setInterval(() => {
-    if (renewalInFlight) {
-      return;
-    }
-    renewalInFlight = true;
-    void context
-      .renew()
-      .catch(handOff)
-      .finally(() => {
-        renewalInFlight = false;
-      });
-  }, renewIntervalMs);
-  renewalTimer.unref?.();
+  let renewalTimer: ReturnType<typeof setInterval> | null = null;
 
   try {
+    await context.renew().catch((error) => {
+      throw handOff(error);
+    });
+    let renewalInFlight = false;
+    renewalTimer = setInterval(() => {
+      if (renewalInFlight) {
+        return;
+      }
+      renewalInFlight = true;
+      void context
+        .renew()
+        .catch(handOff)
+        .finally(() => {
+          renewalInFlight = false;
+        });
+    }, renewIntervalMs);
+    renewalTimer.unref?.();
+
     context.throwIfCancelled();
     const workPromise = work(abortController.signal);
     workPromise.catch(() => undefined);
@@ -672,7 +676,9 @@ export async function runDurableJobSideEffect<TProgress, TResult, T>(
     return result;
   } finally {
     settled = true;
-    clearInterval(renewalTimer);
+    if (renewalTimer) {
+      clearInterval(renewalTimer);
+    }
     context.signal?.removeEventListener("abort", abortFromParent);
     abortController.abort();
   }
