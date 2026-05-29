@@ -92,10 +92,7 @@ jobs:
           install: true
 
       - name: Typecheck repository
-        run: |
-          pnpm run check:no-any
-          pnpm exec tsc -p ./tsconfig.json --noEmit
-          node ./scripts/run-workspaces.mjs typecheck --concurrency=4 --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
+        run: pnpm run verify:typecheck -- --workspace-list="${{ needs['change-scope'].outputs.affected_workspaces }}"
 
   unit-tests:
     name: Unit Tests
@@ -164,10 +161,22 @@ jobs:
         with:
           install: true
 
+      - name: Cache Playwright Chromium
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            playwright-chromium-${{ runner.os }}-
+
       - name: Install Playwright Chromium
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run marketplace e2e suites
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ~/.cache/ms-playwright
         run: pnpm run test:e2e:suite "${{ matrix.suite_batch }}"
 
       - name: Upload Playwright artifacts

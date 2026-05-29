@@ -96,7 +96,7 @@ describe("change-scope", () => {
     expect(dbScope.dbTestsRequired).toBe(true);
   });
 
-  it("routes DB-backed context acceptance coverage through the DB-profile lane", () => {
+  it("keeps DB-backed context test-only changes scoped to the owning workspace", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -108,7 +108,10 @@ describe("change-scope", () => {
             name: "@test/catalog",
             dependencies: {},
             chaseSets: { testProfile: "db" },
-            scripts: { "test:db": "test:db" },
+            scripts: {
+              "test:unit": "test:unit",
+              "test:db": "vitest run tests/catalog-authoring/acceptance/admin-page-projections.test.ts",
+            },
           },
         },
         workspace(baseDir, "bounded-contexts", "discovery", "@test/discovery", {
@@ -117,9 +120,12 @@ describe("change-scope", () => {
       ],
     });
 
-    expect(scope.affectedWorkspaces).toEqual(["@test/catalog", "@test/discovery"]);
+    expect(scope.affectedWorkspaces).toEqual(["@test/catalog"]);
+    expect(scope.runtimeAffectedWorkspaces).toEqual([]);
     expect(scope.unitTestsRequired).toBe(true);
     expect(scope.dbTestsRequired).toBe(true);
+    expect(scope.buildRequired).toBe(false);
+    expect(scope.e2eTestsRequired).toBe(false);
   });
 
   it("requires DB tests only for affected workspaces that publish a DB test script", () => {
@@ -189,6 +195,15 @@ describe("change-scope", () => {
 
     expect(deployableRouteScope.e2eTestsRequired).toBe(true);
     expect(deployableRouteScope.e2eSuiteIds).toEqual(["marketplace_seller"]);
+
+    const deployableUtilityScope = classifyChanges({
+      baseDir,
+      changedFiles: ["deployables/marketplace/app/routes/manifest.ts"],
+      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+    });
+
+    expect(deployableUtilityScope.e2eTestsRequired).toBe(false);
+    expect(deployableUtilityScope.e2eSuiteIds).toEqual([]);
   });
 
   it("routes root browser runtime changes to marketplace E2E suites", () => {
@@ -206,6 +221,54 @@ describe("change-scope", () => {
       "marketplace_checkout",
       "marketplace_seller",
     ]);
+  });
+
+  it("routes test typecheck configuration changes through typecheck without runtime fanout", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["tsconfig.tests.json", "test-env.d.ts"],
+      workspaces: [workspace(baseDir, "deployables", "marketplace", "@test/marketplace-web")],
+    });
+
+    expect(scope.localChecksRequired).toBe(true);
+    expect(scope.typecheckRequired).toBe(true);
+    expect(scope.unitTestsRequired).toBe(false);
+    expect(scope.buildRequired).toBe(false);
+    expect(scope.e2eTestsRequired).toBe(false);
+  });
+
+  it("does not expand bounded-context unit test changes to runtime dependents or E2E", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: ["bounded-contexts/catalog/features/catalog-items/ui/catalog-item-list-page.test.tsx"],
+      workspaces: [
+        {
+          ...workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog", {}, { testProfile: "db" }),
+          packageJson: {
+            name: "@test/catalog",
+            dependencies: {},
+            chaseSets: { testProfile: "db" },
+            scripts: {
+              "test:unit": "test:unit",
+              "test:db": "vitest run tests/catalog-authoring/acceptance/admin-page-projections.test.ts",
+            },
+          },
+        },
+        workspace(baseDir, "bounded-contexts", "discovery", "@test/discovery", {
+          "@test/catalog": "workspace:*",
+        }),
+      ],
+    });
+
+    expect(scope.affectedWorkspaces).toEqual(["@test/catalog"]);
+    expect(scope.runtimeAffectedWorkspaces).toEqual([]);
+    expect(scope.unitTestsRequired).toBe(true);
+    expect(scope.dbTestsRequired).toBe(false);
+    expect(scope.buildRequired).toBe(false);
+    expect(scope.deployRequired).toBe(false);
+    expect(scope.e2eTestsRequired).toBe(false);
   });
 
   it("emits suite batches for E2E matrix fanout", () => {
@@ -240,6 +303,26 @@ describe("change-scope", () => {
 
     expect(scope.e2eTestsRequired).toBe(true);
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout", "marketplace_seller"]);
+  });
+
+  it("keeps current non-marketplace bounded-context routes out of marketplace E2E", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: [
+        "bounded-contexts/experience/routes/admin/platform-feedback.tsx",
+        "bounded-contexts/insights/features/dashboards/api/route.ts",
+        "bounded-contexts/platform-operations/routes/admin/projection-operations.tsx",
+      ],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "experience", "@test/experience"),
+        workspace(baseDir, "bounded-contexts", "insights", "@test/insights"),
+        workspace(baseDir, "bounded-contexts", "platform-operations", "@test/platform-operations"),
+      ],
+    });
+
+    expect(scope.e2eTestsRequired).toBe(false);
+    expect(scope.e2eSuiteIds).toEqual([]);
   });
 
   it("routes context changes to the consolidated marketplace seed DB acceptance suite", () => {

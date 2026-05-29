@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("../", import.meta.url));
 const coverageRoots = ["bounded-contexts", "contracts", "deployables", "infrastructure", "packages"];
 const defaultOutputDir = "artifacts/coverage";
+const defaultWarningThresholds = {
+  lines: 70,
+  functions: 70,
+  branches: 50,
+};
 
 function walkFiles(rootDir) {
   if (!existsSync(rootDir)) {
@@ -73,12 +78,21 @@ function percent(hit, found) {
   return `${((hit / found) * 100).toFixed(2)}%`;
 }
 
+function percentValue(hit, found) {
+  if (found === 0) {
+    return null;
+  }
+
+  return (hit / found) * 100;
+}
+
 export function parseCoverageSummaryArgs(argv) {
   const args = argv[0] === "--" ? argv.slice(1) : argv;
   const options = {
     lcovFiles: [],
     outputDir: defaultOutputDir,
     statuses: [],
+    warningThresholds: { ...defaultWarningThresholds },
   };
 
   for (const arg of args) {
@@ -100,16 +114,58 @@ export function parseCoverageSummaryArgs(argv) {
       continue;
     }
 
+    if (arg.startsWith("--warning-threshold=")) {
+      const [metric, rawThreshold] = arg.slice("--warning-threshold=".length).split(":", 2);
+      const threshold = Number.parseFloat(rawThreshold ?? "");
+      if (!["lines", "functions", "branches"].includes(metric ?? "") || !Number.isFinite(threshold)) {
+        throw new Error(
+          "Coverage warning thresholds must use --warning-threshold=<lines|functions|branches>:<percent>.",
+        );
+      }
+
+      options.warningThresholds[metric] = threshold;
+      continue;
+    }
+
     throw new Error(`Unknown argument: ${arg}`);
   }
 
   return options;
 }
 
-export function buildCoverageSummary({ lcovFiles, totals, statuses }) {
+export function coverageWarnings({ totals, statuses, warningThresholds = defaultWarningThresholds }) {
+  const warnings = [];
+  const metrics = [
+    { name: "Lines", key: "lines", hit: totals.linesHit, found: totals.linesFound },
+    { name: "Functions", key: "functions", hit: totals.functionsHit, found: totals.functionsFound },
+    { name: "Branches", key: "branches", hit: totals.branchesHit, found: totals.branchesFound },
+  ];
+
+  for (const metric of metrics) {
+    const threshold = warningThresholds[metric.key];
+    const value = percentValue(metric.hit, metric.found);
+    if (typeof threshold === "number" && value !== null && value < threshold) {
+      warnings.push(
+        `${metric.name} coverage ${value.toFixed(2)}% is below the ${threshold.toFixed(2)}% warning threshold.`,
+      );
+    }
+  }
+
+  for (const status of statuses) {
+    if (!["0", "skipped"].includes(status.status)) {
+      warnings.push(`${status.name} coverage command reported status ${status.status}.`);
+    }
+  }
+
+  return warnings;
+}
+
+export function buildCoverageSummary({ lcovFiles, totals, statuses, warningThresholds = defaultWarningThresholds }) {
   const statusRows = statuses.length
     ? statuses.map((entry) => `| ${entry.name} | ${entry.status} |`).join("\n")
     : "| none | not reported |";
+  const warnings = coverageWarnings({ totals, statuses, warningThresholds });
+  const warningRows = warnings.length ? warnings.map((warning) => `- ${warning}`).join("\n") : "- none";
 
   return [
     "# Coverage Summary",
@@ -125,6 +181,10 @@ export function buildCoverageSummary({ lcovFiles, totals, statuses }) {
     "| Command | Status |",
     "| --- | --- |",
     statusRows,
+    "",
+    "## Warnings",
+    "",
+    warningRows,
     "",
   ].join("\n");
 }
@@ -185,6 +245,7 @@ export function writeCoverageSummary({
   rootDir = repoRoot,
   outputDir = defaultOutputDir,
   statuses = [],
+  warningThresholds = defaultWarningThresholds,
   lcovFiles,
 } = {}) {
   const selectedLcovFiles = (lcovFiles?.length ? lcovFiles : collectLcovFiles(rootDir))
@@ -200,11 +261,15 @@ export function writeCoverageSummary({
   writeFileSync(path.join(outputPath, "lcov.info"), `${mergedLcov}\n`, "utf8");
 
   const totals = parseLcovTotals(mergedLcov);
-  const summary = buildCoverageSummary({ lcovFiles: selectedLcovFiles, totals, statuses });
+  const summary = buildCoverageSummary({ lcovFiles: selectedLcovFiles, totals, statuses, warningThresholds });
   writeFileSync(path.join(outputPath, "summary.md"), summary, "utf8");
 
   if (process.env.GITHUB_STEP_SUMMARY) {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary, "utf8");
+  }
+
+  for (const warning of coverageWarnings({ totals, statuses, warningThresholds })) {
+    console.log(`::warning title=Coverage summary::${warning}`);
   }
 
   console.log(summary);

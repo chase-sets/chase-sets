@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildCoverageSummary,
+  coverageWarnings,
   mergeLcovContents,
   parseCoverageSummaryArgs,
   parseLcovTotals,
@@ -52,10 +53,15 @@ end_of_record
     expect(summary).toContain("LCOV files merged: 1");
     expect(summary).toContain("| Lines | 3 | 4 | 75.00% |");
     expect(summary).toContain("| db | 124 |");
+    expect(summary).toContain("db coverage command reported status 124.");
   });
 
   it("accepts the package-manager argument separator", () => {
     expect(parseCoverageSummaryArgs(["--", "--status=non-db:0"]).statuses).toEqual([{ name: "non-db", status: "0" }]);
+  });
+
+  it("accepts coverage warning thresholds", () => {
+    expect(parseCoverageSummaryArgs(["--warning-threshold=lines:85"]).warningThresholds.lines).toBe(85);
   });
 
   it("accepts explicit LCOV inputs", () => {
@@ -81,5 +87,23 @@ end_of_record`,
       linesFound: 10,
       linesHit: 8,
     });
+  });
+
+  it("warns when coverage falls below thresholds", () => {
+    expect(
+      coverageWarnings({
+        totals: {
+          files: 1,
+          linesFound: 10,
+          linesHit: 6,
+          functionsFound: 0,
+          functionsHit: 0,
+          branchesFound: 0,
+          branchesHit: 0,
+        },
+        statuses: [{ name: "non-db", status: "0" }],
+        warningThresholds: { lines: 70, functions: 70, branches: 50 },
+      }),
+    ).toEqual(["Lines coverage 60.00% is below the 70.00% warning threshold."]);
   });
 });

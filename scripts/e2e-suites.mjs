@@ -54,19 +54,30 @@ const contextSuiteOwnership = new Map([
   ["checkout", ["marketplace_checkout"]],
   ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
+  ["experience", []],
   ["fulfillment", ["marketplace_account"]],
   ["identity", ["marketplace_account"]],
+  ["insights", []],
   ["inventory", ["marketplace_seller"]],
   ["marketplace", ["marketplace_account", "marketplace_seller"]],
+  ["notifications", ["marketplace_account"]],
   ["ordering", ["marketplace_account", "marketplace_checkout"]],
   ["payments", ["marketplace_account", "marketplace_checkout"]],
+  ["platform-operations", []],
   ["pricing", ["marketplace_browse"]],
+  ["public-presence", ["marketplace_browse"]],
   ["reputation", ["marketplace_account"]],
   ["settlement", ["marketplace_account", "marketplace_seller"]],
   ["support", ["marketplace_account"]],
+  ["tax", []],
 ]);
 
 const marketplaceRouteSuiteOwnership = [
+  {
+    pattern:
+      /^deployables\/marketplace\/app\/routes\/(?:chrome-devtools|favicon|favicon-svg|health-ready|manifest|robots|service-worker|sitemap)\./,
+    suites: [],
+  },
   {
     pattern: /^deployables\/marketplace\/app\/routes\/(?:search|_index|index)\./,
     suites: ["marketplace_browse"],
@@ -88,6 +99,29 @@ const marketplaceRouteSuiteOwnership = [
   {
     pattern: /^deployables\/marketplace\/app\/(?:auth\.server|root)\./,
     suites: ["marketplace_account", "marketplace_browse"],
+  },
+  {
+    pattern: /^deployables\/marketplace\/app\/routes\/(?:not-found|offline)\./,
+    suites: ["marketplace_browse"],
+  },
+  {
+    pattern: /^deployables\/marketplace\/app\/routes\/layout\./,
+    suites: allMarketplaceSuiteIds,
+  },
+];
+
+const boundedContextRouteSuiteOwnership = [
+  {
+    pattern: /^bounded-contexts\/public-presence\/routes\/marketplace\//,
+    suites: ["marketplace_browse"],
+  },
+  {
+    pattern: /^bounded-contexts\/public-presence\/features\/waitlist\/ui\/public-pages\./,
+    suites: ["marketplace_browse"],
+  },
+  {
+    pattern: /^bounded-contexts\/notifications\/routes\/account-notifications\./,
+    suites: ["marketplace_account"],
   },
 ];
 
@@ -145,6 +179,20 @@ function marketplaceDeployableSuiteIdsForChangedFile(filePath) {
   return allMarketplaceSuiteIds;
 }
 
+function boundedContextSuiteIdsForChangedFile(filePath, contextName) {
+  if (isTestOnlyOrDocumentationFile(filePath)) {
+    return [];
+  }
+
+  for (const routeOwnership of boundedContextRouteSuiteOwnership) {
+    if (routeOwnership.pattern.test(filePath)) {
+      return routeOwnership.suites;
+    }
+  }
+
+  return contextSuiteOwnership.get(contextName) ?? [];
+}
+
 export function e2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
 
@@ -175,5 +223,5 @@ export function e2eSuiteIdsForChangedFile(filePath) {
     return [];
   }
 
-  return contextSuiteOwnership.get(boundedContextMatch[1] ?? "") ?? allMarketplaceSuiteIds;
+  return boundedContextSuiteIdsForChangedFile(normalized, boundedContextMatch[1] ?? "");
 }
