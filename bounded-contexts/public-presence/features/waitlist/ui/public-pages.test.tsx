@@ -50,13 +50,27 @@ describe("public presence homepage", () => {
     expect(container.querySelector("form")?.getAttribute("action")).toBe("?index");
   });
 
-  it("sets beta notification expectations and sales fee lock terms", () => {
+  it("sets beta notification expectations, fee terms, and a focused GTM section order", () => {
     const { container } = render(
       <MemoryRouter>
         <PublicPresenceHomePage actionData={null} discordInviteUrl={null} source={source} />
       </MemoryRouter>,
     );
 
+    const sections = [...container.querySelectorAll("[data-public-presence-section]")].map((section) =>
+      section.getAttribute("data-public-presence-section"),
+    );
+
+    expect(sections).toEqual([
+      "hero",
+      "seller_economics",
+      "audience_paths",
+      "product_preview",
+      "marketplace_model",
+      "signup_expectations",
+      "final_cta",
+      "faq",
+    ]);
     expect(container.querySelectorAll("form")).toHaveLength(2);
     expect(screen.getAllByRole("button", { name: "Join the beta waitlist" }).length).toBeGreaterThan(0);
     expect(
@@ -67,18 +81,12 @@ describe("public presence homepage", () => {
     expect(
       screen.getAllByRole("heading", { name: "A concrete reason for sellers to join early" }).length,
     ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByRole("heading", { name: "Early signups can earn Founding Account status" }).length,
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "A visible reason to be first" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Pick the workflow you want prioritized" }).length).toBeGreaterThan(
       0,
     );
-    expect(screen.getAllByRole("heading", { name: "Make set completion feel predictable" }).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole("heading", { name: "Trust and status before early access" }).length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText("Prelaunch only. Joining does not require buying, listing, or payment.").length,
-    ).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Preview the buying experience" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "After you join" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Prelaunch only. No buying, listing, or payment required.").length).toBeGreaterThan(0);
     expect(
       screen.getAllByText("No live marketplace transactions are available during prelaunch.").length,
     ).toBeGreaterThan(0);
@@ -89,24 +97,15 @@ describe("public presence homepage", () => {
     ).toBeGreaterThan(0);
     expect(
       screen.getAllByText(
-        "The earliest qualified beta accounts get a Founding Account badge and founders circle access on Discord.",
+        "Earliest qualified beta accounts can receive Founding Account badge eligibility beside their marketplace account.",
       ).length,
     ).toBeGreaterThan(0);
+    expect(screen.getAllByText("Early access eligibility").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Get Founding Account access")).toBeNull();
     expect(
-      screen.getAllByText(
-        "The earliest qualified beta accounts get a Founding Account badge displayed beside their marketplace account.",
-      ).length,
+      screen.getAllByText("No separate seller payment-processing fee like 2.9% plus $0.30.").length,
     ).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText(
-        "Earliest qualified beta accounts get Founding Account badge eligibility plus founders circle access on Discord.",
-      ).length,
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByText("Founder badge eligibility").length).toBeGreaterThan(0);
-    expect(
-      screen.getAllByText("No separate 2.9% plus $0.30 payment-processing line for sellers").length,
-    ).toBeGreaterThan(0);
-    expect(screen.getAllByText("$13.20 plus quoted processing").length).toBeGreaterThan(0);
+    expect(screen.queryByText("$13.20 plus quoted processing")).toBeNull();
     expect(screen.getAllByText("Quoted before payment").length).toBeGreaterThan(0);
     expect(screen.getAllByText("$0.48 tracked shipping").length).toBeGreaterThan(0);
     expect(screen.getAllByText("-$4.17 applied").length).toBeGreaterThan(0);
@@ -117,7 +116,7 @@ describe("public presence homepage", () => {
 
     const pageText = container.textContent ?? "";
     expect(pageText.indexOf("Pick the workflow you want prioritized")).toBeLessThan(
-      pageText.indexOf("Why join before launch"),
+      pageText.indexOf("Preview the buying experience"),
     );
   });
 
@@ -147,6 +146,7 @@ describe("public presence homepage", () => {
         role: "buy",
         interest: "set-completion",
         section: "hero",
+        variant: "seller_first_v1",
       }),
     );
   });
@@ -182,6 +182,7 @@ describe("public presence homepage", () => {
         role: "buy",
         interest: "set-completion",
         section: "audience_path_buyer",
+        variant: "seller_first_v1",
       }),
     );
 
@@ -204,6 +205,7 @@ describe("public presence homepage", () => {
         interest: "set-completion",
         role: "buy",
         section: "final_cta",
+        variant: "seller_first_v1",
       }),
     );
   });
