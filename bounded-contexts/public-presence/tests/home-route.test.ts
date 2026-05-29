@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 import { loader, meta, publicPresenceHomeJsonLd } from "../routes/marketplace/home";
 
 describe("public presence home route", () => {
-  it("positions the homepage metadata around the seller beta waitlist", () => {
+  it("positions the homepage metadata around seller beta early access", () => {
     expect(meta({} as never)).toEqual(
       expect.arrayContaining([
-        { title: "Chase Sets Seller Beta Waitlist | Trading Card Marketplace" },
+        { title: "Chase Sets Seller Beta Early Access | Trading Card Marketplace" },
         {
           name: "description",
           content:
-            "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
+            "Request Chase Sets early access for the seller beta: 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
         },
         { property: "og:url", content: "https://chasesets.com/" },
       ]),

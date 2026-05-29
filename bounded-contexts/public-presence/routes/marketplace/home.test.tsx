@@ -11,18 +11,18 @@ describe("public presence home route SEO", () => {
       error: undefined,
     } as never);
 
-    expect(descriptors).toContainEqual({ title: "Chase Sets Seller Beta Waitlist | Trading Card Marketplace" });
+    expect(descriptors).toContainEqual({ title: "Chase Sets Seller Beta Early Access | Trading Card Marketplace" });
     expect(descriptors).toContainEqual({
       name: "description",
       content:
-        "Join the Chase Sets seller beta waitlist for 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
+        "Request Chase Sets early access for the seller beta: 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
     });
     expect(descriptors).not.toContainEqual(expect.objectContaining({ rel: "canonical" }));
     expect(descriptors).toContainEqual({ property: "og:url", content: "https://chasesets.com/" });
     expect(descriptors).toContainEqual({ name: "twitter:card", content: "summary_large_image" });
     expect(descriptors).toContainEqual({
       name: "twitter:title",
-      content: "Chase Sets Seller Beta Waitlist | Trading Card Marketplace",
+      content: "Chase Sets Seller Beta Early Access | Trading Card Marketplace",
     });
   });
 

@@ -69,6 +69,12 @@ The core rule is:
 
 Marketplace-specific conversion rules, signal hierarchy, component coverage, and roadmap live in [Marketplace Design System Direction](./MARKETPLACE_SYSTEM.md). Keep this README focused on package-wide design-system contracts.
 
+## Marketing Expression
+
+Marketing pages use the same design system as the applications. They may use design-system-owned marketing patterns such as image heroes, proof bands, product previews, pricing/economics callouts, comparison blocks, and signup modules, but they must not introduce a separate flashy visual system or page-local styling overrides.
+
+Marketing expression should make the first viewport persuasive through real product, economics, or trust signals while keeping typography, color tokens, spacing, motion, forms, and accessibility inside the canonical component contracts.
+
 ## Boundaries
 
 The design system owns:

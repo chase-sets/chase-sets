@@ -42,7 +42,7 @@ Primary funnel metrics:
 First experiments to run:
 
 - Hero promise: seller margin headline versus buyer-total clarity headline.
-- CTA language: "Join early access" versus "Request early access".
+- CTA framing: "Request early access" with seller-beta context versus seller-beta-only access wording.
 - Section order: audience path immediately after seller economics versus after product preview.
 - Founder proof: eligibility language in final CTA versus a dedicated status panel.
 - Mobile sticky CTA enabled versus hidden.

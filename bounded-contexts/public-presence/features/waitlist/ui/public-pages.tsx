@@ -428,6 +428,20 @@ export function PublicPresenceHomePage({
             eyebrow={t("publicPresence.home.eyebrow")}
             title={t("publicPresence.home.title")}
             description={t("publicPresence.home.description")}
+            highlights={[
+              {
+                label: t("publicPresence.home.heroHighlight.lowValue.label"),
+                value: t("publicPresence.home.heroHighlight.lowValue.value"),
+              },
+              {
+                label: t("publicPresence.home.heroHighlight.workflow.label"),
+                value: t("publicPresence.home.heroHighlight.workflow.value"),
+              },
+              {
+                label: t("publicPresence.home.heroHighlight.launch.label"),
+                value: t("publicPresence.home.heroHighlight.launch.value"),
+              },
+            ]}
             conversionPanel={
               <WaitlistSignupPanel
                 actionData={actionData}
@@ -1039,6 +1053,11 @@ function WaitlistSignupPanel({
 }
 
 function FaqPreview() {
+  const previewQuestions = [
+    ["publicPresence.faq.launch.question", "publicPresence.faq.launch.answer"],
+    ["publicPresence.faq.fees.question", "publicPresence.faq.fees.answer"],
+  ];
+
   return (
     <PageSection
       data-public-presence-section="faq"
@@ -1051,12 +1070,7 @@ function FaqPreview() {
         </LinkButton>
       </Inline>
       <Grid columns={{ base: 1, md: 2 }} gap={4}>
-        {[
-          ["publicPresence.faq.launch.question", "publicPresence.faq.launch.answer"],
-          ["publicPresence.faq.fees.question", "publicPresence.faq.fees.answer"],
-          ["publicPresence.faq.shipping.question", "publicPresence.faq.shipping.answer"],
-          ["publicPresence.faq.safety.question", "publicPresence.faq.safety.answer"],
-        ].map(([question, answer]) => (
+        {previewQuestions.map(([question, answer]) => (
           <Surface key={question} tone="subtle">
             <Stack gap={2}>
               <Heading level={3}>{t(question)}</Heading>
