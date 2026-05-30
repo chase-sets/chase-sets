@@ -118,3 +118,19 @@ For suspected replay or agent abuse:
 - AP2/payment-handler support is guarded: Payments declares trusted and Stripe shared-payment-token handlers, but headless completion is enabled only when a production AP2 verifier, business signing key, and provider-backed Stripe SPT PaymentIntent path are configured.
 - Stripe webhook configuration includes `shared_payment.granted_token.used` and `shared_payment.granted_token.deactivated` alongside PaymentIntent, Checkout Session, refund, dispute, Connect, and payout events.
 - Staging smoke confirms `/.well-known/ucp`, `/.well-known/oauth-authorization-server`, PKCE/refresh metadata, `/ucp/v1`, `/ucp/mcp`, and linked-account order reads on the marketplace host.
+
+## Marketing Certification Gate
+
+Do not market UCP/AP2 as launch-ready, agent-commerce capable, autonomous-payment capable, or headless-checkout capable until a separate certification record is approved. The public launch posture is trusted checkout handoff: agents may prepare or inspect supported shopping flows, but account-scoped checkout completion must move through buyer UI review unless a verified AP2 Mandate and supported Payments handoff are present.
+
+The certification record must include:
+
+- Production AP2 verifier configuration and signed-write rejection evidence for missing, expired, replayed, or untrusted signatures.
+- Merchant signing key configuration, public-key discovery, rotation rehearsal, and mandate retention/expiry handling.
+- Provider-backed Stripe Shared Payment Token PaymentIntent path, including token-use webhooks and replay-safe failure behavior.
+- OAuth authorization-code plus PKCE evidence, refresh-token rotation, token introspection, revocation, and linked-platform consent removal.
+- Trusted Checkout Handoff evidence showing unsupported or unsigned ChatGPT app calls do not create orders, payments, or AP2 effects.
+- Incident-response evidence covering profile/client pause, token revocation, replay search, idempotency conflict review, and duplicate-effect checks.
+- Support and Finance review for buyer consent, payment liability, refund/dispute handling, and agent-abuse escalation.
+
+Until that record exists, Public Presence, launch notes, sales collateral, and promo-bar messages must avoid UCP, AP2, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, Shared Payment Token, and agent-commerce claims.

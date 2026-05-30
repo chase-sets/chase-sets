@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { publicPresenceEnglishTranslations } from "@chase-sets/localization/locales/en/public-presence";
 import { publicPresenceHasTranslation, publicPresenceT } from "../support/ui-support/public-presence-translator";
 
 describe("public presence translator", () => {
@@ -59,5 +60,42 @@ describe("public presence translator", () => {
     expect(copy).not.toMatch(/\b(prelaunch|future|intended|planned|expected|not yet)\b/i);
     expect(copy).not.toContain("will be published");
     expect(copy).toContain("production promotion approval");
+  });
+
+  it("keeps uncertified UCP and AP2 agent-commerce claims out of public launch copy", () => {
+    const publicLaunchCopy = Object.entries(publicPresenceEnglishTranslations)
+      .filter(([key]) => {
+        return (
+          key.startsWith("publicPresence.faq.") ||
+          key.startsWith("publicPresence.footer.") ||
+          key.startsWith("publicPresence.home.") ||
+          key.startsWith("publicPresence.info.") ||
+          key.startsWith("publicPresence.nav.") ||
+          key.startsWith("publicPresence.preview.") ||
+          key.startsWith("publicPresence.routes.") ||
+          key.startsWith("publicPresence.waitlist.")
+        );
+      })
+      .map(([key, value]) => `${key}: ${value}`)
+      .join("\n");
+
+    const restrictedClaims = [
+      /\bUCP\b/i,
+      /\bAP2\b/i,
+      /\bagentic\b/i,
+      /\bAI agent\b/i,
+      /\bagent[-\s]?commerce\b/i,
+      /\bagent checkout\b/i,
+      /\bautonomous payment\b/i,
+      /\bheadless checkout\b/i,
+      /\bheadless completion\b/i,
+      /\bpayment handler\b/i,
+      /\bShared Payment Token\b/i,
+      /\bSPT\b/i,
+    ];
+
+    for (const restrictedClaim of restrictedClaims) {
+      expect(publicLaunchCopy).not.toMatch(restrictedClaim);
+    }
   });
 });

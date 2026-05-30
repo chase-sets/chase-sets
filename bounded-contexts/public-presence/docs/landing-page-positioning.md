@@ -21,6 +21,8 @@ Use only repo-verifiable credibility until live marketplace proof exists:
 
 Until `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production copy must keep the marketplace framed as prelaunch. Do not publish live-buying, live-listing, transaction-volume, payout, or delivery promises on the public site while the production marketplace gate is closed.
 
+Keep UCP, AP2, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, and Shared Payment Token claims out of launch marketing unless a separate UCP/AP2 certification record exists. Public Presence may describe trusted checkout, visible totals, and provider-backed payment review, but it must not imply agents can complete orders or payments without buyer UI review until Payments, Checkout, Auth, Identity, and Operations have approved production verifier, merchant signing key, provider-backed Stripe Shared Payment Token, OAuth, signed-write, incident-response, and support evidence.
+
 Do not invent testimonials, waitlist counts, partnerships, founder bios, launch dates, transaction volume, or community proof.
 
 Promote new trust proof only when all of these are true:
