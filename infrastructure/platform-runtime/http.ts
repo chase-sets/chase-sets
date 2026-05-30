@@ -76,8 +76,27 @@ export function resolveRequestApiBaseUrl(request: Request, apiBasePath: string):
     return new URL(apiBasePath, `${internalApiOrigin}/`).toString().replace(/\/$/, "");
   }
 
+  return `${resolvePublicRequestOrigin(request)}${apiBasePath}`;
+}
+
+function firstForwardedValue(value: string | null) {
+  return value?.split(",")[0]?.trim().toLowerCase();
+}
+
+function isLocalHost(host: string) {
+  const hostname = (host.startsWith("[") ? host.slice(1, host.indexOf("]")) : host.split(":")[0])?.toLowerCase() ?? "";
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function resolvePublicRequestOrigin(request: Request): string {
   const url = new URL(request.url);
-  return `${url.origin}${apiBasePath}`;
+  const forwardedProto = firstForwardedValue(request.headers.get("x-forwarded-proto"));
+  const forwardedHost = firstForwardedValue(request.headers.get("x-forwarded-host"));
+  const host = forwardedHost || request.headers.get("host") || url.host;
+  const protocol =
+    forwardedProto === "http" || forwardedProto === "https" ? forwardedProto : url.protocol.replace(/:$/, "");
+
+  return `${protocol === "http" && !isLocalHost(host) ? "https" : protocol}://${host}`;
 }
 
 export function resolveInternalApiOrigin(
