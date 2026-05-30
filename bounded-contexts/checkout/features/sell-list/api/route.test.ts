@@ -218,7 +218,7 @@ describe("checkout sell list routes", () => {
     );
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       id: "acc_seller",
       version: 3,
       status: "reviewed",

@@ -361,7 +361,7 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shippingAddress }),
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
       }),
     );
 
@@ -381,7 +381,7 @@ describe("checkout session routes", () => {
       ["ord_1"],
       null,
       "card",
-      null,
+      "quote_1",
       "/account/payments/:paymentId",
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
@@ -404,7 +404,11 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shippingAddress, deferPayment: true }),
+        body: JSON.stringify({
+          shippingAddress,
+          deferPayment: true,
+          marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        }),
       }),
     );
 
@@ -433,7 +437,7 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shippingAddress }),
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
       }),
     );
 
@@ -446,7 +450,7 @@ describe("checkout session routes", () => {
       ["ord_existing"],
       null,
       "card",
-      null,
+      "quote_1",
       "/account/payments/:paymentId",
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
@@ -521,7 +525,7 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shippingAddress }),
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
       }),
     );
 
@@ -565,7 +569,7 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shippingAddress }),
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
       }),
     );
 
@@ -576,7 +580,7 @@ describe("checkout session routes", () => {
       ["ord_1"],
       null,
       "card",
-      null,
+      "quote_1",
       "/checkout/payments/:paymentId",
     );
   });
@@ -612,7 +616,7 @@ describe("checkout session routes", () => {
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shippingAddress }),
+        body: JSON.stringify({ shippingAddress, marketplaceCheckoutFeeQuoteFingerprint: "quote_1" }),
       }),
     );
 

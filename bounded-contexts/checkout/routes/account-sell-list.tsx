@@ -4,6 +4,7 @@ import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import { createMarketplaceRequestApiClient } from "@chase-sets/marketplace/server";
 import { createSettlementRequestApiClient } from "@chase-sets/settlement/server";
 import type {
@@ -40,6 +41,17 @@ type SellListProductOfferReview = Readonly<{
   }>[];
   message: string | null;
 }>;
+
+function moneyValue(value: string | null | undefined) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function buyerTrustScore(offer: OfferMatchListItem) {
+  const rating = Number(offer.buyer_average_rating ?? 0);
+  const reviews = Number(offer.buyer_review_count ?? 0);
+  return (Number.isFinite(rating) ? rating : 0) * 100 + Math.min(50, Number.isFinite(reviews) ? reviews : 0);
+}
 
 async function loadSellListOfferReviews(
   request: Request,
@@ -135,7 +147,15 @@ async function loadSellListProductOfferReviews(
         return {
           lineId: line.line_id,
           status: offers.length > 0 ? ("ready" as const) : ("unavailable" as const),
-          offers,
+          offers: offers.sort(
+            (left, right) =>
+              moneyValue(right.terms.seller_net_unit_amount) - moneyValue(left.terms.seller_net_unit_amount) ||
+              Number(right.offer.can_fulfill) - Number(left.offer.can_fulfill) ||
+              buyerTrustScore(right.offer) - buyerTrustScore(left.offer) ||
+              new Date(right.offer.created_at).getTime() - new Date(left.offer.created_at).getTime() ||
+              right.offer.quantity_requested - left.offer.quantity_requested ||
+              left.offer.offer_id.localeCompare(right.offer.offer_id),
+          ),
           message: offers.length > 0 ? null : "No matching offers are currently ready for this product.",
         };
       }),
@@ -208,6 +228,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     isSignedIn: true,
+    sellListExecutionId: createId("sle"),
     reviewCompleted,
     sellList,
     latestReceipt: sellList.latestReceipt ?? null,
@@ -524,18 +545,38 @@ export async function action({ request }: ActionFunctionArgs) {
 
       await assertPayoutReady(request);
       const sellList = await api.getSellList();
+      const executionId = formValue(formData, "sellListExecutionId");
+
+      const existingReceipt =
+        executionId && typeof api.getSellListExecutionReceipt === "function"
+          ? await api.getSellListExecutionReceipt(executionId).catch(() => null)
+          : null;
+      if (existingReceipt) {
+        const query = new URLSearchParams({
+          review: "completed",
+          execution: executionId,
+          accepted: String(existingReceipt.execution_summary.acceptedOfferCount ?? 0),
+          listings: String(existingReceipt.execution_summary.createdListingCount ?? 0),
+          skipped: String(existingReceipt.execution_summary.skippedLineCount ?? 0),
+        });
+        return redirect(`/account/sell-list?${query.toString()}`);
+      }
+
       const result = await executeSellListCheckout(request, sellList.items, formData);
       if (result.completedLineIds.length === 0 && result.remainingLineQuantities.length === 0) {
         throw new Error("No Sell List lines were ready to execute. Refresh offer terms or choose listing inventory.");
       }
 
-      await api.checkoutSellList(result);
+      await api.checkoutSellList(executionId ? { executionId, ...result } : result);
       const query = new URLSearchParams({
         review: "completed",
         accepted: String(result.executionSummary.acceptedOfferCount),
         listings: String(result.executionSummary.createdListingCount),
         skipped: String(result.executionSummary.skippedLineCount),
       });
+      if (executionId) {
+        query.set("execution", executionId);
+      }
       return redirect(`/account/sell-list?${query.toString()}`);
     }
 
@@ -562,6 +603,7 @@ export default function CheckoutAccountSellListRoute() {
       sellListLines={data.sellList.items}
       isSignedIn={data.isSignedIn}
       reviewCompleted={data.reviewCompleted}
+      sellListExecutionId={"sellListExecutionId" in data ? data.sellListExecutionId : null}
       latestReceipt={"latestReceipt" in data ? data.latestReceipt : null}
       offerReviews={"offerReviews" in data ? data.offerReviews : []}
       productOfferReviews={"productOfferReviews" in data ? data.productOfferReviews : []}

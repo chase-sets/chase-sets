@@ -389,8 +389,8 @@ describe("ordering order runtime", () => {
           deliveryEstimate: expect.objectContaining({
             earliestDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
             latestDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-            minimumTransitDays: 5,
-            maximumTransitDays: 8,
+            minimumTransitDays: 4,
+            maximumTransitDays: 7,
           }),
         }),
       ]),

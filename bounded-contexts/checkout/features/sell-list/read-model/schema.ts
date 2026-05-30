@@ -34,4 +34,16 @@ CREATE TABLE IF NOT EXISTS checkout_sell_list_receipt_pages (
   execution_summary jsonb NOT NULL DEFAULT '{}'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS checkout_sell_list_execution_receipt_pages (
+  seller_account_id text NOT NULL,
+  execution_id text NOT NULL,
+  checked_out_at timestamptz NOT NULL,
+  execution_summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (seller_account_id, execution_id)
+);
+
+CREATE INDEX IF NOT EXISTS checkout_sell_list_execution_receipt_pages_seller_latest_idx
+  ON checkout_sell_list_execution_receipt_pages (seller_account_id, checked_out_at DESC, execution_id DESC);
 `;

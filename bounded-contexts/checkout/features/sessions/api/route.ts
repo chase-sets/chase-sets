@@ -460,6 +460,18 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         });
       }
 
+      if (!marketplaceCheckoutFeeQuoteFingerprint) {
+        return c.json(
+          {
+            error: {
+              code: "payment_quote_required",
+              message: t("checkout.features.sessions.api.route.payment.quote.required"),
+            },
+          },
+          409,
+        );
+      }
+
       let orderIds = [...session.order_ids];
       if (orderIds.length === 0) {
         const checkoutOrders = await createCheckoutOrdersThroughOrdering(c.req.raw, session, {

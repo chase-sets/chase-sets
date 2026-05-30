@@ -52,38 +52,95 @@ function shippingAddressSnapshot(address: ShippingAddress) {
   };
 }
 
+function normalizeShippingOption(value: string | null) {
+  return value === "priority" || value === "expedited" ? value : "standard";
+}
+
+function normalizeOptimizationGoal(value: string | null) {
+  return value === "fewest-shipments" ? value : "lowest-total";
+}
+
+function normalizePreviewText(value: string | null) {
+  const normalized = (value ?? "").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function previewAddressFromSearchParams(searchParams: URLSearchParams) {
+  const postalCode = normalizePreviewText(searchParams.get("previewPostalCode"));
+  const country = normalizePreviewText(searchParams.get("previewCountry")) ?? "US";
+  const state = normalizePreviewText(searchParams.get("previewState")) ?? "";
+  const city = normalizePreviewText(searchParams.get("previewCity")) ?? "";
+  if (!postalCode) {
+    return null;
+  }
+
+  return {
+    label: [postalCode, state, country].filter(Boolean).join(", "),
+    address: {
+      name: "Cart preview",
+      company: null,
+      line1: "Cart preview",
+      line2: null,
+      city,
+      state,
+      postalCode,
+      country,
+      phone: null,
+      email: null,
+    },
+  };
+}
+
 async function loadCartLandedCostPreview(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   cart: { items: readonly CheckoutCartLine[] },
 ) {
-  if (
-    !actor ||
-    actor.roleKey === "guest-buyer" ||
-    !Array.isArray(actor.permissions) ||
-    !actor.permissions.includes("accounts.view") ||
-    cart.items.length === 0
-  ) {
-    return null;
-  }
+  const searchParams = new URL(request.url).searchParams;
+  const shippingOption = normalizeShippingOption(searchParams.get("previewShippingOption"));
+  const optimizationGoal = normalizeOptimizationGoal(searchParams.get("previewOptimizationGoal"));
+  const searchedAddress = previewAddressFromSearchParams(searchParams);
+  let address: ReturnType<typeof shippingAddressSnapshot> | null = searchedAddress?.address ?? null;
+  let addressLabel = searchedAddress?.label ?? null;
 
   try {
-    const addresses = await createIdentityRequestApiClient(request).listShippingAddresses<{
-      items: readonly ShippingAddress[];
-    }>(actor.accountId);
-    const defaultAddress = addresses.items.find((address) => address.is_default) ?? addresses.items[0] ?? null;
-    if (!defaultAddress) {
+    if (
+      !address &&
+      actor &&
+      actor.roleKey !== "guest-buyer" &&
+      Array.isArray(actor.permissions) &&
+      actor.permissions.includes("accounts.view")
+    ) {
+      const addresses = await createIdentityRequestApiClient(request).listShippingAddresses<{
+        items: readonly ShippingAddress[];
+      }>(actor.accountId);
+      const defaultAddress = addresses.items.find((item) => item.is_default) ?? addresses.items[0] ?? null;
+      if (defaultAddress) {
+        address = shippingAddressSnapshot(defaultAddress);
+        addressLabel = defaultAddress.label;
+      }
+    }
+
+    if (!address || !addressLabel || cart.items.length === 0) {
       return null;
     }
 
     return {
-      addressLabel: defaultAddress.label,
+      addressLabel,
+      shippingOption,
+      optimizationGoal,
+      previewDestination: {
+        city: address.city,
+        state: address.state,
+        postalCode: address.postalCode,
+        country: address.country,
+      },
       preview: await createOrderingRequestApiClient(request).previewCheckoutFulfillment({
-        checkoutSessionId: `cart-preview:${actor.accountId}`,
+        checkoutSessionId: `cart-preview:${actor?.accountId ?? readAnonymousCartId(request) ?? "guest"}`,
         sourceType: "cart-checkout",
-        shippingOption: "standard",
-        shippingAddress: shippingAddressSnapshot(defaultAddress),
-        optimizationGoal: "lowest-total",
+        shippingOption,
+        shippingAddress: address,
+        optimizationGoal,
         lines: cart.items.map(cartLineToPreviewLine),
       }),
     };
@@ -97,15 +154,16 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
 
   if (!canUseAccountCart(actor)) {
-    return {
-      cart: await api.getGuestCart(readAnonymousCartId(request)),
-    };
+    const cart = await api.getGuestCart(readAnonymousCartId(request));
+    const landedCostPreview = await loadCartLandedCostPreview(request, actor, cart);
+    return landedCostPreview ? { cart, landedCostPreview } : { cart };
   }
 
   const cart = await api.getCart();
+  const landedCostPreview = await loadCartLandedCostPreview(request, actor, cart);
   return {
     cart,
-    landedCostPreview: await loadCartLandedCostPreview(request, actor, cart),
+    ...(landedCostPreview ? { landedCostPreview } : {}),
   };
 }
 

@@ -7,6 +7,7 @@ import {
   OrderProtectionModule,
   Card,
   CheckoutLayout,
+  Grid,
   Inline,
   KeyValueList,
   LinkButton,
@@ -25,6 +26,7 @@ import {
   StickyCtaBar,
   Surface,
   Text,
+  TextInput,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { CheckoutCartLine } from "./contracts";
@@ -158,6 +160,14 @@ export function CheckoutCartPage({
   cartLines: readonly CheckoutCartLine[];
   landedCostPreview?: {
     addressLabel: string;
+    shippingOption: string;
+    optimizationGoal: string;
+    previewDestination: {
+      city: string;
+      state: string;
+      postalCode: string;
+      country: string;
+    };
     preview: {
       totals: {
         itemSubtotalAmount: string;
@@ -182,6 +192,14 @@ export function CheckoutCartPage({
   const estimatedCheckoutFee = estimateCardCheckoutFee(previewTotal ?? estimatedItemSubtotal);
   const estimatedKnownLandedCost = (previewTotal ?? estimatedItemSubtotal) + estimatedCheckoutFee;
   const pricedLineCount = countPricedLines(cartLineGroups);
+  const previewDestination = landedCostPreview?.previewDestination ?? {
+    city: "",
+    state: "",
+    postalCode: "",
+    country: "US",
+  };
+  const previewShippingOption = landedCostPreview?.shippingOption ?? "standard";
+  const previewOptimizationGoal = landedCostPreview?.optimizationGoal ?? "lowest-total";
 
   function renderCartLine(line: CheckoutCartLineGroup) {
     return (
@@ -501,6 +519,74 @@ export function CheckoutCartPage({
                 totalLabel={t("checkout.features.cart.ui.cartPage.early.landed.cost")}
                 reassurance={<SecurePaymentIndicator label={t("checkout.features.cart.ui.cartPage.secure.payment")} />}
               />
+              <Card variant="feature">
+                <Stack gap={2}>
+                  <Text weight="semibold">{t("checkout.features.cart.ui.cartPage.landed.cost.preview")}</Text>
+                  <Text size="sm" tone="secondary">
+                    {t("checkout.features.cart.ui.cartPage.landed.cost.preview.description")}
+                  </Text>
+                  <form method="get">
+                    <Stack gap={3}>
+                      <Grid columns={{ base: 1, md: 2 }} gap={2}>
+                        <TextInput
+                          label={t("checkout.features.cart.ui.cartPage.postal.code")}
+                          name="previewPostalCode"
+                          defaultValue={previewDestination.postalCode}
+                          autoComplete="shipping postal-code"
+                        />
+                        <TextInput
+                          label={t("checkout.features.cart.ui.cartPage.country")}
+                          name="previewCountry"
+                          defaultValue={previewDestination.country}
+                          autoComplete="shipping country"
+                        />
+                        <TextInput
+                          label={t("checkout.features.cart.ui.cartPage.state")}
+                          name="previewState"
+                          defaultValue={previewDestination.state}
+                          autoComplete="shipping address-level1"
+                        />
+                        <TextInput
+                          label={t("checkout.features.cart.ui.cartPage.city")}
+                          name="previewCity"
+                          defaultValue={previewDestination.city}
+                          autoComplete="shipping address-level2"
+                        />
+                      </Grid>
+                      <Grid columns={{ base: 1, md: 2 }} gap={2}>
+                        <NativeSelect
+                          label={t("checkout.features.cart.ui.cartPage.shipping.option")}
+                          name="previewShippingOption"
+                          defaultValue={previewShippingOption}
+                          items={[
+                            { value: "standard", label: t("checkout.features.cart.ui.cartPage.standard.insured") },
+                            { value: "expedited", label: t("checkout.features.cart.ui.cartPage.expedited") },
+                            { value: "priority", label: t("checkout.features.cart.ui.cartPage.priority.signature") },
+                          ]}
+                        />
+                        <NativeSelect
+                          label={t("checkout.features.cart.ui.cartPage.optimize.for")}
+                          name="previewOptimizationGoal"
+                          defaultValue={previewOptimizationGoal}
+                          items={[
+                            {
+                              value: "lowest-total",
+                              label: t("checkout.features.cart.ui.cartPage.lowest.total.cost"),
+                            },
+                            {
+                              value: "fewest-shipments",
+                              label: t("checkout.features.cart.ui.cartPage.fewest.shipments"),
+                            },
+                          ]}
+                        />
+                      </Grid>
+                      <Button type="submit" leadingIcon="refreshCcw" tone="secondary" block>
+                        {t("checkout.features.cart.ui.cartPage.preview.landed.cost")}
+                      </Button>
+                    </Stack>
+                  </form>
+                </Stack>
+              </Card>
               <Card variant="feature">
                 <Stack gap={2}>
                   <Text weight="semibold">{t("checkout.features.cart.ui.cartPage.smart.match.settings")}</Text>

@@ -68,6 +68,16 @@ export type CheckoutSavedShippingAddress = Readonly<{
   is_default: boolean;
 }>;
 
+export type CheckoutSavedPaymentInstrument = Readonly<{
+  instrument_id: string;
+  payment_method_category: "card" | "bank-account" | "platform-credit";
+  provider: string;
+  display_label: string;
+  confirmation_experience: "trusted-payment-step" | "off-session-token";
+  is_default: boolean;
+  readiness: "ready" | "setup-required";
+}>;
+
 function formatLineLabel(line: CheckoutSessionRow["lines"][number]) {
   return [line.itemTitle, line.itemSubtitle, line.productSummary].filter(Boolean).join(" | ");
 }
@@ -122,8 +132,10 @@ export function CheckoutSessionPage({
   fulfillmentPreview,
   errorMessage,
   reviewRefreshed = false,
+  paymentQuoteRequired = false,
   isSubmitting = false,
   savedShippingAddresses = [],
+  savedCheckoutInstruments = [],
   canManageShippingAddresses = false,
 }: {
   session: CheckoutSessionRow;
@@ -133,8 +145,10 @@ export function CheckoutSessionPage({
   fulfillmentPreview?: CheckoutFulfillmentPreview | null;
   errorMessage?: string | null;
   reviewRefreshed?: boolean;
+  paymentQuoteRequired?: boolean;
   isSubmitting?: boolean;
   savedShippingAddresses?: readonly CheckoutSavedShippingAddress[];
+  savedCheckoutInstruments?: readonly CheckoutSavedPaymentInstrument[];
   canManageShippingAddresses?: boolean;
 }) {
   const lines = session.lines;
@@ -146,6 +160,7 @@ export function CheckoutSessionPage({
   const readyCount = isOfferIntent ? 0 : (preview?.readyLineKeys.length ?? lines.length);
   const unavailableCount = isOfferIntent ? lines.length : (preview?.unavailableLineKeys.length ?? 0);
   const canConfirm = isOfferIntent ? lines.length > 0 : readyCount > 0;
+  const needsPaymentQuote = !isOfferIntent && !hasPayment && !payment;
   const previewAllocationLines = preview?.sellerGroups.flatMap((group) => group.lines) ?? [];
   const defaultSavedAddress =
     savedShippingAddresses.find((address) => address.shipping_address_id === session.shipping_address_id) ??
@@ -197,6 +212,10 @@ export function CheckoutSessionPage({
     previewAllocationLines.length > 0 && previewAllocationLines.every((line) => line.priceState === "locked");
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
   const returningBuyerFastPath = Boolean(defaultSavedAddress && !isOfferIntent && !hasPayment);
+  const defaultSavedPaymentInstrument =
+    savedCheckoutInstruments.find((instrument) => instrument.is_default && instrument.readiness === "ready") ??
+    savedCheckoutInstruments.find((instrument) => instrument.readiness === "ready") ??
+    null;
   const summary = (
     <Stack gap={4}>
       <PriceBreakdown
@@ -339,6 +358,13 @@ export function CheckoutSessionPage({
                 description={t("checkout.features.sessions.ui.checkoutPage.review.updated.description")}
               />
             ) : null}
+            {paymentQuoteRequired ? (
+              <MarketplaceNotice
+                tone="info"
+                title={t("checkout.features.sessions.ui.checkoutPage.payment.quote.required")}
+                description={t("checkout.features.sessions.ui.checkoutPage.payment.quote.required.description")}
+              />
+            ) : null}
 
             <Banner
               title={
@@ -358,8 +384,16 @@ export function CheckoutSessionPage({
                 title={t("checkout.features.sessions.ui.checkoutPage.fast.checkout.ready")}
                 description={t("checkout.features.sessions.ui.checkoutPage.fast.checkout.ready.description", {
                   addressLabel: defaultSavedAddress?.label,
-                  paymentMethodCategory: selectedPaymentMethodCategory.replace("-", " "),
+                  paymentMethodCategory:
+                    defaultSavedPaymentInstrument?.display_label ?? selectedPaymentMethodCategory.replace("-", " "),
                 })}
+              />
+            ) : null}
+            {!isOfferIntent && savedCheckoutInstruments.length === 0 ? (
+              <MarketplaceNotice
+                tone="info"
+                title={t("checkout.features.sessions.ui.checkoutPage.saved.payment.instrument.ready")}
+                description={t("checkout.features.sessions.ui.checkoutPage.saved.payment.instrument.ready.description")}
               />
             ) : null}
 
@@ -682,6 +716,7 @@ export function CheckoutSessionPage({
                         value={payment?.wallet_credit.requested_amount ?? wallet?.available_balance_amount ?? "0.00"}
                       />
                       <input type="hidden" name="paymentMethodCategory" value={selectedPaymentMethodCategory} />
+                      <input type="hidden" name="sourceType" value={session.source_type} />
                       <input type="hidden" name="reviewedShippingOption" value={session.shipping_option} />
                       <input
                         type="hidden"
@@ -912,9 +947,9 @@ export function CheckoutSessionPage({
                         <Button
                           type="submit"
                           name="intent"
-                          value="confirm-checkout"
+                          value={needsPaymentQuote ? "refresh-checkout-preview" : "confirm-checkout"}
                           size="lg"
-                          leadingIcon="lock"
+                          leadingIcon={needsPaymentQuote ? "refreshCcw" : "lock"}
                           loading={isSubmitting}
                           disabled={isSubmitting || !canConfirm}
                         >
@@ -961,8 +996,8 @@ export function CheckoutSessionPage({
                     type="submit"
                     form="checkout-confirmation-form"
                     name="intent"
-                    value="confirm-checkout"
-                    leadingIcon="lock"
+                    value={needsPaymentQuote ? "refresh-checkout-preview" : "confirm-checkout"}
+                    leadingIcon={needsPaymentQuote ? "refreshCcw" : "lock"}
                     disabled={isSubmitting || !canConfirm}
                     loading={isSubmitting}
                   >
@@ -972,7 +1007,9 @@ export function CheckoutSessionPage({
                         : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
                       : isOfferIntent
                         ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
-                        : t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")}
+                        : needsPaymentQuote
+                          ? t("checkout.features.sessions.ui.checkoutPage.review.latest.total")
+                          : t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")}
                   </Button>
                 )
               }

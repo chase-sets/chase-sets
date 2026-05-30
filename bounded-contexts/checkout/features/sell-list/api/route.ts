@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import { createId } from "@chase-sets/primitives/typed-ids";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
 import type { SellListExecutionSummary } from "../domain/domain";
@@ -126,6 +127,7 @@ function parseLineOutcomeAction(
 }
 
 function parseSellListCheckoutBody(body: Record<string, unknown>) {
+  const executionId = String(body.executionId ?? "").trim();
   const completedLineIds = Array.isArray(body.completedLineIds)
     ? body.completedLineIds.map(String).filter(Boolean)
     : [];
@@ -159,6 +161,7 @@ function parseSellListCheckoutBody(body: Record<string, unknown>) {
       : [];
 
   return {
+    executionId,
     completedLineIds,
     remainingLineQuantities,
     executionSummary: executionSummary
@@ -231,6 +234,28 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     }
   });
 
+  app.get("/sell-list/executions/:executionId", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const receipt = await services.getReceiptByExecutionId(access.actor.accountId, c.req.param("executionId"));
+    if (!receipt) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("checkout.features.sellList.api.route.sell.list.execution.receipt.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return c.json(receipt);
+  });
+
   app.post("/sell-list/:lineId/remove", async (c) => {
     const access = requireSellListAccess(c);
     if (access.response) {
@@ -288,9 +313,27 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     const checkoutBody = parseSellListCheckoutBody(body);
 
     try {
+      const executionId = checkoutBody.executionId || createId("sle");
+
+      const existingReceipt =
+        typeof services.getReceiptByExecutionId === "function"
+          ? await services.getReceiptByExecutionId(access.actor.accountId, executionId)
+          : null;
+      if (existingReceipt) {
+        return c.json({
+          id: access.actor.accountId,
+          executionId,
+          version: 0,
+          status: "reviewed",
+          completedLineIds: [],
+          receipt: existingReceipt,
+        });
+      }
+
       const result = await services.checkoutSellList(
         {
           sellerAccountId: access.actor.accountId as never,
+          executionId,
           completedLineIds: checkoutBody.completedLineIds as never,
           remainingLineQuantities: checkoutBody.remainingLineQuantities as never,
           executionSummary: checkoutBody.executionSummary,
@@ -300,6 +343,7 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
 
       return c.json({
         id: result.sellerAccountId,
+        executionId,
         version: result.version,
         status: result.status,
         completedLineIds: result.completedLineIds,

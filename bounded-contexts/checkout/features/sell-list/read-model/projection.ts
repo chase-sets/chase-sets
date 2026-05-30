@@ -104,13 +104,35 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
     "checkout.sell-list.checked-out": async (event) => {
       const data = event.data as {
         sellerAccountId: string;
+        executionId?: string;
         checkedOutAt?: string;
         completedLineIds?: string[];
         remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
         executionSummary?: unknown;
       };
+      const executionId = data.executionId ?? `${data.sellerAccountId}:${data.checkedOutAt ?? event.timing.recordedAt}`;
 
       if (data.executionSummary) {
+        await db.query(
+          `INSERT INTO checkout_sell_list_execution_receipt_pages (
+             seller_account_id,
+             execution_id,
+             checked_out_at,
+             execution_summary,
+             updated_at
+           ) VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (seller_account_id, execution_id) DO UPDATE
+           SET checked_out_at = EXCLUDED.checked_out_at,
+               execution_summary = EXCLUDED.execution_summary,
+               updated_at = EXCLUDED.updated_at`,
+          [
+            data.sellerAccountId,
+            executionId,
+            data.checkedOutAt ?? event.timing.recordedAt,
+            JSON.stringify(data.executionSummary),
+            event.timing.recordedAt,
+          ],
+        );
         await db.query(
           `INSERT INTO checkout_sell_list_receipt_pages (
              seller_account_id,
