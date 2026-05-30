@@ -80,6 +80,17 @@ check "production_fulfillment_postage_readiness" {
   }
 }
 
+check "production_transactional_email_readiness" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_transactional_email_approved &&
+      trimspace(var.production_transactional_email_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved transactional email evidence before live marketplace notifications."
+  }
+}
+
 check "production_tax_readiness" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
