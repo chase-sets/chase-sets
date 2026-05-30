@@ -168,6 +168,9 @@
       "@chase-sets/fulfillment": [
         "./bounded-contexts/fulfillment/index.ts"
       ],
+      "@chase-sets/fulfillment-delivery-promises": [
+        "./contracts/fulfillment-delivery-promises/index.ts"
+      ],
       "@chase-sets/fulfillment/context": [
         "./bounded-contexts/fulfillment/context.json"
       ],

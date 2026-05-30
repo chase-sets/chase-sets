@@ -61,6 +61,10 @@ function normalizeOptimizationGoal(value: string | null) {
   return value === "fewest-shipments" ? value : "lowest-total";
 }
 
+function normalizePaymentMethodCategory(value: string | null) {
+  return value === "bank-account" || value === "platform-credit" ? value : "card";
+}
+
 function normalizePreviewText(value: string | null) {
   const normalized = (value ?? "").trim();
   return normalized.length > 0 ? normalized : null;
@@ -100,6 +104,7 @@ async function loadCartLandedCostPreview(
   const searchParams = new URL(request.url).searchParams;
   const shippingOption = normalizeShippingOption(searchParams.get("previewShippingOption"));
   const optimizationGoal = normalizeOptimizationGoal(searchParams.get("previewOptimizationGoal"));
+  const paymentMethodCategory = normalizePaymentMethodCategory(searchParams.get("previewPaymentMethodCategory"));
   const searchedAddress = previewAddressFromSearchParams(searchParams);
   let address: ReturnType<typeof shippingAddressSnapshot> | null = searchedAddress?.address ?? null;
   let addressLabel = searchedAddress?.label ?? null;
@@ -137,7 +142,7 @@ async function loadCartLandedCostPreview(
     const paymentPreview = await createPaymentsRequestApiClient(request)
       .previewCheckoutStatus({
         amount: preview.totals.totalAmount,
-        paymentMethodCategory: "card",
+        paymentMethodCategory,
       })
       .catch(() => null);
 
@@ -145,6 +150,7 @@ async function loadCartLandedCostPreview(
       addressLabel,
       shippingOption,
       optimizationGoal,
+      paymentMethodCategory,
       previewDestination: {
         city: address.city,
         state: address.state,

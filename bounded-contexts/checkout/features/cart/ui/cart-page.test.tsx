@@ -60,6 +60,7 @@ describe("checkout cart page", () => {
           addressLabel: "Home",
           shippingOption: "standard",
           optimizationGoal: "lowest-total",
+          paymentMethodCategory: "card",
           previewDestination: {
             city: "Chicago",
             state: "IL",

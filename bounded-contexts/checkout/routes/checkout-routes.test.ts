@@ -337,7 +337,10 @@ describe("checkout web routes", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", { feeQuoteFingerprint: "quote_1" });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", {
+      feeQuoteFingerprint: "quote_1",
+      sourceActionKey: "sle_1:selected-offer:sll_1:off_1",
+    });
     expect(mockStartSellListExecution).toHaveBeenCalledWith({
       executionId: "sle_1",
       executionPlan: expect.objectContaining({ version: 1 }),
@@ -413,7 +416,10 @@ describe("checkout web routes", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", { feeQuoteFingerprint: "quote_product_1" });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", {
+      feeQuoteFingerprint: "quote_product_1",
+      sourceActionKey: "sle_1:smart-match:sll_product:off_product_1",
+    });
     expect(mockCreateListing).not.toHaveBeenCalled();
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
       executionId: "sle_1",
@@ -483,7 +489,10 @@ describe("checkout web routes", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", { feeQuoteFingerprint: "quote_product_1" });
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", {
+      feeQuoteFingerprint: "quote_product_1",
+      sourceActionKey: "sle_1:smart-match:sll_product:off_product_1",
+    });
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
       executionId: "sle_1",
       completedLineIds: [],
@@ -556,8 +565,10 @@ describe("checkout web routes", () => {
 
     expect(mockCreateListing).toHaveBeenCalledWith({
       inventoryItemId: "inv_1",
+      listingIdOverride: "lst_sle1fallbacklistingsllproductinv112001",
       priceAmount: "12.00",
       quantityCap: 1,
+      sourceActionKey: "sle_1:fallback-listing:sll_product:inv_1:12.00:1",
     });
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
       executionId: "sle_1",
@@ -1175,6 +1186,94 @@ describe("checkout web routes", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/payments/new?orderIds=ord_1");
+  });
+
+  it("starts payment from checkout review for accelerated saved-payment confirmation", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("acceleratedSavedPayment", "true");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        deferPayment: false,
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
+  });
+
+  it("refreshes checkout review when confirmation is missing the payment quote", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).toHaveBeenCalledWith("chk_1", {
+      shippingAddress: expect.objectContaining({ postalCode: "60601" }),
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe(
+      "/checkout/chk_1?paymentMethodCategory=card&review=updated&quote=required",
+    );
   });
 
   it("refreshes checkout totals by saving the current shipping address without confirming", async () => {

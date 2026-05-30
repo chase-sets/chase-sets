@@ -306,6 +306,7 @@ describe("marketplace offer routes", () => {
         offerId: "off_1",
         sellerAccountId: "acc_seller",
         feeQuoteFingerprint: "350.00|17.50|332.50|sch_standard|",
+        sourceActionKey: null,
       },
       expect.any(Object),
     );

@@ -86,8 +86,11 @@ export type CheckoutFulfillmentPreview = Readonly<{
       shipFromRegion: string;
       serviceLevel: string;
       promiseOwner: "fulfillment";
-      promiseSource: "fulfillment-preview";
+      promiseSource: "fulfillment-promise-policy";
       promiseConfidence: "estimated";
+      cutoffTimeLocal: string;
+      packingStartDate: string;
+      carrierHandoffDate: string;
       basis: string;
     }>;
     lines: readonly Readonly<{

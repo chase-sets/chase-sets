@@ -218,9 +218,23 @@ export function CheckoutSessionPage({
   const returningBuyerFastPath = Boolean(
     defaultSavedAddress && defaultSavedPaymentInstrument && !isOfferIntent && !hasPayment,
   );
+  const canUseAcceleratedSavedPayment = Boolean(
+    returningBuyerFastPath && payment && defaultSavedPaymentInstrument?.confirmation_experience === "off-session-token",
+  );
   const savedAddressReady = Boolean(
     defaultSavedAddress && !defaultSavedPaymentInstrument && !isOfferIntent && !hasPayment,
   );
+  function requestPreviewRefresh(event: { currentTarget: HTMLInputElement | HTMLSelectElement }) {
+    if (!isOfferIntent && !hasPayment) {
+      const form = event.currentTarget.form;
+      const refreshButton = form?.querySelector<HTMLButtonElement>(
+        'button[name="intent"][value="refresh-checkout-preview"]',
+      );
+      if (refreshButton) {
+        form?.requestSubmit(refreshButton);
+      }
+    }
+  }
   const summary = (
     <Stack gap={4}>
       <PriceBreakdown
@@ -383,11 +397,22 @@ export function CheckoutSessionPage({
                   : t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview.description")
               }
             />
-            {returningBuyerFastPath ? (
+            {canUseAcceleratedSavedPayment ? (
               <MarketplaceNotice
                 tone="success"
                 title={t("checkout.features.sessions.ui.checkoutPage.fast.checkout.ready")}
                 description={t("checkout.features.sessions.ui.checkoutPage.fast.checkout.ready.description", {
+                  addressLabel: defaultSavedAddress?.label,
+                  paymentMethodCategory:
+                    defaultSavedPaymentInstrument?.display_label ?? selectedPaymentMethodCategory.replace("-", " "),
+                })}
+              />
+            ) : null}
+            {returningBuyerFastPath && !canUseAcceleratedSavedPayment ? (
+              <MarketplaceNotice
+                tone="info"
+                title={t("checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready")}
+                description={t("checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready.description", {
                   addressLabel: defaultSavedAddress?.label,
                   paymentMethodCategory:
                     defaultSavedPaymentInstrument?.display_label ?? selectedPaymentMethodCategory.replace("-", " "),
@@ -551,6 +576,14 @@ export function CheckoutSessionPage({
                                 {
                                   key: t("checkout.features.sessions.ui.checkoutPage.delivery.basis"),
                                   value: group.deliveryEstimate.basis,
+                                },
+                                {
+                                  key: t("checkout.features.sessions.ui.checkoutPage.fulfillment.cutoff"),
+                                  value: t("checkout.features.sessions.ui.checkoutPage.fulfillment.cutoff.value", {
+                                    cutoffTime: group.deliveryEstimate.cutoffTimeLocal,
+                                    packingStartDate: group.deliveryEstimate.packingStartDate,
+                                    carrierHandoffDate: group.deliveryEstimate.carrierHandoffDate,
+                                  }),
                                 },
                                 {
                                   key: t("checkout.features.sessions.ui.checkoutPage.delivery.promise"),
@@ -734,6 +767,11 @@ export function CheckoutSessionPage({
                         value={payment?.wallet_credit.requested_amount ?? wallet?.available_balance_amount ?? "0.00"}
                       />
                       <input type="hidden" name="paymentMethodCategory" value={selectedPaymentMethodCategory} />
+                      <input
+                        type="hidden"
+                        name="acceleratedSavedPayment"
+                        value={canUseAcceleratedSavedPayment ? "true" : "false"}
+                      />
                       <input type="hidden" name="sourceType" value={session.source_type} />
                       <input type="hidden" name="reviewedShippingOption" value={session.shipping_option} />
                       <input
@@ -766,6 +804,7 @@ export function CheckoutSessionPage({
                           label={t("checkout.features.sessions.ui.checkoutPage.saved.shipping.address")}
                           name="shippingAddressId"
                           defaultValue={addressDefaults.shippingAddressId}
+                          onChange={requestPreviewRefresh}
                           items={[
                             {
                               value: "__manual",
@@ -788,6 +827,7 @@ export function CheckoutSessionPage({
                           name="shippingName"
                           placeholder={t("checkout.features.sessions.ui.checkoutPage.recipient.placeholder")}
                           defaultValue={addressDefaults.name}
+                          onBlur={requestPreviewRefresh}
                           required
                         />
                         <TextInput
@@ -795,18 +835,21 @@ export function CheckoutSessionPage({
                           name="shippingCompany"
                           defaultValue={addressDefaults.company}
                           autoComplete="shipping organization"
+                          onBlur={requestPreviewRefresh}
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.country")}
                           name="shippingCountry"
                           defaultValue={addressDefaults.country}
                           autoComplete="shipping country"
+                          onBlur={requestPreviewRefresh}
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.address.line1")}
                           name="shippingLine1"
                           defaultValue={addressDefaults.line1}
                           autoComplete="shipping address-line1"
+                          onBlur={requestPreviewRefresh}
                           required
                         />
                         <TextInput
@@ -814,12 +857,14 @@ export function CheckoutSessionPage({
                           name="shippingLine2"
                           defaultValue={addressDefaults.line2}
                           autoComplete="shipping address-line2"
+                          onBlur={requestPreviewRefresh}
                         />
                         <TextInput
                           label={t("checkout.features.sessions.ui.checkoutPage.city")}
                           name="shippingCity"
                           defaultValue={addressDefaults.city}
                           autoComplete="shipping address-level2"
+                          onBlur={requestPreviewRefresh}
                           required
                         />
                         <TextInput
@@ -827,6 +872,7 @@ export function CheckoutSessionPage({
                           name="shippingState"
                           defaultValue={addressDefaults.state}
                           autoComplete="shipping address-level1"
+                          onBlur={requestPreviewRefresh}
                           required
                         />
                         <TextInput
@@ -834,6 +880,7 @@ export function CheckoutSessionPage({
                           name="shippingPostalCode"
                           defaultValue={addressDefaults.postalCode}
                           autoComplete="shipping postal-code"
+                          onBlur={requestPreviewRefresh}
                           required
                         />
                         <TextInput
@@ -902,6 +949,7 @@ export function CheckoutSessionPage({
                         label={t("checkout.features.sessions.ui.checkoutPage.shipping.option")}
                         name="shippingOption"
                         defaultValue={session.shipping_option}
+                        onChange={requestPreviewRefresh}
                         items={[
                           {
                             value: "standard",
@@ -919,6 +967,7 @@ export function CheckoutSessionPage({
                           label={t("checkout.features.sessions.ui.checkoutPage.payment.method")}
                           name="previewPaymentMethodCategory"
                           defaultValue={selectedPaymentMethodCategory}
+                          onChange={requestPreviewRefresh}
                           items={[
                             { value: "card", label: t("checkout.features.sessions.ui.checkoutPage.card") },
                             {
@@ -978,9 +1027,17 @@ export function CheckoutSessionPage({
                             : canConfirm
                               ? isOfferIntent
                                 ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
-                                : payment
-                                  ? t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")
-                                  : t("checkout.features.sessions.ui.checkoutPage.review.latest.total")
+                                : canUseAcceleratedSavedPayment
+                                  ? t("checkout.features.sessions.ui.checkoutPage.place.order.with.saved.payment", {
+                                      paymentMethodCategory:
+                                        defaultSavedPaymentInstrument?.display_label ??
+                                        selectedPaymentMethodCategory.replace("-", " "),
+                                    })
+                                  : payment
+                                    ? t(
+                                        "checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment",
+                                      )
+                                    : t("checkout.features.sessions.ui.checkoutPage.review.latest.total")
                               : t("checkout.features.sessions.ui.checkoutPage.no.available.supply")}
                         </Button>
                       </Inline>
@@ -1027,7 +1084,13 @@ export function CheckoutSessionPage({
                         ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
                         : needsPaymentQuote
                           ? t("checkout.features.sessions.ui.checkoutPage.review.latest.total")
-                          : t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")}
+                          : canUseAcceleratedSavedPayment
+                            ? t("checkout.features.sessions.ui.checkoutPage.place.order.with.saved.payment", {
+                                paymentMethodCategory:
+                                  defaultSavedPaymentInstrument?.display_label ??
+                                  selectedPaymentMethodCategory.replace("-", " "),
+                              })
+                            : t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")}
                   </Button>
                 )
               }

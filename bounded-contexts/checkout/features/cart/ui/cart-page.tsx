@@ -154,6 +154,7 @@ export function CheckoutCartPage({
     addressLabel: string;
     shippingOption: string;
     optimizationGoal: string;
+    paymentMethodCategory: string;
     previewDestination: {
       city: string;
       state: string;
@@ -206,6 +207,7 @@ export function CheckoutCartPage({
   };
   const previewShippingOption = landedCostPreview?.shippingOption ?? "standard";
   const previewOptimizationGoal = landedCostPreview?.optimizationGoal ?? "lowest-total";
+  const previewPaymentMethodCategory = landedCostPreview?.paymentMethodCategory ?? "card";
 
   function renderCartLine(line: CheckoutCartLineGroup) {
     return (
@@ -499,7 +501,15 @@ export function CheckoutCartPage({
                     label: t("checkout.features.cart.ui.cartPage.estimated.checkout.fee"),
                     value:
                       estimatedCheckoutFee !== null
-                        ? formatMoney(estimatedCheckoutFee)
+                        ? t("checkout.features.cart.ui.cartPage.estimated.checkout.fee.value", {
+                            amount: formatMoney(estimatedCheckoutFee),
+                            paymentMethod:
+                              previewPaymentMethodCategory === "bank-account"
+                                ? t("checkout.features.cart.ui.cartPage.bank.account")
+                                : previewPaymentMethodCategory === "platform-credit"
+                                  ? t("checkout.features.cart.ui.cartPage.platform.credit")
+                                  : t("checkout.features.cart.ui.cartPage.card"),
+                          })
                         : t("checkout.features.cart.ui.cartPage.quoted.during.checkout"),
                   },
                   ...(landedCostPreview?.paymentPreview
@@ -601,6 +611,16 @@ export function CheckoutCartPage({
                           ]}
                         />
                       </Grid>
+                      <NativeSelect
+                        label={t("checkout.features.cart.ui.cartPage.payment.method.assumption")}
+                        name="previewPaymentMethodCategory"
+                        defaultValue={previewPaymentMethodCategory}
+                        items={[
+                          { value: "card", label: t("checkout.features.cart.ui.cartPage.card") },
+                          { value: "bank-account", label: t("checkout.features.cart.ui.cartPage.bank.account") },
+                          { value: "platform-credit", label: t("checkout.features.cart.ui.cartPage.platform.credit") },
+                        ]}
+                      />
                       <Button type="submit" leadingIcon="refreshCcw" tone="secondary" block>
                         {t("checkout.features.cart.ui.cartPage.preview.landed.cost")}
                       </Button>

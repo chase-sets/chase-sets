@@ -90,8 +90,11 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
         shipFromRegion: "Chicago, IL",
         serviceLevel: "standard parcel",
         promiseOwner: "fulfillment",
-        promiseSource: "fulfillment-preview",
+        promiseSource: "fulfillment-promise-policy",
         promiseConfidence: "estimated",
+        cutoffTimeLocal: "16:00",
+        packingStartDate: "2026-05-01",
+        carrierHandoffDate: "2026-05-02",
         basis: "1 package from Chicago, IL; 1 seller handling day plus 5-8 transit days.",
       },
       lines: [
@@ -143,6 +146,46 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
     },
   ],
   materialChangeReasons: [],
+};
+
+const paymentPreview = {
+  currency_code: "usd",
+  amount: "489.00",
+  marketplace_checkout_fee: {
+    marketplace_checkout_fee_amount: "14.67",
+    marketplace_checkout_fee_reduction_amount: "0.00",
+    total_amount: "503.67",
+    processor_amount: "503.67",
+    quote_fingerprint: "quote_1",
+  },
+  payment_method_quotes: [
+    {
+      payment_method_category: "card" as const,
+      marketplace_checkout_fee_amount: "14.67",
+      total_amount: "503.67",
+    },
+  ],
+  wallet_credit: {
+    requested_amount: "0.00",
+    applied_amount: "0.00",
+    external_amount: "503.67",
+  },
+};
+
+const savedAddress = {
+  shipping_address_id: "adr_home",
+  label: "Home",
+  recipient_name: "Jane Smith",
+  company: null,
+  line1: "100 Market Street",
+  line2: null,
+  city: "Chicago",
+  state: "IL",
+  postal_code: "60601",
+  country: "US",
+  phone: null,
+  email: null,
+  is_default: true,
 };
 
 describe("checkout session page", () => {
@@ -204,23 +247,7 @@ describe("checkout session page", () => {
         session={session}
         fulfillmentPreview={fulfillmentPreview}
         canManageShippingAddresses
-        savedShippingAddresses={[
-          {
-            shipping_address_id: "adr_home",
-            label: "Home",
-            recipient_name: "Jane Smith",
-            company: null,
-            line1: "100 Market Street",
-            line2: null,
-            city: "Chicago",
-            state: "IL",
-            postal_code: "60601",
-            country: "US",
-            phone: null,
-            email: null,
-            is_default: true,
-          },
-        ]}
+        savedShippingAddresses={[savedAddress]}
       />,
     );
 
@@ -229,5 +256,53 @@ describe("checkout session page", () => {
     expect(markup).toContain("Address book action");
     expect(markup).toContain("Use for this checkout only");
     expect(markup).toContain("Save as new address");
+  });
+
+  it("uses the one-page saved-payment CTA only for off-session saved instruments", () => {
+    const acceleratedMarkup = renderToString(
+      <CheckoutSessionPage
+        session={session}
+        fulfillmentPreview={fulfillmentPreview}
+        paymentPreview={paymentPreview}
+        savedShippingAddresses={[savedAddress]}
+        savedCheckoutInstruments={[
+          {
+            instrument_id: "pmi_card",
+            payment_method_category: "card",
+            provider: "stripe",
+            display_label: "Visa ending in 4242",
+            confirmation_experience: "off-session-token",
+            is_default: true,
+            readiness: "ready",
+          },
+        ]}
+      />,
+    );
+    const providerStepMarkup = renderToString(
+      <CheckoutSessionPage
+        session={session}
+        fulfillmentPreview={fulfillmentPreview}
+        paymentPreview={paymentPreview}
+        savedShippingAddresses={[savedAddress]}
+        savedCheckoutInstruments={[
+          {
+            instrument_id: "pmi_bank",
+            payment_method_category: "bank-account",
+            provider: "stripe",
+            display_label: "Bank account",
+            confirmation_experience: "trusted-payment-step",
+            is_default: true,
+            readiness: "ready",
+          },
+        ]}
+      />,
+    );
+
+    expect(acceleratedMarkup).toContain("Fast checkout ready");
+    expect(acceleratedMarkup).toContain("Place order with Visa ending in 4242");
+    expect(providerStepMarkup).toContain("Saved payment ready");
+    expect(providerStepMarkup).toContain("secure payment step before authorization");
+    expect(providerStepMarkup).toContain("Create purchases and continue to secure payment");
+    expect(providerStepMarkup).not.toContain("Place order with Bank account");
   });
 });

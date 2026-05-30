@@ -326,6 +326,8 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
             body && typeof body === "object" && "feeQuoteFingerprint" in body
               ? String(body.feeQuoteFingerprint ?? "")
               : null,
+          sourceActionKey:
+            body && typeof body === "object" && "sourceActionKey" in body ? String(body.sourceActionKey ?? "") : null,
         },
         context,
       );

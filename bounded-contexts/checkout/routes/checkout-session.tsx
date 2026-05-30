@@ -400,6 +400,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const reviewedShippingAddressSignature = normalizeText(formData.get("reviewedShippingAddressSignature"));
       const marketplaceCheckoutFeeQuoteFingerprint =
         String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null;
+      const useAcceleratedSavedPayment = String(formData.get("acceleratedSavedPayment") ?? "") === "true";
       const session =
         typeof api.getCheckoutSession === "function" ? await api.getCheckoutSession(params.sessionId) : null;
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
@@ -432,7 +433,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         marketplaceCheckoutFeeQuoteFingerprint,
         fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
         acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
-        deferPayment: Boolean(actor && actor.roleKey !== "guest-buyer"),
+        deferPayment: Boolean(actor && actor.roleKey !== "guest-buyer" && !useAcceleratedSavedPayment),
         shippingAddress,
       });
       if (result.offer_id) {

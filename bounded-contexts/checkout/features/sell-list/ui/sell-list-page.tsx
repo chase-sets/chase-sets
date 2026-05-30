@@ -25,7 +25,11 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
-import type { CheckoutSellListLineRow, CheckoutSellListReceiptRow } from "../read-model/queries";
+import type {
+  CheckoutSellListExecutionRow,
+  CheckoutSellListLineRow,
+  CheckoutSellListReceiptRow,
+} from "../read-model/queries";
 
 type SellListOfferReview = Readonly<{
   lineId: string;
@@ -108,6 +112,7 @@ export function CheckoutSellListPage({
   isSignedIn = true,
   reviewCompleted = false,
   sellListExecutionId = null,
+  latestPendingExecution = null,
   latestReceipt = null,
   offerReviews = [],
   productOfferReviews = [],
@@ -119,6 +124,7 @@ export function CheckoutSellListPage({
   isSignedIn?: boolean;
   reviewCompleted?: boolean;
   sellListExecutionId?: string | null;
+  latestPendingExecution?: CheckoutSellListExecutionRow | null;
   latestReceipt?: CheckoutSellListReceiptRow | null;
   offerReviews?: readonly SellListOfferReview[];
   productOfferReviews?: readonly SellListProductOfferReview[];
@@ -128,6 +134,13 @@ export function CheckoutSellListPage({
 }) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
   const productLines = sellListLines.filter((line) => line.line_type === "product");
+  const latestPendingProgress =
+    typeof latestPendingExecution?.execution_progress === "object" && latestPendingExecution.execution_progress !== null
+      ? (latestPendingExecution.execution_progress as { completedActionKeys?: unknown })
+      : null;
+  const latestPendingActionCount = Array.isArray(latestPendingProgress?.completedActionKeys)
+    ? latestPendingProgress.completedActionKeys.length
+    : 0;
   const offerReviewsByLineId = new Map((offerReviews ?? []).map((review) => [review.lineId, review]));
   const productOfferReviewsByLineId = new Map((productOfferReviews ?? []).map((review) => [review.lineId, review]));
   const totalQuantity = sellListLines.reduce((sum, line) => sum + line.quantity, 0);
@@ -174,8 +187,9 @@ export function CheckoutSellListPage({
     return sum + Number(line.minimum_listing_price_amount ?? 0) * fallbackQuantity;
   }, 0);
   const estimatedSalesFees = selectedOfferSalesFee + smartMatchSalesFee;
-  const grossCommittedValue = selectedOfferGross + fallbackListingGross;
-  const expectedSellerPayout = selectedOfferSellerNet + smartMatchSellerNet + fallbackListingGross;
+  const committedOfferGross = selectedOfferGross;
+  const committedSellerPayout = selectedOfferSellerNet + smartMatchSellerNet;
+  const futureListingGross = fallbackListingGross;
   const inventoryByProductId = new Map<string, SellListInventoryItem[]>();
   for (const item of inventoryItems ?? []) {
     inventoryByProductId.set(item.product_id, [...(inventoryByProductId.get(item.product_id) ?? []), item]);
@@ -199,16 +213,16 @@ export function CheckoutSellListPage({
             value: formatMoney(String(smartMatchSellerNet)),
           },
           {
-            label: t("checkout.features.sellList.ui.sellListPage.fallback.listing.gross"),
-            value: formatMoney(String(fallbackListingGross)),
+            label: t("checkout.features.sellList.ui.sellListPage.future.listing.gross"),
+            value: formatMoney(String(futureListingGross)),
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.estimated.sales.fees"),
             value: formatMoney(String(estimatedSalesFees)),
           },
           {
-            label: t("checkout.features.sellList.ui.sellListPage.gross.committed.value"),
-            value: formatMoney(String(grossCommittedValue)),
+            label: t("checkout.features.sellList.ui.sellListPage.committed.offer.gross"),
+            value: formatMoney(String(committedOfferGross)),
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.payout.readiness"),
@@ -219,8 +233,8 @@ export function CheckoutSellListPage({
                 : t("checkout.features.sellList.ui.sellListPage.setup.required"),
           },
         ]}
-        total={formatMoney(String(expectedSellerPayout))}
-        totalLabel={t("checkout.features.sellList.ui.sellListPage.expected.seller.payout")}
+        total={formatMoney(String(committedSellerPayout))}
+        totalLabel={t("checkout.features.sellList.ui.sellListPage.committed.seller.payout")}
         reassurance={
           <SecurePaymentIndicator
             label={t("checkout.features.sellList.ui.sellListPage.buyer.payment.already.authorized")}
@@ -375,6 +389,16 @@ export function CheckoutSellListPage({
                 title={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review")}
                 description={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review.description")}
               />
+              {latestPendingExecution ? (
+                <MarketplaceNotice
+                  tone="warning"
+                  title={t("checkout.features.sellList.ui.sellListPage.pending.execution.ready")}
+                  description={t("checkout.features.sellList.ui.sellListPage.pending.execution.ready.description", {
+                    executionId: latestPendingExecution.execution_id,
+                    completedActionCount: latestPendingActionCount,
+                  })}
+                />
+              ) : null}
               {isSignedIn && payoutReadiness?.status !== "ready" ? (
                 <MarketplaceNotice
                   tone="warning"
@@ -733,8 +757,8 @@ export function CheckoutSellListPage({
                 </Stack>
               </Surface>
               <StickyCtaBar
-                price={formatMoney(String(expectedSellerPayout))}
-                context={t("checkout.features.sellList.ui.sellListPage.sale.review.before.commitment")}
+                price={formatMoney(String(committedSellerPayout))}
+                context={t("checkout.features.sellList.ui.sellListPage.committed.payout.before.future.listings")}
                 primaryAction={
                   isSignedIn ? (
                     <Button

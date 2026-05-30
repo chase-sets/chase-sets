@@ -266,6 +266,7 @@ export function createCheckoutApiClient({
       items: readonly CheckoutSellListLineRow[];
       count: number;
       latestReceipt?: CheckoutSellListReceiptRow | null;
+      latestPendingExecution?: CheckoutSellListExecutionRow | null;
     }> {
       return parseJsonResponse(await client.account["sell-list"].$get({ header: headers }));
     },
@@ -307,6 +308,13 @@ export function createCheckoutApiClient({
       return parseJsonResponse(
         await client.account["sell-list"].executions[":executionId"].$get({
           param: { executionId },
+          header: headers,
+        }),
+      );
+    },
+    async getLatestPendingSellListExecution(): Promise<CheckoutSellListExecutionRow> {
+      return parseJsonResponse(
+        await client.account["sell-list"].executions["latest-pending"].$get({
           header: headers,
         }),
       );

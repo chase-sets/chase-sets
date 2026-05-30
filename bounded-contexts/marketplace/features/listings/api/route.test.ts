@@ -36,6 +36,16 @@ function buildApp(
 
 function createServices(): MarketplaceListingServices {
   return {
+    createListing: vi.fn(async () => ({
+      listingId: "lst_checkout_fallback" as never,
+      version: 1,
+      feeQuoteFingerprint: "12.00|0.60|11.40|cts_default|",
+    })),
+    createListingFromInventorySnapshot: vi.fn(async () => ({
+      listingId: "lst_checkout_fallback" as never,
+      version: 1,
+      feeQuoteFingerprint: "12.00|0.60|11.40|cts_default|",
+    })),
     publishListing: vi.fn(async () => ({ listingId: "lst_1", version: 2 })),
     listSellerListingFeeHistory: vi.fn(async () => [
       {
@@ -101,6 +111,49 @@ function createServices(): MarketplaceListingServices {
 }
 
 describe("marketplace listing routes", () => {
+  it("passes Checkout-provided deterministic listing IDs into seller listing creation", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_seller",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["listings.view", "listings.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/account/listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inventoryItemId: "inv_1",
+          priceAmount: "12.00",
+          quantityCap: 1,
+          listingIdOverride: "lst_checkout_fallback",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      id: "lst_checkout_fallback",
+      status: "draft",
+    });
+    expect(services.createListing).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        inventoryItemId: "inv_1",
+        listingIdOverride: "lst_checkout_fallback",
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("publishes a seller listing through the documented API action", async () => {
     const services = createServices();
     const app = buildApp({

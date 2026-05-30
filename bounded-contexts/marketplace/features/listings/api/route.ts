@@ -97,6 +97,10 @@ function parsePurchaseLimits(body: Record<string, unknown>) {
   };
 }
 
+function parseOptionalString(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+}
+
 function parseSelectedOptions(value: unknown) {
   return Array.isArray(value)
     ? value
@@ -443,6 +447,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
           maxUnitsPerDay: formValue(formData, "maxUnitsPerDay"),
           maxUnitsPerCustomerAccount: formValue(formData, "maxUnitsPerCustomerAccount"),
           inventorySnapshot: formValue(formData, "inventorySnapshot"),
+          listingIdOverride: formValue(formData, "listingIdOverride"),
         }
       : await c.req.json();
     const listingPhotoUploads = formData ? await parseListingPhotoUploads(formData) : [];
@@ -458,6 +463,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
+              listingIdOverride: parseOptionalString(body.listingIdOverride) as never,
             },
             context,
           )
@@ -469,6 +475,7 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
               quantityCap: Number(body.quantityCap ?? 0),
               purchaseLimits: parsePurchaseLimits(body),
               listingPhotoUploads,
+              listingIdOverride: parseOptionalString(body.listingIdOverride) as never,
             },
             context,
           );
