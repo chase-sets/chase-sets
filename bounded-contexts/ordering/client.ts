@@ -76,6 +76,12 @@ export type CheckoutFulfillmentPreview = Readonly<{
     shippingChargeAmount: string;
     salesTaxAmount: string;
     totalAmount: string;
+    deliveryEstimate: Readonly<{
+      earliestDate: string;
+      latestDate: string;
+      minimumTransitDays: number;
+      maximumTransitDays: number;
+    }>;
     lines: readonly Readonly<{
       lineKey: string;
       listingId: string;

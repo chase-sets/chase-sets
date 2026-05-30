@@ -335,11 +335,23 @@ export async function action({ request, params }: ActionFunctionArgs) {
       await api.selectShippingOption(params.sessionId, {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
       });
+      const quotedPaymentMethodCategory = String(formData.get("paymentMethodCategory") ?? "card");
+      const visiblePaymentMethodCategory = String(
+        formData.get("previewPaymentMethodCategory") ?? quotedPaymentMethodCategory,
+      );
+      if (visiblePaymentMethodCategory !== quotedPaymentMethodCategory) {
+        await api.selectShippingAddress(params.sessionId, {
+          shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData),
+        });
+        return redirect(
+          `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}`,
+        );
+      }
       const result = await api.confirmCheckoutSession(params.sessionId, {
         requestedBalanceCreditAmount: normalizeRequestedBalanceCreditAmount(
           formData.get("requestedBalanceCreditAmount"),
         ),
-        paymentMethodCategory: String(formData.get("paymentMethodCategory") ?? "card"),
+        paymentMethodCategory: quotedPaymentMethodCategory,
         marketplaceCheckoutFeeQuoteFingerprint:
           String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null,
         fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,

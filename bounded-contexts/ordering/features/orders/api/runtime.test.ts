@@ -383,6 +383,18 @@ describe("ordering order runtime", () => {
         expect.objectContaining({ listingId: "lst_standard", quantity: 1 }),
       ]),
     );
+    expect(preview.sellerGroups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          deliveryEstimate: expect.objectContaining({
+            earliestDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+            latestDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+            minimumTransitDays: 5,
+            maximumTransitDays: 8,
+          }),
+        }),
+      ]),
+    );
   });
 
   it("keeps buyer cost lowest by rewarding same-seller checkout grouping", async () => {
