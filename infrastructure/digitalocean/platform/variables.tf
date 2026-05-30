@@ -166,6 +166,28 @@ variable "production_transactional_email_reference" {
   }
 }
 
+variable "production_launch_supply_measurements_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit Catalog and Ordering evidence gate that launch supply has resolved product measurement coverage before public checkout opens."
+
+  validation {
+    condition     = var.environment == "production" || var.production_launch_supply_measurements_approved == false
+    error_message = "production_launch_supply_measurements_approved may only be true for production."
+  }
+}
+
+variable "production_launch_supply_measurements_reference" {
+  type        = string
+  default     = ""
+  description = "Catalog-owned evidence reference for approved launch supply measurement coverage, such as a production data-quality sweep record or launch review ticket."
+
+  validation {
+    condition     = !var.production_launch_supply_measurements_approved || trimspace(var.production_launch_supply_measurements_reference) != ""
+    error_message = "production_launch_supply_measurements_reference is required when production_launch_supply_measurements_approved is true."
+  }
+}
+
 variable "production_tax_readiness_approved" {
   type        = bool
   default     = false

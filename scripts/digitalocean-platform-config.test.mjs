@@ -195,6 +195,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain(
       "production_transactional_email_reference is required when production_transactional_email_approved is true.",
     );
+    expect(platformVariables).toContain('variable "production_launch_supply_measurements_approved"');
+    expect(platformVariables).toContain(
+      "production_launch_supply_measurements_approved may only be true for production.",
+    );
+    expect(platformVariables).toContain('variable "production_launch_supply_measurements_reference"');
+    expect(platformVariables).toContain(
+      "production_launch_supply_measurements_reference is required when production_launch_supply_measurements_approved is true.",
+    );
     expect(platformVariables).toContain('variable "production_tax_readiness_approved"');
     expect(platformVariables).toContain("production_tax_readiness_approved may only be true for production.");
     expect(platformVariables).toContain('variable "production_tax_readiness_reference"');
@@ -241,6 +249,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain("var.production_transactional_email_approved");
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires approved transactional email evidence before live marketplace notifications."',
+    );
+    expect(platformMain).toContain('check "production_launch_supply_measurements_readiness"');
+    expect(platformMain).toContain("var.production_launch_supply_measurements_approved");
+    expect(platformMain).toContain(
+      'error_message = "Production marketplace promotion requires approved launch supply measurement evidence before public checkout."',
     );
     expect(platformMain).toContain('check "production_tax_readiness"');
     expect(platformMain).toContain("var.production_tax_readiness_approved");
@@ -289,6 +302,12 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_transactional_email_reference: ${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_launch_supply_measurements_approved: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED == 'true' && 'true' || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_launch_supply_measurements_reference: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}",
     );
     expect(platformProductionWorkflow).toContain(
@@ -310,6 +329,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved transactional email evidence.",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace promotion requires approved launch supply measurement evidence.",
     );
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved Tax readiness evidence.",

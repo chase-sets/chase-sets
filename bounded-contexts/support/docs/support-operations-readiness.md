@@ -19,6 +19,7 @@ Before `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, support operations must ver
 - transactional email notices are enabled for support-relevant account events.
 
 Approval is carried by `PRODUCTION_SUPPORT_OPERATIONS_APPROVED=true` and a non-empty `PRODUCTION_SUPPORT_OPERATIONS_REFERENCE` in the production GitHub Environment. The reference must point to the Support-owned rehearsal record covering the queue review, overdue escalation, lifecycle endpoints, refund-producing resolution, settlement hold, and notification checks. Keep approval unset while production remains landing/admin-support only or while support operations has not completed the staging rehearsal.
+The redacted [Marketplace Launch Evidence](../../../docs/runbooks/marketplace-launch-evidence.md) packet must carry the same approval and reference before operators set the production GitHub Environment values.
 
 ## Operator Surface
 
