@@ -11,6 +11,7 @@ export type FulfillmentShipmentLineRow = Readonly<{
   item_subtitle: string | null;
   product_summary: string | null;
   quantity: number;
+  packing_confirmed_at: string | null;
 }>;
 
 export type FulfillmentShipmentExceptionRow = Readonly<{
@@ -308,7 +309,8 @@ export async function getBuyerShipment(
          item_title,
          item_subtitle,
          product_summary,
-         quantity
+         quantity,
+         packing_confirmed_at
        FROM fulfillment_shipment_line_pages
        WHERE shipment_id = $1
        ORDER BY line_index ASC, line_id ASC`,
@@ -405,7 +407,8 @@ export async function getSellerShipment(
          item_title,
          item_subtitle,
          product_summary,
-         quantity
+         quantity,
+         packing_confirmed_at
        FROM fulfillment_shipment_line_pages
        WHERE shipment_id = $1
        ORDER BY line_index ASC, line_id ASC`,

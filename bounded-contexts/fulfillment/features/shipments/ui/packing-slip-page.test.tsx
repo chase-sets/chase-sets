@@ -84,6 +84,7 @@ const slip: FulfillmentPackingSlip = {
       item_subtitle: "Base Set",
       product_summary: "Condition: Near Mint",
       quantity: 2,
+      packing_confirmed_at: null,
     },
   ],
   exceptions: [],
@@ -155,6 +156,10 @@ describe("fulfillment packing slip UI", () => {
       status: "packing",
       package_status: "packing",
       packing_started_at: "2026-04-02T00:01:00.000Z",
+      lines: slip.lines.map((line) => ({
+        ...line,
+        packing_confirmed_at: line.line_id === "spl_1" ? "2026-04-02T00:02:00.000Z" : null,
+      })),
     };
     const markup = renderToString(
       <FulfillmentShipmentPackingPage
@@ -168,5 +173,6 @@ describe("fulfillment packing slip UI", () => {
     expect(markup).toContain("Packed 2 x Charizard");
     expect(markup).toContain("Finish packing");
     expect(markup).toContain('value="complete-packing"');
+    expect(markup).toContain("Order changes locked while packing");
   });
 });

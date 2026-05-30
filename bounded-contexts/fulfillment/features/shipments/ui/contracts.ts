@@ -68,6 +68,7 @@ export interface FulfillmentShipmentLine {
   item_subtitle: string | null;
   product_summary: string | null;
   quantity: number;
+  packing_confirmed_at: string | null;
 }
 
 export interface FulfillmentShipmentException {

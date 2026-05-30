@@ -254,6 +254,57 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
     }
   });
 
+  app.post("/sales/shipments/:id/packing/lines/:lineId", async (c) => {
+    const access = requireShipmentAccess(c, "fulfillment.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const confirmed = body.confirmed === true || body.confirmed === "true";
+
+    try {
+      const result = confirmed
+        ? await services.confirmPackingLine(
+            {
+              shipmentId: c.req.param("id"),
+              sellerAccountId: access.actor.accountId,
+              lineId: c.req.param("lineId"),
+            },
+            context,
+          )
+        : await services.unconfirmPackingLine(
+            {
+              shipmentId: c.req.param("id"),
+              sellerAccountId: access.actor.accountId,
+              lineId: c.req.param("lineId"),
+            },
+            context,
+          );
+      return c.json({
+        id: result.shipmentId,
+        lineId: c.req.param("lineId"),
+        version: result.version,
+        confirmed,
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/sales/shipments/:id/pack", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {

@@ -62,11 +62,19 @@ describe("fulfillment shipment domain", () => {
     expect(packingState.packageStatus).toBe("packing");
     expect(packingState.packingStartedAt).toBe("2026-04-02T00:03:00.000Z");
 
-    const packedState = decideFulfillmentShipment(packingState, {
+    const confirmedState = decideFulfillmentShipment(packingState, {
+      type: "ConfirmShipmentPackingLine",
+      lineId: "spl_1" as never,
+      confirmedAt: "2026-04-02T00:04:00.000Z",
+    }).reduce(evolveFulfillmentShipment, packingState);
+
+    expect(confirmedState.lines[0]?.packingConfirmedAt).toBe("2026-04-02T00:04:00.000Z");
+
+    const packedState = decideFulfillmentShipment(confirmedState, {
       type: "PrepareShipmentPackage",
       packageCount: 1,
       preparedAt: "2026-04-02T00:05:00.000Z",
-    }).reduce(evolveFulfillmentShipment, packingState);
+    }).reduce(evolveFulfillmentShipment, confirmedState);
 
     const labeledState = decideFulfillmentShipment(packedState, {
       type: "AttachShipmentLabel",
@@ -128,11 +136,20 @@ describe("fulfillment shipment domain", () => {
       ],
       createdAt: "2026-04-02T00:00:00.000Z",
     }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
-    const packedState = decideFulfillmentShipment(createdState, {
+    const packingState = decideFulfillmentShipment(createdState, {
+      type: "StartShipmentPacking",
+      startedAt: "2026-04-02T00:03:00.000Z",
+    }).reduce(evolveFulfillmentShipment, createdState);
+    const confirmedState = decideFulfillmentShipment(packingState, {
+      type: "ConfirmShipmentPackingLine",
+      lineId: "spl_1" as never,
+      confirmedAt: "2026-04-02T00:04:00.000Z",
+    }).reduce(evolveFulfillmentShipment, packingState);
+    const packedState = decideFulfillmentShipment(confirmedState, {
       type: "PrepareShipmentPackage",
       packageCount: 1,
       preparedAt: "2026-04-02T00:05:00.000Z",
-    }).reduce(evolveFulfillmentShipment, createdState);
+    }).reduce(evolveFulfillmentShipment, confirmedState);
 
     const failedState = decideFulfillmentShipment(packedState, {
       type: "RecordShipmentLabelPurchaseFailed",
