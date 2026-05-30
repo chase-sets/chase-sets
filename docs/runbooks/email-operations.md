@@ -95,6 +95,7 @@ Provider bounces, complaints, and delivery notifications should flow through SES
 ## Production SES Proof
 
 Before production marketplace promotion, Notifications must approve transactional email readiness with `PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED=true` and a non-empty `PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE` in the production GitHub Environment. The reference must point to the Notifications-owned rehearsal record. Keep approval unset while production remains landing/admin-support only or until every production Amazon SES proof below is complete.
+The redacted [Marketplace Launch Evidence](./marketplace-launch-evidence.md) packet must carry the same approval and reference before operators set the production GitHub Environment values.
 
 The rehearsal record must include:
 

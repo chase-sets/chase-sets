@@ -746,6 +746,8 @@ jobs:
       TF_VAR_production_fulfillment_postage_reference: ${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE || '' }}
       TF_VAR_production_transactional_email_approved: ${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_transactional_email_reference: ${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE || '' }}
+      TF_VAR_production_launch_supply_measurements_approved: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED == 'true' && 'true' || 'false' }}
+      TF_VAR_production_launch_supply_measurements_reference: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE || '' }}
       TF_VAR_stripe_connect_return_url: https://marketplace.chasesets.com/account/payouts
       TF_VAR_stripe_connect_refresh_url: https://marketplace.chasesets.com/account/payouts/setup
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
@@ -883,6 +885,11 @@ jobs:
 
             if [ "${TF_VAR_production_fulfillment_postage_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_fulfillment_postage_reference:-}" ]; then
               echo "Production marketplace promotion requires approved Fulfillment postage evidence." >&2
+              exit 1
+            fi
+
+            if [ "${TF_VAR_production_launch_supply_measurements_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_launch_supply_measurements_reference:-}" ]; then
+              echo "Production marketplace promotion requires approved launch supply measurement evidence." >&2
               exit 1
             fi
 

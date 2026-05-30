@@ -10,6 +10,7 @@ Production marketplace order creation must fail closed until Tax readiness has a
 - Local and test composition may use implicit zero-tax behavior so development remains lightweight.
 - Production Platform API composes a blocker resolver only when `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true`. If collection is required but no provider-backed resolver is composed, the quote request fails before an order can store an implicit zero-tax snapshot.
 - Terraform and the production deployment workflow require `PRODUCTION_TAX_READINESS_APPROVED=true` and a non-empty `PRODUCTION_TAX_READINESS_REFERENCE` before `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` can promote the public marketplace.
+- The redacted [Marketplace Launch Evidence](../../../docs/runbooks/marketplace-launch-evidence.md) packet must encode the Tax posture as either `no_collection_required` or `provider_backed_quotes_required`, and its `productionEnvironment.TAX_PROVIDER_BACKED_QUOTES_REQUIRED` value must match that posture.
 
 ## Approval Evidence
 

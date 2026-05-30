@@ -102,6 +102,17 @@ check "production_transactional_email_readiness" {
   }
 }
 
+check "production_launch_supply_measurements_readiness" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_launch_supply_measurements_approved &&
+      trimspace(var.production_launch_supply_measurements_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved launch supply measurement evidence before public checkout."
+  }
+}
+
 check "production_tax_readiness" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
