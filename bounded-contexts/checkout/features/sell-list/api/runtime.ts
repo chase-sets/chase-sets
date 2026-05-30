@@ -26,6 +26,7 @@ import { buildCheckoutSellListProjectionHandlers } from "../read-model/projectio
 import {
   getSellListExecution,
   getSellListReceiptByExecutionId,
+  getLatestPendingSellListExecution,
   getLatestSellListReceipt,
   listSellListLines,
   type CheckoutSellListExecutionRow,
@@ -131,6 +132,7 @@ export type CheckoutSellListServices = Readonly<{
     executionId: string,
   ) => ReturnType<typeof getSellListReceiptByExecutionId>;
   getExecution: (sellerAccountId: string, executionId: string) => ReturnType<typeof getSellListExecution>;
+  getLatestPendingExecution: (sellerAccountId: string) => ReturnType<typeof getLatestPendingSellListExecution>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -369,6 +371,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
     getReceiptByExecutionId: (sellerAccountId, executionId) =>
       getSellListReceiptByExecutionId(deps.db, sellerAccountId, executionId),
     getExecution: (sellerAccountId, executionId) => getSellListExecution(deps.db, sellerAccountId, executionId),
+    getLatestPendingExecution: (sellerAccountId) => getLatestPendingSellListExecution(deps.db, sellerAccountId),
     mergeSellListIntoAccount: async (params, context) => {
       const sourceLines = await listSellListLines(deps.db, params.sourceOwnerId);
       const existingTargetLineIds = new Set(

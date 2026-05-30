@@ -6,6 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createFulfillmentDeliveryPromise } from "@chase-sets/fulfillment-delivery-promises";
 import { buildPackagePlan, type PackagePlan, type ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
@@ -210,8 +211,11 @@ export type CheckoutFulfillmentPreview = Readonly<{
       shipFromRegion: string;
       serviceLevel: string;
       promiseOwner: "fulfillment";
-      promiseSource: "fulfillment-preview";
+      promiseSource: "fulfillment-promise-policy";
       promiseConfidence: "estimated";
+      cutoffTimeLocal: string;
+      packingStartDate: string;
+      carrierHandoffDate: string;
       basis: string;
     }>;
     lines: readonly Readonly<{
@@ -874,115 +878,17 @@ function previewRevision(preview: Omit<CheckoutFulfillmentPreview, "revision">) 
   ].join("#");
 }
 
-function addCalendarDays(date: Date, days: number) {
-  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  next.setUTCDate(next.getUTCDate() + days);
-  return next.toISOString().slice(0, 10);
-}
-
-function isWeekend(date: Date) {
-  const day = date.getUTCDay();
-  return day === 0 || day === 6;
-}
-
-function addBusinessDays(date: Date, days: number) {
-  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  let remaining = days;
-  while (remaining > 0) {
-    next.setUTCDate(next.getUTCDate() + 1);
-    if (!isWeekend(next)) {
-      remaining -= 1;
-    }
-  }
-  return next;
-}
-
-function nextFulfillmentBusinessDay(date: Date) {
-  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
-  const afterCutoff = date.getUTCHours() >= 20;
-  if (afterCutoff || isWeekend(next)) {
-    return addBusinessDays(next, 1);
-  }
-  return next;
-}
-
-function destinationRegion(address: CheckoutShippingAddressSnapshot | null | undefined) {
-  if (!address) {
-    return "destination pending";
-  }
-  return [address.city, address.state, address.country].filter((part) => part.trim().length > 0).join(", ");
-}
-
-function transitWindowForDraft(
+function fulfillmentDeliveryPromiseForDraft(
   draft: SellerOrderDraft,
   shippingDestinationSnapshot: CheckoutShippingAddressSnapshot | null | undefined,
 ) {
-  const base =
-    draft.shippingOption === "priority"
-      ? { earliestDays: 1, latestDays: 3 }
-      : draft.shippingOption === "expedited"
-        ? { earliestDays: 2, latestDays: 4 }
-        : { earliestDays: 4, latestDays: 7 };
-  const originCountry = draft.shippingOriginSnapshot.country.trim().toUpperCase();
-  const destinationCountry = shippingDestinationSnapshot?.country.trim().toUpperCase() ?? originCountry;
-  const originState = draft.shippingOriginSnapshot.state.trim().toUpperCase();
-  const destinationState = shippingDestinationSnapshot?.state.trim().toUpperCase() ?? "";
-
-  if (originCountry && destinationCountry && originCountry !== destinationCountry) {
-    return { earliestDays: base.earliestDays + 2, latestDays: base.latestDays + 4, basis: "cross-border" };
-  }
-
-  if (originState && destinationState && originState === destinationState) {
-    return {
-      earliestDays: base.earliestDays,
-      latestDays: Math.max(base.earliestDays, base.latestDays - 1),
-      basis: "same-state",
-    };
-  }
-
-  return { ...base, basis: "domestic" };
-}
-
-function deliveryEstimateForDraft(
-  draft: SellerOrderDraft,
-  shippingDestinationSnapshot: CheckoutShippingAddressSnapshot | null | undefined,
-) {
-  const today = new Date();
-  const window = transitWindowForDraft(draft, shippingDestinationSnapshot);
-  const packageCount = Math.max(1, draft.shippingPlanSnapshot.packageCount);
-  const sellerHandlingDays = packageCount > 1 ? 2 : 1;
-  const fulfillmentStart = nextFulfillmentBusinessDay(today);
-  const cutoffDelayDays = fulfillmentStart.toISOString().slice(0, 10) === addCalendarDays(today, 0) ? 0 : 1;
-  const handlingDays = sellerHandlingDays + cutoffDelayDays;
-  const carrierHandoffDate = addBusinessDays(fulfillmentStart, sellerHandlingDays);
-  const serviceLevels = [
-    ...new Set(draft.shippingPlanSnapshot.packages.map((pkg) => pkg.serviceLevel.replace(/-/g, " "))),
-  ];
-  const serviceLevel = serviceLevels.length > 0 ? serviceLevels.join(", ") : `${draft.shippingOption} shipping`;
-  const shipFromRegion = [draft.shippingOriginSnapshot.city, draft.shippingOriginSnapshot.state]
-    .filter((part) => part.trim().length > 0)
-    .join(", ");
-  const shipToRegion = destinationRegion(shippingDestinationSnapshot);
-  const cutoffBasis = cutoffDelayDays > 0 ? " after cutoff/weekend handoff" : " before cutoff";
-
-  return {
-    earliestDate: addBusinessDays(carrierHandoffDate, window.earliestDays).toISOString().slice(0, 10),
-    latestDate: addBusinessDays(carrierHandoffDate, window.latestDays).toISOString().slice(0, 10),
-    minimumTransitDays: window.earliestDays,
-    maximumTransitDays: window.latestDays,
-    handlingDays,
-    packageCount,
-    shipFromRegion: shipFromRegion || draft.shippingOriginSnapshot.country,
-    serviceLevel,
-    promiseOwner: "fulfillment" as const,
-    promiseSource: "fulfillment-preview" as const,
-    promiseConfidence: "estimated" as const,
-    basis: `${packageCount} package${packageCount === 1 ? "" : "s"} from ${
-      shipFromRegion || draft.shippingOriginSnapshot.country
-    } to ${shipToRegion}; ${sellerHandlingDays} seller handling day${
-      sellerHandlingDays === 1 ? "" : "s"
-    }${cutoffBasis} plus ${window.earliestDays}-${window.latestDays} business transit days (${window.basis}).`,
-  };
+  return createFulfillmentDeliveryPromise({
+    shippingOption: draft.shippingOption,
+    packageCount: draft.shippingPlanSnapshot.packageCount,
+    serviceLevels: draft.shippingPlanSnapshot.packages.map((pkg) => pkg.serviceLevel),
+    shipFrom: draft.shippingOriginSnapshot,
+    shipTo: shippingDestinationSnapshot,
+  });
 }
 
 function planToPreview(
@@ -1010,7 +916,7 @@ function planToPreview(
     shippingChargeAmount: draft.shippingChargeAmount,
     salesTaxAmount: draft.salesTaxAmount,
     totalAmount: draft.totalAmount,
-    deliveryEstimate: deliveryEstimateForDraft(draft, params.shippingDestinationSnapshot),
+    deliveryEstimate: fulfillmentDeliveryPromiseForDraft(draft, params.shippingDestinationSnapshot),
     lines: draft.lines.map((line) => {
       const demandKey = buildDemandSignature(line.productId);
       const lineKey = lineKeysByDemand.get(demandKey)?.shift() ?? line.listingId;

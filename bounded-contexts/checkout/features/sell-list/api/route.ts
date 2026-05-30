@@ -197,14 +197,16 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
       return access.response;
     }
 
-    const [items, latestReceipt] = await Promise.all([
+    const [items, latestReceipt, latestPendingExecution] = await Promise.all([
       services.listLines(access.actor.accountId),
       services.getLatestReceipt(access.actor.accountId),
+      services.getLatestPendingExecution(access.actor.accountId),
     ]);
     return c.json({
       items,
       count: items.reduce((sum, item) => sum + item.quantity, 0),
       latestReceipt,
+      latestPendingExecution,
     });
   });
 
@@ -242,6 +244,28 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
+  });
+
+  app.get("/sell-list/executions/latest-pending", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const execution = await services.getLatestPendingExecution(access.actor.accountId);
+    if (!execution) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("checkout.features.sellList.api.route.sell.list.execution.pending.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return c.json(execution);
   });
 
   app.get("/sell-list/executions/:executionId", async (c) => {

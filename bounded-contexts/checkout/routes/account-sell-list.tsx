@@ -228,7 +228,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     isSignedIn: true,
-    sellListExecutionId: createId("sle"),
+    sellListExecutionId: sellList.latestPendingExecution?.execution_id ?? createId("sle"),
+    latestPendingExecution: sellList.latestPendingExecution ?? null,
     reviewCompleted,
     sellList,
     latestReceipt: sellList.latestReceipt ?? null,
@@ -241,6 +242,11 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 function formValue(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
+}
+
+function deterministicSellListListingId(executionId: string, actionKey: string) {
+  const compact = `${executionId}:${actionKey}`.replace(/[^a-zA-Z0-9]/g, "").slice(0, 80);
+  return `lst_${compact}`;
 }
 
 type SellListExecutionPlan = Readonly<{
@@ -428,6 +434,7 @@ async function executeSellListCheckout(
         if (!completedActionKeys.has(actionKey)) {
           await marketplaceApi.acceptOfferMatch(line.selectedOffer.offerId, {
             feeQuoteFingerprint: line.selectedOffer.feeQuoteFingerprint,
+            sourceActionKey: `${executionId}:${actionKey}`,
           });
           await checkoutApi.recordSellListExecutionProgress(executionId, { completedActionKey: actionKey });
           completedActionKeys.add(actionKey);
@@ -470,7 +477,10 @@ async function executeSellListCheckout(
       const actionKey = `smart-match:${line.lineId}:${target.offerId}`;
       try {
         if (!completedActionKeys.has(actionKey)) {
-          await marketplaceApi.acceptOfferMatch(target.offerId, { feeQuoteFingerprint: target.feeQuoteFingerprint });
+          await marketplaceApi.acceptOfferMatch(target.offerId, {
+            feeQuoteFingerprint: target.feeQuoteFingerprint,
+            sourceActionKey: `${executionId}:${actionKey}`,
+          });
           await checkoutApi.recordSellListExecutionProgress(executionId, { completedActionKey: actionKey });
           completedActionKeys.add(actionKey);
         }
@@ -486,7 +496,11 @@ async function executeSellListCheckout(
       const actionKey = `fallback-listing:${line.lineId}:${line.fallbackListing.inventoryItemId}:${line.fallbackListing.priceAmount}:${line.fallbackListing.quantityCap}`;
       try {
         if (!completedActionKeys.has(actionKey)) {
-          await marketplaceApi.createListing(line.fallbackListing);
+          await marketplaceApi.createListing({
+            ...line.fallbackListing,
+            listingIdOverride: deterministicSellListListingId(executionId, actionKey),
+            sourceActionKey: `${executionId}:${actionKey}`,
+          });
           await checkoutApi.recordSellListExecutionProgress(executionId, { completedActionKey: actionKey });
           completedActionKeys.add(actionKey);
         }

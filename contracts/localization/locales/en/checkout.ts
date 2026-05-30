@@ -55,6 +55,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.estimated.shipping.credit": "Estimated shipping credit",
   "checkout.features.cart.ui.cartPage.estimated.tax": "Estimated tax",
   "checkout.features.cart.ui.cartPage.estimated.checkout.fee": "Estimated checkout fee",
+  "checkout.features.cart.ui.cartPage.estimated.checkout.fee.value": "{amount} with {paymentMethod}",
+  "checkout.features.cart.ui.cartPage.card": "Card",
+  "checkout.features.cart.ui.cartPage.bank.account": "Bank account",
+  "checkout.features.cart.ui.cartPage.platform.credit": "Platform credit",
+  "checkout.features.cart.ui.cartPage.payment.method.assumption": "Payment method assumption",
   "checkout.features.cart.ui.cartPage.estimated.payable.before.checkout": "{amount} estimated payable before checkout",
   "checkout.features.cart.ui.cartPage.estimated.payable.total": "Estimated payable total",
   "checkout.features.cart.ui.cartPage.estimated.wallet.credit": "Estimated wallet credit",
@@ -166,6 +171,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.delivery.promise": "Delivery promise",
   "checkout.features.sessions.ui.checkoutPage.delivery.promise.preview":
     "Fulfillment-owned preview, carrier promise pending",
+  "checkout.features.sessions.ui.checkoutPage.fulfillment.cutoff": "Fulfillment cutoff",
+  "checkout.features.sessions.ui.checkoutPage.fulfillment.cutoff.value":
+    "{cutoffTime} local cutoff; packing starts {packingStartDate}; carrier handoff {carrierHandoffDate}",
   "checkout.features.sessions.ui.checkoutPage.shipping.service": "Shipping service",
   "checkout.features.sessions.ui.checkoutPage.estimated.days.after.purchase":
     "Estimated delivery {minimumDays}-{maximumDays} days after purchase",
@@ -278,7 +286,12 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.orders.then.payment.review":
     "Purchases are created first so fees, wallet credit, and final total can be reviewed before payment.",
   "checkout.features.sessions.ui.checkoutPage.place.purchase.intent": "Place purchase intent",
+  "checkout.features.sessions.ui.checkoutPage.place.order.with.saved.payment":
+    "Place order with {paymentMethodCategory}",
   "checkout.features.sessions.ui.checkoutPage.placing.purchase.intent": "Placing purchase intent",
+  "checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready": "Saved payment ready",
+  "checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready.description":
+    "{addressLabel} and {paymentMethodCategory} are ready. This payment method still uses the secure payment step before authorization.",
   "checkout.features.sessions.ui.checkoutPage.shipping.saved.for.seller.acceptance":
     "Shipping is saved for seller acceptance.",
   "checkout.features.sessions.ui.checkoutPage.your.cart.is.empty": "Your buy cart is empty",
@@ -290,6 +303,8 @@ export const checkoutEnglishTranslations = {
     "Sell List execution action key is required.",
   "checkout.features.sellList.api.route.sell.list.execution.not.started":
     "Start the Sell List execution before committing sale side effects.",
+  "checkout.features.sellList.api.route.sell.list.execution.pending.not.found":
+    "No pending Sell List execution is available.",
   "checkout.features.sellList.api.route.sell.list.review.requires.seller.account":
     "Sell List review requires a seller account.",
   "checkout.features.sellList.ui.sellListPage.accept.selected.offer.during.checkout.review":
@@ -369,6 +384,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.review.sale.checkout": "Review sale checkout",
   "checkout.features.sellList.ui.sellListPage.review.value": "Review value",
   "checkout.features.sellList.ui.sellListPage.expected.seller.payout": "Expected seller payout",
+  "checkout.features.sellList.ui.sellListPage.committed.seller.payout": "Committed seller payout",
+  "checkout.features.sellList.ui.sellListPage.committed.offer.gross": "Committed offer gross",
+  "checkout.features.sellList.ui.sellListPage.future.listing.gross": "Future listing gross",
+  "checkout.features.sellList.ui.sellListPage.committed.payout.before.future.listings":
+    "Committed payout now; fallback listings remain future value until they sell.",
   "checkout.features.sellList.ui.sellListPage.estimated.sales.fees": "Estimated sales fees",
   "checkout.features.sellList.ui.sellListPage.fallback.listing.gross": "Fallback listing gross",
   "checkout.features.sellList.ui.sellListPage.gross.committed.value": "Gross committed value",
@@ -378,6 +398,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.sale.checkout.review": "Sale checkout review",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.review.description":
     "Selected offers, fallback listings, payout readiness, and fulfillment commitments are reviewed together before Checkout records sale intent.",
+  "checkout.features.sellList.ui.sellListPage.pending.execution.ready": "Sale checkout recovery ready",
+  "checkout.features.sellList.ui.sellListPage.pending.execution.ready.description":
+    "Execution {executionId} has {completedActionCount} completed action(s). Continue sale checkout to safely resume the pending work.",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded": "Sale checkout review recorded",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded.description":
     "Checkout recorded the seller-side review and cleared the Sell List items that were ready to execute.",

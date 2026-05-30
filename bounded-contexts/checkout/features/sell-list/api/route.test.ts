@@ -62,6 +62,7 @@ function createServices(): CheckoutSellListServices {
       updated_at: "2026-05-30T00:00:00.000Z",
       finalized_at: null,
     })),
+    getLatestPendingExecution: vi.fn(async () => null),
     recordSellListExecutionProgress: vi.fn(async () => ({
       seller_account_id: "acc_seller",
       execution_id: "sle_1",
@@ -117,6 +118,31 @@ describe("checkout sell list routes", () => {
 
     await expect(response.json()).resolves.toMatchObject({
       count: 5,
+    });
+  });
+
+  it("returns the latest pending Sell List execution so checkout can resume sale work", async () => {
+    const services = createServices();
+    vi.mocked(services.getLatestPendingExecution).mockResolvedValue({
+      seller_account_id: "acc_seller",
+      execution_id: "sle_pending",
+      status: "pending",
+      execution_plan: { version: 1, lines: [] },
+      execution_progress: { completedActionKeys: ["selected-offer:sll_1:off_1"] },
+      execution_summary: null,
+      created_at: "2026-05-30T00:00:00.000Z",
+      updated_at: "2026-05-30T00:01:00.000Z",
+      finalized_at: null,
+    });
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(new Request("http://checkout.test/account/sell-list/executions/latest-pending"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      execution_id: "sle_pending",
+      status: "pending",
+      execution_progress: { completedActionKeys: ["selected-offer:sll_1:off_1"] },
     });
   });
 

@@ -59,6 +59,7 @@ export type MarketplaceOfferServices = Readonly<{
       offerId: OfferId;
       sellerAccountId: AccountId;
       feeQuoteFingerprint?: string | null;
+      sourceActionKey?: string | null;
     }>,
     context: EventStoreContext,
   ) => Promise<{ offerId: OfferId; version: number }>;
@@ -93,13 +94,14 @@ export type MarketplaceOfferServices = Readonly<{
 }>;
 
 export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): MarketplaceOfferServices {
+  const repository = createAggregateRepository({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<MarketplaceOfferEvent>(),
+    initialState: () => initialMarketplaceOfferState,
+    evolve: evolveMarketplaceOffer,
+  });
   const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<MarketplaceOfferEvent>(),
-      initialState: () => initialMarketplaceOfferState,
-      evolve: evolveMarketplaceOffer,
-    }),
+    repository,
     evolve: evolveMarketplaceOffer,
     decide: decideMarketplaceOffer,
   });
@@ -191,6 +193,11 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
     },
     previewOfferAcceptanceTerms: async (params) => quoteOfferAcceptanceTerms(params.offerId, params.sellerAccountId),
     acceptOffer: async (params, context) => {
+      const current = await repository.load(`marketplace.offer-${params.offerId}`);
+      if (current.state.status === "accepted" && current.state.acceptedSellerAccountId === params.sellerAccountId) {
+        return { offerId: params.offerId, version: current.version };
+      }
+
       const offer = await getOfferMatch(deps.db, params.offerId, params.sellerAccountId);
 
       if (!offer) {

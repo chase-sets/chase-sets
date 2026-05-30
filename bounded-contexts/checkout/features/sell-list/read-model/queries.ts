@@ -212,3 +212,30 @@ export async function getSellListExecution(
   const row = result.rows[0];
   return row ? mapSellListExecution(row) : null;
 }
+
+export async function getLatestPendingSellListExecution(
+  db: PgQueryable,
+  sellerAccountId: string,
+): Promise<CheckoutSellListExecutionRow | null> {
+  const result = await db.query<SellListExecutionPageRow>(
+    `SELECT
+       seller_account_id,
+       execution_id,
+       status,
+       execution_plan,
+       execution_progress,
+       execution_summary,
+       created_at,
+       updated_at,
+       finalized_at
+     FROM checkout_sell_list_execution_pages
+     WHERE seller_account_id = $1
+       AND status = 'pending'
+     ORDER BY updated_at DESC, created_at DESC, execution_id DESC
+     LIMIT 1`,
+    [sellerAccountId],
+  );
+
+  const row = result.rows[0];
+  return row ? mapSellListExecution(row) : null;
+}
