@@ -11,6 +11,7 @@ function createServices() {
       commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
     },
     users: {
+      getUserBySocialLogin: vi.fn(async () => null),
       commandHandler: vi.fn(async () => ({ version: 1, state: { status: "active" } })),
     },
     memberships: {
@@ -101,6 +102,42 @@ describe("identity internal auth routes", () => {
     expect(services.users.commandHandler).toHaveBeenCalledWith(
       expect.objectContaining({
         command: { type: "RegisterPasskeyCredential", credentialId: "crd_1" },
+      }),
+    );
+  });
+
+  it("links social login facts without requiring a current user read model row", async () => {
+    const services = createServices();
+    const app = buildIdentityApi(services);
+
+    const response = await app.request("/internal/auth/users/usr_platform_admin/social-login-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        providerName: "google",
+        providerSubject: "google-subject",
+        email: "ops@chasesets.com",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    expect(services.users.getUserBySocialLogin).toHaveBeenCalledWith({
+      providerName: "google",
+      providerSubject: "google-subject",
+    });
+    expect(services.users.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: { type: "EnableAuthMethod", authMethod: "social-login" },
+      }),
+    );
+    expect(services.users.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          type: "LinkSocialLogin",
+          providerName: "google",
+          providerSubject: "google-subject",
+          email: "ops@chasesets.com",
+        }),
       }),
     );
   });

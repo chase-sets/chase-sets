@@ -27,6 +27,7 @@ const adminEmail = getSmokeEnv("PLATFORM_ADMIN_EMAIL");
 const adminPassword = getSmokeEnv("PLATFORM_ADMIN_PASSWORD");
 const writeWaitlist = (getSmokeEnv("SMOKE_WRITE_WAITLIST") || "true").toLowerCase() !== "false";
 const requireAdmin = readBooleanEnv("SMOKE_REQUIRE_ADMIN", false);
+const requireAdminGoogleWorkspaceSso = readBooleanEnv("SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO", false);
 const requireMarketplace = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE", false);
 const requireMarketplaceRoot = readBooleanEnv("SMOKE_REQUIRE_MARKETPLACE_ROOT", false);
 const requireLegacyRedirect = readBooleanEnv("SMOKE_REQUIRE_LEGACY_REDIRECT", false);
@@ -36,6 +37,7 @@ const smokeUtmMedium = getSmokeEnv("SMOKE_UTM_MEDIUM") || "automation";
 const smokeUtmCampaign = getSmokeEnv("SMOKE_UTM_CAMPAIGN") || "platform-smoke";
 const smokeUtmContent = getSmokeEnv("SMOKE_UTM_CONTENT") || null;
 const smokeUtmTerm = getSmokeEnv("SMOKE_UTM_TERM") || null;
+const adminGoogleWorkspaceHostedDomain = getSmokeEnv("SMOKE_ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAIN") || "chasesets.com";
 const fetchAttempts = readPositiveIntegerEnv("SMOKE_FETCH_ATTEMPTS", 6);
 const fetchRetryDelayMs = readPositiveIntegerEnv("SMOKE_FETCH_RETRY_DELAY_MS", 5_000);
 
@@ -180,6 +182,33 @@ async function expectSocialLoginProviders(marketplaceOrigin) {
   }
 }
 
+async function expectAdminGoogleWorkspaceSsoStart(adminOrigin) {
+  const input = `${adminOrigin}/api/auth/social/google/start?journey=catalog-admin&returnTo=%2Fcatalog`;
+  const response = await fetchWithRetry(
+    "admin Google Workspace SSO start",
+    input,
+    { redirect: "manual" },
+    (candidate) => candidate.status === 302,
+  );
+  const location = response.headers.get("location");
+  if (!location) {
+    throw new Error("Admin Google Workspace SSO start did not include a Location header.");
+  }
+
+  const redirect = new URL(location, input);
+  if (redirect.host !== "accounts.google.com") {
+    throw new Error(`Admin Google Workspace SSO redirected to '${redirect.host}' instead of 'accounts.google.com'.`);
+  }
+  if (redirect.searchParams.get("redirect_uri") !== `${adminOrigin}/api/auth/social/google/callback`) {
+    throw new Error("Admin Google Workspace SSO did not use the admin Google callback URI.");
+  }
+  if (redirect.searchParams.get("hd") !== adminGoogleWorkspaceHostedDomain) {
+    throw new Error(
+      `Admin Google Workspace SSO did not include the expected hosted-domain hint '${adminGoogleWorkspaceHostedDomain}'.`,
+    );
+  }
+}
+
 async function expectUcpEndpoints(origin) {
   const profileResponse = await expectOk("UCP business profile", `${origin}/.well-known/ucp`);
   const profile = await profileResponse.json();
@@ -270,6 +299,9 @@ async function main() {
   await expectOk("platform API health through landing", `${landingUrl}/api/health/ready`);
   await expectOk("admin home", `${adminUrl}/`);
   await expectOk("platform API health through admin", `${adminUrl}/api/health/ready`);
+  if (requireAdminGoogleWorkspaceSso) {
+    await expectAdminGoogleWorkspaceSsoStart(adminUrl);
+  }
 
   if (marketplaceUrl) {
     await expectMarketplaceSurface("marketplace", marketplaceUrl);

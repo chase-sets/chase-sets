@@ -1118,6 +1118,7 @@ jobs:
           PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL }}
           PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD }}
           SMOKE_REQUIRE_ADMIN: "true"
+          SMOKE_REQUIRE_ADMIN_GOOGLE_WORKSPACE_SSO: "true"
           SMOKE_EMAIL: ops+smoke@chasesets.com
           SMOKE_SOURCE: production-smoke
           SMOKE_UTM_CAMPAIGN: production-main

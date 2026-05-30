@@ -26,6 +26,27 @@ describe("resolveRequestApiBaseUrl", () => {
     expect(resolveRequestApiBaseUrl(request, "/api/auth")).toBe("https://admin.chasesets.test/api/auth");
   });
 
+  it("uses forwarded HTTPS origin when a platform proxy terminates TLS", () => {
+    const request = new Request("http://internal-app/api/auth/social/google/callback", {
+      headers: {
+        "x-forwarded-host": "admin.chasesets.com",
+        "x-forwarded-proto": "https",
+      },
+    });
+
+    expect(resolveRequestApiBaseUrl(request, "/api/identity/internal/auth")).toBe(
+      "https://admin.chasesets.com/api/identity/internal/auth",
+    );
+  });
+
+  it("keeps local HTTP origins for local development", () => {
+    const request = new Request("http://localhost:6712/api/auth/social/google/callback");
+
+    expect(resolveRequestApiBaseUrl(request, "/api/identity/internal/auth")).toBe(
+      "http://localhost:6712/api/identity/internal/auth",
+    );
+  });
+
   it("uses the configured internal API origin for server-side component calls", () => {
     vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "http://admin-support-api:8080");
     const request = new Request("https://admin.chasesets.test/catalog");

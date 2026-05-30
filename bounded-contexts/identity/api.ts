@@ -361,40 +361,23 @@ async function linkSocialLoginForAuth(
     throw new SocialLoginLinkConflictError();
   }
 
-  const user = await services.users.getUser(params.userId);
-  if (!user) {
-    throw new Error("User not found.");
-  }
-
-  if (!user.auth_methods.includes("social-login")) {
-    await services.users.commandHandler({
-      streamId: `identity.user-${params.userId}`,
-      command: { type: "EnableAuthMethod", authMethod: "social-login" },
-      context: params.context,
-    });
-  }
-
-  const alreadyLinked = user.social_login_links.some((link) => {
-    if (!link || typeof link !== "object") {
-      return false;
-    }
-    const record = link as { providerName?: unknown; providerSubject?: unknown };
-    return record.providerName === params.providerName && record.providerSubject === params.providerSubject;
+  await services.users.commandHandler({
+    streamId: `identity.user-${params.userId}`,
+    command: { type: "EnableAuthMethod", authMethod: "social-login" },
+    context: params.context,
   });
 
-  if (!alreadyLinked) {
-    await services.users.commandHandler({
-      streamId: `identity.user-${params.userId}`,
-      command: {
-        type: "LinkSocialLogin",
-        providerName: params.providerName,
-        providerSubject: params.providerSubject,
-        email: params.email,
-        linkedAt: new Date().toISOString(),
-      },
-      context: params.context,
-    });
-  }
+  await services.users.commandHandler({
+    streamId: `identity.user-${params.userId}`,
+    command: {
+      type: "LinkSocialLogin",
+      providerName: params.providerName,
+      providerSubject: params.providerSubject,
+      email: params.email,
+      linkedAt: new Date().toISOString(),
+    },
+    context: params.context,
+  });
 }
 
 async function acceptInvitationForUserFromAuth(
