@@ -736,6 +736,8 @@ jobs:
       TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}
       TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}
+      TF_VAR_production_marketplace_checkout_fee_approved: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}
+      TF_VAR_production_marketplace_checkout_fee_reference: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}
       TF_VAR_stripe_connect_return_url: https://marketplace.chasesets.com/account/payouts
       TF_VAR_stripe_connect_refresh_url: https://marketplace.chasesets.com/account/payouts/setup
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
@@ -826,6 +828,11 @@ jobs:
           if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
             if [ "${TF_VAR_production_marketplace_promotion_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_marketplace_promotion_reference:-}" ]; then
               echo "Production marketplace promotion requires approved launch evidence." >&2
+              exit 1
+            fi
+
+            if [ "${TF_VAR_production_marketplace_checkout_fee_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_marketplace_checkout_fee_reference:-}" ]; then
+              echo "Production marketplace promotion requires approved Marketplace Checkout Fee evidence." >&2
               exit 1
             fi
 
