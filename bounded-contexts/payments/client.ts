@@ -134,6 +134,26 @@ export function createPaymentsApiClient({
         }),
       );
     },
+    async previewCheckoutStatus(
+      params: Readonly<{
+        amount: string;
+        currencyCode?: string;
+        requestedBalanceCreditAmount?: string | null;
+        paymentMethodCategory?: string | null;
+      }>,
+    ): Promise<PaymentsCheckoutStatus> {
+      return parseJsonResponse(
+        await client.account.checkout["preview-status"].$get({
+          query: {
+            amount: params.amount,
+            currencyCode: params.currencyCode ?? "usd",
+            requestedBalanceCreditAmount: params.requestedBalanceCreditAmount ?? undefined,
+            paymentMethodCategory: params.paymentMethodCategory ?? undefined,
+          },
+          header: headers,
+        }),
+      );
+    },
     async recoverCheckoutPayment(body: CreateAccountPaymentRequest): Promise<PaymentsPaymentDetail> {
       return parseJsonResponse(
         await client.account.checkout.recover.$post({

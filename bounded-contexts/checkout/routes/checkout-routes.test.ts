@@ -6,11 +6,14 @@ const {
   mockCreateCheckoutRequestApiClient,
   mockCreateMarketplaceRequestApiClient,
   mockCreateOrderingRequestApiClient,
+  mockCreatePaymentsRequestApiClient,
   mockCreateAuthRequestApiClient,
   mockCreateCheckoutSession,
   mockGetCheckoutSession,
   mockPreviewCheckoutFulfillment,
+  mockPreviewCheckoutStatus,
   mockSelectShippingOption,
+  mockSelectShippingAddress,
   mockConfirmCheckoutSession,
   mockStartGuestCheckout,
   mockMergeGuestCartToAccount,
@@ -18,6 +21,7 @@ const {
   mockGetGuestCart,
   mockGetGuestSellList,
   mockGetOfferMatch,
+  mockAcceptOfferMatch,
   mockAddSellListLine,
   mockCheckoutSellList,
   mockRemoveGuestSellListLine,
@@ -28,11 +32,14 @@ const {
   mockCreateCheckoutRequestApiClient: vi.fn(),
   mockCreateMarketplaceRequestApiClient: vi.fn(),
   mockCreateOrderingRequestApiClient: vi.fn(),
+  mockCreatePaymentsRequestApiClient: vi.fn(),
   mockCreateAuthRequestApiClient: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
   mockGetCheckoutSession: vi.fn(),
   mockPreviewCheckoutFulfillment: vi.fn(),
+  mockPreviewCheckoutStatus: vi.fn(),
   mockSelectShippingOption: vi.fn(),
+  mockSelectShippingAddress: vi.fn(),
   mockConfirmCheckoutSession: vi.fn(),
   mockStartGuestCheckout: vi.fn(),
   mockMergeGuestCartToAccount: vi.fn(),
@@ -40,6 +47,7 @@ const {
   mockGetGuestCart: vi.fn(),
   mockGetGuestSellList: vi.fn(),
   mockGetOfferMatch: vi.fn(),
+  mockAcceptOfferMatch: vi.fn(),
   mockAddSellListLine: vi.fn(),
   mockCheckoutSellList: vi.fn(),
   mockRemoveGuestSellListLine: vi.fn(),
@@ -73,6 +81,14 @@ vi.mock("../support/request-support/api-client", () => ({
 
 vi.mock("@chase-sets/ordering/server", () => ({
   createOrderingRequestApiClient: mockCreateOrderingRequestApiClient,
+}));
+
+vi.mock("@chase-sets/payments/server", () => ({
+  createPaymentsRequestApiClient: mockCreatePaymentsRequestApiClient,
+  normalizeRequestedBalanceCreditAmount: (value: unknown) => {
+    const text = String(value ?? "").trim();
+    return text ? text : null;
+  },
 }));
 
 vi.mock("@chase-sets/marketplace/server", () => ({
@@ -244,12 +260,25 @@ describe("checkout web routes", () => {
   it("records sale checkout review from the Sell List", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockCheckoutSellList.mockResolvedValue({ status: "reviewed" });
+    mockAcceptOfferMatch.mockResolvedValue({ status: "accepted" });
+    const sellListLine = {
+      line_id: "sll_1",
+      line_type: "selected-offer",
+      offer_id: "off_1",
+      item_title: "Mewtwo",
+      quantity: 1,
+    };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
       checkoutSellList: mockCheckoutSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      acceptOfferMatch: mockAcceptOfferMatch,
     });
 
     const form = new URLSearchParams();
     form.set("intent", "review-sell-list-checkout");
+    form.set("offerFeeQuoteFingerprint:sll_1", "quote_1");
 
     const response = (await accountSellListAction({
       request: new Request("http://localhost/account/sell-list", {
@@ -261,9 +290,20 @@ describe("checkout web routes", () => {
       context: undefined,
     } as never)) as Response;
 
-    expect(mockCheckoutSellList).toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", { feeQuoteFingerprint: "quote_1" });
+    expect(mockCheckoutSellList).toHaveBeenCalledWith({
+      completedLineIds: ["sll_1"],
+      executionSummary: {
+        acceptedOfferCount: 1,
+        createdListingCount: 0,
+        skippedLineCount: 0,
+        skippedReasons: [],
+      },
+    });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/sell-list?review=completed");
+    expect(response.headers.get("Location")).toBe(
+      "/account/sell-list?review=completed&accepted=1&listings=0&skipped=0",
+    );
   });
 
   it("shows anonymous Sell List lines before account creation", async () => {
@@ -554,6 +594,81 @@ describe("checkout web routes", () => {
     );
   });
 
+  it("loads a Payments-owned checkout fee preview before order creation", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_1",
+      source_type: "buy-now",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      shipping_address: null,
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      order_ids: [],
+      lines: [
+        {
+          listingId: "lst_1",
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockResolvedValue({
+      revision: "rev_1",
+      readyLineKeys: ["lst_1"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+      materialChangeReasons: [],
+      sellerGroups: [],
+      totals: {
+        itemSubtotalAmount: "20.00",
+        shippingAmount: "4.00",
+        salesTaxAmount: "2.00",
+        totalAmount: "26.00",
+        packageCount: 1,
+      },
+    });
+    mockPreviewCheckoutStatus.mockResolvedValue({
+      amount: "26.00",
+      marketplace_checkout_fee: { total_amount: "27.10" },
+      wallet_credit: { applied_amount: "0.00" },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+    });
+
+    const result = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/chk_1"),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    expect(mockPreviewCheckoutStatus).toHaveBeenCalledWith({
+      amount: "26.00",
+      currencyCode: "usd",
+      requestedBalanceCreditAmount: "0.00",
+      paymentMethodCategory: "card",
+    });
+    expect(result.paymentPreview).toEqual({
+      amount: "26.00",
+      marketplace_checkout_fee: { total_amount: "27.10" },
+      wallet_credit: { applied_amount: "0.00" },
+    });
+  });
+
   it("starts signed-out cart checkout by creating a guest account and merging the anonymous cart", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockStartGuestCheckout.mockResolvedValue({
@@ -707,6 +822,7 @@ describe("checkout web routes", () => {
     form.set("shippingState", "IL");
     form.set("shippingPostalCode", "60601");
     form.set("shippingCountry", "US");
+    form.set("previewPaymentMethodCategory", "bank-account");
 
     const response = (await checkoutSessionAction({
       request: new Request("http://localhost/checkout/chk_1", {
@@ -724,6 +840,7 @@ describe("checkout web routes", () => {
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", {
       requestedBalanceCreditAmount: null,
       paymentMethodCategory: "bank-account",
+      marketplaceCheckoutFeeQuoteFingerprint: null,
       fulfillmentPreviewRevision: null,
       acknowledgedMaterialChanges: false,
       deferPayment: true,
@@ -743,6 +860,51 @@ describe("checkout web routes", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/payments/new?orderIds=ord_1");
+  });
+
+  it("refreshes checkout totals by saving the current shipping address without confirming", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "refresh-checkout-preview");
+    form.set("shippingOption", "expedited");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+    form.set("previewPaymentMethodCategory", "bank-account");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_1", {
+      shippingOption: "expedited",
+    });
+    expect(mockSelectShippingAddress).toHaveBeenCalledWith("chk_1", {
+      shippingAddress: expect.objectContaining({
+        name: "Jane Smith",
+        postalCode: "60601",
+      }),
+    });
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=bank-account");
   });
 
   it("keeps guest checkout confirmation on the guest payment route", async () => {

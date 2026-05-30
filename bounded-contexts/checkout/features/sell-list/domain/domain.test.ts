@@ -103,4 +103,59 @@ describe("checkout sell list domain", () => {
       }),
     ).toThrow("Sell list has not been initialized.");
   });
+
+  it("clears only completed lines when Sell List checkout partially executes", () => {
+    const withOffer = decideCheckoutSellList(initialCheckoutSellListState, {
+      type: "AddSellListLine",
+      sellerAccountId: "acc_seller" as never,
+      lineId: "sll_offer" as never,
+      lineType: "selected-offer",
+      offerId: "off_1",
+      buyerAccountId: "acc_buyer",
+      buyerDisplayName: "Ash",
+      offerPriceAmount: "20.00",
+      catalogItemId: "cat_1",
+      productId: "cat_1::condition:raw",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+      productSummary: "Raw",
+      quantity: 1,
+      fallbackMode: "none",
+      minimumListingPriceAmount: null,
+    }).reduce(evolveCheckoutSellList, initialCheckoutSellListState);
+    const withProduct = decideCheckoutSellList(withOffer, {
+      type: "AddSellListLine",
+      sellerAccountId: "acc_seller" as never,
+      lineId: "sll_product" as never,
+      lineType: "product",
+      offerId: null,
+      buyerAccountId: null,
+      buyerDisplayName: null,
+      offerPriceAmount: null,
+      catalogItemId: "cat_1",
+      productId: "cat_1::condition:raw",
+      itemTitle: "Charizard",
+      itemSubtitle: null,
+      selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
+      productSummary: "Raw",
+      quantity: 1,
+      fallbackMode: "create-listing",
+      minimumListingPriceAmount: "25.00",
+    }).reduce(evolveCheckoutSellList, withOffer);
+
+    const checkedOut = decideCheckoutSellList(withProduct, {
+      type: "CheckoutSellList",
+      checkedOutAt: "2026-05-19T00:00:00.000Z",
+      completedLineIds: ["sll_offer" as never],
+      executionSummary: {
+        acceptedOfferCount: 1,
+        createdListingCount: 0,
+        skippedLineCount: 1,
+        skippedReasons: ["Charizard: listing needs inventory, price, and quantity."],
+      },
+    }).reduce(evolveCheckoutSellList, withProduct);
+
+    expect(checkedOut.lines.map((line) => line.lineId)).toEqual(["sll_product"]);
+  });
 });

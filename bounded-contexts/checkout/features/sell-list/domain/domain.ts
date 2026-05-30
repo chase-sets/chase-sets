@@ -64,7 +64,19 @@ export type CheckoutSellListCommand =
   | AddSellListLineCommand
   | SetSellListLineQuantityCommand
   | RemoveSellListLineCommand
-  | Readonly<{ type: "CheckoutSellList"; checkedOutAt: string }>;
+  | Readonly<{
+      type: "CheckoutSellList";
+      checkedOutAt: string;
+      completedLineIds?: readonly SellListLineId[] | null;
+      executionSummary?: SellListExecutionSummary | null;
+    }>;
+
+export type SellListExecutionSummary = Readonly<{
+  acceptedOfferCount: number;
+  createdListingCount: number;
+  skippedLineCount: number;
+  skippedReasons: readonly string[];
+}>;
 
 export type SellListLineAddedEvent = DomainEvent<
   "checkout.sell-list.line-added",
@@ -85,7 +97,12 @@ export type SellListLineQuantitySetEvent = DomainEvent<
 
 export type SellListCheckedOutEvent = DomainEvent<
   "checkout.sell-list.checked-out",
-  Readonly<{ sellerAccountId: AccountId; checkedOutAt: string }>
+  Readonly<{
+    sellerAccountId: AccountId;
+    checkedOutAt: string;
+    completedLineIds: SellListLineId[];
+    executionSummary: SellListExecutionSummary | null;
+  }>
 >;
 
 export type CheckoutSellListEvent =
@@ -106,6 +123,14 @@ function normalizeLineType(value: string) {
 
 function normalizeFallbackMode(value: string | undefined) {
   return value === "create-listing" ? "create-listing" : "none";
+}
+
+function normalizeCompletedLineIds(state: CheckoutSellListState, value: readonly SellListLineId[] | null | undefined) {
+  const lineIds = value && value.length > 0 ? [...new Set(value)] : state.lines.map((line) => line.lineId);
+  for (const lineId of lineIds) {
+    requireSellListLine(state, lineId);
+  }
+  return lineIds;
 }
 
 export const decideCheckoutSellList: AggregateDecider<
@@ -173,12 +198,16 @@ export const decideCheckoutSellList: AggregateDecider<
     case "CheckoutSellList":
       assert(state.sellerAccountId !== null, "Sell list has not been initialized.");
       assert(state.lines.length > 0, "Sell list must contain at least one line.");
+      const completedLineIds = normalizeCompletedLineIds(state, command.completedLineIds);
+      assert(completedLineIds.length > 0, "Sell list checkout must complete at least one line.");
       return [
         {
           type: "checkout.sell-list.checked-out",
           data: {
             sellerAccountId: state.sellerAccountId,
             checkedOutAt: normalizeRequiredText(command.checkedOutAt, "Sell list checkout must record a timestamp."),
+            completedLineIds,
+            executionSummary: command.executionSummary ?? null,
           },
         },
       ];
@@ -213,7 +242,7 @@ export const evolveCheckoutSellList: AggregateEvolver<CheckoutSellListState, Che
     case "checkout.sell-list.checked-out":
       return {
         sellerAccountId: event.data.sellerAccountId,
-        lines: [],
+        lines: state.lines.filter((line) => !event.data.completedLineIds.includes(line.lineId)),
         lastCheckedOutAt: event.data.checkedOutAt,
       };
     default:

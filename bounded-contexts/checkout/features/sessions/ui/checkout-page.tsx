@@ -29,6 +29,28 @@ import {
 } from "@chase-sets/design-system";
 import type { CheckoutFulfillmentPreview, CheckoutSessionRow } from "../../../support/request-support/api-client";
 
+type CheckoutPaymentPreview = Readonly<{
+  currency_code: string;
+  amount: string;
+  marketplace_checkout_fee: Readonly<{
+    marketplace_checkout_fee_amount: string;
+    marketplace_checkout_fee_reduction_amount: string;
+    total_amount: string;
+    processor_amount: string;
+    quote_fingerprint: string;
+  }>;
+  payment_method_quotes: readonly Readonly<{
+    payment_method_category: "card" | "bank-account" | "platform-credit";
+    marketplace_checkout_fee_amount: string;
+    total_amount: string;
+  }>[];
+  wallet_credit: Readonly<{
+    requested_amount: string;
+    applied_amount: string;
+    external_amount: string;
+  }>;
+}>;
+
 export type CheckoutSavedShippingAddress = Readonly<{
   shipping_address_id: string;
   label: string;
@@ -60,6 +82,8 @@ function marketRecoveryHref(itemTitle: string) {
 export function CheckoutSessionPage({
   session,
   wallet,
+  paymentPreview,
+  selectedPaymentMethodCategory = "card",
   fulfillmentPreview,
   errorMessage,
   isSubmitting = false,
@@ -68,6 +92,8 @@ export function CheckoutSessionPage({
 }: {
   session: CheckoutSessionRow;
   wallet?: { available_balance_amount: string; currency_code: string } | null;
+  paymentPreview?: CheckoutPaymentPreview | null;
+  selectedPaymentMethodCategory?: string;
   fulfillmentPreview?: CheckoutFulfillmentPreview | null;
   errorMessage?: string | null;
   isSubmitting?: boolean;
@@ -79,6 +105,7 @@ export function CheckoutSessionPage({
   const hasPayment = Boolean(session.payment_id);
   const isOfferIntent = session.source_type === "offer-intent";
   const preview = fulfillmentPreview ?? null;
+  const payment = paymentPreview ?? null;
   const readyCount = isOfferIntent ? 0 : (preview?.readyLineKeys.length ?? lines.length);
   const unavailableCount = isOfferIntent ? lines.length : (preview?.unavailableLineKeys.length ?? 0);
   const canConfirm = isOfferIntent ? lines.length > 0 : readyCount > 0;
@@ -131,6 +158,7 @@ export function CheckoutSessionPage({
         };
   const hasOnlyLockedAllocations =
     previewAllocationLines.length > 0 && previewAllocationLines.every((line) => line.priceState === "locked");
+  const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
   const summary = (
     <Stack gap={4}>
       <PriceBreakdown
@@ -159,7 +187,19 @@ export function CheckoutSessionPage({
             ? [
                 {
                   label: t("checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee"),
-                  value: t("checkout.features.sessions.ui.checkoutPage.reviewed.before.payment"),
+                  value: payment
+                    ? `$${payment.marketplace_checkout_fee.marketplace_checkout_fee_amount}`
+                    : t("checkout.features.sessions.ui.checkoutPage.reviewed.before.payment"),
+                },
+                {
+                  label: t("checkout.features.sessions.ui.checkoutPage.wallet.credit"),
+                  value: payment ? `-$${payment.wallet_credit.applied_amount}` : "$0.00",
+                },
+                {
+                  label: t("checkout.features.sessions.ui.checkoutPage.payable.total"),
+                  value: payment
+                    ? `$${payment.marketplace_checkout_fee.total_amount}`
+                    : t("checkout.features.sessions.ui.checkoutPage.preview.after.address"),
                 },
               ]
             : []),
@@ -334,9 +374,25 @@ export function CheckoutSessionPage({
                             label: t("checkout.features.sessions.ui.checkoutPage.packages"),
                             value: preview.totals.packageCount,
                           },
+                          ...(payment
+                            ? [
+                                {
+                                  label: t("checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee"),
+                                  value: `$${payment.marketplace_checkout_fee.marketplace_checkout_fee_amount}`,
+                                },
+                                {
+                                  label: t("checkout.features.sessions.ui.checkoutPage.wallet.credit"),
+                                  value: `-$${payment.wallet_credit.applied_amount}`,
+                                },
+                              ]
+                            : []),
                         ]}
-                        total={`$${preview.totals.totalAmount}`}
-                        totalLabel={t("checkout.features.sessions.ui.checkoutPage.estimated.total")}
+                        total={`$${previewPayableTotal ?? preview.totals.totalAmount}`}
+                        totalLabel={
+                          payment
+                            ? t("checkout.features.sessions.ui.checkoutPage.payable.total")
+                            : t("checkout.features.sessions.ui.checkoutPage.estimated.total")
+                        }
                         reassurance={
                           <SecurePaymentIndicator
                             label={t("checkout.features.sessions.ui.checkoutPage.current.preview")}
@@ -526,8 +582,18 @@ export function CheckoutSessionPage({
                 <Surface elevated glow>
                   <form id="checkout-confirmation-form" method="post">
                     <Stack gap={3}>
-                      <input type="hidden" name="intent" value="confirm-checkout" />
                       <input type="hidden" name="fulfillmentPreviewRevision" value={preview?.revision ?? ""} />
+                      <input
+                        type="hidden"
+                        name="marketplaceCheckoutFeeQuoteFingerprint"
+                        value={payment?.marketplace_checkout_fee.quote_fingerprint ?? ""}
+                      />
+                      <input
+                        type="hidden"
+                        name="requestedBalanceCreditAmount"
+                        value={payment?.wallet_credit.requested_amount ?? wallet?.available_balance_amount ?? "0.00"}
+                      />
+                      <input type="hidden" name="paymentMethodCategory" value={selectedPaymentMethodCategory} />
                       <input
                         type="hidden"
                         name="acknowledgedMaterialChanges"
@@ -702,37 +768,73 @@ export function CheckoutSessionPage({
                         ]}
                       />
                       {!isOfferIntent ? (
+                        <NativeSelect
+                          label={t("checkout.features.sessions.ui.checkoutPage.payment.method")}
+                          name="previewPaymentMethodCategory"
+                          defaultValue={selectedPaymentMethodCategory}
+                          items={[
+                            { value: "card", label: t("checkout.features.sessions.ui.checkoutPage.card") },
+                            {
+                              value: "bank-account",
+                              label: t("checkout.features.sessions.ui.checkoutPage.bank.account"),
+                            },
+                          ]}
+                        />
+                      ) : null}
+                      {!isOfferIntent ? (
                         <MarketplaceNotice
                           tone="info"
-                          title={t("checkout.features.sessions.ui.checkoutPage.payment.review.next")}
+                          title={
+                            payment
+                              ? t("checkout.features.sessions.ui.checkoutPage.final.totals.before.payment")
+                              : t("checkout.features.sessions.ui.checkoutPage.payment.review.next")
+                          }
                           description={
-                            wallet
-                              ? t("checkout.features.sessions.ui.checkoutPage.payment.review.next.with.wallet", {
-                                  amount: wallet.available_balance_amount,
-                                  currency: wallet.currency_code.toUpperCase(),
-                                })
-                              : t("checkout.features.sessions.ui.checkoutPage.payment.review.next.description")
+                            payment
+                              ? t("checkout.features.sessions.ui.checkoutPage.final.totals.before.payment.description")
+                              : wallet
+                                ? t("checkout.features.sessions.ui.checkoutPage.payment.review.next.with.wallet", {
+                                    amount: wallet.available_balance_amount,
+                                    currency: wallet.currency_code.toUpperCase(),
+                                  })
+                                : t("checkout.features.sessions.ui.checkoutPage.payment.review.next.description")
                           }
                         />
                       ) : null}
                       <Divider />
-                      <Button
-                        type="submit"
-                        size="lg"
-                        leadingIcon="lock"
-                        loading={isSubmitting}
-                        disabled={isSubmitting || !canConfirm}
-                      >
-                        {isSubmitting
-                          ? isOfferIntent
-                            ? t("checkout.features.sessions.ui.checkoutPage.placing.purchase.intent")
-                            : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
-                          : canConfirm
+                      <Inline gap={2}>
+                        {!isOfferIntent ? (
+                          <Button
+                            type="submit"
+                            name="intent"
+                            value="refresh-checkout-preview"
+                            tone="secondary"
+                            leadingIcon="refreshCcw"
+                            loading={isSubmitting}
+                          >
+                            {t("checkout.features.sessions.ui.checkoutPage.refresh.totals")}
+                          </Button>
+                        ) : null}
+                        <Button
+                          type="submit"
+                          name="intent"
+                          value="confirm-checkout"
+                          size="lg"
+                          leadingIcon="lock"
+                          loading={isSubmitting}
+                          disabled={isSubmitting || !canConfirm}
+                        >
+                          {isSubmitting
                             ? isOfferIntent
-                              ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
-                              : t("checkout.features.sessions.ui.checkoutPage.review.payment.total")
-                            : "No available supply"}
-                      </Button>
+                              ? t("checkout.features.sessions.ui.checkoutPage.placing.purchase.intent")
+                              : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
+                            : canConfirm
+                              ? isOfferIntent
+                                ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
+                                : t("checkout.features.sessions.ui.checkoutPage.review.payment.total")
+                              : t("checkout.features.sessions.ui.checkoutPage.no.available.supply")}
+                        </Button>
+                      </Inline>
                     </Stack>
                   </form>
                 </Surface>
@@ -744,7 +846,9 @@ export function CheckoutSessionPage({
                   ? t("checkout.features.sessions.ui.checkoutPage.no.payment.today")
                   : hasPayment
                     ? t("checkout.features.sessions.ui.checkoutPage.payment.ready")
-                    : t("checkout.features.sessions.ui.checkoutPage.ready.to.review.payment")
+                    : previewPayableTotal
+                      ? `$${previewPayableTotal}`
+                      : t("checkout.features.sessions.ui.checkoutPage.ready.to.review.payment")
               }
               context={
                 isOfferIntent
@@ -760,6 +864,8 @@ export function CheckoutSessionPage({
                   <Button
                     type="submit"
                     form="checkout-confirmation-form"
+                    name="intent"
+                    value="confirm-checkout"
                     leadingIcon="lock"
                     disabled={isSubmitting || !canConfirm}
                     loading={isSubmitting}

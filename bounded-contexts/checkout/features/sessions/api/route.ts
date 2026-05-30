@@ -257,6 +257,45 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
     }
   });
 
+  app.post("/checkout-sessions/:sessionId/shipping-address", async (c) => {
+    const access = requireCheckoutAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("checkout.features.sessions.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      await services.setShippingAddress(
+        {
+          sessionId: c.req.param("sessionId"),
+          accountId: access.actor.accountId as never,
+          shippingAddress: parseShippingAddress(body.shippingAddress),
+        },
+        context,
+      );
+      return c.json({
+        session_id: c.req.param("sessionId"),
+        status: "shipping-address-selected",
+      });
+    } catch (error) {
+      return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/checkout-sessions/:sessionId/optimization-goal", async (c) => {
     const access = requireCheckoutAccess(c);
     if (access.response) {

@@ -203,6 +203,29 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     }
   });
 
+  app.get("/checkout/preview-status", async (c) => {
+    const access = requirePaymentAccess(c, "orders.view", {
+      allowGuestCheckout: true,
+    });
+    if (access.response) {
+      return access.response;
+    }
+
+    try {
+      const status = await services.previewCheckoutStatus({
+        accountId: access.actor.accountId as never,
+        amount: String(c.req.query("amount") ?? "0.00"),
+        currencyCode: c.req.query("currencyCode") ?? "usd",
+        requestedBalanceCreditAmount: c.req.query("requestedBalanceCreditAmount") ?? null,
+        paymentMethodCategory: c.req.query("paymentMethodCategory") ?? null,
+      });
+
+      return c.json(status);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.get("/marketplace-checkout-fee-policy", async (c) => {
     const access = requirePaymentAccess(c, "orders.view", {
       allowGuestCheckout: true,

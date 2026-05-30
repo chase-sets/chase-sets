@@ -51,7 +51,7 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("Fallback listing floor");
     expect(markup).toContain("Smart Match offers for");
     expect(markup).toContain("Checkout owns the review step");
-    expect(markup).toContain("Review sale checkout");
+    expect(markup).toContain("Execute sale checkout");
   });
 
   it("confirms when sale checkout review is recorded", () => {

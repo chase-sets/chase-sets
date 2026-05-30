@@ -329,6 +329,87 @@ function quoteMarketplaceCheckoutFee(
   };
 }
 
+async function buildCheckoutStatusFromAmount(
+  deps: Pick<PaymentRuntimeDeps, "balanceCreditResolver">,
+  params: Readonly<{
+    accountId: AccountId;
+    orderIds: readonly OrderId[];
+    amount: string;
+    currencyCode: string;
+    requestedBalanceCreditAmount?: string | null;
+    paymentMethodCategory?: string | null;
+  }>,
+): Promise<CheckoutStatusResult> {
+  const amount = normalizeMoneyAmount(params.amount, {
+    fieldName: "Checkout amount",
+    allowZero: true,
+  });
+  const currencyCode = normalizeCurrencyCode(params.currencyCode);
+  const requestedBalanceCreditAmount = normalizeMoneyAmount(params.requestedBalanceCreditAmount ?? "0.00", {
+    fieldName: "Balance credit amount",
+    allowZero: true,
+  });
+  const balanceCredit = deps.balanceCreditResolver
+    ? await deps.balanceCreditResolver.resolveBalanceCredit({
+        buyerAccountId: params.accountId,
+        currencyCode,
+        requestedAmount: requestedBalanceCreditAmount,
+        orderTotalAmount: amount,
+      })
+    : {
+        requestedAmount: requestedBalanceCreditAmount,
+        appliedAmount: "0.00",
+        remainingExternalAmount: amount,
+      };
+  const appliedAmount = normalizeMoneyAmount(balanceCredit.appliedAmount, {
+    fieldName: "Balance credit amount",
+    allowZero: true,
+  });
+  const externalAmount = normalizeMoneyAmount(
+    balanceCredit.remainingExternalAmount || subtractMoney(amount, appliedAmount),
+    {
+      fieldName: "External payment amount",
+      allowZero: true,
+    },
+  );
+  const paymentMethodCategory = normalizePaymentMethodCategory(params.paymentMethodCategory);
+  const paymentMethodQuotes = (["card", "bank-account", "platform-credit"] as const).map((method) =>
+    quoteMarketplaceCheckoutFee({
+      orderAmount: amount,
+      externalBasisAmount: externalAmount,
+      balanceCreditAmount: appliedAmount,
+      paymentMethodCategory: method,
+    }),
+  );
+  const marketplaceCheckoutFee =
+    paymentMethodQuotes.find((quote) => quote.payment_method_category === paymentMethodCategory) ??
+    paymentMethodQuotes[0]!;
+
+  return {
+    order_ids: params.orderIds,
+    currency_code: currencyCode,
+    amount,
+    marketplace_checkout_fee: marketplaceCheckoutFee,
+    payment_method_quotes: paymentMethodQuotes,
+    wallet_credit: {
+      requested_amount: balanceCredit.requestedAmount,
+      applied_amount: appliedAmount,
+      external_amount: externalAmount,
+    },
+    can_start_payment: compareMoney(amount, "0.00") > 0,
+    unavailable_reasons: compareMoney(amount, "0.00") > 0 ? [] : ["no-payable-order-balance"],
+    unavailable_reason_details:
+      compareMoney(amount, "0.00") > 0
+        ? []
+        : [
+            {
+              code: "no-payable-order-balance",
+              message: checkoutUnavailableReasonLabel("no-payable-order-balance"),
+            },
+          ],
+  };
+}
+
 async function loadAccountOrders(db: PgQueryable, orderIds: readonly OrderId[], accountId: AccountId) {
   const orders = await listPaymentOrderInputs(db, orderIds, accountId);
   const ordersById = new Map(orders.map((order) => [order.order_id, order]));
@@ -446,6 +527,15 @@ export type PaymentServices = Readonly<{
       paymentMethodCategory?: string | null;
     }>,
   ) => Promise<CheckoutStatusResult>;
+  previewCheckoutStatus: (
+    params: Readonly<{
+      accountId: AccountId;
+      amount: string;
+      currencyCode?: string;
+      requestedBalanceCreditAmount?: string | null;
+      paymentMethodCategory?: string | null;
+    }>,
+  ) => Promise<CheckoutStatusResult>;
   getMarketplaceCheckoutFeePolicy: () => Promise<MarketplaceCheckoutFeePolicy>;
   getProviderEvent: (
     params: Readonly<{ providerEventId: string; accountId: string }>,
@@ -518,70 +608,25 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       const orderIds = normalizeOrderIds(params.orderIds);
       const orders = await loadAccountOrders(deps.db, orderIds, accountId);
       const amount = sumOrderAmounts(orders);
-      const currencyCode = normalizeCurrencyCode(params.currencyCode ?? "usd");
-      const requestedBalanceCreditAmount = normalizeMoneyAmount(params.requestedBalanceCreditAmount ?? "0.00", {
-        fieldName: "Balance credit amount",
-        allowZero: true,
-      });
-      const balanceCredit = deps.balanceCreditResolver
-        ? await deps.balanceCreditResolver.resolveBalanceCredit({
-            buyerAccountId: accountId,
-            currencyCode,
-            requestedAmount: requestedBalanceCreditAmount,
-            orderTotalAmount: amount,
-          })
-        : {
-            requestedAmount: requestedBalanceCreditAmount,
-            appliedAmount: "0.00",
-            remainingExternalAmount: amount,
-          };
-      const appliedAmount = normalizeMoneyAmount(balanceCredit.appliedAmount, {
-        fieldName: "Balance credit amount",
-        allowZero: true,
-      });
-      const externalAmount = normalizeMoneyAmount(
-        balanceCredit.remainingExternalAmount || subtractMoney(amount, appliedAmount),
-        {
-          fieldName: "External payment amount",
-          allowZero: true,
-        },
-      );
-      const paymentMethodCategory = normalizePaymentMethodCategory(params.paymentMethodCategory);
-      const paymentMethodQuotes = (["card", "bank-account", "platform-credit"] as const).map((method) =>
-        quoteMarketplaceCheckoutFee({
-          orderAmount: amount,
-          externalBasisAmount: externalAmount,
-          balanceCreditAmount: appliedAmount,
-          paymentMethodCategory: method,
-        }),
-      );
-      const marketplaceCheckoutFee =
-        paymentMethodQuotes.find((quote) => quote.payment_method_category === paymentMethodCategory) ??
-        paymentMethodQuotes[0]!;
-
-      return {
-        order_ids: orderIds,
-        currency_code: currencyCode,
+      return buildCheckoutStatusFromAmount(deps, {
+        accountId,
+        orderIds,
         amount,
-        marketplace_checkout_fee: marketplaceCheckoutFee,
-        payment_method_quotes: paymentMethodQuotes,
-        wallet_credit: {
-          requested_amount: balanceCredit.requestedAmount,
-          applied_amount: appliedAmount,
-          external_amount: externalAmount,
-        },
-        can_start_payment: compareMoney(amount, "0.00") > 0,
-        unavailable_reasons: compareMoney(amount, "0.00") > 0 ? [] : ["no-payable-order-balance"],
-        unavailable_reason_details:
-          compareMoney(amount, "0.00") > 0
-            ? []
-            : [
-                {
-                  code: "no-payable-order-balance",
-                  message: checkoutUnavailableReasonLabel("no-payable-order-balance"),
-                },
-              ],
-      };
+        currencyCode: params.currencyCode ?? "usd",
+        requestedBalanceCreditAmount: params.requestedBalanceCreditAmount,
+        paymentMethodCategory: params.paymentMethodCategory,
+      });
+    },
+    async previewCheckoutStatus(params) {
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
+      return buildCheckoutStatusFromAmount(deps, {
+        accountId,
+        orderIds: [],
+        amount: params.amount,
+        currencyCode: params.currencyCode ?? "usd",
+        requestedBalanceCreditAmount: params.requestedBalanceCreditAmount,
+        paymentMethodCategory: params.paymentMethodCategory,
+      });
     },
     async getMarketplaceCheckoutFeePolicy() {
       return {
