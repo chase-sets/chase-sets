@@ -69,9 +69,23 @@ export type CheckoutSellListServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ lineId: SellListLineId; version: number }>;
   checkoutSellList: (
-    params: Readonly<{ sellerAccountId: AccountId }>,
+    params: Readonly<{
+      sellerAccountId: AccountId;
+      completedLineIds?: readonly SellListLineId[] | null;
+      executionSummary?: Readonly<{
+        acceptedOfferCount: number;
+        createdListingCount: number;
+        skippedLineCount: number;
+        skippedReasons: readonly string[];
+      }> | null;
+    }>,
     context: EventStoreContext,
-  ) => Promise<{ sellerAccountId: AccountId; version: number; status: "reviewed" }>;
+  ) => Promise<{
+    sellerAccountId: AccountId;
+    version: number;
+    status: "reviewed";
+    completedLineIds: readonly SellListLineId[];
+  }>;
   mergeSellListIntoAccount: (
     params: Readonly<{
       sourceOwnerId: string;
@@ -216,11 +230,18 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         command: {
           type: "CheckoutSellList",
           checkedOutAt: new Date().toISOString(),
+          completedLineIds: params.completedLineIds ?? null,
+          executionSummary: params.executionSummary ?? null,
         },
         context,
       });
 
-      return { sellerAccountId: params.sellerAccountId, version: result.version, status: "reviewed" };
+      return {
+        sellerAccountId: params.sellerAccountId,
+        version: result.version,
+        status: "reviewed",
+        completedLineIds: params.completedLineIds ?? [],
+      };
     },
     mergeSellListIntoAccount: async (params, context) => {
       const sourceLines = await listSellListLines(deps.db, params.sourceOwnerId);

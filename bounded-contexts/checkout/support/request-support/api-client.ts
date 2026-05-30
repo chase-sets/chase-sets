@@ -4,6 +4,7 @@ export type {
   CheckoutApiClientOptions,
   CheckoutCartLine,
   AddCheckoutSellListLineRequest,
+  CheckoutSellListLineRow,
   CreateCheckoutSessionRequest,
   CheckoutSessionRow,
 } from "../../client";

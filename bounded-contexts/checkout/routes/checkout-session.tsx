@@ -10,6 +10,7 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
+import { createPaymentsRequestApiClient, type PaymentsCheckoutStatus } from "@chase-sets/payments/server";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
 
@@ -209,6 +210,7 @@ async function loadFulfillmentPreview(
         checkoutSessionId: session.session_id,
         sourceType: session.source_type === "buy-now" ? "buy-now" : "cart-checkout",
         shippingOption: session.shipping_option,
+        shippingAddress: session.shipping_address,
         optimizationGoal: session.optimization_goal,
         lines: session.lines,
       }),
@@ -219,6 +221,30 @@ async function loadFulfillmentPreview(
       fulfillmentPreview: null,
       previewError: FULFILLMENT_PREVIEW_UNAVAILABLE,
     };
+  }
+}
+
+async function loadPaymentPreview(
+  request: Request,
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+  fulfillmentPreview: Awaited<ReturnType<typeof loadFulfillmentPreview>>["fulfillmentPreview"],
+  wallet: Awaited<ReturnType<typeof loadWalletBalance>>,
+  paymentMethodCategory: string,
+): Promise<PaymentsCheckoutStatus | null> {
+  if (!actor || !fulfillmentPreview) {
+    return null;
+  }
+
+  try {
+    const paymentsApi = createPaymentsRequestApiClient(request);
+    return await paymentsApi.previewCheckoutStatus({
+      amount: fulfillmentPreview.totals.totalAmount,
+      currencyCode: wallet?.currency_code ?? "usd",
+      requestedBalanceCreditAmount: wallet?.available_balance_amount ?? "0.00",
+      paymentMethodCategory,
+    });
+  } catch {
+    return null;
   }
 }
 
@@ -249,10 +275,20 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(request) : null;
   const savedShippingAddresses = await loadSavedShippingAddresses(request, actor);
   const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(request, session);
+  const selectedPaymentMethodCategory = new URL(request.url).searchParams.get("paymentMethodCategory") ?? "card";
+  const paymentPreview = await loadPaymentPreview(
+    request,
+    actor,
+    fulfillmentPreview,
+    wallet,
+    selectedPaymentMethodCategory,
+  );
 
   return {
     session,
     wallet,
+    paymentPreview,
+    selectedPaymentMethodCategory,
     savedShippingAddresses,
     canManageShippingAddresses: Boolean(
       actor &&
@@ -282,6 +318,19 @@ export async function action({ request, params }: ActionFunctionArgs) {
       return redirect(`/checkout/${params.sessionId}`);
     }
 
+    if (intent === "refresh-checkout-preview") {
+      await api.selectShippingOption(params.sessionId, {
+        shippingOption: String(formData.get("shippingOption") ?? "standard"),
+      });
+      await api.selectShippingAddress(params.sessionId, {
+        shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData),
+      });
+      const paymentMethodCategory = String(formData.get("previewPaymentMethodCategory") ?? "card");
+      return redirect(
+        `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
+      );
+    }
+
     if (intent === "confirm-checkout") {
       await api.selectShippingOption(params.sessionId, {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
@@ -291,6 +340,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
           formData.get("requestedBalanceCreditAmount"),
         ),
         paymentMethodCategory: String(formData.get("paymentMethodCategory") ?? "card"),
+        marketplaceCheckoutFeeQuoteFingerprint:
+          String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null,
         fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
         acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
         deferPayment: Boolean(actor && actor.roleKey !== "guest-buyer"),
@@ -351,6 +402,8 @@ export default function CheckoutSessionRoute() {
     <CheckoutSessionPage
       session={data.session}
       wallet={data.wallet}
+      paymentPreview={data.paymentPreview}
+      selectedPaymentMethodCategory={data.selectedPaymentMethodCategory}
       fulfillmentPreview={data.fulfillmentPreview}
       savedShippingAddresses={data.savedShippingAddresses}
       canManageShippingAddresses={data.canManageShippingAddresses}

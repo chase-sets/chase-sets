@@ -295,8 +295,18 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async checkoutSellList() {
-      return parseJsonResponse(await client.account["sell-list"].checkout.$post({ json: {}, header: headers }));
+    async checkoutSellList(
+      body: Readonly<{
+        completedLineIds?: readonly string[];
+        executionSummary?: Readonly<{
+          acceptedOfferCount: number;
+          createdListingCount: number;
+          skippedLineCount: number;
+          skippedReasons: readonly string[];
+        }> | null;
+      }> = {},
+    ) {
+      return parseJsonResponse(await client.account["sell-list"].checkout.$post({ json: body, header: headers }));
     },
     async removeGuestSellListLine(anonymousSellListId: string, lineId: string) {
       return parseJsonResponse(
@@ -422,6 +432,18 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async selectShippingAddress(
+      sessionId: string,
+      body: Readonly<{ shippingAddress: CheckoutShippingAddressInput | null }>,
+    ) {
+      return parseJsonResponse(
+        await client.account["checkout-sessions"][":sessionId"]["shipping-address"].$post({
+          param: { sessionId },
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async selectOptimizationGoal(sessionId: string, body: SelectCheckoutOptimizationGoalRequest) {
       return parseJsonResponse(
         await client.account["checkout-sessions"][":sessionId"]["optimization-goal"].$post({
@@ -459,5 +481,5 @@ export function createCheckoutApiClient({
   };
 }
 
-export type { CheckoutCartLine, CheckoutSessionRow };
+export type { CheckoutCartLine, CheckoutSellListLineRow, CheckoutSessionRow };
 export const checkoutApi = createCheckoutApiClient();

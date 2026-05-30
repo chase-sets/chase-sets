@@ -3,11 +3,14 @@ import {
   Banner,
   Button,
   CheckoutLayout,
+  CurrencyInput,
+  Grid,
   Inline,
   KeyValueList,
   LinkButton,
   MarketplaceEmptyState,
   MarketplaceNotice,
+  NativeSelect,
   OrderProtectionModule,
   Page,
   PageHeader,
@@ -22,6 +25,28 @@ import {
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import type { CheckoutSellListLineRow } from "../read-model/queries";
+
+type SellListOfferReview = Readonly<{
+  lineId: string;
+  status: "ready" | "unavailable";
+  terms: Readonly<{
+    marketplace_sales_fee_unit_amount: string;
+    seller_net_unit_amount: string;
+    shipping_allowance_percentage_bps: number;
+    fee_quote_fingerprint: string;
+  }> | null;
+  message: string | null;
+}>;
+
+type SellListInventoryItem = Readonly<{
+  item_id: string;
+  product_id: string;
+  item_title: string | null;
+  product_summary: string | null;
+  storage_location_name: string;
+  ship_from_code: string;
+  available_quantity: number;
+}>;
 
 function formatMoney(value: string | null) {
   if (!value) {
@@ -50,11 +75,15 @@ export function CheckoutSellListPage({
   sellListLines,
   isSignedIn = true,
   reviewCompleted = false,
+  offerReviews = [],
+  inventoryItems = [],
   errorMessage = null,
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
   isSignedIn?: boolean;
   reviewCompleted?: boolean;
+  offerReviews?: readonly SellListOfferReview[];
+  inventoryItems?: readonly SellListInventoryItem[];
   errorMessage?: string | null;
 }) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
@@ -69,6 +98,11 @@ export function CheckoutSellListPage({
     0,
   );
   const estimatedSaleValue = estimatedSelectedOfferValue + estimatedFallbackListingValue;
+  const offerReviewsByLineId = new Map((offerReviews ?? []).map((review) => [review.lineId, review]));
+  const inventoryByProductId = new Map<string, SellListInventoryItem[]>();
+  for (const item of inventoryItems ?? []) {
+    inventoryByProductId.set(item.product_id, [...(inventoryByProductId.get(item.product_id) ?? []), item]);
+  }
   const summary = (
     <Stack gap={4}>
       <PriceBreakdown
@@ -181,61 +215,96 @@ export function CheckoutSellListPage({
               <PageSection title={t("checkout.features.sellList.ui.sellListPage.selected.offers")}>
                 {selectedOfferLines.length > 0 ? (
                   <Stack gap={3}>
-                    {selectedOfferLines.map((line) => (
-                      <Surface key={line.line_id} elevated>
-                        <form method="post">
-                          <input type="hidden" name="intent" value="remove-sell-list-line" />
-                          <input type="hidden" name="lineId" value={line.line_id} />
-                          <Stack gap={3}>
-                            <Inline gap={2}>
-                              <Badge tone="success">
-                                {t("checkout.features.sellList.ui.sellListPage.selected.offer")}
-                              </Badge>
-                              <Text weight="semibold">{formatMoney(line.offer_price_amount)}</Text>
-                            </Inline>
-                            <Stack gap={1}>
-                              <Text weight="semibold">{line.item_title}</Text>
-                              {line.item_subtitle ? (
-                                <Text size="sm" tone="secondary">
-                                  {line.item_subtitle}
-                                </Text>
-                              ) : null}
-                              <ProductOptions
-                                options={productOptionsFromSelectedOptions(line.selected_options)}
-                                emptyLabel={
-                                  line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")
-                                }
+                    {selectedOfferLines.map((line) => {
+                      const review = offerReviewsByLineId.get(line.line_id);
+
+                      return (
+                        <Surface key={line.line_id} elevated>
+                          <form method="post">
+                            <input type="hidden" name="intent" value="remove-sell-list-line" />
+                            <input type="hidden" name="lineId" value={line.line_id} />
+                            <Stack gap={3}>
+                              <Inline gap={2}>
+                                <Badge tone="success">
+                                  {t("checkout.features.sellList.ui.sellListPage.selected.offer")}
+                                </Badge>
+                                <Text weight="semibold">{formatMoney(line.offer_price_amount)}</Text>
+                              </Inline>
+                              <Stack gap={1}>
+                                <Text weight="semibold">{line.item_title}</Text>
+                                {line.item_subtitle ? (
+                                  <Text size="sm" tone="secondary">
+                                    {line.item_subtitle}
+                                  </Text>
+                                ) : null}
+                                <ProductOptions
+                                  options={productOptionsFromSelectedOptions(line.selected_options)}
+                                  emptyLabel={
+                                    line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")
+                                  }
+                                />
+                              </Stack>
+                              <KeyValueList
+                                density="compact"
+                                variant="plain"
+                                items={[
+                                  {
+                                    key: t("checkout.features.sellList.ui.sellListPage.buyer"),
+                                    value:
+                                      line.buyer_display_name ??
+                                      line.buyer_account_id ??
+                                      t("checkout.features.sellList.ui.sellListPage.buyer"),
+                                  },
+                                  {
+                                    key: t("checkout.features.sellList.ui.sellListPage.quantity"),
+                                    value: line.quantity,
+                                  },
+                                  {
+                                    key: t("checkout.features.sellList.ui.sellListPage.sales.fee"),
+                                    value: review?.terms
+                                      ? formatMoney(review.terms.marketplace_sales_fee_unit_amount)
+                                      : t("checkout.features.sellList.ui.sellListPage.needs.refresh"),
+                                  },
+                                  {
+                                    key: t("checkout.features.sellList.ui.sellListPage.seller.net"),
+                                    value: review?.terms
+                                      ? formatMoney(review.terms.seller_net_unit_amount)
+                                      : t("checkout.features.sellList.ui.sellListPage.needs.refresh"),
+                                  },
+                                  {
+                                    key: t("checkout.features.sellList.ui.sellListPage.payment.authorization"),
+                                    value:
+                                      review?.status === "ready"
+                                        ? t("checkout.features.sellList.ui.sellListPage.ready.to.accept")
+                                        : (review?.message ??
+                                          t("checkout.features.sellList.ui.sellListPage.needs.refresh")),
+                                  },
+                                  {
+                                    key: t("checkout.features.sellList.ui.sellListPage.execution"),
+                                    value: t(
+                                      "checkout.features.sellList.ui.sellListPage.accept.selected.offer.during.checkout.review",
+                                    ),
+                                  },
+                                ]}
                               />
+                              {review?.terms ? (
+                                <input
+                                  type="hidden"
+                                  form="sell-list-checkout-form"
+                                  name={`offerFeeQuoteFingerprint:${line.line_id}`}
+                                  value={review.terms.fee_quote_fingerprint}
+                                />
+                              ) : null}
+                              <Inline gap={2}>
+                                <Button type="submit" tone="secondary" size="sm">
+                                  {t("checkout.features.sellList.ui.sellListPage.remove")}
+                                </Button>
+                              </Inline>
                             </Stack>
-                            <KeyValueList
-                              density="compact"
-                              variant="plain"
-                              items={[
-                                {
-                                  key: t("checkout.features.sellList.ui.sellListPage.buyer"),
-                                  value:
-                                    line.buyer_display_name ??
-                                    line.buyer_account_id ??
-                                    t("checkout.features.sellList.ui.sellListPage.buyer"),
-                                },
-                                { key: t("checkout.features.sellList.ui.sellListPage.quantity"), value: line.quantity },
-                                {
-                                  key: t("checkout.features.sellList.ui.sellListPage.execution"),
-                                  value: t(
-                                    "checkout.features.sellList.ui.sellListPage.accept.selected.offer.during.checkout.review",
-                                  ),
-                                },
-                              ]}
-                            />
-                            <Inline gap={2}>
-                              <Button type="submit" tone="secondary" size="sm">
-                                {t("checkout.features.sellList.ui.sellListPage.remove")}
-                              </Button>
-                            </Inline>
-                          </Stack>
-                        </form>
-                      </Surface>
-                    ))}
+                          </form>
+                        </Surface>
+                      );
+                    })}
                   </Stack>
                 ) : (
                   <MarketplaceEmptyState
@@ -248,47 +317,122 @@ export function CheckoutSellListPage({
               <PageSection title={t("checkout.features.sellList.ui.sellListPage.products")}>
                 {productLines.length > 0 ? (
                   <Stack gap={3}>
-                    {productLines.map((line) => (
-                      <Surface key={line.line_id} elevated>
-                        <Stack gap={2}>
-                          <Text weight="semibold">{line.item_title}</Text>
-                          <ProductOptions
-                            options={productOptionsFromSelectedOptions(line.selected_options)}
-                            emptyLabel={
-                              line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")
-                            }
-                          />
-                          <Text size="sm" tone="secondary">
-                            {t("checkout.features.sellList.ui.sellListPage.smart.match.offers.for.quantity", {
-                              quantity: line.quantity,
-                              fallback:
-                                line.fallback_mode === "create-listing"
-                                  ? t("checkout.features.sellList.ui.sellListPage.create.listings")
-                                  : t("checkout.features.sellList.ui.sellListPage.disabled"),
-                            })}
-                          </Text>
-                          <KeyValueList
-                            density="compact"
-                            variant="plain"
-                            items={[
-                              {
-                                key: t("checkout.features.sellList.ui.sellListPage.minimum.listing.price"),
-                                value: formatMoney(line.minimum_listing_price_amount),
-                              },
-                              {
-                                key: t("checkout.features.sellList.ui.sellListPage.execution"),
-                                value:
+                    {productLines.map((line) => {
+                      const inventoryOptions = inventoryByProductId.get(line.product_id) ?? [];
+                      const defaultInventoryItem = inventoryOptions[0] ?? null;
+                      const defaultPrice = line.minimum_listing_price_amount ?? "";
+
+                      return (
+                        <Surface key={line.line_id} elevated>
+                          <Stack gap={2}>
+                            <Text weight="semibold">{line.item_title}</Text>
+                            <ProductOptions
+                              options={productOptionsFromSelectedOptions(line.selected_options)}
+                              emptyLabel={
+                                line.product_summary ?? t("checkout.features.sellList.ui.sellListPage.standard")
+                              }
+                            />
+                            <Text size="sm" tone="secondary">
+                              {t("checkout.features.sellList.ui.sellListPage.smart.match.offers.for.quantity", {
+                                quantity: line.quantity,
+                                fallback:
                                   line.fallback_mode === "create-listing"
-                                    ? t(
-                                        "checkout.features.sellList.ui.sellListPage.create.fallback.listing.after.review",
-                                      )
-                                    : t("checkout.features.sellList.ui.sellListPage.accept.matching.offers.only"),
-                              },
-                            ]}
-                          />
-                        </Stack>
-                      </Surface>
-                    ))}
+                                    ? t("checkout.features.sellList.ui.sellListPage.create.listings")
+                                    : t("checkout.features.sellList.ui.sellListPage.disabled"),
+                              })}
+                            </Text>
+                            <KeyValueList
+                              density="compact"
+                              variant="plain"
+                              items={[
+                                {
+                                  key: t("checkout.features.sellList.ui.sellListPage.minimum.listing.price"),
+                                  value: formatMoney(line.minimum_listing_price_amount),
+                                },
+                                {
+                                  key: t("checkout.features.sellList.ui.sellListPage.execution"),
+                                  value:
+                                    line.fallback_mode === "create-listing"
+                                      ? t(
+                                          "checkout.features.sellList.ui.sellListPage.create.fallback.listing.after.review",
+                                        )
+                                      : t("checkout.features.sellList.ui.sellListPage.accept.matching.offers.only"),
+                                },
+                              ]}
+                            />
+                            <Grid columns={{ base: 1, md: 3 }} gap={3}>
+                              <NativeSelect
+                                form="sell-list-checkout-form"
+                                label={t("checkout.features.sellList.ui.sellListPage.fallback.action")}
+                                name={`fallbackMode:${line.line_id}`}
+                                defaultValue={defaultInventoryItem ? "create-listing" : "none"}
+                                items={[
+                                  {
+                                    value: "none",
+                                    label: t("checkout.features.sellList.ui.sellListPage.keep.in.sell.list"),
+                                  },
+                                  {
+                                    value: "create-listing",
+                                    label: t("checkout.features.sellList.ui.sellListPage.create.fallback.listing"),
+                                    disabled: !defaultInventoryItem,
+                                  },
+                                ]}
+                              />
+                              <NativeSelect
+                                form="sell-list-checkout-form"
+                                label={t("checkout.features.sellList.ui.sellListPage.inventory")}
+                                name={`inventoryItemId:${line.line_id}`}
+                                defaultValue={defaultInventoryItem?.item_id ?? ""}
+                                placeholder={t("checkout.features.sellList.ui.sellListPage.choose.inventory")}
+                                items={inventoryOptions.map((item) => ({
+                                  value: item.item_id,
+                                  label: t("checkout.features.sellList.ui.sellListPage.inventory.option.label", {
+                                    location: item.storage_location_name,
+                                    shipFrom: item.ship_from_code,
+                                    quantity: item.available_quantity,
+                                  }),
+                                }))}
+                              />
+                              <CurrencyInput
+                                form="sell-list-checkout-form"
+                                label={t("checkout.features.sellList.ui.sellListPage.listing.price")}
+                                name={`priceAmount:${line.line_id}`}
+                                defaultValue={defaultPrice}
+                                min="0.01"
+                                step="0.01"
+                                required={Boolean(defaultInventoryItem)}
+                              />
+                              <input
+                                form="sell-list-checkout-form"
+                                type="hidden"
+                                name={`quantityCap:${line.line_id}`}
+                                value={Math.min(
+                                  line.quantity,
+                                  defaultInventoryItem?.available_quantity ?? line.quantity,
+                                )}
+                              />
+                            </Grid>
+                            {defaultInventoryItem ? (
+                              <MarketplaceNotice
+                                tone="info"
+                                title={t("checkout.features.sellList.ui.sellListPage.inventory.ready")}
+                                description={t(
+                                  "checkout.features.sellList.ui.sellListPage.inventory.ready.description",
+                                )}
+                              />
+                            ) : (
+                              <MarketplaceNotice
+                                tone="warning"
+                                title={t("checkout.features.sellList.ui.sellListPage.inventory.required")}
+                                description={t(
+                                  "checkout.features.sellList.ui.sellListPage.inventory.required.description",
+                                )}
+                              />
+                            )}
+                          </Stack>
+                        </Surface>
+                      );
+                    })}
                   </Stack>
                 ) : (
                   <MarketplaceEmptyState
@@ -308,10 +452,10 @@ export function CheckoutSellListPage({
                   </Text>
                   <Inline gap={2}>
                     {isSignedIn ? (
-                      <form method="post">
+                      <form id="sell-list-checkout-form" method="post">
                         <input type="hidden" name="intent" value="review-sell-list-checkout" />
                         <Button type="submit" leadingIcon="check">
-                          {t("checkout.features.sellList.ui.sellListPage.review.sale.checkout")}
+                          {t("checkout.features.sellList.ui.sellListPage.execute.sale.checkout")}
                         </Button>
                       </form>
                     ) : (
@@ -330,12 +474,15 @@ export function CheckoutSellListPage({
                 context={t("checkout.features.sellList.ui.sellListPage.sale.review.before.commitment")}
                 primaryAction={
                   isSignedIn ? (
-                    <form method="post">
-                      <input type="hidden" name="intent" value="review-sell-list-checkout" />
-                      <Button type="submit" leadingIcon="check">
-                        {t("checkout.features.sellList.ui.sellListPage.review.sale.checkout")}
-                      </Button>
-                    </form>
+                    <Button
+                      type="submit"
+                      form="sell-list-checkout-form"
+                      name="intent"
+                      value="review-sell-list-checkout"
+                      leadingIcon="check"
+                    >
+                      {t("checkout.features.sellList.ui.sellListPage.execute.sale.checkout")}
+                    </Button>
                   ) : (
                     <LinkButton href="/register?returnTo=%2Faccount%2Fsell-list" leadingIcon="shield">
                       {t("checkout.features.sellList.ui.sellListPage.create.account")}

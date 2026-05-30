@@ -102,7 +102,17 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
       );
     },
     "checkout.sell-list.checked-out": async (event) => {
-      const data = event.data as { sellerAccountId: string };
+      const data = event.data as { sellerAccountId: string; completedLineIds?: string[] };
+
+      if (Array.isArray(data.completedLineIds) && data.completedLineIds.length > 0) {
+        await db.query(
+          `DELETE FROM checkout_sell_list_line_pages
+           WHERE seller_account_id = $1
+             AND line_id = ANY($2::text[])`,
+          [data.sellerAccountId, data.completedLineIds],
+        );
+        return;
+      }
 
       await db.query(
         `DELETE FROM checkout_sell_list_line_pages

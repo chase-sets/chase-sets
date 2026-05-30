@@ -107,6 +107,30 @@ function parseSellListLineBody(body: Record<string, unknown>) {
   };
 }
 
+function parseSellListCheckoutBody(body: Record<string, unknown>) {
+  const completedLineIds = Array.isArray(body.completedLineIds)
+    ? body.completedLineIds.map(String).filter(Boolean)
+    : [];
+  const executionSummary =
+    body.executionSummary && typeof body.executionSummary === "object"
+      ? (body.executionSummary as Record<string, unknown>)
+      : null;
+
+  return {
+    completedLineIds,
+    executionSummary: executionSummary
+      ? {
+          acceptedOfferCount: Number(executionSummary.acceptedOfferCount ?? 0),
+          createdListingCount: Number(executionSummary.createdListingCount ?? 0),
+          skippedLineCount: Number(executionSummary.skippedLineCount ?? 0),
+          skippedReasons: Array.isArray(executionSummary.skippedReasons)
+            ? executionSummary.skippedReasons.map(String).filter(Boolean)
+            : [],
+        }
+      : null,
+  };
+}
+
 export function createAccountSellListRoutes(services: CheckoutSellListServices) {
   const app = new Hono<CheckoutApiEnv>();
 
@@ -212,15 +236,25 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
       );
     }
 
+    const body = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const checkoutBody = parseSellListCheckoutBody(body);
+
     try {
       const result = await services.checkoutSellList(
         {
           sellerAccountId: access.actor.accountId as never,
+          completedLineIds: checkoutBody.completedLineIds as never,
+          executionSummary: checkoutBody.executionSummary,
         },
         context,
       );
 
-      return c.json({ id: result.sellerAccountId, version: result.version, status: result.status });
+      return c.json({
+        id: result.sellerAccountId,
+        version: result.version,
+        status: result.status,
+        completedLineIds: result.completedLineIds,
+      });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
     }
