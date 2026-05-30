@@ -11,4 +11,53 @@ describe("public presence translator", () => {
     expect(publicPresenceHasTranslation("adminWeb.app.title")).toBe(false);
     expect(publicPresenceT("adminWeb.app.title")).toBe("[missing:en:adminWeb.app.title]");
   });
+
+  it("keeps launch-critical public policy copy out of placeholder language", () => {
+    const launchPolicyKeys = [
+      "publicPresence.faq.description",
+      "publicPresence.faq.fees.answer",
+      "publicPresence.faq.fees.question",
+      "publicPresence.faq.launch.answer",
+      "publicPresence.faq.safety.answer",
+      "publicPresence.faq.safety.question",
+      "publicPresence.faq.shipping.answer",
+      "publicPresence.faq.shipping.question",
+      "publicPresence.faq.title",
+      "publicPresence.info.buyerProtection.description",
+      "publicPresence.info.buyerProtection.help.body",
+      "publicPresence.info.buyerProtection.orders.body",
+      "publicPresence.info.buyerProtection.payment.body",
+      "publicPresence.info.contact.description",
+      "publicPresence.info.contact.status.body",
+      "publicPresence.info.faq.description",
+      "publicPresence.info.privacy.description",
+      "publicPresence.info.refunds.description",
+      "publicPresence.info.refunds.future.body",
+      "publicPresence.info.refunds.future.title",
+      "publicPresence.info.refunds.prelaunch.body",
+      "publicPresence.info.refunds.prelaunch.title",
+      "publicPresence.info.sellerFees.buyerVisibility.body",
+      "publicPresence.info.sellerFees.lowValue.body",
+      "publicPresence.info.sellerFees.predictable.body",
+      "publicPresence.info.sellerFees.prelaunch.body",
+      "publicPresence.info.sellerFees.prelaunch.title",
+      "publicPresence.info.terms.accounts.body",
+      "publicPresence.info.terms.description",
+      "publicPresence.info.terms.marketplace.body",
+      "publicPresence.info.terms.prelaunch.body",
+      "publicPresence.info.terms.prelaunch.title",
+      "publicPresence.routes.buyerProtection.meta.description",
+      "publicPresence.routes.faq.meta.description",
+      "publicPresence.routes.privacy.meta.description",
+      "publicPresence.routes.refunds.meta.description",
+      "publicPresence.routes.sellerFees.meta.description",
+      "publicPresence.routes.terms.meta.description",
+    ];
+
+    const copy = launchPolicyKeys.map((key) => publicPresenceT(key)).join(" ");
+
+    expect(copy).not.toMatch(/\b(prelaunch|future|intended|planned|expected|not yet)\b/i);
+    expect(copy).not.toContain("will be published");
+    expect(copy).toContain("production promotion approval");
+  });
 });
