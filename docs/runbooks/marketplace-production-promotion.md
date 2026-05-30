@@ -5,7 +5,7 @@ Production remains a landing and admin-support deployment until marketplace prom
 ## Required Gates
 
 - Public Presence: prelaunch copy is replaced or reviewed for live marketplace availability, and terms, privacy, refunds and returns, order protection, and sales fee pages no longer describe live transactions as future-only.
-- Tax: production Tax readiness evidence is approved, `PRODUCTION_TAX_READINESS_APPROVED=true`, `PRODUCTION_TAX_READINESS_REFERENCE` points to the approval record, and a provider-backed Tax Quote resolver is ready before live order creation.
+- Tax: production Tax readiness evidence is approved, `PRODUCTION_TAX_READINESS_APPROVED=true`, `PRODUCTION_TAX_READINESS_REFERENCE` points to the approval record, and Tax nexus tracking confirms either no jurisdiction currently requires collection or `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true` is paired with a provider-backed Tax Quote resolver before live order creation.
 - Payments: counsel/provider review approves buyer-facing Marketplace Checkout Fee copy, state-specific disclosures, refund language, and Stripe live-mode configuration.
 - Settlement: Stripe Connect live-mode onboarding, manual payout schedule, payout readiness, payout holds, and platform-balance funding procedures are verified.
 - Fulfillment: EasyPost production mode, label purchase, label refund/void, tracking, and exception workflows are verified.
@@ -22,7 +22,7 @@ When set to `true`, Terraform deploys the production marketplace surface, full p
 
 Marketplace promotion evidence is carried by `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED` and `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE` in the production GitHub Environment. The reference must point to the final launch review record that confirms each required gate above has an accountable owner and passing evidence. `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` is only the deployment shape switch; it is not the launch approval by itself.
 
-Tax readiness evidence is carried by `PRODUCTION_TAX_READINESS_APPROVED` and `PRODUCTION_TAX_READINESS_REFERENCE` in the production GitHub Environment. Keep approval unset until the Tax-owned launch posture has provider coverage and counsel/accounting review. Platform API also installs a production Tax blocker resolver until a provider-backed `TaxQuoteResolver` is composed, so a bypassed deployment still cannot create orders with implicit zero-tax snapshots.
+Tax readiness evidence is carried by `PRODUCTION_TAX_READINESS_APPROVED` and `PRODUCTION_TAX_READINESS_REFERENCE` in the production GitHub Environment. Keep approval unset until the Tax-owned launch posture has counsel/accounting review, state-by-state nexus tracking, and a documented collection-provider decision. `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=false` is allowed only while the Tax readiness record confirms no tracked jurisdiction requires collection. When a jurisdiction becomes registered for collection or otherwise collection-required, set `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true`; Platform API then installs a production Tax blocker resolver until a provider-backed `TaxQuoteResolver` is composed.
 
 ## Rollback Posture
 

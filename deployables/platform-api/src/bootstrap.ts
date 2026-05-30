@@ -18,7 +18,10 @@ async function bootstrap() {
 
   try {
     await bootstrapPlatformControlPlane(pools.control);
-    const taxQuoteResolver = shouldBlockProductionTaxQuotes(config.deploymentEnvironment)
+    const taxQuoteResolver = shouldBlockProductionTaxQuotes(
+      config.deploymentEnvironment,
+      Boolean(config.taxProviderBackedQuotesRequired),
+    )
       ? createProductionTaxQuoteResolverBlocker()
       : undefined;
     const runtime = createPlatformApiHost({

@@ -65,6 +65,7 @@ function resetConfigEnv() {
   delete process.env.NODE_ENV;
   delete process.env.DEPLOYMENT_ENVIRONMENT;
   delete process.env.PLATFORM_DATA_PROFILES;
+  delete process.env.TAX_PROVIDER_BACKED_QUOTES_REQUIRED;
   delete process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV];
   delete process.env.PLATFORM_ADMIN_EMAIL;
   delete process.env.PLATFORM_ADMIN_PASSWORD;
@@ -240,6 +241,14 @@ describe("platform api config", () => {
       rootDir: "artifacts/marketplace-listing-photos",
       publicBaseUrl: "http://localhost:6182/marketplace-listing-photos",
     });
+    expect(loadConfig().taxProviderBackedQuotesRequired).toBe(false);
+  });
+
+  it("loads the tax provider-backed quote gate from environment variables", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.TAX_PROVIDER_BACKED_QUOTES_REQUIRED = "true";
+
+    expect(loadConfig().taxProviderBackedQuotesRequired).toBe(true);
   });
 
   it("loads S3-compatible asset storage from environment variables", () => {

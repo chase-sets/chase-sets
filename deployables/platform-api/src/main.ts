@@ -138,7 +138,10 @@ const mobileMessageWebhookGateway =
     : undefined;
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
-const taxQuoteResolver = shouldBlockProductionTaxQuotes(config.deploymentEnvironment)
+const taxQuoteResolver = shouldBlockProductionTaxQuotes(
+  config.deploymentEnvironment,
+  Boolean(config.taxProviderBackedQuotesRequired),
+)
   ? createProductionTaxQuoteResolverBlocker()
   : undefined;
 

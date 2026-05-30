@@ -572,6 +572,12 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
 
+        env {
+          key   = "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
+          value = tostring(var.tax_provider_backed_quotes_required)
+          scope = "RUN_TIME"
+        }
+
         health_check {
           http_path = "/health/ready"
         }
@@ -1229,6 +1235,12 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "PLATFORM_ADMIN_DISPLAY_NAME"
           value = var.platform_admin_display_name
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "TAX_PROVIDER_BACKED_QUOTES_REQUIRED"
+          value = tostring(var.tax_provider_backed_quotes_required)
           scope = "RUN_TIME"
         }
 

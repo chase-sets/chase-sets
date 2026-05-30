@@ -6,7 +6,7 @@ import {
 } from "../src/tax-readiness";
 
 describe("platform api tax readiness", () => {
-  it("blocks production tax quotes until a provider-backed resolver is composed", async () => {
+  it("blocks production tax quotes when collection requires a provider-backed resolver", async () => {
     const resolver = createProductionTaxQuoteResolverBlocker();
 
     await expect(
@@ -29,10 +29,11 @@ describe("platform api tax readiness", () => {
     ).rejects.toThrow(productionTaxQuoteProviderMissingMessage);
   });
 
-  it("only installs the blocker for production deployment composition", () => {
-    expect(shouldBlockProductionTaxQuotes("production")).toBe(true);
-    expect(shouldBlockProductionTaxQuotes("staging")).toBe(false);
-    expect(shouldBlockProductionTaxQuotes("dev")).toBe(false);
-    expect(shouldBlockProductionTaxQuotes(null)).toBe(false);
+  it("only installs the blocker when production tax collection requires provider-backed quotes", () => {
+    expect(shouldBlockProductionTaxQuotes("production", true)).toBe(true);
+    expect(shouldBlockProductionTaxQuotes("production", false)).toBe(false);
+    expect(shouldBlockProductionTaxQuotes("staging", true)).toBe(false);
+    expect(shouldBlockProductionTaxQuotes("dev", true)).toBe(false);
+    expect(shouldBlockProductionTaxQuotes(null, true)).toBe(false);
   });
 });

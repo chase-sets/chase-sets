@@ -1,10 +1,10 @@
 {
   "contextName": "tax",
   "packageName": "@chase-sets/tax",
-  "ownedNouns": ["tax quote"],
+  "ownedNouns": ["tax quote", "tax nexus readiness"],
   "streamPrefix": "tax.",
   "apiBasePath": "/api/tax",
-  "slices": ["quotes"],
+  "slices": ["quotes", "nexus"],
   "allowedSupportDirectories": [],
   "publicExports": [".", "./context", "./server"],
   "allowedContextDependencies": [],
@@ -28,6 +28,12 @@
       "purpose": "Own tax quote contracts, local quote behavior, and future provider integration shape.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Ordering order creation"]
+    },
+    "nexus": {
+      "classification": "slice",
+      "purpose": "Own state-by-state sales tax nexus thresholds, collection-readiness posture, and provider-dependency tracking.",
+      "allowedWhen": "Required when marketplace launch needs to distinguish no-collection launch readiness from provider-backed tax collection readiness.",
+      "expectedConsumers": ["Tax launch readiness review", "Platform API production Tax quote gating"]
     },
     "routes": {
       "classification": "routes",

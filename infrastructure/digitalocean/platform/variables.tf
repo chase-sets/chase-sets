@@ -78,6 +78,12 @@ variable "production_tax_readiness_reference" {
   }
 }
 
+variable "tax_provider_backed_quotes_required" {
+  type        = bool
+  default     = false
+  description = "Runtime Tax gate. Set true only after Tax nexus tracking shows at least one jurisdiction requires live sales-tax collection and provider-backed quote behavior must fail closed until configured."
+}
+
 variable "preview_identifier" {
   type        = string
   default     = ""

@@ -97,6 +97,7 @@ export type PlatformApiBaseConfig = Readonly<{
   payoutReconciliationIntervalMs?: number | null;
   deploymentEnvironment?: string | null;
   dataProfiles?: readonly EnvironmentDataProfile[];
+  taxProviderBackedQuotesRequired?: boolean;
 }>;
 
 export type PlatformApiBootstrapConfig = PlatformApiBaseConfig &
@@ -538,6 +539,7 @@ function loadBaseConfig(): PlatformApiBaseConfig {
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
     deploymentEnvironment,
     dataProfiles: loadDataProfiles(deploymentEnvironment),
+    taxProviderBackedQuotesRequired: getBooleanEnv("TAX_PROVIDER_BACKED_QUOTES_REQUIRED", false),
   };
 }
 

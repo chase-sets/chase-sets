@@ -30,7 +30,8 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
 - [Email Operations](./runbooks/email-operations.md): Amazon SES identities, sender configuration, DNS requirements, and rollout checks.
-- [Tax Production Readiness](../bounded-contexts/tax/docs/production-tax-readiness.md): fail-closed Tax quote posture and production marketplace promotion evidence.
+- [Tax Production Readiness](../bounded-contexts/tax/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.
+- [Tax Nexus Tracking](../bounded-contexts/tax/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
 - [Observability](./runbooks/observability.md): local OpenTelemetry and LGTM stack.
 - [Deployment Transitions](./runbooks/deployment-transitions.md): graceful shutdown, resumable streams, worker cancellation, and durable cadence.
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
