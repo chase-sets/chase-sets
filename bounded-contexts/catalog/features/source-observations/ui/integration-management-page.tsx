@@ -43,6 +43,7 @@ import {
   useSourceObservationIntegrationOptions,
   watchSourceObservationIntegrationJob,
 } from "./use-source-observations";
+import { shouldAcceptSourceObservationJobProgress } from "./job-progress";
 
 const ALL_PROVIDERS = "__all__";
 const ALL_LANGUAGES = "__all__";
@@ -273,9 +274,13 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
       const job = await enqueueSourceObservationIntegrationJob(action, scope);
       const result = await watchSourceObservationIntegrationJob(job.jobId, {
         onProgress: (progress) => {
-          setIntegrationProgress(progress);
+          setIntegrationProgress((current) =>
+            shouldAcceptSourceObservationJobProgress(current, progress) ? progress : current,
+          );
           if (action === "reapply") {
-            setReapplyProgress(progress);
+            setReapplyProgress((current) =>
+              shouldAcceptSourceObservationJobProgress(current, progress) ? progress : current,
+            );
           }
         },
       });

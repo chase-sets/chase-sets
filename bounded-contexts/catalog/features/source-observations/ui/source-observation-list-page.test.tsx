@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import { CatalogRealtimeReloadActionBar } from "../../../support/shell-support/ui/realtime-reload-action-bar";
@@ -461,6 +461,100 @@ describe("SourceObservationListPage", () => {
     });
     await waitFor(() => expect(mockRevalidate).toHaveBeenCalled());
     expect(refreshActiveJobs).toHaveBeenCalled();
+  });
+
+  it("keeps resumed bulk review progress from moving backward when stale stream events replay", async () => {
+    let pushProgress: (progress: {
+      phase: string;
+      completed: number;
+      total: number;
+      currentName: string | null;
+      status: string | null;
+    }) => void = () => undefined;
+    mockUseActiveSourceObservationBulkJobs.mockReturnValue({
+      data: {
+        items: [
+          {
+            jobId: "job_active",
+            action: "promote",
+            selectionMode: "filter",
+            observationIds: [],
+            scope: { status: "observed" },
+            reason: null,
+            status: "running",
+            progress: {
+              phase: "processing",
+              completed: 82,
+              total: 100,
+              currentName: "Raichu",
+              status: "promoted",
+            },
+            result: null,
+            errorMessage: null,
+            createdAt: "2026-05-21T00:00:00.000Z",
+            startedAt: "2026-05-21T00:00:01.000Z",
+            completedAt: null,
+            updatedAt: "2026-05-21T00:00:02.000Z",
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockWatchSourceObservationBulkJob.mockImplementation(
+      async (
+        _jobId,
+        options?: {
+          onProgress?: (progress: {
+            phase: string;
+            completed: number;
+            total: number;
+            currentName: string | null;
+            status: string | null;
+          }) => void;
+        },
+      ) => {
+        pushProgress = options?.onProgress ?? pushProgress;
+        return new Promise(() => undefined);
+      },
+    );
+
+    render(
+      <SourceObservationListPage
+        data={{ items: [observed], total: 100, count: 1 }}
+        query={{ ...query, status: "observed" }}
+      />,
+    );
+
+    expect(await screen.findByText("82 of 100 processed.")).toBeTruthy();
+
+    act(() => {
+      pushProgress({
+        phase: "processing",
+        completed: 8,
+        total: 100,
+        currentName: "Pikachu",
+        status: "promoted",
+      });
+    });
+
+    expect(screen.getByText("82 of 100 processed.")).toBeTruthy();
+    expect(screen.queryByText("8 of 100 processed.")).toBeNull();
+
+    act(() => {
+      pushProgress({
+        phase: "processing",
+        completed: 91,
+        total: 100,
+        currentName: "Mewtwo",
+        status: "promoted",
+      });
+    });
+
+    expect(await screen.findByText("91 of 100 processed.")).toBeTruthy();
   });
 });
 
