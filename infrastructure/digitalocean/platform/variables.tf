@@ -100,6 +100,28 @@ variable "production_support_operations_reference" {
   }
 }
 
+variable "production_fulfillment_postage_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit Fulfillment evidence gate that production postage provider label purchase, label void/refund, tracking, exceptions, and letter mailpiece handling are approved before production marketplace promotion."
+
+  validation {
+    condition     = var.environment == "production" || var.production_fulfillment_postage_approved == false
+    error_message = "production_fulfillment_postage_approved may only be true for production."
+  }
+}
+
+variable "production_fulfillment_postage_reference" {
+  type        = string
+  default     = ""
+  description = "Fulfillment-owned evidence reference for approved production postage provider readiness, such as an EasyPost production rehearsal record or launch review ticket."
+
+  validation {
+    condition     = !var.production_fulfillment_postage_approved || trimspace(var.production_fulfillment_postage_reference) != ""
+    error_message = "production_fulfillment_postage_reference is required when production_fulfillment_postage_approved is true."
+  }
+}
+
 variable "production_tax_readiness_approved" {
   type        = bool
   default     = false
