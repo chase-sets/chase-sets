@@ -34,22 +34,22 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.brand": "Chase Sets",
   "publicPresence.faq.all": "Read every FAQ",
   "publicPresence.faq.description":
-    "Short answers about launch timing, founding seller fees, order processing, shipping, and order protection.",
+    "Short answers about marketplace availability, founding seller fees, order processing, shipping, and order protection.",
   "publicPresence.faq.fees.answer":
-    "Listings created during beta are planned to keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers see any Marketplace Checkout Fee before payment.",
-  "publicPresence.faq.fees.question": "What will sellers pay during beta?",
+    "Listings created during beta keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees to sellers. Buyers see any Marketplace Checkout Fee before payment.",
+  "publicPresence.faq.fees.question": "What do sellers pay during beta?",
   "publicPresence.faq.launch.answer":
-    "Not yet. Chase Sets is preparing early access now. Request access to tell us whether buying, selling, or both should be prioritized for you.",
+    "Public marketplace checkout opens only after production promotion approval. Request access to tell us whether buying, selling, or both should be prioritized for your account.",
   "publicPresence.faq.launch.question": "Is Chase Sets live yet?",
   "publicPresence.faq.safety.answer":
-    "Before payment, checkout should show item details, account signals, shipping, return eligibility, and support coverage. After purchase, support can review tracking, payment status, listing evidence, and account context.",
-  "publicPresence.faq.safety.question": "How will purchases be protected?",
+    "Before payment, checkout shows item details, account signals, shipping, return eligibility, and support coverage. After purchase, support can review tracking, payment status, listing evidence, and account context.",
+  "publicPresence.faq.safety.question": "How are purchases protected?",
   "publicPresence.faq.shipping.answer":
-    "Checkout should show shipping method, estimate, same-account bundle effects, and 5% of item value earned toward shipping before payment. Accounts that accept offers should earn a 5% shipping rebate.",
-  "publicPresence.faq.shipping.question": "How will shipping work?",
-  "publicPresence.faq.title": "Questions before launch",
+    "Checkout shows shipping method, estimate, same-account bundle effects, and 5% of item value earned toward shipping before payment. Accounts that accept offers earn a 5% shipping rebate.",
+  "publicPresence.faq.shipping.question": "How does shipping work?",
+  "publicPresence.faq.title": "Marketplace questions",
   "publicPresence.footer.description":
-    "Chase Sets is in prelaunch. Public policies cover privacy, support, and the intended marketplace model; final checkout, fee, return, and payout terms will be published before live transactions open.",
+    "Chase Sets is in prelaunch. Public policies cover privacy, support, marketplace availability, checkout, fees, refunds, returns, and order protection while public checkout remains gated.",
   "publicPresence.footer.title": "Chase Sets prelaunch",
   "publicPresence.home.buying.point.cart": "Earn 5% of item value toward shipping on every order.",
   "publicPresence.home.buying.point.pricing":
@@ -93,7 +93,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.economics.description":
     "The marketplace is designed to protect seller margin first, then make buyer totals clear enough for small-card orders to convert.",
   "publicPresence.home.economics.fees.description":
-    "Marketplace sales fee expectations are intended to be visible before inventory goes live, so margins are easier to reason about.",
+    "Marketplace sales fee expectations are visible before inventory goes live, so margins are easier to reason about.",
   "publicPresence.home.economics.fees.title": "Predictable fee snapshots",
   "publicPresence.home.economics.lowValue.description":
     "Chase Sets is focused on the broad collectible inventory that needs different economics than one-off premium singles.",
@@ -164,7 +164,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.stickyCta.label": "Early access eligibility",
   "publicPresence.home.betaFee.badge": "Founding seller fee lock",
   "publicPresence.home.betaFee.description":
-    "Listings created during beta are planned to keep 0% seller fees until sold. If a listing is changed after beta ends, the current fee schedule applies before it goes live again.",
+    "Listings created during beta keep 0% seller fees until sold. If a listing is changed after beta ends, the current fee schedule applies before it goes live again.",
   "publicPresence.home.betaFee.lock": "Until sold",
   "publicPresence.home.betaFee.lockLabel": "Locked while unchanged",
   "publicPresence.home.betaFee.rate": "0%",
@@ -224,7 +224,7 @@ export const publicPresenceEnglishTranslations = {
     "No separate seller payment-processing fee like 2.9% plus $0.30.",
   "publicPresence.home.sellerEconomics.lock.title": "Create during beta. Keep the seller fee lock.",
   "publicPresence.home.sellerEconomics.math.description":
-    "Example for a beta-created listing before shipping, taxes, rebates, or future listing changes.",
+    "Example for a beta-created listing before shipping, taxes, rebates, or later listing changes.",
   "publicPresence.home.sellerEconomics.math.item": "Buyer item price",
   "publicPresence.home.sellerEconomics.math.item.value": "$10.00",
   "publicPresence.home.sellerEconomics.math.processingFee": "Seller payment-processing fee",
@@ -241,7 +241,7 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.trust.description":
     "Chase Sets is still prelaunch. The trust proof available now is public policy clarity, visible support, no live transaction pressure, and payment plans that keep totals visible before money moves.",
   "publicPresence.home.trust.payment.description":
-    "Payments are planned around secure provider-backed flows and visible totals before money moves.",
+    "Payments use secure provider-backed flows and visible totals before money moves.",
   "publicPresence.home.trust.payment.title": "Payment clarity",
   "publicPresence.home.trust.policies.description":
     "Prelaunch terms, privacy, refund, return, order protection, and marketplace sales fee pages are public.",
@@ -271,95 +271,95 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.home.workflowImageAlt":
     "Three marketplace workflow panels showing organized card inventory, pricing review, and shipping preparation.",
   "publicPresence.info.buyerProtection.description":
-    "The intended order protection model focuses on visible totals, payment clarity, order traceability, and support paths.",
+    "Order protection focuses on visible totals, payment clarity, order traceability, and support paths from checkout through delivery.",
   "publicPresence.info.buyerProtection.eyebrow": "Trust",
   "publicPresence.info.buyerProtection.help.body":
-    "If a future order needs help, Chase Sets intends to provide support paths that can review order, payment, shipment, and account context.",
+    "If an order needs help, Chase Sets support can review order, payment, shipment, and account context before a resolution is applied.",
   "publicPresence.info.buyerProtection.help.title": "Support path",
   "publicPresence.info.buyerProtection.orders.body":
-    "Orders are intended to show the product, account selling in this order, item price, shipping, shipping credit, Marketplace Checkout Fee, order protection, and fulfillment state before and after payment.",
+    "Orders show the product, account selling in the order, item price, shipping, shipping credit, Marketplace Checkout Fee, order protection, and fulfillment state before and after payment.",
   "publicPresence.info.buyerProtection.orders.title": "Order visibility",
   "publicPresence.info.buyerProtection.payment.body":
-    "Payments are planned to run through secure provider-backed checkout flows with final totals visible before confirmation. Lower-cost payment methods may reduce buyer-side order processing when available.",
+    "Payments run through secure provider-backed checkout flows with final totals visible before confirmation. Lower-cost payment methods may reduce buyer-side order processing when available.",
   "publicPresence.info.buyerProtection.payment.title": "Protected payment",
   "publicPresence.info.buyerProtection.title": "Order Protection",
   "publicPresence.info.contact.description":
-    "Use the public support email for prelaunch, account review, partnership, and customer questions.",
+    "Use the public support email for early access, account review, partnership, marketplace policy, and customer questions.",
   "publicPresence.info.contact.eyebrow": "Support",
   "publicPresence.info.contact.status.body":
-    "Chase Sets is in prelaunch and is not yet processing live marketplace transactions.",
+    "Public marketplace checkout opens only after production promotion approval. Support can answer access, account, policy, and partnership questions before and after that gate opens.",
   "publicPresence.info.contact.status.title": "Current status",
   "publicPresence.info.contact.support.body":
     "Email support@chasesets.com for Chase Sets support and business review questions.",
   "publicPresence.info.contact.support.title": "Customer service",
   "publicPresence.info.contact.title": "Contact Chase Sets",
   "publicPresence.info.faq.description":
-    "These answers explain the beta fee lock, order processing, launch timing, and what buyers and sellers can expect next.",
+    "These answers explain marketplace availability, the beta fee lock, order processing, shipping, and what buyers and sellers can expect.",
   "publicPresence.info.faq.eyebrow": "FAQ",
   "publicPresence.info.faq.title": "Frequently Asked Questions",
   "publicPresence.info.privacy.collect.body":
-    "The prelaunch waitlist collects email, account intent, selected interests, consent timestamp, and basic source attribution such as referrer and UTM values.",
+    "Chase Sets collects email, account intent, selected interests, consent timestamp, and basic source attribution such as referrer and UTM values when visitors request early access.",
   "publicPresence.info.privacy.collect.title": "Information collected",
   "publicPresence.info.privacy.control.body":
-    "Contact support@chasesets.com to ask about waitlist information or request removal from prelaunch updates.",
+    "Contact support@chasesets.com to ask about public-site information, early access records, or removal from product updates.",
   "publicPresence.info.privacy.control.title": "Your choices",
   "publicPresence.info.privacy.description":
-    "This plain-language prelaunch privacy notice explains what Chase Sets collects before launch.",
+    "This plain-language privacy notice explains what Chase Sets collects on the public site and early access surfaces.",
   "publicPresence.info.privacy.eyebrow": "Privacy",
   "publicPresence.info.privacy.title": "Privacy Policy",
   "publicPresence.info.privacy.use.body":
     "Chase Sets uses waitlist information to understand early demand, prioritize early access, and send product updates when consent is provided.",
   "publicPresence.info.privacy.use.title": "How it is used",
   "publicPresence.info.refunds.description":
-    "No live marketplace transactions are available yet; this page explains the intended refund and return approach.",
+    "Refund and return handling is tied to order status, payment outcome, shipment progress, and support review.",
   "publicPresence.info.refunds.eyebrow": "Policy",
   "publicPresence.info.refunds.future.body":
-    "When transactions launch, Chase Sets intends to make return eligibility, dispute paths, payment outcomes, and support contact visible before and after checkout.",
-  "publicPresence.info.refunds.future.title": "Future marketplace model",
+    "Return eligibility, dispute paths, payment outcomes, and support contact stay visible before and after checkout so accounts can understand the path before money moves.",
+  "publicPresence.info.refunds.future.title": "Marketplace model",
   "publicPresence.info.refunds.prelaunch.body":
-    "Because Chase Sets is prelaunch, there are currently no marketplace purchases, charges, refunds, or returns available through the public site.",
-  "publicPresence.info.refunds.prelaunch.title": "Prelaunch status",
+    "Marketplace checkout opens only after production promotion approval. Until then, the public site does not create purchases, charges, refunds, or returns.",
+  "publicPresence.info.refunds.prelaunch.title": "Current availability",
   "publicPresence.info.refunds.support.body":
-    "For questions about future refund or return handling, contact support@chasesets.com.",
+    "For questions about refund or return handling, contact support@chasesets.com.",
   "publicPresence.info.refunds.support.title": "Support",
   "publicPresence.info.refunds.title": "Refunds and returns",
   "publicPresence.info.sellerFees.description":
     "Chase Sets is designed to protect early trading card seller margin with beta fee locks, no separate seller payment-processing fee, and fee snapshots before inventory goes live.",
   "publicPresence.info.sellerFees.eyebrow": "Economics",
   "publicPresence.info.sellerFees.buyerVisibility.body":
-    "Buyer-side marketplace costs are expected to remain visible before payment. The seller-fee promise should not create surprise checkout math; listings, order processing, shipping credit, and support context need to stay close to the payment decision.",
+    "Buyer-side marketplace costs remain visible before payment. The seller-fee promise should not create surprise checkout math; listings, order processing, shipping credit, and support context stay close to the payment decision.",
   "publicPresence.info.sellerFees.buyerVisibility.title": "Buyer-side cost visibility",
   "publicPresence.info.sellerFees.founders.body":
     "The earliest qualified beta accounts can receive Founding Account badge eligibility and access to the founders circle on Discord. Seller feedback from that circle helps pressure test low-value card economics before fees expand beyond beta terms.",
   "publicPresence.info.sellerFees.founders.title": "Founder feedback loop",
   "publicPresence.info.sellerFees.lowValue.body":
-    "The marketplace is being designed around better margins for bulk cards, raw cards, graded cards, chase cards, and collectible inventory at every price point. Removing separate seller payment-processing fees is especially important for low-value cards.",
+    "The marketplace is designed around better margins for bulk cards, raw cards, graded cards, chase cards, and collectible inventory at every price point. Removing separate seller payment-processing fees is especially important for low-value cards.",
   "publicPresence.info.sellerFees.lowValue.title": "Marketplace margins",
   "publicPresence.info.sellerFees.predictable.body":
-    "Listings created during beta are planned to keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees such as 2.9% plus $0.30 to sellers.",
+    "Listings created during beta keep a 0% seller fee until sold, as long as the listing is not changed after beta ends. Chase Sets also does not pass separate seller payment-processing fees such as 2.9% plus $0.30 to sellers.",
   "publicPresence.info.sellerFees.predictable.title": "0% beta seller fee lock",
   "publicPresence.info.sellerFees.prelaunch.body":
-    "Final public fee schedules will be published before live transactions are enabled and before the beta period ends. If a beta listing is changed after beta ends, the current fee schedule applies before it goes live again.",
-  "publicPresence.info.sellerFees.prelaunch.title": "Post-beta fee status",
+    "Public marketplace checkout opens only after production promotion approval. If a beta listing is changed after beta ends, the current fee schedule applies before it goes live again.",
+  "publicPresence.info.sellerFees.prelaunch.title": "Marketplace availability",
   "publicPresence.info.sellerFees.questions.body":
-    "Contact support@chasesets.com before listing if beta fee-lock rules, future listing changes, payout readiness, or marketplace costs are unclear.",
+    "Contact support@chasesets.com before listing if beta fee-lock rules, listing changes, payout readiness, or marketplace costs are unclear.",
   "publicPresence.info.sellerFees.questions.title": "Questions before listing",
   "publicPresence.info.sellerFees.title": "Marketplace sales fees",
   "publicPresence.info.terms.accounts.body":
-    "Future accounts are expected to support buying and selling activity from one account model, subject to permissions, payout readiness, and marketplace policies.",
+    "Accounts can support buying and selling activity from one account model, subject to permissions, payout readiness, and marketplace policies.",
   "publicPresence.info.terms.accounts.title": "Accounts",
   "publicPresence.info.terms.contact.body":
-    "Contact support@chasesets.com with questions about these public terms or prelaunch access.",
+    "Contact support@chasesets.com with questions about these public terms or early access.",
   "publicPresence.info.terms.contact.title": "Contact",
   "publicPresence.info.terms.description":
-    "These plain-language prelaunch terms explain the current public site and intended marketplace direction.",
+    "These plain-language terms explain the public site, early access, and marketplace operating model.",
   "publicPresence.info.terms.eyebrow": "Terms",
   "publicPresence.info.terms.marketplace.body":
-    "Before live transactions open, Chase Sets will publish clearer operating terms for beta fee-lock eligibility, listing changes, offers, checkout, Marketplace Checkout Fee, fulfillment, reviews, fees, and payouts.",
+    "Marketplace terms cover beta fee-lock eligibility, listing changes, offers, checkout, Marketplace Checkout Fee, fulfillment, reviews, fees, and payouts. Public marketplace checkout opens only after production promotion approval.",
   "publicPresence.info.terms.marketplace.title": "Marketplace terms",
   "publicPresence.info.terms.prelaunch.body":
-    "The public site currently explains Chase Sets and collects waitlist interest. It does not yet provide live marketplace transactions.",
-  "publicPresence.info.terms.prelaunch.title": "Prelaunch use",
+    "The public site explains Chase Sets and collects early access interest. Marketplace checkout, listing, payment, fulfillment, review, and payout workflows require account access and are gated until production promotion approval.",
+  "publicPresence.info.terms.prelaunch.title": "Current availability",
   "publicPresence.info.terms.title": "Terms of service",
   "publicPresence.nav.browse": "Browse",
   "publicPresence.nav.buyerProtection": "Order Protection",
@@ -477,26 +477,29 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.routes.admin.promoBar.meta.title": "Promo Bar | Experience Admin",
   "publicPresence.routes.admin.waitlist.meta.title": "Waitlist | Experience Admin",
   "publicPresence.routes.buyerProtection.meta.description":
-    "Read the intended Chase Sets order protection model before launch.",
+    "Read the Chase Sets order protection model for checkout, payment clarity, order traceability, and support.",
   "publicPresence.routes.buyerProtection.meta.title": "Order Protection | Chase Sets",
   "publicPresence.routes.contact.meta.description": "Contact Chase Sets at support@chasesets.com.",
   "publicPresence.routes.contact.meta.title": "Contact | Chase Sets",
   "publicPresence.routes.faq.meta.description":
-    "Answers about Chase Sets launch timing, beta seller fees, order processing, shipping, and safety.",
+    "Answers about Chase Sets marketplace availability, beta seller fees, order processing, shipping, and safety.",
   "publicPresence.routes.faq.meta.title": "FAQ | Chase Sets",
   "publicPresence.routes.home.meta.description":
     "Request Chase Sets early access for the seller beta: 0% seller fee locks, no separate seller payment-processing fee, Founding Account badge eligibility, and buyer-visible delivered totals.",
   "publicPresence.routes.home.meta.title": "Chase Sets Seller Beta Early Access | Trading Card Marketplace",
   "publicPresence.routes.home.waitlist.failed":
     "We could not request early access. Please check the form and try again.",
-  "publicPresence.routes.privacy.meta.description": "Read the Chase Sets prelaunch privacy policy.",
+  "publicPresence.routes.privacy.meta.description":
+    "Read the Chase Sets privacy policy for public-site and early access data.",
   "publicPresence.routes.privacy.meta.title": "Privacy | Chase Sets",
-  "publicPresence.routes.refunds.meta.description": "Read the Chase Sets prelaunch refunds and returns policy.",
+  "publicPresence.routes.refunds.meta.description":
+    "Read the Chase Sets refunds and returns policy for marketplace orders.",
   "publicPresence.routes.refunds.meta.title": "Refunds And Returns | Chase Sets",
   "publicPresence.routes.sellerFees.meta.description":
-    "Review Chase Sets beta seller fee locks, no separate seller payment-processing fee, and prelaunch marketplace fee terms for trading card sellers.",
+    "Review Chase Sets beta seller fee locks, no separate seller payment-processing fee, and marketplace fee terms for trading card sellers.",
   "publicPresence.routes.sellerFees.meta.title": "Beta Seller Fees for Trading Cards | Chase Sets",
-  "publicPresence.routes.terms.meta.description": "Read the Chase Sets prelaunch terms of service.",
+  "publicPresence.routes.terms.meta.description":
+    "Read the Chase Sets terms of service for public-site access and marketplace workflows.",
   "publicPresence.routes.terms.meta.title": "Terms | Chase Sets",
   "publicPresence.waitlist.badge": "Early access",
   "publicPresence.waitlist.compactDescription": "Prelaunch only. No buying, listing, or payment required.",
@@ -519,7 +522,7 @@ export const publicPresenceEnglishTranslations = {
     "Tell us your marketplace intent and first priority so invites reach the right accounts first.",
   "publicPresence.waitlist.formTitle": "Request early access",
   "publicPresence.waitlist.heroPromise":
-    "Prelaunch only: no live transactions yet. Request email-consented early access updates; final checkout, return, fee, and payout terms will be published before payments open.",
+    "Prelaunch only: no live transactions yet. Request email-consented early access updates while public checkout remains gated.",
   "publicPresence.waitlist.heroTitle": "Request early access",
   "publicPresence.waitlist.interest.bulkListing": "Bulk listing",
   "publicPresence.waitlist.interest.bulkListing.description": "Listing many cards without one-by-one setup.",
@@ -556,9 +559,9 @@ export const publicPresenceEnglishTranslations = {
   "publicPresence.waitlist.title": "Get notified when Chase Sets early access opens",
   "publicPresence.waitlist.trust.noTransactions": "No live marketplace transactions are available during prelaunch.",
   "publicPresence.waitlist.trust.policies":
-    "Public policies explain the intended marketplace model before checkout opens.",
+    "Public policies explain marketplace availability, checkout, fees, refunds, returns, and order protection while checkout is gated.",
   "publicPresence.waitlist.trust.review":
-    "Checkout, fee-lock, order processing, return, and payout terms will be published before live payments.",
+    "Checkout, fee-lock, order processing, return, and payout terms are visible before live payments.",
   "publicPresence.waitlist.trust.support": "Support contact is visible for prelaunch questions.",
   "publicPresence.waitlist.trust.title": "Before launch",
   "publicPresence.waitlist.website": "Website",
