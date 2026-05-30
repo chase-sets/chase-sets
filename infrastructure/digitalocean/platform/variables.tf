@@ -122,6 +122,28 @@ variable "production_fulfillment_postage_reference" {
   }
 }
 
+variable "production_transactional_email_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit Notifications evidence gate that production transactional email DNS, controlled sends, outbox delivery, bounce/complaint handling, and critical templates are approved before production marketplace promotion."
+
+  validation {
+    condition     = var.environment == "production" || var.production_transactional_email_approved == false
+    error_message = "production_transactional_email_approved may only be true for production."
+  }
+}
+
+variable "production_transactional_email_reference" {
+  type        = string
+  default     = ""
+  description = "Notifications-owned evidence reference for approved production transactional email readiness, such as an Amazon SES production rehearsal record or launch review ticket."
+
+  validation {
+    condition     = !var.production_transactional_email_approved || trimspace(var.production_transactional_email_reference) != ""
+    error_message = "production_transactional_email_reference is required when production_transactional_email_approved is true."
+  }
+}
+
 variable "production_tax_readiness_approved" {
   type        = bool
   default     = false

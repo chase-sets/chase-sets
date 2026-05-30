@@ -91,3 +91,20 @@ Before enabling SES in a shared environment:
 Before setting `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production must pass the same SES checks. Marketplace launch depends on transactional email for sign-in, account security, order, payment, fulfillment, refund, support, and payout notices; a `noop` production provider is acceptable only while production remains landing/admin-support.
 
 Provider bounces, complaints, and delivery notifications should flow through SES/SNS into the provider webhook inbox path before tightening DMARC policy or broadening email volume.
+
+## Production SES Proof
+
+Before production marketplace promotion, Notifications must approve transactional email readiness with `PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED=true` and a non-empty `PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE` in the production GitHub Environment. The reference must point to the Notifications-owned rehearsal record. Keep approval unset while production remains landing/admin-support only or until every production Amazon SES proof below is complete.
+
+The rehearsal record must include:
+
+1. The production SES identity for `chasesets.com` is verified and Easy DKIM, custom MAIL FROM MX/TXT, SPF, and DMARC records resolve from authoritative DNS.
+2. The production GitHub Environment has `NOTIFICATION_EMAIL_PROVIDER=amazon-ses` plus complete `SES_AWS_REGION`, `SES_AWS_ACCESS_KEY_ID`, `SES_AWS_SECRET_ACCESS_KEY`, `SES_FROM_EMAIL`, `SES_CONFIGURATION_SET_NAME`, and `SES_SOURCE_ARN` values.
+3. Production deploy validation and `platform-worker` health pass with the SES configuration active.
+4. Controlled sends prove the transactional outbox marks provider delivery `sent` with provider `amazon-ses` and stores the SES message id.
+5. SES/SNS bounce and complaint notifications are parsed into the provider webhook inbox path, with at least one controlled bounce and one controlled complaint or provider-simulated equivalent attached to the evidence record.
+6. Critical marketplace templates are verified for magic link, account security, order, payment, fulfillment, refund, support, and payout notices.
+7. Delivery monitoring is ready: SES configuration set events, bounce/complaint alert ownership, and the DMARC policy posture are documented before broadening email volume.
+8. Operator rollback is documented: if production email proof fails after marketplace promotion, set `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` and redeploy while preserving outbox rows, provider message ids, and SES notification payloads for investigation.
+
+Do not commit live emails, recipient addresses, provider message ids tied to private recipients, IAM keys, or SES console screenshots to the repository. Store the evidence in the approved launch record and reference it with `PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE`.
