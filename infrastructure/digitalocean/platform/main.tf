@@ -47,6 +47,17 @@ check "production_marketplace_launch_approval" {
   }
 }
 
+check "production_marketplace_checkout_fee_approval" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_marketplace_checkout_fee_approved &&
+      trimspace(var.production_marketplace_checkout_fee_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved Marketplace Checkout Fee evidence before live checkout."
+  }
+}
+
 check "production_tax_readiness" {
   assert {
     condition = !var.production_marketplace_public_enabled || (

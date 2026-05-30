@@ -163,6 +163,14 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformVariables).toContain(
       "production_marketplace_promotion_reference is required when production_marketplace_promotion_approved is true.",
     );
+    expect(platformVariables).toContain('variable "production_marketplace_checkout_fee_approved"');
+    expect(platformVariables).toContain(
+      "production_marketplace_checkout_fee_approved may only be true for production.",
+    );
+    expect(platformVariables).toContain('variable "production_marketplace_checkout_fee_reference"');
+    expect(platformVariables).toContain(
+      "production_marketplace_checkout_fee_reference is required when production_marketplace_checkout_fee_approved is true.",
+    );
     expect(platformVariables).toContain('variable "production_tax_readiness_approved"');
     expect(platformVariables).toContain("production_tax_readiness_approved may only be true for production.");
     expect(platformVariables).toContain('variable "production_tax_readiness_reference"');
@@ -185,6 +193,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires approved launch evidence before deploying the public marketplace."',
     );
+    expect(platformMain).toContain('check "production_marketplace_checkout_fee_approval"');
+    expect(platformMain).toContain("var.production_marketplace_checkout_fee_approved");
+    expect(platformMain).toContain(
+      'error_message = "Production marketplace promotion requires approved Marketplace Checkout Fee evidence before live checkout."',
+    );
     expect(platformMain).toContain('check "production_tax_readiness"');
     expect(platformMain).toContain("var.production_tax_readiness_approved");
     expect(platformMain).toContain(
@@ -202,6 +215,12 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_marketplace_checkout_fee_approved: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_marketplace_checkout_fee_reference: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}",
     );
     expect(platformProductionWorkflow).toContain(
@@ -209,6 +228,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain("Production marketplace promotion requires Stripe live-mode keys.");
     expect(platformProductionWorkflow).toContain("Production marketplace promotion requires approved launch evidence.");
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace promotion requires approved Marketplace Checkout Fee evidence.",
+    );
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved Tax readiness evidence.",
     );

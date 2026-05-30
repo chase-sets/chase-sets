@@ -56,6 +56,28 @@ variable "production_marketplace_promotion_reference" {
   }
 }
 
+variable "production_marketplace_checkout_fee_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit Payments evidence gate that Marketplace Checkout Fee buyer-facing copy, refund language, state-specific disclosures, and provider posture are approved before production marketplace promotion."
+
+  validation {
+    condition     = var.environment == "production" || var.production_marketplace_checkout_fee_approved == false
+    error_message = "production_marketplace_checkout_fee_approved may only be true for production."
+  }
+}
+
+variable "production_marketplace_checkout_fee_reference" {
+  type        = string
+  default     = ""
+  description = "Payments-owned evidence reference for approved Marketplace Checkout Fee launch posture, such as a counsel/provider approval ticket or fee-policy launch review record."
+
+  validation {
+    condition     = !var.production_marketplace_checkout_fee_approved || trimspace(var.production_marketplace_checkout_fee_reference) != ""
+    error_message = "production_marketplace_checkout_fee_reference is required when production_marketplace_checkout_fee_approved is true."
+  }
+}
+
 variable "production_tax_readiness_approved" {
   type        = bool
   default     = false
