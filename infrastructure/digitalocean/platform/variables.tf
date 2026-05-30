@@ -78,6 +78,28 @@ variable "production_marketplace_checkout_fee_reference" {
   }
 }
 
+variable "production_stripe_money_operations_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit Payments and Settlement evidence gate that Stripe live checkout, refunds, disputes, Connect onboarding, payouts, webhooks, platform balance funding, Radar/risk, and reconciliation are approved before production marketplace promotion."
+
+  validation {
+    condition     = var.environment == "production" || var.production_stripe_money_operations_approved == false
+    error_message = "production_stripe_money_operations_approved may only be true for production."
+  }
+}
+
+variable "production_stripe_money_operations_reference" {
+  type        = string
+  default     = ""
+  description = "Payments and Settlement evidence reference for approved Stripe live money operations readiness, such as a live-mode rehearsal record or Finance/Operations launch review ticket."
+
+  validation {
+    condition     = !var.production_stripe_money_operations_approved || trimspace(var.production_stripe_money_operations_reference) != ""
+    error_message = "production_stripe_money_operations_reference is required when production_stripe_money_operations_approved is true."
+  }
+}
+
 variable "production_support_operations_approved" {
   type        = bool
   default     = false

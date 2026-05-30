@@ -33,7 +33,7 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 ## Launch Readiness
 
 - Required environment: `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, Connect onboarding return URL, and Connect onboarding refresh URL.
-- Production marketplace launch additionally requires `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true`, a `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE` pointing to the final launch review record, `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED=true`, a `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE` pointing to the Payments fee approval record, `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, approved Tax readiness evidence, Stripe live-mode keys, production Connect return and refresh URLs on `https://marketplace.chasesets.com`, EasyPost production mode, and complete Amazon SES transactional email configuration. Tax readiness may approve a no-provider launch only while state-by-state nexus tracking shows no jurisdiction requires collection; set `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true` before collecting sales tax in any jurisdiction. Keep the public switch off while production remains landing/admin-support only.
+- Production marketplace launch additionally requires `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true`, a `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE` pointing to the final launch review record, `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED=true`, a `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE` pointing to the Payments fee approval record, `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED=true`, a `PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE` pointing to the live Stripe money operations record, `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, approved Tax readiness evidence, Stripe live-mode keys, production Connect return and refresh URLs on `https://marketplace.chasesets.com`, EasyPost production mode, and complete Amazon SES transactional email configuration. Tax readiness may approve a no-provider launch only while state-by-state nexus tracking shows no jurisdiction requires collection; set `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true` before collecting sales tax in any jurisdiction. Keep the public switch off while production remains landing/admin-support only.
 - `STRIPE_API_BASE_URL` is optional and should normally be unset outside adapter tests or controlled sandbox endpoints.
 - Money Health must show provider diagnostics, platform balance forecast, payout issues, and reconciliation history.
 - Payout Operations must show recent provider idempotency keys.
@@ -149,6 +149,22 @@ Stripe Dashboard checks:
 - Create a test checkout and confirm the internal payment id appears in Stripe Checkout Session and PaymentIntent metadata.
 - Request a payout and confirm Stripe shows a transfer with transfer group `payout:<internal payout id>` followed by a connected-account payout.
 - Replay the same webhook event from the Stripe Dashboard and confirm the API reports it as ignored without duplicate ledger entries.
+
+## Production Stripe Money Operations Proof
+
+Set `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED=true` only after the production GitHub Environment has live-mode Stripe keys, production Connect URLs, and a non-empty `PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE` pointing to the approved launch evidence record. Keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` until this record and every other production gate are complete.
+
+The evidence record must include:
+
+- Stripe account and Dashboard posture: API version `2026-02-25.clover`, live-mode keys scoped to production, Connect enabled for Accounts v2 recipient onboarding, manual payout schedules, webhook endpoints registered on production domains, Radar/Radar for Platforms rules reviewed, and no `STRIPE_API_BASE_URL` override unless an approved provider endpoint exception exists.
+- Live checkout proof: a controlled production checkout or provider-approved live-mode rehearsal showing internal payment id metadata on the Checkout Session and PaymentIntent, successful authorization/capture mapping into Payments, correct Marketplace Checkout Fee allocation, and no raw card data stored in Chase Sets.
+- Refund and dispute proof: at least one controlled refund path, replay-safe refund webhook handling, `charge.dispute.created` coverage, and Finance-owned accounting notes for partial refunds, lost disputes, and recovered disputes.
+- Connect onboarding proof: hosted onboarding/account-management URLs on `https://marketplace.chasesets.com`, requirement/readiness refresh, account/readiness webhook handling, and provider-neutral readiness status shown to the account.
+- Payout proof: payout preview, platform balance forecast, transfer with transfer group `payout:<internal payout id>`, connected-account payout creation, `payout.paid`, `payout.failed`, failure reversal, and idempotent retry evidence.
+- Reconciliation proof: payment reconciliation, payout reconciliation, duplicate provider webhook replay, provider event inbox idempotency, and ledger entries matching provider balances and wallet timelines.
+- Operations proof: Money Health, Payout Operations, support escalation, platform balance funding, provider outage rollback, and disabled/frozen payout actions rehearsed with named operators.
+
+Do not commit live payment IDs tied to private buyers, connected-account IDs tied to real sellers, card/bank details, webhook signatures, Stripe payload bodies, Dashboard screenshots with sensitive account data, or secret values. Store redacted evidence in the external launch record referenced by `PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE`.
 
 ## Ownership
 

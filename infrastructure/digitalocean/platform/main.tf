@@ -58,6 +58,17 @@ check "production_marketplace_checkout_fee_approval" {
   }
 }
 
+check "production_stripe_money_operations_readiness" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_stripe_money_operations_approved &&
+      trimspace(var.production_stripe_money_operations_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved Stripe money operations evidence before live payments and payouts."
+  }
+}
+
 check "production_support_operations_readiness" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
