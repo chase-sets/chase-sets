@@ -1,7 +1,7 @@
 import type { TaxQuoteResolver } from "@chase-sets/tax/server";
 
 export const productionTaxQuoteProviderMissingMessage =
-  "Production tax quote provider is not configured. Keep PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false until Tax readiness is approved and a provider-backed TaxQuoteResolver is composed.";
+  "TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true but no production tax quote provider is configured. Compose a provider-backed TaxQuoteResolver before collecting sales tax, or set the flag false only if Tax readiness confirms no jurisdiction requires collection.";
 
 export function createProductionTaxQuoteResolverBlocker(): TaxQuoteResolver {
   return {
@@ -11,6 +11,9 @@ export function createProductionTaxQuoteResolverBlocker(): TaxQuoteResolver {
   };
 }
 
-export function shouldBlockProductionTaxQuotes(deploymentEnvironment: string | null | undefined) {
-  return deploymentEnvironment === "production";
+export function shouldBlockProductionTaxQuotes(
+  deploymentEnvironment: string | null | undefined,
+  providerBackedQuotesRequired: boolean,
+) {
+  return deploymentEnvironment === "production" && providerBackedQuotesRequired;
 }
