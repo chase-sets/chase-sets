@@ -226,6 +226,17 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
     }
   });
 
+  app.get("/checkout/saved-instruments", async (c) => {
+    const access = requirePaymentAccess(c, "orders.view", {
+      allowGuestCheckout: true,
+    });
+    if (access.response) {
+      return access.response;
+    }
+
+    return c.json({ items: [] });
+  });
+
   app.get("/marketplace-checkout-fee-policy", async (c) => {
     const access = requirePaymentAccess(c, "orders.view", {
       allowGuestCheckout: true,

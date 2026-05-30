@@ -155,7 +155,7 @@ describe("checkout session page", () => {
     expect(markup).toContain("Product intent saved for live fulfillment preview");
     expect(markup).toContain("Marketplace checkout fee");
     expect(markup).toContain("Reviewed before payment");
-    expect(markup).toContain("Create purchases and continue to secure payment");
+    expect(markup).toContain("Review latest total");
     expect(markup).toContain("Delivery estimate");
     expect(markup).toContain("Payment review comes next");
     expect(markup).not.toContain("lst_card_vault");

@@ -10,7 +10,11 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
-import { createPaymentsRequestApiClient, type PaymentsCheckoutStatus } from "@chase-sets/payments/server";
+import {
+  createPaymentsRequestApiClient,
+  type PaymentsCheckoutStatus,
+  type PaymentsSavedCheckoutInstrument,
+} from "@chase-sets/payments/server";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
 
@@ -256,6 +260,21 @@ async function loadFulfillmentPreview(
   }
 }
 
+async function loadSavedCheckoutInstruments(
+  request: Request,
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+): Promise<readonly PaymentsSavedCheckoutInstrument[]> {
+  if (!actor || actor.roleKey === "guest-buyer") {
+    return [];
+  }
+
+  try {
+    return (await createPaymentsRequestApiClient(request).listSavedCheckoutInstruments()).items;
+  } catch {
+    return [];
+  }
+}
+
 async function loadPaymentPreview(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
@@ -306,8 +325,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
   const wallet = actor && actor.roleKey !== "guest-buyer" ? await loadWalletBalance(request) : null;
   const savedShippingAddresses = await loadSavedShippingAddresses(request, actor);
+  const savedCheckoutInstruments = await loadSavedCheckoutInstruments(request, actor);
   const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(request, session);
-  const selectedPaymentMethodCategory = new URL(request.url).searchParams.get("paymentMethodCategory") ?? "card";
+  const searchParams = new URL(request.url).searchParams;
+  const selectedPaymentMethodCategory = searchParams.get("paymentMethodCategory") ?? "card";
   const paymentPreview = await loadPaymentPreview(
     request,
     actor,
@@ -322,6 +343,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     paymentPreview,
     selectedPaymentMethodCategory,
     savedShippingAddresses,
+    savedCheckoutInstruments,
     canManageShippingAddresses: Boolean(
       actor &&
       actor.roleKey !== "guest-buyer" &&
@@ -330,7 +352,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     ),
     fulfillmentPreview,
     previewError,
-    reviewRefreshed: new URL(request.url).searchParams.get("review") === "updated",
+    reviewRefreshed: searchParams.get("review") === "updated",
+    paymentQuoteRequired: searchParams.get("quote") === "required",
   };
 }
 
@@ -375,6 +398,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
       );
       const reviewedShippingOption = normalizeText(formData.get("reviewedShippingOption"));
       const reviewedShippingAddressSignature = normalizeText(formData.get("reviewedShippingAddressSignature"));
+      const marketplaceCheckoutFeeQuoteFingerprint =
+        String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null;
+      const session =
+        typeof api.getCheckoutSession === "function" ? await api.getCheckoutSession(params.sessionId) : null;
+      const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
       const visibleReviewChanged =
         visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
         (reviewedShippingOption !== null &&
@@ -382,12 +410,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
         (reviewedShippingAddressSignature !== null &&
           reviewedShippingAddressSignature !== normalizedAddressSignature(shippingAddress));
 
-      if (visibleReviewChanged) {
+      const needsPaymentQuote =
+        sourceType.length > 0 &&
+        sourceType !== "offer-intent" &&
+        !marketplaceCheckoutFeeQuoteFingerprint &&
+        !session?.payment_id;
+      if (visibleReviewChanged || needsPaymentQuote) {
         await api.selectShippingAddress(params.sessionId, {
           shippingAddress,
         });
+        const quoteReason = needsPaymentQuote ? "&quote=required" : "";
         return redirect(
-          `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated`,
+          `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
         );
       }
       const result = await api.confirmCheckoutSession(params.sessionId, {
@@ -395,8 +429,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
           formData.get("requestedBalanceCreditAmount"),
         ),
         paymentMethodCategory: quotedPaymentMethodCategory,
-        marketplaceCheckoutFeeQuoteFingerprint:
-          String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null,
+        marketplaceCheckoutFeeQuoteFingerprint,
         fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
         acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
         deferPayment: Boolean(actor && actor.roleKey !== "guest-buyer"),
@@ -461,9 +494,11 @@ export default function CheckoutSessionRoute() {
       selectedPaymentMethodCategory={data.selectedPaymentMethodCategory}
       fulfillmentPreview={data.fulfillmentPreview}
       savedShippingAddresses={data.savedShippingAddresses}
+      savedCheckoutInstruments={data.savedCheckoutInstruments}
       canManageShippingAddresses={data.canManageShippingAddresses}
       errorMessage={actionData?.error ?? data.previewError ?? null}
       reviewRefreshed={data.reviewRefreshed}
+      paymentQuoteRequired={data.paymentQuoteRequired}
       isSubmitting={navigation.state === "submitting"}
     />
   );

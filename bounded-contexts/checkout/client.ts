@@ -299,8 +299,17 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async getSellListExecutionReceipt(executionId: string): Promise<CheckoutSellListReceiptRow> {
+      return parseJsonResponse(
+        await client.account["sell-list"].executions[":executionId"].$get({
+          param: { executionId },
+          header: headers,
+        }),
+      );
+    },
     async checkoutSellList(
       body: Readonly<{
+        executionId?: string;
         completedLineIds?: readonly string[];
         executionSummary?: Readonly<{
           acceptedOfferCount: number;
@@ -318,7 +327,7 @@ export function createCheckoutApiClient({
           }[];
         }> | null;
         remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
-      }> = {},
+      }>,
     ) {
       return parseJsonResponse(await client.account["sell-list"].checkout.$post({ json: body, header: headers }));
     },

@@ -58,6 +58,16 @@ Notes:
 - Stripe Shared Payment Tokens are processed through a PaymentIntent handoff and require AP2 verification before headless UCP completion.
 - Payments stores the resulting processor payment reference and metadata, not the token as durable customer payment data.
 
+## Saved Checkout Instrument
+
+A **Saved Checkout Instrument** is Payments-owned metadata for a reusable provider payment credential or token reference that Checkout can present during review without seeing raw card or bank details.
+
+Notes:
+
+- Checkout may compose Saved Checkout Instrument labels and selected payment-method category.
+- Payments owns credential readiness, provider references, confirmation requirements, and any token exchange.
+- A missing Saved Checkout Instrument keeps checkout on the trusted payment-step path.
+
 ## AP2 Mandate
 
 An **AP2 Mandate** is verifiable autonomous-payment authority that may allow a trusted agent to complete checkout without manual buyer UI confirmation.

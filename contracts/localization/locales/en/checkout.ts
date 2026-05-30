@@ -36,6 +36,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.checkout.issue": "Checkout issue",
   "checkout.features.cart.ui.cartPage.continue.to.choose.shipping.and.create":
     "Continue to choose shipping and create purchases grouped by seller.",
+  "checkout.features.cart.ui.cartPage.city": "City",
+  "checkout.features.cart.ui.cartPage.country": "Country",
   "checkout.features.cart.ui.cartPage.current.buy.cart": "Current buy cart",
   "checkout.features.cart.ui.cartPage.current.cart": "Current buy cart",
   "checkout.features.cart.ui.cartPage.decrease": "Decrease",
@@ -45,6 +47,7 @@ export const checkoutEnglishTranslations = {
     "When you add items, checkout will show seller grouping, fees, fulfillment, and support paths before payment.",
   "checkout.features.cart.ui.cartPage.empty.cart.protection.title": "Checkout protection stays visible",
   "checkout.features.cart.ui.cartPage.fulfillment.ready": "Fulfillment Ready",
+  "checkout.features.cart.ui.cartPage.fewest.shipments": "Fewest shipments",
   "checkout.features.cart.ui.cartPage.estimated.item.subtotal": "Estimated item subtotal",
   "checkout.features.cart.ui.cartPage.estimated.for.address": "Estimated for {addressLabel}",
   "checkout.features.cart.ui.cartPage.estimated.packages": "Estimated packages",
@@ -55,17 +58,24 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.shipping.tax.and.delivery": "Shipping, tax, delivery",
   "checkout.features.cart.ui.cartPage.finalized.after.address": "Finalized after address",
   "checkout.features.cart.ui.cartPage.early.landed.cost": "Early landed-cost signal",
+  "checkout.features.cart.ui.cartPage.expedited": "Expedited",
   "checkout.features.cart.ui.cartPage.known.cost.before.shipping.tax": "{amount} before shipping and tax",
   "checkout.features.cart.ui.cartPage.fallback": "Fallback",
   "checkout.features.cart.ui.cartPage.items": "Items",
   "checkout.features.cart.ui.cartPage.increase": "Increase",
   "checkout.features.cart.ui.cartPage.lowest.total.cost": "Lowest total cost",
+  "checkout.features.cart.ui.cartPage.landed.cost.preview": "Landed-cost preview",
+  "checkout.features.cart.ui.cartPage.landed.cost.preview.description":
+    "Estimate seller grouping, shipping, tax, package count, and checkout fee before starting checkout.",
   "checkout.features.cart.ui.cartPage.optimize.for": "Optimize for",
   "checkout.features.cart.ui.cartPage.payment.starts.only.after.orders.are":
     "Payment starts only after orders are grouped by seller.",
   "checkout.features.cart.ui.cartPage.pricing": "Pricing",
   "checkout.features.cart.ui.cartPage.place.offers.for.unavailable.quantity": "Place offers for unavailable quantity",
   "checkout.features.cart.ui.cartPage.product": "Product",
+  "checkout.features.cart.ui.cartPage.postal.code": "Postal code",
+  "checkout.features.cart.ui.cartPage.preview.landed.cost": "Preview landed cost",
+  "checkout.features.cart.ui.cartPage.priority.signature": "Priority signature",
   "checkout.features.cart.ui.cartPage.product.image.alt": "{title} product",
   "checkout.features.cart.ui.cartPage.products": "Products",
   "checkout.features.cart.ui.cartPage.products.description":
@@ -85,6 +95,7 @@ export const checkoutEnglishTranslations = {
     "Exact listings stay attached to this buy cart until checkout revalidates availability and seller terms.",
   "checkout.features.cart.ui.cartPage.shipping.preference.is.captured.before.order":
     "Shipping preference is captured before order creation.",
+  "checkout.features.cart.ui.cartPage.shipping.option": "Shipping option",
   "checkout.features.cart.ui.cartPage.smart.match.settings": "Smart Match settings",
   "checkout.features.cart.ui.cartPage.smart.match.settings.description":
     "Find the best listings for products in your buy cart, then fall back to offers where live supply is missing.",
@@ -96,6 +107,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.no.payment.until.totals": "No payment until shipping, tax, and fees are shown.",
   "checkout.features.cart.ui.cartPage.standard": "Standard",
   "checkout.features.cart.ui.cartPage.start.checkout": "Start checkout",
+  "checkout.features.cart.ui.cartPage.state": "State",
+  "checkout.features.cart.ui.cartPage.standard.insured": "Standard insured",
   "checkout.features.cart.ui.cartPage.update": "Update",
   "checkout.features.cart.ui.cartPage.update.quantity": "Update quantity",
   "checkout.features.cart.ui.cartPage.your.cart.is.empty": "Your buy cart is empty",
@@ -106,6 +119,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.api.route.checkout.session.not.found": "Checkout session not found.",
   "checkout.features.sessions.api.route.checkout.session.not.found.2": "Checkout session not found.",
   "checkout.features.sessions.api.route.forbidden": "Forbidden.",
+  "checkout.features.sessions.api.route.payment.quote.required":
+    "Review the latest payment quote before creating purchases.",
   "checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent":
     "Register or sign in before placing purchase intent.",
   "checkout.features.sessions.api.route.request.failed": "Request failed.",
@@ -177,6 +192,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.payable.total": "Payable total",
   "checkout.features.sessions.ui.checkoutPage.payment.ready": "Payment ready",
   "checkout.features.sessions.ui.checkoutPage.payment.ready.2": "Payment ready",
+  "checkout.features.sessions.ui.checkoutPage.payment.quote.required": "Review the latest payable total",
+  "checkout.features.sessions.ui.checkoutPage.payment.quote.required.description":
+    "Purchases are not created until the marketplace checkout fee, wallet credit, and final payable total are visible on this page.",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next": "Payment review comes next",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next.description":
     "After purchases are created, the next page shows marketplace checkout fee, payment method choices, wallet credit, and final total before payment starts.",
@@ -223,6 +241,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order":
     "Sellers can accept your purchase intent before an order and payment are created.",
   "checkout.features.sessions.ui.checkoutPage.same.seller.shipping.credit": "Same-seller shipping credit",
+  "checkout.features.sessions.ui.checkoutPage.saved.payment.instrument.ready":
+    "Payments owns saved checkout instruments",
+  "checkout.features.sessions.ui.checkoutPage.saved.payment.instrument.ready.description":
+    "When a saved provider credential is available, Checkout can use its Payments-owned token reference without handling raw card or bank details.",
   "checkout.features.sessions.ui.checkoutPage.shipping": "Shipping",
   "checkout.features.sessions.ui.checkoutPage.ships.from": "Ships from",
   "checkout.features.sessions.ui.checkoutPage.each.seller.grouped.purchase.applies.the.listing.credit":
@@ -251,6 +273,8 @@ export const checkoutEnglishTranslations = {
     "Shipping is saved for seller acceptance.",
   "checkout.features.sessions.ui.checkoutPage.your.cart.is.empty": "Your buy cart is empty",
   "checkout.features.sellList.api.route.sell.list.request.failed": "Sell List request failed.",
+  "checkout.features.sellList.api.route.sell.list.execution.receipt.not.found":
+    "Sell List execution receipt not found.",
   "checkout.features.sellList.api.route.sell.list.review.requires.seller.account":
     "Sell List review requires a seller account.",
   "checkout.features.sellList.ui.sellListPage.accept.selected.offer.during.checkout.review":
@@ -262,6 +286,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.buyer.payment.already.authorized":
     "Buyer payment already authorized by offer",
   "checkout.features.sellList.ui.sellListPage.buyer.payment.confidence": "Buyer payment confidence",
+  "checkout.features.sellList.ui.sellListPage.buyer.trust.value": "{rating} rating across {reviews} reviews",
   "checkout.features.sellList.ui.sellListPage.checked.before.commitment": "Checked before commitment",
   "checkout.features.sellList.ui.sellListPage.checkout": "Checkout",
   "checkout.features.sellList.ui.sellListPage.checkout.owns.the.review.step":
@@ -276,6 +301,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.choose.inventory": "Choose inventory",
   "checkout.features.sellList.ui.sellListPage.disabled": "disabled",
   "checkout.features.sellList.ui.sellListPage.execute.sale.checkout": "Execute sale checkout",
+  "checkout.features.sellList.ui.sellListPage.execution.id": "Execution {executionId}",
   "checkout.features.sellList.ui.sellListPage.execution": "Execution",
   "checkout.features.sellList.ui.sellListPage.accept.ready.matches.only": "Accept ready matches only",
   "checkout.features.sellList.ui.sellListPage.accept.matching.offers.only": "Accept matching offers only",
@@ -298,10 +324,13 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.listing.price": "Listing price",
   "checkout.features.sellList.ui.sellListPage.matching.offers": "Matching offers",
   "checkout.features.sellList.ui.sellListPage.matching.offer.quantity": "{quantity} ready to accept",
+  "checkout.features.sellList.ui.sellListPage.match.confidence":
+    "Ranked by seller net, fulfillment coverage, and buyer trust: {buyerTrust}; {availableQuantity} available.",
   "checkout.features.sellList.ui.sellListPage.minimum.listing.price": "Minimum listing price",
   "checkout.features.sellList.ui.sellListPage.needs.refresh": "Needs refresh",
   "checkout.features.sellList.ui.sellListPage.no.ready.matching.offers": "No ready matching offers",
   "checkout.features.sellList.ui.sellListPage.no.product.lines": "No product lines",
+  "checkout.features.sellList.ui.sellListPage.new.buyer": "New buyer",
   "checkout.features.sellList.ui.sellListPage.no.selected.offers": "No selected offers",
   "checkout.features.sellList.ui.sellListPage.product.level.smart.match.selling":
     "Product-level Smart Match selling will appear here.",
@@ -343,6 +372,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.receipt.recovery": "Recovery",
   "checkout.features.sellList.ui.sellListPage.receipt.remaining": "Remaining",
   "checkout.features.sellList.ui.sellListPage.receipt.result": "Result",
+  "checkout.features.sellList.ui.sellListPage.retry.remaining.lines": "Retry remaining lines",
+  "checkout.features.sellList.ui.sellListPage.retry.remaining.lines.description":
+    "Completed sale actions are recorded on the receipt. Any remaining lines stay in the Sell List for a fresh execution.",
   "checkout.features.sellList.ui.sellListPage.sale.review.before.commitment":
     "Review sale value, payout readiness, and fulfillment before commitment.",
   "checkout.features.sellList.ui.sellListPage.saved.for.later.description":
@@ -367,6 +399,7 @@ export const checkoutEnglishTranslations = {
     "Smart Match offers for {quantity}; fallback {fallback}.",
   "checkout.features.sellList.ui.sellListPage.smart.match.settings": "Smart Match settings",
   "checkout.features.sellList.ui.sellListPage.standard": "Standard",
+  "checkout.features.sellList.ui.sellListPage.why.this.match": "Why this match",
   "checkout.features.sellList.ui.sellListPage.your.sell.list.is.empty": "Your Sell List is empty",
   "checkout.routes.accountCart.cart.marketplace": "Buy Cart | Marketplace",
   "checkout.routes.accountCart.request.failed": "Request failed.",

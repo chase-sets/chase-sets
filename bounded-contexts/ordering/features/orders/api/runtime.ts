@@ -877,16 +877,81 @@ function addCalendarDays(date: Date, days: number) {
   return next.toISOString().slice(0, 10);
 }
 
-function deliveryEstimateForDraft(draft: SellerOrderDraft) {
-  const today = new Date();
-  const window =
+function isWeekend(date: Date) {
+  const day = date.getUTCDay();
+  return day === 0 || day === 6;
+}
+
+function addBusinessDays(date: Date, days: number) {
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  let remaining = days;
+  while (remaining > 0) {
+    next.setUTCDate(next.getUTCDate() + 1);
+    if (!isWeekend(next)) {
+      remaining -= 1;
+    }
+  }
+  return next;
+}
+
+function nextFulfillmentBusinessDay(date: Date) {
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const afterCutoff = date.getUTCHours() >= 20;
+  if (afterCutoff || isWeekend(next)) {
+    return addBusinessDays(next, 1);
+  }
+  return next;
+}
+
+function destinationRegion(address: CheckoutShippingAddressSnapshot | null | undefined) {
+  if (!address) {
+    return "destination pending";
+  }
+  return [address.city, address.state, address.country].filter((part) => part.trim().length > 0).join(", ");
+}
+
+function transitWindowForDraft(
+  draft: SellerOrderDraft,
+  shippingDestinationSnapshot: CheckoutShippingAddressSnapshot | null | undefined,
+) {
+  const base =
     draft.shippingOption === "priority"
-      ? { earliestDays: 2, latestDays: 3 }
+      ? { earliestDays: 1, latestDays: 3 }
       : draft.shippingOption === "expedited"
-        ? { earliestDays: 3, latestDays: 5 }
-        : { earliestDays: 5, latestDays: 8 };
+        ? { earliestDays: 2, latestDays: 4 }
+        : { earliestDays: 4, latestDays: 7 };
+  const originCountry = draft.shippingOriginSnapshot.country.trim().toUpperCase();
+  const destinationCountry = shippingDestinationSnapshot?.country.trim().toUpperCase() ?? originCountry;
+  const originState = draft.shippingOriginSnapshot.state.trim().toUpperCase();
+  const destinationState = shippingDestinationSnapshot?.state.trim().toUpperCase() ?? "";
+
+  if (originCountry && destinationCountry && originCountry !== destinationCountry) {
+    return { earliestDays: base.earliestDays + 2, latestDays: base.latestDays + 4, basis: "cross-border" };
+  }
+
+  if (originState && destinationState && originState === destinationState) {
+    return {
+      earliestDays: base.earliestDays,
+      latestDays: Math.max(base.earliestDays, base.latestDays - 1),
+      basis: "same-state",
+    };
+  }
+
+  return { ...base, basis: "domestic" };
+}
+
+function deliveryEstimateForDraft(
+  draft: SellerOrderDraft,
+  shippingDestinationSnapshot: CheckoutShippingAddressSnapshot | null | undefined,
+) {
+  const today = new Date();
+  const window = transitWindowForDraft(draft, shippingDestinationSnapshot);
   const packageCount = Math.max(1, draft.shippingPlanSnapshot.packageCount);
-  const handlingDays = packageCount > 1 ? 2 : 1;
+  const sellerHandlingDays = packageCount > 1 ? 2 : 1;
+  const fulfillmentStart = nextFulfillmentBusinessDay(today);
+  const cutoffDelayDays = fulfillmentStart.toISOString().slice(0, 10) === addCalendarDays(today, 0) ? 0 : 1;
+  const handlingDays = sellerHandlingDays + cutoffDelayDays;
+  const carrierHandoffDate = addBusinessDays(fulfillmentStart, sellerHandlingDays);
   const serviceLevels = [
     ...new Set(draft.shippingPlanSnapshot.packages.map((pkg) => pkg.serviceLevel.replace(/-/g, " "))),
   ];
@@ -894,10 +959,12 @@ function deliveryEstimateForDraft(draft: SellerOrderDraft) {
   const shipFromRegion = [draft.shippingOriginSnapshot.city, draft.shippingOriginSnapshot.state]
     .filter((part) => part.trim().length > 0)
     .join(", ");
+  const shipToRegion = destinationRegion(shippingDestinationSnapshot);
+  const cutoffBasis = cutoffDelayDays > 0 ? " after cutoff/weekend handoff" : " before cutoff";
 
   return {
-    earliestDate: addCalendarDays(today, handlingDays + window.earliestDays),
-    latestDate: addCalendarDays(today, handlingDays + window.latestDays),
+    earliestDate: addBusinessDays(carrierHandoffDate, window.earliestDays).toISOString().slice(0, 10),
+    latestDate: addBusinessDays(carrierHandoffDate, window.latestDays).toISOString().slice(0, 10),
     minimumTransitDays: window.earliestDays,
     maximumTransitDays: window.latestDays,
     handlingDays,
@@ -906,9 +973,9 @@ function deliveryEstimateForDraft(draft: SellerOrderDraft) {
     serviceLevel,
     basis: `${packageCount} package${packageCount === 1 ? "" : "s"} from ${
       shipFromRegion || draft.shippingOriginSnapshot.country
-    }; ${handlingDays} seller handling day${handlingDays === 1 ? "" : "s"} plus ${window.earliestDays}-${
-      window.latestDays
-    } transit days.`,
+    } to ${shipToRegion}; ${sellerHandlingDays} seller handling day${
+      sellerHandlingDays === 1 ? "" : "s"
+    }${cutoffBasis} plus ${window.earliestDays}-${window.latestDays} business transit days (${window.basis}).`,
   };
 }
 
@@ -917,6 +984,7 @@ function planToPreview(
     plan: CheckoutPlan;
     sourceLines: readonly CheckoutOrderLineSnapshot[];
     optimizationGoal: "lowest-total" | "fewest-shipments";
+    shippingDestinationSnapshot?: CheckoutShippingAddressSnapshot | null;
     unavailableLines: CheckoutFulfillmentPreview["unavailableLines"];
   }>,
 ): CheckoutFulfillmentPreview {
@@ -936,7 +1004,7 @@ function planToPreview(
     shippingChargeAmount: draft.shippingChargeAmount,
     salesTaxAmount: draft.salesTaxAmount,
     totalAmount: draft.totalAmount,
-    deliveryEstimate: deliveryEstimateForDraft(draft),
+    deliveryEstimate: deliveryEstimateForDraft(draft, params.shippingDestinationSnapshot),
     lines: draft.lines.map((line) => {
       const demandKey = buildDemandSignature(line.productId);
       const lineKey = lineKeysByDemand.get(demandKey)?.shift() ?? line.listingId;
@@ -1497,6 +1565,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         plan: taxAdjustedPlan,
         sourceLines: readyLines,
         optimizationGoal,
+        shippingDestinationSnapshot: params.shippingAddress ?? null,
         unavailableLines,
       });
     },

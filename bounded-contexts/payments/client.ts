@@ -26,6 +26,16 @@ export type CreateAccountPaymentRequest = Readonly<{
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
 }>;
 
+export type PaymentsSavedCheckoutInstrument = Readonly<{
+  instrument_id: string;
+  payment_method_category: "card" | "bank-account" | "platform-credit";
+  provider: string;
+  display_label: string;
+  confirmation_experience: "trusted-payment-step" | "off-session-token";
+  is_default: boolean;
+  readiness: "ready" | "setup-required";
+}>;
+
 function paymentsApiErrorMessage(status: number, body: unknown) {
   if (body && typeof body === "object" && "error" in body) {
     const error = (body as Record<string, unknown>).error;
@@ -150,6 +160,13 @@ export function createPaymentsApiClient({
             requestedBalanceCreditAmount: params.requestedBalanceCreditAmount ?? undefined,
             paymentMethodCategory: params.paymentMethodCategory ?? undefined,
           },
+          header: headers,
+        }),
+      );
+    },
+    async listSavedCheckoutInstruments(): Promise<{ items: readonly PaymentsSavedCheckoutInstrument[] }> {
+      return parseJsonResponse(
+        await client.account.checkout["saved-instruments"].$get({
           header: headers,
         }),
       );

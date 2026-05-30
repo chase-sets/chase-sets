@@ -66,6 +66,7 @@ export type CheckoutSellListCommand =
   | RemoveSellListLineCommand
   | Readonly<{
       type: "CheckoutSellList";
+      executionId?: string | null;
       checkedOutAt: string;
       completedLineIds?: readonly SellListLineId[] | null;
       remainingLineQuantities?: readonly SellListRemainingLineQuantity[] | null;
@@ -116,6 +117,7 @@ export type SellListCheckedOutEvent = DomainEvent<
   "checkout.sell-list.checked-out",
   Readonly<{
     sellerAccountId: AccountId;
+    executionId: string;
     checkedOutAt: string;
     completedLineIds: SellListLineId[];
     remainingLineQuantities: SellListRemainingLineQuantity[];
@@ -253,6 +255,10 @@ export const decideCheckoutSellList: AggregateDecider<
           type: "checkout.sell-list.checked-out",
           data: {
             sellerAccountId: state.sellerAccountId,
+            executionId: normalizeRequiredText(
+              command.executionId ?? `${state.sellerAccountId}:${command.checkedOutAt}`,
+              "Sell list checkout must record an execution id.",
+            ),
             checkedOutAt: normalizeRequiredText(command.checkedOutAt, "Sell list checkout must record a timestamp."),
             completedLineIds,
             remainingLineQuantities,

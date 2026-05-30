@@ -23,7 +23,7 @@ import {
   type CheckoutSellListState,
 } from "../domain/domain";
 import { buildCheckoutSellListProjectionHandlers } from "../read-model/projection";
-import { getLatestSellListReceipt, listSellListLines } from "../read-model/queries";
+import { getSellListReceiptByExecutionId, getLatestSellListReceipt, listSellListLines } from "../read-model/queries";
 
 function isIdempotentMergeReplay(error: unknown) {
   return (
@@ -71,6 +71,7 @@ export type CheckoutSellListServices = Readonly<{
   checkoutSellList: (
     params: Readonly<{
       sellerAccountId: AccountId;
+      executionId: string;
       completedLineIds?: readonly SellListLineId[] | null;
       remainingLineQuantities?: readonly { lineId: SellListLineId; quantity: number }[] | null;
       executionSummary?: Readonly<{
@@ -105,6 +106,10 @@ export type CheckoutSellListServices = Readonly<{
   ) => Promise<{ mergedLineCount: number }>;
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
   getLatestReceipt: (sellerAccountId: string) => ReturnType<typeof getLatestSellListReceipt>;
+  getReceiptByExecutionId: (
+    sellerAccountId: string,
+    executionId: string,
+  ) => ReturnType<typeof getSellListReceiptByExecutionId>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -240,6 +245,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         streamId: `checkout.sell-list-${params.sellerAccountId}`,
         command: {
           type: "CheckoutSellList",
+          executionId: params.executionId,
           checkedOutAt: new Date().toISOString(),
           completedLineIds: params.completedLineIds ?? null,
           remainingLineQuantities: params.remainingLineQuantities ?? null,
@@ -256,6 +262,8 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       };
     },
     getLatestReceipt: (sellerAccountId) => getLatestSellListReceipt(deps.db, sellerAccountId),
+    getReceiptByExecutionId: (sellerAccountId, executionId) =>
+      getSellListReceiptByExecutionId(deps.db, sellerAccountId, executionId),
     mergeSellListIntoAccount: async (params, context) => {
       const sourceLines = await listSellListLines(deps.db, params.sourceOwnerId);
       const existingTargetLineIds = new Set(
@@ -303,6 +311,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
             streamId: `checkout.sell-list-${params.sourceOwnerId}`,
             command: {
               type: "CheckoutSellList",
+              executionId: createId("sle"),
               checkedOutAt: new Date().toISOString(),
             },
             context,
