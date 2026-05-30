@@ -157,6 +157,12 @@ describe("DigitalOcean platform configuration", () => {
   it("keeps production marketplace promotion explicitly gated", () => {
     expect(platformVariables).toContain('variable "production_marketplace_public_enabled"');
     expect(platformVariables).toContain("production_marketplace_public_enabled may only be true for production.");
+    expect(platformVariables).toContain('variable "production_marketplace_promotion_approved"');
+    expect(platformVariables).toContain("production_marketplace_promotion_approved may only be true for production.");
+    expect(platformVariables).toContain('variable "production_marketplace_promotion_reference"');
+    expect(platformVariables).toContain(
+      "production_marketplace_promotion_reference is required when production_marketplace_promotion_approved is true.",
+    );
     expect(platformVariables).toContain('variable "production_tax_readiness_approved"');
     expect(platformVariables).toContain("production_tax_readiness_approved may only be true for production.");
     expect(platformVariables).toContain('variable "production_tax_readiness_reference"');
@@ -174,6 +180,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires production environment and complete Amazon SES transactional email configuration."',
     );
+    expect(platformMain).toContain('check "production_marketplace_launch_approval"');
+    expect(platformMain).toContain("var.production_marketplace_promotion_approved");
+    expect(platformMain).toContain(
+      'error_message = "Production marketplace promotion requires approved launch evidence before deploying the public marketplace."',
+    );
     expect(platformMain).toContain('check "production_tax_readiness"');
     expect(platformMain).toContain("var.production_tax_readiness_approved");
     expect(platformMain).toContain(
@@ -185,12 +196,19 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
     );
     expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_tax_readiness_approved: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED == 'true' && 'true' || 'false' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain("Production marketplace promotion requires Stripe live-mode keys.");
+    expect(platformProductionWorkflow).toContain("Production marketplace promotion requires approved launch evidence.");
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved Tax readiness evidence.",
     );

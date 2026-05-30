@@ -36,6 +36,17 @@ check "production_marketplace_promotion" {
   }
 }
 
+check "production_marketplace_launch_approval" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_marketplace_promotion_approved &&
+      trimspace(var.production_marketplace_promotion_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved launch evidence before deploying the public marketplace."
+  }
+}
+
 check "production_tax_readiness" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
