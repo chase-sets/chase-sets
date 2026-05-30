@@ -34,6 +34,28 @@ variable "production_marketplace_public_enabled" {
   }
 }
 
+variable "production_marketplace_promotion_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit launch approval gate that must be true before the production marketplace deployment switch can promote the public marketplace."
+
+  validation {
+    condition     = var.environment == "production" || var.production_marketplace_promotion_approved == false
+    error_message = "production_marketplace_promotion_approved may only be true for production."
+  }
+}
+
+variable "production_marketplace_promotion_reference" {
+  type        = string
+  default     = ""
+  description = "Operator-owned launch approval reference for production marketplace promotion, such as a launch review record, approval ticket, or release decision."
+
+  validation {
+    condition     = !var.production_marketplace_promotion_approved || trimspace(var.production_marketplace_promotion_reference) != ""
+    error_message = "production_marketplace_promotion_reference is required when production_marketplace_promotion_approved is true."
+  }
+}
+
 variable "production_tax_readiness_approved" {
   type        = bool
   default     = false
