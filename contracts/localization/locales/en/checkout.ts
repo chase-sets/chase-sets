@@ -47,6 +47,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.fulfillment.ready": "Fulfillment Ready",
   "checkout.features.cart.ui.cartPage.estimated.item.subtotal": "Estimated item subtotal",
   "checkout.features.cart.ui.cartPage.estimated.shipping.credit": "Estimated shipping credit",
+  "checkout.features.cart.ui.cartPage.estimated.checkout.fee": "Estimated checkout fee",
+  "checkout.features.cart.ui.cartPage.shipping.tax.and.delivery": "Shipping, tax, delivery",
+  "checkout.features.cart.ui.cartPage.finalized.after.address": "Finalized after address",
+  "checkout.features.cart.ui.cartPage.early.landed.cost": "Early landed-cost signal",
+  "checkout.features.cart.ui.cartPage.known.cost.before.shipping.tax": "{amount} before shipping and tax",
   "checkout.features.cart.ui.cartPage.fallback": "Fallback",
   "checkout.features.cart.ui.cartPage.items": "Items",
   "checkout.features.cart.ui.cartPage.increase": "Increase",
@@ -131,6 +136,12 @@ export const checkoutEnglishTranslations = {
     "Confirm shipping details and place purchase intent for a future seller match.",
   "checkout.features.sessions.ui.checkoutPage.continue.to.payment": "Continue to payment",
   "checkout.features.sessions.ui.checkoutPage.continue.to.payment.2": "Continue to payment",
+  "checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment":
+    "Create purchases and continue to secure payment",
+  "checkout.features.sessions.ui.checkoutPage.delivery.estimate": "Delivery estimate",
+  "checkout.features.sessions.ui.checkoutPage.shipping.service": "Shipping service",
+  "checkout.features.sessions.ui.checkoutPage.estimated.days.after.purchase":
+    "Estimated delivery {minimumDays}-{maximumDays} days after purchase",
   "checkout.features.sessions.ui.checkoutPage.final.totals.before.payment": "Final totals are shown before payment.",
   "checkout.features.sessions.ui.checkoutPage.final.totals.before.payment.description":
     "This checkout total includes item subtotal, shipping, estimated tax, marketplace checkout fee, and wallet credit before purchases move to payment.",
@@ -243,11 +254,14 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.create.fallback.listing.after.review":
     "Create fallback listing after review",
   "checkout.features.sellList.ui.sellListPage.create.fallback.listing": "Create fallback listing",
+  "checkout.features.sellList.ui.sellListPage.create.fallback.listing.for.remaining":
+    "Create fallback listing for remaining quantity",
   "checkout.features.sellList.ui.sellListPage.create.listings": "create listings",
   "checkout.features.sellList.ui.sellListPage.choose.inventory": "Choose inventory",
   "checkout.features.sellList.ui.sellListPage.disabled": "disabled",
   "checkout.features.sellList.ui.sellListPage.execute.sale.checkout": "Execute sale checkout",
   "checkout.features.sellList.ui.sellListPage.execution": "Execution",
+  "checkout.features.sellList.ui.sellListPage.accept.ready.matches.only": "Accept ready matches only",
   "checkout.features.sellList.ui.sellListPage.accept.matching.offers.only": "Accept matching offers only",
   "checkout.features.sellList.ui.sellListPage.fallback.action": "Fallback action",
   "checkout.features.sellList.ui.sellListPage.fallback.listing.floor": "Fallback listing floor",
@@ -266,8 +280,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.keep.selling": "Keep selling",
   "checkout.features.sellList.ui.sellListPage.keep.in.sell.list": "Keep in Sell List",
   "checkout.features.sellList.ui.sellListPage.listing.price": "Listing price",
+  "checkout.features.sellList.ui.sellListPage.matching.offers": "Matching offers",
+  "checkout.features.sellList.ui.sellListPage.matching.offer.quantity": "{quantity} ready to accept",
   "checkout.features.sellList.ui.sellListPage.minimum.listing.price": "Minimum listing price",
   "checkout.features.sellList.ui.sellListPage.needs.refresh": "Needs refresh",
+  "checkout.features.sellList.ui.sellListPage.no.ready.matching.offers": "No ready matching offers",
   "checkout.features.sellList.ui.sellListPage.no.product.lines": "No product lines",
   "checkout.features.sellList.ui.sellListPage.no.selected.offers": "No selected offers",
   "checkout.features.sellList.ui.sellListPage.product.level.smart.match.selling":
@@ -276,10 +293,18 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.payout.readiness": "Payout readiness",
   "checkout.features.sellList.ui.sellListPage.payout.setup.is.checked.before":
     "Payout setup and settlement readiness stay visible before accepting sale commitments.",
+  "checkout.features.sellList.ui.sellListPage.payout.setup.required": "Payout setup required",
+  "checkout.features.sellList.ui.sellListPage.setup.required": "Setup required",
+  "checkout.features.sellList.ui.sellListPage.payout.setup.required.description":
+    "Resolve payout requirements before accepting offers or creating fallback listings: {requirements}.",
+  "checkout.features.sellList.ui.sellListPage.payout.readiness.unavailable.description":
+    "Payout readiness could not be loaded. Refresh payout setup before accepting offers or creating fallback listings.",
   "checkout.features.sellList.ui.sellListPage.products": "Products",
   "checkout.features.sellList.ui.sellListPage.quantity": "Quantity",
   "checkout.features.sellList.ui.sellListPage.payment.authorization": "Payment authorization",
+  "checkout.features.sellList.ui.sellListPage.offer": "Offer",
   "checkout.features.sellList.ui.sellListPage.ready.to.accept": "Ready to accept",
+  "checkout.features.sellList.ui.sellListPage.ready": "Ready",
   "checkout.features.sellList.ui.sellListPage.remove": "Remove",
   "checkout.features.sellList.ui.sellListPage.review.sale.checkout": "Review sale checkout",
   "checkout.features.sellList.ui.sellListPage.review.value": "Review value",
@@ -350,6 +375,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.continue.as.guest": "Continue as guest",
   "checkout.routes.checkoutStart.continue.as.guest.only.if.you.do":
     "Continue as guest only if you do not already have an account. We will use this email for your receipt and order recovery.",
+  "checkout.routes.checkoutStart.continue.as.guest.fast.path":
+    "Use the fast checkout path. We will use this email for your receipt, order recovery, and payment handoff.",
   "checkout.routes.checkoutStart.continue.checkout": "Continue checkout",
   "checkout.routes.checkoutStart.continue.to.checkout": "Continue to checkout",
   "checkout.routes.checkoutStart.continue.with.your.account.any.saved.guest":

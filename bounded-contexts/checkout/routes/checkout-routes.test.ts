@@ -1,10 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockCreateCheckoutRequestApiClient,
   mockCreateMarketplaceRequestApiClient,
+  mockCreateSettlementRequestApiClient,
   mockCreateOrderingRequestApiClient,
   mockCreatePaymentsRequestApiClient,
   mockCreateAuthRequestApiClient,
@@ -21,7 +22,11 @@ const {
   mockGetGuestCart,
   mockGetGuestSellList,
   mockGetOfferMatch,
+  mockListOfferMatches,
+  mockPreviewOfferAcceptanceTerms,
   mockAcceptOfferMatch,
+  mockCreateListing,
+  mockGetPayoutReadiness,
   mockAddSellListLine,
   mockCheckoutSellList,
   mockRemoveGuestSellListLine,
@@ -31,6 +36,7 @@ const {
   mockResolveActorFromAuthApi: vi.fn(),
   mockCreateCheckoutRequestApiClient: vi.fn(),
   mockCreateMarketplaceRequestApiClient: vi.fn(),
+  mockCreateSettlementRequestApiClient: vi.fn(),
   mockCreateOrderingRequestApiClient: vi.fn(),
   mockCreatePaymentsRequestApiClient: vi.fn(),
   mockCreateAuthRequestApiClient: vi.fn(),
@@ -47,7 +53,11 @@ const {
   mockGetGuestCart: vi.fn(),
   mockGetGuestSellList: vi.fn(),
   mockGetOfferMatch: vi.fn(),
+  mockListOfferMatches: vi.fn(),
+  mockPreviewOfferAcceptanceTerms: vi.fn(),
   mockAcceptOfferMatch: vi.fn(),
+  mockCreateListing: vi.fn(),
+  mockGetPayoutReadiness: vi.fn(),
   mockAddSellListLine: vi.fn(),
   mockCheckoutSellList: vi.fn(),
   mockRemoveGuestSellListLine: vi.fn(),
@@ -95,6 +105,10 @@ vi.mock("@chase-sets/marketplace/server", () => ({
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
 }));
 
+vi.mock("@chase-sets/settlement/server", () => ({
+  createSettlementRequestApiClient: mockCreateSettlementRequestApiClient,
+}));
+
 import { AuthApiError } from "@chase-sets/auth/server";
 import {
   action as checkoutStartAction,
@@ -107,6 +121,22 @@ import { loader as accountCartLoader } from "./account-cart";
 import { action as accountSellListAction } from "./account-sell-list";
 
 describe("checkout web routes", () => {
+  beforeEach(() => {
+    mockCreateSettlementRequestApiClient.mockReturnValue({
+      getPayoutReadiness: mockGetPayoutReadiness.mockResolvedValue({
+        account_id: "acc_seller",
+        status: "ready",
+        missing_requirements: [],
+        provider_reference: "acct_1",
+        onboarding_status: "complete",
+        transfer_capability_status: "active",
+        payout_capability_status: "active",
+        payout_destination_status: "ready",
+        updated_at: "2026-05-30T00:00:00.000Z",
+      }),
+    });
+  });
+
   afterEach(() => {
     vi.clearAllMocks();
   });
@@ -304,6 +334,102 @@ describe("checkout web routes", () => {
     expect(response.headers.get("Location")).toBe(
       "/account/sell-list?review=completed&accepted=1&listings=0&skipped=0",
     );
+  });
+
+  it("accepts product-level Sell List Smart Match offers before fallback listings", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockCheckoutSellList.mockResolvedValue({ status: "reviewed" });
+    mockGetOfferMatch.mockResolvedValue({
+      offer_id: "off_product_1",
+      product_id: "cat_mewtwo::raw:nm",
+      quantity_requested: 2,
+    });
+    mockAcceptOfferMatch.mockResolvedValue({ status: "accepted" });
+    const sellListLine = {
+      line_id: "sll_product",
+      line_type: "product",
+      offer_id: null,
+      product_id: "cat_mewtwo::raw:nm",
+      item_title: "Mewtwo",
+      quantity: 2,
+    };
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
+      checkoutSellList: mockCheckoutSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      getOfferMatch: mockGetOfferMatch,
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+    form.set("productOfferId:sll_product", "off_product_1");
+    form.set("productOfferFeeQuoteFingerprint:sll_product:off_product_1", "quote_product_1");
+    form.set("fallbackMode:sll_product", "none");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", { feeQuoteFingerprint: "quote_product_1" });
+    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(mockCheckoutSellList).toHaveBeenCalledWith({
+      completedLineIds: ["sll_product"],
+      executionSummary: {
+        acceptedOfferCount: 1,
+        createdListingCount: 0,
+        skippedLineCount: 0,
+        skippedReasons: [],
+      },
+    });
+    expect(response.status).toBe(302);
+  });
+
+  it("blocks Sell List checkout when payout readiness is not ready", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockGetPayoutReadiness.mockResolvedValue({
+      account_id: "acc_seller",
+      status: "pending",
+      missing_requirements: ["provider-onboarding"],
+      provider_reference: null,
+      onboarding_status: "pending",
+      transfer_capability_status: "pending",
+      payout_capability_status: "inactive",
+      payout_destination_status: "missing",
+      updated_at: "2026-05-30T00:00:00.000Z",
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [], count: 0 })),
+      checkoutSellList: mockCheckoutSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      acceptOfferMatch: mockAcceptOfferMatch,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+
+    const result = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as { error: string };
+
+    expect(result.error).toBe("Finish payout setup before committing sale checkout.");
+    expect(mockCheckoutSellList).not.toHaveBeenCalled();
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
   });
 
   it("shows anonymous Sell List lines before account creation", async () => {
@@ -903,6 +1029,46 @@ describe("checkout web routes", () => {
       }),
     });
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=bank-account");
+  });
+
+  it("refreshes checkout totals instead of confirming when the visible payment method changed", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "bank-account");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(mockSelectShippingAddress).toHaveBeenCalledWith("chk_1", {
+      shippingAddress: expect.objectContaining({ postalCode: "60601" }),
+    });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=bank-account");
   });

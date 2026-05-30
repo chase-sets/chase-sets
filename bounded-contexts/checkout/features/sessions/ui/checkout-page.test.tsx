@@ -80,6 +80,12 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
       shippingChargeAmount: "0.00",
       salesTaxAmount: "0.00",
       totalAmount: "489.00",
+      deliveryEstimate: {
+        earliestDate: "2026-05-03",
+        latestDate: "2026-05-06",
+        minimumTransitDays: 5,
+        maximumTransitDays: 8,
+      },
       lines: [
         {
           lineKey: "cli_opt",
@@ -144,7 +150,8 @@ describe("checkout session page", () => {
     expect(markup).toContain("Product intent saved for live fulfillment preview");
     expect(markup).toContain("Marketplace checkout fee");
     expect(markup).toContain("Reviewed before payment");
-    expect(markup).toContain("Review payment total");
+    expect(markup).toContain("Create purchases and continue to secure payment");
+    expect(markup).toContain("Delivery estimate");
     expect(markup).toContain("Payment review comes next");
     expect(markup).not.toContain("lst_card_vault");
     expect(markup).not.toContain("cat_bulbasaur");

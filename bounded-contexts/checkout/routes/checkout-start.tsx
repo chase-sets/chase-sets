@@ -547,33 +547,31 @@ export default function CheckoutStartRoute() {
             </>
           ) : (
             <>
-              <PageSection title={t("checkout.routes.checkoutStart.account")}>
-                <Surface elevated glow>
-                  <Stack gap={3}>
-                    <Text tone="secondary">
-                      {t("checkout.routes.checkoutStart.sign.in.to.keep.purchases.payments")}
-                    </Text>
-                    <LinkButton href={data.signInPath} size="lg" leadingIcon="lock">
-                      {t("checkout.routes.checkoutStart.sign.in")}
-                    </LinkButton>
-                  </Stack>
-                </Surface>
-              </PageSection>
               <PageSection title={t("checkout.routes.checkoutStart.guest.checkout")}>
-                <Surface elevated>
+                <Surface elevated glow>
                   <Form method="post">
                     <Stack gap={3}>
-                      <Text tone="secondary">
-                        {t("checkout.routes.checkoutStart.continue.as.guest.only.if.you.do")}
-                      </Text>
+                      <Text tone="secondary">{t("checkout.routes.checkoutStart.continue.as.guest.fast.path")}</Text>
                       <TextInput label={t("checkout.routes.checkoutStart.contact.name")} name="contactName" required />
                       <TextInput label={t("checkout.routes.checkoutStart.email")} name="email" type="email" required />
                       {sourceFields}
-                      <Button type="submit" size="lg" tone="secondary" leadingIcon="lock">
+                      <Button type="submit" size="lg" leadingIcon="lock">
                         {t("checkout.routes.checkoutStart.continue.as.guest")}
                       </Button>
                     </Stack>
                   </Form>
+                </Surface>
+              </PageSection>
+              <PageSection title={t("checkout.routes.checkoutStart.account")}>
+                <Surface elevated>
+                  <Stack gap={3}>
+                    <Text tone="secondary">
+                      {t("checkout.routes.checkoutStart.sign.in.to.keep.purchases.payments")}
+                    </Text>
+                    <LinkButton href={data.signInPath} tone="secondary" size="lg" leadingIcon="lock">
+                      {t("checkout.routes.checkoutStart.sign.in")}
+                    </LinkButton>
+                  </Stack>
                 </Surface>
               </PageSection>
             </>

@@ -5,6 +5,7 @@ import {
   CheckoutLayout,
   CurrencyInput,
   Grid,
+  Inset,
   Inline,
   KeyValueList,
   LinkButton,
@@ -36,6 +37,32 @@ type SellListOfferReview = Readonly<{
     fee_quote_fingerprint: string;
   }> | null;
   message: string | null;
+}>;
+
+type SellListProductOfferReview = Readonly<{
+  lineId: string;
+  status: "ready" | "unavailable";
+  offers: readonly Readonly<{
+    offer: Readonly<{
+      offer_id: string;
+      buyer_display_name: string | null;
+      buyer_account_id: string;
+      price_amount: string;
+      quantity_requested: number;
+      offer_to_listing_price_bps: number;
+    }>;
+    terms: Readonly<{
+      marketplace_sales_fee_unit_amount: string;
+      seller_net_unit_amount: string;
+      fee_quote_fingerprint: string;
+    }>;
+  }>[];
+  message: string | null;
+}>;
+
+type PayoutReadiness = Readonly<{
+  status: "not-started" | "pending" | "ready" | "restricted";
+  missing_requirements: readonly string[];
 }>;
 
 type SellListInventoryItem = Readonly<{
@@ -76,14 +103,18 @@ export function CheckoutSellListPage({
   isSignedIn = true,
   reviewCompleted = false,
   offerReviews = [],
+  productOfferReviews = [],
   inventoryItems = [],
+  payoutReadiness = null,
   errorMessage = null,
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
   isSignedIn?: boolean;
   reviewCompleted?: boolean;
   offerReviews?: readonly SellListOfferReview[];
+  productOfferReviews?: readonly SellListProductOfferReview[];
   inventoryItems?: readonly SellListInventoryItem[];
+  payoutReadiness?: PayoutReadiness | null;
   errorMessage?: string | null;
 }) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
@@ -119,9 +150,11 @@ export function CheckoutSellListPage({
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.payout.readiness"),
-            value: isSignedIn
-              ? t("checkout.features.sellList.ui.sellListPage.checked.before.commitment")
-              : t("checkout.features.sellList.ui.sellListPage.sign.in.required"),
+            value: !isSignedIn
+              ? t("checkout.features.sellList.ui.sellListPage.sign.in.required")
+              : payoutReadiness?.status === "ready"
+                ? t("checkout.features.sellList.ui.sellListPage.ready")
+                : t("checkout.features.sellList.ui.sellListPage.setup.required"),
           },
         ]}
         total={formatMoney(String(estimatedSaleValue))}
@@ -151,6 +184,8 @@ export function CheckoutSellListPage({
       />
     </Stack>
   );
+  const payoutIsReady = !isSignedIn || payoutReadiness?.status === "ready";
+  const productOfferReviewsByLineId = new Map((productOfferReviews ?? []).map((review) => [review.lineId, review]));
 
   return (
     <Page>
@@ -212,6 +247,19 @@ export function CheckoutSellListPage({
                 title={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review")}
                 description={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review.description")}
               />
+              {isSignedIn && payoutReadiness?.status !== "ready" ? (
+                <MarketplaceNotice
+                  tone="warning"
+                  title={t("checkout.features.sellList.ui.sellListPage.payout.setup.required")}
+                  description={
+                    payoutReadiness
+                      ? t("checkout.features.sellList.ui.sellListPage.payout.setup.required.description", {
+                          requirements: payoutReadiness.missing_requirements.join(", ") || payoutReadiness.status,
+                        })
+                      : t("checkout.features.sellList.ui.sellListPage.payout.readiness.unavailable.description")
+                  }
+                />
+              ) : null}
               <PageSection title={t("checkout.features.sellList.ui.sellListPage.selected.offers")}>
                 {selectedOfferLines.length > 0 ? (
                   <Stack gap={3}>
@@ -321,6 +369,10 @@ export function CheckoutSellListPage({
                       const inventoryOptions = inventoryByProductId.get(line.product_id) ?? [];
                       const defaultInventoryItem = inventoryOptions[0] ?? null;
                       const defaultPrice = line.minimum_listing_price_amount ?? "";
+                      const productOfferReview = productOfferReviewsByLineId.get(line.line_id);
+                      const matchingOfferQuantity =
+                        productOfferReview?.offers.reduce((sum, item) => sum + item.offer.quantity_requested, 0) ?? 0;
+                      const matchingOffersCoverLine = matchingOfferQuantity >= line.quantity;
 
                       return (
                         <Surface key={line.line_id} elevated>
@@ -346,6 +398,16 @@ export function CheckoutSellListPage({
                               variant="plain"
                               items={[
                                 {
+                                  key: t("checkout.features.sellList.ui.sellListPage.matching.offers"),
+                                  value:
+                                    matchingOfferQuantity > 0
+                                      ? t("checkout.features.sellList.ui.sellListPage.matching.offer.quantity", {
+                                          quantity: matchingOfferQuantity,
+                                        })
+                                      : (productOfferReview?.message ??
+                                        t("checkout.features.sellList.ui.sellListPage.no.ready.matching.offers")),
+                                },
+                                {
                                   key: t("checkout.features.sellList.ui.sellListPage.minimum.listing.price"),
                                   value: formatMoney(line.minimum_listing_price_amount),
                                 },
@@ -360,20 +422,76 @@ export function CheckoutSellListPage({
                                 },
                               ]}
                             />
+                            {productOfferReview?.offers.length ? (
+                              <Stack gap={2}>
+                                {productOfferReview.offers.map(({ offer, terms }) => (
+                                  <Inset key={offer.offer_id}>
+                                    <Stack gap={2}>
+                                      <KeyValueList
+                                        density="compact"
+                                        variant="plain"
+                                        items={[
+                                          {
+                                            key: t("checkout.features.sellList.ui.sellListPage.buyer"),
+                                            value:
+                                              offer.buyer_display_name ??
+                                              offer.buyer_account_id ??
+                                              t("checkout.features.sellList.ui.sellListPage.buyer"),
+                                          },
+                                          {
+                                            key: t("checkout.features.sellList.ui.sellListPage.offer"),
+                                            value: formatMoney(offer.price_amount),
+                                          },
+                                          {
+                                            key: t("checkout.features.sellList.ui.sellListPage.quantity"),
+                                            value: offer.quantity_requested,
+                                          },
+                                          {
+                                            key: t("checkout.features.sellList.ui.sellListPage.seller.net"),
+                                            value: formatMoney(terms.seller_net_unit_amount),
+                                          },
+                                        ]}
+                                      />
+                                      <input
+                                        form="sell-list-checkout-form"
+                                        type="hidden"
+                                        name={`productOfferId:${line.line_id}`}
+                                        value={offer.offer_id}
+                                      />
+                                      <input
+                                        form="sell-list-checkout-form"
+                                        type="hidden"
+                                        name={`productOfferFeeQuoteFingerprint:${line.line_id}:${offer.offer_id}`}
+                                        value={terms.fee_quote_fingerprint}
+                                      />
+                                    </Stack>
+                                  </Inset>
+                                ))}
+                              </Stack>
+                            ) : null}
                             <Grid columns={{ base: 1, md: 3 }} gap={3}>
                               <NativeSelect
                                 form="sell-list-checkout-form"
                                 label={t("checkout.features.sellList.ui.sellListPage.fallback.action")}
                                 name={`fallbackMode:${line.line_id}`}
-                                defaultValue={defaultInventoryItem ? "create-listing" : "none"}
+                                defaultValue={
+                                  matchingOffersCoverLine ? "none" : defaultInventoryItem ? "create-listing" : "none"
+                                }
                                 items={[
                                   {
                                     value: "none",
-                                    label: t("checkout.features.sellList.ui.sellListPage.keep.in.sell.list"),
+                                    label: matchingOfferQuantity
+                                      ? t("checkout.features.sellList.ui.sellListPage.accept.ready.matches.only")
+                                      : t("checkout.features.sellList.ui.sellListPage.keep.in.sell.list"),
                                   },
                                   {
                                     value: "create-listing",
-                                    label: t("checkout.features.sellList.ui.sellListPage.create.fallback.listing"),
+                                    label:
+                                      matchingOfferQuantity > 0
+                                        ? t(
+                                            "checkout.features.sellList.ui.sellListPage.create.fallback.listing.for.remaining",
+                                          )
+                                        : t("checkout.features.sellList.ui.sellListPage.create.fallback.listing"),
                                     disabled: !defaultInventoryItem,
                                   },
                                 ]}
@@ -454,7 +572,7 @@ export function CheckoutSellListPage({
                     {isSignedIn ? (
                       <form id="sell-list-checkout-form" method="post">
                         <input type="hidden" name="intent" value="review-sell-list-checkout" />
-                        <Button type="submit" leadingIcon="check">
+                        <Button type="submit" leadingIcon="check" disabled={!payoutIsReady}>
                           {t("checkout.features.sellList.ui.sellListPage.execute.sale.checkout")}
                         </Button>
                       </form>
@@ -480,6 +598,7 @@ export function CheckoutSellListPage({
                       name="intent"
                       value="review-sell-list-checkout"
                       leadingIcon="check"
+                      disabled={!payoutIsReady}
                     >
                       {t("checkout.features.sellList.ui.sellListPage.execute.sale.checkout")}
                     </Button>

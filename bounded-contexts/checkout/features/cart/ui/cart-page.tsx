@@ -97,6 +97,14 @@ function formatMoney(amount: number) {
   }).format(amount);
 }
 
+function estimateCardCheckoutFee(amount: number) {
+  if (amount <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(((amount * 0.029 + 0.3) / (1 - 0.029) + Number.EPSILON) * 100) / 100;
+}
+
 function lowestKnownUnitPrice(line: CheckoutCartLineGroup) {
   const optionPrices = line.seller_options
     .map((option) => Number(option.price_amount))
@@ -150,6 +158,8 @@ export function CheckoutCartPage({
   const productLineGroups = cartLineGroups.filter((line) => line.fulfillment_mode !== "locked-listing");
   const estimatedSubtotal = estimateCartSubtotal(cartLineGroups);
   const estimatedShippingCredit = estimatedSubtotal * 0.05;
+  const estimatedCheckoutFee = estimateCardCheckoutFee(estimatedSubtotal);
+  const estimatedKnownLandedCost = estimatedSubtotal + estimatedCheckoutFee;
   const pricedLineCount = countPricedLines(cartLineGroups);
 
   function renderCartLine(line: CheckoutCartLineGroup) {
@@ -424,12 +434,29 @@ export function CheckoutCartPage({
                         : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
                   },
                   {
+                    label: t("checkout.features.cart.ui.cartPage.estimated.checkout.fee"),
+                    value:
+                      pricedLineCount > 0
+                        ? formatMoney(estimatedCheckoutFee)
+                        : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
+                  },
+                  {
+                    label: t("checkout.features.cart.ui.cartPage.shipping.tax.and.delivery"),
+                    value: t("checkout.features.cart.ui.cartPage.finalized.after.address"),
+                  },
+                  {
                     label: t("checkout.features.cart.ui.cartPage.fulfillment"),
                     value: t("checkout.features.cart.ui.cartPage.live.preview.before.payment"),
                   },
                 ]}
-                total={t("checkout.features.cart.ui.cartPage.ready.for.checkout")}
-                totalLabel={t("checkout.features.cart.ui.cartPage.buy.cart.status")}
+                total={
+                  pricedLineCount > 0
+                    ? t("checkout.features.cart.ui.cartPage.known.cost.before.shipping.tax", {
+                        amount: formatMoney(estimatedKnownLandedCost),
+                      })
+                    : t("checkout.features.cart.ui.cartPage.ready.for.checkout")
+                }
+                totalLabel={t("checkout.features.cart.ui.cartPage.early.landed.cost")}
                 reassurance={<SecurePaymentIndicator label={t("checkout.features.cart.ui.cartPage.secure.payment")} />}
               />
               <Card variant="feature">

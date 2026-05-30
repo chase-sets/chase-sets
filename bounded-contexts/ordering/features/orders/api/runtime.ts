@@ -200,6 +200,12 @@ export type CheckoutFulfillmentPreview = Readonly<{
     shippingChargeAmount: string;
     salesTaxAmount: string;
     totalAmount: string;
+    deliveryEstimate: Readonly<{
+      earliestDate: string;
+      latestDate: string;
+      minimumTransitDays: number;
+      maximumTransitDays: number;
+    }>;
     lines: readonly Readonly<{
       lineKey: string;
       listingId: string;
@@ -857,6 +863,29 @@ function previewRevision(preview: Omit<CheckoutFulfillmentPreview, "revision">) 
   ].join("#");
 }
 
+function addCalendarDays(date: Date, days: number) {
+  const next = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  next.setUTCDate(next.getUTCDate() + days);
+  return next.toISOString().slice(0, 10);
+}
+
+function deliveryEstimateForShippingOption(shippingOption: ShippingOption) {
+  const today = new Date();
+  const window =
+    shippingOption === "priority"
+      ? { earliestDays: 2, latestDays: 3 }
+      : shippingOption === "expedited"
+        ? { earliestDays: 3, latestDays: 5 }
+        : { earliestDays: 5, latestDays: 8 };
+
+  return {
+    earliestDate: addCalendarDays(today, window.earliestDays),
+    latestDate: addCalendarDays(today, window.latestDays),
+    minimumTransitDays: window.earliestDays,
+    maximumTransitDays: window.latestDays,
+  };
+}
+
 function planToPreview(
   params: Readonly<{
     plan: CheckoutPlan;
@@ -881,6 +910,7 @@ function planToPreview(
     shippingChargeAmount: draft.shippingChargeAmount,
     salesTaxAmount: draft.salesTaxAmount,
     totalAmount: draft.totalAmount,
+    deliveryEstimate: deliveryEstimateForShippingOption(draft.shippingOption),
     lines: draft.lines.map((line) => {
       const demandKey = buildDemandSignature(line.productId);
       const lineKey = lineKeysByDemand.get(demandKey)?.shift() ?? line.listingId;

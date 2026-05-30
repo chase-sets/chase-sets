@@ -59,8 +59,10 @@ describe("checkout cart page", () => {
     expect(markup).toContain("$778.00");
     expect(markup).toContain("Estimated shipping credit");
     expect(markup).toContain("$38.90");
-    expect(markup).toContain("Ready for checkout");
-    expect(markup).toContain("Buy cart status");
+    expect(markup).toContain("Estimated checkout fee");
+    expect(markup).toContain("$23.55");
+    expect(markup).toContain("$801.55 before shipping and tax");
+    expect(markup).toContain("Early landed-cost signal");
     expect(markup).toContain("Smart Match settings");
     expect(markup).toContain("Lowest total cost");
     expect(markup).toContain("Place offers for unavailable quantity");

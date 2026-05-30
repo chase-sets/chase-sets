@@ -1,4 +1,5 @@
 export { createSettlementRequestApiClient } from "./support/request-support/api-client";
+export type { SettlementPayoutReadinessRow } from "./support/request-support/api-client";
 export { createSettlementBalanceCreditResolver } from "./features/wallets/api/balance-credit-resolver";
 export type {
   SettlementBalanceCreditResolution,

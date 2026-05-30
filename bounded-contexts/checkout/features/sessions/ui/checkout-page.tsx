@@ -9,6 +9,7 @@ import {
   Divider,
   Grid,
   Inline,
+  KeyValueList,
   LinkButton,
   MarketplaceEmptyState,
   MarketplaceNotice,
@@ -73,6 +74,10 @@ function formatLineLabel(line: CheckoutSessionRow["lines"][number]) {
 
 function sellerGroupLabel(group: CheckoutFulfillmentPreview["sellerGroups"][number]) {
   return group.sellerDisplayName?.trim() || "Marketplace seller";
+}
+
+function deliveryWindowLabel(group: CheckoutFulfillmentPreview["sellerGroups"][number]) {
+  return `${group.deliveryEstimate.earliestDate} - ${group.deliveryEstimate.latestDate}`;
 }
 
 function marketRecoveryHref(itemTitle: string) {
@@ -418,6 +423,23 @@ export function CheckoutSessionPage({
                               />
                               <Text tone="secondary">${group.totalAmount}</Text>
                             </Inline>
+                            <KeyValueList
+                              density="compact"
+                              variant="plain"
+                              items={[
+                                {
+                                  key: t("checkout.features.sessions.ui.checkoutPage.delivery.estimate"),
+                                  value: deliveryWindowLabel(group),
+                                },
+                                {
+                                  key: t("checkout.features.sessions.ui.checkoutPage.shipping.service"),
+                                  value: t("checkout.features.sessions.ui.checkoutPage.estimated.days.after.purchase", {
+                                    minimumDays: group.deliveryEstimate.minimumTransitDays,
+                                    maximumDays: group.deliveryEstimate.maximumTransitDays,
+                                  }),
+                                },
+                              ]}
+                            />
                             {group.lines.map((line) => (
                               <Grid
                                 key={`${group.sellerAccountId}:${line.lineKey}:${line.listingId}`}
@@ -831,7 +853,7 @@ export function CheckoutSessionPage({
                             : canConfirm
                               ? isOfferIntent
                                 ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
-                                : t("checkout.features.sessions.ui.checkoutPage.review.payment.total")
+                                : t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")
                               : t("checkout.features.sessions.ui.checkoutPage.no.available.supply")}
                         </Button>
                       </Inline>
@@ -876,7 +898,7 @@ export function CheckoutSessionPage({
                         : t("checkout.features.sessions.ui.checkoutPage.creating.purchases")
                       : isOfferIntent
                         ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
-                        : t("checkout.features.sessions.ui.checkoutPage.review.payment.total")}
+                        : t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")}
                   </Button>
                 )
               }

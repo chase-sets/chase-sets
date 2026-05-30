@@ -219,6 +219,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/settlement':
+        specifier: workspace:*
+        version: link:../settlement
       '@chase-sets/ucp':
         specifier: workspace:*
         version: link:../../contracts/ucp

@@ -2,6 +2,7 @@ export { createMarketplaceRequestApiClient, MarketplaceApiError } from "./suppor
 export type {
   MarketplaceListingInventoryItemOption,
   MarketplaceListingTermsPreview,
+  OfferMatchListItem,
 } from "./support/request-support/api-client";
 export type { ListingPhotoStorage } from "./support/runtime-support";
 export {
