@@ -30,3 +30,22 @@ export {
   type BulkActionSurfaceProps,
 } from "./filter";
 export { ImageGallery, type GalleryImage, type ImageGalleryProps } from "./image-gallery";
+export {
+  AddressBlock,
+  ChecklistCard,
+  OperationalStatusBanner,
+  StickyTaskFooter,
+  TaskLineItem,
+  TaskProgress,
+  TaskSummary,
+  WorkstationLayout,
+  type AddressBlockProps,
+  type ChecklistCardProps,
+  type OperationalStatusBannerProps,
+  type StickyTaskFooterProps,
+  type TaskLineItemProps,
+  type TaskProgressProps,
+  type TaskSummaryItem,
+  type TaskSummaryProps,
+  type WorkstationLayoutProps,
+} from "./operational-workflow";

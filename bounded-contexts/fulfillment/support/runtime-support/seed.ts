@@ -156,6 +156,30 @@ export async function seedFulfillmentDatabase(pool: PgTransactionalPool) {
       await services.shipments.commandHandler({
         streamId: `fulfillment.shipment-${shipmentId}`,
         command: {
+          type: "StartShipmentPacking",
+          startedAt: new Date().toISOString(),
+        },
+        context,
+      });
+      status = "packing";
+    }
+
+    if (status === "packing") {
+      for (const [index] of order.lines.entries()) {
+        await services.shipments.commandHandler({
+          streamId: `fulfillment.shipment-${shipmentId}`,
+          command: {
+            type: "ConfirmShipmentPackingLine",
+            lineId: `spl_seed_${shipmentId}_${index}` as never,
+            confirmedAt: new Date().toISOString(),
+          },
+          context,
+        });
+      }
+
+      await services.shipments.commandHandler({
+        streamId: `fulfillment.shipment-${shipmentId}`,
+        command: {
           type: "PrepareShipmentPackage",
           packageCount: 1,
           preparedAt: new Date().toISOString(),

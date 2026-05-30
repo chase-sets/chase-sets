@@ -289,6 +289,23 @@ describe("fulfillment shipment runtime", () => {
     await services.commandHandler({
       streamId: "fulfillment.shipment-shp_1",
       command: {
+        type: "StartShipmentPacking",
+        startedAt: "2026-04-02T00:03:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "ConfirmShipmentPackingLine",
+        lineId: "spl_1" as never,
+        confirmedAt: "2026-04-02T00:04:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
         type: "PrepareShipmentPackage",
         packageCount: 1,
         preparedAt: "2026-04-02T00:05:00.000Z",
@@ -504,6 +521,23 @@ describe("fulfillment shipment runtime", () => {
           },
         ],
         createdAt: "2026-04-02T00:00:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "StartShipmentPacking",
+        startedAt: "2026-04-02T00:03:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "ConfirmShipmentPackingLine",
+        lineId: "spl_1" as never,
+        confirmedAt: "2026-04-02T00:04:00.000Z",
       },
       context,
     });

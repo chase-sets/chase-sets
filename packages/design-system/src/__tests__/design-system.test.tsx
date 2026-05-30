@@ -51,7 +51,14 @@ import {
   SearchInput,
   Sidebar,
   StickyCtaBar,
+  StickyTaskFooter,
   Tabs as ActionTabs,
+  TaskLineItem,
+  TaskProgress,
+  TaskSummary,
+  AddressBlock,
+  ChecklistCard,
+  WorkstationLayout,
   MarketplaceFacetChoiceGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
@@ -67,6 +74,7 @@ import {
   MarketingVisualCard,
   OrderIntentSummary,
   OfferCard,
+  OperationalStatusBanner,
   PaymentRecoveryPanel,
   ProductOptions,
   ProductMediaModule,
@@ -1332,6 +1340,51 @@ describe("design-system", () => {
     expect(markup).toContain("Final total before payment");
     expect(markup).toContain("Continue to payment");
     expect(markup).toContain("Edit cart");
+  });
+
+  it("renders operational workstation patterns for task completion flows", () => {
+    const markup = renderToString(
+      <WorkstationLayout
+        secondaryTitle="Shipment details"
+        secondary={
+          <div>
+            <TaskSummary
+              title="Fulfillment summary"
+              items={[
+                { label: "Status", value: "Packing" },
+                { label: "Items", value: "1 item across 1 line" },
+              ]}
+            />
+            <AddressBlock title="Ship to" lines={["Buyer", "2 Market St", "Chicago, IL 60601"]} copyValue="Buyer" />
+          </div>
+        }
+        primary={
+          <div>
+            <OperationalStatusBanner title="Order changes locked while packing" description="Started today." />
+            <ChecklistCard
+              title="Item checklist"
+              progress={<TaskProgress label="1 of 1 checked" value={100} tone="success" />}
+            >
+              <TaskLineItem
+                title="Charizard"
+                subtitle="Base Set"
+                quantity={1}
+                checked
+                checkboxLabel="Packed 1 x Charizard"
+              />
+            </ChecklistCard>
+            <StickyTaskFooter summary="1 of 1 checked">
+              <Button>Finish packing</Button>
+            </StickyTaskFooter>
+          </div>
+        }
+      />,
+    );
+
+    expect(markup).toContain("lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]");
+    expect(markup).toContain("Order changes locked while packing");
+    expect(markup).toContain("Packed 1 x Charizard");
+    expect(markup).toContain("bottom-[calc(7rem+env(safe-area-inset-bottom))]");
   });
 
   it("renders mobile product commerce as an in-flow sticky action area", () => {

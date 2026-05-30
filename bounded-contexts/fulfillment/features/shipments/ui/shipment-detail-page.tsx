@@ -347,25 +347,6 @@ export function FulfillmentShipmentDetailPage({
       {role === "seller" ? (
         <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.actions")}>
           <Stack gap={3}>
-            {shipment.status === "packing" ? (
-              <Card>
-                <form method="post">
-                  <Stack gap={3}>
-                    <NumberInput
-                      label={t("fulfillment.features.shipments.ui.shipmentDetailPage.package.count.2")}
-                      name="packageCount"
-                      required
-                      min="1"
-                      defaultValue={shipment.package_count ?? 1}
-                    />
-                    <Button type="submit" name="intent" value="prepare-package">
-                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.package.ready")}
-                    </Button>
-                  </Stack>
-                </form>
-              </Card>
-            ) : null}
-
             {shipment.status === "awaiting-label" ? (
               <Card>
                 <form method="post">

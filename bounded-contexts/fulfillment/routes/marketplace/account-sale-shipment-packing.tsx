@@ -68,15 +68,30 @@ export async function action({ request, params }: ActionFunctionArgs) {
       return redirect(`/account/sales/shipments/${shipmentId}`);
     }
 
+    if (intent === "set-line-confirmed") {
+      const lineId = formValue(formData, "lineId");
+      const confirmed = formValue(formData, "confirmed") === "true";
+      await api.updatePackingLine(shipmentId, lineId, confirmed);
+      return { ok: true, lineId, confirmed };
+    }
+
     return {
       error: t("fulfillment.routes.marketplace.accountSaleShipmentPacking.unknown.intent"),
     };
   } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : t("fulfillment.routes.marketplace.accountSaleShipmentPacking.request.failed");
+    if (intent === "set-line-confirmed") {
+      return new Response(JSON.stringify({ error: message }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
     return {
-      error:
-        error instanceof Error
-          ? error.message
-          : t("fulfillment.routes.marketplace.accountSaleShipmentPacking.request.failed"),
+      error: message,
     };
   }
 }

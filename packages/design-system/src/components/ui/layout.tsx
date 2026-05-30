@@ -73,30 +73,8 @@ export function Divider({ className, ...props }: HTMLAttributes<HTMLHRElement>) 
   return <hr {...props} className={cn("border-[var(--muted)]", className)} />;
 }
 
-export interface StepperItem {
-  label: string;
-  status: "complete" | "current" | "upcoming";
-}
-
-export function PageStepper({ items }: { items: StepperItem[] }) {
-  return (
-    <ol className="grid gap-2 md:grid-cols-3">
-      {items.map((item, index) => (
-        <li
-          key={item.label}
-          className={cn(
-            "rounded-[var(--radius-lg)] border p-3 text-sm font-semibold",
-            item.status === "current"
-              ? "border-[var(--primary)] bg-[var(--primary)] text-[var(--primary-foreground)] shadow-[var(--shadow-sm)]"
-              : "border-[var(--muted)] bg-[var(--card)] text-[var(--muted-foreground)]",
-          )}
-        >
-          {index + 1}. {item.label}
-        </li>
-      ))}
-    </ol>
-  );
-}
+export type { PageStepperItem as StepperItem } from "../actions/page-stepper";
+export { PageStepper } from "../actions/page-stepper";
 
 export function EmptyState({
   title,

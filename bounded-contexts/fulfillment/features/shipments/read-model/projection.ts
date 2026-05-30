@@ -22,6 +22,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
           itemSubtitle: string | null;
           productSummary: string | null;
           quantity: number;
+          packingConfirmedAt?: string | null;
         }>;
         createdAt: string;
       };
@@ -109,9 +110,10 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              item_title,
              item_subtitle,
              product_summary,
-             quantity
+             quantity,
+             packing_confirmed_at
            ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
+             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
            )`,
           [
             data.shipmentId,
@@ -124,6 +126,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
             line.itemSubtitle,
             line.productSummary,
             line.quantity,
+            line.packingConfirmedAt ?? null,
           ],
         );
       }
@@ -142,6 +145,50 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              updated_at = $2
          WHERE shipment_id = $1`,
         [data.shipmentId, data.startedAt],
+      );
+    },
+    "fulfillment.shipment.packing-line-confirmed": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        lineId: string;
+        confirmedAt: string;
+      };
+
+      await db.query(
+        `UPDATE fulfillment_shipment_line_pages
+         SET packing_confirmed_at = $3
+         WHERE shipment_id = $1
+           AND line_id = $2`,
+        [data.shipmentId, data.lineId, data.confirmedAt],
+      );
+
+      await db.query(
+        `UPDATE fulfillment_shipment_pages
+         SET updated_at = $2
+         WHERE shipment_id = $1`,
+        [data.shipmentId, data.confirmedAt],
+      );
+    },
+    "fulfillment.shipment.packing-line-unconfirmed": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        lineId: string;
+        unconfirmedAt: string;
+      };
+
+      await db.query(
+        `UPDATE fulfillment_shipment_line_pages
+         SET packing_confirmed_at = NULL
+         WHERE shipment_id = $1
+           AND line_id = $2`,
+        [data.shipmentId, data.lineId],
+      );
+
+      await db.query(
+        `UPDATE fulfillment_shipment_pages
+         SET updated_at = $2
+         WHERE shipment_id = $1`,
+        [data.shipmentId, data.unconfirmedAt],
       );
     },
     "fulfillment.shipment.package-prepared": async (event) => {

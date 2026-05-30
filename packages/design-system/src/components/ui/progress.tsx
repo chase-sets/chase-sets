@@ -1,6 +1,16 @@
 import { cn } from "../../lib/utils";
 
-export function Progress({ value, className }: { value: number; className?: string }) {
+export type ProgressTone = "neutral" | "active" | "success" | "blocked";
+
+export function Progress({
+  value,
+  tone = "active",
+  className,
+}: {
+  value: number;
+  tone?: ProgressTone;
+  className?: string;
+}) {
   return (
     <div
       className={cn("h-2 overflow-hidden rounded-full bg-[var(--muted)]", className)}
@@ -10,7 +20,13 @@ export function Progress({ value, className }: { value: number; className?: stri
       aria-valuenow={value}
     >
       <div
-        className="h-full rounded-full bg-[var(--primary)] transition-all"
+        className={cn(
+          "h-full rounded-full transition-all",
+          tone === "neutral" && "bg-[var(--muted-foreground)]",
+          tone === "active" && "bg-[var(--primary)]",
+          tone === "success" && "bg-[var(--success)]",
+          tone === "blocked" && "bg-[var(--danger)]",
+        )}
         style={{ width: `${Math.max(0, Math.min(100, value))}%` }}
       />
     </div>

@@ -24,7 +24,7 @@ export function LoadingSpinner({ label = "Loading", size = "md", ...rest }: Load
 export interface ProgressBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   value: number;
   max?: number;
-  tone?: Exclude<Tone, "neutral">;
+  tone?: Tone | "active" | "blocked";
   formatLabel?: (percentage: number) => string;
 }
 
@@ -51,9 +51,11 @@ export function ProgressBar({
           className={cx(
             "h-full rounded-full transition-all",
             tone === "accent" && "bg-accent",
+            (tone === "neutral" || tone === "active") && "bg-secondary",
             tone === "success" && "bg-success",
             tone === "warning" && "bg-warning",
             tone === "danger" && "bg-danger",
+            tone === "blocked" && "bg-danger",
             tone === "info" && "bg-info",
           )}
           style={{ width: `${percentage}%` }}

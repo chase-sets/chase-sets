@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS fulfillment_shipment_line_pages (
   item_subtitle text NULL,
   product_summary text NULL,
   quantity integer NOT NULL,
+  packing_confirmed_at timestamptz NULL,
   PRIMARY KEY (shipment_id, line_id)
 );
 
@@ -96,6 +97,9 @@ ALTER TABLE IF EXISTS fulfillment_shipment_pages
   ADD COLUMN IF NOT EXISTS packing_started_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS label_voided_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS cancelled_at timestamptz NULL;
+
+ALTER TABLE IF EXISTS fulfillment_shipment_line_pages
+  ADD COLUMN IF NOT EXISTS packing_confirmed_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS fulfillment_label_address_override_audit_pages (
   shipment_id text NOT NULL REFERENCES fulfillment_shipment_pages (shipment_id) ON DELETE CASCADE,

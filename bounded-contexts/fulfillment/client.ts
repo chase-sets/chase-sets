@@ -131,6 +131,15 @@ export function createFulfillmentApiClient({
         }),
       );
     },
+    async updatePackingLine(shipmentId: string, lineId: string, confirmed: boolean) {
+      return parseJsonResponse(
+        await client.account.sales.shipments[":id"].packing.lines[":lineId"].$post({
+          param: { id: shipmentId, lineId },
+          json: { confirmed },
+          header: headers,
+        }),
+      );
+    },
     async attachLabel(shipmentId: string, body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.account.sales.shipments[":id"].label.$post({

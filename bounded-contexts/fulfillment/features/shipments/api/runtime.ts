@@ -79,6 +79,14 @@ export type FulfillmentShipmentServices = Readonly<{
     params: Readonly<{ shipmentId: string; sellerAccountId: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
+  confirmPackingLine: (
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; lineId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ shipmentId: string; version: number }>;
+  unconfirmPackingLine: (
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; lineId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ shipmentId: string; version: number }>;
   attachLabel: (
     params: Readonly<{
       shipmentId: string;
@@ -353,6 +361,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             itemSubtitle: line.item_subtitle,
             productSummary: line.product_summary,
             quantity: line.quantity,
+            packingConfirmedAt: null,
           })),
           createdAt: params.readyForFulfillmentAt,
         },
@@ -404,6 +413,36 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         command: {
           type: "StartShipmentPacking",
           startedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { shipmentId: params.shipmentId, version: result.version };
+    },
+    confirmPackingLine: async (params, context) => {
+      await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+
+      const result = await commandHandler({
+        streamId: `fulfillment.shipment-${params.shipmentId}`,
+        command: {
+          type: "ConfirmShipmentPackingLine",
+          lineId: params.lineId as never,
+          confirmedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { shipmentId: params.shipmentId, version: result.version };
+    },
+    unconfirmPackingLine: async (params, context) => {
+      await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+
+      const result = await commandHandler({
+        streamId: `fulfillment.shipment-${params.shipmentId}`,
+        command: {
+          type: "UnconfirmShipmentPackingLine",
+          lineId: params.lineId as never,
+          unconfirmedAt: new Date().toISOString(),
         },
         context,
       });
