@@ -35,6 +35,7 @@ import {
   useTcgdexSeries,
   watchSourceObservationBulkJob,
 } from "./use-source-observations";
+import { shouldAcceptSourceObservationJobProgress } from "./job-progress";
 import type {
   BulkSourceObservationPromotionResult,
   SourceObservationPromotionPreview,
@@ -217,7 +218,9 @@ export function SourceObservationListPage({ data, query, realtimeReloadActionBar
       signal: controller.signal,
       onProgress: (progress) => {
         if (!cancelled) {
-          setBulkActionProgress(progress);
+          setBulkActionProgress((current) =>
+            shouldAcceptSourceObservationJobProgress(current, progress) ? progress : current,
+          );
         }
       },
     })

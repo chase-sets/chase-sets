@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import { IntegrationManagementPage } from "./integration-management-page";
@@ -166,6 +166,80 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(importButton);
 
     expect(await screen.findByText("Queued.")).toBeTruthy();
+  });
+
+  it("keeps integration job progress from moving backward when stale stream events replay", async () => {
+    let pushProgress: (progress: {
+      phase: string;
+      completed: number;
+      total: number;
+      currentName: string | null;
+      status: string | null;
+    }) => void = () => undefined;
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockWatchSourceObservationIntegrationJob.mockImplementation(
+      async (
+        _jobId,
+        options?: {
+          onProgress?: (progress: {
+            phase: string;
+            completed: number;
+            total: number;
+            currentName: string | null;
+            status: string | null;
+          }) => void;
+        },
+      ) => {
+        pushProgress = options?.onProgress ?? pushProgress;
+        return new Promise(() => undefined);
+      },
+    );
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Pull TCGdex Sets/i })[0]);
+    const importButton = screen.getByRole("button", { name: /^Import$/i });
+    await waitFor(() => expect((importButton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(importButton);
+    await waitFor(() => expect(mockWatchSourceObservationIntegrationJob).toHaveBeenCalled());
+
+    act(() => {
+      pushProgress({
+        phase: "processing",
+        completed: 57,
+        total: 100,
+        currentName: "Base Set",
+        status: "imported",
+      });
+    });
+
+    expect(await screen.findByText("57 of 100 processed.")).toBeTruthy();
+
+    act(() => {
+      pushProgress({
+        phase: "processing",
+        completed: 9,
+        total: 100,
+        currentName: "Jungle",
+        status: "imported",
+      });
+    });
+
+    expect(screen.getByText("57 of 100 processed.")).toBeTruthy();
+    expect(screen.queryByText("9 of 100 processed.")).toBeNull();
+
+    act(() => {
+      pushProgress({
+        phase: "processing",
+        completed: 64,
+        total: 100,
+        currentName: "Fossil",
+        status: "imported",
+      });
+    });
+
+    expect(await screen.findByText("64 of 100 processed.")).toBeTruthy();
   });
 
   it("previews and reapplies promoted observations in the current integration scope", async () => {
