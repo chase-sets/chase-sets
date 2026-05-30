@@ -242,6 +242,30 @@ export function createCheckoutUcpHandlers(
             );
           }
 
+          const marketplaceCheckoutFeeQuoteFingerprint = readNullableString(
+            body.marketplaceCheckoutFeeQuoteFingerprint ?? body.marketplace_checkout_fee_quote_fingerprint,
+          );
+          if (!marketplaceCheckoutFeeQuoteFingerprint) {
+            return createUcpEnvelope(
+              "requires_action",
+              {
+                checkout: checkoutPayload,
+                action: {
+                  type: "trusted_checkout_handoff",
+                  reason: "Payment quote review is required before headless checkout can create payment.",
+                },
+              },
+              [
+                {
+                  severity: "warning",
+                  code: "payment_quote_required",
+                  message:
+                    "Provide a reviewed marketplace checkout fee quote fingerprint or continue in the trusted checkout UI.",
+                },
+              ],
+            );
+          }
+
           let orderIds = [...refreshedSession.order_ids];
           if (orderIds.length === 0) {
             const checkoutOrders = await createCheckoutOrdersThroughOrdering(input.request, refreshedSession, {
@@ -269,9 +293,7 @@ export function createCheckoutUcpHandlers(
             orderIds,
             readNullableString(body.requestedBalanceCreditAmount ?? body.requested_balance_credit_amount),
             readString(body.paymentMethodCategory ?? body.payment_method_category) ?? "card",
-            readNullableString(
-              body.marketplaceCheckoutFeeQuoteFingerprint ?? body.marketplace_checkout_fee_quote_fingerprint,
-            ),
+            marketplaceCheckoutFeeQuoteFingerprint,
             "/account/payments/:paymentId",
             guardedPaymentResponse.agenticPayment,
           );

@@ -6,6 +6,7 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
+import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
 import { createCheckoutRequestApiClient, type CheckoutCartLine } from "../support/request-support/api-client";
 import { readAnonymousCartId } from "../support/request-support/guest-checkout";
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
@@ -125,6 +126,21 @@ async function loadCartLandedCostPreview(
       return null;
     }
 
+    const preview = await createOrderingRequestApiClient(request).previewCheckoutFulfillment({
+      checkoutSessionId: `cart-preview:${actor?.accountId ?? readAnonymousCartId(request) ?? "guest"}`,
+      sourceType: "cart-checkout",
+      shippingOption,
+      shippingAddress: address,
+      optimizationGoal,
+      lines: cart.items.map(cartLineToPreviewLine),
+    });
+    const paymentPreview = await createPaymentsRequestApiClient(request)
+      .previewCheckoutStatus({
+        amount: preview.totals.totalAmount,
+        paymentMethodCategory: "card",
+      })
+      .catch(() => null);
+
     return {
       addressLabel,
       shippingOption,
@@ -135,14 +151,8 @@ async function loadCartLandedCostPreview(
         postalCode: address.postalCode,
         country: address.country,
       },
-      preview: await createOrderingRequestApiClient(request).previewCheckoutFulfillment({
-        checkoutSessionId: `cart-preview:${actor?.accountId ?? readAnonymousCartId(request) ?? "guest"}`,
-        sourceType: "cart-checkout",
-        shippingOption,
-        shippingAddress: address,
-        optimizationGoal,
-        lines: cart.items.map(cartLineToPreviewLine),
-      }),
+      preview,
+      paymentPreview,
     };
   } catch {
     return null;

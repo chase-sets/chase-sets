@@ -128,17 +128,54 @@ export function CheckoutSellListPage({
 }) {
   const selectedOfferLines = sellListLines.filter((line) => line.line_type === "selected-offer");
   const productLines = sellListLines.filter((line) => line.line_type === "product");
+  const offerReviewsByLineId = new Map((offerReviews ?? []).map((review) => [review.lineId, review]));
+  const productOfferReviewsByLineId = new Map((productOfferReviews ?? []).map((review) => [review.lineId, review]));
   const totalQuantity = sellListLines.reduce((sum, line) => sum + line.quantity, 0);
-  const estimatedSelectedOfferValue = selectedOfferLines.reduce(
+  const selectedOfferGross = selectedOfferLines.reduce(
     (sum, line) => sum + Number(line.offer_price_amount ?? 0) * line.quantity,
     0,
   );
-  const estimatedFallbackListingValue = productLines.reduce(
-    (sum, line) => sum + Number(line.minimum_listing_price_amount ?? 0) * line.quantity,
-    0,
-  );
-  const estimatedSaleValue = estimatedSelectedOfferValue + estimatedFallbackListingValue;
-  const offerReviewsByLineId = new Map((offerReviews ?? []).map((review) => [review.lineId, review]));
+  const selectedOfferSellerNet = selectedOfferLines.reduce((sum, line) => {
+    const review = offerReviewsByLineId.get(line.line_id);
+    return sum + Number(review?.terms?.seller_net_unit_amount ?? line.offer_price_amount ?? 0) * line.quantity;
+  }, 0);
+  const selectedOfferSalesFee = selectedOfferLines.reduce((sum, line) => {
+    const review = offerReviewsByLineId.get(line.line_id);
+    return sum + Number(review?.terms?.marketplace_sales_fee_unit_amount ?? 0) * line.quantity;
+  }, 0);
+  const smartMatchSellerNet = productLines.reduce((sum, line) => {
+    const review = productOfferReviewsByLineId.get(line.line_id);
+    return (
+      sum +
+      (review?.offers ?? []).reduce(
+        (offerSum, { offer, terms }) => offerSum + Number(terms.seller_net_unit_amount) * offer.quantity_requested,
+        0,
+      )
+    );
+  }, 0);
+  const smartMatchSalesFee = productLines.reduce((sum, line) => {
+    const review = productOfferReviewsByLineId.get(line.line_id);
+    return (
+      sum +
+      (review?.offers ?? []).reduce(
+        (offerSum, { offer, terms }) =>
+          offerSum + Number(terms.marketplace_sales_fee_unit_amount) * offer.quantity_requested,
+        0,
+      )
+    );
+  }, 0);
+  const fallbackListingGross = productLines.reduce((sum, line) => {
+    const review = productOfferReviewsByLineId.get(line.line_id);
+    const matchedQuantity = (review?.offers ?? []).reduce(
+      (quantity, item) => quantity + item.offer.quantity_requested,
+      0,
+    );
+    const fallbackQuantity = line.fallback_mode === "create-listing" ? Math.max(0, line.quantity - matchedQuantity) : 0;
+    return sum + Number(line.minimum_listing_price_amount ?? 0) * fallbackQuantity;
+  }, 0);
+  const estimatedSalesFees = selectedOfferSalesFee + smartMatchSalesFee;
+  const grossCommittedValue = selectedOfferGross + fallbackListingGross;
+  const expectedSellerPayout = selectedOfferSellerNet + smartMatchSellerNet + fallbackListingGross;
   const inventoryByProductId = new Map<string, SellListInventoryItem[]>();
   for (const item of inventoryItems ?? []) {
     inventoryByProductId.set(item.product_id, [...(inventoryByProductId.get(item.product_id) ?? []), item]);
@@ -150,12 +187,28 @@ export function CheckoutSellListPage({
           { label: t("checkout.features.sellList.ui.sellListPage.items"), value: totalQuantity },
           { label: t("checkout.features.sellList.ui.sellListPage.sell.list.lines"), value: sellListLines.length },
           {
-            label: t("checkout.features.sellList.ui.sellListPage.selected.offer.value"),
-            value: formatMoney(String(estimatedSelectedOfferValue)),
+            label: t("checkout.features.sellList.ui.sellListPage.selected.offer.gross"),
+            value: formatMoney(String(selectedOfferGross)),
           },
           {
-            label: t("checkout.features.sellList.ui.sellListPage.fallback.listing.floor"),
-            value: formatMoney(String(estimatedFallbackListingValue)),
+            label: t("checkout.features.sellList.ui.sellListPage.selected.offer.seller.net"),
+            value: formatMoney(String(selectedOfferSellerNet)),
+          },
+          {
+            label: t("checkout.features.sellList.ui.sellListPage.smart.match.seller.net"),
+            value: formatMoney(String(smartMatchSellerNet)),
+          },
+          {
+            label: t("checkout.features.sellList.ui.sellListPage.fallback.listing.gross"),
+            value: formatMoney(String(fallbackListingGross)),
+          },
+          {
+            label: t("checkout.features.sellList.ui.sellListPage.estimated.sales.fees"),
+            value: formatMoney(String(estimatedSalesFees)),
+          },
+          {
+            label: t("checkout.features.sellList.ui.sellListPage.gross.committed.value"),
+            value: formatMoney(String(grossCommittedValue)),
           },
           {
             label: t("checkout.features.sellList.ui.sellListPage.payout.readiness"),
@@ -166,8 +219,8 @@ export function CheckoutSellListPage({
                 : t("checkout.features.sellList.ui.sellListPage.setup.required"),
           },
         ]}
-        total={formatMoney(String(estimatedSaleValue))}
-        totalLabel={t("checkout.features.sellList.ui.sellListPage.review.value")}
+        total={formatMoney(String(expectedSellerPayout))}
+        totalLabel={t("checkout.features.sellList.ui.sellListPage.expected.seller.payout")}
         reassurance={
           <SecurePaymentIndicator
             label={t("checkout.features.sellList.ui.sellListPage.buyer.payment.already.authorized")}
@@ -194,7 +247,6 @@ export function CheckoutSellListPage({
     </Stack>
   );
   const payoutIsReady = !isSignedIn || payoutReadiness?.status === "ready";
-  const productOfferReviewsByLineId = new Map((productOfferReviews ?? []).map((review) => [review.lineId, review]));
 
   return (
     <Page>
@@ -681,7 +733,7 @@ export function CheckoutSellListPage({
                 </Stack>
               </Surface>
               <StickyCtaBar
-                price={formatMoney(String(estimatedSaleValue))}
+                price={formatMoney(String(expectedSellerPayout))}
                 context={t("checkout.features.sellList.ui.sellListPage.sale.review.before.commitment")}
                 primaryAction={
                   isSignedIn ? (

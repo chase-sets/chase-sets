@@ -3,7 +3,11 @@ import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
-import type { CheckoutSellListLineRow, CheckoutSellListReceiptRow } from "./features/sell-list/read-model/queries";
+import type {
+  CheckoutSellListExecutionRow,
+  CheckoutSellListLineRow,
+  CheckoutSellListReceiptRow,
+} from "./features/sell-list/read-model/queries";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
@@ -303,6 +307,33 @@ export function createCheckoutApiClient({
       return parseJsonResponse(
         await client.account["sell-list"].executions[":executionId"].$get({
           param: { executionId },
+          header: headers,
+        }),
+      );
+    },
+    async startSellListExecution(body: Readonly<{ executionId: string; executionPlan: unknown }>): Promise<{
+      id: string;
+      executionId: string;
+      status: CheckoutSellListExecutionRow["status"];
+      executionPlan: unknown;
+      executionProgress: unknown;
+      executionSummary: CheckoutSellListExecutionRow["execution_summary"];
+    }> {
+      return parseJsonResponse(await client.account["sell-list"].executions.$post({ json: body, header: headers }));
+    },
+    async recordSellListExecutionProgress(
+      executionId: string,
+      body: Readonly<{ completedActionKey: string }>,
+    ): Promise<{
+      id: string;
+      executionId: string;
+      status: CheckoutSellListExecutionRow["status"];
+      executionProgress: unknown;
+    }> {
+      return parseJsonResponse(
+        await client.account["sell-list"].executions[":executionId"].progress.$post({
+          param: { executionId },
+          json: body,
           header: headers,
         }),
       );

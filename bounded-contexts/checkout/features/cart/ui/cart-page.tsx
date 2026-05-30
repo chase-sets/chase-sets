@@ -99,14 +99,6 @@ function formatMoney(amount: number) {
   }).format(amount);
 }
 
-function estimateCardCheckoutFee(amount: number) {
-  if (amount <= 0) {
-    return 0;
-  }
-
-  return Math.ceil(((amount * 0.029 + 0.3) / (1 - 0.029) + Number.EPSILON) * 100) / 100;
-}
-
 function parseMoneyAmount(value: string | null | undefined) {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : null;
@@ -177,6 +169,15 @@ export function CheckoutCartPage({
         packageCount: number;
       };
     };
+    paymentPreview?: {
+      marketplace_checkout_fee: {
+        marketplace_checkout_fee_amount: string;
+        total_amount: string;
+      };
+      wallet_credit: {
+        applied_amount: string;
+      };
+    } | null;
   } | null;
   errorMessage?: string | null;
 }) {
@@ -189,8 +190,13 @@ export function CheckoutCartPage({
   const previewTotal = parseMoneyAmount(landedCostPreview?.preview.totals.totalAmount);
   const estimatedItemSubtotal = previewSubtotal ?? estimatedSubtotal;
   const estimatedShippingCredit = estimatedItemSubtotal * 0.05;
-  const estimatedCheckoutFee = estimateCardCheckoutFee(previewTotal ?? estimatedItemSubtotal);
-  const estimatedKnownLandedCost = (previewTotal ?? estimatedItemSubtotal) + estimatedCheckoutFee;
+  const estimatedCheckoutFee = parseMoneyAmount(
+    landedCostPreview?.paymentPreview?.marketplace_checkout_fee.marketplace_checkout_fee_amount,
+  );
+  const estimatedKnownLandedCost =
+    parseMoneyAmount(landedCostPreview?.paymentPreview?.marketplace_checkout_fee.total_amount) ??
+    previewTotal ??
+    estimatedItemSubtotal;
   const pricedLineCount = countPricedLines(cartLineGroups);
   const previewDestination = landedCostPreview?.previewDestination ?? {
     city: "",
@@ -492,8 +498,23 @@ export function CheckoutCartPage({
                   {
                     label: t("checkout.features.cart.ui.cartPage.estimated.checkout.fee"),
                     value:
-                      pricedLineCount > 0
+                      estimatedCheckoutFee !== null
                         ? formatMoney(estimatedCheckoutFee)
+                        : t("checkout.features.cart.ui.cartPage.quoted.during.checkout"),
+                  },
+                  ...(landedCostPreview?.paymentPreview
+                    ? [
+                        {
+                          label: t("checkout.features.cart.ui.cartPage.estimated.wallet.credit"),
+                          value: `-$${landedCostPreview.paymentPreview.wallet_credit.applied_amount}`,
+                        },
+                      ]
+                    : []),
+                  {
+                    label: t("checkout.features.cart.ui.cartPage.estimated.payable.total"),
+                    value:
+                      landedCostPreview || pricedLineCount > 0
+                        ? formatMoney(estimatedKnownLandedCost)
                         : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
                   },
                   {
@@ -511,7 +532,7 @@ export function CheckoutCartPage({
                 ]}
                 total={
                   landedCostPreview || pricedLineCount > 0
-                    ? t("checkout.features.cart.ui.cartPage.known.cost.before.shipping.tax", {
+                    ? t("checkout.features.cart.ui.cartPage.estimated.payable.before.checkout", {
                         amount: formatMoney(estimatedKnownLandedCost),
                       })
                     : t("checkout.features.cart.ui.cartPage.ready.for.checkout")

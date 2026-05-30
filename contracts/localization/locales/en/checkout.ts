@@ -55,6 +55,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.estimated.shipping.credit": "Estimated shipping credit",
   "checkout.features.cart.ui.cartPage.estimated.tax": "Estimated tax",
   "checkout.features.cart.ui.cartPage.estimated.checkout.fee": "Estimated checkout fee",
+  "checkout.features.cart.ui.cartPage.estimated.payable.before.checkout": "{amount} estimated payable before checkout",
+  "checkout.features.cart.ui.cartPage.estimated.payable.total": "Estimated payable total",
+  "checkout.features.cart.ui.cartPage.estimated.wallet.credit": "Estimated wallet credit",
+  "checkout.features.cart.ui.cartPage.quoted.during.checkout": "Quoted during checkout",
   "checkout.features.cart.ui.cartPage.shipping.tax.and.delivery": "Shipping, tax, delivery",
   "checkout.features.cart.ui.cartPage.finalized.after.address": "Finalized after address",
   "checkout.features.cart.ui.cartPage.early.landed.cost": "Early landed-cost signal",
@@ -159,6 +163,9 @@ export const checkoutEnglishTranslations = {
     "Create purchases and continue to secure payment",
   "checkout.features.sessions.ui.checkoutPage.delivery.estimate": "Delivery estimate",
   "checkout.features.sessions.ui.checkoutPage.delivery.basis": "Delivery basis",
+  "checkout.features.sessions.ui.checkoutPage.delivery.promise": "Delivery promise",
+  "checkout.features.sessions.ui.checkoutPage.delivery.promise.preview":
+    "Fulfillment-owned preview, carrier promise pending",
   "checkout.features.sessions.ui.checkoutPage.shipping.service": "Shipping service",
   "checkout.features.sessions.ui.checkoutPage.estimated.days.after.purchase":
     "Estimated delivery {minimumDays}-{maximumDays} days after purchase",
@@ -178,6 +185,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.fast.checkout.ready": "Fast checkout ready",
   "checkout.features.sessions.ui.checkoutPage.fast.checkout.ready.description":
     "Using {addressLabel} with {paymentMethodCategory} pricing. Payment credentials stay on the secure payment step.",
+  "checkout.features.sessions.ui.checkoutPage.saved.address.ready": "Saved address ready",
+  "checkout.features.sessions.ui.checkoutPage.saved.address.ready.description":
+    "Using {addressLabel} for fulfillment, shipping, and tax preview. Choose payment before placing the order.",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.ready": "Fulfillment Ready",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.changed": "Fulfillment changed since your last preview",
   "checkout.features.sessions.ui.checkoutPage.items": "Items",
@@ -275,6 +285,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.api.route.sell.list.request.failed": "Sell List request failed.",
   "checkout.features.sellList.api.route.sell.list.execution.receipt.not.found":
     "Sell List execution receipt not found.",
+  "checkout.features.sellList.api.route.sell.list.execution.id.required": "Sell List execution id is required.",
+  "checkout.features.sellList.api.route.sell.list.execution.action.key.required":
+    "Sell List execution action key is required.",
+  "checkout.features.sellList.api.route.sell.list.execution.not.started":
+    "Start the Sell List execution before committing sale side effects.",
   "checkout.features.sellList.api.route.sell.list.review.requires.seller.account":
     "Sell List review requires a seller account.",
   "checkout.features.sellList.ui.sellListPage.accept.selected.offer.during.checkout.review":
@@ -353,6 +368,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.remove": "Remove",
   "checkout.features.sellList.ui.sellListPage.review.sale.checkout": "Review sale checkout",
   "checkout.features.sellList.ui.sellListPage.review.value": "Review value",
+  "checkout.features.sellList.ui.sellListPage.expected.seller.payout": "Expected seller payout",
+  "checkout.features.sellList.ui.sellListPage.estimated.sales.fees": "Estimated sales fees",
+  "checkout.features.sellList.ui.sellListPage.fallback.listing.gross": "Fallback listing gross",
+  "checkout.features.sellList.ui.sellListPage.gross.committed.value": "Gross committed value",
   "checkout.features.sellList.ui.sellListPage.review.selected.offers.and.product.level":
     "Review selected offers and product-level seller intent before Chase Sets creates commitments, payouts, and fulfillment work.",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.confidence": "Sale checkout confidence",
@@ -381,8 +400,10 @@ export const checkoutEnglishTranslations = {
     "Keep adding products while signed out. Create an account when you are ready to review sale checkout, accept offers, create listings, and set up payouts.",
   "checkout.features.sellList.ui.sellListPage.saved.for.later.title": "Sell List saved on this device",
   "checkout.features.sellList.ui.sellListPage.selected.offer": "Selected offer",
+  "checkout.features.sellList.ui.sellListPage.selected.offer.gross": "Selected offer gross",
   "checkout.features.sellList.ui.sellListPage.selected.offer.lines.will.appear":
     "Selected offer lines will appear here before sale checkout.",
+  "checkout.features.sellList.ui.sellListPage.selected.offer.seller.net": "Selected offer seller net",
   "checkout.features.sellList.ui.sellListPage.selected.offer.value": "Selected offer value",
   "checkout.features.sellList.ui.sellListPage.selected.offers": "Selected offers",
   "checkout.features.sellList.ui.sellListPage.selected.offers.keep.buyer.payment":
@@ -397,6 +418,7 @@ export const checkoutEnglishTranslations = {
     "Create an account or sign in to review sale checkout, confirm inventory, accept offers, create listings, and continue payout setup.",
   "checkout.features.sellList.ui.sellListPage.smart.match.offers.for.quantity":
     "Smart Match offers for {quantity}; fallback {fallback}.",
+  "checkout.features.sellList.ui.sellListPage.smart.match.seller.net": "Smart Match seller net",
   "checkout.features.sellList.ui.sellListPage.smart.match.settings": "Smart Match settings",
   "checkout.features.sellList.ui.sellListPage.standard": "Standard",
   "checkout.features.sellList.ui.sellListPage.why.this.match": "Why this match",

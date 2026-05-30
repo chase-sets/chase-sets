@@ -178,6 +178,16 @@ function parseSellListCheckoutBody(body: Record<string, unknown>) {
   };
 }
 
+function parseSellListExecutionBody(body: Record<string, unknown>) {
+  return {
+    executionId: String(body.executionId ?? "").trim(),
+    executionPlan:
+      body.executionPlan && typeof body.executionPlan === "object"
+        ? (body.executionPlan as Record<string, unknown>)
+        : {},
+  };
+}
+
 export function createAccountSellListRoutes(services: CheckoutSellListServices) {
   const app = new Hono<CheckoutApiEnv>();
 
@@ -256,6 +266,83 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
     return c.json(receipt);
   });
 
+  app.post("/sell-list/executions", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = parseSellListExecutionBody(await c.req.json<Record<string, unknown>>().catch(() => ({})));
+    if (!body.executionId) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("checkout.features.sellList.api.route.sell.list.execution.id.required"),
+          },
+        },
+        400,
+      );
+    }
+
+    try {
+      const execution = await services.startSellListExecution({
+        sellerAccountId: access.actor.accountId as never,
+        executionId: body.executionId,
+        executionPlan: body.executionPlan,
+      });
+
+      return c.json({
+        id: access.actor.accountId,
+        executionId: execution.execution_id,
+        status: execution.status,
+        executionPlan: execution.execution_plan,
+        executionProgress: execution.execution_progress,
+        executionSummary: execution.execution_summary,
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/sell-list/executions/:executionId/progress", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const body: Record<string, unknown> = await c.req.json<Record<string, unknown>>().catch(() => ({}));
+    const completedActionKey = String(body.completedActionKey ?? "").trim();
+    if (!completedActionKey) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: t("checkout.features.sellList.api.route.sell.list.execution.action.key.required"),
+          },
+        },
+        400,
+      );
+    }
+
+    try {
+      const execution = await services.recordSellListExecutionProgress({
+        sellerAccountId: access.actor.accountId as never,
+        executionId: c.req.param("executionId"),
+        completedActionKey,
+      });
+
+      return c.json({
+        id: access.actor.accountId,
+        executionId: execution.execution_id,
+        status: execution.status,
+        executionProgress: execution.execution_progress,
+      });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/sell-list/:lineId/remove", async (c) => {
     const access = requireSellListAccess(c);
     if (access.response) {
@@ -328,6 +415,22 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
           completedLineIds: [],
           receipt: existingReceipt,
         });
+      }
+
+      const existingExecution =
+        typeof services.getExecution === "function"
+          ? await services.getExecution(access.actor.accountId, executionId)
+          : null;
+      if (!existingExecution) {
+        return c.json(
+          {
+            error: {
+              code: "execution_not_started",
+              message: t("checkout.features.sellList.api.route.sell.list.execution.not.started"),
+            },
+          },
+          409,
+        );
       }
 
       const result = await services.checkoutSellList(

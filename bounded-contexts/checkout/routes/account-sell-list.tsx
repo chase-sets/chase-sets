@@ -243,100 +243,83 @@ function formValue(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
 }
 
-async function executeSellListCheckout(
+type SellListExecutionPlan = Readonly<{
+  version: 1;
+  lines: readonly SellListExecutionPlanLine[];
+}>;
+
+type SellListExecutionPlanLine = Readonly<{
+  lineId: string;
+  lineType: "selected-offer" | "product";
+  itemTitle: string;
+  productId: string | null;
+  quantity: number;
+  selectedOffer: Readonly<{ offerId: string; feeQuoteFingerprint: string }> | null;
+  productOfferTargets: readonly Readonly<{ offerId: string; feeQuoteFingerprint: string; quantity: number }>[];
+  fallbackListing: Readonly<{ inventoryItemId: string; priceAmount: string; quantityCap: number }> | null;
+  skippedReasons: readonly string[];
+}>;
+
+type SellListExecutionProgress = Readonly<{
+  completedActionKeys: readonly string[];
+}>;
+
+function isSellListExecutionPlan(value: unknown): value is SellListExecutionPlan {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as { version?: unknown }).version === 1 &&
+    Array.isArray((value as { lines?: unknown }).lines)
+  );
+}
+
+async function buildSellListExecutionPlan(
   request: Request,
   lines: readonly CheckoutSellListLineRow[],
   formData: FormData,
-) {
+): Promise<SellListExecutionPlan> {
   const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const completedLineIds: string[] = [];
-  const remainingLineQuantities: Array<{ lineId: string; quantity: number }> = [];
-  const skippedReasons: string[] = [];
-  const lineOutcomes: NonNullable<CheckoutSellListReceiptRow["execution_summary"]["lineOutcomes"]>[number][] = [];
-  let acceptedOfferCount = 0;
-  let createdListingCount = 0;
+  const executionLines: SellListExecutionPlanLine[] = [];
 
   for (const line of lines) {
     if (line.line_type === "selected-offer") {
-      if (!line.offer_id) {
-        const detail = t("checkout.routes.accountSellList.selected.offer.missing.detail", {
-          itemTitle: line.item_title,
-        });
-        skippedReasons.push(detail);
-        lineOutcomes.push({
-          lineId: line.line_id,
-          itemTitle: line.item_title,
-          status: "skipped",
-          action: "kept-in-sell-list",
-          quantity: line.quantity,
-          remainingQuantity: line.quantity,
-          detail,
-        });
-        continue;
-      }
-
+      const skippedReasons: string[] = [];
       const feeQuoteFingerprint = formValue(formData, `offerFeeQuoteFingerprint:${line.line_id}`);
-      if (!feeQuoteFingerprint) {
-        const detail = t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", {
-          itemTitle: line.item_title,
-        });
-        skippedReasons.push(detail);
-        lineOutcomes.push({
-          lineId: line.line_id,
-          itemTitle: line.item_title,
-          status: "skipped",
-          action: "kept-in-sell-list",
-          quantity: line.quantity,
-          remainingQuantity: line.quantity,
-          detail,
-        });
-        continue;
+      const selectedOffer =
+        line.offer_id && feeQuoteFingerprint ? { offerId: line.offer_id, feeQuoteFingerprint } : null;
+
+      if (!line.offer_id) {
+        skippedReasons.push(
+          t("checkout.routes.accountSellList.selected.offer.missing.detail", { itemTitle: line.item_title }),
+        );
+      } else if (!feeQuoteFingerprint) {
+        skippedReasons.push(
+          t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.item_title }),
+        );
       }
 
-      try {
-        await marketplaceApi.acceptOfferMatch(line.offer_id, { feeQuoteFingerprint });
-        completedLineIds.push(line.line_id);
-        acceptedOfferCount += 1;
-        lineOutcomes.push({
-          lineId: line.line_id,
-          itemTitle: line.item_title,
-          status: "completed",
-          action: "accepted-offer",
-          quantity: line.quantity,
-          remainingQuantity: 0,
-          detail: t("checkout.routes.accountSellList.selected.offer.accepted.detail", {
-            itemTitle: line.item_title,
-          }),
-        });
-      } catch (error) {
-        const detail = t("checkout.routes.accountSellList.offer.accept.failed.detail", {
-          itemTitle: line.item_title,
-          message: error instanceof Error ? error.message : t("checkout.routes.accountSellList.offer.accept.failed"),
-        });
-        skippedReasons.push(detail);
-        lineOutcomes.push({
-          lineId: line.line_id,
-          itemTitle: line.item_title,
-          status: "skipped",
-          action: "kept-in-sell-list",
-          quantity: line.quantity,
-          remainingQuantity: line.quantity,
-          detail,
-        });
-      }
+      executionLines.push({
+        lineId: line.line_id,
+        lineType: "selected-offer",
+        itemTitle: line.item_title,
+        productId: line.product_id,
+        quantity: line.quantity,
+        selectedOffer,
+        productOfferTargets: [],
+        fallbackListing: null,
+        skippedReasons,
+      });
       continue;
     }
 
-    const productOfferIds = formData
+    const skippedReasons: string[] = [];
+    const productOfferTargets: Array<{ offerId: string; feeQuoteFingerprint: string; quantity: number }> = [];
+    let plannedRemainingQuantity = line.quantity;
+
+    for (const offerId of formData
       .getAll(`productOfferId:${line.line_id}`)
       .map((value) => String(value).trim())
-      .filter(Boolean);
-    let plannedRemainingQuantity = line.quantity;
-    const productOfferTargets: Array<{ offerId: string; feeQuoteFingerprint: string; quantity: number }> = [];
-    let acceptedQuantity = 0;
-    let listingQuantity = 0;
-
-    for (const offerId of productOfferIds) {
+      .filter(Boolean)) {
       try {
         const offer = await marketplaceApi.getOfferMatch(offerId);
         if (offer.product_id !== line.product_id) {
@@ -360,58 +343,163 @@ async function executeSellListCheckout(
     }
 
     const createFallbackListing = formValue(formData, `fallbackMode:${line.line_id}`) === "create-listing";
-    if (plannedRemainingQuantity > 0 && !createFallbackListing) {
-      const detail = t("checkout.routes.accountSellList.matching.offers.do.not.cover.quantity.detail", {
-        itemTitle: line.item_title,
-      });
-      skippedReasons.push(detail);
-      lineOutcomes.push({
-        lineId: line.line_id,
-        itemTitle: line.item_title,
-        status: "skipped",
-        action: "kept-in-sell-list",
-        quantity: line.quantity,
-        remainingQuantity: line.quantity,
-        detail,
-      });
+    let fallbackListing: SellListExecutionPlanLine["fallbackListing"] = null;
+    if (plannedRemainingQuantity > 0 && createFallbackListing) {
+      const inventoryItemId = formValue(formData, `inventoryItemId:${line.line_id}`);
+      const priceAmount = formValue(formData, `priceAmount:${line.line_id}`);
+      const requestedQuantityCap = Number(
+        formValue(formData, `quantityCap:${line.line_id}`) || plannedRemainingQuantity,
+      );
+      const quantityCap = Math.min(plannedRemainingQuantity, requestedQuantityCap);
+      if (!inventoryItemId || !priceAmount || !Number.isFinite(quantityCap) || quantityCap < 1) {
+        skippedReasons.push(`${line.item_title}: listing needs inventory, price, and quantity.`);
+      } else {
+        fallbackListing = { inventoryItemId, priceAmount, quantityCap };
+      }
+    } else if (plannedRemainingQuantity > 0) {
+      skippedReasons.push(
+        t("checkout.routes.accountSellList.matching.offers.do.not.cover.quantity.detail", {
+          itemTitle: line.item_title,
+        }),
+      );
+    }
+
+    executionLines.push({
+      lineId: line.line_id,
+      lineType: "product",
+      itemTitle: line.item_title,
+      productId: line.product_id,
+      quantity: line.quantity,
+      selectedOffer: null,
+      productOfferTargets,
+      fallbackListing,
+      skippedReasons,
+    });
+  }
+
+  return { version: 1, lines: executionLines };
+}
+
+function isSellListExecutionProgress(value: unknown): value is SellListExecutionProgress {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    Array.isArray((value as { completedActionKeys?: unknown }).completedActionKeys)
+  );
+}
+
+async function executeSellListCheckout(
+  request: Request,
+  executionId: string,
+  executionPlan: SellListExecutionPlan,
+  executionProgress: SellListExecutionProgress,
+) {
+  const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const checkoutApi = createCheckoutRequestApiClient(request);
+  const completedActionKeys = new Set(executionProgress.completedActionKeys);
+  const completedLineIds: string[] = [];
+  const remainingLineQuantities: Array<{ lineId: string; quantity: number }> = [];
+  const skippedReasons: string[] = [];
+  const lineOutcomes: NonNullable<CheckoutSellListReceiptRow["execution_summary"]["lineOutcomes"]>[number][] = [];
+  let acceptedOfferCount = 0;
+  let createdListingCount = 0;
+
+  for (const line of executionPlan.lines) {
+    skippedReasons.push(...line.skippedReasons);
+
+    if (line.lineType === "selected-offer") {
+      if (!line.selectedOffer) {
+        lineOutcomes.push({
+          lineId: line.lineId,
+          itemTitle: line.itemTitle,
+          status: "skipped",
+          action: "kept-in-sell-list",
+          quantity: line.quantity,
+          remainingQuantity: line.quantity,
+          detail:
+            line.skippedReasons.join(" ") ||
+            t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.itemTitle }),
+        });
+        continue;
+      }
+
+      const actionKey = `selected-offer:${line.lineId}:${line.selectedOffer.offerId}`;
+      try {
+        if (!completedActionKeys.has(actionKey)) {
+          await marketplaceApi.acceptOfferMatch(line.selectedOffer.offerId, {
+            feeQuoteFingerprint: line.selectedOffer.feeQuoteFingerprint,
+          });
+          await checkoutApi.recordSellListExecutionProgress(executionId, { completedActionKey: actionKey });
+          completedActionKeys.add(actionKey);
+        }
+        completedLineIds.push(line.lineId);
+        acceptedOfferCount += 1;
+        lineOutcomes.push({
+          lineId: line.lineId,
+          itemTitle: line.itemTitle,
+          status: "completed",
+          action: "accepted-offer",
+          quantity: line.quantity,
+          remainingQuantity: 0,
+          detail: t("checkout.routes.accountSellList.selected.offer.accepted.detail", { itemTitle: line.itemTitle }),
+        });
+      } catch (error) {
+        const detail = t("checkout.routes.accountSellList.offer.accept.failed.detail", {
+          itemTitle: line.itemTitle,
+          message: error instanceof Error ? error.message : t("checkout.routes.accountSellList.offer.accept.failed"),
+        });
+        skippedReasons.push(detail);
+        lineOutcomes.push({
+          lineId: line.lineId,
+          itemTitle: line.itemTitle,
+          status: "skipped",
+          action: "kept-in-sell-list",
+          quantity: line.quantity,
+          remainingQuantity: line.quantity,
+          detail,
+        });
+      }
       continue;
     }
 
     let remainingQuantity = line.quantity;
-    for (const target of productOfferTargets) {
+    let acceptedQuantity = 0;
+    let listingQuantity = 0;
+
+    for (const target of line.productOfferTargets) {
+      const actionKey = `smart-match:${line.lineId}:${target.offerId}`;
       try {
-        await marketplaceApi.acceptOfferMatch(target.offerId, { feeQuoteFingerprint: target.feeQuoteFingerprint });
+        if (!completedActionKeys.has(actionKey)) {
+          await marketplaceApi.acceptOfferMatch(target.offerId, { feeQuoteFingerprint: target.feeQuoteFingerprint });
+          await checkoutApi.recordSellListExecutionProgress(executionId, { completedActionKey: actionKey });
+          completedActionKeys.add(actionKey);
+        }
         acceptedOfferCount += 1;
         acceptedQuantity += target.quantity;
         remainingQuantity -= target.quantity;
       } catch (error) {
-        skippedReasons.push(`${line.item_title}: ${error instanceof Error ? error.message : "offer accept failed"}`);
+        skippedReasons.push(`${line.itemTitle}: ${error instanceof Error ? error.message : "offer accept failed"}`);
       }
     }
 
-    if (createFallbackListing && remainingQuantity > 0) {
-      const inventoryItemId = formValue(formData, `inventoryItemId:${line.line_id}`);
-      const priceAmount = formValue(formData, `priceAmount:${line.line_id}`);
-      const requestedQuantityCap = Number(formValue(formData, `quantityCap:${line.line_id}`) || remainingQuantity);
-      const quantityCap = Math.min(remainingQuantity, requestedQuantityCap);
-      if (!inventoryItemId || !priceAmount || !Number.isFinite(quantityCap) || quantityCap < 1) {
-        skippedReasons.push(`${line.item_title}: listing needs inventory, price, and quantity.`);
-      } else {
-        try {
-          await marketplaceApi.createListing({ inventoryItemId, priceAmount, quantityCap });
-          createdListingCount += 1;
-          listingQuantity = quantityCap;
-          remainingQuantity -= quantityCap;
-        } catch (error) {
-          skippedReasons.push(
-            `${line.item_title}: ${error instanceof Error ? error.message : "listing create failed"}`,
-          );
+    if (line.fallbackListing && remainingQuantity > 0) {
+      const actionKey = `fallback-listing:${line.lineId}:${line.fallbackListing.inventoryItemId}:${line.fallbackListing.priceAmount}:${line.fallbackListing.quantityCap}`;
+      try {
+        if (!completedActionKeys.has(actionKey)) {
+          await marketplaceApi.createListing(line.fallbackListing);
+          await checkoutApi.recordSellListExecutionProgress(executionId, { completedActionKey: actionKey });
+          completedActionKeys.add(actionKey);
         }
+        createdListingCount += 1;
+        listingQuantity = line.fallbackListing.quantityCap;
+        remainingQuantity -= line.fallbackListing.quantityCap;
+      } catch (error) {
+        skippedReasons.push(`${line.itemTitle}: ${error instanceof Error ? error.message : "listing create failed"}`);
       }
     }
 
     if (remainingQuantity <= 0) {
-      completedLineIds.push(line.line_id);
+      completedLineIds.push(line.lineId);
       const action =
         acceptedQuantity > 0 && listingQuantity > 0
           ? "mixed"
@@ -419,29 +507,29 @@ async function executeSellListCheckout(
             ? "accepted-smart-match"
             : "created-listing";
       lineOutcomes.push({
-        lineId: line.line_id,
-        itemTitle: line.item_title,
+        lineId: line.lineId,
+        itemTitle: line.itemTitle,
         status: "completed",
         action,
         quantity: line.quantity,
         remainingQuantity: 0,
         detail: t("checkout.routes.accountSellList.sale.action.completed.detail", {
-          itemTitle: line.item_title,
+          itemTitle: line.itemTitle,
           acceptedQuantity,
           listingQuantity,
         }),
       });
     } else if (acceptedQuantity > 0 || listingQuantity > 0) {
-      remainingLineQuantities.push({ lineId: line.line_id, quantity: remainingQuantity });
+      remainingLineQuantities.push({ lineId: line.lineId, quantity: remainingQuantity });
       const detail = t("checkout.routes.accountSellList.sale.action.partial.detail", {
-        itemTitle: line.item_title,
+        itemTitle: line.itemTitle,
         executedQuantity: line.quantity - remainingQuantity,
         remainingQuantity,
       });
       skippedReasons.push(detail);
       lineOutcomes.push({
-        lineId: line.line_id,
-        itemTitle: line.item_title,
+        lineId: line.lineId,
+        itemTitle: line.itemTitle,
         status: "partial",
         action:
           acceptedQuantity > 0 && listingQuantity > 0
@@ -455,15 +543,15 @@ async function executeSellListCheckout(
       });
     } else {
       lineOutcomes.push({
-        lineId: line.line_id,
-        itemTitle: line.item_title,
+        lineId: line.lineId,
+        itemTitle: line.itemTitle,
         status: "skipped",
         action: "kept-in-sell-list",
         quantity: line.quantity,
         remainingQuantity: line.quantity,
-        detail: t("checkout.routes.accountSellList.no.sale.action.completed.detail", {
-          itemTitle: line.item_title,
-        }),
+        detail:
+          line.skippedReasons.join(" ") ||
+          t("checkout.routes.accountSellList.no.sale.action.completed.detail", { itemTitle: line.itemTitle }),
       });
     }
   }
@@ -545,7 +633,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
       await assertPayoutReady(request);
       const sellList = await api.getSellList();
-      const executionId = formValue(formData, "sellListExecutionId");
+      const executionId = formValue(formData, "sellListExecutionId") || createId("sle");
 
       const existingReceipt =
         executionId && typeof api.getSellListExecutionReceipt === "function"
@@ -562,21 +650,47 @@ export async function action({ request }: ActionFunctionArgs) {
         return redirect(`/account/sell-list?${query.toString()}`);
       }
 
-      const result = await executeSellListCheckout(request, sellList.items, formData);
+      const plannedExecution = await buildSellListExecutionPlan(request, sellList.items, formData);
+      const startedExecution =
+        typeof api.startSellListExecution === "function"
+          ? await api.startSellListExecution({ executionId, executionPlan: plannedExecution })
+          : {
+              status: "pending" as const,
+              executionPlan: plannedExecution,
+              executionProgress: { completedActionKeys: [] },
+              executionSummary: null,
+            };
+      if (startedExecution.status === "finalized") {
+        const summary = startedExecution.executionSummary ?? {};
+        const query = new URLSearchParams({
+          review: "completed",
+          execution: executionId,
+          accepted: String(summary.acceptedOfferCount ?? 0),
+          listings: String(summary.createdListingCount ?? 0),
+          skipped: String(summary.skippedLineCount ?? 0),
+        });
+        return redirect(`/account/sell-list?${query.toString()}`);
+      }
+
+      const executionPlan = isSellListExecutionPlan(startedExecution.executionPlan)
+        ? startedExecution.executionPlan
+        : plannedExecution;
+      const executionProgress = isSellListExecutionProgress(startedExecution.executionProgress)
+        ? startedExecution.executionProgress
+        : { completedActionKeys: [] };
+      const result = await executeSellListCheckout(request, executionId, executionPlan, executionProgress);
       if (result.completedLineIds.length === 0 && result.remainingLineQuantities.length === 0) {
         throw new Error("No Sell List lines were ready to execute. Refresh offer terms or choose listing inventory.");
       }
 
-      await api.checkoutSellList(executionId ? { executionId, ...result } : result);
+      await api.checkoutSellList({ executionId, ...result });
       const query = new URLSearchParams({
         review: "completed",
         accepted: String(result.executionSummary.acceptedOfferCount),
         listings: String(result.executionSummary.createdListingCount),
         skipped: String(result.executionSummary.skippedLineCount),
       });
-      if (executionId) {
-        query.set("execution", executionId);
-      }
+      query.set("execution", executionId);
       return redirect(`/account/sell-list?${query.toString()}`);
     }
 

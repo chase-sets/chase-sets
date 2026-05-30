@@ -28,6 +28,8 @@ const {
   mockCreateListing,
   mockGetPayoutReadiness,
   mockAddSellListLine,
+  mockStartSellListExecution,
+  mockRecordSellListExecutionProgress,
   mockCheckoutSellList,
   mockRemoveGuestSellListLine,
   mockMergeGuestSellListToAccount,
@@ -59,6 +61,8 @@ const {
   mockCreateListing: vi.fn(),
   mockGetPayoutReadiness: vi.fn(),
   mockAddSellListLine: vi.fn(),
+  mockStartSellListExecution: vi.fn(),
+  mockRecordSellListExecutionProgress: vi.fn(),
   mockCheckoutSellList: vi.fn(),
   mockRemoveGuestSellListLine: vi.fn(),
   mockMergeGuestSellListToAccount: vi.fn(),
@@ -122,6 +126,16 @@ import { action as accountSellListAction } from "./account-sell-list";
 
 describe("checkout web routes", () => {
   beforeEach(() => {
+    mockStartSellListExecution.mockImplementation(async (body: { executionPlan: unknown }) => ({
+      status: "pending",
+      executionPlan: body.executionPlan,
+      executionProgress: { completedActionKeys: [] },
+      executionSummary: null,
+    }));
+    mockRecordSellListExecutionProgress.mockResolvedValue({
+      status: "pending",
+      executionProgress: { completedActionKeys: [] },
+    });
     mockCreateSettlementRequestApiClient.mockReturnValue({
       getPayoutReadiness: mockGetPayoutReadiness.mockResolvedValue({
         account_id: "acc_seller",
@@ -300,6 +314,8 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
+      startSellListExecution: mockStartSellListExecution,
+      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
@@ -308,6 +324,7 @@ describe("checkout web routes", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "review-sell-list-checkout");
+    form.set("sellListExecutionId", "sle_1");
     form.set("offerFeeQuoteFingerprint:sll_1", "quote_1");
 
     const response = (await accountSellListAction({
@@ -321,7 +338,12 @@ describe("checkout web routes", () => {
     } as never)) as Response;
 
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", { feeQuoteFingerprint: "quote_1" });
+    expect(mockStartSellListExecution).toHaveBeenCalledWith({
+      executionId: "sle_1",
+      executionPlan: expect.objectContaining({ version: 1 }),
+    });
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
+      executionId: "sle_1",
       completedLineIds: ["sll_1"],
       remainingLineQuantities: [],
       executionSummary: {
@@ -341,7 +363,7 @@ describe("checkout web routes", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe(
-      "/account/sell-list?review=completed&accepted=1&listings=0&skipped=0",
+      "/account/sell-list?review=completed&accepted=1&listings=0&skipped=0&execution=sle_1",
     );
   });
 
@@ -364,6 +386,8 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
+      startSellListExecution: mockStartSellListExecution,
+      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
@@ -374,6 +398,7 @@ describe("checkout web routes", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "review-sell-list-checkout");
+    form.set("sellListExecutionId", "sle_1");
     form.set("productOfferId:sll_product", "off_product_1");
     form.set("productOfferFeeQuoteFingerprint:sll_product:off_product_1", "quote_product_1");
     form.set("fallbackMode:sll_product", "none");
@@ -391,6 +416,7 @@ describe("checkout web routes", () => {
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", { feeQuoteFingerprint: "quote_product_1" });
     expect(mockCreateListing).not.toHaveBeenCalled();
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
+      executionId: "sle_1",
       completedLineIds: ["sll_product"],
       remainingLineQuantities: [],
       executionSummary: {
@@ -430,6 +456,8 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 3 })),
+      startSellListExecution: mockStartSellListExecution,
+      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
@@ -440,6 +468,7 @@ describe("checkout web routes", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "review-sell-list-checkout");
+    form.set("sellListExecutionId", "sle_1");
     form.set("productOfferId:sll_product", "off_product_1");
     form.set("productOfferFeeQuoteFingerprint:sll_product:off_product_1", "quote_product_1");
     form.set("fallbackMode:sll_product", "create-listing");
@@ -456,6 +485,7 @@ describe("checkout web routes", () => {
 
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", { feeQuoteFingerprint: "quote_product_1" });
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
+      executionId: "sle_1",
       completedLineIds: [],
       remainingLineQuantities: [{ lineId: "sll_product", quantity: 1 }],
       executionSummary: expect.objectContaining({
@@ -494,6 +524,8 @@ describe("checkout web routes", () => {
     };
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 4 })),
+      startSellListExecution: mockStartSellListExecution,
+      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
@@ -504,6 +536,7 @@ describe("checkout web routes", () => {
 
     const form = new URLSearchParams();
     form.set("intent", "review-sell-list-checkout");
+    form.set("sellListExecutionId", "sle_1");
     form.set("productOfferId:sll_product", "off_product_1");
     form.set("productOfferFeeQuoteFingerprint:sll_product:off_product_1", "quote_product_1");
     form.set("fallbackMode:sll_product", "create-listing");
@@ -527,6 +560,7 @@ describe("checkout web routes", () => {
       quantityCap: 1,
     });
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
+      executionId: "sle_1",
       completedLineIds: [],
       remainingLineQuantities: [{ lineId: "sll_product", quantity: 2 }],
       executionSummary: expect.objectContaining({
@@ -561,6 +595,8 @@ describe("checkout web routes", () => {
     });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getSellList: vi.fn(async () => ({ items: [], count: 0 })),
+      startSellListExecution: mockStartSellListExecution,
+      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
