@@ -74,6 +74,19 @@
           "sourceContext": "support"
         }
       ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "support-operations",
+          "routePath": "support-requests",
+          "fileExport": "./routes/admin/operations-queue",
+          "routeType": "route",
+          "sourceContext": "support",
+          "placement": "root"
+        }
+      ]
     }
   ],
   "shellContributions": [
@@ -98,14 +111,29 @@
       "order": 200,
       "visibility": "signed-in",
       "requiredPermissions": ["support.view"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "support-operations",
+      "label": "Support",
+      "icon": "help",
+      "href": "/support-requests",
+      "order": 30,
+      "visibility": "signed-in",
+      "requiredPermissions": ["support.manage"]
     }
   ],
   "directoryIntent": {
     "support-requests": {
       "classification": "slice",
-      "purpose": "Own support request workflow behavior, read models, API contracts, and marketplace-facing support terminology.",
+      "purpose": "Own support request workflow behavior, read models, API contracts, marketplace-facing support terminology, and operator queue UI.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
-      "expectedConsumers": ["Internal support module composition"]
+      "expectedConsumers": [
+        "Internal support module composition",
+        "Marketplace account support route",
+        "Admin support operations route"
+      ]
     },
     "request-support": {
       "classification": "support",

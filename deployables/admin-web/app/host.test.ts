@@ -1,0 +1,27 @@
+import { describe, expect, it } from "vitest";
+import { resolveAdminWebNavItems, resolveAdminWebRouteConfigRecords } from "./host";
+
+describe("admin web host context registry", () => {
+  it("contributes Support operations to the operations section", () => {
+    expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
+      expect.objectContaining({
+        routeId: "support-operations",
+        routePath: "operations/support-requests",
+      }),
+    );
+
+    expect(
+      resolveAdminWebNavItems(
+        {
+          permissions: ["support.manage"],
+        },
+        { section: "operations" },
+      ),
+    ).toContainEqual(
+      expect.objectContaining({
+        href: "/operations/support-requests",
+        label: "Support",
+      }),
+    );
+  });
+});

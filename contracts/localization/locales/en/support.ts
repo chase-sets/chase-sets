@@ -51,6 +51,31 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportRequestListPage.response.window": "Response window",
   "support.features.supportRequests.ui.supportRequestListPage.support.owned": "Support owned",
   "support.features.supportRequests.ui.supportRequestListPage.hours": "{hours} hours",
+  "support.features.supportRequests.ui.supportOperationsPage.title": "Support operations",
+  "support.features.supportRequests.ui.supportOperationsPage.description":
+    "Review urgent, overdue, and support-owned marketplace order issues before they block refunds, settlement holds, or account trust decisions.",
+  "support.features.supportRequests.ui.supportOperationsPage.not.applicable": "N/A",
+  "support.features.supportRequests.ui.supportOperationsPage.checklist.summary": "{satisfied}/{required} required",
+  "support.features.supportRequests.ui.supportOperationsPage.no.requests": "No requests need support review",
+  "support.features.supportRequests.ui.supportOperationsPage.no.requests.description":
+    "Urgent, overdue, and ready-for-support requests appear here when marketplace support needs operator attention.",
+  "support.features.supportRequests.ui.supportOperationsPage.issue": "Issue",
+  "support.features.supportRequests.ui.supportOperationsPage.order": "Order",
+  "support.features.supportRequests.ui.supportOperationsPage.accounts": "Accounts",
+  "support.features.supportRequests.ui.supportOperationsPage.status": "Status",
+  "support.features.supportRequests.ui.supportOperationsPage.priority": "Priority",
+  "support.features.supportRequests.ui.supportOperationsPage.next.deadline": "Next deadline",
+  "support.features.supportRequests.ui.supportOperationsPage.checklist": "Checklist",
+  "support.features.supportRequests.ui.supportOperationsPage.unavailable": "Support operations API unavailable",
+  "support.features.supportRequests.ui.supportOperationsPage.escalation.result":
+    "Escalated {escalated} overdue requests; skipped {skipped}.",
+  "support.features.supportRequests.ui.supportOperationsPage.queue.title": "Operations queue",
+  "support.features.supportRequests.ui.supportOperationsPage.queue.description":
+    "Queue membership is Support-owned: urgent requests, seller or support deadlines at or past now, and requests ready for support review.",
+  "support.features.supportRequests.ui.supportOperationsPage.queue.count": "Showing {count} of {total}",
+  "support.features.supportRequests.ui.supportOperationsPage.escalate.overdue": "Escalate overdue",
+  "support.routes.admin.operationsQueue.request.failed": "Support operations request failed.",
+  "support.routes.admin.operationsQueue.meta.title": "Support operations | Admin",
   "support.routes.marketplace.accountSupport.open.failed": "Could not open support request.",
   "support.routes.marketplace.accountSupport.support.marketplace": "Support | Marketplace",
 } as const;
