@@ -221,6 +221,39 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
     return c.json(shipment);
   });
 
+  app.post("/sales/shipments/:id/packing/start", async (c) => {
+    const access = requireShipmentAccess(c, "fulfillment.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("fulfillment.features.shipments.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.startPackingShipment(
+        {
+          shipmentId: c.req.param("id"),
+          sellerAccountId: access.actor.accountId,
+        },
+        context,
+      );
+      return c.json({ id: result.shipmentId, version: result.version, status: "packing" });
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/sales/shipments/:id/pack", async (c) => {
     const access = requireShipmentAccess(c, "fulfillment.manage");
     if (access.response) {

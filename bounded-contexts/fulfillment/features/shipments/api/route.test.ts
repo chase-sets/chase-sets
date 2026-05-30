@@ -45,6 +45,7 @@ function createServices(): FulfillmentShipmentServices {
     })),
     createShipmentForReadyOrder: vi.fn(async () => ({ shipmentId: "shp_1" as never })),
     cancelShipmentForCancelledOrder: vi.fn(async () => ({ shipmentId: "shp_1" as never, version: 2 })),
+    startPackingShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 2 })),
     packShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 2 })),
     attachLabel: vi.fn(async () => ({ shipmentId: "shp_1", version: 3 })),
     purchaseUspsLabel: vi.fn(async () => ({
@@ -121,6 +122,7 @@ function createServices(): FulfillmentShipmentServices {
           current_exception_notes: null,
           created_at: "2026-04-02T00:00:00.000Z",
           updated_at: "2026-04-02T00:00:00.000Z",
+          packing_started_at: null,
           package_prepared_at: null,
           label_attached_at: null,
           label_voided_at: null,
@@ -351,6 +353,13 @@ describe("fulfillment shipment routes", () => {
       services,
     });
 
+    const startPackingResponse = await app.fetch(
+      new Request("http://fulfillment.test/account/sales/shipments/shp_1/packing/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+    );
     const packResponse = await app.fetch(
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/pack", {
         method: "POST",
@@ -381,6 +390,12 @@ describe("fulfillment shipment routes", () => {
       }),
     );
 
+    expect(startPackingResponse.status).toBe(200);
+    await expect(startPackingResponse.json()).resolves.toEqual({
+      id: "shp_1",
+      version: 2,
+      status: "packing",
+    });
     expect(packResponse.status).toBe(200);
     await expect(packResponse.json()).resolves.toEqual({
       id: "shp_1",
@@ -410,6 +425,13 @@ describe("fulfillment shipment routes", () => {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
         packageCount: 1,
+      },
+      expect.any(Object),
+    );
+    expect(services.startPackingShipment).toHaveBeenCalledWith(
+      {
+        shipmentId: "shp_1",
+        sellerAccountId: "acc_seller",
       },
       expect.any(Object),
     );

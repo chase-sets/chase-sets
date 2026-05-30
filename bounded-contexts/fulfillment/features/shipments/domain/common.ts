@@ -2,6 +2,7 @@ import type { TypedUlid } from "@chase-sets/primitives/typed-ids";
 
 export type ShipmentStatus =
   | "awaiting-package"
+  | "packing"
   | "awaiting-label"
   | "label-attached"
   | "cancelled"
@@ -10,7 +11,7 @@ export type ShipmentStatus =
   | "returned"
   | "exception";
 
-export type PackageStatus = "awaiting-package" | "packed";
+export type PackageStatus = "awaiting-package" | "packing" | "packed";
 
 export type ShipmentExceptionType =
   | "carrier-delay"

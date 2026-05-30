@@ -61,6 +61,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
            current_exception_notes,
            created_at,
            updated_at,
+           packing_started_at,
            package_prepared_at,
            label_attached_at,
            label_voided_at,
@@ -70,7 +71,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
            returned_at,
            exception_raised_at
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $9, $9, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
+           $1, $2, $3, $4, $5, $6, $7, $8, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 'not-purchased', NULL, NULL, NULL, NULL, 'awaiting-package', 'awaiting-package', NULL, NULL, NULL, $9, $9, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL
          )
          ON CONFLICT (shipment_id) DO UPDATE
          SET order_id = EXCLUDED.order_id,
@@ -126,6 +127,22 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
           ],
         );
       }
+    },
+    "fulfillment.shipment.packing-started": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        startedAt: string;
+      };
+
+      await db.query(
+        `UPDATE fulfillment_shipment_pages
+         SET status = 'packing',
+             package_status = 'packing',
+             packing_started_at = $2,
+             updated_at = $2
+         WHERE shipment_id = $1`,
+        [data.shipmentId, data.startedAt],
+      );
     },
     "fulfillment.shipment.package-prepared": async (event) => {
       const data = event.data as {

@@ -82,6 +82,7 @@ export type FulfillmentShipmentState = Readonly<{
   exceptions: FulfillmentShipmentException[];
   addressOverrideAudits: FulfillmentAddressOverrideAudit[];
   createdAt: string | null;
+  packingStartedAt: string | null;
   packagePreparedAt: string | null;
   labelAttachedAt: string | null;
   labelVoidedAt: string | null;
@@ -128,6 +129,7 @@ export const initialFulfillmentShipmentState: FulfillmentShipmentState = {
   exceptions: [],
   addressOverrideAudits: [],
   createdAt: null,
+  packingStartedAt: null,
   packagePreparedAt: null,
   labelAttachedAt: null,
   labelVoidedAt: null,
@@ -158,6 +160,11 @@ export type PrepareShipmentPackageCommand = Readonly<{
   type: "PrepareShipmentPackage";
   packageCount: number;
   preparedAt: string;
+}>;
+
+export type StartShipmentPackingCommand = Readonly<{
+  type: "StartShipmentPacking";
+  startedAt: string;
 }>;
 
 export type AttachShipmentLabelCommand = Readonly<{
@@ -225,6 +232,7 @@ export type RaiseShipmentExceptionCommand = Readonly<{
 
 export type FulfillmentShipmentCommand =
   | CreateShipmentCommand
+  | StartShipmentPackingCommand
   | PrepareShipmentPackageCommand
   | AttachShipmentLabelCommand
   | RecordShipmentLabelPurchaseFailedCommand
@@ -257,6 +265,17 @@ export type ShipmentPackagePreparedEvent = DomainEvent<
     shipmentId: ShipmentId;
     packageCount: number;
     preparedAt: string;
+  }>
+>;
+
+export type ShipmentPackingStartedEvent = DomainEvent<
+  "fulfillment.shipment.packing-started",
+  Readonly<{
+    shipmentId: ShipmentId;
+    orderId: OrderId;
+    buyerAccountId: AccountId;
+    sellerAccountId: AccountId;
+    startedAt: string;
   }>
 >;
 
@@ -356,6 +375,7 @@ export type ShipmentExceptionRaisedEvent = DomainEvent<
 
 export type FulfillmentShipmentEvent =
   | ShipmentCreatedEvent
+  | ShipmentPackingStartedEvent
   | ShipmentPackagePreparedEvent
   | ShipmentLabelAttachedEvent
   | ShipmentLabelPurchaseFailedEvent
@@ -413,7 +433,10 @@ export const decideFulfillmentShipment: AggregateDecider<
       if (state.packageStatus === "packed") {
         return [];
       }
-      assert(state.status === "awaiting-package", "Only shipments awaiting package preparation can be packed.");
+      assert(
+        state.status === "awaiting-package" || state.status === "packing",
+        "Only shipments awaiting package preparation or in packing can be packed.",
+      );
       return [
         {
           type: "fulfillment.shipment.package-prepared",
@@ -421,6 +444,27 @@ export const decideFulfillmentShipment: AggregateDecider<
             shipmentId: state.shipmentId,
             packageCount: ensurePositiveInteger(command.packageCount, "Package count must be a positive whole number."),
             preparedAt: ensureIsoTimestamp(command.preparedAt, "Package preparation must record a timestamp."),
+          },
+        },
+      ];
+    case "StartShipmentPacking":
+      assert(state.shipmentId !== null, "Shipment must be created first.");
+      assert(state.orderId !== null, "Shipment must reference an order before packing starts.");
+      assert(state.buyerAccountId !== null, "Shipment must reference a buyer before packing starts.");
+      assert(state.sellerAccountId !== null, "Shipment must reference a seller before packing starts.");
+      if (state.status === "packing") {
+        return [];
+      }
+      assert(state.status === "awaiting-package", "Only shipments awaiting package preparation can start packing.");
+      return [
+        {
+          type: "fulfillment.shipment.packing-started",
+          data: {
+            shipmentId: state.shipmentId,
+            orderId: state.orderId,
+            buyerAccountId: state.buyerAccountId,
+            sellerAccountId: state.sellerAccountId,
+            startedAt: ensureIsoTimestamp(command.startedAt, "Packing start must record a timestamp."),
           },
         },
       ];
@@ -669,6 +713,7 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         exceptions: [],
         addressOverrideAudits: [],
         createdAt: event.data.createdAt,
+        packingStartedAt: null,
         packagePreparedAt: null,
         labelAttachedAt: null,
         labelVoidedAt: null,
@@ -679,6 +724,13 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
         currentExceptionType: null,
         currentExceptionNotes: null,
         exceptionRaisedAt: null,
+      };
+    case "fulfillment.shipment.packing-started":
+      return {
+        ...state,
+        status: "packing",
+        packageStatus: "packing",
+        packingStartedAt: event.data.startedAt,
       };
     case "fulfillment.shipment.package-prepared":
       return {

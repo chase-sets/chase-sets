@@ -122,6 +122,15 @@ export function createFulfillmentApiClient({
         }),
       );
     },
+    async startPackingShipment(shipmentId: string) {
+      return parseJsonResponse(
+        await client.account.sales.shipments[":id"].packing.start.$post({
+          param: { id: shipmentId },
+          json: {},
+          header: headers,
+        }),
+      );
+    },
     async attachLabel(shipmentId: string, body: Record<string, unknown>) {
       return parseJsonResponse(
         await client.account.sales.shipments[":id"].label.$post({

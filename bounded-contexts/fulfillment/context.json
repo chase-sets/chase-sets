@@ -82,6 +82,13 @@
           "sourceContext": "fulfillment"
         },
         {
+          "routeId": "account-sale-shipment-packing",
+          "routePath": "account/sales/shipments/:shipmentId/packing",
+          "fileExport": "./routes/marketplace/account-sale-shipment-packing",
+          "routeType": "route",
+          "sourceContext": "fulfillment"
+        },
+        {
           "routeId": "account-shipment",
           "routePath": "account/shipments/:shipmentId",
           "fileExport": "./routes/marketplace/account-shipment",

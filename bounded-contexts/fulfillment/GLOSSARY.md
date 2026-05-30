@@ -15,6 +15,16 @@ Notes:
 
 A **Package** is the packed unit prepared for carrier handoff within a shipment workflow.
 
+## Packing
+
+**Packing** is the seller-facing package assembly workflow after a shipment is ready and before the package is recorded as packed.
+
+Notes:
+
+- Packing is owned by Fulfillment.
+- Starting Packing closes buyer self-service purchase cancellation because seller work has begun.
+- Packing completion records package count and moves the shipment to label readiness.
+
 ## Package Plan
 
 A **Package Plan** is the immutable package, mailpiece class, dimensions, weight, and measurement-version snapshot committed by Ordering and executed by Fulfillment.
@@ -70,5 +80,5 @@ A **Cancellation Cutoff** is the Fulfillment-owned shipment state boundary that 
 Notes:
 
 - The window is open while the shipment is awaiting package preparation.
-- The window closes when package preparation is recorded.
+- The window closes when packing starts.
 - After the cutoff, buyer cancellation requests use Support instead of direct cancellation.

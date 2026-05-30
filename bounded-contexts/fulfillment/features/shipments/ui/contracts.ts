@@ -46,6 +46,7 @@ export interface FulfillmentShipmentListItem {
   current_exception_notes: string | null;
   created_at: string;
   updated_at: string;
+  packing_started_at: string | null;
   package_prepared_at: string | null;
   label_attached_at: string | null;
   label_voided_at: string | null;

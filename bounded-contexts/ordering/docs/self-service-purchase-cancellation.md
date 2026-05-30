@@ -13,13 +13,13 @@ The cancellation window is open only when all of these facts are true:
 - Fulfillment has created a shipment for the order and that shipment is still `awaiting-package`.
 - No open cancellation or refund effect has already claimed the same order cancellation.
 
-The window closes when Fulfillment records package preparation. After that cutoff, the buyer uses the Support-owned `buyer-cancel-request` flow so seller effort, postage, exceptions, and refund decisions are handled through an auditable workflow.
+The window closes when Fulfillment records packing start. After that cutoff, the buyer uses the Support-owned `buyer-cancel-request` flow so seller effort, postage, exceptions, and refund decisions are handled through an auditable workflow.
 
 ## Context Responsibilities
 
 Ordering records the order cancellation and publishes the cancellation fact. The event remains a fact, not a command to Fulfillment or Payments.
 
-Fulfillment consumes the order cancellation and cancels any shipment still in `awaiting-package`. Fulfillment rejects shipment cancellation after package preparation because fulfillment work has started.
+Fulfillment consumes the order cancellation and cancels any shipment still in `awaiting-package`. Fulfillment rejects shipment cancellation after packing starts because fulfillment work has started.
 
 Payments consumes the order cancellation only when a captured payment exists. It issues an idempotent refund for the buyer-paid share: the order total plus the order's allocated Marketplace Checkout Fee.
 

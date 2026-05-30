@@ -18,17 +18,35 @@ export function buildOrderingFulfillmentCancellationProjectionHandlers(db: PgQue
            package_status,
            created_at,
            updated_at,
+           packing_started_at,
            package_prepared_at,
            cancelled_at
-         ) VALUES ($1, $2, 'awaiting-package', 'awaiting-package', $3, $3, NULL, NULL)
+         ) VALUES ($1, $2, 'awaiting-package', 'awaiting-package', $3, $3, NULL, NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE
          SET shipment_id = EXCLUDED.shipment_id,
              shipment_status = EXCLUDED.shipment_status,
              package_status = EXCLUDED.package_status,
              updated_at = EXCLUDED.updated_at,
+             packing_started_at = NULL,
              package_prepared_at = NULL,
              cancelled_at = NULL`,
         [data.orderId, data.shipmentId, data.createdAt],
+      );
+    },
+    "fulfillment.shipment.packing-started": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        startedAt: string;
+      };
+
+      await db.query(
+        `UPDATE ordering_fulfillment_cancellation_inputs
+         SET shipment_status = 'packing',
+             package_status = 'packing',
+             packing_started_at = $2,
+             updated_at = $2
+         WHERE shipment_id = $1`,
+        [data.shipmentId, data.startedAt],
       );
     },
     "fulfillment.shipment.package-prepared": async (event) => {
