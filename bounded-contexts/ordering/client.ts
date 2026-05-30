@@ -81,6 +81,11 @@ export type CheckoutFulfillmentPreview = Readonly<{
       latestDate: string;
       minimumTransitDays: number;
       maximumTransitDays: number;
+      handlingDays: number;
+      packageCount: number;
+      shipFromRegion: string;
+      serviceLevel: string;
+      basis: string;
     }>;
     lines: readonly Readonly<{
       lineKey: string;

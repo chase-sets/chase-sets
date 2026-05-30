@@ -25,7 +25,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
-import type { CheckoutSellListLineRow } from "../read-model/queries";
+import type { CheckoutSellListLineRow, CheckoutSellListReceiptRow } from "../read-model/queries";
 
 type SellListOfferReview = Readonly<{
   lineId: string;
@@ -102,6 +102,7 @@ export function CheckoutSellListPage({
   sellListLines,
   isSignedIn = true,
   reviewCompleted = false,
+  latestReceipt = null,
   offerReviews = [],
   productOfferReviews = [],
   inventoryItems = [],
@@ -111,6 +112,7 @@ export function CheckoutSellListPage({
   sellListLines: readonly CheckoutSellListLineRow[];
   isSignedIn?: boolean;
   reviewCompleted?: boolean;
+  latestReceipt?: CheckoutSellListReceiptRow | null;
   offerReviews?: readonly SellListOfferReview[];
   productOfferReviews?: readonly SellListProductOfferReview[];
   inventoryItems?: readonly SellListInventoryItem[];
@@ -221,11 +223,64 @@ export function CheckoutSellListPage({
         ) : null}
 
         {reviewCompleted ? (
-          <MarketplaceNotice
-            tone="success"
-            title={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded")}
-            description={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded.description")}
-          />
+          <Stack gap={3}>
+            <MarketplaceNotice
+              tone="success"
+              title={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded")}
+              description={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded.description")}
+            />
+            {latestReceipt?.execution_summary.lineOutcomes?.length ? (
+              <Surface elevated>
+                <Stack gap={3}>
+                  <Inline gap={2}>
+                    <Badge tone="success">{t("checkout.features.sellList.ui.sellListPage.sale.receipt")}</Badge>
+                    <Text weight="semibold">
+                      {t("checkout.features.sellList.ui.sellListPage.sale.receipt.summary", {
+                        acceptedOfferCount: latestReceipt.execution_summary.acceptedOfferCount ?? 0,
+                        createdListingCount: latestReceipt.execution_summary.createdListingCount ?? 0,
+                      })}
+                    </Text>
+                  </Inline>
+                  <Stack gap={2}>
+                    {latestReceipt.execution_summary.lineOutcomes.map((outcome) => (
+                      <Inset key={`${outcome.lineId}:${outcome.status}`}>
+                        <KeyValueList
+                          density="compact"
+                          variant="plain"
+                          items={[
+                            {
+                              key: t("checkout.features.sellList.ui.sellListPage.receipt.item"),
+                              value: outcome.itemTitle,
+                            },
+                            {
+                              key: t("checkout.features.sellList.ui.sellListPage.receipt.result"),
+                              value: outcome.status,
+                            },
+                            {
+                              key: t("checkout.features.sellList.ui.sellListPage.receipt.action"),
+                              value: outcome.action,
+                            },
+                            {
+                              key: t("checkout.features.sellList.ui.sellListPage.receipt.quantity"),
+                              value: outcome.quantity,
+                            },
+                            {
+                              key: t("checkout.features.sellList.ui.sellListPage.receipt.remaining"),
+                              value: outcome.remainingQuantity,
+                            },
+                            {
+                              key: t("checkout.features.sellList.ui.sellListPage.receipt.recovery"),
+                              value: outcome.detail,
+                            },
+                          ]}
+                        />
+                      </Inset>
+                    ))}
+                  </Stack>
+                </Stack>
+              </Surface>
+            ) : null}
+          </Stack>
         ) : null}
 
         {sellListLines.length === 0 ? (

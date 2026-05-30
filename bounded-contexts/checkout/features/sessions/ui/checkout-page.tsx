@@ -80,6 +80,36 @@ function deliveryWindowLabel(group: CheckoutFulfillmentPreview["sellerGroups"][n
   return `${group.deliveryEstimate.earliestDate} - ${group.deliveryEstimate.latestDate}`;
 }
 
+function normalizedAddressSignature(
+  address: Readonly<{
+    shippingAddressId: string;
+    name: string;
+    company: string;
+    line1: string;
+    line2: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    phone: string;
+    email: string;
+  }>,
+) {
+  return JSON.stringify({
+    shippingAddressId: address.shippingAddressId.trim() || "__manual",
+    name: address.name.trim(),
+    company: address.company.trim(),
+    line1: address.line1.trim(),
+    line2: address.line2.trim(),
+    city: address.city.trim(),
+    state: address.state.trim().toUpperCase(),
+    postalCode: address.postalCode.trim(),
+    country: address.country.trim().toUpperCase(),
+    phone: address.phone.trim(),
+    email: address.email.trim().toLowerCase(),
+  });
+}
+
 function marketRecoveryHref(itemTitle: string) {
   return `/search?q=${encodeURIComponent(itemTitle)}`;
 }
@@ -91,6 +121,7 @@ export function CheckoutSessionPage({
   selectedPaymentMethodCategory = "card",
   fulfillmentPreview,
   errorMessage,
+  reviewRefreshed = false,
   isSubmitting = false,
   savedShippingAddresses = [],
   canManageShippingAddresses = false,
@@ -101,6 +132,7 @@ export function CheckoutSessionPage({
   selectedPaymentMethodCategory?: string;
   fulfillmentPreview?: CheckoutFulfillmentPreview | null;
   errorMessage?: string | null;
+  reviewRefreshed?: boolean;
   isSubmitting?: boolean;
   savedShippingAddresses?: readonly CheckoutSavedShippingAddress[];
   canManageShippingAddresses?: boolean;
@@ -164,6 +196,7 @@ export function CheckoutSessionPage({
   const hasOnlyLockedAllocations =
     previewAllocationLines.length > 0 && previewAllocationLines.every((line) => line.priceState === "locked");
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
+  const returningBuyerFastPath = Boolean(defaultSavedAddress && !isOfferIntent && !hasPayment);
   const summary = (
     <Stack gap={4}>
       <PriceBreakdown
@@ -299,6 +332,13 @@ export function CheckoutSessionPage({
                 </Stack>
               </Surface>
             ) : null}
+            {reviewRefreshed ? (
+              <MarketplaceNotice
+                tone="success"
+                title={t("checkout.features.sessions.ui.checkoutPage.review.updated")}
+                description={t("checkout.features.sessions.ui.checkoutPage.review.updated.description")}
+              />
+            ) : null}
 
             <Banner
               title={
@@ -312,6 +352,16 @@ export function CheckoutSessionPage({
                   : t("checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview.description")
               }
             />
+            {returningBuyerFastPath ? (
+              <MarketplaceNotice
+                tone="success"
+                title={t("checkout.features.sessions.ui.checkoutPage.fast.checkout.ready")}
+                description={t("checkout.features.sessions.ui.checkoutPage.fast.checkout.ready.description", {
+                  addressLabel: defaultSavedAddress?.label,
+                  paymentMethodCategory: selectedPaymentMethodCategory.replace("-", " "),
+                })}
+              />
+            ) : null}
 
             {!isOfferIntent ? (
               <PageSection
@@ -437,6 +487,22 @@ export function CheckoutSessionPage({
                                     minimumDays: group.deliveryEstimate.minimumTransitDays,
                                     maximumDays: group.deliveryEstimate.maximumTransitDays,
                                   }),
+                                },
+                                {
+                                  key: t("checkout.features.sessions.ui.checkoutPage.ships.from"),
+                                  value: group.deliveryEstimate.shipFromRegion,
+                                },
+                                {
+                                  key: t("checkout.features.sessions.ui.checkoutPage.package.plan"),
+                                  value: t("checkout.features.sessions.ui.checkoutPage.package.plan.value", {
+                                    packageCount: group.deliveryEstimate.packageCount,
+                                    packagePlural: group.deliveryEstimate.packageCount === 1 ? "" : "s",
+                                    serviceLevel: group.deliveryEstimate.serviceLevel,
+                                  }),
+                                },
+                                {
+                                  key: t("checkout.features.sessions.ui.checkoutPage.delivery.basis"),
+                                  value: group.deliveryEstimate.basis,
                                 },
                               ]}
                             />
@@ -616,6 +682,12 @@ export function CheckoutSessionPage({
                         value={payment?.wallet_credit.requested_amount ?? wallet?.available_balance_amount ?? "0.00"}
                       />
                       <input type="hidden" name="paymentMethodCategory" value={selectedPaymentMethodCategory} />
+                      <input type="hidden" name="reviewedShippingOption" value={session.shipping_option} />
+                      <input
+                        type="hidden"
+                        name="reviewedShippingAddressSignature"
+                        value={normalizedAddressSignature(addressDefaults)}
+                      />
                       <input
                         type="hidden"
                         name="acknowledgedMaterialChanges"
@@ -853,7 +925,9 @@ export function CheckoutSessionPage({
                             : canConfirm
                               ? isOfferIntent
                                 ? t("checkout.features.sessions.ui.checkoutPage.place.purchase.intent")
-                                : t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")
+                                : payment
+                                  ? t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")
+                                  : t("checkout.features.sessions.ui.checkoutPage.review.latest.total")
                               : t("checkout.features.sessions.ui.checkoutPage.no.available.supply")}
                         </Button>
                       </Inline>

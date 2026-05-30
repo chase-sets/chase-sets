@@ -46,7 +46,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.empty.cart.protection.title": "Checkout protection stays visible",
   "checkout.features.cart.ui.cartPage.fulfillment.ready": "Fulfillment Ready",
   "checkout.features.cart.ui.cartPage.estimated.item.subtotal": "Estimated item subtotal",
+  "checkout.features.cart.ui.cartPage.estimated.for.address": "Estimated for {addressLabel}",
+  "checkout.features.cart.ui.cartPage.estimated.packages": "Estimated packages",
+  "checkout.features.cart.ui.cartPage.estimated.shipping": "Estimated shipping",
   "checkout.features.cart.ui.cartPage.estimated.shipping.credit": "Estimated shipping credit",
+  "checkout.features.cart.ui.cartPage.estimated.tax": "Estimated tax",
   "checkout.features.cart.ui.cartPage.estimated.checkout.fee": "Estimated checkout fee",
   "checkout.features.cart.ui.cartPage.shipping.tax.and.delivery": "Shipping, tax, delivery",
   "checkout.features.cart.ui.cartPage.finalized.after.address": "Finalized after address",
@@ -139,6 +143,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment":
     "Create purchases and continue to secure payment",
   "checkout.features.sessions.ui.checkoutPage.delivery.estimate": "Delivery estimate",
+  "checkout.features.sessions.ui.checkoutPage.delivery.basis": "Delivery basis",
   "checkout.features.sessions.ui.checkoutPage.shipping.service": "Shipping service",
   "checkout.features.sessions.ui.checkoutPage.estimated.days.after.purchase":
     "Estimated delivery {minimumDays}-{maximumDays} days after purchase",
@@ -155,6 +160,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment":
     "Eligible orders are protected through payment and fulfillment.",
   "checkout.features.sessions.ui.checkoutPage.expedited": "Expedited",
+  "checkout.features.sessions.ui.checkoutPage.fast.checkout.ready": "Fast checkout ready",
+  "checkout.features.sessions.ui.checkoutPage.fast.checkout.ready.description":
+    "Using {addressLabel} with {paymentMethodCategory} pricing. Payment credentials stay on the secure payment step.",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.ready": "Fulfillment Ready",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.changed": "Fulfillment changed since your last preview",
   "checkout.features.sessions.ui.checkoutPage.items": "Items",
@@ -178,6 +186,9 @@ export const checkoutEnglishTranslations = {
     "Payment starts only after orders are grouped by seller.",
   "checkout.features.sessions.ui.checkoutPage.platform.credit.only": "Platform credit only",
   "checkout.features.sessions.ui.checkoutPage.postal.code": "Postal code",
+  "checkout.features.sessions.ui.checkoutPage.package.plan": "Package plan",
+  "checkout.features.sessions.ui.checkoutPage.package.plan.value":
+    "{packageCount} package{packagePlural} - {serviceLevel}",
   "checkout.features.sessions.ui.checkoutPage.preview.after.address": "Preview after address",
   "checkout.features.sessions.ui.checkoutPage.pricing": "Pricing",
   "checkout.features.sessions.ui.checkoutPage.priority.signature": "Priority signature",
@@ -200,6 +211,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.recipient.name": "Recipient name",
   "checkout.features.sessions.ui.checkoutPage.recipient.placeholder": "Jane Smith",
   "checkout.features.sessions.ui.checkoutPage.refresh.totals": "Refresh totals",
+  "checkout.features.sessions.ui.checkoutPage.review.latest.total": "Review latest total",
+  "checkout.features.sessions.ui.checkoutPage.review.updated": "Review updated",
+  "checkout.features.sessions.ui.checkoutPage.review.updated.description":
+    "Your latest shipping, destination, and payment selections are reflected in this review.",
   "checkout.features.sessions.ui.checkoutPage.review.items": "Review Items",
   "checkout.features.sessions.ui.checkoutPage.review.payment.total": "Review payment total",
   "checkout.features.sessions.ui.checkoutPage.reviewed.before.payment": "Reviewed before payment",
@@ -209,6 +224,7 @@ export const checkoutEnglishTranslations = {
     "Sellers can accept your purchase intent before an order and payment are created.",
   "checkout.features.sessions.ui.checkoutPage.same.seller.shipping.credit": "Same-seller shipping credit",
   "checkout.features.sessions.ui.checkoutPage.shipping": "Shipping",
+  "checkout.features.sessions.ui.checkoutPage.ships.from": "Ships from",
   "checkout.features.sessions.ui.checkoutPage.each.seller.grouped.purchase.applies.the.listing.credit":
     "Each seller-grouped purchase applies the listing credit to shipping before payment is created.",
   "checkout.features.sessions.ui.checkoutPage.shipping.option": "Shipping option",
@@ -318,6 +334,15 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded.description":
     "Checkout recorded the seller-side review and cleared the Sell List items that were ready to execute.",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.summary": "Sale checkout summary",
+  "checkout.features.sellList.ui.sellListPage.sale.receipt": "Sale receipt",
+  "checkout.features.sellList.ui.sellListPage.sale.receipt.summary":
+    "{acceptedOfferCount} offers accepted, {createdListingCount} listings created",
+  "checkout.features.sellList.ui.sellListPage.receipt.action": "Action",
+  "checkout.features.sellList.ui.sellListPage.receipt.item": "Item",
+  "checkout.features.sellList.ui.sellListPage.receipt.quantity": "Quantity",
+  "checkout.features.sellList.ui.sellListPage.receipt.recovery": "Recovery",
+  "checkout.features.sellList.ui.sellListPage.receipt.remaining": "Remaining",
+  "checkout.features.sellList.ui.sellListPage.receipt.result": "Result",
   "checkout.features.sellList.ui.sellListPage.sale.review.before.commitment":
     "Review sale value, payout readiness, and fulfillment before commitment.",
   "checkout.features.sellList.ui.sellListPage.saved.for.later.description":
@@ -351,6 +376,18 @@ export const checkoutEnglishTranslations = {
     "Review selected offers and product-level seller intent before checkout creates sale commitments.",
   "checkout.routes.accountSellList.sell.list.chase.sets": "Sell List | Chase Sets",
   "checkout.routes.accountSellList.sell.list.request.failed": "Sell List request failed.",
+  "checkout.routes.accountSellList.matching.offers.do.not.cover.quantity.detail":
+    "{itemTitle}: matching offers do not cover the requested quantity.",
+  "checkout.routes.accountSellList.no.sale.action.completed.detail": "{itemTitle}: no sale action completed.",
+  "checkout.routes.accountSellList.offer.accept.failed": "offer accept failed",
+  "checkout.routes.accountSellList.offer.accept.failed.detail": "{itemTitle}: {message}",
+  "checkout.routes.accountSellList.offer.terms.need.refresh.detail": "{itemTitle}: offer terms need refresh.",
+  "checkout.routes.accountSellList.sale.action.completed.detail":
+    "{itemTitle}: {acceptedQuantity} matched offer quantity and {listingQuantity} fallback listing quantity completed.",
+  "checkout.routes.accountSellList.sale.action.partial.detail":
+    "{itemTitle}: {executedQuantity} quantity executed; {remainingQuantity} remains in the Sell List.",
+  "checkout.routes.accountSellList.selected.offer.accepted.detail": "{itemTitle}: selected offer accepted.",
+  "checkout.routes.accountSellList.selected.offer.missing.detail": "{itemTitle}: selected offer is missing.",
   "checkout.routes.checkoutSession.checkout.marketplace": "Checkout | Marketplace",
   "checkout.routes.checkoutSession.checkout.session.not.found": "Checkout session not found.",
   "checkout.routes.checkoutSession.checkout.session.not.found.2": "Checkout session not found.",

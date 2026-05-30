@@ -227,10 +227,17 @@ export function createAccountOfferMatchRoutes(services: MarketplaceOfferServices
 
     const limit = Number(c.req.query("limit") ?? 50);
     const offset = Number(c.req.query("offset") ?? 0);
+    const productIds = String(c.req.query("productIds") ?? "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
     const result = await services.listOfferMatches({
       sellerAccountId: access.actor.accountId,
       limit,
       offset,
+      productIds,
+      status: c.req.query("status") === "submitted" ? "submitted" : undefined,
+      canFulfill: c.req.query("canFulfill") === "true" ? true : undefined,
     });
 
     return c.json({

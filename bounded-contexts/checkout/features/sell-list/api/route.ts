@@ -1,6 +1,8 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
+import type { SellListExecutionSummary } from "../domain/domain";
 import type { CheckoutSellListServices } from "./runtime";
 
 function requireSellListAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables"]["actor"] }) {
@@ -107,17 +109,58 @@ function parseSellListLineBody(body: Record<string, unknown>) {
   };
 }
 
+function parseLineOutcomeStatus(value: unknown): "completed" | "partial" | "skipped" {
+  return value === "completed" || value === "partial" || value === "skipped" ? value : "skipped";
+}
+
+function parseLineOutcomeAction(
+  value: unknown,
+): "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list" {
+  return value === "accepted-offer" ||
+    value === "accepted-smart-match" ||
+    value === "created-listing" ||
+    value === "mixed" ||
+    value === "kept-in-sell-list"
+    ? value
+    : "kept-in-sell-list";
+}
+
 function parseSellListCheckoutBody(body: Record<string, unknown>) {
   const completedLineIds = Array.isArray(body.completedLineIds)
     ? body.completedLineIds.map(String).filter(Boolean)
+    : [];
+  const remainingLineQuantities = Array.isArray(body.remainingLineQuantities)
+    ? body.remainingLineQuantities
+        .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+        .map((entry) => ({
+          lineId: String(entry.lineId ?? ""),
+          quantity: Number(entry.quantity ?? 0),
+        }))
+        .filter((entry) => entry.lineId && Number.isFinite(entry.quantity) && entry.quantity > 0)
     : [];
   const executionSummary =
     body.executionSummary && typeof body.executionSummary === "object"
       ? (body.executionSummary as Record<string, unknown>)
       : null;
+  const lineOutcomes: NonNullable<SellListExecutionSummary["lineOutcomes"]> =
+    executionSummary && Array.isArray(executionSummary.lineOutcomes)
+      ? executionSummary.lineOutcomes
+          .filter((entry): entry is Record<string, unknown> => Boolean(entry && typeof entry === "object"))
+          .map((entry) => ({
+            lineId: String(entry.lineId ?? "") as SellListLineId,
+            itemTitle: String(entry.itemTitle ?? ""),
+            status: parseLineOutcomeStatus(entry.status),
+            action: parseLineOutcomeAction(entry.action),
+            quantity: Number(entry.quantity ?? 0),
+            remainingQuantity: Number(entry.remainingQuantity ?? 0),
+            detail: String(entry.detail ?? ""),
+          }))
+          .filter((entry) => entry.lineId && entry.itemTitle)
+      : [];
 
   return {
     completedLineIds,
+    remainingLineQuantities,
     executionSummary: executionSummary
       ? {
           acceptedOfferCount: Number(executionSummary.acceptedOfferCount ?? 0),
@@ -126,6 +169,7 @@ function parseSellListCheckoutBody(body: Record<string, unknown>) {
           skippedReasons: Array.isArray(executionSummary.skippedReasons)
             ? executionSummary.skippedReasons.map(String).filter(Boolean)
             : [],
+          lineOutcomes,
         }
       : null,
   };
@@ -140,10 +184,14 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
       return access.response;
     }
 
-    const items = await services.listLines(access.actor.accountId);
+    const [items, latestReceipt] = await Promise.all([
+      services.listLines(access.actor.accountId),
+      services.getLatestReceipt(access.actor.accountId),
+    ]);
     return c.json({
       items,
       count: items.reduce((sum, item) => sum + item.quantity, 0),
+      latestReceipt,
     });
   });
 
@@ -244,6 +292,7 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
         {
           sellerAccountId: access.actor.accountId as never,
           completedLineIds: checkoutBody.completedLineIds as never,
+          remainingLineQuantities: checkoutBody.remainingLineQuantities as never,
           executionSummary: checkoutBody.executionSummary,
         },
         context,

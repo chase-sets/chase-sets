@@ -27,4 +27,11 @@ CREATE INDEX IF NOT EXISTS checkout_sell_list_line_pages_seller_idx
 CREATE UNIQUE INDEX IF NOT EXISTS checkout_sell_list_line_pages_offer_unique_idx
   ON checkout_sell_list_line_pages (seller_account_id, offer_id)
   WHERE offer_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS checkout_sell_list_receipt_pages (
+  seller_account_id text PRIMARY KEY,
+  checked_out_at timestamptz NOT NULL,
+  execution_summary jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
 `;

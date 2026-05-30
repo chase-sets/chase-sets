@@ -85,6 +85,11 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
         latestDate: "2026-05-06",
         minimumTransitDays: 5,
         maximumTransitDays: 8,
+        handlingDays: 1,
+        packageCount: 1,
+        shipFromRegion: "Chicago, IL",
+        serviceLevel: "standard parcel",
+        basis: "1 package from Chicago, IL; 1 seller handling day plus 5-8 transit days.",
       },
       lines: [
         {

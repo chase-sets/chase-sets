@@ -23,7 +23,7 @@ import {
   type CheckoutSellListState,
 } from "../domain/domain";
 import { buildCheckoutSellListProjectionHandlers } from "../read-model/projection";
-import { listSellListLines } from "../read-model/queries";
+import { getLatestSellListReceipt, listSellListLines } from "../read-model/queries";
 
 function isIdempotentMergeReplay(error: unknown) {
   return (
@@ -72,11 +72,21 @@ export type CheckoutSellListServices = Readonly<{
     params: Readonly<{
       sellerAccountId: AccountId;
       completedLineIds?: readonly SellListLineId[] | null;
+      remainingLineQuantities?: readonly { lineId: SellListLineId; quantity: number }[] | null;
       executionSummary?: Readonly<{
         acceptedOfferCount: number;
         createdListingCount: number;
         skippedLineCount: number;
         skippedReasons: readonly string[];
+        lineOutcomes?: readonly {
+          lineId: SellListLineId;
+          itemTitle: string;
+          status: "completed" | "partial" | "skipped";
+          action: "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list";
+          quantity: number;
+          remainingQuantity: number;
+          detail: string;
+        }[];
       }> | null;
     }>,
     context: EventStoreContext,
@@ -94,6 +104,7 @@ export type CheckoutSellListServices = Readonly<{
     context: EventStoreContext,
   ) => Promise<{ mergedLineCount: number }>;
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
+  getLatestReceipt: (sellerAccountId: string) => ReturnType<typeof getLatestSellListReceipt>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -231,6 +242,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
           type: "CheckoutSellList",
           checkedOutAt: new Date().toISOString(),
           completedLineIds: params.completedLineIds ?? null,
+          remainingLineQuantities: params.remainingLineQuantities ?? null,
           executionSummary: params.executionSummary ?? null,
         },
         context,
@@ -243,6 +255,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         completedLineIds: params.completedLineIds ?? [],
       };
     },
+    getLatestReceipt: (sellerAccountId) => getLatestSellListReceipt(deps.db, sellerAccountId),
     mergeSellListIntoAccount: async (params, context) => {
       const sourceLines = await listSellListLines(deps.db, params.sourceOwnerId);
       const existingTargetLineIds = new Set(

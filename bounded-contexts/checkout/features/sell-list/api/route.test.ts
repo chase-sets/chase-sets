@@ -42,6 +42,7 @@ function createServices(): CheckoutSellListServices {
     checkoutSellList: vi.fn(async () => ({ sellerAccountId: "acc_seller" as never, version: 3, status: "reviewed" })),
     mergeSellListIntoAccount: vi.fn(async () => ({ mergedLineCount: 1 })),
     listLines: vi.fn(async () => []),
+    getLatestReceipt: vi.fn(async () => null),
     projectors: [],
   } as unknown as CheckoutSellListServices;
 }

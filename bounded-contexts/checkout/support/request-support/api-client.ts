@@ -5,6 +5,7 @@ export type {
   CheckoutCartLine,
   AddCheckoutSellListLineRequest,
   CheckoutSellListLineRow,
+  CheckoutSellListReceiptRow,
   CreateCheckoutSessionRequest,
   CheckoutSessionRow,
 } from "../../client";
