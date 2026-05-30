@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { FulfillmentPackingSlipPrintPage } from "./packing-slip-page";
 import { FulfillmentShipmentDetailPage } from "./shipment-detail-page";
 import { FulfillmentShipmentListPage } from "./shipment-list-page";
+import { FulfillmentShipmentPackingPage } from "./shipment-packing-page";
 import type { FulfillmentPackingSlip } from "./contracts";
 
 const slip: FulfillmentPackingSlip = {
@@ -62,6 +63,7 @@ const slip: FulfillmentPackingSlip = {
   current_exception_notes: null,
   created_at: "2026-04-02T00:00:00.000Z",
   updated_at: "2026-04-02T00:00:00.000Z",
+  packing_started_at: null,
   package_prepared_at: null,
   label_attached_at: null,
   label_voided_at: null,
@@ -117,6 +119,8 @@ describe("fulfillment packing slip UI", () => {
     );
 
     expect(markup).toContain("Print packing slip");
+    expect(markup).toContain("Start packing");
+    expect(markup).toContain("/account/sales/shipments/shp_1/packing");
     expect(markup).toContain("/account/sales/shipments/packing-slips");
     expect(markup).toContain("shipmentIds=shp_1");
   });
@@ -129,6 +133,7 @@ describe("fulfillment packing slip UI", () => {
         emptyTitle="No sale shipments yet"
         emptyDescription="Shipments appear here once paid."
         shipmentDetailBasePath="/account/sales/shipments"
+        packingFlowBasePath="/account/sales/shipments"
         batchPrintActionPath="/account/sales/shipments/packing-slips"
         shipments={[slip]}
       />,
@@ -139,5 +144,29 @@ describe("fulfillment packing slip UI", () => {
     expect(markup).toContain('value="shp_1"');
     expect(markup).toContain('name="format"');
     expect(markup).toContain("Print packing slips");
+    expect(markup).toContain("Start packing");
+    expect(markup).toContain('formAction="/account/sales/shipments/shp_1/packing"');
+    expect(markup).toContain('formTarget="_self"');
+  });
+
+  it("renders the packing workspace with line confirmation before completion", () => {
+    const packingShipment: FulfillmentPackingSlip = {
+      ...slip,
+      status: "packing",
+      package_status: "packing",
+      packing_started_at: "2026-04-02T00:01:00.000Z",
+    };
+    const markup = renderToString(
+      <FulfillmentShipmentPackingPage
+        backHref="/account/sales/shipments"
+        shipment={packingShipment}
+        errorMessage={null}
+      />,
+    );
+
+    expect(markup).toContain("Pack shipment");
+    expect(markup).toContain("Packed 2 x Charizard");
+    expect(markup).toContain("Finish packing");
+    expect(markup).toContain('value="complete-packing"');
   });
 });

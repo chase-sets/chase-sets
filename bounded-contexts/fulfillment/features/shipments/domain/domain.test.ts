@@ -53,11 +53,20 @@ describe("fulfillment shipment domain", () => {
       createdAt: "2026-04-02T00:00:00.000Z",
     }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
 
-    const packedState = decideFulfillmentShipment(createdState, {
+    const packingState = decideFulfillmentShipment(createdState, {
+      type: "StartShipmentPacking",
+      startedAt: "2026-04-02T00:03:00.000Z",
+    }).reduce(evolveFulfillmentShipment, createdState);
+
+    expect(packingState.status).toBe("packing");
+    expect(packingState.packageStatus).toBe("packing");
+    expect(packingState.packingStartedAt).toBe("2026-04-02T00:03:00.000Z");
+
+    const packedState = decideFulfillmentShipment(packingState, {
       type: "PrepareShipmentPackage",
       packageCount: 1,
       preparedAt: "2026-04-02T00:05:00.000Z",
-    }).reduce(evolveFulfillmentShipment, createdState);
+    }).reduce(evolveFulfillmentShipment, packingState);
 
     const labeledState = decideFulfillmentShipment(packedState, {
       type: "AttachShipmentLabel",
@@ -208,7 +217,7 @@ describe("fulfillment shipment domain", () => {
     expect(cancelledState.cancelledAt).toBe("2026-04-02T00:03:00.000Z");
   });
 
-  it("rejects cancellation after package preparation starts", () => {
+  it("rejects cancellation after packing starts", () => {
     const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
       type: "CreateShipment",
       shipmentId: "shp_1" as never,
@@ -231,14 +240,13 @@ describe("fulfillment shipment domain", () => {
       ],
       createdAt: "2026-04-02T00:00:00.000Z",
     }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
-    const packedState = decideFulfillmentShipment(createdState, {
-      type: "PrepareShipmentPackage",
-      packageCount: 1,
-      preparedAt: "2026-04-02T00:05:00.000Z",
+    const packingState = decideFulfillmentShipment(createdState, {
+      type: "StartShipmentPacking",
+      startedAt: "2026-04-02T00:05:00.000Z",
     }).reduce(evolveFulfillmentShipment, createdState);
 
     expect(() =>
-      decideFulfillmentShipment(packedState, {
+      decideFulfillmentShipment(packingState, {
         type: "CancelShipment",
         cancelledAt: "2026-04-02T00:06:00.000Z",
       }),

@@ -46,6 +46,7 @@ export function FulfillmentShipmentListPage({
   shipmentDetailBasePath,
   shipments,
   batchPrintActionPath,
+  packingFlowBasePath,
 }: {
   title: string;
   eyebrow: string;
@@ -54,6 +55,7 @@ export function FulfillmentShipmentListPage({
   shipmentDetailBasePath: string;
   shipments: readonly FulfillmentShipmentListItem[];
   batchPrintActionPath?: string;
+  packingFlowBasePath?: string;
 }) {
   const [selectedShipmentIds, setSelectedShipmentIds] = useState<string[]>([]);
   const selectedShipmentIdSet = new Set(selectedShipmentIds);
@@ -138,6 +140,28 @@ export function FulfillmentShipmentListPage({
                     <LinkButton href={`${shipmentDetailBasePath}/${shipment.shipment_id}`} tone="secondary">
                       {t("fulfillment.features.shipments.ui.shipmentListPage.open.shipment")}
                     </LinkButton>
+                    {packingFlowBasePath && shipment.status === "awaiting-package" ? (
+                      <Button
+                        type="submit"
+                        name="intent"
+                        value="start-packing"
+                        leadingIcon="package"
+                        formAction={`${packingFlowBasePath}/${shipment.shipment_id}/packing`}
+                        formMethod="post"
+                        formTarget="_self"
+                      >
+                        {t("fulfillment.features.shipments.ui.shipmentListPage.start.packing")}
+                      </Button>
+                    ) : null}
+                    {packingFlowBasePath && shipment.status === "packing" ? (
+                      <LinkButton
+                        href={`${packingFlowBasePath}/${shipment.shipment_id}/packing`}
+                        tone="primary"
+                        leadingIcon="package"
+                      >
+                        {t("fulfillment.features.shipments.ui.shipmentListPage.resume.packing")}
+                      </LinkButton>
+                    ) : null}
                   </Stack>
                 </Card>
               ))

@@ -9,6 +9,7 @@ Fulfillment owns the physical execution of shipping and delivery.
 - Ship-from Locations
 - Shipment
 - Package assembly state
+- Packing start and completion
 - Packing slip preparation
 - Shipping method selection
 - Label purchase references
@@ -47,6 +48,7 @@ Postage provider configuration and label smoke checks live in [Postage Operation
 ## Outgoing Integration Events
 
 - `ShipmentCreated`
+- `ShipmentPackingStarted`
 - `ShipmentLabelAttached`
 - `ShipmentCancelled`
 - `ShipmentDispatched`
@@ -60,7 +62,7 @@ Postage provider configuration and label smoke checks live in [Postage Operation
 2. A single order may map to one or more shipments.
 3. Tracking state is owned only in Fulfillment.
 4. Fulfillment issues facts that may trigger refunds, but it does not execute refunds.
-5. A shipment may be cancelled for buyer self-service cancellation only before package preparation starts.
+5. A shipment may be cancelled for buyer self-service cancellation only before packing starts.
 
 ## Open Extraction Candidates
 

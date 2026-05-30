@@ -59,7 +59,7 @@ Ordering terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 3. Checkout lines express buyer intent for a product; concrete listing and inventory matching happen when Ordering creates orders.
 4. A checkout session may produce one or more orders grouped by seller account.
 5. Inventory holds are placed only when an order is committed and released if the order is cancelled while pending.
-6. Buyer self-service cancellation after payment is available only before Fulfillment records package preparation.
+6. Buyer self-service cancellation after payment is available only before Fulfillment records packing start.
 7. Buyers correct purchase mistakes by cancelling and rebuying, not by editing committed order terms.
 
 ## Open Extraction Candidates

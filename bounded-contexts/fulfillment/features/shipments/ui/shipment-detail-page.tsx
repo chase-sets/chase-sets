@@ -129,6 +129,7 @@ export function FulfillmentShipmentDetailPage({
   const recipientSnapshot = shipment.shipping_destination_snapshot;
   const senderSnapshot = shipment.shipping_origin_snapshot;
   const packingSlipHref = `/account/sales/shipments/packing-slips?shipmentIds=${encodeURIComponent(shipment.shipment_id)}&format=letter`;
+  const packingFlowHref = `/account/sales/shipments/${shipment.shipment_id}/packing`;
 
   return (
     <Page>
@@ -148,6 +149,18 @@ export function FulfillmentShipmentDetailPage({
             {role === "seller" ? (
               <LinkButton href={packingSlipHref} tone="primary" target="_blank">
                 {t("fulfillment.features.shipments.ui.shipmentDetailPage.print.packing.slip")}
+              </LinkButton>
+            ) : null}
+            {role === "seller" && shipment.status === "awaiting-package" ? (
+              <form method="post" action={packingFlowHref}>
+                <Button type="submit" name="intent" value="start-packing" leadingIcon="package">
+                  {t("fulfillment.features.shipments.ui.shipmentDetailPage.start.packing")}
+                </Button>
+              </form>
+            ) : null}
+            {role === "seller" && shipment.status === "packing" ? (
+              <LinkButton href={packingFlowHref} tone="primary" leadingIcon="package">
+                {t("fulfillment.features.shipments.ui.shipmentDetailPage.resume.packing")}
               </LinkButton>
             ) : null}
             <LinkButton href={backHref} tone="secondary">
@@ -334,7 +347,7 @@ export function FulfillmentShipmentDetailPage({
       {role === "seller" ? (
         <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.actions")}>
           <Stack gap={3}>
-            {shipment.status === "awaiting-package" ? (
+            {shipment.status === "packing" ? (
               <Card>
                 <form method="post">
                   <Stack gap={3}>

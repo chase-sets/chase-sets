@@ -89,6 +89,7 @@
       "subscriptionVersion": 1,
       "eventTypes": [
         "fulfillment.shipment.created",
+        "fulfillment.shipment.packing-started",
         "fulfillment.shipment.package-prepared",
         "fulfillment.shipment.label-attached",
         "fulfillment.shipment.dispatched",

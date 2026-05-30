@@ -75,6 +75,10 @@ export type FulfillmentShipmentServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
+  startPackingShipment: (
+    params: Readonly<{ shipmentId: string; sellerAccountId: string }>,
+    context: EventStoreContext,
+  ) => Promise<{ shipmentId: string; version: number }>;
   attachLabel: (
     params: Readonly<{
       shipmentId: string;
@@ -386,6 +390,20 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           type: "PrepareShipmentPackage",
           packageCount: params.packageCount,
           preparedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { shipmentId: params.shipmentId, version: result.version };
+    },
+    startPackingShipment: async (params, context) => {
+      await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+
+      const result = await commandHandler({
+        streamId: `fulfillment.shipment-${params.shipmentId}`,
+        command: {
+          type: "StartShipmentPacking",
+          startedAt: new Date().toISOString(),
         },
         context,
       });
