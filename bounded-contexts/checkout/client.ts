@@ -3,7 +3,7 @@ import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
-import type { CheckoutSellListLineRow } from "./features/sell-list/read-model/queries";
+import type { CheckoutSellListLineRow, CheckoutSellListReceiptRow } from "./features/sell-list/read-model/queries";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
@@ -258,7 +258,11 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async getSellList(): Promise<{ items: readonly CheckoutSellListLineRow[]; count: number }> {
+    async getSellList(): Promise<{
+      items: readonly CheckoutSellListLineRow[];
+      count: number;
+      latestReceipt?: CheckoutSellListReceiptRow | null;
+    }> {
       return parseJsonResponse(await client.account["sell-list"].$get({ header: headers }));
     },
     async getGuestSellList(
@@ -303,7 +307,17 @@ export function createCheckoutApiClient({
           createdListingCount: number;
           skippedLineCount: number;
           skippedReasons: readonly string[];
+          lineOutcomes?: readonly {
+            lineId: string;
+            itemTitle: string;
+            status: "completed" | "partial" | "skipped";
+            action: "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list";
+            quantity: number;
+            remainingQuantity: number;
+            detail: string;
+          }[];
         }> | null;
+        remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
       }> = {},
     ) {
       return parseJsonResponse(await client.account["sell-list"].checkout.$post({ json: body, header: headers }));
@@ -481,5 +495,5 @@ export function createCheckoutApiClient({
   };
 }
 
-export type { CheckoutCartLine, CheckoutSellListLineRow, CheckoutSessionRow };
+export type { CheckoutCartLine, CheckoutSellListLineRow, CheckoutSellListReceiptRow, CheckoutSessionRow };
 export const checkoutApi = createCheckoutApiClient();

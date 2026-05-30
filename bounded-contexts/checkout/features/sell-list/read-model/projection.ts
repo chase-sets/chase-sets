@@ -102,23 +102,62 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
       );
     },
     "checkout.sell-list.checked-out": async (event) => {
-      const data = event.data as { sellerAccountId: string; completedLineIds?: string[] };
+      const data = event.data as {
+        sellerAccountId: string;
+        checkedOutAt?: string;
+        completedLineIds?: string[];
+        remainingLineQuantities?: readonly { lineId: string; quantity: number }[];
+        executionSummary?: unknown;
+      };
+
+      if (data.executionSummary) {
+        await db.query(
+          `INSERT INTO checkout_sell_list_receipt_pages (
+             seller_account_id,
+             checked_out_at,
+             execution_summary,
+             updated_at
+           ) VALUES ($1, $2, $3, $4)
+           ON CONFLICT (seller_account_id) DO UPDATE
+           SET checked_out_at = EXCLUDED.checked_out_at,
+               execution_summary = EXCLUDED.execution_summary,
+               updated_at = EXCLUDED.updated_at`,
+          [
+            data.sellerAccountId,
+            data.checkedOutAt ?? event.timing.recordedAt,
+            JSON.stringify(data.executionSummary),
+            event.timing.recordedAt,
+          ],
+        );
+      }
 
       if (Array.isArray(data.completedLineIds) && data.completedLineIds.length > 0) {
         await db.query(
           `DELETE FROM checkout_sell_list_line_pages
            WHERE seller_account_id = $1
-             AND line_id = ANY($2::text[])`,
+              AND line_id = ANY($2::text[])`,
           [data.sellerAccountId, data.completedLineIds],
         );
-        return;
       }
 
-      await db.query(
-        `DELETE FROM checkout_sell_list_line_pages
-         WHERE seller_account_id = $1`,
-        [data.sellerAccountId],
-      );
+      if (!Array.isArray(data.completedLineIds)) {
+        await db.query(
+          `DELETE FROM checkout_sell_list_line_pages
+           WHERE seller_account_id = $1`,
+          [data.sellerAccountId],
+        );
+      }
+
+      for (const entry of data.remainingLineQuantities ?? []) {
+        await db.query(
+          `UPDATE checkout_sell_list_line_pages
+           SET quantity = $3,
+               updated_at = $4
+           WHERE seller_account_id = $1
+             AND line_id = $2`,
+          [data.sellerAccountId, entry.lineId, entry.quantity, event.timing.recordedAt],
+        );
+      }
     },
   };
 }

@@ -77,6 +77,38 @@ function createServices(): MarketplaceOfferServices {
 }
 
 describe("marketplace offer routes", () => {
+  it("passes product and fulfillability filters to the offer match source list", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_seller",
+        membershipId: "mbr_1",
+        roleKey: "viewer",
+        permissions: ["offers.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request(
+        "http://marketplace.test/account/offers/matches?limit=75&offset=5&productIds=prod_1,prod_2&status=submitted&canFulfill=true",
+      ),
+    );
+
+    expect(response.status).toBe(200);
+    expect(services.listOfferMatches).toHaveBeenCalledWith({
+      sellerAccountId: "acc_seller",
+      limit: 75,
+      offset: 5,
+      productIds: ["prod_1", "prod_2"],
+      status: "submitted",
+      canFulfill: true,
+    });
+  });
+
   it("submits an offer for any signed-in account", async () => {
     const services = createServices();
     const app = buildApp({

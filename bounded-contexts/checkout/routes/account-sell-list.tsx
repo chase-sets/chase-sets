@@ -12,7 +12,11 @@ import type {
   MarketplaceListingTermsPreview,
 } from "@chase-sets/marketplace/server";
 import type { SettlementPayoutReadinessRow } from "@chase-sets/settlement/server";
-import { createCheckoutRequestApiClient, type CheckoutSellListLineRow } from "../support/request-support/api-client";
+import {
+  createCheckoutRequestApiClient,
+  type CheckoutSellListLineRow,
+  type CheckoutSellListReceiptRow,
+} from "../support/request-support/api-client";
 import { readAnonymousSellListId } from "../support/request-support/guest-checkout";
 import { CheckoutSellListPage } from "../features/sell-list/ui/sell-list-page";
 
@@ -78,9 +82,17 @@ async function loadSellListProductOfferReviews(
   const selectedOfferIds = new Set(
     lines.filter((line) => line.line_type === "selected-offer" && line.offer_id).map((line) => line.offer_id as string),
   );
+  const productIds = [...new Set(productLines.map((line) => line.product_id).filter(Boolean))];
+  const query = new URLSearchParams({
+    limit: String(Math.min(250, Math.max(50, productLines.length * 20))),
+    offset: "0",
+    productIds: productIds.join(","),
+    status: "submitted",
+    canFulfill: "true",
+  });
 
   try {
-    const matches = (await marketplaceApi.listOfferMatches("limit=100")).items.filter(
+    const matches = (await marketplaceApi.listOfferMatches(query.toString())).items.filter(
       (offer) =>
         offer.status === "submitted" &&
         offer.can_fulfill &&
@@ -198,6 +210,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     isSignedIn: true,
     reviewCompleted,
     sellList,
+    latestReceipt: sellList.latestReceipt ?? null,
     offerReviews: await loadSellListOfferReviews(request, sellList.items),
     productOfferReviews: await loadSellListProductOfferReviews(request, sellList.items),
     inventoryItems: await loadSellListInventory(request, sellList.items),
@@ -216,20 +229,46 @@ async function executeSellListCheckout(
 ) {
   const marketplaceApi = createMarketplaceRequestApiClient(request);
   const completedLineIds: string[] = [];
+  const remainingLineQuantities: Array<{ lineId: string; quantity: number }> = [];
   const skippedReasons: string[] = [];
+  const lineOutcomes: NonNullable<CheckoutSellListReceiptRow["execution_summary"]["lineOutcomes"]>[number][] = [];
   let acceptedOfferCount = 0;
   let createdListingCount = 0;
 
   for (const line of lines) {
     if (line.line_type === "selected-offer") {
       if (!line.offer_id) {
-        skippedReasons.push(`${line.item_title}: selected offer is missing.`);
+        const detail = t("checkout.routes.accountSellList.selected.offer.missing.detail", {
+          itemTitle: line.item_title,
+        });
+        skippedReasons.push(detail);
+        lineOutcomes.push({
+          lineId: line.line_id,
+          itemTitle: line.item_title,
+          status: "skipped",
+          action: "kept-in-sell-list",
+          quantity: line.quantity,
+          remainingQuantity: line.quantity,
+          detail,
+        });
         continue;
       }
 
       const feeQuoteFingerprint = formValue(formData, `offerFeeQuoteFingerprint:${line.line_id}`);
       if (!feeQuoteFingerprint) {
-        skippedReasons.push(`${line.item_title}: offer terms need refresh.`);
+        const detail = t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", {
+          itemTitle: line.item_title,
+        });
+        skippedReasons.push(detail);
+        lineOutcomes.push({
+          lineId: line.line_id,
+          itemTitle: line.item_title,
+          status: "skipped",
+          action: "kept-in-sell-list",
+          quantity: line.quantity,
+          remainingQuantity: line.quantity,
+          detail,
+        });
         continue;
       }
 
@@ -237,8 +276,32 @@ async function executeSellListCheckout(
         await marketplaceApi.acceptOfferMatch(line.offer_id, { feeQuoteFingerprint });
         completedLineIds.push(line.line_id);
         acceptedOfferCount += 1;
+        lineOutcomes.push({
+          lineId: line.line_id,
+          itemTitle: line.item_title,
+          status: "completed",
+          action: "accepted-offer",
+          quantity: line.quantity,
+          remainingQuantity: 0,
+          detail: t("checkout.routes.accountSellList.selected.offer.accepted.detail", {
+            itemTitle: line.item_title,
+          }),
+        });
       } catch (error) {
-        skippedReasons.push(`${line.item_title}: ${error instanceof Error ? error.message : "offer accept failed"}`);
+        const detail = t("checkout.routes.accountSellList.offer.accept.failed.detail", {
+          itemTitle: line.item_title,
+          message: error instanceof Error ? error.message : t("checkout.routes.accountSellList.offer.accept.failed"),
+        });
+        skippedReasons.push(detail);
+        lineOutcomes.push({
+          lineId: line.line_id,
+          itemTitle: line.item_title,
+          status: "skipped",
+          action: "kept-in-sell-list",
+          quantity: line.quantity,
+          remainingQuantity: line.quantity,
+          detail,
+        });
       }
       continue;
     }
@@ -249,6 +312,8 @@ async function executeSellListCheckout(
       .filter(Boolean);
     let plannedRemainingQuantity = line.quantity;
     const productOfferTargets: Array<{ offerId: string; feeQuoteFingerprint: string; quantity: number }> = [];
+    let acceptedQuantity = 0;
+    let listingQuantity = 0;
 
     for (const offerId of productOfferIds) {
       try {
@@ -275,7 +340,19 @@ async function executeSellListCheckout(
 
     const createFallbackListing = formValue(formData, `fallbackMode:${line.line_id}`) === "create-listing";
     if (plannedRemainingQuantity > 0 && !createFallbackListing) {
-      skippedReasons.push(`${line.item_title}: matching offers do not cover the requested quantity.`);
+      const detail = t("checkout.routes.accountSellList.matching.offers.do.not.cover.quantity.detail", {
+        itemTitle: line.item_title,
+      });
+      skippedReasons.push(detail);
+      lineOutcomes.push({
+        lineId: line.line_id,
+        itemTitle: line.item_title,
+        status: "skipped",
+        action: "kept-in-sell-list",
+        quantity: line.quantity,
+        remainingQuantity: line.quantity,
+        detail,
+      });
       continue;
     }
 
@@ -284,6 +361,7 @@ async function executeSellListCheckout(
       try {
         await marketplaceApi.acceptOfferMatch(target.offerId, { feeQuoteFingerprint: target.feeQuoteFingerprint });
         acceptedOfferCount += 1;
+        acceptedQuantity += target.quantity;
         remainingQuantity -= target.quantity;
       } catch (error) {
         skippedReasons.push(`${line.item_title}: ${error instanceof Error ? error.message : "offer accept failed"}`);
@@ -297,30 +375,87 @@ async function executeSellListCheckout(
       const quantityCap = Math.min(remainingQuantity, requestedQuantityCap);
       if (!inventoryItemId || !priceAmount || !Number.isFinite(quantityCap) || quantityCap < 1) {
         skippedReasons.push(`${line.item_title}: listing needs inventory, price, and quantity.`);
-        continue;
-      }
-
-      try {
-        await marketplaceApi.createListing({ inventoryItemId, priceAmount, quantityCap });
-        createdListingCount += 1;
-        remainingQuantity = 0;
-      } catch (error) {
-        skippedReasons.push(`${line.item_title}: ${error instanceof Error ? error.message : "listing create failed"}`);
+      } else {
+        try {
+          await marketplaceApi.createListing({ inventoryItemId, priceAmount, quantityCap });
+          createdListingCount += 1;
+          listingQuantity = quantityCap;
+          remainingQuantity -= quantityCap;
+        } catch (error) {
+          skippedReasons.push(
+            `${line.item_title}: ${error instanceof Error ? error.message : "listing create failed"}`,
+          );
+        }
       }
     }
 
     if (remainingQuantity <= 0) {
       completedLineIds.push(line.line_id);
+      const action =
+        acceptedQuantity > 0 && listingQuantity > 0
+          ? "mixed"
+          : acceptedQuantity > 0
+            ? "accepted-smart-match"
+            : "created-listing";
+      lineOutcomes.push({
+        lineId: line.line_id,
+        itemTitle: line.item_title,
+        status: "completed",
+        action,
+        quantity: line.quantity,
+        remainingQuantity: 0,
+        detail: t("checkout.routes.accountSellList.sale.action.completed.detail", {
+          itemTitle: line.item_title,
+          acceptedQuantity,
+          listingQuantity,
+        }),
+      });
+    } else if (acceptedQuantity > 0 || listingQuantity > 0) {
+      remainingLineQuantities.push({ lineId: line.line_id, quantity: remainingQuantity });
+      const detail = t("checkout.routes.accountSellList.sale.action.partial.detail", {
+        itemTitle: line.item_title,
+        executedQuantity: line.quantity - remainingQuantity,
+        remainingQuantity,
+      });
+      skippedReasons.push(detail);
+      lineOutcomes.push({
+        lineId: line.line_id,
+        itemTitle: line.item_title,
+        status: "partial",
+        action:
+          acceptedQuantity > 0 && listingQuantity > 0
+            ? "mixed"
+            : acceptedQuantity > 0
+              ? "accepted-smart-match"
+              : "created-listing",
+        quantity: line.quantity,
+        remainingQuantity,
+        detail,
+      });
+    } else {
+      lineOutcomes.push({
+        lineId: line.line_id,
+        itemTitle: line.item_title,
+        status: "skipped",
+        action: "kept-in-sell-list",
+        quantity: line.quantity,
+        remainingQuantity: line.quantity,
+        detail: t("checkout.routes.accountSellList.no.sale.action.completed.detail", {
+          itemTitle: line.item_title,
+        }),
+      });
     }
   }
 
   return {
     completedLineIds,
+    remainingLineQuantities,
     executionSummary: {
       acceptedOfferCount,
       createdListingCount,
-      skippedLineCount: Math.max(0, lines.length - completedLineIds.length),
+      skippedLineCount: lineOutcomes.filter((outcome) => outcome.status !== "completed").length,
       skippedReasons,
+      lineOutcomes,
     },
   };
 }
@@ -390,7 +525,7 @@ export async function action({ request }: ActionFunctionArgs) {
       await assertPayoutReady(request);
       const sellList = await api.getSellList();
       const result = await executeSellListCheckout(request, sellList.items, formData);
-      if (result.completedLineIds.length === 0) {
+      if (result.completedLineIds.length === 0 && result.remainingLineQuantities.length === 0) {
         throw new Error("No Sell List lines were ready to execute. Refresh offer terms or choose listing inventory.");
       }
 
@@ -427,6 +562,7 @@ export default function CheckoutAccountSellListRoute() {
       sellListLines={data.sellList.items}
       isSignedIn={data.isSignedIn}
       reviewCompleted={data.reviewCompleted}
+      latestReceipt={"latestReceipt" in data ? data.latestReceipt : null}
       offerReviews={"offerReviews" in data ? data.offerReviews : []}
       productOfferReviews={"productOfferReviews" in data ? data.productOfferReviews : []}
       inventoryItems={"inventoryItems" in data ? data.inventoryItems : []}

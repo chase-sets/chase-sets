@@ -276,37 +276,55 @@ export async function getSubmittedOffer(
 
 export async function listOfferMatches(
   db: PgQueryable,
-  params: Readonly<{ sellerAccountId: string; limit?: number; offset?: number }>,
+  params: Readonly<{
+    sellerAccountId: string;
+    limit?: number;
+    offset?: number;
+    productIds?: readonly string[];
+    status?: "submitted";
+    canFulfill?: boolean;
+  }>,
 ): Promise<{ items: OfferMatchRow[]; total: number }> {
   const limit = Math.max(1, Math.min(params.limit ?? 50, 250));
   const offset = Math.max(0, params.offset ?? 0);
+  const productIds = [...new Set((params.productIds ?? []).map((value) => value.trim()).filter(Boolean))];
+  const innerWhere = [`offer.status = 'submitted'`, sellerVisibilitySql];
+  const innerValues: unknown[] = [params.sellerAccountId];
+  if (productIds.length > 0) {
+    innerValues.push(productIds);
+    innerWhere.push(`offer.product_id = ANY($${innerValues.length}::text[])`);
+  }
+  const fulfillableWhere =
+    params.canFulfill === true
+      ? `seller_offer.seller_listing_availability_status = 'available'
+         AND seller_offer.seller_available_quantity >= seller_offer.quantity_requested`
+      : `TRUE`;
+  const innerSql = `
+    SELECT
+      ${sellerOfferSelectSql("$1")}
+    FROM marketplace_offer_pages AS offer
+    ${sellerBestListingJoinSql("$1")}
+    LEFT JOIN marketplace_account_pages AS buyer
+      ON buyer.account_id = offer.buyer_account_id
+    LEFT JOIN marketplace_seller_listing_availability_pages AS availability
+      ON availability.account_id = $1
+    WHERE ${innerWhere.join("\n      AND ")}`;
 
   const [countResult, itemsResult] = await Promise.all([
     db.query<{ count: string }>(
       `SELECT COUNT(*) AS count
-       FROM marketplace_offer_pages AS offer
-       WHERE offer.status = 'submitted'
-         AND ${sellerVisibilitySql}`,
-      [params.sellerAccountId],
+       FROM (${innerSql}) AS seller_offer
+       WHERE ${fulfillableWhere}`,
+      innerValues,
     ),
     db.query<OfferMatchPageRow>(
       `SELECT *
-       FROM (
-         SELECT
-           ${sellerOfferSelectSql("$1")}
-         FROM marketplace_offer_pages AS offer
-         ${sellerBestListingJoinSql("$1")}
-         LEFT JOIN marketplace_account_pages AS buyer
-           ON buyer.account_id = offer.buyer_account_id
-         LEFT JOIN marketplace_seller_listing_availability_pages AS availability
-           ON availability.account_id = $1
-         WHERE offer.status = 'submitted'
-           AND ${sellerVisibilitySql}
-       ) AS seller_offer
+       FROM (${innerSql}) AS seller_offer
+       WHERE ${fulfillableWhere}
        ORDER BY
          ${sellerOfferOutcomeOrderSql("seller_offer.created_at ASC, seller_offer.offer_id ASC")}
-       LIMIT $2 OFFSET $3`,
-      [params.sellerAccountId, limit, offset],
+       LIMIT $${innerValues.length + 1} OFFSET $${innerValues.length + 2}`,
+      [...innerValues, limit, offset],
     ),
   ]);
 

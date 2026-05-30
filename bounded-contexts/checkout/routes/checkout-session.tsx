@@ -75,6 +75,38 @@ function shippingAddressFromSavedAddress(address: ShippingAddress) {
   };
 }
 
+function normalizedAddressSignature(
+  address: Readonly<{
+    shippingAddressId?: string | null;
+    name: string;
+    company?: string | null;
+    line1: string;
+    line2?: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    phone?: string | null;
+    email?: string | null;
+  }>,
+) {
+  return JSON.stringify({
+    shippingAddressId: String(address.shippingAddressId ?? "__manual").trim() || "__manual",
+    name: address.name.trim(),
+    company: String(address.company ?? "").trim(),
+    line1: address.line1.trim(),
+    line2: String(address.line2 ?? "").trim(),
+    city: address.city.trim(),
+    state: address.state.trim().toUpperCase(),
+    postalCode: address.postalCode.trim(),
+    country: address.country.trim().toUpperCase(),
+    phone: String(address.phone ?? "").trim(),
+    email: String(address.email ?? "")
+      .trim()
+      .toLowerCase(),
+  });
+}
+
 async function loadSavedShippingAddresses(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
@@ -298,6 +330,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     ),
     fulfillmentPreview,
     previewError,
+    reviewRefreshed: new URL(request.url).searchParams.get("review") === "updated",
   };
 }
 
@@ -335,16 +368,26 @@ export async function action({ request, params }: ActionFunctionArgs) {
       await api.selectShippingOption(params.sessionId, {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
       });
+      const shippingAddress = await resolveCheckoutShippingAddress(request, actor, formData);
       const quotedPaymentMethodCategory = String(formData.get("paymentMethodCategory") ?? "card");
       const visiblePaymentMethodCategory = String(
         formData.get("previewPaymentMethodCategory") ?? quotedPaymentMethodCategory,
       );
-      if (visiblePaymentMethodCategory !== quotedPaymentMethodCategory) {
+      const reviewedShippingOption = normalizeText(formData.get("reviewedShippingOption"));
+      const reviewedShippingAddressSignature = normalizeText(formData.get("reviewedShippingAddressSignature"));
+      const visibleReviewChanged =
+        visiblePaymentMethodCategory !== quotedPaymentMethodCategory ||
+        (reviewedShippingOption !== null &&
+          reviewedShippingOption !== String(formData.get("shippingOption") ?? "standard")) ||
+        (reviewedShippingAddressSignature !== null &&
+          reviewedShippingAddressSignature !== normalizedAddressSignature(shippingAddress));
+
+      if (visibleReviewChanged) {
         await api.selectShippingAddress(params.sessionId, {
-          shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData),
+          shippingAddress,
         });
         return redirect(
-          `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}`,
+          `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated`,
         );
       }
       const result = await api.confirmCheckoutSession(params.sessionId, {
@@ -357,7 +400,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
         acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
         deferPayment: Boolean(actor && actor.roleKey !== "guest-buyer"),
-        shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData),
+        shippingAddress,
       });
       if (result.offer_id) {
         return redirect(
@@ -420,6 +463,7 @@ export default function CheckoutSessionRoute() {
       savedShippingAddresses={data.savedShippingAddresses}
       canManageShippingAddresses={data.canManageShippingAddresses}
       errorMessage={actionData?.error ?? data.previewError ?? null}
+      reviewRefreshed={data.reviewRefreshed}
       isSubmitting={navigation.state === "submitting"}
     />
   );

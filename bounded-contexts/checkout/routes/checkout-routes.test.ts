@@ -323,11 +323,20 @@ describe("checkout web routes", () => {
     expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_1", { feeQuoteFingerprint: "quote_1" });
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
       completedLineIds: ["sll_1"],
+      remainingLineQuantities: [],
       executionSummary: {
         acceptedOfferCount: 1,
         createdListingCount: 0,
         skippedLineCount: 0,
         skippedReasons: [],
+        lineOutcomes: [
+          expect.objectContaining({
+            lineId: "sll_1",
+            status: "completed",
+            action: "accepted-offer",
+            remainingQuantity: 0,
+          }),
+        ],
       },
     });
     expect(response.status).toBe(302);
@@ -383,12 +392,156 @@ describe("checkout web routes", () => {
     expect(mockCreateListing).not.toHaveBeenCalled();
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
       completedLineIds: ["sll_product"],
+      remainingLineQuantities: [],
       executionSummary: {
         acceptedOfferCount: 1,
         createdListingCount: 0,
         skippedLineCount: 0,
         skippedReasons: [],
+        lineOutcomes: [
+          expect.objectContaining({
+            lineId: "sll_product",
+            status: "completed",
+            action: "accepted-smart-match",
+            remainingQuantity: 0,
+          }),
+        ],
       },
+    });
+    expect(response.status).toBe(302);
+  });
+
+  it("records partial Sell List execution with remaining quantity for recovery", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockCheckoutSellList.mockResolvedValue({ status: "reviewed" });
+    mockGetOfferMatch.mockResolvedValue({
+      offer_id: "off_product_1",
+      product_id: "cat_mewtwo::raw:nm",
+      quantity_requested: 2,
+    });
+    mockAcceptOfferMatch.mockResolvedValue({ status: "accepted" });
+    const sellListLine = {
+      line_id: "sll_product",
+      line_type: "product",
+      offer_id: null,
+      product_id: "cat_mewtwo::raw:nm",
+      item_title: "Mewtwo",
+      quantity: 3,
+    };
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [sellListLine], count: 3 })),
+      checkoutSellList: mockCheckoutSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      getOfferMatch: mockGetOfferMatch,
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+    form.set("productOfferId:sll_product", "off_product_1");
+    form.set("productOfferFeeQuoteFingerprint:sll_product:off_product_1", "quote_product_1");
+    form.set("fallbackMode:sll_product", "create-listing");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockAcceptOfferMatch).toHaveBeenCalledWith("off_product_1", { feeQuoteFingerprint: "quote_product_1" });
+    expect(mockCheckoutSellList).toHaveBeenCalledWith({
+      completedLineIds: [],
+      remainingLineQuantities: [{ lineId: "sll_product", quantity: 1 }],
+      executionSummary: expect.objectContaining({
+        acceptedOfferCount: 1,
+        createdListingCount: 0,
+        skippedLineCount: 1,
+        lineOutcomes: [
+          expect.objectContaining({
+            lineId: "sll_product",
+            status: "partial",
+            remainingQuantity: 1,
+          }),
+        ],
+      }),
+    });
+    expect(response.status).toBe(302);
+  });
+
+  it("keeps capped fallback listing remainder in the Sell List", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockCheckoutSellList.mockResolvedValue({ status: "reviewed" });
+    mockGetOfferMatch.mockResolvedValue({
+      offer_id: "off_product_1",
+      product_id: "cat_mewtwo::raw:nm",
+      quantity_requested: 1,
+    });
+    mockAcceptOfferMatch.mockResolvedValue({ status: "accepted" });
+    mockCreateListing.mockResolvedValue({ listing_id: "lst_1" });
+    const sellListLine = {
+      line_id: "sll_product",
+      line_type: "product",
+      offer_id: null,
+      product_id: "cat_mewtwo::raw:nm",
+      item_title: "Mewtwo",
+      quantity: 4,
+    };
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [sellListLine], count: 4 })),
+      checkoutSellList: mockCheckoutSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      getOfferMatch: mockGetOfferMatch,
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+    form.set("productOfferId:sll_product", "off_product_1");
+    form.set("productOfferFeeQuoteFingerprint:sll_product:off_product_1", "quote_product_1");
+    form.set("fallbackMode:sll_product", "create-listing");
+    form.set("inventoryItemId:sll_product", "inv_1");
+    form.set("priceAmount:sll_product", "12.00");
+    form.set("quantityCap:sll_product", "1");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockCreateListing).toHaveBeenCalledWith({
+      inventoryItemId: "inv_1",
+      priceAmount: "12.00",
+      quantityCap: 1,
+    });
+    expect(mockCheckoutSellList).toHaveBeenCalledWith({
+      completedLineIds: [],
+      remainingLineQuantities: [{ lineId: "sll_product", quantity: 2 }],
+      executionSummary: expect.objectContaining({
+        acceptedOfferCount: 1,
+        createdListingCount: 1,
+        skippedLineCount: 1,
+        lineOutcomes: [
+          expect.objectContaining({
+            lineId: "sll_product",
+            status: "partial",
+            action: "mixed",
+            remainingQuantity: 2,
+          }),
+        ],
+      }),
     });
     expect(response.status).toBe(302);
   });
@@ -1070,7 +1223,55 @@ describe("checkout web routes", () => {
       shippingAddress: expect.objectContaining({ postalCode: "60601" }),
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=bank-account");
+    expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=bank-account&review=updated");
+  });
+
+  it("refreshes checkout review instead of confirming when submitted shipping differs from the visible preview", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockSelectShippingAddress.mockResolvedValue({});
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "priority");
+    form.set("reviewedShippingOption", "standard");
+    form.set("reviewedShippingAddressSignature", "previous-preview");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockSelectShippingOption).toHaveBeenCalledWith("chk_1", {
+      shippingOption: "priority",
+    });
+    expect(mockSelectShippingAddress).toHaveBeenCalledWith("chk_1", {
+      shippingAddress: expect.objectContaining({
+        name: "Jane Smith",
+        postalCode: "60601",
+      }),
+    });
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=card&review=updated");
   });
 
   it("keeps guest checkout confirmation on the guest payment route", async () => {

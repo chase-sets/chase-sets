@@ -22,6 +22,26 @@ export type CheckoutSellListLineRow = Readonly<{
   updated_at: string;
 }>;
 
+export type CheckoutSellListReceiptRow = Readonly<{
+  seller_account_id: string;
+  checked_out_at: string;
+  execution_summary: Readonly<{
+    acceptedOfferCount?: number;
+    createdListingCount?: number;
+    skippedLineCount?: number;
+    skippedReasons?: readonly string[];
+    lineOutcomes?: readonly Readonly<{
+      lineId: string;
+      itemTitle: string;
+      status: "completed" | "partial" | "skipped";
+      action: "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list";
+      quantity: number;
+      remainingQuantity: number;
+      detail: string;
+    }>[];
+  }>;
+}>;
+
 type SellListPageRow = Omit<CheckoutSellListLineRow, "selected_options" | "line_type" | "fallback_mode"> & {
   selected_options: unknown;
   line_type: string;
@@ -65,4 +85,30 @@ export async function listSellListLines(db: PgQueryable, sellerAccountId: string
   );
 
   return result.rows.map(mapSellListLine);
+}
+
+export async function getLatestSellListReceipt(
+  db: PgQueryable,
+  sellerAccountId: string,
+): Promise<CheckoutSellListReceiptRow | null> {
+  const result = await db.query<Omit<CheckoutSellListReceiptRow, "execution_summary"> & { execution_summary: unknown }>(
+    `SELECT
+       seller_account_id,
+       checked_out_at,
+       execution_summary
+     FROM checkout_sell_list_receipt_pages
+     WHERE seller_account_id = $1`,
+    [sellerAccountId],
+  );
+
+  const row = result.rows[0];
+  return row
+    ? {
+        ...row,
+        execution_summary:
+          typeof row.execution_summary === "object" && row.execution_summary !== null
+            ? (row.execution_summary as CheckoutSellListReceiptRow["execution_summary"])
+            : {},
+      }
+    : null;
 }

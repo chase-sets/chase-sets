@@ -68,14 +68,31 @@ export type CheckoutSellListCommand =
       type: "CheckoutSellList";
       checkedOutAt: string;
       completedLineIds?: readonly SellListLineId[] | null;
+      remainingLineQuantities?: readonly SellListRemainingLineQuantity[] | null;
       executionSummary?: SellListExecutionSummary | null;
     }>;
+
+export type SellListRemainingLineQuantity = Readonly<{
+  lineId: SellListLineId;
+  quantity: number;
+}>;
+
+export type SellListLineExecutionOutcome = Readonly<{
+  lineId: SellListLineId;
+  itemTitle: string;
+  status: "completed" | "partial" | "skipped";
+  action: "accepted-offer" | "accepted-smart-match" | "created-listing" | "mixed" | "kept-in-sell-list";
+  quantity: number;
+  remainingQuantity: number;
+  detail: string;
+}>;
 
 export type SellListExecutionSummary = Readonly<{
   acceptedOfferCount: number;
   createdListingCount: number;
   skippedLineCount: number;
   skippedReasons: readonly string[];
+  lineOutcomes?: readonly SellListLineExecutionOutcome[];
 }>;
 
 export type SellListLineAddedEvent = DomainEvent<
@@ -101,6 +118,7 @@ export type SellListCheckedOutEvent = DomainEvent<
     sellerAccountId: AccountId;
     checkedOutAt: string;
     completedLineIds: SellListLineId[];
+    remainingLineQuantities: SellListRemainingLineQuantity[];
     executionSummary: SellListExecutionSummary | null;
   }>
 >;
@@ -126,11 +144,33 @@ function normalizeFallbackMode(value: string | undefined) {
 }
 
 function normalizeCompletedLineIds(state: CheckoutSellListState, value: readonly SellListLineId[] | null | undefined) {
-  const lineIds = value && value.length > 0 ? [...new Set(value)] : state.lines.map((line) => line.lineId);
+  const lineIds = value === null || value === undefined ? state.lines.map((line) => line.lineId) : [...new Set(value)];
   for (const lineId of lineIds) {
     requireSellListLine(state, lineId);
   }
   return lineIds;
+}
+
+function normalizeRemainingLineQuantities(
+  state: CheckoutSellListState,
+  completedLineIds: readonly SellListLineId[],
+  value: readonly SellListRemainingLineQuantity[] | null | undefined,
+) {
+  if (!value || value.length === 0) {
+    return [];
+  }
+
+  const completed = new Set(completedLineIds);
+  return value.map((entry) => {
+    const line = requireSellListLine(state, entry.lineId);
+    assert(!completed.has(entry.lineId), "Completed Sell List lines cannot also remain partially open.");
+    const quantity = ensurePositiveInteger(
+      entry.quantity,
+      "Remaining Sell List quantity must be a positive whole number.",
+    );
+    assert(quantity <= line.quantity, "Remaining Sell List quantity cannot exceed the original line quantity.");
+    return { lineId: entry.lineId, quantity };
+  });
 }
 
 export const decideCheckoutSellList: AggregateDecider<
@@ -199,7 +239,15 @@ export const decideCheckoutSellList: AggregateDecider<
       assert(state.sellerAccountId !== null, "Sell list has not been initialized.");
       assert(state.lines.length > 0, "Sell list must contain at least one line.");
       const completedLineIds = normalizeCompletedLineIds(state, command.completedLineIds);
-      assert(completedLineIds.length > 0, "Sell list checkout must complete at least one line.");
+      const remainingLineQuantities = normalizeRemainingLineQuantities(
+        state,
+        completedLineIds,
+        command.remainingLineQuantities,
+      );
+      assert(
+        completedLineIds.length > 0 || remainingLineQuantities.length > 0,
+        "Sell list checkout must complete or partially execute at least one line.",
+      );
       return [
         {
           type: "checkout.sell-list.checked-out",
@@ -207,6 +255,7 @@ export const decideCheckoutSellList: AggregateDecider<
             sellerAccountId: state.sellerAccountId,
             checkedOutAt: normalizeRequiredText(command.checkedOutAt, "Sell list checkout must record a timestamp."),
             completedLineIds,
+            remainingLineQuantities,
             executionSummary: command.executionSummary ?? null,
           },
         },
@@ -240,9 +289,17 @@ export const evolveCheckoutSellList: AggregateEvolver<CheckoutSellListState, Che
         ),
       };
     case "checkout.sell-list.checked-out":
+      const remainingByLineId = new Map(
+        event.data.remainingLineQuantities.map((entry) => [entry.lineId, entry.quantity]),
+      );
       return {
         sellerAccountId: event.data.sellerAccountId,
-        lines: state.lines.filter((line) => !event.data.completedLineIds.includes(line.lineId)),
+        lines: state.lines
+          .filter((line) => !event.data.completedLineIds.includes(line.lineId))
+          .map((line) => {
+            const quantity = remainingByLineId.get(line.lineId);
+            return quantity ? { ...line, quantity } : line;
+          }),
         lastCheckedOutAt: event.data.checkedOutAt,
       };
     default:

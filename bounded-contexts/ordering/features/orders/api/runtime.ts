@@ -205,6 +205,11 @@ export type CheckoutFulfillmentPreview = Readonly<{
       latestDate: string;
       minimumTransitDays: number;
       maximumTransitDays: number;
+      handlingDays: number;
+      packageCount: number;
+      shipFromRegion: string;
+      serviceLevel: string;
+      basis: string;
     }>;
     lines: readonly Readonly<{
       lineKey: string;
@@ -844,6 +849,9 @@ function previewRevision(preview: Omit<CheckoutFulfillmentPreview, "revision">) 
           group.sellerAccountId,
           group.sellerDisplayName ?? "",
           group.totalAmount,
+          group.deliveryEstimate.earliestDate,
+          group.deliveryEstimate.latestDate,
+          group.deliveryEstimate.basis,
           group.lines
             .map((line) =>
               [
@@ -869,20 +877,38 @@ function addCalendarDays(date: Date, days: number) {
   return next.toISOString().slice(0, 10);
 }
 
-function deliveryEstimateForShippingOption(shippingOption: ShippingOption) {
+function deliveryEstimateForDraft(draft: SellerOrderDraft) {
   const today = new Date();
   const window =
-    shippingOption === "priority"
+    draft.shippingOption === "priority"
       ? { earliestDays: 2, latestDays: 3 }
-      : shippingOption === "expedited"
+      : draft.shippingOption === "expedited"
         ? { earliestDays: 3, latestDays: 5 }
         : { earliestDays: 5, latestDays: 8 };
+  const packageCount = Math.max(1, draft.shippingPlanSnapshot.packageCount);
+  const handlingDays = packageCount > 1 ? 2 : 1;
+  const serviceLevels = [
+    ...new Set(draft.shippingPlanSnapshot.packages.map((pkg) => pkg.serviceLevel.replace(/-/g, " "))),
+  ];
+  const serviceLevel = serviceLevels.length > 0 ? serviceLevels.join(", ") : `${draft.shippingOption} shipping`;
+  const shipFromRegion = [draft.shippingOriginSnapshot.city, draft.shippingOriginSnapshot.state]
+    .filter((part) => part.trim().length > 0)
+    .join(", ");
 
   return {
-    earliestDate: addCalendarDays(today, window.earliestDays),
-    latestDate: addCalendarDays(today, window.latestDays),
+    earliestDate: addCalendarDays(today, handlingDays + window.earliestDays),
+    latestDate: addCalendarDays(today, handlingDays + window.latestDays),
     minimumTransitDays: window.earliestDays,
     maximumTransitDays: window.latestDays,
+    handlingDays,
+    packageCount,
+    shipFromRegion: shipFromRegion || draft.shippingOriginSnapshot.country,
+    serviceLevel,
+    basis: `${packageCount} package${packageCount === 1 ? "" : "s"} from ${
+      shipFromRegion || draft.shippingOriginSnapshot.country
+    }; ${handlingDays} seller handling day${handlingDays === 1 ? "" : "s"} plus ${window.earliestDays}-${
+      window.latestDays
+    } transit days.`,
   };
 }
 
@@ -910,7 +936,7 @@ function planToPreview(
     shippingChargeAmount: draft.shippingChargeAmount,
     salesTaxAmount: draft.salesTaxAmount,
     totalAmount: draft.totalAmount,
-    deliveryEstimate: deliveryEstimateForShippingOption(draft.shippingOption),
+    deliveryEstimate: deliveryEstimateForDraft(draft),
     lines: draft.lines.map((line) => {
       const demandKey = buildDemandSignature(line.productId);
       const lineKey = lineKeysByDemand.get(demandKey)?.shift() ?? line.listingId;

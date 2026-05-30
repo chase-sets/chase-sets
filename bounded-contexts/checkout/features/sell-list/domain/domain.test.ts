@@ -120,7 +120,7 @@ describe("checkout sell list domain", () => {
       itemSubtitle: null,
       selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
       productSummary: "Raw",
-      quantity: 1,
+      quantity: 3,
       fallbackMode: "none",
       minimumListingPriceAmount: null,
     }).reduce(evolveCheckoutSellList, initialCheckoutSellListState);
@@ -139,7 +139,7 @@ describe("checkout sell list domain", () => {
       itemSubtitle: null,
       selectedOptions: [{ dimensionId: "condition", optionId: "raw" }],
       productSummary: "Raw",
-      quantity: 1,
+      quantity: 3,
       fallbackMode: "create-listing",
       minimumListingPriceAmount: "25.00",
     }).reduce(evolveCheckoutSellList, withOffer);
@@ -148,6 +148,7 @@ describe("checkout sell list domain", () => {
       type: "CheckoutSellList",
       checkedOutAt: "2026-05-19T00:00:00.000Z",
       completedLineIds: ["sll_offer" as never],
+      remainingLineQuantities: [{ lineId: "sll_product" as never, quantity: 2 }],
       executionSummary: {
         acceptedOfferCount: 1,
         createdListingCount: 0,
@@ -157,5 +158,6 @@ describe("checkout sell list domain", () => {
     }).reduce(evolveCheckoutSellList, withProduct);
 
     expect(checkedOut.lines.map((line) => line.lineId)).toEqual(["sll_product"]);
+    expect(checkedOut.lines[0]?.quantity).toBe(2);
   });
 });

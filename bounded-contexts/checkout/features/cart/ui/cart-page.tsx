@@ -105,6 +105,11 @@ function estimateCardCheckoutFee(amount: number) {
   return Math.ceil(((amount * 0.029 + 0.3) / (1 - 0.029) + Number.EPSILON) * 100) / 100;
 }
 
+function parseMoneyAmount(value: string | null | undefined) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? amount : null;
+}
+
 function lowestKnownUnitPrice(line: CheckoutCartLineGroup) {
   const optionPrices = line.seller_options
     .map((option) => Number(option.price_amount))
@@ -147,9 +152,22 @@ function fulfillmentLabel(line: CheckoutCartLine) {
 
 export function CheckoutCartPage({
   cartLines,
+  landedCostPreview = null,
   errorMessage,
 }: {
   cartLines: readonly CheckoutCartLine[];
+  landedCostPreview?: {
+    addressLabel: string;
+    preview: {
+      totals: {
+        itemSubtotalAmount: string;
+        shippingAmount: string;
+        salesTaxAmount: string;
+        totalAmount: string;
+        packageCount: number;
+      };
+    };
+  } | null;
   errorMessage?: string | null;
 }) {
   const cartLineGroups = groupCartLines(cartLines);
@@ -157,9 +175,12 @@ export function CheckoutCartPage({
   const selectedListingLineGroups = cartLineGroups.filter((line) => line.fulfillment_mode === "locked-listing");
   const productLineGroups = cartLineGroups.filter((line) => line.fulfillment_mode !== "locked-listing");
   const estimatedSubtotal = estimateCartSubtotal(cartLineGroups);
-  const estimatedShippingCredit = estimatedSubtotal * 0.05;
-  const estimatedCheckoutFee = estimateCardCheckoutFee(estimatedSubtotal);
-  const estimatedKnownLandedCost = estimatedSubtotal + estimatedCheckoutFee;
+  const previewSubtotal = parseMoneyAmount(landedCostPreview?.preview.totals.itemSubtotalAmount);
+  const previewTotal = parseMoneyAmount(landedCostPreview?.preview.totals.totalAmount);
+  const estimatedItemSubtotal = previewSubtotal ?? estimatedSubtotal;
+  const estimatedShippingCredit = estimatedItemSubtotal * 0.05;
+  const estimatedCheckoutFee = estimateCardCheckoutFee(previewTotal ?? estimatedItemSubtotal);
+  const estimatedKnownLandedCost = (previewTotal ?? estimatedItemSubtotal) + estimatedCheckoutFee;
   const pricedLineCount = countPricedLines(cartLineGroups);
 
   function renderCartLine(line: CheckoutCartLineGroup) {
@@ -421,18 +442,35 @@ export function CheckoutCartPage({
                   { label: t("checkout.features.cart.ui.cartPage.buy.cart.lines"), value: cartLineGroups.length },
                   {
                     label: t("checkout.features.cart.ui.cartPage.estimated.item.subtotal"),
-                    value:
-                      pricedLineCount > 0
+                    value: landedCostPreview
+                      ? `$${landedCostPreview.preview.totals.itemSubtotalAmount}`
+                      : pricedLineCount > 0
                         ? formatMoney(estimatedSubtotal)
                         : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
                   },
                   {
                     label: t("checkout.features.cart.ui.cartPage.estimated.shipping.credit"),
                     value:
-                      pricedLineCount > 0
+                      landedCostPreview || pricedLineCount > 0
                         ? formatMoney(estimatedShippingCredit)
                         : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
                   },
+                  ...(landedCostPreview
+                    ? [
+                        {
+                          label: t("checkout.features.cart.ui.cartPage.estimated.shipping"),
+                          value: `$${landedCostPreview.preview.totals.shippingAmount}`,
+                        },
+                        {
+                          label: t("checkout.features.cart.ui.cartPage.estimated.tax"),
+                          value: `$${landedCostPreview.preview.totals.salesTaxAmount}`,
+                        },
+                        {
+                          label: t("checkout.features.cart.ui.cartPage.estimated.packages"),
+                          value: landedCostPreview.preview.totals.packageCount,
+                        },
+                      ]
+                    : []),
                   {
                     label: t("checkout.features.cart.ui.cartPage.estimated.checkout.fee"),
                     value:
@@ -442,7 +480,11 @@ export function CheckoutCartPage({
                   },
                   {
                     label: t("checkout.features.cart.ui.cartPage.shipping.tax.and.delivery"),
-                    value: t("checkout.features.cart.ui.cartPage.finalized.after.address"),
+                    value: landedCostPreview
+                      ? t("checkout.features.cart.ui.cartPage.estimated.for.address", {
+                          addressLabel: landedCostPreview.addressLabel,
+                        })
+                      : t("checkout.features.cart.ui.cartPage.finalized.after.address"),
                   },
                   {
                     label: t("checkout.features.cart.ui.cartPage.fulfillment"),
@@ -450,7 +492,7 @@ export function CheckoutCartPage({
                   },
                 ]}
                 total={
-                  pricedLineCount > 0
+                  landedCostPreview || pricedLineCount > 0
                     ? t("checkout.features.cart.ui.cartPage.known.cost.before.shipping.tax", {
                         amount: formatMoney(estimatedKnownLandedCost),
                       })
