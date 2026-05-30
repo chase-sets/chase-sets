@@ -69,6 +69,17 @@ check "production_support_operations_readiness" {
   }
 }
 
+check "production_fulfillment_postage_readiness" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || (
+      var.environment == "production" &&
+      var.production_fulfillment_postage_approved &&
+      trimspace(var.production_fulfillment_postage_reference) != ""
+    )
+    error_message = "Production marketplace promotion requires approved Fulfillment postage evidence before live shipment labels."
+  }
+}
+
 check "production_tax_readiness" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
