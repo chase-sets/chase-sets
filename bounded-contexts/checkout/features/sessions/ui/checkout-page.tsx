@@ -211,11 +211,16 @@ export function CheckoutSessionPage({
   const hasOnlyLockedAllocations =
     previewAllocationLines.length > 0 && previewAllocationLines.every((line) => line.priceState === "locked");
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
-  const returningBuyerFastPath = Boolean(defaultSavedAddress && !isOfferIntent && !hasPayment);
   const defaultSavedPaymentInstrument =
     savedCheckoutInstruments.find((instrument) => instrument.is_default && instrument.readiness === "ready") ??
     savedCheckoutInstruments.find((instrument) => instrument.readiness === "ready") ??
     null;
+  const returningBuyerFastPath = Boolean(
+    defaultSavedAddress && defaultSavedPaymentInstrument && !isOfferIntent && !hasPayment,
+  );
+  const savedAddressReady = Boolean(
+    defaultSavedAddress && !defaultSavedPaymentInstrument && !isOfferIntent && !hasPayment,
+  );
   const summary = (
     <Stack gap={4}>
       <PriceBreakdown
@@ -389,6 +394,15 @@ export function CheckoutSessionPage({
                 })}
               />
             ) : null}
+            {savedAddressReady ? (
+              <MarketplaceNotice
+                tone="info"
+                title={t("checkout.features.sessions.ui.checkoutPage.saved.address.ready")}
+                description={t("checkout.features.sessions.ui.checkoutPage.saved.address.ready.description", {
+                  addressLabel: defaultSavedAddress?.label,
+                })}
+              />
+            ) : null}
             {!isOfferIntent && savedCheckoutInstruments.length === 0 ? (
               <MarketplaceNotice
                 tone="info"
@@ -537,6 +551,10 @@ export function CheckoutSessionPage({
                                 {
                                   key: t("checkout.features.sessions.ui.checkoutPage.delivery.basis"),
                                   value: group.deliveryEstimate.basis,
+                                },
+                                {
+                                  key: t("checkout.features.sessions.ui.checkoutPage.delivery.promise"),
+                                  value: t("checkout.features.sessions.ui.checkoutPage.delivery.promise.preview"),
                                 },
                               ]}
                             />

@@ -53,7 +53,40 @@ const cartLine: CheckoutCartLine = {
 
 describe("checkout cart page", () => {
   it("presents cart totals as saved buyer intent before checkout creates purchases", () => {
-    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
+    const markup = renderToString(
+      <CheckoutCartPage
+        cartLines={[cartLine]}
+        landedCostPreview={{
+          addressLabel: "Home",
+          shippingOption: "standard",
+          optimizationGoal: "lowest-total",
+          previewDestination: {
+            city: "Chicago",
+            state: "IL",
+            postalCode: "60601",
+            country: "US",
+          },
+          preview: {
+            totals: {
+              itemSubtotalAmount: "778.00",
+              shippingAmount: "6.00",
+              salesTaxAmount: "17.00",
+              totalAmount: "801.00",
+              packageCount: 1,
+            },
+          },
+          paymentPreview: {
+            marketplace_checkout_fee: {
+              marketplace_checkout_fee_amount: "23.55",
+              total_amount: "824.55",
+            },
+            wallet_credit: {
+              applied_amount: "0.00",
+            },
+          },
+        }}
+      />,
+    );
 
     expect(markup).toContain("Estimated item subtotal");
     expect(markup).toContain("$778.00");
@@ -61,7 +94,8 @@ describe("checkout cart page", () => {
     expect(markup).toContain("$38.90");
     expect(markup).toContain("Estimated checkout fee");
     expect(markup).toContain("$23.55");
-    expect(markup).toContain("$801.55 before shipping and tax");
+    expect(markup).toContain("Estimated payable total");
+    expect(markup).toContain("$824.55 estimated payable before checkout");
     expect(markup).toContain("Early landed-cost signal");
     expect(markup).toContain("Smart Match settings");
     expect(markup).toContain("Lowest total cost");

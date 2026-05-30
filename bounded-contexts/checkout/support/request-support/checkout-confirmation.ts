@@ -58,15 +58,11 @@ export async function createCheckoutPaymentThroughPayments(
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null,
 ) {
   const paymentsApi = createPaymentsRequestApiClient(request);
-  const confirmedFingerprint =
-    marketplaceCheckoutFeeQuoteFingerprint ??
-    (
-      await paymentsApi.getCheckoutStatus({
-        orderIds,
-        requestedBalanceCreditAmount,
-        paymentMethodCategory,
-      })
-    ).marketplace_checkout_fee.quote_fingerprint;
+  const confirmedFingerprint = marketplaceCheckoutFeeQuoteFingerprint?.trim();
+  if (!confirmedFingerprint) {
+    throw new Error("Review the payment quote before creating checkout payment.");
+  }
+
   const payment = await paymentsApi.createAccountPayment({
     orderIds,
     sourceContext: "checkout",

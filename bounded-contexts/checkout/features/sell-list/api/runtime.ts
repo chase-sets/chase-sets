@@ -23,7 +23,13 @@ import {
   type CheckoutSellListState,
 } from "../domain/domain";
 import { buildCheckoutSellListProjectionHandlers } from "../read-model/projection";
-import { getSellListReceiptByExecutionId, getLatestSellListReceipt, listSellListLines } from "../read-model/queries";
+import {
+  getSellListExecution,
+  getSellListReceiptByExecutionId,
+  getLatestSellListReceipt,
+  listSellListLines,
+  type CheckoutSellListExecutionRow,
+} from "../read-model/queries";
 
 function isIdempotentMergeReplay(error: unknown) {
   return (
@@ -97,6 +103,20 @@ export type CheckoutSellListServices = Readonly<{
     status: "reviewed";
     completedLineIds: readonly SellListLineId[];
   }>;
+  startSellListExecution: (
+    params: Readonly<{
+      sellerAccountId: AccountId;
+      executionId: string;
+      executionPlan: unknown;
+    }>,
+  ) => Promise<CheckoutSellListExecutionRow>;
+  recordSellListExecutionProgress: (
+    params: Readonly<{
+      sellerAccountId: AccountId;
+      executionId: string;
+      completedActionKey: string;
+    }>,
+  ) => Promise<CheckoutSellListExecutionRow>;
   mergeSellListIntoAccount: (
     params: Readonly<{
       sourceOwnerId: string;
@@ -110,6 +130,7 @@ export type CheckoutSellListServices = Readonly<{
     sellerAccountId: string,
     executionId: string,
   ) => ReturnType<typeof getSellListReceiptByExecutionId>;
+  getExecution: (sellerAccountId: string, executionId: string) => ReturnType<typeof getSellListExecution>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -254,6 +275,17 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         context,
       });
 
+      await deps.db.query(
+        `UPDATE checkout_sell_list_execution_pages
+         SET status = 'finalized',
+             execution_summary = $3::jsonb,
+             finalized_at = now(),
+             updated_at = now()
+         WHERE seller_account_id = $1
+           AND execution_id = $2`,
+        [params.sellerAccountId, params.executionId, JSON.stringify(params.executionSummary ?? {})],
+      );
+
       return {
         sellerAccountId: params.sellerAccountId,
         version: result.version,
@@ -261,9 +293,82 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         completedLineIds: params.completedLineIds ?? [],
       };
     },
+    startSellListExecution: async (params) => {
+      const existingReceipt = await getSellListReceiptByExecutionId(
+        deps.db,
+        params.sellerAccountId,
+        params.executionId,
+      );
+      if (existingReceipt) {
+        return {
+          seller_account_id: params.sellerAccountId,
+          execution_id: params.executionId,
+          status: "finalized",
+          execution_plan: {},
+          execution_progress: { completedActionKeys: [] },
+          execution_summary: existingReceipt.execution_summary,
+          created_at: existingReceipt.checked_out_at,
+          updated_at: existingReceipt.checked_out_at,
+          finalized_at: existingReceipt.checked_out_at,
+        };
+      }
+
+      await deps.db.query(
+        `INSERT INTO checkout_sell_list_execution_pages (
+           seller_account_id,
+           execution_id,
+           status,
+           execution_plan,
+           created_at,
+           updated_at
+         )
+         VALUES ($1, $2, 'pending', $3::jsonb, now(), now())
+         ON CONFLICT (seller_account_id, execution_id) DO NOTHING`,
+        [params.sellerAccountId, params.executionId, JSON.stringify(params.executionPlan ?? {})],
+      );
+
+      const execution = await getSellListExecution(deps.db, params.sellerAccountId, params.executionId);
+      if (!execution) {
+        throw new CheckoutDomainError("Sell List execution could not be started.");
+      }
+
+      return execution;
+    },
+    recordSellListExecutionProgress: async (params) => {
+      const existing = await getSellListExecution(deps.db, params.sellerAccountId, params.executionId);
+      if (!existing) {
+        throw new CheckoutDomainError("Sell List execution could not be found.");
+      }
+
+      const progress =
+        typeof existing.execution_progress === "object" && existing.execution_progress !== null
+          ? (existing.execution_progress as { completedActionKeys?: unknown })
+          : {};
+      const completedActionKeys = Array.isArray(progress.completedActionKeys)
+        ? progress.completedActionKeys.map(String).filter(Boolean)
+        : [];
+      const nextCompletedActionKeys = [...new Set([...completedActionKeys, params.completedActionKey])];
+
+      await deps.db.query(
+        `UPDATE checkout_sell_list_execution_pages
+         SET execution_progress = $3::jsonb,
+             updated_at = now()
+         WHERE seller_account_id = $1
+           AND execution_id = $2`,
+        [params.sellerAccountId, params.executionId, JSON.stringify({ completedActionKeys: nextCompletedActionKeys })],
+      );
+
+      const updated = await getSellListExecution(deps.db, params.sellerAccountId, params.executionId);
+      if (!updated) {
+        throw new CheckoutDomainError("Sell List execution progress could not be recorded.");
+      }
+
+      return updated;
+    },
     getLatestReceipt: (sellerAccountId) => getLatestSellListReceipt(deps.db, sellerAccountId),
     getReceiptByExecutionId: (sellerAccountId, executionId) =>
       getSellListReceiptByExecutionId(deps.db, sellerAccountId, executionId),
+    getExecution: (sellerAccountId, executionId) => getSellListExecution(deps.db, sellerAccountId, executionId),
     mergeSellListIntoAccount: async (params, context) => {
       const sourceLines = await listSellListLines(deps.db, params.sourceOwnerId);
       const existingTargetLineIds = new Set(

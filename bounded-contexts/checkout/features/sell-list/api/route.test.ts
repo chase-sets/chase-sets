@@ -40,6 +40,39 @@ function createServices(): CheckoutSellListServices {
     addLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 1, status: "added" })),
     removeLine: vi.fn(async () => ({ lineId: "sll_1" as never, version: 2 })),
     checkoutSellList: vi.fn(async () => ({ sellerAccountId: "acc_seller" as never, version: 3, status: "reviewed" })),
+    startSellListExecution: vi.fn(async () => ({
+      seller_account_id: "acc_seller",
+      execution_id: "sle_1",
+      status: "pending",
+      execution_plan: { version: 1, lines: [] },
+      execution_progress: { completedActionKeys: [] },
+      execution_summary: null,
+      created_at: "2026-05-30T00:00:00.000Z",
+      updated_at: "2026-05-30T00:00:00.000Z",
+      finalized_at: null,
+    })),
+    getExecution: vi.fn(async () => ({
+      seller_account_id: "acc_seller",
+      execution_id: "sle_1",
+      status: "pending",
+      execution_plan: { version: 1, lines: [] },
+      execution_progress: { completedActionKeys: [] },
+      execution_summary: null,
+      created_at: "2026-05-30T00:00:00.000Z",
+      updated_at: "2026-05-30T00:00:00.000Z",
+      finalized_at: null,
+    })),
+    recordSellListExecutionProgress: vi.fn(async () => ({
+      seller_account_id: "acc_seller",
+      execution_id: "sle_1",
+      status: "pending",
+      execution_plan: { version: 1, lines: [] },
+      execution_progress: { completedActionKeys: ["offer:sll_1:off_1"] },
+      execution_summary: null,
+      created_at: "2026-05-30T00:00:00.000Z",
+      updated_at: "2026-05-30T00:00:00.000Z",
+      finalized_at: null,
+    })),
     mergeSellListIntoAccount: vi.fn(async () => ({ mergedLineCount: 1 })),
     listLines: vi.fn(async () => []),
     getLatestReceipt: vi.fn(async () => null),
@@ -214,6 +247,8 @@ describe("checkout sell list routes", () => {
     const response = await app.fetch(
       new Request("http://checkout.test/account/sell-list/checkout", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ executionId: "sle_1" }),
       }),
     );
 
@@ -226,9 +261,61 @@ describe("checkout sell list routes", () => {
     expect(services.checkoutSellList).toHaveBeenCalledWith(
       expect.objectContaining({
         sellerAccountId: "acc_seller",
+        executionId: "sle_1",
       }),
       expect.any(Object),
     );
+  });
+
+  it("starts a durable Sell List execution before sale side effects", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/executions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ executionId: "sle_1", executionPlan: { version: 1, lines: [] } }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      id: "acc_seller",
+      executionId: "sle_1",
+      status: "pending",
+      executionPlan: { version: 1, lines: [] },
+    });
+    expect(services.startSellListExecution).toHaveBeenCalledWith({
+      sellerAccountId: "acc_seller",
+      executionId: "sle_1",
+      executionPlan: { version: 1, lines: [] },
+    });
+  });
+
+  it("records Sell List execution progress by action key", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/executions/sle_1/progress", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ completedActionKey: "offer:sll_1:off_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      id: "acc_seller",
+      executionId: "sle_1",
+      executionProgress: { completedActionKeys: ["offer:sll_1:off_1"] },
+    });
+    expect(services.recordSellListExecutionProgress).toHaveBeenCalledWith({
+      sellerAccountId: "acc_seller",
+      executionId: "sle_1",
+      completedActionKey: "offer:sll_1:off_1",
+    });
   });
 
   it("blocks guest checkout actors from seller Sell List review", async () => {

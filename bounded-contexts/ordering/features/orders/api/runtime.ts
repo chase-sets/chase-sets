@@ -209,6 +209,9 @@ export type CheckoutFulfillmentPreview = Readonly<{
       packageCount: number;
       shipFromRegion: string;
       serviceLevel: string;
+      promiseOwner: "fulfillment";
+      promiseSource: "fulfillment-preview";
+      promiseConfidence: "estimated";
       basis: string;
     }>;
     lines: readonly Readonly<{
@@ -971,6 +974,9 @@ function deliveryEstimateForDraft(
     packageCount,
     shipFromRegion: shipFromRegion || draft.shippingOriginSnapshot.country,
     serviceLevel,
+    promiseOwner: "fulfillment" as const,
+    promiseSource: "fulfillment-preview" as const,
+    promiseConfidence: "estimated" as const,
     basis: `${packageCount} package${packageCount === 1 ? "" : "s"} from ${
       shipFromRegion || draft.shippingOriginSnapshot.country
     } to ${shipToRegion}; ${sellerHandlingDays} seller handling day${

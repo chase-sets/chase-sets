@@ -89,6 +89,9 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
         packageCount: 1,
         shipFromRegion: "Chicago, IL",
         serviceLevel: "standard parcel",
+        promiseOwner: "fulfillment",
+        promiseSource: "fulfillment-preview",
+        promiseConfidence: "estimated",
         basis: "1 package from Chicago, IL; 1 seller handling day plus 5-8 transit days.",
       },
       lines: [
