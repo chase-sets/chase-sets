@@ -738,6 +738,8 @@ jobs:
       TF_VAR_production_marketplace_promotion_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE || '' }}
       TF_VAR_production_marketplace_checkout_fee_approved: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_marketplace_checkout_fee_reference: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE || '' }}
+      TF_VAR_production_support_operations_approved: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}
+      TF_VAR_production_support_operations_reference: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_REFERENCE || '' }}
       TF_VAR_stripe_connect_return_url: https://marketplace.chasesets.com/account/payouts
       TF_VAR_stripe_connect_refresh_url: https://marketplace.chasesets.com/account/payouts/setup
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
@@ -833,6 +835,11 @@ jobs:
 
             if [ "${TF_VAR_production_marketplace_checkout_fee_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_marketplace_checkout_fee_reference:-}" ]; then
               echo "Production marketplace promotion requires approved Marketplace Checkout Fee evidence." >&2
+              exit 1
+            fi
+
+            if [ "${TF_VAR_production_support_operations_approved:-false}" != "true" ] || [ -z "${TF_VAR_production_support_operations_reference:-}" ]; then
+              echo "Production marketplace promotion requires approved Support operations evidence." >&2
               exit 1
             fi
 

@@ -9,6 +9,7 @@ import experienceManifest from "@chase-sets/experience/context";
 import identityManifest from "@chase-sets/identity/context";
 import platformOperationsManifest from "@chase-sets/platform-operations/context";
 import publicPresenceManifest from "@chase-sets/public-presence/context";
+import supportManifest from "@chase-sets/support/context";
 
 export const webContextRegistry = [
   {
@@ -45,5 +46,10 @@ export const webContextRegistry = [
     contextName: "public-presence",
     packageName: "@chase-sets/public-presence",
     manifest: publicPresenceManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "support",
+    packageName: "@chase-sets/support",
+    manifest: supportManifest as WebContextRegistry[number]["manifest"],
   },
 ] as const satisfies WebContextRegistry;

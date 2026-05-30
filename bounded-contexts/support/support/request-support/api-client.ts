@@ -54,6 +54,12 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
           headers: resolveHeaders(options.headers),
         }),
       ),
+    listSupportOperationsQueue: async (query = "") =>
+      parseJsonResponse<{ items: readonly SupportRequestListItem[]; total: number; count: number }>(
+        await clientFetch(`${baseUrl}/support-requests/ops${query ? `?${query}` : ""}`, {
+          headers: resolveHeaders(options.headers),
+        }),
+      ),
     getSupportRequest: async (supportRequestId: string) =>
       parseJsonResponse<SupportRequestDetail>(
         await clientFetch(`${baseUrl}/support-requests/${supportRequestId}`, {
@@ -69,6 +75,17 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
     ) =>
       parseJsonResponse<{ id: string; version: number; status: string }>(
         await clientFetch(`${baseUrl}/support-requests`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...resolveHeaders(options.headers),
+          },
+          body: JSON.stringify(body),
+        }),
+      ),
+    escalateOverdueSupportRequests: async (body: Readonly<{ limit?: number }> = {}) =>
+      parseJsonResponse<{ escalated: number; skipped: number }>(
+        await clientFetch(`${baseUrl}/support-requests/ops/escalate-overdue`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",

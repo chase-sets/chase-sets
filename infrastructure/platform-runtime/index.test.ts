@@ -222,6 +222,40 @@ const webRegistry = [
       ],
     },
   },
+  {
+    contextName: "support",
+    packageName: "@test/support",
+    manifest: {
+      contextName: "support",
+      deployableContributions: [
+        {
+          deployable: "admin-web",
+          routes: [
+            {
+              routeId: "support-operations",
+              routePath: "support-requests",
+              fileExport: "./routes/admin/operations-queue",
+              routeType: "route",
+              sourceContext: "support",
+            },
+          ],
+        },
+      ],
+      shellContributions: [
+        {
+          deployable: "admin-web",
+          slot: "primary-nav",
+          key: "support-operations",
+          label: "Support",
+          icon: "help",
+          href: "/support-requests",
+          order: 30,
+          visibility: "signed-in",
+          requiredPermissions: ["support.manage"],
+        },
+      ],
+    },
+  },
 ] as const satisfies WebContextRegistry;
 
 describe("platform host api registry", () => {
@@ -438,6 +472,31 @@ describe("platform host web registry", () => {
       expect.objectContaining({
         href: "/experience/waitlist",
         label: "Waitlist",
+      }),
+    ]);
+  });
+
+  it("places support operations in the operations admin section", () => {
+    const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
+    const navItems = resolveWebHostNavItems(
+      webRegistry,
+      "admin-web",
+      "primary-nav",
+      { permissions: ["support.manage"] },
+      { section: "operations" },
+    );
+
+    expect(routes).toContainEqual(
+      expect.objectContaining({
+        contextName: "support",
+        routePath: "operations/support-requests",
+        section: "operations",
+      }),
+    );
+    expect(navItems).toEqual([
+      expect.objectContaining({
+        href: "/operations/support-requests",
+        label: "Support",
       }),
     ]);
   });

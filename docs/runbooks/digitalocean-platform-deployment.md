@@ -247,13 +247,13 @@ If cleanup fails, rerun the cleanup workflow for the closed PR. If the state key
 
 Production deploys automatically through `.github/workflows/platform-production.yml` after the staging job succeeds. It promotes the same immutable commit-tagged image that staging just deployed, instead of rebuilding a second artifact. Non-deployable release commits do not reach production promotion because staging is intentionally skipped.
 
-Production is intentionally gated to landing and admin-support by default. The marketplace, full platform API, platform worker, and commerce bounded-context databases are deployed to production only when the production GitHub Environment sets `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` and the separate launch, Marketplace Checkout Fee, and Tax evidence variables approve the launch posture. Keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED` unset or `false` until the [marketplace production promotion](./marketplace-production-promotion.md) gates are complete.
+Production is intentionally gated to landing and admin-support by default. The marketplace, full platform API, platform worker, and commerce bounded-context databases are deployed to production only when the production GitHub Environment sets `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` and the separate launch, Marketplace Checkout Fee, Support operations, and Tax evidence variables approve the launch posture. Keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED` unset or `false` until the [marketplace production promotion](./marketplace-production-promotion.md) gates are complete.
 
 The workflow:
 
 1. Checks out the release commit that already passed `PR Required` and staging deployment.
 2. Skips stale automatic deployments when the release commit is no longer the current `origin/main`.
-3. Validates required production secrets and variables. When `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, validation also requires `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true`, a non-empty `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE`, approved Marketplace Checkout Fee evidence, approved Tax readiness evidence, Stripe live-mode keys, Stripe webhook secret, EasyPost production configuration, production Connect return/refresh URLs, and complete Amazon SES transactional email configuration.
+3. Validates required production secrets and variables. When `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, validation also requires `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true`, a non-empty `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE`, approved Marketplace Checkout Fee evidence, approved Support operations evidence, approved Tax readiness evidence, Stripe live-mode keys, Stripe webhook secret, EasyPost production configuration, production Connect return/refresh URLs, and complete Amazon SES transactional email configuration.
 4. Verifies `registry.digitalocean.com/<account-registry>/chase-sets-platform:<release_commit>` already exists in DigitalOcean Container Registry. If it is missing, run a successful staging deployment for that commit before production promotion.
 5. Runs Terraform fmt and plan for `environment=production` with the staging-promoted image tag, blocks destructive changes unless `.github/deployment/production-destructive-change-approved.md` exists in the reviewed commit, and records whether `digitalocean_app.platform` will change.
 6. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.
@@ -283,7 +283,7 @@ Catalog asset CDN smoke verifies that each environment's `CATALOG_ASSET_PUBLIC_B
 
 Set `SMOKE_REQUIRE_ADMIN=true` and `SMOKE_REQUIRE_MARKETPLACE=true` for preview CI and staging. Staging also sets `SMOKE_REQUIRE_LEGACY_REDIRECT=true` and `SMOKE_WRITE_WAITLIST=false`. Production sets `SMOKE_REQUIRE_ADMIN=true`. Set `SMOKE_WRITE_WAITLIST=false` only for an intentionally read-only smoke check.
 
-Production sets `SMOKE_REQUIRE_MARKETPLACE=true` only when `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` after launch, Marketplace Checkout Fee, and Tax approval evidence has passed validation. The current production posture should not include a marketplace URL in smoke output.
+Production sets `SMOKE_REQUIRE_MARKETPLACE=true` only when `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` after launch, Marketplace Checkout Fee, Support operations, and Tax approval evidence has passed validation. The current production posture should not include a marketplace URL in smoke output.
 
 Production secrets are scoped to validation, Terraform, smoke, and Git release-marker steps. The production workflow must not run dependency installation, workspace builds, or Docker builds with production provider/admin secrets in scope.
 

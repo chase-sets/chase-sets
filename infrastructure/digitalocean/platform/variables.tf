@@ -78,6 +78,28 @@ variable "production_marketplace_checkout_fee_reference" {
   }
 }
 
+variable "production_support_operations_approved" {
+  type        = bool
+  default     = false
+  description = "Explicit Support evidence gate that operator queue review, lifecycle rehearsal, refund visibility, settlement holds, and support notifications are approved before production marketplace promotion."
+
+  validation {
+    condition     = var.environment == "production" || var.production_support_operations_approved == false
+    error_message = "production_support_operations_approved may only be true for production."
+  }
+}
+
+variable "production_support_operations_reference" {
+  type        = string
+  default     = ""
+  description = "Support-owned evidence reference for approved production support operations readiness, such as a staging rehearsal record or launch review ticket."
+
+  validation {
+    condition     = !var.production_support_operations_approved || trimspace(var.production_support_operations_reference) != ""
+    error_message = "production_support_operations_reference is required when production_support_operations_approved is true."
+  }
+}
+
 variable "production_tax_readiness_approved" {
   type        = bool
   default     = false

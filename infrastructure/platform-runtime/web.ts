@@ -73,6 +73,10 @@ function resolveAdminWebSection(contextName: string, fileExportOrKey?: string): 
     return "operations";
   }
 
+  if (contextName === "support") {
+    return "operations";
+  }
+
   if (contextName === "public-presence") {
     return "experience";
   }
