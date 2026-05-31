@@ -74,6 +74,7 @@ describe("Stripe payment processor gateway", () => {
       ui_mode: "elements",
       return_url: "https://marketplace.test/account/payments/pay_123",
       client_reference_id: "pay_123",
+      "line_items[0][price_data][product_data][name]": "Test payment",
       "metadata[funds_strategy]": "platform-held",
       "metadata[explicit_payment_method_selection]": "true",
       "metadata[seller_account_ids]": "acc_seller",
@@ -83,6 +84,7 @@ describe("Stripe payment processor gateway", () => {
       "payment_intent_data[payment_method_options][card][request_three_d_secure]": "automatic",
       "payment_intent_data[transfer_group]": "payment:pay_123",
     });
+    expect(formSnapshot(init.body)).not.toHaveProperty("description");
 
     vi.unstubAllGlobals();
   });
@@ -134,8 +136,10 @@ describe("Stripe payment processor gateway", () => {
       success_url: "https://marketplace.test/account/payments/pay_hosted",
       cancel_url: "https://marketplace.test/account/payments/pay_hosted",
       client_reference_id: "pay_hosted",
+      "line_items[0][price_data][product_data][name]": "Test payment",
       "metadata[funds_strategy]": "platform-held",
     });
+    expect(formSnapshot(init.body)).not.toHaveProperty("description");
 
     vi.unstubAllGlobals();
   });

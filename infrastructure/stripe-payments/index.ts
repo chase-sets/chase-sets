@@ -893,7 +893,6 @@ export function createStripePaymentProcessorGateway(
                 }
               : {}),
             ...marketplaceRiskMetadataEntries(input, "payment_intent_data[metadata]"),
-            description: input.description,
             ...paymentMetadataEntries(input),
             ...(input.savedCheckoutInstrument
               ? {
