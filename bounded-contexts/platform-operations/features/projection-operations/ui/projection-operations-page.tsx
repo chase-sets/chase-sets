@@ -92,6 +92,9 @@ export function ProjectionOperationsPage({
         <LinkButton href="/identity/accounts" tone="secondary">
           {t(`${routeKey}.identity`)}
         </LinkButton>
+        <LinkButton href="/operations/release-dashboard" tone="secondary">
+          {t(`${routeKey}.releaseDashboard`)}
+        </LinkButton>
         <LinkButton href="/operations/release-controls" tone="secondary">
           {t(`${routeKey}.releaseControls`)}
         </LinkButton>

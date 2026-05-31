@@ -4,7 +4,7 @@
   "ownedNouns": ["projection-operation", "platform-operation-attention", "feature-rollout", "release-lock"],
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
-  "slices": ["projection-operations", "release-controls"],
+  "slices": ["projection-operations", "release-controls", "release-dashboard"],
   "allowedSupportDirectories": ["runtime-support"],
   "publicExports": [".", "./context", "./routes/*"],
   "allowedContextDependencies": [],
@@ -39,6 +39,14 @@
           "routeType": "route",
           "sourceContext": "platform-operations",
           "placement": "root"
+        },
+        {
+          "routeId": "release-dashboard",
+          "routePath": "release-dashboard",
+          "fileExport": "./routes/admin/release-dashboard",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "placement": "root"
         }
       ]
     }
@@ -60,6 +68,12 @@
         "Bounded-context capability guards",
         "Admin operations controls"
       ]
+    },
+    "release-dashboard": {
+      "classification": "slice",
+      "purpose": "Own operator-facing release health, production currency, canary status, and release-dashboard language for Platform Operations.",
+      "allowedWhen": "Required when release-health artifacts and release-control policy need a single read-only operations surface.",
+      "expectedConsumers": ["Admin web route contribution", "Release process operators"]
     },
     "runtime-support": {
       "classification": "support",
