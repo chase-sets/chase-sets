@@ -32,6 +32,8 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   captured_at timestamptz NULL,
   failed_at timestamptz NULL,
   cancelled_at timestamptz NULL,
+  refunded_at timestamptz NULL,
+  disputed_at timestamptz NULL,
   last_stream_version bigint NOT NULL DEFAULT 0
 );
 
@@ -74,6 +76,12 @@ ALTER TABLE payments_payment_pages
 
 ALTER TABLE payments_payment_pages
   ADD COLUMN IF NOT EXISTS seller_payouts jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS refunded_at timestamptz NULL;
+
+ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS disputed_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS payments_provider_idempotency_keys (
   operation_key text PRIMARY KEY,

@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS settlement_payment_sources (
   captured_at timestamptz NULL,
   failed_at timestamptz NULL,
   cancelled_at timestamptz NULL,
+  refunded_at timestamptz NULL,
+  disputed_at timestamptz NULL,
   last_stream_version integer NOT NULL DEFAULT 0
 );
 
@@ -33,6 +35,12 @@ ALTER TABLE settlement_payment_sources
 
 ALTER TABLE settlement_payment_sources
   ADD COLUMN IF NOT EXISTS seller_payouts jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+ALTER TABLE settlement_payment_sources
+  ADD COLUMN IF NOT EXISTS refunded_at timestamptz NULL;
+
+ALTER TABLE settlement_payment_sources
+  ADD COLUMN IF NOT EXISTS disputed_at timestamptz NULL;
 
 CREATE TABLE IF NOT EXISTS settlement_refund_sources (
   refund_id text PRIMARY KEY,

@@ -66,9 +66,11 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
            captured_at,
            failed_at,
            cancelled_at,
+           refunded_at,
+           disputed_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-confirmation', NULL, NULL, $25, $25, NULL, NULL, NULL, $26
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-confirmation', NULL, NULL, $25, $25, NULL, NULL, NULL, NULL, NULL, $26
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -211,6 +213,57 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
          WHERE payment_id = $1
            AND last_stream_version < $3`,
         [data.paymentId, data.cancelledAt, event.streamVersion],
+      );
+    },
+    "payments.payment-refunded": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        processorStatus: string;
+        refundedAt: string;
+      };
+
+      await db.query(
+        `UPDATE payments_payment_pages
+         SET processor_status = $2,
+             status = 'refunded',
+             failure_code = NULL,
+             failure_message = NULL,
+             refunded_at = $3,
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE payment_id = $1
+           AND last_stream_version < $4`,
+        [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion],
+      );
+    },
+    "payments.payment-disputed": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        processorStatus: string;
+        disputeStatus: string | null;
+        disputeMessage: string | null;
+        disputedAt: string;
+      };
+
+      await db.query(
+        `UPDATE payments_payment_pages
+         SET processor_status = $2,
+             status = 'disputed',
+             failure_code = $3,
+             failure_message = $4,
+             disputed_at = $5,
+             updated_at = $5,
+             last_stream_version = $6
+         WHERE payment_id = $1
+           AND last_stream_version < $6`,
+        [
+          data.paymentId,
+          data.processorStatus,
+          data.disputeStatus,
+          data.disputeMessage,
+          data.disputedAt,
+          event.streamVersion,
+        ],
       );
     },
   };

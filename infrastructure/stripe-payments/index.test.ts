@@ -51,6 +51,7 @@ describe("Stripe payment processor gateway", () => {
     });
 
     expect(payment.processorPaymentReference).toBe("cs_123");
+    expect(gateway.getPublicConfiguration().dynamicPaymentMethods).toBe(false);
     expect(fetchMock).toHaveBeenCalledWith(
       "https://stripe.test/v1/checkout/sessions",
       expect.objectContaining({
@@ -74,9 +75,11 @@ describe("Stripe payment processor gateway", () => {
       return_url: "https://marketplace.test/account/payments/pay_123",
       client_reference_id: "pay_123",
       "metadata[funds_strategy]": "platform-held",
+      "metadata[explicit_payment_method_selection]": "true",
       "metadata[seller_account_ids]": "acc_seller",
       "metadata[high_dollar_order]": "true",
       "payment_intent_data[metadata][seller_account_count]": "1",
+      "payment_intent_data[metadata][explicit_payment_method_selection]": "true",
       "payment_intent_data[payment_method_options][card][request_three_d_secure]": "automatic",
       "payment_intent_data[transfer_group]": "payment:pay_123",
     });
@@ -319,6 +322,56 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
+  it("uses the local refund id for Stripe refund idempotency", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "re_123", status: "succeeded" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await gateway.createRefund({
+      refundId: "rfd_first",
+      paymentId: "pay_123" as never,
+      processorPaymentReference: "pi_123",
+      orderIds: ["ord_1" as never],
+      amount: "4.00",
+      currencyCode: "usd",
+      reason: "First partial refund",
+    });
+    await gateway.createRefund({
+      refundId: "rfd_second",
+      paymentId: "pay_123" as never,
+      processorPaymentReference: "pi_123",
+      orderIds: ["ord_2" as never],
+      amount: "4.00",
+      currencyCode: "usd",
+      reason: "Second partial refund",
+    });
+
+    const [, firstInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [, secondInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect((firstInit.headers as Headers).get("Idempotency-Key")).toBe("payments:refund:rfd_first");
+    expect((secondInit.headers as Headers).get("Idempotency-Key")).toBe("payments:refund:rfd_second");
+    expect(formSnapshot(firstInit.body)).toMatchObject({
+      payment_intent: "pi_123",
+      amount: "400",
+      "metadata[payment_id]": "pay_123",
+      "metadata[refund_id]": "rfd_first",
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it("parses signed Stripe checkout failure webhooks into provider-neutral events", async () => {
     const gateway = createStripePaymentProcessorGateway({
       secretKey: "sk_test",
@@ -354,6 +407,73 @@ describe("Stripe payment processor gateway", () => {
       kind: "payment-failed",
       processorPaymentReference: "cs_123",
       failureCode: "card_declined",
+    });
+  });
+
+  it("correlates charge refund and dispute webhooks through PaymentIntent references", async () => {
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      webhookToleranceSeconds: 1_000,
+    });
+    const now = Math.floor(Date.now() / 1000);
+    const refundBody = JSON.stringify({
+      id: "evt_refund",
+      type: "charge.refunded",
+      created: now,
+      data: {
+        object: {
+          id: "ch_123",
+          status: "succeeded",
+          payment_intent: "pi_123",
+          amount_refunded: 400,
+          currency: "usd",
+          metadata: { payment_id: "pay_123" },
+        },
+      },
+    });
+    const disputeBody = JSON.stringify({
+      id: "evt_dispute",
+      type: "charge.dispute.created",
+      created: now,
+      data: {
+        object: {
+          id: "dp_123",
+          status: "needs_response",
+          charge: "ch_123",
+          payment_intent: "pi_123",
+          metadata: { payment_id: "pay_123" },
+        },
+      },
+    });
+
+    await expect(
+      gateway.parseWebhook({
+        rawBody: refundBody,
+        signatureHeader: signature(refundBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_refund",
+      kind: "payment-refunded",
+      processorPaymentReference: "pi_123",
+      providerObjectReference: "ch_123",
+      internalPaymentId: "pay_123",
+      amount: "4.00",
+    });
+    await expect(
+      gateway.parseWebhook({
+        rawBody: disputeBody,
+        signatureHeader: signature(disputeBody, "whsec_test", now),
+      }),
+    ).resolves.toMatchObject({
+      eventId: "evt_dispute",
+      kind: "payment-disputed",
+      processorPaymentReference: "pi_123",
+      providerObjectReference: "dp_123",
+      internalPaymentId: "pay_123",
+      failureCode: "charge.dispute.created",
+      failureMessage: "needs_response",
     });
   });
 });

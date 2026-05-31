@@ -20,6 +20,8 @@
         "payments.payment-captured",
         "payments.payment-failed",
         "payments.payment-cancelled",
+        "payments.payment-refunded",
+        "payments.payment-disputed",
         "payments.refund-requested",
         "payments.refund-issued",
         "payments.refund-failed"

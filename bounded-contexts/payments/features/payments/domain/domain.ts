@@ -47,6 +47,8 @@ export type PaymentState = Readonly<{
   capturedAt: string | null;
   failedAt: string | null;
   cancelledAt: string | null;
+  refundedAt: string | null;
+  disputedAt: string | null;
 }>;
 
 export type SellerPayoutComponent = Readonly<{
@@ -90,6 +92,8 @@ export const initialPaymentState: PaymentState = {
   capturedAt: null,
   failedAt: null,
   cancelledAt: null,
+  refundedAt: null,
+  disputedAt: null,
 };
 
 export type CreatePaymentCommand = Readonly<{
@@ -146,12 +150,31 @@ export type CancelPaymentCommand = Readonly<{
   cancelledAt: string;
 }>;
 
+export type RecordPaymentRefundCommand = Readonly<{
+  type: "RecordPaymentRefund";
+  processorStatus: string;
+  processorRefundReference: string | null;
+  amount: string | null;
+  refundedAt: string;
+}>;
+
+export type RecordPaymentDisputeCommand = Readonly<{
+  type: "RecordPaymentDispute";
+  processorStatus: string;
+  disputeStatus: string | null;
+  disputeMessage: string | null;
+  amount: string | null;
+  disputedAt: string;
+}>;
+
 export type PaymentCommand =
   | CreatePaymentCommand
   | RecordPaymentAuthorizationCommand
   | RecordPaymentCaptureCommand
   | RecordPaymentFailureCommand
-  | CancelPaymentCommand;
+  | CancelPaymentCommand
+  | RecordPaymentRefundCommand
+  | RecordPaymentDisputeCommand;
 
 export type PaymentCreatedEvent = DomainEvent<
   "payments.payment-created",
@@ -253,12 +276,48 @@ export type PaymentCancelledEvent = DomainEvent<
   }>
 >;
 
+export type PaymentRefundedEvent = DomainEvent<
+  "payments.payment-refunded",
+  Readonly<{
+    paymentId: PaymentId;
+    orderIds: OrderId[];
+    buyerAccountId: AccountId;
+    amount: string;
+    currencyCode: CurrencyCode;
+    processorName: PaymentProcessorName;
+    processorPaymentReference: string;
+    sellerPayouts: SellerPayoutComponent[];
+    processorRefundReference: string | null;
+    processorStatus: string;
+    refundedAt: string;
+  }>
+>;
+
+export type PaymentDisputedEvent = DomainEvent<
+  "payments.payment-disputed",
+  Readonly<{
+    paymentId: PaymentId;
+    orderIds: OrderId[];
+    buyerAccountId: AccountId;
+    amount: string;
+    currencyCode: CurrencyCode;
+    processorName: PaymentProcessorName;
+    processorPaymentReference: string;
+    processorStatus: string;
+    disputeStatus: string | null;
+    disputeMessage: string | null;
+    disputedAt: string;
+  }>
+>;
+
 export type PaymentEvent =
   | PaymentCreatedEvent
   | PaymentAuthorizedEvent
   | PaymentCapturedEvent
   | PaymentFailedEvent
-  | PaymentCancelledEvent;
+  | PaymentCancelledEvent
+  | PaymentRefundedEvent
+  | PaymentDisputedEvent;
 
 function normalizeSellerPayoutComponents(components: readonly SellerPayoutComponent[]): SellerPayoutComponent[] {
   return components.map((component) => ({
@@ -454,6 +513,69 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
           },
         },
       ];
+    case "RecordPaymentRefund": {
+      assert(state.paymentId !== null, "Payment must be created first.");
+      if (state.status === "refunded") {
+        return [];
+      }
+      assert(state.status === "captured" || state.status === "disputed", "Only captured payments can be refunded.");
+      const refundAmount = command.amount
+        ? normalizeMoneyAmount(command.amount, {
+            fieldName: "Refund amount",
+          })
+        : state.amount!;
+      return [
+        {
+          type: "payments.payment-refunded",
+          data: {
+            paymentId: state.paymentId,
+            orderIds: [...state.orderIds],
+            buyerAccountId: state.buyerAccountId!,
+            amount: refundAmount,
+            currencyCode: state.currencyCode!,
+            processorName: state.processorName!,
+            processorPaymentReference: state.processorPaymentReference!,
+            sellerPayouts: [...state.sellerPayouts],
+            processorRefundReference: normalizeOptionalText(command.processorRefundReference),
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
+            refundedAt: ensureIsoTimestamp(command.refundedAt, "Payment refund must include a timestamp."),
+          },
+        },
+      ];
+    }
+    case "RecordPaymentDispute":
+      assert(state.paymentId !== null, "Payment must be created first.");
+      if (
+        state.status === "disputed" &&
+        state.processorStatus === normalizeRequiredText(command.processorStatus, "Processor status is required.") &&
+        state.failureCode === normalizeOptionalText(command.disputeStatus) &&
+        state.failureMessage === normalizeOptionalText(command.disputeMessage)
+      ) {
+        return [];
+      }
+      assert(state.status === "captured" || state.status === "disputed", "Only captured payments can be disputed.");
+      return [
+        {
+          type: "payments.payment-disputed",
+          data: {
+            paymentId: state.paymentId,
+            orderIds: [...state.orderIds],
+            buyerAccountId: state.buyerAccountId!,
+            amount: command.amount
+              ? normalizeMoneyAmount(command.amount, {
+                  fieldName: "Dispute amount",
+                })
+              : state.amount!,
+            currencyCode: state.currencyCode!,
+            processorName: state.processorName!,
+            processorPaymentReference: state.processorPaymentReference!,
+            processorStatus: normalizeRequiredText(command.processorStatus, "Processor status is required."),
+            disputeStatus: normalizeOptionalText(command.disputeStatus),
+            disputeMessage: normalizeOptionalText(command.disputeMessage),
+            disputedAt: ensureIsoTimestamp(command.disputedAt, "Payment dispute must include a timestamp."),
+          },
+        },
+      ];
     default:
       return assertNever(command);
   }
@@ -494,6 +616,8 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         capturedAt: null,
         failedAt: null,
         cancelledAt: null,
+        refundedAt: null,
+        disputedAt: null,
       };
     case "payments.payment-authorized":
       return {
@@ -524,6 +648,24 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         ...state,
         status: "cancelled",
         cancelledAt: event.data.cancelledAt,
+      };
+    case "payments.payment-refunded":
+      return {
+        ...state,
+        processorStatus: event.data.processorStatus,
+        status: "refunded",
+        failureCode: null,
+        failureMessage: null,
+        refundedAt: event.data.refundedAt,
+      };
+    case "payments.payment-disputed":
+      return {
+        ...state,
+        processorStatus: event.data.processorStatus,
+        status: "disputed",
+        failureCode: event.data.disputeStatus,
+        failureMessage: event.data.disputeMessage,
+        disputedAt: event.data.disputedAt,
       };
     default:
       return assertNever(event);

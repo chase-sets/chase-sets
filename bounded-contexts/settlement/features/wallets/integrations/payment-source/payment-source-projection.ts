@@ -164,6 +164,140 @@ async function creditSellerPayouts(
   }
 }
 
+function allocateRefundDebitAmount(refundAmount: string, paymentAmount: string, sellerPayoutAmount: string) {
+  const refund = Number.parseFloat(refundAmount);
+  const payment = Number.parseFloat(paymentAmount);
+  const sellerPayout = Number.parseFloat(sellerPayoutAmount);
+  if (!Number.isFinite(refund) || !Number.isFinite(payment) || !Number.isFinite(sellerPayout) || payment <= 0) {
+    return "0.00";
+  }
+
+  return Math.min(sellerPayout, (sellerPayout * refund) / payment).toFixed(2);
+}
+
+async function debitSellerRefunds(
+  wallets: WalletServices | undefined,
+  data: Readonly<{
+    paymentId: string;
+    paymentAmount: string;
+    refundAmount: string;
+    currencyCode: string;
+    refundedAt: string;
+    sellerPayouts: readonly SellerPayoutComponent[];
+  }>,
+  event: TransportEvent,
+) {
+  if (!wallets) {
+    return;
+  }
+
+  const context = {
+    tenantId: event.tenantId,
+    audit: event.audit,
+    trace: event.trace,
+  };
+
+  for (const payout of data.sellerPayouts) {
+    const debitAmount = allocateRefundDebitAmount(data.refundAmount, data.paymentAmount, payout.sellerPayoutAmount);
+    if (compareMoney(debitAmount, "0.00") <= 0) {
+      continue;
+    }
+
+    await postWalletEntryIdempotently(
+      wallets,
+      {
+        accountId: payout.sellerAccountId as AccountId,
+        ledgerEntryId: `led_refund_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+        kind: "refund",
+        direction: "debit",
+        amount: debitAmount,
+        currencyCode: normalizeCurrencyCode(data.currencyCode),
+        fundsStatus: "available",
+        orderId: payout.orderId as OrderId,
+        paymentId: data.paymentId as PaymentId,
+        description: `Refund debit for payment ${data.paymentId}`,
+        postedAt: data.refundedAt,
+      },
+      context,
+    );
+  }
+}
+
+function shouldReleaseDisputeHold(disputeStatus: string | null, disputeMessage: string | null) {
+  const eventType = disputeStatus?.toLowerCase() ?? "";
+  const providerStatus = disputeMessage?.toLowerCase() ?? "";
+  return eventType.includes("closed") && (providerStatus === "won" || providerStatus === "warning_closed");
+}
+
+async function postSellerDisputeLedgerEntries(
+  wallets: WalletServices | undefined,
+  data: Readonly<{
+    paymentId: string;
+    paymentAmount: string;
+    disputeAmount: string;
+    currencyCode: string;
+    disputeStatus: string | null;
+    disputeMessage: string | null;
+    disputedAt: string;
+    sellerPayouts: readonly SellerPayoutComponent[];
+  }>,
+  event: TransportEvent,
+) {
+  if (!wallets) {
+    return;
+  }
+
+  const context = {
+    tenantId: event.tenantId,
+    audit: event.audit,
+    trace: event.trace,
+  };
+  const releaseHold = shouldReleaseDisputeHold(data.disputeStatus, data.disputeMessage);
+
+  for (const payout of data.sellerPayouts) {
+    const holdAmount = allocateRefundDebitAmount(data.disputeAmount, data.paymentAmount, payout.sellerPayoutAmount);
+    if (compareMoney(holdAmount, "0.00") <= 0) {
+      continue;
+    }
+
+    const baseEntry = {
+      accountId: payout.sellerAccountId as AccountId,
+      amount: holdAmount,
+      currencyCode: normalizeCurrencyCode(data.currencyCode),
+      fundsStatus: "available" as const,
+      orderId: payout.orderId as OrderId,
+      paymentId: data.paymentId as PaymentId,
+      postedAt: data.disputedAt,
+    };
+
+    await postWalletEntryIdempotently(
+      wallets,
+      {
+        ...baseEntry,
+        ledgerEntryId: `led_dispute_hold_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+        kind: "adjustment",
+        direction: "debit",
+        description: `Dispute hold for payment ${data.paymentId}`,
+      },
+      context,
+    );
+
+    if (releaseHold) {
+      await postWalletEntryIdempotently(
+        wallets,
+        {
+          ...baseEntry,
+          ledgerEntryId: `led_dispute_release_${data.paymentId}_${payout.orderId}` as LedgerEntryId,
+          kind: "adjustment",
+          direction: "credit",
+          description: `Dispute hold released for payment ${data.paymentId}`,
+        },
+        context,
+      );
+    }
+  }
+}
+
 export function buildSettlementPaymentInputProjectionHandlers(
   db: PgQueryable,
   wallets?: WalletServices,
@@ -206,9 +340,11 @@ export function buildSettlementPaymentInputProjectionHandlers(
            captured_at,
            failed_at,
            cancelled_at,
+           refunded_at,
+           disputed_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending-confirmation', NULL, NULL, $12, $12, NULL, NULL, NULL, $13
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending-confirmation', NULL, NULL, $12, $12, NULL, NULL, NULL, NULL, NULL, $13
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -351,6 +487,115 @@ export function buildSettlementPaymentInputProjectionHandlers(
          WHERE payment_id = $1
            AND last_stream_version < $3`,
         [data.paymentId, data.cancelledAt, event.streamVersion],
+      );
+    },
+    "payments.payment-refunded": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        amount: string;
+        currencyCode: string;
+        processorStatus: string;
+        sellerPayouts?: unknown;
+        refundedAt: string;
+      };
+
+      const existing = await db.query<{
+        amount: string;
+        seller_payouts: unknown;
+      }>(
+        `SELECT amount::text AS amount, seller_payouts
+         FROM settlement_payment_sources
+         WHERE payment_id = $1`,
+        [data.paymentId],
+      );
+      const paymentAmount = existing.rows[0]?.amount ?? data.amount;
+      const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts ?? existing.rows[0]?.seller_payouts);
+
+      await db.query(
+        `UPDATE settlement_payment_sources
+         SET processor_status = $2,
+             status = 'refunded',
+             failure_code = NULL,
+             failure_message = NULL,
+             refunded_at = $3,
+             updated_at = $3,
+             last_stream_version = $4
+         WHERE payment_id = $1
+           AND last_stream_version < $4`,
+        [data.paymentId, data.processorStatus, data.refundedAt, event.streamVersion],
+      );
+
+      await debitSellerRefunds(
+        wallets,
+        {
+          paymentId: data.paymentId,
+          paymentAmount,
+          refundAmount: data.amount,
+          currencyCode: data.currencyCode,
+          refundedAt: data.refundedAt,
+          sellerPayouts,
+        },
+        event,
+      );
+    },
+    "payments.payment-disputed": async (event) => {
+      const data = event.data as {
+        paymentId: string;
+        amount: string;
+        currencyCode: string;
+        processorStatus: string;
+        sellerPayouts?: unknown;
+        disputeStatus: string | null;
+        disputeMessage: string | null;
+        disputedAt: string;
+      };
+
+      const existing = await db.query<{
+        amount: string;
+        seller_payouts: unknown;
+      }>(
+        `SELECT amount::text AS amount, seller_payouts
+         FROM settlement_payment_sources
+         WHERE payment_id = $1`,
+        [data.paymentId],
+      );
+      const paymentAmount = existing.rows[0]?.amount ?? data.amount;
+      const sellerPayouts = normalizeSellerPayoutComponents(data.sellerPayouts ?? existing.rows[0]?.seller_payouts);
+
+      await db.query(
+        `UPDATE settlement_payment_sources
+         SET processor_status = $2,
+             status = 'disputed',
+             failure_code = $3,
+             failure_message = $4,
+             disputed_at = $5,
+             updated_at = $5,
+             last_stream_version = $6
+         WHERE payment_id = $1
+           AND last_stream_version < $6`,
+        [
+          data.paymentId,
+          data.processorStatus,
+          data.disputeStatus,
+          data.disputeMessage,
+          data.disputedAt,
+          event.streamVersion,
+        ],
+      );
+
+      await postSellerDisputeLedgerEntries(
+        wallets,
+        {
+          paymentId: data.paymentId,
+          paymentAmount,
+          disputeAmount: data.amount,
+          currencyCode: data.currencyCode,
+          disputeStatus: data.disputeStatus,
+          disputeMessage: data.disputeMessage,
+          disputedAt: data.disputedAt,
+          sellerPayouts,
+        },
+        event,
       );
     },
     "payments.refund-requested": async (event) => {

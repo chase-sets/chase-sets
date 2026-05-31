@@ -26,6 +26,7 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 - Marketplace blocks high-dollar listing publication for accounts without listing photo evidence and trusted seller status or established reputation. High-dollar drafts can exist, but they cannot become active buyer-visible listings until the publication policy clears.
 - Identity owns `trusted-seller` and `manual-payout-review` Account Badges. Use `trusted-seller` only after operational review. Use `manual-payout-review` when Stripe, support, fulfillment, or operations finds seller-risk signals that should force enhanced payout holds.
 - Payments sends non-PII marketplace risk metadata to Stripe Checkout Sessions and PaymentIntents: internal payment/order ids, buyer account id, seller account ids/count, max seller order amount, high-dollar flag, platform-held funds strategy, fulfillment-required flag, and whether client IP/user-agent were collected.
+- Checkout uses explicit payment method selection for launch (`card`, `us_bank_account`, or platform credit) so Marketplace Checkout Fee quotes match the provider request. Do not claim dynamic payment methods are active until fee quotes, settlement timing, and buyer UX are redesigned for Stripe-selected methods.
 - In Stripe Dashboard, enable [Radar](https://docs.stripe.com/radar), [Radar rules](https://docs.stripe.com/radar/rules), and [metadata-backed Radar rules](https://docs.stripe.com/metadata) for high-dollar orders, repeated failed attempts, risky payment methods, and suspicious account/order patterns. Keep automatic 3DS enabled for card payments.
 - For Connect risk, use [Radar with Connect](https://docs.stripe.com/connect/radar) and enable [Radar for Platforms](https://docs.stripe.com/radar/radar-for-platforms) when available. Use connected-account rules and reviews to pause payouts, request identity document/selfie verification, set reserves, or reject accounts that show card-cashing, no-intent-to-fulfill, or related-account fraud patterns.
 - Stripe Radar checks external charges and can block or review payments, but it does not prove possession, carrier handoff, delivery, or buyer satisfaction. Settlement release gates remain mandatory even when Stripe reports normal payment risk.
@@ -59,7 +60,7 @@ For local development, keep real Stripe values in `deployables/platform-api/.env
 
 Webhook callbacks are mounted by the platform API at `/api/payments/provider/webhooks`. The account payment routes stay under `/api/marketplace/account/payments`.
 
-When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` into the current worktree's `.env.sandbox.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `pnpm run stripe:listen` manually if you want the listener in a separate terminal; it forwards to the sandbox platform API URL by default.
+When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized Stripe listener automatically if `STRIPE_SECRET_KEY` and `STRIPE_PUBLISHABLE_KEY` are present in `deployables/platform-api/.env.local`. The dev system waits for that listener to emit its session-specific webhook signing secret, writes `STRIPE_WEBHOOK_SECRET` and `STRIPE_CONNECT_WEBHOOK_SECRET` into the current worktree's `.env.sandbox.local`, and then starts `platform-api` so the API comes up on the real Stripe gateway. You can still run `pnpm run stripe:listen` manually if you want the listener in a separate terminal; it forwards payment events to `/api/payments/provider/webhooks` and Connect events to `/api/settlement/provider/money-movement/webhooks` by default.
 
 ## Stripe Connect Notes
 
@@ -70,6 +71,7 @@ When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized
 - Public account payout APIs can start onboarding, open hosted account management, refresh readiness, and request payouts. Provider readiness cannot be manually overwritten through public account routes.
 - Payout requests use a preview/confirmation step, enforce USD-only amount policy, and keep payout destination details in hosted account management.
 - Hosted setup redirects must stay on the marketplace origin, and provider webhook signatures are verified with a timestamp tolerance to reduce replay risk.
+- Hosted onboarding Account Links are single-use. Every onboarding start, retry, browser refresh, or Stripe refresh-url return must create a fresh Account Link; do not reuse an idempotency key that is scoped only to the seller account.
 - Processed provider webhook event ids are stored so duplicate provider events are ignored and auditable.
 - Stripe stays behind the money movement adapter. Settlement owns wallet debits, payout requests, failure reversals, read models, and reconciliation decisions; Stripe owns hosted onboarding, external payout destination collection, transfer execution, connected-account payout execution, and webhook signing.
 - Register provider webhooks for `v2.core.account[requirements].updated`, `v2.core.account.updated`, `payout.paid`, and `payout.failed`. Settlement consumes them through the unauthenticated provider webhook mount and maps them into provider-neutral payout/readiness events.
@@ -160,8 +162,8 @@ Stripe Dashboard checks:
 
 - Confirm the platform account is pinned to API version `2026-02-25.clover`.
 - Confirm Connect is enabled for Accounts v2 and recipient onboarding.
-- Configure payment webhook delivery for `checkout.session.completed`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `charge.refunded`, and `charge.dispute.created`.
-- Configure Connect webhook delivery for `account.updated`, `payout.paid`, and `payout.failed`.
+- Configure payment webhook delivery for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`, `checkout.session.expired`, `payment_intent.processing`, `payment_intent.amount_capturable_updated`, `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded`, `charge.dispute.created`, `charge.dispute.updated`, and `charge.dispute.closed`.
+- Configure Connect webhook delivery for `v2.core.account[requirements].updated`, `v2.core.account.updated`, `payout.paid`, and `payout.failed`.
 - Create a test checkout and confirm the internal payment id appears in Stripe Checkout Session and PaymentIntent metadata.
 - Request a payout and confirm Stripe shows a transfer with transfer group `payout:<internal payout id>` followed by a connected-account payout.
 - Replay the same webhook event from the Stripe Dashboard and confirm the API reports it as ignored without duplicate ledger entries.
@@ -174,8 +176,8 @@ The evidence record must include:
 
 - Stripe account and Dashboard posture: API version `2026-02-25.clover`, live-mode keys scoped to production, Connect enabled for Accounts v2 recipient onboarding, manual payout schedules, payment webhooks registered at `/api/payments/provider/webhooks`, Connect money-movement webhooks registered at `/api/settlement/provider/money-movement/webhooks`, Radar/Radar for Platforms rules reviewed, and no `STRIPE_API_BASE_URL` override unless an approved provider endpoint exception exists.
 - Live checkout proof: a controlled production checkout or provider-approved live-mode rehearsal showing internal payment id metadata on the Checkout Session and PaymentIntent, successful authorization/capture mapping into Payments, correct Marketplace Checkout Fee allocation, and no raw card data stored in Chase Sets.
-- Refund and dispute proof: at least one controlled refund path, replay-safe refund webhook handling, `charge.dispute.created` coverage, and Finance-owned accounting notes for partial refunds, lost disputes, and recovered disputes.
-- Connect onboarding proof: hosted onboarding/account-management URLs on `https://marketplace.chasesets.com`, requirement/readiness refresh, account/readiness webhook handling, and provider-neutral readiness status shown to the account.
+- Refund and dispute proof: at least one controlled refund path, replay-safe refund webhook handling, `charge.dispute.created` and `charge.dispute.closed` coverage, seller refund debit evidence in Settlement, seller dispute hold evidence, dispute hold release evidence for a won dispute, and Finance-owned accounting notes for partial refunds, lost disputes, and recovered disputes.
+- Connect onboarding proof: hosted onboarding/account-management URLs on `https://marketplace.chasesets.com`, two same-account onboarding starts proving fresh single-use Account Links, requirement/readiness refresh, account/readiness webhook handling, and provider-neutral readiness status shown to the account.
 - Payout proof: payout preview, platform balance forecast, transfer with transfer group `payout:<internal payout id>`, connected-account payout creation, `payout.paid`, `payout.failed`, failure reversal, and idempotent retry evidence.
 - Reconciliation proof: payment reconciliation, payout reconciliation, duplicate provider webhook replay, provider event inbox idempotency, at least five redacted `payments_provider_webhook_events` rows covering checkout completion/failure/expiration/refund/dispute, at least two redacted `settlement_money_movement_webhook_events` rows covering readiness and payout failure or completion, and ledger entries matching provider balances and wallet timelines.
 - Operations proof: Money Health, Payout Operations, support escalation, platform balance funding, provider outage rollback, and disabled/frozen payout actions rehearsed with named operators.
@@ -243,7 +245,7 @@ When `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUB
 ## Refunds And Disputes
 
 1. Confirm the provider event and provider object reference.
-2. Confirm the wallet timeline shows the expected refund debit, dispute hold, dispute release, or reversal.
+2. Confirm the wallet timeline shows the expected seller refund debit, dispute hold, dispute release, or reversal.
 3. Use operator wallet actions only when provider reconciliation cannot express the required adjustment.
 4. Finance owns the final accounting decision for partial refunds, lost disputes, and recovered disputes.
 

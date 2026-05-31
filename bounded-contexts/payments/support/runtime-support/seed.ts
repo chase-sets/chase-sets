@@ -395,6 +395,7 @@ export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
 
     try {
       const processorRefund = await processorGateway.createRefund({
+        refundId,
         paymentId: paymentsReservedSeedIds.payments.acceptedOfferCaptured,
         processorPaymentReference: capturedProcessorPayment.processorPaymentReference,
         orderIds: [acceptedOfferOrder.order_id as never],

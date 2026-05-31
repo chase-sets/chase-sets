@@ -40,6 +40,8 @@ export type PaymentDetailRow = Readonly<{
   captured_at: string | null;
   failed_at: string | null;
   cancelled_at: string | null;
+  refunded_at: string | null;
+  disputed_at: string | null;
 }>;
 
 export type PaymentProviderEventRow = Readonly<{
@@ -174,7 +176,9 @@ const paymentSelect = `
     updated_at,
     captured_at,
     failed_at,
-    cancelled_at
+    cancelled_at,
+    refunded_at,
+    disputed_at
   FROM payments_payment_pages
 `;
 

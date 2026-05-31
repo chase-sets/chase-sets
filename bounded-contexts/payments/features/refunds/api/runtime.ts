@@ -102,6 +102,7 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
 
       try {
         const processorRefund = await deps.processorGateway.createRefund({
+          refundId,
           paymentId: params.paymentId,
           processorPaymentReference: payment.processor_payment_reference,
           orderIds: orderIds as OrderId[],
