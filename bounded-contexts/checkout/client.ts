@@ -522,6 +522,7 @@ export function createCheckoutApiClient({
         paymentMethodCategory?: string;
         marketplaceCheckoutFeeQuoteFingerprint?: string | null;
         savedCheckoutInstrumentId?: string | null;
+        savePaymentMethodForFuture?: boolean;
         fulfillmentPreviewRevision?: string | null;
         acknowledgedMaterialChanges?: boolean;
         deferPayment?: boolean;

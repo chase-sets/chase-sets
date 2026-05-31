@@ -632,6 +632,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.enter.a.new.address": "Enter a new address",
   "checkout.features.sessions.ui.checkoutPage.make.this.default": "Make this the default",
   "checkout.features.sessions.ui.checkoutPage.save.as.new.address": "Save as new address",
+  "checkout.features.sessions.ui.checkoutPage.save.payment.method": "Save this payment method",
+  "checkout.features.sessions.ui.checkoutPage.save.payment.method.description":
+    "Use it for future Chase Sets checkout after this payment succeeds.",
   "checkout.features.sessions.ui.checkoutPage.saved.address.default": "Saved address default",
   "checkout.features.sessions.ui.checkoutPage.saved.shipping.address": "Saved shipping address",
   "checkout.features.sessions.ui.checkoutPage.update.selected.address": "Update selected address",

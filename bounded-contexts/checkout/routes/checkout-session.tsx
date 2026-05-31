@@ -357,6 +357,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       Array.isArray(actor.permissions) &&
       actor.permissions.includes("accounts.manage"),
     ),
+    canSavePaymentMethods: Boolean(
+      actor &&
+      actor.roleKey !== "guest-buyer" &&
+      Array.isArray(actor.permissions) &&
+      actor.permissions.includes("orders.manage"),
+    ),
     fulfillmentPreview,
     previewError,
     reviewRefreshed: searchParams.get("review") === "updated",
@@ -413,6 +419,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
         String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null;
       const useAcceleratedSavedPayment = String(formData.get("acceleratedSavedPayment") ?? "") === "true";
       const selectedSavedPaymentInstrumentId = normalizeText(formData.get("savedCheckoutInstrumentId"));
+      const savePaymentMethodForFuture =
+        String(formData.get("savePaymentMethodForFuture") ?? "") === "true" &&
+        actor?.roleKey !== "guest-buyer" &&
+        !selectedSavedPaymentInstrumentId;
       const session =
         typeof api.getCheckoutSession === "function" ? await api.getCheckoutSession(params.sessionId) : null;
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
@@ -444,10 +454,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
         paymentMethodCategory: quotedPaymentMethodCategory,
         marketplaceCheckoutFeeQuoteFingerprint,
         savedCheckoutInstrumentId: selectedSavedPaymentInstrumentId,
+        savePaymentMethodForFuture,
         fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
         acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
         deferPayment: Boolean(
-          actor && actor.roleKey !== "guest-buyer" && !useAcceleratedSavedPayment && !selectedSavedPaymentInstrumentId,
+          actor &&
+          actor.roleKey !== "guest-buyer" &&
+          !useAcceleratedSavedPayment &&
+          !selectedSavedPaymentInstrumentId &&
+          !savePaymentMethodForFuture,
         ),
         shippingAddress,
       });
@@ -512,6 +527,7 @@ export default function CheckoutSessionRoute() {
       savedShippingAddresses={data.savedShippingAddresses}
       savedCheckoutInstruments={data.savedCheckoutInstruments}
       canManageShippingAddresses={data.canManageShippingAddresses}
+      canSavePaymentMethods={data.canSavePaymentMethods}
       errorMessage={actionData?.error ?? data.previewError ?? null}
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}

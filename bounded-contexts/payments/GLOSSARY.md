@@ -68,6 +68,35 @@ Notes:
 - Payments owns credential readiness, provider references, confirmation requirements, and any token exchange.
 - A missing Saved Checkout Instrument keeps checkout on the trusted payment-step path.
 
+## Provider Customer
+
+A **Provider Customer** is the Payments-owned mapping between a Chase Sets account and a payment processor customer identity used for reusable payment credentials.
+
+Notes:
+
+- Payments creates and stores Provider Customer references before saving or charging stored payment methods.
+- Checkout may request a Saved Checkout Instrument by Chase Sets id, but Checkout must not call provider customer APIs or receive raw provider payment method ids.
+- Provider Customer records store provider references and support-safe audit metadata only.
+
+## Stored Payment Consent
+
+**Stored Payment Consent** is the buyer's explicit authorization for Payments to attach a provider payment method to their account for future Chase Sets checkout.
+
+Notes:
+
+- Guest checkout must not create reusable stored payment credentials without account claim or sign-in and explicit consent.
+- If payment capture succeeds but stored-payment persistence fails, the Payment remains valid and the saved-method issue is handled as a non-blocking Payments reconciliation concern.
+
+## Saved Checkout Instrument Readiness
+
+**Saved Checkout Instrument Readiness** describes whether a Saved Checkout Instrument can be offered as a fast checkout option.
+
+Readiness states:
+
+- `ready`: Payments has a provider customer reference and a provider payment method reference that can be used for eligible checkout.
+- `setup-required`: The provider method exists in history but needs buyer action, mandate repair, or provider reconciliation before reuse.
+- `removed`: The buyer or provider detached the credential; Checkout must not offer it, but historical Payments keep their Saved Checkout Instrument reference.
+
 ## AP2 Mandate
 
 An **AP2 Mandate** is verifiable autonomous-payment authority that may allow a trusted agent to complete checkout without manual buyer UI confirmation.

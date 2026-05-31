@@ -112,6 +112,13 @@
           "sourceContext": "payments"
         },
         {
+          "routeId": "account-payment-methods",
+          "routePath": "account/payment-methods",
+          "fileExport": "./routes/marketplace/account-payment-methods",
+          "routeType": "route",
+          "sourceContext": "payments"
+        },
+        {
           "routeId": "checkout-payment",
           "routePath": "checkout/payments/:paymentId",
           "fileExport": "./routes/marketplace/checkout-payment",

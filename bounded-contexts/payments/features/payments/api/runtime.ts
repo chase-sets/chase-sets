@@ -35,22 +35,35 @@ import {
   getPaymentByProcessorReference,
   getPaymentProviderEvent,
   getSavedCheckoutInstrument,
+  getSavedCheckoutInstrumentByProviderReference,
+  getProviderCustomer,
+  getSavedCheckoutSetupSessionByProcessorReference,
+  getSavedCheckoutSetupSessionBySetupReference,
   listPaymentProviderEvents,
   listPaymentProviderIdempotencyKeys,
   listPaymentReconciliationRuns,
   listPaymentsNeedingReconciliation,
   listSavedCheckoutInstruments,
+  completeSavedCheckoutSetupSession,
+  markSavedCheckoutInstrumentRemoved,
+  recordSavedCheckoutInstrumentAudit,
+  recordSavedCheckoutSetupSession,
   recordPaymentReconciliationRun,
   recordPaymentProviderIdempotencyKey,
   recordPaymentProviderOperationFailed,
   recordPaymentProviderOperationPending,
   recordPaymentProviderOperationSucceeded,
+  setSavedCheckoutInstrumentDefault,
+  upsertProviderCustomer,
+  upsertSavedCheckoutInstrument,
   getPaymentBySource,
   type PaymentDetailRow,
   type PaymentProviderIdempotencyKeyRow,
   type PaymentReconciliationRunRow,
   type PaymentProviderEventRow,
   type SavedCheckoutInstrumentRow,
+  type ProviderCustomerRow,
+  type SavedCheckoutSetupSessionRow,
 } from "../read-model/queries";
 import {
   decidePayment,
@@ -90,6 +103,9 @@ type CheckoutStatusResult = Readonly<{
 }>;
 
 type PaymentMethodCategory = "card" | "bank-account" | "platform-credit";
+
+const SAVE_PAYMENT_CONSENT_TEXT =
+  "Save this payment method for future Chase Sets checkout and allow Chase Sets to use it for future purchases I approve.";
 
 type MarketplaceCheckoutFeeQuote = Readonly<{
   payment_method_category: PaymentMethodCategory;
@@ -453,10 +469,85 @@ async function resolveSavedCheckoutInstrument(
   if (instrument.readiness !== "ready") {
     throw new PaymentsDomainError("Saved checkout instrument is not ready for checkout.");
   }
+  if (!instrument.provider_customer_reference?.trim() || !instrument.provider_reference?.trim()) {
+    throw new PaymentsDomainError("Saved checkout instrument is not backed by a processor payment method.");
+  }
   if (instrument.payment_method_category !== params.paymentMethodCategory) {
     throw new PaymentsDomainError("Saved checkout instrument does not match the selected payment method.");
   }
 
+  return instrument;
+}
+
+function savedInstrumentIdForProviderReference(providerReference: string) {
+  return `sci_${providerReference.replaceAll(/[^a-zA-Z0-9]+/g, "_").replaceAll(/^_+|_+$/g, "")}`;
+}
+
+async function ensureProviderCustomer(
+  deps: Pick<PaymentRuntimeDeps, "db" | "processorGateway">,
+  params: Readonly<{ accountId: AccountId; displayName?: string | null; email?: string | null }>,
+): Promise<ProviderCustomerRow> {
+  const providerName = deps.processorGateway.getPublicConfiguration().processorName;
+  const existing = await getProviderCustomer(deps.db, {
+    accountId: params.accountId,
+    provider: providerName,
+  });
+  if (existing) {
+    return existing;
+  }
+
+  const created = await deps.processorGateway.createCustomer({
+    accountId: params.accountId,
+    displayName: params.displayName ?? `Chase Sets account ${params.accountId}`,
+    email: params.email ?? null,
+    idempotencyKey: `payments:account:${params.accountId}:${providerName}:customer`,
+  });
+
+  return upsertProviderCustomer(deps.db, {
+    accountId: params.accountId,
+    provider: created.processorName,
+    providerCustomerReference: created.providerCustomerReference,
+    displayName: params.displayName ?? null,
+    email: params.email ?? null,
+  });
+}
+
+async function persistProcessorSavedPaymentMethod(
+  deps: Pick<PaymentRuntimeDeps, "db" | "processorGateway">,
+  params: Readonly<{
+    accountId: AccountId;
+    providerCustomerReference: string;
+    savedPaymentMethod: NonNullable<Awaited<ReturnType<PaymentProcessorGateway["retrieveSavedPaymentMethod"]>>>;
+    consentId?: string | null;
+    consentText?: string | null;
+    isDefault?: boolean;
+    auditAction: string;
+  }>,
+) {
+  const instrument = await upsertSavedCheckoutInstrument(deps.db, {
+    instrumentId: savedInstrumentIdForProviderReference(params.savedPaymentMethod.providerReference),
+    accountId: params.accountId,
+    paymentMethodCategory: params.savedPaymentMethod.paymentMethodCategory,
+    provider: params.savedPaymentMethod.processorName,
+    providerCustomerReference: params.savedPaymentMethod.providerCustomerReference ?? params.providerCustomerReference,
+    providerReference: params.savedPaymentMethod.providerReference,
+    displayLabel: params.savedPaymentMethod.displayLabel,
+    confirmationExperience: "off-session-token",
+    readiness: params.savedPaymentMethod.removed ? "removed" : params.savedPaymentMethod.readiness,
+    allowRedisplay: params.savedPaymentMethod.allowRedisplay,
+    consentId: params.consentId ?? null,
+    consentText: params.consentText ?? null,
+    isDefault: params.isDefault ?? false,
+    removedAt: params.savedPaymentMethod.removed ? new Date().toISOString() : null,
+  });
+  await recordSavedCheckoutInstrumentAudit(deps.db, {
+    auditId: createId("audit"),
+    instrumentId: instrument.instrument_id,
+    accountId: params.accountId,
+    action: params.auditAction,
+    reason: params.consentId ?? null,
+    performedByAccountId: params.accountId,
+  });
   return instrument;
 }
 
@@ -473,6 +564,7 @@ export type PaymentServices = Readonly<{
       paymentMethodCategory?: string | null;
       marketplaceCheckoutFeeQuoteFingerprint?: string | null;
       savedCheckoutInstrumentId?: string | null;
+      savePaymentMethodForFuture?: boolean;
       returnUrlBase?: string | null;
       returnUrlPath?: string | null;
       clientRiskContext?: Readonly<{
@@ -498,6 +590,7 @@ export type PaymentServices = Readonly<{
       paymentMethodCategory?: string | null;
       marketplaceCheckoutFeeQuoteFingerprint?: string | null;
       savedCheckoutInstrumentId?: string | null;
+      savePaymentMethodForFuture?: boolean;
       returnUrlBase?: string | null;
       returnUrlPath?: string | null;
       clientRiskContext?: Readonly<{
@@ -531,6 +624,22 @@ export type PaymentServices = Readonly<{
     }>
   >;
   listSavedCheckoutInstruments: (accountId: AccountId) => Promise<SavedCheckoutInstrumentRow[]>;
+  ensureProviderCustomer: (params: Readonly<{ accountId: AccountId }>) => Promise<ProviderCustomerRow>;
+  createSavedCheckoutSetupSession: (
+    params: Readonly<{ accountId: AccountId; returnUrlBase?: string | null; returnUrlPath?: string | null }>,
+  ) => Promise<SavedCheckoutSetupSessionRow>;
+  reconcileSavedCheckoutSetupSession: (
+    params: Readonly<{ accountId: AccountId; setupReference: string }>,
+  ) => Promise<SavedCheckoutInstrumentRow | null>;
+  setSavedCheckoutInstrumentDefault: (
+    params: Readonly<{ accountId: AccountId; instrumentId: string }>,
+  ) => Promise<SavedCheckoutInstrumentRow | null>;
+  removeSavedCheckoutInstrument: (
+    params: Readonly<{ accountId: AccountId; instrumentId: string }>,
+  ) => Promise<SavedCheckoutInstrumentRow | null>;
+  reconcileSavedCheckoutInstruments: (
+    params: Readonly<{ accountId: AccountId }>,
+  ) => Promise<Readonly<{ checked: number; updated: number; removed: number }>>;
   getAccountPayment: (
     paymentId: string,
     accountId: string,
@@ -711,6 +820,150 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       };
     },
     listSavedCheckoutInstruments: (accountId) => listSavedCheckoutInstruments(deps.db, accountId),
+    ensureProviderCustomer: (params) => ensureProviderCustomer(deps, params),
+    async createSavedCheckoutSetupSession(params) {
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
+      const customer = await ensureProviderCustomer(deps, { accountId });
+      const setupReferenceId = createId("scs");
+      const returnUrlBase = params.returnUrlBase?.trim().replace(/\/+$/, "") ?? "";
+      const returnUrlPath = params.returnUrlPath?.trim() || "/account/payment-methods";
+      const returnUrl = returnUrlPath.includes("?")
+        ? `${returnUrlPath}&setupReferenceId=${encodeURIComponent(setupReferenceId)}`
+        : `${returnUrlPath}?setupReferenceId=${encodeURIComponent(setupReferenceId)}`;
+      const consentId = createId("consent");
+      const setupSession = await deps.processorGateway.createSetupSession({
+        accountId,
+        providerCustomerReference: customer.provider_customer_reference,
+        currencyCode: "usd",
+        returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrl}` : null,
+        consentId,
+        consentText: SAVE_PAYMENT_CONSENT_TEXT,
+        idempotencyKey: `payments:account:${accountId}:setup:${setupReferenceId}`,
+      });
+
+      return recordSavedCheckoutSetupSession(deps.db, {
+        setupReferenceId,
+        accountId,
+        provider: setupSession.processorName,
+        providerCustomerReference: customer.provider_customer_reference,
+        processorSetupReference: setupSession.processorSetupReference,
+        processorClientSecret: setupSession.processorClientSecret,
+        processorRedirectUrl: setupSession.processorRedirectUrl,
+        processorStatus: setupSession.processorStatus,
+        consentId,
+        consentText: SAVE_PAYMENT_CONSENT_TEXT,
+      });
+    },
+    async reconcileSavedCheckoutSetupSession(params) {
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
+      const setupReference = normalizeRequiredText(params.setupReference, "Setup reference is required.");
+      const setupSession =
+        (await getSavedCheckoutSetupSessionByProcessorReference(deps.db, setupReference)) ??
+        (await getSavedCheckoutSetupSessionBySetupReference(deps.db, setupReference));
+      if (!setupSession || setupSession.account_id !== accountId) {
+        return null;
+      }
+      const result = await deps.processorGateway.retrieveSetupSessionResult(setupSession.processor_setup_reference);
+      await completeSavedCheckoutSetupSession(deps.db, {
+        processorSetupReference: setupSession.processor_setup_reference,
+        processorStatus: result.processorStatus,
+      });
+      if (!result.savedPaymentMethod) {
+        return null;
+      }
+
+      return persistProcessorSavedPaymentMethod(deps, {
+        accountId,
+        providerCustomerReference: setupSession.provider_customer_reference,
+        savedPaymentMethod: result.savedPaymentMethod,
+        consentId: setupSession.consent_id,
+        consentText: setupSession.consent_text,
+        isDefault: true,
+        auditAction: "setup-completed",
+      });
+    },
+    async setSavedCheckoutInstrumentDefault(params) {
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
+      const instrument = await getSavedCheckoutInstrument(deps.db, {
+        accountId,
+        instrumentId: normalizeRequiredText(params.instrumentId, "Saved payment method is required."),
+      });
+      if (!instrument || instrument.readiness === "removed") {
+        return null;
+      }
+      await setSavedCheckoutInstrumentDefault(deps.db, {
+        accountId,
+        instrumentId: instrument.instrument_id,
+      });
+      await recordSavedCheckoutInstrumentAudit(deps.db, {
+        auditId: createId("audit"),
+        instrumentId: instrument.instrument_id,
+        accountId,
+        action: "set-default",
+        performedByAccountId: accountId,
+      });
+      return getSavedCheckoutInstrument(deps.db, { accountId, instrumentId: instrument.instrument_id });
+    },
+    async removeSavedCheckoutInstrument(params) {
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
+      const instrument = await getSavedCheckoutInstrument(deps.db, {
+        accountId,
+        instrumentId: normalizeRequiredText(params.instrumentId, "Saved payment method is required."),
+      });
+      if (!instrument) {
+        return null;
+      }
+      if (instrument.provider_reference) {
+        await deps.processorGateway.detachSavedPaymentMethod(instrument.provider_reference);
+      }
+      await markSavedCheckoutInstrumentRemoved(deps.db, {
+        accountId,
+        instrumentId: instrument.instrument_id,
+      });
+      await recordSavedCheckoutInstrumentAudit(deps.db, {
+        auditId: createId("audit"),
+        instrumentId: instrument.instrument_id,
+        accountId,
+        action: "removed",
+        performedByAccountId: accountId,
+      });
+      return getSavedCheckoutInstrument(deps.db, { accountId, instrumentId: instrument.instrument_id });
+    },
+    async reconcileSavedCheckoutInstruments(params) {
+      const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
+      const instruments = await listSavedCheckoutInstruments(deps.db, accountId);
+      let updated = 0;
+      let removed = 0;
+      for (const instrument of instruments.filter(
+        (entry) => entry.provider_reference && entry.readiness !== "removed",
+      )) {
+        const providerMethod = await deps.processorGateway.retrieveSavedPaymentMethod(instrument.provider_reference);
+        if (!providerMethod || providerMethod.removed) {
+          await markSavedCheckoutInstrumentRemoved(deps.db, { accountId, instrumentId: instrument.instrument_id });
+          removed += 1;
+          updated += 1;
+          continue;
+        }
+        await upsertSavedCheckoutInstrument(deps.db, {
+          instrumentId: instrument.instrument_id,
+          accountId,
+          paymentMethodCategory: providerMethod.paymentMethodCategory,
+          provider: providerMethod.processorName,
+          providerCustomerReference: providerMethod.providerCustomerReference ?? instrument.provider_customer_reference,
+          providerReference: providerMethod.providerReference,
+          displayLabel: providerMethod.displayLabel,
+          confirmationExperience: instrument.confirmation_experience,
+          readiness: providerMethod.readiness,
+          allowRedisplay: providerMethod.allowRedisplay,
+          consentId: instrument.consent_id,
+          consentText: instrument.consent_text,
+          isDefault: instrument.is_default,
+        });
+        updated += 1;
+      }
+
+      return { checked: instruments.length, updated, removed };
+    },
     async createAccountPayment(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const sourceContext = params.sourceContext?.trim() || null;
@@ -775,6 +1028,15 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         instrumentId: params.savedCheckoutInstrumentId,
         paymentMethodCategory,
       });
+      const shouldSavePaymentMethod =
+        Boolean(params.savePaymentMethodForFuture) &&
+        !savedCheckoutInstrument &&
+        !params.agenticPayment &&
+        paymentMethodCategory !== "platform-credit" &&
+        compareMoney(externalBasisAmount, "0.00") > 0;
+      const savePaymentProviderCustomer = shouldSavePaymentMethod
+        ? await ensureProviderCustomer(deps, { accountId })
+        : null;
       const paymentAmount = marketplaceCheckoutFeeQuote.total_amount;
       const processorAmount = marketplaceCheckoutFeeQuote.processor_amount;
       const marketplaceSalesFeeAmount = sumFeeAmounts(orders, "marketplace_sales_fee_amount");
@@ -807,9 +1069,17 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         savedCheckoutInstrument: savedCheckoutInstrument
           ? {
               instrumentId: savedCheckoutInstrument.instrument_id,
+              providerCustomerReference: savedCheckoutInstrument.provider_customer_reference,
               providerReference: savedCheckoutInstrument.provider_reference,
               confirmationExperience: savedCheckoutInstrument.confirmation_experience,
               displayLabel: savedCheckoutInstrument.display_label,
+            }
+          : null,
+        savePaymentMethod: savePaymentProviderCustomer
+          ? {
+              providerCustomerReference: savePaymentProviderCustomer.provider_customer_reference,
+              consentId: createId("consent"),
+              consentText: SAVE_PAYMENT_CONSENT_TEXT,
             }
           : null,
         agenticPayment: params.agenticPayment ?? null,
@@ -855,6 +1125,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   clientRiskContext: params.clientRiskContext ?? null,
                   marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
                   savedCheckoutInstrument: providerRequest.savedCheckoutInstrument,
+                  savePaymentMethod: providerRequest.savePaymentMethod,
                   agenticPayment: params.agenticPayment,
                 })
               : await deps.processorGateway.createPaymentSession({
@@ -873,6 +1144,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   clientRiskContext: params.clientRiskContext ?? null,
                   marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
                   savedCheckoutInstrument: providerRequest.savedCheckoutInstrument,
+                  savePaymentMethod: providerRequest.savePaymentMethod,
                 });
       } catch (error) {
         await recordPaymentProviderOperationFailed(deps.db, {
@@ -1180,6 +1452,65 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         return { received: true, ignored: true };
       }
 
+      if (webhookEvent.kind === "saved-payment-setup-succeeded") {
+        const setupReference = webhookEvent.processorSetupReference ?? webhookEvent.processorPaymentReference;
+        const setupSession = await getSavedCheckoutSetupSessionByProcessorReference(deps.db, setupReference);
+        if (!setupSession) {
+          return { received: true, ignored: true };
+        }
+        await completeSavedCheckoutSetupSession(deps.db, {
+          processorSetupReference: setupReference,
+          processorStatus: webhookEvent.processorStatus,
+          completedAt: webhookEvent.occurredAt,
+        });
+        if (webhookEvent.savedPaymentMethod) {
+          await persistProcessorSavedPaymentMethod(deps, {
+            accountId: setupSession.account_id as AccountId,
+            providerCustomerReference: setupSession.provider_customer_reference,
+            savedPaymentMethod: webhookEvent.savedPaymentMethod,
+            consentId: setupSession.consent_id,
+            consentText: setupSession.consent_text,
+            isDefault: true,
+            auditAction: "setup-webhook-saved",
+          });
+        }
+        return { received: true, ignored: false };
+      }
+
+      if (webhookEvent.kind === "saved-payment-setup-failed") {
+        const setupReference = webhookEvent.processorSetupReference ?? webhookEvent.processorPaymentReference;
+        await completeSavedCheckoutSetupSession(deps.db, {
+          processorSetupReference: setupReference,
+          processorStatus: webhookEvent.processorStatus,
+          completedAt: webhookEvent.occurredAt,
+        });
+        return { received: true, ignored: false };
+      }
+
+      if (webhookEvent.kind === "saved-payment-method-detached" && webhookEvent.savedPaymentMethod) {
+        const instrument = await getSavedCheckoutInstrumentByProviderReference(deps.db, {
+          provider: webhookEvent.savedPaymentMethod.processorName,
+          providerReference: webhookEvent.savedPaymentMethod.providerReference,
+        });
+        if (instrument) {
+          await markSavedCheckoutInstrumentRemoved(deps.db, {
+            accountId: instrument.account_id,
+            instrumentId: instrument.instrument_id,
+            timestamp: webhookEvent.occurredAt,
+          });
+          await recordSavedCheckoutInstrumentAudit(deps.db, {
+            auditId: createId("audit"),
+            instrumentId: instrument.instrument_id,
+            accountId: instrument.account_id,
+            action: "provider-detached",
+            reason: webhookEvent.eventId,
+            performedByAccountId: instrument.account_id,
+            createdAt: webhookEvent.occurredAt,
+          });
+        }
+        return { received: true, ignored: !instrument };
+      }
+
       const payment = webhookEvent.internalPaymentId
         ? await getPaymentById(deps.db, webhookEvent.internalPaymentId)
         : await getPaymentByProcessorReference(
@@ -1216,6 +1547,27 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
             },
             context,
           });
+          if (webhookEvent.savedPaymentMethod) {
+            const customer =
+              webhookEvent.savedPaymentMethod.providerCustomerReference ??
+              (
+                await getProviderCustomer(deps.db, {
+                  accountId: payment.buyer_account_id,
+                  provider: webhookEvent.savedPaymentMethod.processorName,
+                })
+              )?.provider_customer_reference;
+            if (customer) {
+              await persistProcessorSavedPaymentMethod(deps, {
+                accountId: payment.buyer_account_id as AccountId,
+                providerCustomerReference: customer,
+                savedPaymentMethod: webhookEvent.savedPaymentMethod,
+                consentId: webhookEvent.savedPaymentConsentId ?? null,
+                consentText: webhookEvent.savedPaymentConsentText ?? SAVE_PAYMENT_CONSENT_TEXT,
+                isDefault: true,
+                auditAction: "payment-consent-saved",
+              });
+            }
+          }
           break;
         case "payment-failed":
           await commandHandler({
@@ -1242,6 +1594,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           break;
         case "payment-refunded":
         case "payment-disputed":
+          break;
+        case "saved-payment-method-detached":
           break;
         default:
           assert(false, "Unhandled payment webhook kind.");

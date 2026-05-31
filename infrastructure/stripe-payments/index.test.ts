@@ -137,6 +137,121 @@ describe("Stripe payment processor gateway", () => {
     vi.unstubAllGlobals();
   });
 
+  it("creates Stripe customers and hosted setup sessions for saved payment methods", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "cus_123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            id: "cs_setup_123",
+            url: "https://checkout.stripe.com/c/setup/cs_setup_123",
+            status: "open",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const customer = await gateway.createCustomer({
+      accountId: "acc_buyer" as never,
+      displayName: "Buyer",
+      email: "buyer@example.com",
+    });
+    const setup = await gateway.createSetupSession({
+      accountId: "acc_buyer" as never,
+      providerCustomerReference: customer.providerCustomerReference,
+      currencyCode: "usd",
+      returnUrl: "https://marketplace.test/account/payment-methods?setupReferenceId=scs_1",
+      consentId: "consent_1",
+      consentText: "Save for future checkout.",
+    });
+
+    expect(customer.providerCustomerReference).toBe("cus_123");
+    expect(setup.processorSetupReference).toBe("cs_setup_123");
+    expect(setup.processorRedirectUrl).toBe("https://checkout.stripe.com/c/setup/cs_setup_123");
+    const [customerUrl, customerInit] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(customerUrl).toBe("https://stripe.test/v1/customers");
+    expect(formSnapshot(customerInit.body)).toMatchObject({
+      name: "Buyer",
+      email: "buyer@example.com",
+      "metadata[account_id]": "acc_buyer",
+    });
+    const [setupUrl, setupInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
+    expect(setupUrl).toBe("https://stripe.test/v1/checkout/sessions");
+    expect(formSnapshot(setupInit.body)).toMatchObject({
+      mode: "setup",
+      ui_mode: "hosted",
+      customer: "cus_123",
+      success_url: "https://marketplace.test/account/payment-methods?setupReferenceId=scs_1",
+      "metadata[saved_payment_consent_id]": "consent_1",
+      "metadata[saved_payment_consent_text]": "Save for future checkout.",
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("charges selected Stripe saved payment methods with customer and payment method references", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ id: "pi_saved", client_secret: "pi_saved_secret", status: "succeeded" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const gateway = createStripePaymentProcessorGateway({
+      secretKey: "sk_test",
+      publishableKey: "pk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const payment = await gateway.createPaymentSession({
+      paymentId: "pay_saved" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      amount: "26.05",
+      currencyCode: "usd",
+      paymentMethodCategory: "card",
+      description: "Saved payment",
+      savedCheckoutInstrument: {
+        instrumentId: "sci_card_1",
+        providerCustomerReference: "cus_123",
+        providerReference: "pm_123",
+        confirmationExperience: "off-session-token",
+        displayLabel: "Visa ending in 4242",
+      },
+    });
+
+    expect(payment.processorPaymentKind).toBe("payment-intent");
+    expect(payment.processorPaymentReference).toBe("pi_saved");
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("https://stripe.test/v1/payment_intents");
+    expect(formSnapshot(init.body)).toMatchObject({
+      amount: "2605",
+      currency: "usd",
+      customer: "cus_123",
+      payment_method: "pm_123",
+      confirm: "true",
+      off_session: "true",
+      "metadata[saved_checkout_instrument_id]": "sci_card_1",
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it("creates agentic PaymentIntents with a Stripe shared payment token", async () => {
     const fetchMock = vi.fn(
       async () =>

@@ -23,6 +23,7 @@ export type CreateAccountPaymentRequest = Readonly<{
   paymentMethodCategory?: string | null;
   marketplaceCheckoutFeeQuoteFingerprint?: string | null;
   savedCheckoutInstrumentId?: string | null;
+  savePaymentMethodForFuture?: boolean;
   returnUrlPath?: string | null;
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
 }>;
@@ -35,9 +36,20 @@ export type PaymentsSavedCheckoutInstrument = Readonly<{
   display_label: string;
   confirmation_experience: "trusted-payment-step" | "off-session-token";
   is_default: boolean;
-  readiness: "ready" | "setup-required";
+  readiness: "ready" | "setup-required" | "removed";
+  allow_redisplay?: "always" | "limited" | "unspecified";
+  consent_id?: string | null;
+  removed_at?: string | null;
   created_at: string;
   updated_at: string;
+}>;
+
+export type PaymentsSavedCheckoutSetupSession = Readonly<{
+  setup_reference_id: string;
+  processor_setup_reference: string;
+  processor_client_secret: string | null;
+  processor_redirect_url: string | null;
+  processor_status: string;
 }>;
 
 function paymentsApiErrorMessage(status: number, body: unknown) {
@@ -171,6 +183,56 @@ export function createPaymentsApiClient({
     async listSavedCheckoutInstruments(): Promise<{ items: readonly PaymentsSavedCheckoutInstrument[] }> {
       return parseJsonResponse(
         await client.account.checkout["saved-instruments"].$get({
+          header: headers,
+        }),
+      );
+    },
+    async listPaymentMethods(): Promise<{ items: readonly PaymentsSavedCheckoutInstrument[] }> {
+      return parseJsonResponse(
+        await client.account["payment-methods"].$get({
+          header: headers,
+        }),
+      );
+    },
+    async createSavedPaymentSetupSession(
+      body: Readonly<{ returnUrlPath?: string | null }> = {},
+    ): Promise<PaymentsSavedCheckoutSetupSession> {
+      return parseJsonResponse(
+        await client.account["payment-methods"]["setup-sessions"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
+    async reconcileSavedPaymentSetupSession(
+      processorSetupReference: string,
+    ): Promise<{ instrument: PaymentsSavedCheckoutInstrument | null }> {
+      return parseJsonResponse(
+        await client.account["payment-methods"]["setup-sessions"][":processorSetupReference"].reconcile.$post({
+          param: { processorSetupReference },
+          header: headers,
+        }),
+      );
+    },
+    async setDefaultPaymentMethod(instrumentId: string): Promise<PaymentsSavedCheckoutInstrument> {
+      return parseJsonResponse(
+        await client.account["payment-methods"][":instrumentId"].default.$post({
+          param: { instrumentId },
+          header: headers,
+        }),
+      );
+    },
+    async removePaymentMethod(instrumentId: string): Promise<PaymentsSavedCheckoutInstrument> {
+      return parseJsonResponse(
+        await client.account["payment-methods"][":instrumentId"].remove.$post({
+          param: { instrumentId },
+          header: headers,
+        }),
+      );
+    },
+    async reconcilePaymentMethods(): Promise<Readonly<{ checked: number; updated: number; removed: number }>> {
+      return parseJsonResponse(
+        await client.account["payment-methods"].reconcile.$post({
           header: headers,
         }),
       );

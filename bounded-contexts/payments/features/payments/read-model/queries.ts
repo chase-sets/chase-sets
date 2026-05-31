@@ -55,13 +55,44 @@ export type SavedCheckoutInstrumentRow = Readonly<{
   account_id: string;
   payment_method_category: "card" | "bank-account" | "platform-credit";
   provider: string;
+  provider_customer_reference: string | null;
   provider_reference: string;
   display_label: string;
   confirmation_experience: "trusted-payment-step" | "off-session-token";
   is_default: boolean;
-  readiness: "ready" | "setup-required";
+  readiness: "ready" | "setup-required" | "removed";
+  allow_redisplay: "always" | "limited" | "unspecified";
+  consent_id: string | null;
+  consent_text: string | null;
+  removed_at: string | null;
   created_at: string;
   updated_at: string;
+}>;
+
+export type ProviderCustomerRow = Readonly<{
+  account_id: string;
+  provider: string;
+  provider_customer_reference: string;
+  display_name: string | null;
+  email: string | null;
+  created_at: string;
+  updated_at: string;
+}>;
+
+export type SavedCheckoutSetupSessionRow = Readonly<{
+  setup_reference_id: string;
+  account_id: string;
+  provider: string;
+  provider_customer_reference: string;
+  processor_setup_reference: string;
+  processor_client_secret: string | null;
+  processor_redirect_url: string | null;
+  processor_status: string;
+  consent_id: string;
+  consent_text: string;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
 }>;
 
 export type PaymentProviderIdempotencyKeyRow = Readonly<{
@@ -246,11 +277,16 @@ export async function listSavedCheckoutInstruments(
        account_id,
        payment_method_category,
        provider,
+       provider_customer_reference,
        provider_reference,
        display_label,
        confirmation_experience,
        is_default,
        readiness,
+       allow_redisplay,
+       consent_id,
+       consent_text,
+       removed_at,
        created_at,
        updated_at
      FROM payments_saved_checkout_instruments
@@ -272,11 +308,16 @@ export async function getSavedCheckoutInstrument(
        account_id,
        payment_method_category,
        provider,
+       provider_customer_reference,
        provider_reference,
        display_label,
        confirmation_experience,
        is_default,
        readiness,
+       allow_redisplay,
+       consent_id,
+       consent_text,
+       removed_at,
        created_at,
        updated_at
      FROM payments_saved_checkout_instruments
@@ -286,6 +327,373 @@ export async function getSavedCheckoutInstrument(
   );
 
   return result.rows[0] ?? null;
+}
+
+export async function getSavedCheckoutInstrumentByProviderReference(
+  db: PgQueryable,
+  params: Readonly<{ provider: string; providerReference: string }>,
+): Promise<SavedCheckoutInstrumentRow | null> {
+  const result = await db.query<SavedCheckoutInstrumentRow>(
+    `SELECT
+       instrument_id,
+       account_id,
+       payment_method_category,
+       provider,
+       provider_customer_reference,
+       provider_reference,
+       display_label,
+       confirmation_experience,
+       is_default,
+       readiness,
+       allow_redisplay,
+       consent_id,
+       consent_text,
+       removed_at,
+       created_at,
+       updated_at
+     FROM payments_saved_checkout_instruments
+     WHERE provider = $1
+       AND provider_reference = $2`,
+    [params.provider, params.providerReference],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function getProviderCustomer(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; provider: string }>,
+): Promise<ProviderCustomerRow | null> {
+  const result = await db.query<ProviderCustomerRow>(
+    `SELECT
+       account_id,
+       provider,
+       provider_customer_reference,
+       display_name,
+       email,
+       created_at,
+       updated_at
+     FROM payments_provider_customers
+     WHERE account_id = $1
+       AND provider = $2`,
+    [params.accountId, params.provider],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function upsertProviderCustomer(
+  db: PgQueryable,
+  customer: Readonly<{
+    accountId: string;
+    provider: string;
+    providerCustomerReference: string;
+    displayName?: string | null;
+    email?: string | null;
+    timestamp?: string;
+  }>,
+): Promise<ProviderCustomerRow> {
+  const timestamp = customer.timestamp ?? new Date().toISOString();
+  const result = await db.query<ProviderCustomerRow>(
+    `INSERT INTO payments_provider_customers (
+       account_id,
+       provider,
+       provider_customer_reference,
+       display_name,
+       email,
+       created_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $6)
+     ON CONFLICT (account_id, provider) DO UPDATE
+     SET provider_customer_reference = EXCLUDED.provider_customer_reference,
+         display_name = COALESCE(EXCLUDED.display_name, payments_provider_customers.display_name),
+         email = COALESCE(EXCLUDED.email, payments_provider_customers.email),
+         updated_at = EXCLUDED.updated_at
+     RETURNING
+       account_id,
+       provider,
+       provider_customer_reference,
+       display_name,
+       email,
+       created_at,
+       updated_at`,
+    [
+      customer.accountId,
+      customer.provider,
+      customer.providerCustomerReference,
+      customer.displayName ?? null,
+      customer.email ?? null,
+      timestamp,
+    ],
+  );
+
+  return result.rows[0]!;
+}
+
+export async function upsertSavedCheckoutInstrument(
+  db: PgQueryable,
+  instrument: Readonly<{
+    instrumentId: string;
+    accountId: string;
+    paymentMethodCategory: "card" | "bank-account" | "platform-credit";
+    provider: string;
+    providerCustomerReference?: string | null;
+    providerReference: string;
+    displayLabel: string;
+    confirmationExperience: "trusted-payment-step" | "off-session-token";
+    readiness: "ready" | "setup-required" | "removed";
+    allowRedisplay?: "always" | "limited" | "unspecified";
+    consentId?: string | null;
+    consentText?: string | null;
+    isDefault?: boolean;
+    removedAt?: string | null;
+    timestamp?: string;
+  }>,
+): Promise<SavedCheckoutInstrumentRow> {
+  const timestamp = instrument.timestamp ?? new Date().toISOString();
+  const result = await db.query<SavedCheckoutInstrumentRow>(
+    `WITH cleared_default AS (
+       UPDATE payments_saved_checkout_instruments
+       SET is_default = false,
+           updated_at = $15
+       WHERE account_id = $2
+         AND $13 = true
+     )
+     INSERT INTO payments_saved_checkout_instruments (
+       instrument_id,
+       account_id,
+       payment_method_category,
+       provider,
+       provider_customer_reference,
+       provider_reference,
+       display_label,
+       confirmation_experience,
+       readiness,
+       allow_redisplay,
+       consent_id,
+       consent_text,
+       is_default,
+       removed_at,
+       created_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $15)
+     ON CONFLICT (provider, provider_reference) DO UPDATE
+     SET account_id = EXCLUDED.account_id,
+         payment_method_category = EXCLUDED.payment_method_category,
+         provider_customer_reference = EXCLUDED.provider_customer_reference,
+         display_label = EXCLUDED.display_label,
+         confirmation_experience = EXCLUDED.confirmation_experience,
+         readiness = EXCLUDED.readiness,
+         allow_redisplay = EXCLUDED.allow_redisplay,
+         consent_id = COALESCE(EXCLUDED.consent_id, payments_saved_checkout_instruments.consent_id),
+         consent_text = COALESCE(EXCLUDED.consent_text, payments_saved_checkout_instruments.consent_text),
+         is_default = EXCLUDED.is_default,
+         removed_at = EXCLUDED.removed_at,
+         updated_at = EXCLUDED.updated_at
+     RETURNING
+       instrument_id,
+       account_id,
+       payment_method_category,
+       provider,
+       provider_customer_reference,
+       provider_reference,
+       display_label,
+       confirmation_experience,
+       is_default,
+       readiness,
+       allow_redisplay,
+       consent_id,
+       consent_text,
+       removed_at,
+       created_at,
+       updated_at`,
+    [
+      instrument.instrumentId,
+      instrument.accountId,
+      instrument.paymentMethodCategory,
+      instrument.provider,
+      instrument.providerCustomerReference ?? null,
+      instrument.providerReference,
+      instrument.displayLabel,
+      instrument.confirmationExperience,
+      instrument.readiness,
+      instrument.allowRedisplay ?? "unspecified",
+      instrument.consentId ?? null,
+      instrument.consentText ?? null,
+      Boolean(instrument.isDefault),
+      instrument.removedAt ?? null,
+      timestamp,
+    ],
+  );
+
+  return result.rows[0]!;
+}
+
+export async function setSavedCheckoutInstrumentDefault(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; instrumentId: string; timestamp?: string }>,
+) {
+  const timestamp = params.timestamp ?? new Date().toISOString();
+  await db.query(
+    `UPDATE payments_saved_checkout_instruments
+     SET is_default = instrument_id = $2,
+         updated_at = $3
+     WHERE account_id = $1
+       AND readiness <> 'removed'`,
+    [params.accountId, params.instrumentId, timestamp],
+  );
+}
+
+export async function markSavedCheckoutInstrumentRemoved(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; instrumentId: string; timestamp?: string }>,
+) {
+  const timestamp = params.timestamp ?? new Date().toISOString();
+  await db.query(
+    `UPDATE payments_saved_checkout_instruments
+     SET readiness = 'removed',
+         is_default = false,
+         removed_at = $3,
+         updated_at = $3
+     WHERE account_id = $1
+       AND instrument_id = $2`,
+    [params.accountId, params.instrumentId, timestamp],
+  );
+}
+
+export async function recordSavedCheckoutInstrumentAudit(
+  db: PgQueryable,
+  audit: Readonly<{
+    auditId: string;
+    instrumentId: string;
+    accountId: string;
+    action: string;
+    reason?: string | null;
+    performedByAccountId?: string | null;
+    createdAt?: string;
+  }>,
+) {
+  await db.query(
+    `INSERT INTO payments_saved_checkout_instrument_audit (
+       audit_id,
+       instrument_id,
+       account_id,
+       action,
+       reason,
+       performed_by_account_id,
+       created_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (audit_id) DO NOTHING`,
+    [
+      audit.auditId,
+      audit.instrumentId,
+      audit.accountId,
+      audit.action,
+      audit.reason ?? null,
+      audit.performedByAccountId ?? null,
+      audit.createdAt ?? new Date().toISOString(),
+    ],
+  );
+}
+
+export async function recordSavedCheckoutSetupSession(
+  db: PgQueryable,
+  session: Readonly<{
+    setupReferenceId: string;
+    accountId: string;
+    provider: string;
+    providerCustomerReference: string;
+    processorSetupReference: string;
+    processorClientSecret?: string | null;
+    processorRedirectUrl?: string | null;
+    processorStatus: string;
+    consentId: string;
+    consentText: string;
+    timestamp?: string;
+  }>,
+): Promise<SavedCheckoutSetupSessionRow> {
+  const timestamp = session.timestamp ?? new Date().toISOString();
+  const result = await db.query<SavedCheckoutSetupSessionRow>(
+    `INSERT INTO payments_saved_checkout_setup_sessions (
+       setup_reference_id,
+       account_id,
+       provider,
+       provider_customer_reference,
+       processor_setup_reference,
+       processor_client_secret,
+       processor_redirect_url,
+       processor_status,
+       consent_id,
+       consent_text,
+       created_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)
+     ON CONFLICT (setup_reference_id) DO UPDATE
+     SET processor_setup_reference = EXCLUDED.processor_setup_reference,
+         processor_client_secret = EXCLUDED.processor_client_secret,
+         processor_redirect_url = EXCLUDED.processor_redirect_url,
+         processor_status = EXCLUDED.processor_status,
+         updated_at = EXCLUDED.updated_at
+     RETURNING *`,
+    [
+      session.setupReferenceId,
+      session.accountId,
+      session.provider,
+      session.providerCustomerReference,
+      session.processorSetupReference,
+      session.processorClientSecret ?? null,
+      session.processorRedirectUrl ?? null,
+      session.processorStatus,
+      session.consentId,
+      session.consentText,
+      timestamp,
+    ],
+  );
+
+  return result.rows[0]!;
+}
+
+export async function getSavedCheckoutSetupSessionByProcessorReference(
+  db: PgQueryable,
+  processorSetupReference: string,
+): Promise<SavedCheckoutSetupSessionRow | null> {
+  const result = await db.query<SavedCheckoutSetupSessionRow>(
+    `SELECT *
+     FROM payments_saved_checkout_setup_sessions
+     WHERE processor_setup_reference = $1`,
+    [processorSetupReference],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function getSavedCheckoutSetupSessionBySetupReference(
+  db: PgQueryable,
+  setupReferenceId: string,
+): Promise<SavedCheckoutSetupSessionRow | null> {
+  const result = await db.query<SavedCheckoutSetupSessionRow>(
+    `SELECT *
+     FROM payments_saved_checkout_setup_sessions
+     WHERE setup_reference_id = $1`,
+    [setupReferenceId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function completeSavedCheckoutSetupSession(
+  db: PgQueryable,
+  params: Readonly<{ processorSetupReference: string; processorStatus: string; completedAt?: string }>,
+) {
+  const timestamp = params.completedAt ?? new Date().toISOString();
+  await db.query(
+    `UPDATE payments_saved_checkout_setup_sessions
+     SET processor_status = $2,
+         completed_at = COALESCE(completed_at, $3),
+         updated_at = $3
+     WHERE processor_setup_reference = $1`,
+    [params.processorSetupReference, params.processorStatus, timestamp],
+  );
 }
 
 export async function listPaymentProviderEvents(

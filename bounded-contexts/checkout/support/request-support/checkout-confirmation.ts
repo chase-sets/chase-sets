@@ -55,6 +55,7 @@ export async function createCheckoutPaymentThroughPayments(
   paymentMethodCategory: string = "card",
   marketplaceCheckoutFeeQuoteFingerprint?: string | null,
   savedCheckoutInstrumentId?: string | null,
+  savePaymentMethodForFuture?: boolean,
   returnUrlPath?: string | null,
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null,
 ) {
@@ -72,6 +73,7 @@ export async function createCheckoutPaymentThroughPayments(
     paymentMethodCategory,
     marketplaceCheckoutFeeQuoteFingerprint: confirmedFingerprint,
     savedCheckoutInstrumentId,
+    savePaymentMethodForFuture,
     returnUrlPath,
     agenticPayment,
   });
