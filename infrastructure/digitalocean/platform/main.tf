@@ -218,6 +218,18 @@ resource "terraform_data" "context_database_grants" {
   ]
 }
 
+check "worker_runner_capacity" {
+  assert {
+    condition = (
+      tonumber(local.worker_projection_concurrency) +
+      tonumber(local.worker_job_concurrency) +
+      tonumber(local.worker_dispatch_concurrency) +
+      tonumber(local.worker_scheduled_concurrency)
+    ) <= tonumber(local.worker_database_pool_max)
+    error_message = "Worker runner concurrency must not exceed worker_database_pool_max. Increase worker_database_pool_max or reduce WORKER_*_MAX_CONCURRENT_RUNNERS."
+  }
+}
+
 resource "digitalocean_app" "platform" {
   spec {
     name   = "${local.name_prefix}-platform"
@@ -855,14 +867,13 @@ resource "digitalocean_app" "platform" {
       }
     }
 
-    dynamic "service" {
+    dynamic "worker" {
       for_each = local.marketplace_platform_enabled ? [1] : []
       content {
         name               = "platform-worker"
         run_command        = "pnpm --filter @chase-sets/app-platform-worker run start:production"
         instance_size_slug = var.app_instance_size_slug
         instance_count     = local.worker_instances
-        http_port          = 8080
 
         image {
           registry_type = "DOCR"
@@ -878,12 +889,6 @@ resource "digitalocean_app" "platform" {
           key   = "NODE_ENV"
           value = "production"
           scope = "RUN_AND_BUILD_TIME"
-        }
-
-        env {
-          key   = "PORT"
-          value = "8080"
-          scope = "RUN_TIME"
         }
 
         env {
@@ -1145,9 +1150,6 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
 
-        health_check {
-          http_path = "/health/ready"
-        }
       }
     }
 
