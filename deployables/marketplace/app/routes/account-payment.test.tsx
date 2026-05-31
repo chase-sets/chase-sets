@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ChaseRoot } from "@chase-sets/design-system";
@@ -26,6 +26,15 @@ type PurchaseDetail = Readonly<{
   updated_at: string;
   cancelled_at: string | null;
   ready_for_fulfillment_at: string | null;
+  shipping_destination_snapshot: {
+    name: string;
+    line1: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+    email?: string | null;
+  };
   line_count: number;
   total_quantity: number;
   lines: readonly unknown[];
@@ -115,6 +124,15 @@ function buildPurchase(overrides: Partial<PurchaseDetail> = {}): PurchaseDetail 
     updated_at: "2026-04-01T00:00:00.000Z",
     cancelled_at: null,
     ready_for_fulfillment_at: null,
+    shipping_destination_snapshot: {
+      name: "Buyer",
+      line1: "1 Main St",
+      city: "Maize",
+      state: "KS",
+      postalCode: "67101",
+      country: "US",
+      email: "buyer@example.com",
+    },
     line_count: 1,
     total_quantity: 1,
     lines: [],
@@ -153,6 +171,16 @@ function buildPayment(overrides: Partial<PaymentsPaymentDetail> = {}): PaymentsP
   };
 }
 
+async function findEnabledButton(name: string) {
+  const buttons = await screen.findAllByRole("button", { name });
+
+  await waitFor(() => expect(buttons.some((button) => !button.hasAttribute("disabled"))).toBe(true));
+
+  const button = buttons.find((candidate) => !candidate.hasAttribute("disabled"));
+  expect(button).toBeTruthy();
+  return button!;
+}
+
 describe("marketplace account payment route", () => {
   beforeEach(() => {
     mockUseActionData.mockReturnValue(null);
@@ -162,6 +190,7 @@ describe("marketplace account payment route", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.useRealTimers();
     vi.clearAllMocks();
     vi.restoreAllMocks();
@@ -247,7 +276,7 @@ describe("marketplace account payment route", () => {
 
     expect(screen.getByText("Could not retry payment")).toBeTruthy();
     expect(screen.getByText("Fee quote changed.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Retry payment" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Retry payment" }).length).toBeGreaterThan(0);
   });
 
   it("renders guest retry when a failed payment has no processor message", () => {
@@ -271,7 +300,7 @@ describe("marketplace account payment route", () => {
     );
 
     expect(screen.getAllByText("The secure processor could not complete this payment.").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Retry payment" })).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Retry payment" }).length).toBeGreaterThan(0);
   });
 
   it("confirms a pending Stripe payment and revalidates afterward", async () => {
@@ -304,17 +333,65 @@ describe("marketplace account payment route", () => {
       </ChaseRoot>,
     );
 
-    const button = await screen.findByRole("button", {
-      name: "Confirm payment",
-    });
-
-    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+    const button = await findEnabledButton("Confirm payment");
     fireEvent.click(button);
 
     await waitFor(() =>
       expect(confirmPayment).toHaveBeenCalledWith({
         elements: expect.any(Object),
         redirect: "if_required",
+      }),
+    );
+
+    await waitFor(() => expect(revalidate).toHaveBeenCalled(), {
+      timeout: 1000,
+    });
+    expect(paymentElement.mount).toHaveBeenCalled();
+  });
+
+  it("confirms a pending Checkout Session with loaded Checkout actions", async () => {
+    const paymentElement = {
+      mount: vi.fn(),
+      destroy: vi.fn(),
+    };
+    const confirm = vi.fn().mockResolvedValue({});
+    const revalidate = vi.fn();
+
+    mockUseRevalidator.mockReturnValue({ revalidate });
+    mockUseLoaderData.mockReturnValue({
+      payment: buildPayment({
+        processor_client_secret: "cs_live_123_secret_456",
+        processor_publishable_key: "pk_live_123",
+        processor_payment_kind: "checkout-session",
+      }),
+      orders: [buildPurchase()],
+    });
+
+    (window as StripeWindow).Stripe = vi.fn(() => ({
+      initCheckout: vi.fn(() => ({
+        createPaymentElement: vi.fn(() => paymentElement),
+        loadActions: vi.fn().mockResolvedValue({
+          type: "success",
+          actions: { confirm },
+        }),
+      })),
+      elements: vi.fn(),
+      confirmPayment: vi.fn(),
+    }));
+
+    render(
+      <ChaseRoot>
+        <MarketplaceAccountPaymentRoute />
+      </ChaseRoot>,
+    );
+
+    const button = await findEnabledButton("Confirm payment");
+    fireEvent.click(button);
+
+    await waitFor(() =>
+      expect(confirm).toHaveBeenCalledWith({
+        redirect: "if_required",
+        email: "buyer@example.com",
       }),
     );
 

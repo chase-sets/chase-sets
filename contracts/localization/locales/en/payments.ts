@@ -103,6 +103,8 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPayment.source": "Source: ",
   "payments.routes.marketplace.accountPayment.status": "Status",
   "payments.routes.marketplace.accountPayment.stripe.can.only.load.in.the": "Stripe can only load in the browser.",
+  "payments.routes.marketplace.accountPayment.stripe.buyer.email.is.required":
+    "A buyer email address is required to confirm this payment.",
   "payments.routes.marketplace.accountPayment.stripe.could.not.load": "Stripe could not load.",
   "payments.routes.marketplace.accountPayment.stripe.is.still.loading": "Stripe is still loading.",
   "payments.routes.marketplace.accountPayment.stripe.js.failed.to.load": "Stripe.js failed to load.",
