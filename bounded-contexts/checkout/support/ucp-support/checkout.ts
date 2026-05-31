@@ -22,7 +22,7 @@ type UcpPaymentHandlerHandoff = Readonly<{
       }>
     | Readonly<{
         kind: "headless-agentic-payment";
-        agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[7];
+        agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[8];
         evidence?: Readonly<Record<string, unknown>>;
       }>
     | Promise<
@@ -32,7 +32,7 @@ type UcpPaymentHandlerHandoff = Readonly<{
           }>
         | Readonly<{
             kind: "headless-agentic-payment";
-            agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[7];
+            agenticPayment: Parameters<typeof createCheckoutPaymentThroughPayments>[8];
             evidence?: Readonly<Record<string, unknown>>;
           }>
         | null
@@ -294,6 +294,7 @@ export function createCheckoutUcpHandlers(
             readNullableString(body.requestedBalanceCreditAmount ?? body.requested_balance_credit_amount),
             readString(body.paymentMethodCategory ?? body.payment_method_category) ?? "card",
             marketplaceCheckoutFeeQuoteFingerprint,
+            null,
             "/account/payments/:paymentId",
             guardedPaymentResponse.agenticPayment,
           );

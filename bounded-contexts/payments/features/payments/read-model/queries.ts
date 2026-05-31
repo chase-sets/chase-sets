@@ -12,6 +12,7 @@ export type PaymentDetailRow = Readonly<{
   marketplace_checkout_fee_policy_version: string | null;
   marketplace_checkout_fee_quote_fingerprint: string | null;
   payment_method_category: string | null;
+  saved_checkout_instrument_id: string | null;
   seller_net_amount: string;
   seller_payout_amount: string;
   seller_payouts: readonly {
@@ -47,6 +48,20 @@ export type PaymentProviderEventRow = Readonly<{
   event_kind: string;
   provider_object_reference: string | null;
   received_at: string;
+}>;
+
+export type SavedCheckoutInstrumentRow = Readonly<{
+  instrument_id: string;
+  account_id: string;
+  payment_method_category: "card" | "bank-account" | "platform-credit";
+  provider: string;
+  provider_reference: string;
+  display_label: string;
+  confirmation_experience: "trusted-payment-step" | "off-session-token";
+  is_default: boolean;
+  readiness: "ready" | "setup-required";
+  created_at: string;
+  updated_at: string;
 }>;
 
 export type PaymentProviderIdempotencyKeyRow = Readonly<{
@@ -108,6 +123,7 @@ const paymentSelect = `
     marketplace_checkout_fee_policy_version,
     marketplace_checkout_fee_quote_fingerprint,
     payment_method_category,
+    saved_checkout_instrument_id,
     seller_net_amount::text AS seller_net_amount,
     seller_payout_amount::text AS seller_payout_amount,
     seller_payouts,
@@ -218,6 +234,58 @@ export async function getPaymentBySource(
 
   const row = result.rows[0];
   return row ? mapPaymentRow(row) : null;
+}
+
+export async function listSavedCheckoutInstruments(
+  db: PgQueryable,
+  accountId: string,
+): Promise<SavedCheckoutInstrumentRow[]> {
+  const result = await db.query<SavedCheckoutInstrumentRow>(
+    `SELECT
+       instrument_id,
+       account_id,
+       payment_method_category,
+       provider,
+       provider_reference,
+       display_label,
+       confirmation_experience,
+       is_default,
+       readiness,
+       created_at,
+       updated_at
+     FROM payments_saved_checkout_instruments
+     WHERE account_id = $1
+     ORDER BY is_default DESC, readiness ASC, updated_at DESC, instrument_id ASC`,
+    [accountId],
+  );
+
+  return result.rows;
+}
+
+export async function getSavedCheckoutInstrument(
+  db: PgQueryable,
+  params: Readonly<{ accountId: string; instrumentId: string }>,
+): Promise<SavedCheckoutInstrumentRow | null> {
+  const result = await db.query<SavedCheckoutInstrumentRow>(
+    `SELECT
+       instrument_id,
+       account_id,
+       payment_method_category,
+       provider,
+       provider_reference,
+       display_label,
+       confirmation_experience,
+       is_default,
+       readiness,
+       created_at,
+       updated_at
+     FROM payments_saved_checkout_instruments
+     WHERE account_id = $1
+       AND instrument_id = $2`,
+    [params.accountId, params.instrumentId],
+  );
+
+  return result.rows[0] ?? null;
 }
 
 export async function listPaymentProviderEvents(

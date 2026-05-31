@@ -134,11 +134,13 @@ async function resolveCheckoutShippingAddress(
   request: Request,
   actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
   formData: FormData,
+  options: Readonly<{ persistAddressBook?: boolean }> = {},
 ) {
   const selectedShippingAddressId = normalizeText(formData.get("shippingAddressId"));
   const addressBookAction = String(formData.get("addressBookAction") ?? "checkout-only");
   const makeDefault = String(formData.get("makeDefaultShippingAddress") ?? "") === "true";
   const formAddress = shippingAddressFromForm(formData);
+  const persistAddressBook = options.persistAddressBook === true;
 
   const canReadAddressBook = Boolean(
     actor &&
@@ -152,7 +154,7 @@ async function resolveCheckoutShippingAddress(
     Array.isArray(actor.permissions) &&
     actor.permissions.includes("accounts.manage"),
   );
-  const actorAccountId = canManageAddressBook && actor ? actor.accountId : null;
+  const actorAccountId = persistAddressBook && canManageAddressBook && actor ? actor.accountId : null;
 
   if (!canReadAddressBook) {
     return {
@@ -174,7 +176,7 @@ async function resolveCheckoutShippingAddress(
     return shippingAddressFromSavedAddress(selectedSavedAddress);
   }
 
-  if (addressBookAction === "update-selected" && selectedSavedAddress && canManageAddressBook) {
+  if (addressBookAction === "update-selected" && selectedSavedAddress && actorAccountId) {
     await identityApi.updateShippingAddress(actorAccountId!, selectedSavedAddress.shipping_address_id, {
       label: selectedSavedAddress.label,
       ...formAddress,
@@ -186,7 +188,7 @@ async function resolveCheckoutShippingAddress(
     };
   }
 
-  if (addressBookAction === "save-new" && canManageAddressBook) {
+  if (addressBookAction === "save-new" && actorAccountId) {
     const result = await identityApi.createShippingAddress<{ id: string }>(actorAccountId!, {
       ...formAddress,
       makeDefault,
@@ -328,7 +330,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const savedCheckoutInstruments = await loadSavedCheckoutInstruments(request, actor);
   const { fulfillmentPreview, previewError } = await loadFulfillmentPreview(request, session);
   const searchParams = new URL(request.url).searchParams;
-  const selectedPaymentMethodCategory = searchParams.get("paymentMethodCategory") ?? "card";
+  const defaultSavedPaymentMethodCategory =
+    savedCheckoutInstruments.find((instrument) => instrument.is_default && instrument.readiness === "ready")
+      ?.payment_method_category ??
+    savedCheckoutInstruments.find((instrument) => instrument.readiness === "ready")?.payment_method_category;
+  const selectedPaymentMethodCategory =
+    searchParams.get("paymentMethodCategory") ?? defaultSavedPaymentMethodCategory ?? "card";
   const paymentPreview = await loadPaymentPreview(
     request,
     actor,
@@ -379,7 +386,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
       });
       await api.selectShippingAddress(params.sessionId, {
-        shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData),
+        shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData, {
+          persistAddressBook: false,
+        }),
       });
       const paymentMethodCategory = String(formData.get("previewPaymentMethodCategory") ?? "card");
       return redirect(
@@ -391,7 +400,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
       await api.selectShippingOption(params.sessionId, {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
       });
-      const shippingAddress = await resolveCheckoutShippingAddress(request, actor, formData);
+      const shippingAddress = await resolveCheckoutShippingAddress(request, actor, formData, {
+        persistAddressBook: true,
+      });
       const quotedPaymentMethodCategory = String(formData.get("paymentMethodCategory") ?? "card");
       const visiblePaymentMethodCategory = String(
         formData.get("previewPaymentMethodCategory") ?? quotedPaymentMethodCategory,
@@ -401,6 +412,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const marketplaceCheckoutFeeQuoteFingerprint =
         String(formData.get("marketplaceCheckoutFeeQuoteFingerprint") ?? "") || null;
       const useAcceleratedSavedPayment = String(formData.get("acceleratedSavedPayment") ?? "") === "true";
+      const selectedSavedPaymentInstrumentId = normalizeText(formData.get("savedCheckoutInstrumentId"));
       const session =
         typeof api.getCheckoutSession === "function" ? await api.getCheckoutSession(params.sessionId) : null;
       const sourceType = session?.source_type ?? String(formData.get("sourceType") ?? "");
@@ -431,9 +443,12 @@ export async function action({ request, params }: ActionFunctionArgs) {
         ),
         paymentMethodCategory: quotedPaymentMethodCategory,
         marketplaceCheckoutFeeQuoteFingerprint,
+        savedCheckoutInstrumentId: selectedSavedPaymentInstrumentId,
         fulfillmentPreviewRevision: String(formData.get("fulfillmentPreviewRevision") ?? "") || null,
         acknowledgedMaterialChanges: String(formData.get("acknowledgedMaterialChanges") ?? "") === "true",
-        deferPayment: Boolean(actor && actor.roleKey !== "guest-buyer" && !useAcceleratedSavedPayment),
+        deferPayment: Boolean(
+          actor && actor.roleKey !== "guest-buyer" && !useAcceleratedSavedPayment && !selectedSavedPaymentInstrumentId,
+        ),
         shippingAddress,
       });
       if (result.offer_id) {

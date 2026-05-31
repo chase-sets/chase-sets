@@ -87,7 +87,13 @@ function existingPaymentRow() {
     processor_amount: "24.99",
     marketplace_sales_fee_amount: "1.00",
     marketplace_checkout_fee_amount: "0.50",
+    marketplace_checkout_fee_policy_version: "marketplace-checkout-fee-v1",
+    marketplace_checkout_fee_quote_fingerprint: "quote_1",
+    payment_method_category: "card",
+    saved_checkout_instrument_id: null,
     seller_net_amount: "23.49",
+    seller_payout_amount: "24.49",
+    seller_payouts: [],
     currency_code: "usd",
     processor_name: "stripe",
     processor_payment_kind: "payment-intent",
@@ -132,9 +138,15 @@ function createProcessorGateway() {
   };
 }
 
-function createOrderInputDb() {
+function createOrderInputDb(
+  options: Readonly<{ savedCheckoutInstrumentRows?: readonly Record<string, unknown>[] }> = {},
+) {
   return {
     query: vi.fn(async (sql: string, params?: readonly unknown[]) => {
+      if (sql.includes("FROM payments_saved_checkout_instruments")) {
+        return { rows: [...(options.savedCheckoutInstrumentRows ?? [])] };
+      }
+
       if (sql.includes("FROM payments_order_inputs")) {
         expect(params).toEqual(["acc_buyer", ["ord_1"]]);
         return {
@@ -415,5 +427,64 @@ describe("payment runtime", () => {
         returnUrl: `https://market.test/checkout/payments/${result.payment_id}`,
       }),
     );
+  });
+
+  it("validates and passes a saved checkout instrument to the processor", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const processorGateway = createProcessorGateway();
+    const db = createOrderInputDb({
+      savedCheckoutInstrumentRows: [
+        {
+          instrument_id: "sci_card_1",
+          account_id: "acc_buyer",
+          payment_method_category: "card",
+          provider: "stripe",
+          provider_reference: "pm_card_1",
+          display_label: "Visa ending in 4242",
+          confirmation_experience: "off-session-token",
+          readiness: "ready",
+          is_default: true,
+          created_at: "2026-04-29T00:00:00.000Z",
+          updated_at: "2026-04-29T00:00:00.000Z",
+        },
+      ],
+    });
+    const services = createPaymentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      processorGateway,
+    });
+
+    const status = await services.getCheckoutStatus({
+      accountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      paymentMethodCategory: "card",
+    });
+    const result = await services.createAccountPayment(
+      {
+        accountId: "acc_buyer" as never,
+        orderIds: ["ord_1" as never],
+        paymentMethodCategory: "card",
+        marketplaceCheckoutFeeQuoteFingerprint: status.marketplace_checkout_fee.quote_fingerprint,
+        savedCheckoutInstrumentId: "sci_card_1",
+      },
+      context,
+    );
+
+    expect(processorGateway.createPaymentSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        savedCheckoutInstrument: {
+          instrumentId: "sci_card_1",
+          providerReference: "pm_card_1",
+          confirmationExperience: "off-session-token",
+          displayLabel: "Visa ending in 4242",
+        },
+      }),
+    );
+    expect(result.saved_checkout_instrument_id).toBe("sci_card_1");
+    expect(readAllEvents()[0]?.payload).toMatchObject({
+      savedCheckoutInstrumentId: "sci_card_1",
+    });
   });
 });

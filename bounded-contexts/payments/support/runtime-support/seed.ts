@@ -147,11 +147,65 @@ async function getAcceptedOfferSeedOrder(pool: PgTransactionalPool): Promise<Ord
   }
 }
 
+async function seedSavedCheckoutInstruments(pool: PgTransactionalPool) {
+  await pool.query(
+    `INSERT INTO payments_saved_checkout_instruments (
+       instrument_id,
+       account_id,
+       payment_method_category,
+       provider,
+       provider_reference,
+       display_label,
+       confirmation_experience,
+       readiness,
+       is_default,
+       created_at,
+       updated_at
+     )
+     VALUES
+       (
+         'sci_seed_collector_card',
+         $1,
+         'card',
+         'stripe',
+         'pm_seed_collector_card',
+         'Visa ending in 4242',
+         'off-session-token',
+         'ready',
+         true,
+         '2026-03-20T09:00:00.000Z',
+         '2026-03-20T09:00:00.000Z'
+       ),
+       (
+         'sci_seed_collector_bank',
+         $1,
+         'bank-account',
+         'stripe',
+         'pm_seed_collector_bank',
+         'Bank account ending in 6789',
+         'trusted-payment-step',
+         'ready',
+         false,
+         '2026-03-20T09:05:00.000Z',
+         '2026-03-20T09:05:00.000Z'
+       )
+     ON CONFLICT (instrument_id) DO UPDATE SET
+       display_label = EXCLUDED.display_label,
+       confirmation_experience = EXCLUDED.confirmation_experience,
+       readiness = EXCLUDED.readiness,
+       is_default = EXCLUDED.is_default,
+       updated_at = EXCLUDED.updated_at`,
+    [identitySeedIds.collector.accountId],
+  );
+}
+
 export async function seedPaymentsDatabase(pool: PgTransactionalPool) {
   const processorGateway = createFakePaymentProcessorGateway();
   const services = createPaymentsServices(pool, {
     processorGateway,
   });
+
+  await seedSavedCheckoutInstruments(pool);
 
   try {
     const existing = await services.db.query("SELECT COUNT(*) AS count FROM payments_payment_pages");

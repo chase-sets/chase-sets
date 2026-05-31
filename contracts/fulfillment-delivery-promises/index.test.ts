@@ -35,7 +35,7 @@ describe("fulfillment delivery promise policy", () => {
   it("moves packing to the next business day after cutoff or weekend", () => {
     const afterCutoff = createFulfillmentDeliveryPromise({
       ...baseInput,
-      now: "2026-06-05T17:00:00.000Z",
+      now: "2026-06-05T22:30:00.000Z",
     });
     const weekend = createFulfillmentDeliveryPromise({
       ...baseInput,
@@ -45,7 +45,19 @@ describe("fulfillment delivery promise policy", () => {
     expect(afterCutoff.packingStartDate).toBe("2026-06-08");
     expect(afterCutoff.carrierHandoffDate).toBe("2026-06-09");
     expect(weekend.packingStartDate).toBe("2026-06-08");
-    expect(weekend.basis).toContain("after cutoff/weekend handoff");
+    expect(weekend.basis).toContain("after cutoff/weekend/holiday handoff");
+  });
+
+  it("uses seller-local cutoff time and holiday calendars", () => {
+    const beforeChicagoCutoff = createFulfillmentDeliveryPromise({
+      ...baseInput,
+      now: "2026-06-05T20:30:00.000Z",
+      holidayDates: ["2026-06-08"],
+    });
+
+    expect(beforeChicagoCutoff.packingStartDate).toBe("2026-06-05");
+    expect(beforeChicagoCutoff.carrierHandoffDate).toBe("2026-06-09");
+    expect(beforeChicagoCutoff.basis).toContain("America/Chicago");
   });
 
   it("extends remote-region delivery windows", () => {

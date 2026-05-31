@@ -148,6 +148,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
             body.marketplaceCheckoutFeeQuoteFingerprint === undefined
               ? null
               : String(body.marketplaceCheckoutFeeQuoteFingerprint),
+          savedCheckoutInstrumentId:
+            body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
+              ? null
+              : String(body.savedCheckoutInstrumentId),
           returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
           returnUrlPath:
             body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),
@@ -234,7 +238,22 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
       return access.response;
     }
 
-    return c.json({ items: [] });
+    const instruments = await services.listSavedCheckoutInstruments(access.actor.accountId as never);
+
+    return c.json({
+      items: instruments.map((instrument) => ({
+        instrument_id: instrument.instrument_id,
+        account_id: instrument.account_id,
+        payment_method_category: instrument.payment_method_category,
+        provider: instrument.provider,
+        display_label: instrument.display_label,
+        confirmation_experience: instrument.confirmation_experience,
+        readiness: instrument.readiness,
+        is_default: instrument.is_default,
+        created_at: instrument.created_at,
+        updated_at: instrument.updated_at,
+      })),
+    });
   });
 
   app.get("/marketplace-checkout-fee-policy", async (c) => {
@@ -286,6 +305,10 @@ export function createAccountPaymentRoutes(services: PaymentServices) {
             body.marketplaceCheckoutFeeQuoteFingerprint === undefined
               ? null
               : String(body.marketplaceCheckoutFeeQuoteFingerprint),
+          savedCheckoutInstrumentId:
+            body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
+              ? null
+              : String(body.savedCheckoutInstrumentId),
           returnUrlBase: resolvePublicOrigin(c.req.url, c.req.raw.headers),
           returnUrlPath:
             body.returnUrlPath === null || body.returnUrlPath === undefined ? null : String(body.returnUrlPath),

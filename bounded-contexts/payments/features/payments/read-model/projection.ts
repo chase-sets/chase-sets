@@ -16,6 +16,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
         marketplaceCheckoutFeePolicyVersion?: string | null;
         marketplaceCheckoutFeeQuoteFingerprint?: string | null;
         paymentMethodCategory?: string | null;
+        savedCheckoutInstrumentId?: string | null;
         sellerNetAmount: string;
         sellerPayoutAmount?: string;
         sellerPayouts?: unknown;
@@ -44,6 +45,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
            marketplace_checkout_fee_policy_version,
            marketplace_checkout_fee_quote_fingerprint,
            payment_method_category,
+           saved_checkout_instrument_id,
            seller_net_amount,
            seller_payout_amount,
            seller_payouts,
@@ -66,7 +68,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
            cancelled_at,
            last_stream_version
          ) VALUES (
-           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, 'pending-confirmation', NULL, NULL, $24, $24, NULL, NULL, NULL, $25
+           $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, 'pending-confirmation', NULL, NULL, $25, $25, NULL, NULL, NULL, $26
          )
          ON CONFLICT (payment_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
@@ -79,6 +81,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
              marketplace_checkout_fee_policy_version = EXCLUDED.marketplace_checkout_fee_policy_version,
              marketplace_checkout_fee_quote_fingerprint = EXCLUDED.marketplace_checkout_fee_quote_fingerprint,
              payment_method_category = EXCLUDED.payment_method_category,
+             saved_checkout_instrument_id = EXCLUDED.saved_checkout_instrument_id,
              seller_net_amount = EXCLUDED.seller_net_amount,
              seller_payout_amount = EXCLUDED.seller_payout_amount,
              seller_payouts = EXCLUDED.seller_payouts,
@@ -107,6 +110,7 @@ export function buildPaymentProjectionHandlers(db: PgQueryable): ProjectorHandle
           data.marketplaceCheckoutFeePolicyVersion ?? null,
           data.marketplaceCheckoutFeeQuoteFingerprint ?? null,
           data.paymentMethodCategory ?? null,
+          data.savedCheckoutInstrumentId ?? null,
           data.sellerNetAmount,
           data.sellerPayoutAmount ?? data.sellerNetAmount,
           JSON.stringify(Array.isArray(data.sellerPayouts) ? data.sellerPayouts : []),

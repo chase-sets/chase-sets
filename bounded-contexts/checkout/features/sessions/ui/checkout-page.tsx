@@ -211,18 +211,33 @@ export function CheckoutSessionPage({
   const hasOnlyLockedAllocations =
     previewAllocationLines.length > 0 && previewAllocationLines.every((line) => line.priceState === "locked");
   const previewPayableTotal = payment?.marketplace_checkout_fee.total_amount ?? preview?.totals.totalAmount ?? null;
-  const defaultSavedPaymentInstrument =
-    savedCheckoutInstruments.find((instrument) => instrument.is_default && instrument.readiness === "ready") ??
-    savedCheckoutInstruments.find((instrument) => instrument.readiness === "ready") ??
+  const readySavedPaymentInstruments = savedCheckoutInstruments.filter(
+    (instrument) => instrument.readiness === "ready",
+  );
+  const savedPaymentInstrumentsForSelectedMethod = readySavedPaymentInstruments.filter(
+    (instrument) => instrument.payment_method_category === selectedPaymentMethodCategory,
+  );
+  const selectedSavedPaymentInstrument =
+    savedPaymentInstrumentsForSelectedMethod.find((instrument) => instrument.is_default) ??
+    savedPaymentInstrumentsForSelectedMethod[0] ??
+    readySavedPaymentInstruments.find((instrument) => instrument.is_default) ??
+    readySavedPaymentInstruments[0] ??
     null;
+  const effectivePaymentMethodCategory =
+    selectedSavedPaymentInstrument?.payment_method_category ?? selectedPaymentMethodCategory;
+  const savedPaymentInstrumentsForEffectiveMethod = readySavedPaymentInstruments.filter(
+    (instrument) => instrument.payment_method_category === effectivePaymentMethodCategory,
+  );
   const returningBuyerFastPath = Boolean(
-    defaultSavedAddress && defaultSavedPaymentInstrument && !isOfferIntent && !hasPayment,
+    defaultSavedAddress && selectedSavedPaymentInstrument && !isOfferIntent && !hasPayment,
   );
   const canUseAcceleratedSavedPayment = Boolean(
-    returningBuyerFastPath && payment && defaultSavedPaymentInstrument?.confirmation_experience === "off-session-token",
+    returningBuyerFastPath &&
+    payment &&
+    selectedSavedPaymentInstrument?.confirmation_experience === "off-session-token",
   );
   const savedAddressReady = Boolean(
-    defaultSavedAddress && !defaultSavedPaymentInstrument && !isOfferIntent && !hasPayment,
+    defaultSavedAddress && !selectedSavedPaymentInstrument && !isOfferIntent && !hasPayment,
   );
   function requestPreviewRefresh(event: { currentTarget: HTMLInputElement | HTMLSelectElement }) {
     if (!isOfferIntent && !hasPayment) {
@@ -404,7 +419,7 @@ export function CheckoutSessionPage({
                 description={t("checkout.features.sessions.ui.checkoutPage.fast.checkout.ready.description", {
                   addressLabel: defaultSavedAddress?.label,
                   paymentMethodCategory:
-                    defaultSavedPaymentInstrument?.display_label ?? selectedPaymentMethodCategory.replace("-", " "),
+                    selectedSavedPaymentInstrument?.display_label ?? effectivePaymentMethodCategory.replace("-", " "),
                 })}
               />
             ) : null}
@@ -415,7 +430,7 @@ export function CheckoutSessionPage({
                 description={t("checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready.description", {
                   addressLabel: defaultSavedAddress?.label,
                   paymentMethodCategory:
-                    defaultSavedPaymentInstrument?.display_label ?? selectedPaymentMethodCategory.replace("-", " "),
+                    selectedSavedPaymentInstrument?.display_label ?? effectivePaymentMethodCategory.replace("-", " "),
                 })}
               />
             ) : null}
@@ -766,7 +781,7 @@ export function CheckoutSessionPage({
                         name="requestedBalanceCreditAmount"
                         value={payment?.wallet_credit.requested_amount ?? wallet?.available_balance_amount ?? "0.00"}
                       />
-                      <input type="hidden" name="paymentMethodCategory" value={selectedPaymentMethodCategory} />
+                      <input type="hidden" name="paymentMethodCategory" value={effectivePaymentMethodCategory} />
                       <input
                         type="hidden"
                         name="acceleratedSavedPayment"
@@ -966,7 +981,7 @@ export function CheckoutSessionPage({
                         <NativeSelect
                           label={t("checkout.features.sessions.ui.checkoutPage.payment.method")}
                           name="previewPaymentMethodCategory"
-                          defaultValue={selectedPaymentMethodCategory}
+                          defaultValue={effectivePaymentMethodCategory}
                           onChange={requestPreviewRefresh}
                           items={[
                             { value: "card", label: t("checkout.features.sessions.ui.checkoutPage.card") },
@@ -975,6 +990,22 @@ export function CheckoutSessionPage({
                               label: t("checkout.features.sessions.ui.checkoutPage.bank.account"),
                             },
                           ]}
+                        />
+                      ) : null}
+                      {!isOfferIntent && savedPaymentInstrumentsForEffectiveMethod.length > 0 ? (
+                        <NativeSelect
+                          label={t("checkout.features.sessions.ui.checkoutPage.saved.payment")}
+                          name="savedCheckoutInstrumentId"
+                          defaultValue={selectedSavedPaymentInstrument?.instrument_id ?? ""}
+                          onChange={requestPreviewRefresh}
+                          items={savedPaymentInstrumentsForEffectiveMethod.map((instrument) => ({
+                            value: instrument.instrument_id,
+                            label: instrument.is_default
+                              ? t("checkout.features.sessions.ui.checkoutPage.default.saved.payment.option", {
+                                  label: instrument.display_label,
+                                })
+                              : instrument.display_label,
+                          }))}
                         />
                       ) : null}
                       {!isOfferIntent ? (
@@ -1030,8 +1061,8 @@ export function CheckoutSessionPage({
                                 : canUseAcceleratedSavedPayment
                                   ? t("checkout.features.sessions.ui.checkoutPage.place.order.with.saved.payment", {
                                       paymentMethodCategory:
-                                        defaultSavedPaymentInstrument?.display_label ??
-                                        selectedPaymentMethodCategory.replace("-", " "),
+                                        selectedSavedPaymentInstrument?.display_label ??
+                                        effectivePaymentMethodCategory.replace("-", " "),
                                     })
                                   : payment
                                     ? t(
@@ -1087,8 +1118,8 @@ export function CheckoutSessionPage({
                           : canUseAcceleratedSavedPayment
                             ? t("checkout.features.sessions.ui.checkoutPage.place.order.with.saved.payment", {
                                 paymentMethodCategory:
-                                  defaultSavedPaymentInstrument?.display_label ??
-                                  selectedPaymentMethodCategory.replace("-", " "),
+                                  selectedSavedPaymentInstrument?.display_label ??
+                                  effectivePaymentMethodCategory.replace("-", " "),
                               })
                             : t("checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment")}
                   </Button>

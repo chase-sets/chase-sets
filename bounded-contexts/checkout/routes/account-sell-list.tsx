@@ -640,14 +640,17 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    if (intent === "review-sell-list-checkout") {
+    if (intent === "review-sell-list-checkout" || intent === "rebuild-sell-list-checkout") {
       if (!useAccountSellList) {
         return redirect(`/sign-in?returnTo=${encodeURIComponent("/account/sell-list")}`);
       }
 
       await assertPayoutReady(request);
       const sellList = await api.getSellList();
-      const executionId = formValue(formData, "sellListExecutionId") || createId("sle");
+      const executionId =
+        intent === "rebuild-sell-list-checkout"
+          ? createId("sle")
+          : formValue(formData, "sellListExecutionId") || createId("sle");
 
       const existingReceipt =
         executionId && typeof api.getSellListExecutionReceipt === "function"

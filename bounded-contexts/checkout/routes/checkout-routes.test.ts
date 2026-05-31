@@ -1167,6 +1167,7 @@ describe("checkout web routes", () => {
       requestedBalanceCreditAmount: null,
       paymentMethodCategory: "bank-account",
       marketplaceCheckoutFeeQuoteFingerprint: null,
+      savedCheckoutInstrumentId: null,
       fulfillmentPreviewRevision: null,
       acknowledgedMaterialChanges: false,
       deferPayment: true,
@@ -1203,6 +1204,7 @@ describe("checkout web routes", () => {
     form.set("paymentMethodCategory", "card");
     form.set("previewPaymentMethodCategory", "card");
     form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("savedCheckoutInstrumentId", "sci_card_1");
     form.set("acceleratedSavedPayment", "true");
     form.set("shippingName", "Jane Smith");
     form.set("shippingLine1", "100 Market Street");
@@ -1225,6 +1227,53 @@ describe("checkout web routes", () => {
       "chk_1",
       expect.objectContaining({
         marketplaceCheckoutFeeQuoteFingerprint: "quote_1",
+        savedCheckoutInstrumentId: "sci_card_1",
+        deferPayment: false,
+      }),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
+  });
+
+  it("starts payment when a trusted-step saved instrument is selected", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue({});
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "standard");
+    form.set("paymentMethodCategory", "bank-account");
+    form.set("previewPaymentMethodCategory", "bank-account");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_bank_1");
+    form.set("savedCheckoutInstrumentId", "sci_bank_1");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockConfirmCheckoutSession).toHaveBeenCalledWith(
+      "chk_1",
+      expect.objectContaining({
+        paymentMethodCategory: "bank-account",
+        marketplaceCheckoutFeeQuoteFingerprint: "quote_bank_1",
+        savedCheckoutInstrumentId: "sci_bank_1",
         deferPayment: false,
       }),
     );

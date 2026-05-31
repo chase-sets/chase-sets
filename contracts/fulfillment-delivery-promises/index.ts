@@ -12,6 +12,8 @@ export type FulfillmentDeliveryPromiseInput = Readonly<{
   shipTo?: FulfillmentDeliveryPromiseAddress | null;
   now?: Date | string;
   cutoffTimeLocal?: string;
+  shipFromTimeZone?: string | null;
+  holidayDates?: readonly string[] | null;
 }>;
 
 export type FulfillmentDeliveryPromise = Readonly<{
@@ -33,54 +35,137 @@ export type FulfillmentDeliveryPromise = Readonly<{
 }>;
 
 const REMOTE_US_REGIONS = new Set(["AK", "HI", "PR", "VI", "GU", "MP", "AS"]);
+const EASTERN_STATES = new Set([
+  "CT",
+  "DE",
+  "FL",
+  "GA",
+  "MA",
+  "MD",
+  "ME",
+  "MI",
+  "NC",
+  "NH",
+  "NJ",
+  "NY",
+  "OH",
+  "PA",
+  "RI",
+  "SC",
+  "VA",
+  "VT",
+  "WV",
+]);
+const MOUNTAIN_STATES = new Set(["AZ", "CO", "ID", "MT", "NM", "UT", "WY"]);
+const PACIFIC_STATES = new Set(["CA", "NV", "OR", "WA"]);
 
 function addCalendarDays(date: Date, days: number) {
   const copy = new Date(date);
-  copy.setDate(copy.getDate() + days);
+  copy.setUTCDate(copy.getUTCDate() + days);
   return copy;
 }
 
-function isBusinessDay(date: Date) {
-  const day = date.getDay();
-  return day !== 0 && day !== 6;
+function dateLabel(date: Date) {
+  return date.toISOString().slice(0, 10);
 }
 
-function addBusinessDays(date: Date, days: number) {
+function isBusinessDay(date: Date, holidays: ReadonlySet<string>) {
+  const day = date.getUTCDay();
+  return day !== 0 && day !== 6 && !holidays.has(dateLabel(date));
+}
+
+function addBusinessDays(date: Date, days: number, holidays: ReadonlySet<string>) {
   let remaining = days;
   let current = new Date(date);
   while (remaining > 0) {
     current = addCalendarDays(current, 1);
-    if (isBusinessDay(current)) {
+    if (isBusinessDay(current, holidays)) {
       remaining -= 1;
     }
   }
   return current;
 }
 
-function nextBusinessDay(date: Date) {
+function nextBusinessDay(date: Date, holidays: ReadonlySet<string>) {
   let current = new Date(date);
-  while (!isBusinessDay(current)) {
+  while (!isBusinessDay(current, holidays)) {
     current = addCalendarDays(current, 1);
   }
   return current;
 }
 
-function parseCutoffHour(cutoffTimeLocal: string) {
-  const [hour] = cutoffTimeLocal.split(":");
-  const parsed = Number(hour);
-  return Number.isFinite(parsed) ? parsed : 16;
+function parseCutoffMinutes(cutoffTimeLocal: string) {
+  const [hour, minute] = cutoffTimeLocal.split(":");
+  const parsedHour = Number(hour);
+  const parsedMinute = Number(minute ?? 0);
+  return (Number.isFinite(parsedHour) ? parsedHour : 16) * 60 + (Number.isFinite(parsedMinute) ? parsedMinute : 0);
 }
 
-function packingStartDate(now: Date, cutoffTimeLocal: string) {
-  if (!isBusinessDay(now)) {
-    return nextBusinessDay(now);
+function timeZoneForAddress(address: FulfillmentDeliveryPromiseAddress) {
+  const country = String(address.country ?? "")
+    .trim()
+    .toUpperCase();
+  const state = String(address.state ?? "")
+    .trim()
+    .toUpperCase();
+
+  if (country !== "US") {
+    return "UTC";
+  }
+  if (state === "AK") {
+    return "America/Anchorage";
+  }
+  if (state === "HI") {
+    return "Pacific/Honolulu";
+  }
+  if (PACIFIC_STATES.has(state)) {
+    return "America/Los_Angeles";
+  }
+  if (MOUNTAIN_STATES.has(state)) {
+    return "America/Denver";
+  }
+  if (EASTERN_STATES.has(state)) {
+    return "America/New_York";
   }
 
-  return now.getUTCHours() < parseCutoffHour(cutoffTimeLocal) ? now : nextBusinessDay(addCalendarDays(now, 1));
+  return "America/Chicago";
 }
 
-function dateLabel(date: Date) {
-  return date.toISOString().slice(0, 10);
+function localDateParts(now: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const value = (type: string) => parts.find((part) => part.type === type)?.value ?? "00";
+  return {
+    year: Number(value("year")),
+    month: Number(value("month")),
+    day: Number(value("day")),
+    hour: Number(value("hour")),
+    minute: Number(value("minute")),
+  };
+}
+
+function dateFromLocalParts(parts: ReturnType<typeof localDateParts>) {
+  return new Date(Date.UTC(parts.year, parts.month - 1, parts.day));
+}
+
+function packingStartDate(now: Date, cutoffTimeLocal: string, timeZone: string, holidays: ReadonlySet<string>) {
+  const parts = localDateParts(now, timeZone);
+  const localDate = dateFromLocalParts(parts);
+  if (!isBusinessDay(localDate, holidays)) {
+    return nextBusinessDay(localDate, holidays);
+  }
+
+  const localMinutes = parts.hour * 60 + parts.minute;
+  return localMinutes < parseCutoffMinutes(cutoffTimeLocal)
+    ? localDate
+    : nextBusinessDay(addCalendarDays(localDate, 1), holidays);
 }
 
 function region(address: FulfillmentDeliveryPromiseAddress | null | undefined) {
@@ -134,20 +219,25 @@ function transitWindow(input: FulfillmentDeliveryPromiseInput) {
 export function createFulfillmentDeliveryPromise(input: FulfillmentDeliveryPromiseInput): FulfillmentDeliveryPromise {
   const cutoffTimeLocal = input.cutoffTimeLocal ?? "16:00";
   const now = input.now instanceof Date ? input.now : new Date(input.now ?? Date.now());
+  const shipFromTimeZone = input.shipFromTimeZone?.trim() || timeZoneForAddress(input.shipFrom);
+  const holidays = new Set((input.holidayDates ?? []).map((date) => date.trim()).filter(Boolean));
   const window = transitWindow(input);
   const packageCount = Math.max(1, input.packageCount);
   const handlingDays = packageCount > 1 ? 2 : 1;
-  const packingStart = packingStartDate(now, cutoffTimeLocal);
-  const carrierHandoff = addBusinessDays(packingStart, handlingDays);
+  const packingStart = packingStartDate(now, cutoffTimeLocal, shipFromTimeZone, holidays);
+  const carrierHandoff = addBusinessDays(packingStart, handlingDays, holidays);
   const serviceLevels = [...new Set(input.serviceLevels.map((level) => level.replace(/-/g, " ")).filter(Boolean))];
   const serviceLevel = serviceLevels.length > 0 ? serviceLevels.join(", ") : `${input.shippingOption} shipping`;
   const shipFromRegion = region(input.shipFrom) || String(input.shipFrom.country ?? "").trim() || "origin";
   const shipToRegion = destinationRegion(input.shipTo);
-  const cutoffBasis = dateLabel(packingStart) === dateLabel(now) ? "before cutoff" : "after cutoff/weekend handoff";
+  const cutoffBasis =
+    dateLabel(packingStart) === dateLabel(dateFromLocalParts(localDateParts(now, shipFromTimeZone)))
+      ? "before cutoff"
+      : "after cutoff/weekend/holiday handoff";
 
   return {
-    earliestDate: dateLabel(addBusinessDays(carrierHandoff, window.earliestDays)),
-    latestDate: dateLabel(addBusinessDays(carrierHandoff, window.latestDays)),
+    earliestDate: dateLabel(addBusinessDays(carrierHandoff, window.earliestDays, holidays)),
+    latestDate: dateLabel(addBusinessDays(carrierHandoff, window.latestDays, holidays)),
     minimumTransitDays: window.earliestDays,
     maximumTransitDays: window.latestDays,
     handlingDays,
@@ -160,6 +250,6 @@ export function createFulfillmentDeliveryPromise(input: FulfillmentDeliveryPromi
     cutoffTimeLocal,
     packingStartDate: dateLabel(packingStart),
     carrierHandoffDate: dateLabel(carrierHandoff),
-    basis: `${packageCount} package${packageCount === 1 ? "" : "s"} from ${shipFromRegion} to ${shipToRegion}; fulfillment cutoff ${cutoffTimeLocal} local time; ${handlingDays} seller handling day${handlingDays === 1 ? "" : "s"} ${cutoffBasis} plus ${window.earliestDays}-${window.latestDays} business transit days (${window.basis}).`,
+    basis: `${packageCount} package${packageCount === 1 ? "" : "s"} from ${shipFromRegion} to ${shipToRegion}; fulfillment cutoff ${cutoffTimeLocal} ${shipFromTimeZone}; ${handlingDays} seller handling day${handlingDays === 1 ? "" : "s"} ${cutoffBasis} plus ${window.earliestDays}-${window.latestDays} business transit days (${window.basis}).`,
   };
 }

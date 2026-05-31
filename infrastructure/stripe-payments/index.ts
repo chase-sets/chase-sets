@@ -442,9 +442,24 @@ export function createStripePaymentProcessorGateway(
             "payment_intent_data[metadata][buyer_account_id]": input.buyerAccountId,
             "payment_intent_data[metadata][order_ids]": input.orderIds.join(","),
             "payment_intent_data[metadata][payment_method_category]": input.paymentMethodCategory,
+            ...(input.savedCheckoutInstrument
+              ? {
+                  "payment_intent_data[metadata][saved_checkout_instrument_id]":
+                    input.savedCheckoutInstrument.instrumentId,
+                  "payment_intent_data[metadata][saved_checkout_instrument_confirmation]":
+                    input.savedCheckoutInstrument.confirmationExperience,
+                }
+              : {}),
             ...marketplaceRiskMetadataEntries(input, "payment_intent_data[metadata]"),
             description: input.description,
             ...paymentMetadataEntries(input),
+            ...(input.savedCheckoutInstrument
+              ? {
+                  "metadata[saved_checkout_instrument_id]": input.savedCheckoutInstrument.instrumentId,
+                  "metadata[saved_checkout_instrument_confirmation]":
+                    input.savedCheckoutInstrument.confirmationExperience,
+                }
+              : {}),
             "metadata[funds_strategy]": "platform-held",
             "metadata[transfer_group]": `payment:${input.paymentId}`,
             "metadata[client_ip_collected]": input.clientRiskContext?.ipAddress ? "true" : "false",

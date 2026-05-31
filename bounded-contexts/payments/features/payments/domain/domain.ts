@@ -27,6 +27,7 @@ export type PaymentState = Readonly<{
   marketplaceCheckoutFeePolicyVersion: string | null;
   marketplaceCheckoutFeeQuoteFingerprint: string | null;
   paymentMethodCategory: string | null;
+  savedCheckoutInstrumentId: string | null;
   sellerNetAmount: string | null;
   sellerPayoutAmount: string | null;
   sellerPayouts: readonly SellerPayoutComponent[];
@@ -69,6 +70,7 @@ export const initialPaymentState: PaymentState = {
   marketplaceCheckoutFeePolicyVersion: null,
   marketplaceCheckoutFeeQuoteFingerprint: null,
   paymentMethodCategory: null,
+  savedCheckoutInstrumentId: null,
   sellerNetAmount: null,
   sellerPayoutAmount: null,
   sellerPayouts: [],
@@ -103,6 +105,7 @@ export type CreatePaymentCommand = Readonly<{
   marketplaceCheckoutFeePolicyVersion?: string | null;
   marketplaceCheckoutFeeQuoteFingerprint?: string | null;
   paymentMethodCategory?: string | null;
+  savedCheckoutInstrumentId?: string | null;
   sellerNetAmount: string;
   sellerPayoutAmount?: string;
   sellerPayouts?: readonly SellerPayoutComponent[];
@@ -164,6 +167,7 @@ export type PaymentCreatedEvent = DomainEvent<
     marketplaceCheckoutFeePolicyVersion: string | null;
     marketplaceCheckoutFeeQuoteFingerprint: string | null;
     paymentMethodCategory: string | null;
+    savedCheckoutInstrumentId: string | null;
     sellerNetAmount: string;
     sellerPayoutAmount: string;
     sellerPayouts: SellerPayoutComponent[];
@@ -329,6 +333,7 @@ export const decidePayment: AggregateDecider<PaymentState, PaymentCommand, Payme
               command.marketplaceCheckoutFeeQuoteFingerprint,
             ),
             paymentMethodCategory: normalizeOptionalText(command.paymentMethodCategory),
+            savedCheckoutInstrumentId: normalizeOptionalText(command.savedCheckoutInstrumentId),
             sellerNetAmount: normalizeMoneyAmount(command.sellerNetAmount, {
               fieldName: "Seller net amount",
               allowZero: true,
@@ -469,6 +474,7 @@ export const evolvePayment: AggregateEvolver<PaymentState, PaymentEvent> = (stat
         marketplaceCheckoutFeePolicyVersion: event.data.marketplaceCheckoutFeePolicyVersion ?? null,
         marketplaceCheckoutFeeQuoteFingerprint: event.data.marketplaceCheckoutFeeQuoteFingerprint ?? null,
         paymentMethodCategory: event.data.paymentMethodCategory ?? null,
+        savedCheckoutInstrumentId: event.data.savedCheckoutInstrumentId ?? null,
         sellerNetAmount: event.data.sellerNetAmount,
         sellerPayoutAmount: event.data.sellerPayoutAmount ?? event.data.sellerNetAmount,
         sellerPayouts: [...(event.data.sellerPayouts ?? [])],

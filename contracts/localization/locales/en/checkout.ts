@@ -292,6 +292,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready": "Saved payment ready",
   "checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready.description":
     "{addressLabel} and {paymentMethodCategory} are ready. This payment method still uses the secure payment step before authorization.",
+  "checkout.features.sessions.ui.checkoutPage.saved.payment": "Saved payment",
+  "checkout.features.sessions.ui.checkoutPage.default.saved.payment.option": "{label} (default)",
   "checkout.features.sessions.ui.checkoutPage.shipping.saved.for.seller.acceptance":
     "Shipping is saved for seller acceptance.",
   "checkout.features.sessions.ui.checkoutPage.your.cart.is.empty": "Your buy cart is empty",
@@ -401,6 +403,15 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.pending.execution.ready": "Sale checkout recovery ready",
   "checkout.features.sellList.ui.sellListPage.pending.execution.ready.description":
     "Execution {executionId} has {completedActionCount} completed action(s). Continue sale checkout to safely resume the pending work.",
+  "checkout.features.sellList.ui.sellListPage.pending.execution.started": "Started",
+  "checkout.features.sellList.ui.sellListPage.pending.execution.updated": "Last updated",
+  "checkout.features.sellList.ui.sellListPage.pending.execution.age": "Age",
+  "checkout.features.sellList.ui.sellListPage.pending.execution.age.minutes": "{minutes} minute(s)",
+  "checkout.features.sellList.ui.sellListPage.pending.execution.age.hours": "{hours} hour(s)",
+  "checkout.features.sellList.ui.sellListPage.pending.execution.completed.actions": "Completed actions",
+  "checkout.features.sellList.ui.sellListPage.pending.execution.remaining.actions": "Remaining actions",
+  "checkout.features.sellList.ui.sellListPage.retry.pending.execution": "Retry pending execution",
+  "checkout.features.sellList.ui.sellListPage.rebuild.pending.execution": "Rebuild from current Sell List",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded": "Sale checkout review recorded",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded.description":
     "Checkout recorded the seller-side review and cleared the Sell List items that were ready to execute.",
@@ -423,6 +434,9 @@ export const checkoutEnglishTranslations = {
     "Keep adding products while signed out. Create an account when you are ready to review sale checkout, accept offers, create listings, and set up payouts.",
   "checkout.features.sellList.ui.sellListPage.saved.for.later.title": "Sell List saved on this device",
   "checkout.features.sellList.ui.sellListPage.selected.offer": "Selected offer",
+  "checkout.features.sellList.ui.sellListPage.accept.smart.match.offer": "Accept this Smart Match offer",
+  "checkout.features.sellList.ui.sellListPage.accept.smart.match.offer.description":
+    "{buyer} offer; estimated seller net {sellerNet}.",
   "checkout.features.sellList.ui.sellListPage.selected.offer.gross": "Selected offer gross",
   "checkout.features.sellList.ui.sellListPage.selected.offer.lines.will.appear":
     "Selected offer lines will appear here before sale checkout.",
