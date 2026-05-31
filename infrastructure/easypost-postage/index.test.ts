@@ -234,6 +234,57 @@ describe("EasyPost postage adapter", () => {
       receivedAt: "2026-05-30T12:00:03.000Z",
     });
   });
+
+  it("normalizes EasyPost refund webhook events with shipment matching fields", async () => {
+    const rawBody = JSON.stringify({
+      id: "evt_refund_1",
+      object: "Event",
+      mode: "production",
+      description: "refund.successful",
+      status: "completed",
+      created_at: "2026-05-30T12:00:00Z",
+      updated_at: "2026-05-30T12:00:02Z",
+      result: {
+        id: "rfnd_provider_1",
+        object: "Refund",
+        mode: "production",
+        tracking_code: "940000000000000000",
+        shipment_id: "shp_provider_1",
+        status: "refunded",
+        updated_at: "2026-05-30T12:00:02Z",
+      },
+    });
+    const timestamp = "Sat, 30 May 2026 12:00:03 -0000";
+    const gateway = createEasyPostPostageWebhookGateway({
+      webhookSecret: "whsec_test",
+      now: () => new Date("2026-05-30T12:00:04.000Z"),
+    });
+
+    await expect(
+      gateway.processPostageProviderWebhook({
+        rawBody,
+        method: "POST",
+        path: "/api/fulfillment/provider/postage/webhooks",
+        headers: signedEasyPostHeaders({
+          rawBody,
+          timestamp,
+          path: "/api/fulfillment/provider/postage/webhooks",
+          secret: "whsec_test",
+        }),
+      }),
+    ).resolves.toMatchObject({
+      providerEventId: "evt_refund_1",
+      providerName: "easypost",
+      providerMode: "production",
+      eventKind: "refund-status",
+      providerObjectReference: "rfnd_provider_1",
+      providerShipmentId: "shp_provider_1",
+      trackingIdentifier: "940000000000000000",
+      status: "refunded",
+      occurredAt: "2026-05-30T12:00:02Z",
+      receivedAt: "2026-05-30T12:00:04.000Z",
+    });
+  });
 });
 
 function signedEasyPostHeaders(input: Readonly<{ rawBody: string; timestamp: string; path: string; secret: string }>) {
