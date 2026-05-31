@@ -22,18 +22,22 @@ export type CreateAccountPaymentRequest = Readonly<{
   requestedBalanceCreditAmount?: string | null;
   paymentMethodCategory?: string | null;
   marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+  savedCheckoutInstrumentId?: string | null;
   returnUrlPath?: string | null;
   agenticPayment?: AgenticProcessorPaymentInput["agenticPayment"] | null;
 }>;
 
 export type PaymentsSavedCheckoutInstrument = Readonly<{
   instrument_id: string;
+  account_id: string;
   payment_method_category: "card" | "bank-account" | "platform-credit";
   provider: string;
   display_label: string;
   confirmation_experience: "trusted-payment-step" | "off-session-token";
   is_default: boolean;
   readiness: "ready" | "setup-required";
+  created_at: string;
+  updated_at: string;
 }>;
 
 function paymentsApiErrorMessage(status: number, body: unknown) {

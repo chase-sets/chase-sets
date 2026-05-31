@@ -66,6 +66,7 @@ function createServices(): PaymentServices {
       marketplace_checkout_fee_policy_version: "marketplace-checkout-fee-v1",
       marketplace_checkout_fee_quote_fingerprint: "quote_1",
       payment_method_category: "card",
+      saved_checkout_instrument_id: null,
       seller_net_amount: "23.49",
       currency_code: "usd",
       processor_name: "stripe",
@@ -97,6 +98,7 @@ function createServices(): PaymentServices {
       marketplace_checkout_fee_policy_version: "marketplace-checkout-fee-v1",
       marketplace_checkout_fee_quote_fingerprint: "quote_1",
       payment_method_category: "card",
+      saved_checkout_instrument_id: null,
       seller_net_amount: "23.49",
       currency_code: "usd",
       processor_name: "stripe",
@@ -116,6 +118,21 @@ function createServices(): PaymentServices {
       processor_publishable_key: "pk_test_123",
       provider_events: [],
     })),
+    listSavedCheckoutInstruments: vi.fn(async () => [
+      {
+        instrument_id: "sci_card_1",
+        account_id: "acc_buyer",
+        payment_method_category: "card",
+        provider: "stripe",
+        provider_reference: "pm_1",
+        display_label: "Visa ending in 4242",
+        confirmation_experience: "trusted-payment-step",
+        readiness: "ready",
+        is_default: true,
+        created_at: "2026-04-01T00:00:00.000Z",
+        updated_at: "2026-04-01T00:00:00.000Z",
+      },
+    ]),
     getAccountPayment: vi.fn(async () => null),
     getPaymentMoneyTimeline: vi.fn(async () => null),
     getMarketplaceCheckoutFeePolicy: vi.fn(async () => ({
@@ -243,6 +260,7 @@ describe("payments routes", () => {
         requestedBalanceCreditAmount: null,
         paymentMethodCategory: null,
         marketplaceCheckoutFeeQuoteFingerprint: null,
+        savedCheckoutInstrumentId: null,
         returnUrlBase: "http://payments.test",
         returnUrlPath: null,
         clientRiskContext: {
@@ -292,6 +310,7 @@ describe("payments routes", () => {
         requestedBalanceCreditAmount: null,
         paymentMethodCategory: null,
         marketplaceCheckoutFeeQuoteFingerprint: null,
+        savedCheckoutInstrumentId: null,
         returnUrlBase: "http://payments.test",
         returnUrlPath: null,
         clientRiskContext: {
@@ -336,6 +355,80 @@ describe("payments routes", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("passes a selected saved checkout instrument into account payment creation", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view", "orders.manage"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://payments.test/account/payments", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderIds: ["ord_1"],
+          paymentMethodCategory: "card",
+          savedCheckoutInstrumentId: "sci_card_1",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.createAccountPayment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paymentMethodCategory: "card",
+        savedCheckoutInstrumentId: "sci_card_1",
+      }),
+      expect.any(Object),
+    );
+  });
+
+  it("returns saved checkout instruments without processor references", async () => {
+    const services = createServices();
+    const app = buildAccountApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: ["orders.view"],
+      },
+      services,
+    });
+
+    const response = await app.fetch(new Request("http://payments.test/account/checkout/saved-instruments"));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      items: [
+        {
+          instrument_id: "sci_card_1",
+          account_id: "acc_buyer",
+          payment_method_category: "card",
+          provider: "stripe",
+          display_label: "Visa ending in 4242",
+          confirmation_experience: "trusted-payment-step",
+          readiness: "ready",
+          is_default: true,
+          created_at: "2026-04-01T00:00:00.000Z",
+          updated_at: "2026-04-01T00:00:00.000Z",
+        },
+      ],
+    });
+    expect(services.listSavedCheckoutInstruments).toHaveBeenCalledWith("acc_buyer");
   });
 
   it("rejects account payment creation without order permissions", async () => {
@@ -441,6 +534,7 @@ describe("payments routes", () => {
           requestedBalanceCreditAmount: "3.25",
           paymentMethodCategory: "bank-account",
           marketplaceCheckoutFeeQuoteFingerprint: "quote_bank_retry",
+          savedCheckoutInstrumentId: "sci_bank_1",
           returnUrlPath: "/checkout/payments/:paymentId",
         }),
       }),
@@ -455,6 +549,7 @@ describe("payments routes", () => {
         requestedBalanceCreditAmount: "3.25",
         paymentMethodCategory: "bank-account",
         marketplaceCheckoutFeeQuoteFingerprint: "quote_bank_retry",
+        savedCheckoutInstrumentId: "sci_bank_1",
         returnUrlBase: "http://payments.test",
         returnUrlPath: "/checkout/payments/:paymentId",
       }),

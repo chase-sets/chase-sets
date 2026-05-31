@@ -2,6 +2,7 @@ import {
   Badge,
   Banner,
   Button,
+  Checkbox,
   CheckoutLayout,
   CurrencyInput,
   Grid,
@@ -107,6 +108,35 @@ function productOptionsFromSelectedOptions(selections: readonly { dimensionId: s
   }));
 }
 
+function executionActionCount(plan: unknown) {
+  const lines =
+    typeof plan === "object" && plan !== null && "lines" in plan ? (plan as { lines?: unknown }).lines : null;
+  if (!Array.isArray(lines)) {
+    return 0;
+  }
+
+  return lines.reduce((count, line) => {
+    const source = typeof line === "object" && line !== null ? (line as Record<string, unknown>) : {};
+    const productOfferTargets = Array.isArray(source.productOfferTargets) ? source.productOfferTargets.length : 0;
+    const selectedOffer = source.selectedOffer ? 1 : 0;
+    const fallbackListing = source.fallbackListing ? 1 : 0;
+    return count + selectedOffer + productOfferTargets + fallbackListing;
+  }, 0);
+}
+
+function relativeAgeLabel(value: string) {
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return value;
+  }
+  const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (minutes < 60) {
+    return t("checkout.features.sellList.ui.sellListPage.pending.execution.age.minutes", { minutes });
+  }
+  const hours = Math.floor(minutes / 60);
+  return t("checkout.features.sellList.ui.sellListPage.pending.execution.age.hours", { hours });
+}
+
 export function CheckoutSellListPage({
   sellListLines,
   isSignedIn = true,
@@ -141,6 +171,8 @@ export function CheckoutSellListPage({
   const latestPendingActionCount = Array.isArray(latestPendingProgress?.completedActionKeys)
     ? latestPendingProgress.completedActionKeys.length
     : 0;
+  const latestPendingTotalActionCount = executionActionCount(latestPendingExecution?.execution_plan);
+  const latestPendingRemainingActionCount = Math.max(0, latestPendingTotalActionCount - latestPendingActionCount);
   const offerReviewsByLineId = new Map((offerReviews ?? []).map((review) => [review.lineId, review]));
   const productOfferReviewsByLineId = new Map((productOfferReviews ?? []).map((review) => [review.lineId, review]));
   const totalQuantity = sellListLines.reduce((sum, line) => sum + line.quantity, 0);
@@ -390,14 +422,67 @@ export function CheckoutSellListPage({
                 description={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review.description")}
               />
               {latestPendingExecution ? (
-                <MarketplaceNotice
-                  tone="warning"
-                  title={t("checkout.features.sellList.ui.sellListPage.pending.execution.ready")}
-                  description={t("checkout.features.sellList.ui.sellListPage.pending.execution.ready.description", {
-                    executionId: latestPendingExecution.execution_id,
-                    completedActionCount: latestPendingActionCount,
-                  })}
-                />
+                <Surface tone="subtle" elevated>
+                  <Stack gap={3}>
+                    <MarketplaceNotice
+                      tone="warning"
+                      title={t("checkout.features.sellList.ui.sellListPage.pending.execution.ready")}
+                      description={t("checkout.features.sellList.ui.sellListPage.pending.execution.ready.description", {
+                        executionId: latestPendingExecution.execution_id,
+                        completedActionCount: latestPendingActionCount,
+                      })}
+                    />
+                    <KeyValueList
+                      density="compact"
+                      variant="plain"
+                      items={[
+                        {
+                          key: t("checkout.features.sellList.ui.sellListPage.pending.execution.started"),
+                          value: latestPendingExecution.created_at,
+                        },
+                        {
+                          key: t("checkout.features.sellList.ui.sellListPage.pending.execution.updated"),
+                          value: latestPendingExecution.updated_at,
+                        },
+                        {
+                          key: t("checkout.features.sellList.ui.sellListPage.pending.execution.age"),
+                          value: relativeAgeLabel(latestPendingExecution.updated_at),
+                        },
+                        {
+                          key: t("checkout.features.sellList.ui.sellListPage.pending.execution.completed.actions"),
+                          value: latestPendingActionCount,
+                        },
+                        {
+                          key: t("checkout.features.sellList.ui.sellListPage.pending.execution.remaining.actions"),
+                          value: latestPendingRemainingActionCount,
+                        },
+                      ]}
+                    />
+                    <Inline gap={2}>
+                      <Button
+                        type="submit"
+                        form="sell-list-checkout-form"
+                        name="intent"
+                        value="review-sell-list-checkout"
+                        leadingIcon="refreshCcw"
+                        disabled={!payoutIsReady}
+                      >
+                        {t("checkout.features.sellList.ui.sellListPage.retry.pending.execution")}
+                      </Button>
+                      <Button
+                        type="submit"
+                        form="sell-list-checkout-form"
+                        name="intent"
+                        value="rebuild-sell-list-checkout"
+                        tone="secondary"
+                        leadingIcon="refreshCcw"
+                        disabled={!payoutIsReady}
+                      >
+                        {t("checkout.features.sellList.ui.sellListPage.rebuild.pending.execution")}
+                      </Button>
+                    </Inline>
+                  </Stack>
+                </Surface>
               ) : null}
               {isSignedIn && payoutReadiness?.status !== "ready" ? (
                 <MarketplaceNotice
@@ -619,11 +704,24 @@ export function CheckoutSellListPage({
                                             },
                                           ]}
                                         />
-                                        <input
+                                        <Checkbox
                                           form="sell-list-checkout-form"
-                                          type="hidden"
+                                          defaultChecked
                                           name={`productOfferId:${line.line_id}`}
                                           value={offer.offer_id}
+                                          label={t(
+                                            "checkout.features.sellList.ui.sellListPage.accept.smart.match.offer",
+                                          )}
+                                          description={t(
+                                            "checkout.features.sellList.ui.sellListPage.accept.smart.match.offer.description",
+                                            {
+                                              buyer:
+                                                offer.buyer_display_name ??
+                                                offer.buyer_account_id ??
+                                                t("checkout.features.sellList.ui.sellListPage.buyer"),
+                                              sellerNet: formatMoney(terms.seller_net_unit_amount),
+                                            },
+                                          )}
                                         />
                                         <input
                                           form="sell-list-checkout-form"
@@ -739,9 +837,14 @@ export function CheckoutSellListPage({
                   <Inline gap={2}>
                     {isSignedIn ? (
                       <form id="sell-list-checkout-form" method="post">
-                        <input type="hidden" name="intent" value="review-sell-list-checkout" />
                         <input type="hidden" name="sellListExecutionId" value={sellListExecutionId ?? ""} />
-                        <Button type="submit" leadingIcon="check" disabled={!payoutIsReady}>
+                        <Button
+                          type="submit"
+                          name="intent"
+                          value="review-sell-list-checkout"
+                          leadingIcon="check"
+                          disabled={!payoutIsReady}
+                        >
                           {t("checkout.features.sellList.ui.sellListPage.execute.sale.checkout")}
                         </Button>
                       </form>

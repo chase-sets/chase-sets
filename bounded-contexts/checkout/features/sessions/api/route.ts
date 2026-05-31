@@ -358,6 +358,10 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
     const body = await c.req.json().catch(() => ({}));
     const requestedBalanceCreditAmount = normalizeRequestedBalanceCreditAmount(body.requestedBalanceCreditAmount);
     const paymentMethodCategory = String(body.paymentMethodCategory ?? "card");
+    const savedCheckoutInstrumentId =
+      body.savedCheckoutInstrumentId === null || body.savedCheckoutInstrumentId === undefined
+        ? null
+        : String(body.savedCheckoutInstrumentId);
     const marketplaceCheckoutFeeQuoteFingerprint =
       typeof body.marketplaceCheckoutFeeQuoteFingerprint === "string"
         ? body.marketplaceCheckoutFeeQuoteFingerprint
@@ -506,6 +510,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         requestedBalanceCreditAmount,
         paymentMethodCategory,
         marketplaceCheckoutFeeQuoteFingerprint,
+        savedCheckoutInstrumentId,
         access.actor.roleKey === "guest-buyer" ? "/checkout/payments/:paymentId" : "/account/payments/:paymentId",
       );
       await services.recordPaymentStarted(

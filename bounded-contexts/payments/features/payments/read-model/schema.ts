@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS payments_payment_pages (
   marketplace_checkout_fee_policy_version text NULL,
   marketplace_checkout_fee_quote_fingerprint text NULL,
   payment_method_category text NULL,
+  saved_checkout_instrument_id text NULL,
   seller_net_amount numeric(12, 2) NOT NULL,
   seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0,
   seller_payouts jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -66,6 +67,9 @@ ALTER TABLE payments_payment_pages
   ADD COLUMN IF NOT EXISTS payment_method_category text NULL;
 
 ALTER TABLE payments_payment_pages
+  ADD COLUMN IF NOT EXISTS saved_checkout_instrument_id text NULL;
+
+ALTER TABLE payments_payment_pages
   ADD COLUMN IF NOT EXISTS seller_payout_amount numeric(12, 2) NOT NULL DEFAULT 0;
 
 ALTER TABLE payments_payment_pages
@@ -103,6 +107,23 @@ CREATE TABLE IF NOT EXISTS payments_provider_operations (
 
 CREATE INDEX IF NOT EXISTS payments_provider_operations_status_idx
   ON payments_provider_operations (status, updated_at);
+
+CREATE TABLE IF NOT EXISTS payments_saved_checkout_instruments (
+  instrument_id text PRIMARY KEY,
+  account_id text NOT NULL,
+  payment_method_category text NOT NULL CHECK (payment_method_category IN ('card', 'bank-account', 'platform-credit')),
+  provider text NOT NULL,
+  provider_reference text NOT NULL,
+  display_label text NOT NULL,
+  confirmation_experience text NOT NULL CHECK (confirmation_experience IN ('trusted-payment-step', 'off-session-token')),
+  readiness text NOT NULL CHECK (readiness IN ('ready', 'setup-required')),
+  is_default boolean NOT NULL DEFAULT false,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_account_idx
+  ON payments_saved_checkout_instruments (account_id, is_default DESC, updated_at DESC, instrument_id);
 
 CREATE TABLE IF NOT EXISTS payments_reconciliation_runs (
   reconciliation_run_id text PRIMARY KEY,

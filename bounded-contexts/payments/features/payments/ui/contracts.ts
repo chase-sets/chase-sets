@@ -10,6 +10,7 @@ export interface PaymentsPaymentDetail {
   marketplace_checkout_fee_policy_version: string | null;
   marketplace_checkout_fee_quote_fingerprint: string | null;
   payment_method_category: string | null;
+  saved_checkout_instrument_id: string | null;
   seller_net_amount: string;
   seller_payout_amount: string;
   seller_payouts: readonly {

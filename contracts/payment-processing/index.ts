@@ -29,6 +29,12 @@ export type CreateProcessorPaymentInput = Readonly<{
     userAgent?: string | null;
   }> | null;
   marketplaceRiskMetadata?: Readonly<Record<string, string | number | boolean | null | undefined>> | null;
+  savedCheckoutInstrument?: Readonly<{
+    instrumentId: string;
+    providerReference: string;
+    confirmationExperience: "trusted-payment-step" | "off-session-token";
+    displayLabel?: string | null;
+  }> | null;
 }>;
 
 export type AgenticPaymentHandlerDeclaration = Readonly<{

@@ -521,6 +521,7 @@ export function createCheckoutApiClient({
         requestedBalanceCreditAmount?: string | null;
         paymentMethodCategory?: string;
         marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+        savedCheckoutInstrumentId?: string | null;
         fulfillmentPreviewRevision?: string | null;
         acknowledgedMaterialChanges?: boolean;
         deferPayment?: boolean;

@@ -34,10 +34,12 @@ import {
   getPaymentById,
   getPaymentByProcessorReference,
   getPaymentProviderEvent,
+  getSavedCheckoutInstrument,
   listPaymentProviderEvents,
   listPaymentProviderIdempotencyKeys,
   listPaymentReconciliationRuns,
   listPaymentsNeedingReconciliation,
+  listSavedCheckoutInstruments,
   recordPaymentReconciliationRun,
   recordPaymentProviderIdempotencyKey,
   recordPaymentProviderOperationFailed,
@@ -48,6 +50,7 @@ import {
   type PaymentProviderIdempotencyKeyRow,
   type PaymentReconciliationRunRow,
   type PaymentProviderEventRow,
+  type SavedCheckoutInstrumentRow,
 } from "../read-model/queries";
 import {
   decidePayment,
@@ -427,6 +430,36 @@ async function loadAccountOrders(db: PgQueryable, orderIds: readonly OrderId[], 
   return orders;
 }
 
+async function resolveSavedCheckoutInstrument(
+  db: PgQueryable,
+  params: Readonly<{
+    accountId: AccountId;
+    instrumentId?: string | null;
+    paymentMethodCategory: PaymentMethodCategory;
+  }>,
+) {
+  const instrumentId = params.instrumentId?.trim() || null;
+  if (!instrumentId) {
+    return null;
+  }
+
+  const instrument = await getSavedCheckoutInstrument(db, {
+    accountId: params.accountId,
+    instrumentId,
+  });
+  if (!instrument) {
+    throw new PaymentsDomainError("Saved checkout instrument was not found for this account.");
+  }
+  if (instrument.readiness !== "ready") {
+    throw new PaymentsDomainError("Saved checkout instrument is not ready for checkout.");
+  }
+  if (instrument.payment_method_category !== params.paymentMethodCategory) {
+    throw new PaymentsDomainError("Saved checkout instrument does not match the selected payment method.");
+  }
+
+  return instrument;
+}
+
 export type PaymentServices = Readonly<{
   commandHandler: CommandHandler<PaymentCommand, PaymentState, PaymentEvent>;
   createAccountPayment: (
@@ -439,6 +472,7 @@ export type PaymentServices = Readonly<{
       requestedBalanceCreditAmount?: string | null;
       paymentMethodCategory?: string | null;
       marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+      savedCheckoutInstrumentId?: string | null;
       returnUrlBase?: string | null;
       returnUrlPath?: string | null;
       clientRiskContext?: Readonly<{
@@ -463,6 +497,7 @@ export type PaymentServices = Readonly<{
       requestedBalanceCreditAmount?: string | null;
       paymentMethodCategory?: string | null;
       marketplaceCheckoutFeeQuoteFingerprint?: string | null;
+      savedCheckoutInstrumentId?: string | null;
       returnUrlBase?: string | null;
       returnUrlPath?: string | null;
       clientRiskContext?: Readonly<{
@@ -495,6 +530,7 @@ export type PaymentServices = Readonly<{
       checkout_status: CheckoutStatusResult;
     }>
   >;
+  listSavedCheckoutInstruments: (accountId: AccountId) => Promise<SavedCheckoutInstrumentRow[]>;
   getAccountPayment: (
     paymentId: string,
     accountId: string,
@@ -674,6 +710,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         },
       };
     },
+    listSavedCheckoutInstruments: (accountId) => listSavedCheckoutInstruments(deps.db, accountId),
     async createAccountPayment(params, context) {
       const accountId = normalizeRequiredText(params.accountId, "Account is required.") as AccountId;
       const sourceContext = params.sourceContext?.trim() || null;
@@ -733,6 +770,11 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       if (params.marketplaceCheckoutFeeQuoteFingerprint !== marketplaceCheckoutFeeQuote.quote_fingerprint) {
         throw new PaymentsDomainError(`fee_quote_stale:${JSON.stringify(marketplaceCheckoutFeeQuote)}`);
       }
+      const savedCheckoutInstrument = await resolveSavedCheckoutInstrument(deps.db, {
+        accountId,
+        instrumentId: params.savedCheckoutInstrumentId,
+        paymentMethodCategory,
+      });
       const paymentAmount = marketplaceCheckoutFeeQuote.total_amount;
       const processorAmount = marketplaceCheckoutFeeQuote.processor_amount;
       const marketplaceSalesFeeAmount = sumFeeAmounts(orders, "marketplace_sales_fee_amount");
@@ -762,6 +804,14 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         returnUrl: returnUrlBase ? `${returnUrlBase}${returnUrlPath}` : null,
         clientRiskContext: params.clientRiskContext ?? null,
         marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
+        savedCheckoutInstrument: savedCheckoutInstrument
+          ? {
+              instrumentId: savedCheckoutInstrument.instrument_id,
+              providerReference: savedCheckoutInstrument.provider_reference,
+              confirmationExperience: savedCheckoutInstrument.confirmation_experience,
+              displayLabel: savedCheckoutInstrument.display_label,
+            }
+          : null,
         agenticPayment: params.agenticPayment ?? null,
       };
       await recordPaymentProviderOperationPending(deps.db, {
@@ -804,6 +854,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   idempotencyKey: providerIdempotencyKey,
                   clientRiskContext: params.clientRiskContext ?? null,
                   marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
+                  savedCheckoutInstrument: providerRequest.savedCheckoutInstrument,
                   agenticPayment: params.agenticPayment,
                 })
               : await deps.processorGateway.createPaymentSession({
@@ -821,6 +872,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
                   idempotencyKey: providerIdempotencyKey,
                   clientRiskContext: params.clientRiskContext ?? null,
                   marketplaceRiskMetadata: buildMarketplaceRiskMetadata(sellerPayouts),
+                  savedCheckoutInstrument: providerRequest.savedCheckoutInstrument,
                 });
       } catch (error) {
         await recordPaymentProviderOperationFailed(deps.db, {
@@ -845,6 +897,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           marketplaceCheckoutFeePolicyVersion: marketplaceCheckoutFeeQuote.policy_version,
           marketplaceCheckoutFeeQuoteFingerprint: marketplaceCheckoutFeeQuote.quote_fingerprint,
           paymentMethodCategory,
+          savedCheckoutInstrumentId: savedCheckoutInstrument?.instrument_id ?? null,
           sellerNetAmount,
           sellerPayoutAmount,
           sellerPayouts,
@@ -900,6 +953,7 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         marketplace_checkout_fee_policy_version: marketplaceCheckoutFeeQuote.policy_version,
         marketplace_checkout_fee_quote_fingerprint: marketplaceCheckoutFeeQuote.quote_fingerprint,
         payment_method_category: marketplaceCheckoutFeeQuote.payment_method_category,
+        saved_checkout_instrument_id: savedCheckoutInstrument?.instrument_id ?? null,
         seller_net_amount: sellerNetAmount,
         seller_payout_amount: sellerPayoutAmount,
         seller_payouts: sellerPayouts,
