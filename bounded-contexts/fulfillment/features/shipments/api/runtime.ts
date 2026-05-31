@@ -87,6 +87,10 @@ export type FulfillmentShipmentServices = Readonly<{
     params: Readonly<{ shipmentId: string; sellerAccountId: string; lineId: string }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
+  setPackingLineQuantity: (
+    params: Readonly<{ shipmentId: string; sellerAccountId: string; lineId: string; confirmedQuantity: number }>,
+    context: EventStoreContext,
+  ) => Promise<{ shipmentId: string; version: number }>;
   attachLabel: (
     params: Readonly<{
       shipmentId: string;
@@ -361,6 +365,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             itemSubtitle: line.item_subtitle,
             productSummary: line.product_summary,
             quantity: line.quantity,
+            packingConfirmedQuantity: 0,
             packingConfirmedAt: null,
           })),
           createdAt: params.readyForFulfillmentAt,
@@ -443,6 +448,22 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           type: "UnconfirmShipmentPackingLine",
           lineId: params.lineId as never,
           unconfirmedAt: new Date().toISOString(),
+        },
+        context,
+      });
+
+      return { shipmentId: params.shipmentId, version: result.version };
+    },
+    setPackingLineQuantity: async (params, context) => {
+      await requireSellerShipment(params.shipmentId, params.sellerAccountId);
+
+      const result = await commandHandler({
+        streamId: `fulfillment.shipment-${params.shipmentId}`,
+        command: {
+          type: "SetShipmentPackingLineQuantity",
+          lineId: params.lineId as never,
+          confirmedQuantity: params.confirmedQuantity,
+          setAt: new Date().toISOString(),
         },
         context,
       });

@@ -1,6 +1,7 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { FormEvent, HTMLAttributes, ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import { Button, IconButton } from "../actions/button";
 import { CopyButton } from "../actions/copy-button";
 import { Progress } from "../ui/progress";
 
@@ -78,6 +79,34 @@ export function OperationalStatusBanner({
               size="sm"
               tone="inverse"
             />
+          </span>
+          <div className="grid gap-1">
+            <div className="text-sm font-semibold text-foreground">{title}</div>
+            {description ? <div className="text-sm leading-6 text-secondary">{description}</div> : null}
+          </div>
+        </div>
+        {action ? <div className="shrink-0">{action}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+export interface OperationalLockBannerProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "className" | "style" | "title"
+> {
+  title: ReactNode;
+  description?: ReactNode;
+  action?: ReactNode;
+}
+
+export function OperationalLockBanner({ title, description, action, ...rest }: OperationalLockBannerProps) {
+  return (
+    <div {...rest} className="rounded-tokenMd border border-warning bg-elevated p-4 shadow-tokenSm">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 gap-3">
+          <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-warning text-inverse">
+            <Icon name="lock" size="sm" tone="inverse" />
           </span>
           <div className="grid gap-1">
             <div className="text-sm font-semibold text-foreground">{title}</div>
@@ -168,29 +197,195 @@ export function ChecklistCard({ title, description, progress, children, ...rest 
 export interface TaskProgressProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   label: ReactNode;
   value: number;
+  valueLabel?: ReactNode;
+  description?: ReactNode;
   tone?: "neutral" | "active" | "success" | "blocked";
 }
 
-export function TaskProgress({ label, value, tone = "active", ...rest }: TaskProgressProps) {
+export function TaskProgress({ label, value, valueLabel, description, tone = "active", ...rest }: TaskProgressProps) {
   return (
     <div {...rest} className="grid gap-2">
-      <div className="text-xs font-medium text-secondary">{label}</div>
+      <div className="flex items-center justify-between gap-3 text-xs font-medium text-secondary">
+        <span>{label}</span>
+        {valueLabel ? <span className="tabular-nums text-foreground">{valueLabel}</span> : null}
+      </div>
       <Progress value={value} tone={tone} />
+      {description ? <div className="text-xs leading-5 text-tertiary">{description}</div> : null}
     </div>
   );
 }
 
-export interface TaskLineItemProps extends Omit<HTMLAttributes<HTMLLabelElement>, "className" | "style" | "title"> {
+export interface TaskReferenceProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  label: ReactNode;
+  value: string;
+  displayValue?: ReactNode;
+  copyLabel?: string;
+  copiedLabel?: string;
+}
+
+export function TaskReference({
+  label,
+  value,
+  displayValue,
+  copyLabel = "Copy",
+  copiedLabel = "Copied",
+  ...rest
+}: TaskReferenceProps) {
+  return (
+    <div {...rest} className="inline-flex min-w-0 items-center gap-1.5 rounded-tokenSm bg-background px-2 py-1">
+      <span className="text-[0.6875rem] font-medium uppercase text-tertiary">{label}</span>
+      <span className="min-w-0 font-mono text-xs text-secondary">{displayValue ?? value}</span>
+      <CopyButton value={value} label={copyLabel} copiedLabel={copiedLabel} size="sm" tone="ghost" />
+    </div>
+  );
+}
+
+export interface QuantityChecklistControlProps extends Omit<
+  HTMLAttributes<HTMLDivElement>,
+  "className" | "style" | "onChange"
+> {
+  value: number;
+  total: number;
+  valueLabel?: ReactNode;
+  decreaseLabel: string;
+  increaseLabel: string;
+  disabled?: boolean;
+  onChange?: (value: number) => void;
+}
+
+export function QuantityChecklistControl({
+  value,
+  total,
+  valueLabel,
+  decreaseLabel,
+  increaseLabel,
+  disabled = false,
+  onChange,
+  ...rest
+}: QuantityChecklistControlProps) {
+  const resolvedValue = Math.max(0, Math.min(total, value));
+  const isComplete = total > 0 && resolvedValue >= total;
+
+  return (
+    <div {...rest} className="grid gap-2 justify-items-end">
+      <div
+        className={cx(
+          "inline-flex min-h-11 items-center gap-2 rounded-tokenMd border border-muted bg-background p-1",
+          isComplete && "border-success",
+        )}
+      >
+        <IconButton
+          label={decreaseLabel}
+          icon="minus"
+          tone="secondary"
+          size="sm"
+          disabled={disabled || resolvedValue <= 0}
+          onClick={() => onChange?.(resolvedValue - 1)}
+        />
+        <span className="min-w-14 text-center text-sm font-semibold tabular-nums text-foreground">
+          {resolvedValue}/{total}
+        </span>
+        <IconButton
+          label={increaseLabel}
+          icon="plus"
+          tone="secondary"
+          size="sm"
+          disabled={disabled || resolvedValue >= total}
+          onClick={() => onChange?.(resolvedValue + 1)}
+        />
+      </div>
+      {valueLabel ? <div className="text-xs text-tertiary">{valueLabel}</div> : null}
+    </div>
+  );
+}
+
+export interface TaskScanInputProps extends Omit<HTMLAttributes<HTMLFormElement>, "className" | "style" | "onSubmit"> {
+  label: ReactNode;
+  value: string;
+  onValueChange: (value: string) => void;
+  onSubmit: (value: string) => void;
+  placeholder?: string;
+  buttonLabel: ReactNode;
+  description?: ReactNode;
+  feedback?: ReactNode;
+  feedbackTone?: "info" | "success" | "warning" | "danger";
+  disabled?: boolean;
+}
+
+export function TaskScanInput({
+  label,
+  value,
+  onValueChange,
+  onSubmit,
+  placeholder,
+  buttonLabel,
+  description,
+  feedback,
+  feedbackTone = "info",
+  disabled = false,
+  ...rest
+}: TaskScanInputProps) {
+  function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSubmit(value);
+  }
+
+  return (
+    <form {...rest} className="rounded-tokenMd border border-muted bg-elevated p-3" onSubmit={handleSubmit}>
+      <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+        <label className="grid min-w-0 gap-1 text-sm font-medium text-foreground">
+          <span>{label}</span>
+          {description ? <span className="text-xs font-normal leading-5 text-secondary">{description}</span> : null}
+          <span className="relative">
+            <span className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
+              <Icon name="search" size="sm" tone="secondary" />
+            </span>
+            <input
+              type="search"
+              value={value}
+              disabled={disabled}
+              placeholder={placeholder}
+              onChange={(event) => onValueChange(event.currentTarget.value)}
+              className="h-11 w-full rounded-tokenMd border border-border bg-background px-3 pl-10 text-sm text-foreground outline-none transition-shadow placeholder:text-tertiary focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-60"
+            />
+          </span>
+        </label>
+        <Button type="submit" tone="secondary" leadingIcon="check" disabled={disabled || value.trim().length === 0}>
+          {buttonLabel}
+        </Button>
+      </div>
+      {feedback ? (
+        <div
+          className={cx(
+            "mt-2 text-xs leading-5",
+            feedbackTone === "info" && "text-secondary",
+            feedbackTone === "success" && "text-success",
+            feedbackTone === "warning" && "text-warning",
+            feedbackTone === "danger" && "text-danger",
+          )}
+        >
+          {feedback}
+        </div>
+      ) : null}
+    </form>
+  );
+}
+
+export interface TaskLineItemProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style" | "title"> {
   title: ReactNode;
   subtitle?: ReactNode;
   description?: ReactNode;
   quantity: ReactNode;
   quantityLabel?: ReactNode;
+  quantityDetail?: ReactNode;
+  quantityControl?: ReactNode;
   checked: boolean;
   disabled?: boolean;
   meta?: ReactNode;
   reference?: ReactNode;
   media?: ReactNode;
+  status?: "idle" | "saving" | "saved" | "error" | "matched";
+  statusLabel?: ReactNode;
   checkboxLabel: string;
   onCheckedChange?: (checked: boolean) => void;
 }
@@ -201,42 +396,45 @@ export function TaskLineItem({
   description,
   quantity,
   quantityLabel = "Qty",
+  quantityDetail,
+  quantityControl,
   checked,
   disabled = false,
   meta,
   reference,
   media,
+  status = "idle",
+  statusLabel,
   checkboxLabel,
   onCheckedChange,
   ...rest
 }: TaskLineItemProps) {
   return (
-    <label
+    <div
       {...rest}
       className={cx(
         "grid cursor-pointer gap-3 rounded-tokenMd border border-muted bg-elevated p-3 transition-colors md:grid-cols-[auto_minmax(0,1fr)_auto]",
         checked && "border-success",
+        status === "saving" && "border-info",
+        status === "error" && "border-danger",
+        status === "matched" && "border-accent",
         disabled && "cursor-not-allowed opacity-70",
       )}
     >
-      <input
-        type="checkbox"
-        className="peer sr-only"
-        checked={checked}
-        disabled={disabled}
-        readOnly={!onCheckedChange}
-        aria-label={checkboxLabel}
-        onChange={(event) => onCheckedChange?.(event.currentTarget.checked)}
-      />
-      <span
-        aria-hidden="true"
+      <button
+        type="button"
         className={cx(
-          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background peer-focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)]",
+          "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-border bg-background transition-shadow focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)]",
           checked && "border-success bg-success text-inverse",
+          !onCheckedChange && "pointer-events-none",
         )}
+        aria-pressed={checked}
+        disabled={disabled}
+        aria-label={checkboxLabel}
+        onClick={() => onCheckedChange?.(!checked)}
       >
         {checked ? <Icon name="check" size="sm" tone="inverse" /> : <Icon name="package" size="sm" tone="secondary" />}
-      </span>
+      </button>
       <div className="grid min-w-0 gap-2 md:grid-cols-[auto_minmax(0,1fr)] md:items-start">
         <div className="flex h-16 w-12 items-center justify-center overflow-hidden rounded-tokenSm border border-muted bg-background text-secondary">
           {media ?? <Icon name="package" size="md" tone="secondary" />}
@@ -246,28 +444,62 @@ export function TaskLineItem({
           {subtitle ? <div className="text-sm text-secondary">{subtitle}</div> : null}
           {description ? <div className="text-sm leading-6 text-secondary">{description}</div> : null}
           {meta ? <div className="flex flex-wrap gap-2 pt-1">{meta}</div> : null}
-          {reference ? <div className="pt-1 text-xs text-tertiary">{reference}</div> : null}
+          {reference ? <div className="flex flex-wrap gap-2 pt-1 text-xs text-tertiary">{reference}</div> : null}
+          {statusLabel ? (
+            <div
+              className={cx(
+                "pt-1 text-xs font-medium",
+                status === "saving" && "text-info",
+                status === "saved" && "text-success",
+                status === "error" && "text-danger",
+                status === "matched" && "text-accent",
+                status === "idle" && "text-tertiary",
+              )}
+            >
+              {statusLabel}
+            </div>
+          ) : null}
         </div>
       </div>
-      <div className="flex items-center gap-2 md:flex-col md:items-end md:justify-center">
-        <div className="text-xs font-medium uppercase text-tertiary">{quantityLabel}</div>
-        <div className="text-2xl font-bold leading-none text-foreground">{quantity}</div>
+      <div className="flex items-center justify-between gap-3 md:flex-col md:items-end md:justify-center">
+        {quantityControl ? (
+          quantityControl
+        ) : (
+          <>
+            <div className="text-xs font-medium uppercase text-tertiary">{quantityLabel}</div>
+            <div className="text-2xl font-bold leading-none text-foreground">{quantity}</div>
+          </>
+        )}
+        {quantityDetail ? <div className="text-xs leading-5 text-tertiary">{quantityDetail}</div> : null}
       </div>
-    </label>
+    </div>
   );
 }
 
 export interface StickyTaskFooterProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   summary: ReactNode;
   detail?: ReactNode;
+  mobileOffset?: "app-shell" | "none" | "in-flow";
   children: ReactNode;
 }
 
-export function StickyTaskFooter({ summary, detail, children, ...rest }: StickyTaskFooterProps) {
+export function StickyTaskFooter({
+  summary,
+  detail,
+  mobileOffset = "app-shell",
+  children,
+  ...rest
+}: StickyTaskFooterProps) {
   return (
     <div
       {...rest}
-      className="sticky bottom-[calc(7rem+env(safe-area-inset-bottom))] z-20 mb-[calc(7rem+env(safe-area-inset-bottom))] rounded-tokenLg border border-border bg-elevated p-3 shadow-tokenLg md:bottom-4 md:mb-0"
+      className={cx(
+        "z-20 rounded-tokenLg border border-border bg-elevated p-3 shadow-tokenLg md:sticky md:bottom-4 md:mb-0",
+        mobileOffset === "app-shell" &&
+          "sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] mb-[calc(4.75rem+env(safe-area-inset-bottom))]",
+        mobileOffset === "none" && "sticky bottom-4 mb-0",
+        mobileOffset === "in-flow" && "relative mb-0",
+      )}
     >
       <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
         <div className="grid gap-1">

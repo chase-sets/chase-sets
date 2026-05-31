@@ -8,15 +8,19 @@ import {
   LinkButton,
   MarketplaceNotice,
   NumberInput,
+  OperationalLockBanner,
   OperationalStatusBanner,
   Page,
   PageHeader,
   PageStepper,
   ProductOptions,
+  QuantityChecklistControl,
   Stack,
   StickyTaskFooter,
   TaskLineItem,
   TaskProgress,
+  TaskReference,
+  TaskScanInput,
   TaskSummary,
   Text,
   WorkstationLayout,
@@ -90,55 +94,151 @@ function shortReference(value: string) {
 }
 
 function itemCountLabel(quantity: number, lines: number) {
-  const itemLabel = quantity === 1 ? "item" : "items";
-  const lineLabel = lines === 1 ? "line" : "lines";
-  return `${quantity} ${itemLabel} across ${lines} ${lineLabel}`;
+  return t("fulfillment.features.shipments.ui.shipmentPackingPage.item.count", {
+    quantity,
+    itemLabel:
+      quantity === 1
+        ? t("fulfillment.features.shipments.ui.shipmentPackingPage.item")
+        : t("fulfillment.features.shipments.ui.shipmentPackingPage.items.label"),
+    lines,
+    lineLabel:
+      lines === 1
+        ? t("fulfillment.features.shipments.ui.shipmentPackingPage.line")
+        : t("fulfillment.features.shipments.ui.shipmentPackingPage.lines"),
+  });
+}
+
+function formatPackingTimestamp(value: string | null) {
+  if (!value) {
+    return t("fulfillment.features.shipments.ui.shipmentPackingPage.not.recorded");
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function packedQuantity(line: FulfillmentShipmentLine) {
+  return line.packing_confirmed_quantity ?? (line.packing_confirmed_at ? line.quantity : 0);
+}
+
+function clampPackedQuantity(line: FulfillmentShipmentLine, quantity: number) {
+  return Math.max(0, Math.min(line.quantity, quantity));
+}
+
+function initialPackedQuantities(lines: readonly FulfillmentShipmentLine[]) {
+  return Object.fromEntries(lines.map((line) => [line.line_id, packedQuantity(line)]));
+}
+
+function scanValue(value: string) {
+  return value.trim().toLowerCase();
+}
+
+function lineScanKeys(line: FulfillmentShipmentLine) {
+  return [
+    line.line_id,
+    line.order_line_id,
+    line.catalog_catalog_item_id,
+    line.product_id,
+    shortReference(line.line_id),
+    shortReference(line.order_line_id),
+    shortReference(line.product_id),
+  ].map(scanValue);
 }
 
 function PackingLine({
   line,
-  checked,
+  confirmedQuantity,
   disabled,
   saving,
-  onCheckedChange,
+  saved,
+  error,
+  matched,
+  onQuantityChange,
 }: {
   line: FulfillmentShipmentLine;
-  checked: boolean;
+  confirmedQuantity: number;
   disabled: boolean;
   saving: boolean;
-  onCheckedChange: (lineId: string, checked: boolean) => void;
+  saved: boolean;
+  error?: string | null;
+  matched: boolean;
+  onQuantityChange: (lineId: string, confirmedQuantity: number) => void;
 }) {
   const productOptions = productOptionsFromSummary(
     line.product_summary ?? t("fulfillment.features.shipments.ui.shipmentPackingPage.standard"),
   );
+  const checked = confirmedQuantity >= line.quantity;
+  const status = error ? "error" : saving ? "saving" : matched ? "matched" : saved ? "saved" : "idle";
+  const statusLabel = error
+    ? error
+    : saving
+      ? t("fulfillment.features.shipments.ui.shipmentPackingPage.line.saving")
+      : matched
+        ? t("fulfillment.features.shipments.ui.shipmentPackingPage.line.matched")
+        : saved
+          ? t("fulfillment.features.shipments.ui.shipmentPackingPage.line.saved")
+          : null;
 
   return (
     <TaskLineItem
       title={line.item_title}
       subtitle={line.item_subtitle}
       quantity={line.quantity}
+      quantityDetail={t("fulfillment.features.shipments.ui.shipmentPackingPage.line.quantity.detail", {
+        packed: confirmedQuantity,
+        total: line.quantity,
+      })}
+      quantityControl={
+        line.quantity > 1 ? (
+          <QuantityChecklistControl
+            value={confirmedQuantity}
+            total={line.quantity}
+            decreaseLabel={t("fulfillment.features.shipments.ui.shipmentPackingPage.line.quantity.decrease", {
+              title: line.item_title,
+            })}
+            increaseLabel={t("fulfillment.features.shipments.ui.shipmentPackingPage.line.quantity.increase", {
+              title: line.item_title,
+            })}
+            disabled={disabled || saving}
+            onChange={(nextQuantity) => onQuantityChange(line.line_id, nextQuantity)}
+          />
+        ) : null
+      }
       checked={checked}
       disabled={disabled || saving}
+      status={status}
+      statusLabel={statusLabel}
       checkboxLabel={t("fulfillment.features.shipments.ui.shipmentPackingPage.line.checked", {
         title: line.item_title,
         quantity: line.quantity,
       })}
-      onCheckedChange={(nextChecked) => onCheckedChange(line.line_id, nextChecked)}
+      onCheckedChange={(nextChecked) => onQuantityChange(line.line_id, nextChecked ? line.quantity : 0)}
       meta={<ProductOptions options={productOptions} variant="chips" />}
       reference={
-        <span className="inline-flex flex-wrap gap-x-2 gap-y-1">
-          <span>
-            {t("fulfillment.features.shipments.ui.shipmentPackingPage.order.line.reference", {
-              reference: shortReference(line.order_line_id),
-            })}
-          </span>
-          <span>
-            {t("fulfillment.features.shipments.ui.shipmentPackingPage.product.reference", {
-              reference: shortReference(line.product_id),
-            })}
-          </span>
-          {saving ? <span>{t("fulfillment.features.shipments.ui.shipmentPackingPage.saving")}</span> : null}
-        </span>
+        <>
+          <TaskReference
+            label={t("fulfillment.features.shipments.ui.shipmentPackingPage.line.reference.label")}
+            value={line.line_id}
+            displayValue={shortReference(line.line_id)}
+            copyLabel={t("fulfillment.features.shipments.ui.shipmentPackingPage.copy.reference")}
+          />
+          <TaskReference
+            label={t("fulfillment.features.shipments.ui.shipmentPackingPage.order.line.reference.label")}
+            value={line.order_line_id}
+            displayValue={shortReference(line.order_line_id)}
+            copyLabel={t("fulfillment.features.shipments.ui.shipmentPackingPage.copy.reference")}
+          />
+          <TaskReference
+            label={t("fulfillment.features.shipments.ui.shipmentPackingPage.product.reference.label")}
+            value={line.product_id}
+            displayValue={shortReference(line.product_id)}
+            copyLabel={t("fulfillment.features.shipments.ui.shipmentPackingPage.copy.reference")}
+          />
+        </>
       }
     />
   );
@@ -153,14 +253,23 @@ export function FulfillmentShipmentPackingPage({
   backHref: string;
   errorMessage?: string | null;
 }) {
-  const [checkedLineIds, setCheckedLineIds] = useState<ReadonlySet<string>>(
-    () => new Set(shipment.lines.filter((line) => line.packing_confirmed_at).map((line) => line.line_id)),
+  const [packedQuantities, setPackedQuantities] = useState<Record<string, number>>(() =>
+    initialPackedQuantities(shipment.lines),
   );
   const [savingLineIds, setSavingLineIds] = useState<ReadonlySet<string>>(() => new Set());
-  const checkedCount = checkedLineIds.size;
-  const lineCount = shipment.lines.length;
-  const progressValue = lineCount > 0 ? Math.round((checkedCount / lineCount) * 100) : 0;
-  const allLinesChecked = checkedCount === lineCount;
+  const [savedLineIds, setSavedLineIds] = useState<ReadonlySet<string>>(() => new Set());
+  const [lineErrors, setLineErrors] = useState<Record<string, string | null>>({});
+  const [scanInput, setScanInput] = useState("");
+  const [scanFeedback, setScanFeedback] = useState<{
+    message: string;
+    tone: "info" | "success" | "warning" | "danger";
+  } | null>(null);
+  const [matchedLineId, setMatchedLineId] = useState<string | null>(null);
+  const [packingSlipOpened, setPackingSlipOpened] = useState(false);
+  const checkedCount = shipment.lines.reduce((total, line) => total + (packedQuantities[line.line_id] ?? 0), 0);
+  const totalQuantity = shipment.total_quantity;
+  const progressValue = totalQuantity > 0 ? Math.round((checkedCount / totalQuantity) * 100) : 0;
+  const allLinesChecked = shipment.lines.every((line) => (packedQuantities[line.line_id] ?? 0) >= line.quantity);
   const hasSavingLines = savingLineIds.size > 0;
   const canCompletePacking = allLinesChecked && !hasSavingLines;
   const isPacking = shipment.status === "packing";
@@ -174,25 +283,35 @@ export function FulfillmentShipmentPackingPage({
   const orderReference = shortReference(shipment.order_id);
 
   useEffect(() => {
-    setCheckedLineIds(new Set(shipment.lines.filter((line) => line.packing_confirmed_at).map((line) => line.line_id)));
+    setPackedQuantities(initialPackedQuantities(shipment.lines));
+    setSavedLineIds(new Set());
+    setLineErrors({});
   }, [shipment.lines]);
 
-  async function persistLineConfirmation(lineId: string, checked: boolean) {
-    setCheckedLineIds((current) => {
+  async function persistLineQuantity(lineId: string, confirmedQuantity: number) {
+    const line = shipment.lines.find((candidate) => candidate.line_id === lineId);
+    if (!line) {
+      return;
+    }
+    const nextQuantity = clampPackedQuantity(line, confirmedQuantity);
+    const previousQuantity = packedQuantities[lineId] ?? 0;
+    if (previousQuantity === nextQuantity) {
+      return;
+    }
+
+    setPackedQuantities((current) => ({ ...current, [lineId]: nextQuantity }));
+    setSavingLineIds((current) => new Set(current).add(lineId));
+    setSavedLineIds((current) => {
       const next = new Set(current);
-      if (checked) {
-        next.add(lineId);
-      } else {
-        next.delete(lineId);
-      }
+      next.delete(lineId);
       return next;
     });
-    setSavingLineIds((current) => new Set(current).add(lineId));
+    setLineErrors((current) => ({ ...current, [lineId]: null }));
 
     const formData = new FormData();
     formData.set("intent", "set-line-confirmed");
     formData.set("lineId", lineId);
-    formData.set("confirmed", String(checked));
+    formData.set("confirmedQuantity", String(nextQuantity));
 
     try {
       const response = await fetch(window.location.pathname, {
@@ -203,16 +322,16 @@ export function FulfillmentShipmentPackingPage({
       if (!response.ok) {
         throw new Error("Packing line update failed.");
       }
-    } catch {
-      setCheckedLineIds((current) => {
-        const next = new Set(current);
-        if (checked) {
-          next.delete(lineId);
-        } else {
-          next.add(lineId);
-        }
-        return next;
-      });
+      setSavedLineIds((current) => new Set(current).add(lineId));
+    } catch (error) {
+      setPackedQuantities((current) => ({ ...current, [lineId]: previousQuantity }));
+      setLineErrors((current) => ({
+        ...current,
+        [lineId]:
+          error instanceof Error
+            ? error.message
+            : t("fulfillment.features.shipments.ui.shipmentPackingPage.line.save.failed"),
+      }));
     } finally {
       setSavingLineIds((current) => {
         const next = new Set(current);
@@ -220,6 +339,72 @@ export function FulfillmentShipmentPackingPage({
         return next;
       });
     }
+  }
+
+  function findScannedLine(rawValue: string) {
+    const normalized = scanValue(rawValue);
+    if (!normalized) {
+      return null;
+    }
+
+    const exactMatches = shipment.lines.filter((line) => lineScanKeys(line).includes(normalized));
+    if (exactMatches.length === 1) {
+      return exactMatches[0];
+    }
+    if (exactMatches.length > 1) {
+      return "ambiguous" as const;
+    }
+
+    const titleMatches = shipment.lines.filter((line) => scanValue(line.item_title).includes(normalized));
+    if (titleMatches.length === 1) {
+      return titleMatches[0];
+    }
+    if (titleMatches.length > 1) {
+      return "ambiguous" as const;
+    }
+
+    return null;
+  }
+
+  function handleScanSubmit(value: string) {
+    const match = findScannedLine(value);
+    if (match === "ambiguous") {
+      setScanFeedback({
+        tone: "warning",
+        message: t("fulfillment.features.shipments.ui.shipmentPackingPage.scan.ambiguous"),
+      });
+      return;
+    }
+    if (!match) {
+      setScanFeedback({
+        tone: "danger",
+        message: t("fulfillment.features.shipments.ui.shipmentPackingPage.scan.no.match"),
+      });
+      return;
+    }
+
+    const currentQuantity = packedQuantities[match.line_id] ?? 0;
+    if (currentQuantity >= match.quantity) {
+      setMatchedLineId(match.line_id);
+      setScanFeedback({
+        tone: "warning",
+        message: t("fulfillment.features.shipments.ui.shipmentPackingPage.scan.already.complete", {
+          title: match.item_title,
+        }),
+      });
+      setScanInput("");
+      return;
+    }
+
+    setMatchedLineId(match.line_id);
+    setScanFeedback({
+      tone: "success",
+      message: t("fulfillment.features.shipments.ui.shipmentPackingPage.scan.matched", {
+        title: match.item_title,
+      }),
+    });
+    setScanInput("");
+    void persistLineQuantity(match.line_id, currentQuantity + 1);
   }
 
   const secondaryRail = (
@@ -251,6 +436,24 @@ export function FulfillmentShipmentPackingPage({
         copyValue={formatAddressForCopy(destinationLines)}
         copyLabel={t("fulfillment.features.shipments.ui.shipmentPackingPage.copy.address")}
       />
+      <Stack gap={2}>
+        <LinkButton
+          href={packingSlipHref}
+          target="_blank"
+          tone="secondary"
+          leadingIcon="externalLink"
+          onClick={() => setPackingSlipOpened(true)}
+        >
+          {packingSlipOpened
+            ? t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip.again")
+            : t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip")}
+        </LinkButton>
+        <Text size="sm" tone="secondary">
+          {packingSlipOpened
+            ? t("fulfillment.features.shipments.ui.shipmentPackingPage.packing.slip.opened")
+            : t("fulfillment.features.shipments.ui.shipmentPackingPage.packing.slip.ready")}
+        </Text>
+      </Stack>
     </Stack>
   );
 
@@ -267,9 +470,6 @@ export function FulfillmentShipmentPackingPage({
           <Stack gap={2}>
             <LinkButton href={backHref} tone="secondary" leadingIcon="chevronLeft">
               {t("fulfillment.features.shipments.ui.shipmentPackingPage.back")}
-            </LinkButton>
-            <LinkButton href={packingSlipHref} target="_blank" tone="secondary" leadingIcon="externalLink">
-              {t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip")}
             </LinkButton>
           </Stack>
         }
@@ -320,11 +520,10 @@ export function FulfillmentShipmentPackingPage({
       ) : null}
 
       {isPacking ? (
-        <OperationalStatusBanner
-          tone="warning"
+        <OperationalLockBanner
           title={t("fulfillment.features.shipments.ui.shipmentPackingPage.locked.title")}
           description={t("fulfillment.features.shipments.ui.shipmentPackingPage.locked.description", {
-            timestamp: shipment.packing_started_at ?? shipment.updated_at,
+            timestamp: formatPackingTimestamp(shipment.packing_started_at ?? shipment.updated_at),
           })}
         />
       ) : null}
@@ -355,8 +554,11 @@ export function FulfillmentShipmentPackingPage({
                 isPacking || isPackedOrLater ? (
                   <TaskProgress
                     label={t("fulfillment.features.shipments.ui.shipmentPackingPage.progress", {
-                      checked: isPackedOrLater ? lineCount : checkedCount,
-                      total: lineCount,
+                      checked: isPackedOrLater ? totalQuantity : checkedCount,
+                      total: totalQuantity,
+                    })}
+                    valueLabel={t("fulfillment.features.shipments.ui.shipmentPackingPage.progress.percent", {
+                      percent: isPackedOrLater ? 100 : progressValue,
                     })}
                     value={isPackedOrLater ? 100 : progressValue}
                     tone={allLinesChecked || isPackedOrLater ? "success" : "active"}
@@ -364,14 +566,31 @@ export function FulfillmentShipmentPackingPage({
                 ) : null
               }
             >
+              {isPacking ? (
+                <TaskScanInput
+                  label={t("fulfillment.features.shipments.ui.shipmentPackingPage.scan.label")}
+                  description={t("fulfillment.features.shipments.ui.shipmentPackingPage.scan.description")}
+                  value={scanInput}
+                  placeholder={t("fulfillment.features.shipments.ui.shipmentPackingPage.scan.placeholder")}
+                  buttonLabel={t("fulfillment.features.shipments.ui.shipmentPackingPage.scan.confirm")}
+                  feedback={scanFeedback?.message}
+                  feedbackTone={scanFeedback?.tone}
+                  disabled={hasSavingLines}
+                  onValueChange={setScanInput}
+                  onSubmit={handleScanSubmit}
+                />
+              ) : null}
               {shipment.lines.map((line) => (
                 <PackingLine
                   key={line.line_id}
                   line={line}
-                  checked={checkedLineIds.has(line.line_id) || isPackedOrLater}
+                  confirmedQuantity={isPackedOrLater ? line.quantity : (packedQuantities[line.line_id] ?? 0)}
                   disabled={!isPacking}
                   saving={savingLineIds.has(line.line_id)}
-                  onCheckedChange={persistLineConfirmation}
+                  saved={savedLineIds.has(line.line_id)}
+                  error={lineErrors[line.line_id]}
+                  matched={matchedLineId === line.line_id}
+                  onQuantityChange={persistLineQuantity}
                 />
               ))}
             </ChecklistCard>
@@ -380,9 +599,10 @@ export function FulfillmentShipmentPackingPage({
               <>
                 <form id="complete-packing-form" method="post" />
                 <StickyTaskFooter
+                  mobileOffset="in-flow"
                   summary={t("fulfillment.features.shipments.ui.shipmentPackingPage.progress", {
                     checked: checkedCount,
-                    total: lineCount,
+                    total: totalQuantity,
                   })}
                   detail={
                     canCompletePacking
@@ -392,6 +612,15 @@ export function FulfillmentShipmentPackingPage({
                         : t("fulfillment.features.shipments.ui.shipmentPackingPage.complete.disabled")
                   }
                 >
+                  <LinkButton
+                    href={packingSlipHref}
+                    target="_blank"
+                    tone="secondary"
+                    leadingIcon="externalLink"
+                    onClick={() => setPackingSlipOpened(true)}
+                  >
+                    {t("fulfillment.features.shipments.ui.shipmentPackingPage.print.packing.slip")}
+                  </LinkButton>
                   <NumberInput
                     label={t("fulfillment.features.shipments.ui.shipmentPackingPage.package.count")}
                     form="complete-packing-form"

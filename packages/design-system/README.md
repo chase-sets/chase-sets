@@ -56,6 +56,10 @@ The core rule is:
 - Popovers and menus are brief, lightweight, and anchored.
 - Full pages are for complex, long, sequential, or focus-heavy tasks.
 
+## Operational Workflows
+
+Use [Operational Workflow Patterns](./OPERATIONAL_WORKFLOWS.md) for task-focused account workstations such as shipment packing. These patterns cover `WorkstationLayout`, task progress, scan-first inputs, quantity-aware line items, operational locks, sticky task footers, and copyable references. Operational banners explain workflow control and must stay separate from marketplace trust or conversion banners.
+
 ## Responsive Defaults
 
 - Mobile-first behavior is the default for every component.

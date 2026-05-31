@@ -69,6 +69,7 @@ describe("fulfillment shipment domain", () => {
     }).reduce(evolveFulfillmentShipment, packingState);
 
     expect(confirmedState.lines[0]?.packingConfirmedAt).toBe("2026-04-02T00:04:00.000Z");
+    expect(confirmedState.lines[0]?.packingConfirmedQuantity).toBe(1);
 
     const packedState = decideFulfillmentShipment(confirmedState, {
       type: "PrepareShipmentPackage",
@@ -111,6 +112,69 @@ describe("fulfillment shipment domain", () => {
     expect(deliveredState.labelDocumentUrl).toBe("https://labels.test/lbl_123.pdf");
     expect(deliveredState.labelStatus).toBe("purchased");
     expect(deliveredState.deliveredAt).toBe("2026-04-03T12:00:00.000Z");
+  });
+
+  it("requires every unit of multi-quantity lines before package preparation", () => {
+    const createdState = decideFulfillmentShipment(initialFulfillmentShipmentState, {
+      type: "CreateShipment",
+      shipmentId: "shp_1" as never,
+      orderId: "ord_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sellerAccountId: "acc_seller" as never,
+      shippingOption: "standard",
+      ...shipmentAddressSnapshots,
+      lines: [
+        {
+          lineId: "spl_1" as never,
+          orderLineId: "oli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          productSummary: null,
+          quantity: 2,
+        },
+      ],
+      createdAt: "2026-04-02T00:00:00.000Z",
+    }).reduce(evolveFulfillmentShipment, initialFulfillmentShipmentState);
+    const packingState = decideFulfillmentShipment(createdState, {
+      type: "StartShipmentPacking",
+      startedAt: "2026-04-02T00:03:00.000Z",
+    }).reduce(evolveFulfillmentShipment, createdState);
+
+    const partialState = decideFulfillmentShipment(packingState, {
+      type: "SetShipmentPackingLineQuantity",
+      lineId: "spl_1" as never,
+      confirmedQuantity: 1,
+      setAt: "2026-04-02T00:04:00.000Z",
+    }).reduce(evolveFulfillmentShipment, packingState);
+
+    expect(partialState.lines[0]?.packingConfirmedQuantity).toBe(1);
+    expect(partialState.lines[0]?.packingConfirmedAt).toBeNull();
+    expect(() =>
+      decideFulfillmentShipment(partialState, {
+        type: "PrepareShipmentPackage",
+        packageCount: 1,
+        preparedAt: "2026-04-02T00:05:00.000Z",
+      }),
+    ).toThrow("Every shipment line must be confirmed before the package can be packed.");
+
+    const fullState = decideFulfillmentShipment(partialState, {
+      type: "SetShipmentPackingLineQuantity",
+      lineId: "spl_1" as never,
+      confirmedQuantity: 2,
+      setAt: "2026-04-02T00:06:00.000Z",
+    }).reduce(evolveFulfillmentShipment, partialState);
+
+    expect(fullState.lines[0]?.packingConfirmedQuantity).toBe(2);
+    expect(fullState.lines[0]?.packingConfirmedAt).toBe("2026-04-02T00:06:00.000Z");
+    expect(() =>
+      decideFulfillmentShipment(fullState, {
+        type: "PrepareShipmentPackage",
+        packageCount: 1,
+        preparedAt: "2026-04-02T00:07:00.000Z",
+      }),
+    ).not.toThrow();
   });
 
   it("records label purchase failures without leaving the awaiting-label workflow", () => {

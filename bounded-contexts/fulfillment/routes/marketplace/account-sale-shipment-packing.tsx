@@ -70,9 +70,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
     if (intent === "set-line-confirmed") {
       const lineId = formValue(formData, "lineId");
-      const confirmed = formValue(formData, "confirmed") === "true";
-      await api.updatePackingLine(shipmentId, lineId, confirmed);
-      return { ok: true, lineId, confirmed };
+      const confirmedQuantity = Number(formValue(formData, "confirmedQuantity"));
+      await api.updatePackingLineQuantity(shipmentId, lineId, confirmedQuantity);
+      return { ok: true, lineId, confirmedQuantity };
     }
 
     return {
