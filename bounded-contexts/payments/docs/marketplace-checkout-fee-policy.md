@@ -17,7 +17,7 @@ Payments owns the buyer-side Marketplace Checkout Fee. The fee is quoted before 
 - Card: 2.9% plus $0.30, grossed up against the external payment amount.
 - Bank account: 0.5% plus $0.00 after the bank adjustment.
 - Platform-credit-only: $0.00.
-- Unsupported or unknown methods normalize to the card quote in the current US-only V1 policy.
+- Unsupported or unknown methods default to no positive Marketplace Checkout Fee in the current US-only V1 policy.
 - Positive fractional cents round up; exact zero remains zero.
 
 ## Cancellation Refunds
