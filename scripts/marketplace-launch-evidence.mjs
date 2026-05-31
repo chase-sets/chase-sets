@@ -14,7 +14,7 @@ const PRODUCTION_STRIPE_PAYMENT_WEBHOOK_PATH = "/api/payments/provider/webhooks"
 const PRODUCTION_STRIPE_CONNECT_WEBHOOK_PATH = "/api/settlement/provider/money-movement/webhooks";
 const PRODUCTION_STRIPE_CONNECT_RETURN_PATH = "/account/payouts";
 const PRODUCTION_STRIPE_CONNECT_REFRESH_PATH = "/account/payouts/setup";
-const REQUIRED_STRIPE_API_VERSION = "2026-02-25.clover";
+const REQUIRED_STRIPE_API_VERSION = "2026-03-25.dahlia";
 const REQUIRED_STRIPE_MONEY_OPERATION_IDENTIFIERS = [
   { key: "livePaymentIntentId", prefix: "pi_" },
   { key: "liveCheckoutSessionId", prefix: "cs_" },

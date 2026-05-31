@@ -60,7 +60,7 @@ describe("Stripe payment processor gateway", () => {
       }),
     );
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect((init.headers as Headers).get("Stripe-Version")).toBe("2026-02-25.clover");
+    expect((init.headers as Headers).get("Stripe-Version")).toBe("2026-03-25.dahlia");
     expect((init.headers as Headers).get("Idempotency-Key")).toBe("payments:payment:pay_123:create");
     expect(String(init.body)).toContain("ui_mode=elements");
     expect(String(init.body)).toContain("mode=payment");
@@ -306,7 +306,7 @@ describe("Stripe payment processor gateway", () => {
       expect.objectContaining({ method: "POST" }),
     );
     const [, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect((init.headers as Headers).get("Stripe-Version")).toBe("2026-02-25.clover");
+    expect((init.headers as Headers).get("Stripe-Version")).toBe("2026-03-25.dahlia");
     expect((init.headers as Headers).get("Idempotency-Key")).toBe("idem_agentic");
     expect(formSnapshot(init.body)).toMatchObject({
       amount: "2000",

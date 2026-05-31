@@ -37,7 +37,7 @@ describe("money movement adapters", () => {
       expect(init?.method).toBe("POST");
       expect(init?.headers).toBeInstanceOf(Headers);
       const headers = init?.headers as Headers;
-      expect(headers.get("Stripe-Version")).toBe("2026-02-25.clover");
+      expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
       expect(headers.get("Content-Type")).toBe("application/json");
       expect(headers.get("Idempotency-Key")).toBe("account-key");
       expect(JSON.parse(String(init?.body))).toMatchObject({
@@ -117,7 +117,7 @@ describe("money movement adapters", () => {
         expect(init?.method).toBe("POST");
         expect(init?.headers).toBeInstanceOf(Headers);
         const headers = init?.headers as Headers;
-        expect(headers.get("Stripe-Version")).toBe("2026-02-25.clover");
+        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
         expect(headers.get("Content-Type")).toBe("application/json");
         expect(headers.get("Idempotency-Key")).toBe("onboarding-key");
         expect(JSON.parse(String(init?.body))).toMatchObject({
@@ -195,7 +195,7 @@ describe("money movement adapters", () => {
       expect(init?.method).toBe("POST");
       expect(init?.headers).toBeInstanceOf(Headers);
       const headers = init?.headers as Headers;
-      expect(headers.get("Stripe-Version")).toBe("2026-02-25.clover");
+      expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
       expect(headers.get("Idempotency-Key")).toBe("manage-key");
       expect(String(init?.body)).toContain("redirect_url=https%3A%2F%2Fexample.test%2Faccount%2Fpayouts");
 
