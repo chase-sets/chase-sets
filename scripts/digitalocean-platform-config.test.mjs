@@ -499,6 +499,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformRepresentativeWorkflow).toContain("seed staging commerce");
     expect(platformRepresentativeWorkflow).toContain("DEPLOYMENT_ENVIRONMENT: staging");
     expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_CATALOG_ITEM_LIMIT");
+    expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS");
+    expect(platformRepresentativeWorkflow).toContain('default: "300000"');
     expect(platformRepresentativeWorkflow).toContain("terraform state pull");
     expect(platformRepresentativeWorkflow).toContain("digitalocean_database_connection_pool");
     expect(platformRepresentativeWorkflow).toContain("PLATFORM_CONTROL_DATABASE_URL");
