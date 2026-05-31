@@ -743,4 +743,94 @@ describe("fulfillment shipment runtime", () => {
       "delivered",
     ]);
   });
+
+  it("records EasyPost refund webhooks against the matched shipment without changing shipment state", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const postageWebhookGateway: PostageProviderWebhookGateway = {
+      processPostageProviderWebhook: vi.fn(async () => ({
+        providerEventId: "evt_refund_1",
+        providerName: "easypost",
+        providerMode: "production" as const,
+        eventKind: "refund-status" as const,
+        providerObjectReference: "rfnd_provider_1",
+        providerShipmentId: "shp_provider_1",
+        trackingIdentifier: "940000000000000000",
+        status: "refunded",
+        occurredAt: "2026-05-30T12:00:02.000Z",
+        receivedAt: "2026-05-30T12:00:04.000Z",
+        payload: { id: "evt_refund_1" },
+      })),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                shipment_id: "shp_1",
+                seller_account_id: "acc_seller",
+                status: "label-attached",
+                tracking_identifier: "940000000000000000",
+                postage_provider_shipment_id: "shp_provider_1",
+              },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
+          return { rows: [{ provider_event_id: "evt_refund_1" }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageWebhookGateway,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+
+    await expect(
+      services.processPostageProviderWebhook(
+        {
+          rawBody: "{}",
+          method: "POST",
+          path: "/api/fulfillment/provider/postage/webhooks",
+          headers: new Headers(),
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      providerEventId: "evt_refund_1",
+      eventKind: "refund-status",
+      shipmentId: "shp_1",
+      processingResult: "recorded",
+    });
+
+    expect(readAllEvents()).toEqual([]);
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO fulfillment_postage_provider_events"),
+      expect.arrayContaining([
+        "evt_refund_1",
+        "easypost",
+        "production",
+        "refund-status",
+        "rfnd_provider_1",
+        "shp_1",
+        "940000000000000000",
+        "refunded",
+      ]),
+    );
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE fulfillment_postage_provider_events"), [
+      "evt_refund_1",
+      "recorded",
+    ]);
+  });
 });
