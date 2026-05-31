@@ -18,13 +18,13 @@ export const PROVIDER_CALLBACK_EXPECTED_STATUSES = [200, 400];
 export const PRIVATE_PROOF_API_EXPECTED_STATUSES = [401];
 
 export const PRIVATE_PROOF_API_PATHS = [
-  { method: "GET", path: "/api/fulfillment/account/sales/shipments" },
-  { method: "GET", path: "/api/fulfillment/account/sales/shipments/topology-proof-shipment" },
-  { method: "POST", path: "/api/fulfillment/account/sales/shipments/topology-proof-shipment/packing/start" },
-  { method: "POST", path: "/api/fulfillment/account/sales/shipments/topology-proof-shipment/pack" },
-  { method: "POST", path: "/api/fulfillment/account/sales/shipments/topology-proof-shipment/label/purchase" },
-  { method: "POST", path: "/api/fulfillment/account/sales/shipments/topology-proof-shipment/label/void" },
-  { method: "POST", path: "/api/fulfillment/account/sales/shipments/topology-proof-shipment/exception" },
+  { method: "GET", path: "/api/marketplace/account/sales/shipments" },
+  { method: "GET", path: "/api/marketplace/account/sales/shipments/topology-proof-shipment" },
+  { method: "POST", path: "/api/marketplace/account/sales/shipments/topology-proof-shipment/packing/start" },
+  { method: "POST", path: "/api/marketplace/account/sales/shipments/topology-proof-shipment/pack" },
+  { method: "POST", path: "/api/marketplace/account/sales/shipments/topology-proof-shipment/label/purchase" },
+  { method: "POST", path: "/api/marketplace/account/sales/shipments/topology-proof-shipment/label/void" },
+  { method: "POST", path: "/api/marketplace/account/sales/shipments/topology-proof-shipment/exception" },
   { method: "POST", path: "/api/inventory/items/listing-stock/ensure" },
   { method: "GET", path: "/api/inventory/storage-locations" },
   { method: "POST", path: "/api/inventory/storage-locations" },

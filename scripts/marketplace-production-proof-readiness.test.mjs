@@ -126,11 +126,11 @@ describe("marketplace production proof readiness", () => {
           purpose:
             "Drive operator-controlled seller shipment label purchase, void/refund, and exception proof while public marketplace promotion remains closed.",
           baseUrl: "https://chasesets.com",
-          routedApiPrefixes: ["/api/fulfillment/account/sales/shipments"],
+          routedApiPrefixes: ["/api/marketplace/account/sales/shipments"],
           requiredTopologyChecks: expect.arrayContaining([
-            "https://chasesets.com/api/fulfillment/account/sales/shipments",
-            "https://chasesets.com/api/fulfillment/account/sales/shipments/topology-proof-shipment/label/purchase",
-            "https://chasesets.com/api/fulfillment/account/sales/shipments/topology-proof-shipment/label/void",
+            "https://chasesets.com/api/marketplace/account/sales/shipments",
+            "https://chasesets.com/api/marketplace/account/sales/shipments/topology-proof-shipment/label/purchase",
+            "https://chasesets.com/api/marketplace/account/sales/shipments/topology-proof-shipment/label/void",
           ]),
           evidenceFields: expect.arrayContaining([
             "gates.fulfillmentPostage.controlledParcelShipmentId",

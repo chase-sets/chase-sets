@@ -290,12 +290,12 @@ function buildFulfillmentPostageProofApiSetup(providerCallbackSetup) {
     purpose:
       "Drive operator-controlled seller shipment label purchase, void/refund, and exception proof while public marketplace promotion remains closed.",
     baseUrl,
-    routedApiPrefixes: ["/api/fulfillment/account/sales/shipments"],
+    routedApiPrefixes: ["/api/marketplace/account/sales/shipments"],
     requiredTopologyChecks: [
-      `${baseUrl}/api/fulfillment/account/sales/shipments`,
-      `${baseUrl}/api/fulfillment/account/sales/shipments/topology-proof-shipment/label/purchase`,
-      `${baseUrl}/api/fulfillment/account/sales/shipments/topology-proof-shipment/label/void`,
-      `${baseUrl}/api/fulfillment/account/sales/shipments/topology-proof-shipment/exception`,
+      `${baseUrl}/api/marketplace/account/sales/shipments`,
+      `${baseUrl}/api/marketplace/account/sales/shipments/topology-proof-shipment/label/purchase`,
+      `${baseUrl}/api/marketplace/account/sales/shipments/topology-proof-shipment/label/void`,
+      `${baseUrl}/api/marketplace/account/sales/shipments/topology-proof-shipment/exception`,
     ],
     evidenceFields: [
       "gates.fulfillmentPostage.controlledParcelShipmentId",
