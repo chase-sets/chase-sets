@@ -29,6 +29,7 @@ describe("change-scope", () => {
     expect(scope.deployRequired).toBe(false);
     expect(scope.dockerImageRequired).toBe(false);
     expect(scope.terraformRequired).toBe(false);
+    expect(scope.exposurePostureChanged).toBe(false);
     expect(scope.affectedWorkspaces).toEqual([]);
   });
 
@@ -55,6 +56,7 @@ describe("change-scope", () => {
     expect(scope.coverageSummaryRequired).toBe(true);
     expect(scope.buildRequired).toBe(true);
     expect(scope.deployRequired).toBe(true);
+    expect(scope.exposurePostureCategories).toEqual([]);
   });
 
   it("detects DB tests only when an affected workspace publishes a DB test script", () => {
@@ -318,6 +320,7 @@ describe("change-scope", () => {
     ]);
     expect(toOutputMap(scope).coverage_fast).toBe("true");
     expect(toOutputMap(scope).coverage_summary).toBe("true");
+    expect(toOutputMap(scope).exposure_posture_changed).toBe("false");
   });
 
   it("routes context UI and API slices to owned E2E suites", () => {
@@ -450,5 +453,28 @@ describe("change-scope", () => {
     expect(scope.terraformRequired).toBe(true);
     expect(scope.deployRequired).toBe(true);
     expect(scope.dockerImageRequired).toBe(false);
+  });
+
+  it("classifies exposure-posture changes for targeted release gates", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: [
+        "scripts/marketplace-tax-readiness-evidence.mjs",
+        "scripts/marketplace-stripe-money-operations-evidence.mjs",
+        "bounded-contexts/platform-operations/features/release-controls/domain/rollout.ts",
+        "docs/adr/0002-adopt-ucp-for-agent-commerce.md",
+      ],
+      workspaces: [workspace(baseDir, "bounded-contexts", "platform-operations", "@test/platform-operations")],
+    });
+
+    expect(scope.exposurePostureChanged).toBe(true);
+    expect(scope.exposurePostureCategories).toEqual([
+      "live-money-provider",
+      "rollout-policy",
+      "tax-posture",
+      "ucp-signed-write",
+    ]);
+    expect(JSON.parse(toOutputMap(scope).exposure_posture_categories_json)).toEqual(scope.exposurePostureCategories);
   });
 });

@@ -13,10 +13,26 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     workflowRunId: readOption(argv, "--workflow-run-id") ?? readEnv("GITHUB_RUN_ID", env),
     workflowRunAttempt: readOption(argv, "--workflow-run-attempt") ?? readEnv("GITHUB_RUN_ATTEMPT", env),
     releaseMode: readOption(argv, "--release-mode") ?? readEnv("RELEASE_MODE", env) ?? "normal",
+    prOpenedAt: readOption(argv, "--pr-opened-at") ?? readEnv("PR_OPENED_AT", env) ?? null,
+    prReadyForReviewAt: readOption(argv, "--pr-ready-for-review-at") ?? readEnv("PR_READY_FOR_REVIEW_AT", env) ?? null,
+    prApprovedAt: readOption(argv, "--pr-approved-at") ?? readEnv("PR_APPROVED_AT", env) ?? null,
+    queueBatchSize: normalizeInteger(
+      readOption(argv, "--queue-batch-size") ?? readEnv("QUEUE_BATCH_SIZE", env) ?? "1",
+      "QUEUE_BATCH_SIZE",
+    ),
     queueQueuedAt: readOption(argv, "--queue-queued-at") ?? readEnv("QUEUE_QUEUED_AT", env) ?? null,
+    queueMergeGroupStartedAt:
+      readOption(argv, "--queue-merge-group-started-at") ?? readEnv("QUEUE_MERGE_GROUP_STARTED_AT", env) ?? null,
     queueMergedAt: readOption(argv, "--queue-merged-at") ?? readEnv("QUEUE_MERGED_AT", env) ?? null,
+    queueDequeuedAt: readOption(argv, "--queue-dequeued-at") ?? readEnv("QUEUE_DEQUEUED_AT", env) ?? null,
+    queueFailureReason: readOption(argv, "--queue-failure-reason") ?? readEnv("QUEUE_FAILURE_REASON", env) ?? null,
+    mergeSha: readOption(argv, "--merge-sha") ?? readEnv("MERGE_SHA", env) ?? null,
     releaseCommitCommittedAt:
       readOption(argv, "--release-commit-committed-at") ?? readEnv("RELEASE_COMMIT_COMMITTED_AT", env) ?? null,
+    releaseCategory: readOption(argv, "--release-category") ?? readEnv("RELEASE_CATEGORY", env) ?? "ordinary-deploy",
+    exposurePostureCategories: parseCategoryList(
+      readOption(argv, "--exposure-posture-categories") ?? readEnv("EXPOSURE_POSTURE_CATEGORIES", env) ?? "",
+    ),
     deploymentRequired: normalizeBoolean(
       readOption(argv, "--deployment-required") ?? readEnv("DEPLOYMENT_REQUIRED", env) ?? "true",
     ),
@@ -26,6 +42,15 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     canaryResult: readOption(argv, "--canary-result") ?? readEnv("CANARY_RESULT", env) ?? "skipped",
     canaryStartedAt: readOption(argv, "--canary-started-at") ?? readEnv("CANARY_STARTED_AT", env) ?? null,
     canaryCompletedAt: readOption(argv, "--canary-completed-at") ?? readEnv("CANARY_COMPLETED_AT", env) ?? null,
+    canarySkippedReason: readOption(argv, "--canary-skipped-reason") ?? readEnv("CANARY_SKIPPED_REASON", env) ?? null,
+    canaryCohortSubjectType:
+      readOption(argv, "--canary-cohort-subject-type") ?? readEnv("CANARY_COHORT_SUBJECT_TYPE", env) ?? null,
+    canaryCohortSize: normalizeOptionalInteger(
+      readOption(argv, "--canary-cohort-size") ?? readEnv("CANARY_COHORT_SIZE", env),
+      "CANARY_COHORT_SIZE",
+    ),
+    canaryPromotionDecision:
+      readOption(argv, "--canary-promotion-decision") ?? readEnv("CANARY_PROMOTION_DECISION", env) ?? null,
     productionResult: readOption(argv, "--production-result") ?? readEnv("PRODUCTION_RESULT", env) ?? "unknown",
     productionStartedAt: readOption(argv, "--production-started-at") ?? readEnv("PRODUCTION_STARTED_AT", env) ?? null,
     productionCompletedAt:
@@ -45,12 +70,26 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
       readOption(argv, "--release-lock-reference") ?? readEnv("PRODUCTION_RELEASE_LOCK_REFERENCE", env) ?? null,
     emergencyReference:
       readOption(argv, "--emergency-reference") ?? readEnv("EMERGENCY_RELEASE_REFERENCE", env) ?? null,
+    recoveryMode: readOption(argv, "--recovery-mode") ?? readEnv("RECOVERY_MODE", env) ?? "none",
+    recoveryReference: readOption(argv, "--recovery-reference") ?? readEnv("RECOVERY_REFERENCE", env) ?? null,
+    recoveryTargetCommit:
+      readOption(argv, "--recovery-target-commit") ?? readEnv("RECOVERY_TARGET_COMMIT", env) ?? null,
+    rollbackReadinessResult:
+      readOption(argv, "--rollback-readiness-result") ?? readEnv("ROLLBACK_READINESS_RESULT", env) ?? "unknown",
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
 }
 
 export function buildReleaseHealthRecord(input) {
   const errors = [];
+  const releaseMode = input.releaseMode ?? "normal";
+  const recoveryMode = input.recoveryMode ?? "none";
+  const queueBatchSize = Number.isInteger(input.queueBatchSize) ? input.queueBatchSize : 1;
+  const releaseCategory = input.releaseCategory ?? "ordinary-deploy";
+  const exposurePostureCategories = Array.isArray(input.exposurePostureCategories)
+    ? [...input.exposurePostureCategories].sort()
+    : [];
+  const canaryCohortSize = Number.isInteger(input.canaryCohortSize) ? input.canaryCohortSize : null;
 
   if (!isCommitSha(input.releaseCommit)) {
     errors.push("releaseCommit must be a 40-character Git commit SHA.");
@@ -58,11 +97,16 @@ export function buildReleaseHealthRecord(input) {
   if (!isNonEmptyString(input.workflowRunId)) {
     errors.push("workflowRunId is required.");
   }
-  if (!["normal", "emergency"].includes(input.releaseMode)) {
+  if (!["normal", "emergency"].includes(releaseMode)) {
     errors.push("releaseMode must be normal or emergency.");
   }
+  validateOptionalIsoInstant("prOpenedAt", input.prOpenedAt, errors);
+  validateOptionalIsoInstant("prReadyForReviewAt", input.prReadyForReviewAt, errors);
+  validateOptionalIsoInstant("prApprovedAt", input.prApprovedAt, errors);
   validateOptionalIsoInstant("queueQueuedAt", input.queueQueuedAt, errors);
+  validateOptionalIsoInstant("queueMergeGroupStartedAt", input.queueMergeGroupStartedAt, errors);
   validateOptionalIsoInstant("queueMergedAt", input.queueMergedAt, errors);
+  validateOptionalIsoInstant("queueDequeuedAt", input.queueDequeuedAt, errors);
   validateOptionalIsoInstant("releaseCommitCommittedAt", input.releaseCommitCommittedAt, errors);
   validateOptionalIsoInstant("stagingStartedAt", input.stagingStartedAt, errors);
   validateOptionalIsoInstant("stagingCompletedAt", input.stagingCompletedAt, errors);
@@ -70,6 +114,15 @@ export function buildReleaseHealthRecord(input) {
   validateOptionalIsoInstant("canaryCompletedAt", input.canaryCompletedAt, errors);
   validateOptionalIsoInstant("productionStartedAt", input.productionStartedAt, errors);
   validateOptionalIsoInstant("productionCompletedAt", input.productionCompletedAt, errors);
+  if (isNonEmptyString(input.mergeSha) && !isCommitSha(input.mergeSha)) {
+    errors.push("mergeSha must be a 40-character Git commit SHA when provided.");
+  }
+  if (!["none", "readiness", "rollback", "fix-forward"].includes(recoveryMode)) {
+    errors.push("recoveryMode must be none, readiness, rollback, or fix-forward.");
+  }
+  if (isNonEmptyString(input.recoveryTargetCommit) && !isCommitSha(input.recoveryTargetCommit)) {
+    errors.push("recoveryTargetCommit must be a 40-character Git commit SHA when provided.");
+  }
 
   const record = {
     schemaVersion: RELEASE_HEALTH_VERSION,
@@ -77,17 +130,30 @@ export function buildReleaseHealthRecord(input) {
     workflowRunId: input.workflowRunId ?? "",
     workflowRunAttempt: input.workflowRunAttempt ?? "",
     checkedAt: input.checkedAt,
-    releaseMode: input.releaseMode,
+    releaseMode,
     deploymentRequired: input.deploymentRequired,
+    pullRequest: {
+      openedAt: emptyToNull(input.prOpenedAt),
+      readyForReviewAt: emptyToNull(input.prReadyForReviewAt),
+      approvedAt: emptyToNull(input.prApprovedAt),
+    },
     mainToProductionDrift: {
       commits: input.mainToProductionDriftCommits,
       seconds: input.mainToProductionDriftSeconds,
     },
     queue: {
-      batchSize: 1,
+      batchSize: queueBatchSize,
       queuedAt: emptyToNull(input.queueQueuedAt),
+      mergeGroupStartedAt: emptyToNull(input.queueMergeGroupStartedAt),
       mergedAt: emptyToNull(input.queueMergedAt),
+      dequeuedAt: emptyToNull(input.queueDequeuedAt),
+      failureReason: emptyToNull(input.queueFailureReason),
+      mergeSha: emptyToNull(input.mergeSha),
       releaseCommitCommittedAt: emptyToNull(input.releaseCommitCommittedAt),
+    },
+    releaseCategory: {
+      primary: releaseCategory,
+      exposurePostureCategories,
     },
     staging: {
       startedAt: emptyToNull(input.stagingStartedAt),
@@ -98,6 +164,12 @@ export function buildReleaseHealthRecord(input) {
       startedAt: emptyToNull(input.canaryStartedAt),
       completedAt: emptyToNull(input.canaryCompletedAt),
       result: normalizeResult(input.canaryResult),
+      skippedReason: emptyToNull(input.canarySkippedReason),
+      cohort: {
+        subjectType: emptyToNull(input.canaryCohortSubjectType),
+        size: canaryCohortSize,
+      },
+      promotionDecision: emptyToNull(input.canaryPromotionDecision),
     },
     production: {
       startedAt: emptyToNull(input.productionStartedAt),
@@ -106,7 +178,7 @@ export function buildReleaseHealthRecord(input) {
     },
     releaseLock: {
       locked: input.releaseLocked,
-      bypassed: input.releaseMode === "emergency",
+      bypassed: releaseMode === "emergency",
       reference: emptyToNull(input.releaseLockReference),
       emergencyReference: emptyToNull(input.emergencyReference),
     },
@@ -114,6 +186,12 @@ export function buildReleaseHealthRecord(input) {
       platformSmoke: normalizeResult(input.productionResult) === "success" ? "success" : "unknown",
       criticalFlows: normalizeResult(input.stagingResult) === "success" ? "success" : "unknown",
       moneySmoke: normalizeResult(input.stagingResult) === "success" ? "success" : "unknown",
+    },
+    recovery: {
+      mode: recoveryMode,
+      reference: emptyToNull(input.recoveryReference ?? input.emergencyReference),
+      targetCommit: emptyToNull(input.recoveryTargetCommit),
+      rollbackReadinessResult: normalizeResult(input.rollbackReadinessResult),
     },
   };
 
@@ -180,6 +258,35 @@ function normalizeInteger(value, name) {
     throw new Error(`${name} must be a non-negative integer.`);
   }
   return normalized;
+}
+
+function normalizeOptionalInteger(value, name) {
+  if (!isNonEmptyString(value)) {
+    return null;
+  }
+  return normalizeInteger(value, name);
+}
+
+function parseCategoryList(value) {
+  if (!isNonEmptyString(value)) {
+    return [];
+  }
+  const trimmed = value.trim();
+  if (trimmed.startsWith("[")) {
+    const parsed = JSON.parse(trimmed);
+    if (!Array.isArray(parsed)) {
+      throw new Error("EXPOSURE_POSTURE_CATEGORIES JSON must be an array.");
+    }
+    return parsed
+      .map((entry) => String(entry).trim())
+      .filter(Boolean)
+      .sort();
+  }
+  return trimmed
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .sort();
 }
 
 function validateOptionalIsoInstant(name, value, errors) {

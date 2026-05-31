@@ -30,6 +30,36 @@ const deploymentScriptPatterns = [
   /^scripts\/stripe-money-smoke-test/,
   /^scripts\/apply-digitalocean-database-grant\.mjs$/,
 ];
+const exposurePosturePatterns = {
+  "public-marketplace-launch": [
+    /^scripts\/marketplace-(?:launch|production|promotion|public-presence)/,
+    /^docs\/runbooks\/marketplace-(?:launch|production-promotion)/,
+    /^infrastructure\/digitalocean\/platform\/.*marketplace/i,
+  ],
+  "live-money-provider": [
+    /^bounded-contexts\/(?:checkout|ordering|payments|settlement)\//,
+    /^scripts\/(?:stripe|marketplace-stripe|marketplace-checkout-fee)/,
+    /^docs\/runbooks\/money-operations\.md$/,
+  ],
+  "tax-posture": [/^bounded-contexts\/tax\//, /^scripts\/marketplace-tax/, /^docs\/runbooks\/tax/i],
+  "postage-provider": [
+    /^bounded-contexts\/fulfillment\//,
+    /^scripts\/marketplace-fulfillment-postage/,
+    /^docs\/runbooks\/postage-operations\.md$/,
+  ],
+  "transactional-email-provider": [
+    /^bounded-contexts\/notifications\//,
+    /^scripts\/marketplace-transactional-email/,
+    /^docs\/runbooks\/email-operations\.md$/,
+  ],
+  "ucp-signed-write": [/ucp/i, /ap2/i, /^docs\/adr\/0002-adopt-ucp-for-agent-commerce\.md$/],
+  "rollout-policy": [
+    /^bounded-contexts\/platform-operations\/features\/release-controls\//,
+    /^bounded-contexts\/platform-operations\/routes\/admin\/release-controls\.tsx$/,
+    /^scripts\/release-lock/,
+    /^docs\/runbooks\/release-process-evolution\.md$/,
+  ],
+};
 
 function normalizeFilePath(filePath) {
   return normalizePath(filePath).replace(/^\.\//, "");
@@ -122,9 +152,16 @@ export function classifyChanges({
   let deploymentScriptChanged = false;
   let scriptOrConfigChanged = false;
   const selectedE2eSuiteIds = new Set();
+  const exposurePostureCategories = new Set();
   let nonDocumentationChanged = false;
 
   for (const filePath of normalizedFiles) {
+    for (const [category, patterns] of Object.entries(exposurePosturePatterns)) {
+      if (matchesAny(filePath, patterns)) {
+        exposurePostureCategories.add(category);
+      }
+    }
+
     for (const suiteId of e2eSuiteIdsForChangedFile(filePath)) {
       selectedE2eSuiteIds.add(suiteId);
     }
@@ -231,6 +268,8 @@ export function classifyChanges({
     terraformRequired,
     workflowLintRequired: workflowChanged,
     deployRequired,
+    exposurePostureChanged: exposurePostureCategories.size > 0,
+    exposurePostureCategories: [...exposurePostureCategories].sort(),
   };
 }
 
@@ -292,6 +331,9 @@ export function toOutputMap(scope) {
     terraform: String(scope.terraformRequired),
     workflow_lint: String(scope.workflowLintRequired),
     deploy: String(scope.deployRequired),
+    exposure_posture_changed: String(scope.exposurePostureChanged),
+    exposure_posture_categories: scope.exposurePostureCategories.join(","),
+    exposure_posture_categories_json: JSON.stringify(scope.exposurePostureCategories),
   };
 }
 

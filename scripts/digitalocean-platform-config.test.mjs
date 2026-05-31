@@ -331,6 +331,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
     );
+    expect(platformProductionWorkflow).toContain("pull-requests: read");
     expect(platformProductionWorkflow).toContain("emergency_release:");
     expect(platformProductionWorkflow).toContain(
       "description: Bypass an active production release lock for an audited fix-forward or revert.",
@@ -364,6 +365,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain("- name: Resolve release health metadata");
     expect(platformProductionWorkflow).toContain("SOURCE_WORKFLOW_CREATED_AT");
+    expect(platformProductionWorkflow).toContain('repos/${{ github.repository }}/commits/${release_commit}/pulls"');
+    expect(platformProductionWorkflow).toContain('echo "pr_opened_at=${pr_opened_at}"');
+    expect(platformProductionWorkflow).toContain('echo "pr_approved_at=${pr_approved_at}"');
+    expect(platformProductionWorkflow).toContain('echo "merge_sha=${merge_sha}"');
     expect(platformProductionWorkflow).toContain('git rev-list --count "origin/production..${release_commit}"');
     expect(platformProductionWorkflow).toContain('echo "drift_commits=${drift_commits}"');
     expect(platformProductionWorkflow).toContain('echo "drift_seconds=${drift_seconds}"');
@@ -375,8 +380,15 @@ describe("DigitalOcean platform configuration", () => {
       "RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency' || 'normal' }}",
     );
     expect(platformProductionWorkflow).toContain(
+      "PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}",
+    );
+    expect(platformProductionWorkflow).toContain(
       "QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}",
     );
+    expect(platformProductionWorkflow).toContain("MERGE_SHA: ${{ steps.release_health_metadata.outputs.merge_sha }}");
     expect(platformProductionWorkflow).toContain(
       "RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}",
     );
@@ -385,7 +397,15 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}",
     );
-    expect(platformProductionWorkflow).toContain("CANARY_RESULT: skipped");
+    expect(platformProductionWorkflow).toContain("- name: Stage 1 production canary");
+    expect(platformProductionWorkflow.indexOf("- name: Stage 1 production canary")).toBeLessThan(
+      platformProductionWorkflow.indexOf("- name: Mark production release"),
+    );
+    expect(platformProductionWorkflow).toContain("CANARY_RESULT: ${{ steps.stage1_canary.outcome || 'skipped' }}");
+    expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
+    expect(platformProductionWorkflow).toContain(
+      "CANARY_PROMOTION_DECISION: ${{ steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
+    );
     expect(platformProductionWorkflow).toContain("PRODUCTION_RESULT: ${{ job.status }}");
     expect(platformProductionWorkflow).toContain(
       "PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}",

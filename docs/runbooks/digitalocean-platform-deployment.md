@@ -302,7 +302,11 @@ The workflow:
 9. Waits for the Terraform-created App Platform deployment to reach a terminal phase when the app spec changed.
 10. Creates a forced DigitalOcean App Platform deployment only when Terraform did not change the app spec, waits for completion, and fails unless the deployment phase is `ACTIVE`.
 11. Runs `pnpm run smoke:platform` with required admin authentication, `ops+smoke@chasesets.com`, and smoke UTM markers. When marketplace promotion is enabled, production smoke also requires the production marketplace domain.
-12. Adds a matching `release-<yyyymmddHHMMSS>-<sha>` DOCR tag to the promoted image, creates the annotated Git release tag, and fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
+12. Runs Stage 1 production canary probes against synthetic/operator-safe endpoints: landing, admin, and marketplace only when public marketplace is enabled. This is not random traffic splitting; it blocks the production marker when the deployed production reality fails basic canary verification.
+13. Adds a matching `release-<yyyymmddHHMMSS>-<sha>` DOCR tag to the promoted image, creates the annotated Git release tag, and fast-forwards the protected `production` branch to the smoke-verified deployed release commit.
+14. Writes a `release-health/v1` artifact with queue timing, exposure-posture categories, staging and production results, Stage 1 canary result, release-lock state, and recovery metadata.
+
+Use the `Platform Rollback Readiness` workflow before rollback or fix-forward recovery. It validates the target commit, release tag, DOCR image, smoke-verified production marker, emergency reference, and destructive Terraform approval posture without deploying the target.
 
 Production destructive-change overrides must be explicit in the pull request. Add `.github/deployment/production-destructive-change-approved.md` only for a deliberately reviewed infrastructure migration, and remove it in the same PR or an immediate follow-up when the migration is complete.
 

@@ -26,7 +26,7 @@ Queue behavior:
 
 - Start with a maximum batch size of one deployable pull request per merge group.
 - Documentation-only and non-deployable changes may batch when the merge queue can still prove `PR Required`.
-- Increase batch size only when release-health metrics show low staging failure, low production smoke failure, low rollback/fix-forward rate, and low main-to-production drift.
+- Increase batch size only when release-health metrics show low staging failure, low production smoke failure, low rollback/fix-forward rate, low canary abort rate, low queue wait, and low main-to-production drift.
 - Keep stale release behavior from the deployment workflow: if a queued automatic deployment starts after a newer `origin/main` exists, skip that stale deployment and let the newest release proceed.
 - Keep direct pushes disabled for normal work. Emergency release bypass must be explicit and audited.
 
@@ -77,13 +77,22 @@ Operators can also prepare these commands in the admin console at `/operations/r
 
 Canary is an additional production phase after staging, not a staging replacement.
 
-Phase 1 should use operator/internal or account-allowlisted production traffic:
+Phase 1 uses synthetic and operator-safe production probes after the production deployment smoke check and before the production marker is advanced:
+
+- landing host HEAD probe
+- admin host HEAD probe
+- marketplace host HEAD probe only when public marketplace is enabled
+- immutable release commit and production workflow run recorded in `release-health/v1`
+
+This phase is intentionally not random public traffic splitting. A failure blocks the production marker and leaves the workflow evidence behind for fix-forward or rollback readiness.
+
+Phase 1 can expand to operator/internal or account-allowlisted production traffic:
 
 - production root/admin proof APIs already used for private provider proof
 - production marketplace APIs guarded by account allowlists once marketplace is public
 - synthetic production probes with tagged operator accounts
 
-Phase 2 may add small percentage cohorts for public marketplace accounts after release-health metrics and canary-analysis signals are reliable.
+Phase 2 may add small deterministic cohorts for public marketplace accounts after release-health metrics, rollout guards, and canary-analysis signals are reliable.
 
 Phase 3 may add random production traffic only when DigitalOcean routing, observability, and rollback mechanics prove that the traffic split is reversible and cheap to operate.
 
@@ -140,16 +149,42 @@ Minimum schema:
   "workflowRunId": "<github-run-id>",
   "releaseMode": "normal|emergency",
   "deploymentRequired": true,
+  "pullRequest": { "openedAt": "<iso|null>", "readyForReviewAt": "<iso|null>", "approvedAt": "<iso|null>" },
   "mainToProductionDrift": { "commits": 0, "seconds": 0 },
-  "queue": { "batchSize": 1, "queuedAt": "<iso>", "mergedAt": "<iso>" },
+  "queue": {
+    "batchSize": 1,
+    "queuedAt": "<iso|null>",
+    "mergeGroupStartedAt": "<iso|null>",
+    "mergedAt": "<iso|null>",
+    "dequeuedAt": "<iso|null>",
+    "failureReason": "<string|null>",
+    "mergeSha": "<40-char-sha|null>"
+  },
+  "releaseCategory": {
+    "primary": "ordinary-deploy|exposure-posture-change|emergency-recovery",
+    "exposurePostureCategories": ["live-money-provider"]
+  },
   "staging": { "startedAt": "<iso>", "completedAt": "<iso>", "result": "success|failure|skipped" },
-  "canary": { "startedAt": "<iso>", "completedAt": "<iso>", "result": "success|failure|skipped" },
+  "canary": {
+    "startedAt": "<iso|null>",
+    "completedAt": "<iso|null>",
+    "result": "success|failure|skipped",
+    "skippedReason": "<string|null>",
+    "cohort": { "subjectType": "operator|account|membership|anonymous|null", "size": 0 },
+    "promotionDecision": "promote|abort|hold|skipped|null"
+  },
   "production": { "startedAt": "<iso>", "completedAt": "<iso>", "result": "success|failure|skipped" },
   "releaseLock": { "locked": false, "bypassed": false, "reference": null },
   "verification": {
     "platformSmoke": "success|failure|skipped",
     "criticalFlows": "success|failure|skipped",
     "moneySmoke": "success|failure|skipped"
+  },
+  "recovery": {
+    "mode": "none|readiness|rollback|fix-forward",
+    "reference": "<incident-or-evidence-reference|null>",
+    "targetCommit": "<40-char-sha|null>",
+    "rollbackReadinessResult": "success|failure|skipped|unknown"
   }
 }
 ```
@@ -177,6 +212,19 @@ Build a Markdown dashboard from release-health artifacts with:
 ```powershell
 pnpm run release-health:report -- --dir .\artifacts\release-health --out .\artifacts\release-health\summary.md
 ```
+
+The report includes SLO posture for cautious merge-queue batch tuning. Initial thresholds are deliberately conservative:
+
+| Signal | Hold/increase threshold |
+| --- | --- |
+| Staging failure rate | `<= 5%` |
+| Production smoke failure rate | `<= 2%` |
+| Rollback/fix-forward rate | `<= 2%` |
+| Main-to-production drift | `<= 3 commits` |
+| p95 queue wait | `<= 30m` |
+| Canary abort rate | `<= 5%` |
+
+Increase deployable batch size only when all thresholds pass and there are at least 10 recent deployable release records. If any threshold fails, decrease or hold batch size until the cause is understood.
 
 ## Feature Rollout Controls
 
@@ -232,11 +280,48 @@ Examples:
 - Tax launch posture change: Tax readiness evidence must be current before public checkout exposure expands.
 - Emergency revert: release lock may be bypassed only with `emergency_release=true` and a concrete `emergency_reference`; deploy and smoke still record a production marker.
 
+`scripts/change-scope.mjs` classifies exposure-posture changes and emits:
+
+- `exposure_posture_changed`
+- `exposure_posture_categories`
+- `exposure_posture_categories_json`
+
+Current categories are:
+
+- `public-marketplace-launch`
+- `live-money-provider`
+- `tax-posture`
+- `postage-provider`
+- `transactional-email-provider`
+- `ucp-signed-write`
+- `rollout-policy`
+
+These categories annotate release-health first. They should be used to require targeted evidence before capability exposure changes, while routine deploy health gates continue to protect every deployable release.
+
+## Rollback And Fix-Forward Readiness
+
+Rollback automation is intentionally advisory first. Operators can validate a recovery target without deploying it:
+
+```powershell
+pnpm run rollback:readiness -- --mode rollback --target-commit <40-char-sha> --release-tag <release-tag> --image-ref <registry-image> --image-exists true --smoke-verified true --emergency-reference <incident-or-evidence>
+```
+
+The `Platform Rollback Readiness` workflow performs the same validation from GitHub Actions against the production environment. It checks that:
+
+- the target commit is reachable from the smoke-verified `production` marker
+- the release tag points to the target commit
+- the production image exists in DOCR
+- the target has smoke-verified production evidence
+- an emergency reference is present
+- destructive Terraform changes are explicitly approved before recovery proceeds
+
+The readiness output is a `rollback-readiness/v1` artifact. A passing readiness record does not deploy anything by itself; it gives the incident owner a concrete rollback or fix-forward target and blocker list.
+
 ## Current Deferred Work
 
 The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, operator release-controls console, canary-analysis gate, release-health report generator, and production release-health artifact emission with queue, staging, production, and drift timing. The next implementation steps are:
 
 - configure GitHub native merge queue for `main` with the policy above
-- add PR review/ready timestamps to release-health artifacts after GitHub merge queue is enabled
-- implement the first production canary route/cohort after observability data sources are ready
+- persist PR review/ready timestamps from GitHub API once merge queue is enabled
+- replace Stage 1 synthetic canary with telemetry-backed canary evidence once observability data sources are ready
 - persist release-lock and rollout policy changes through an audited Platform Operations API instead of command generation once the policy store is introduced

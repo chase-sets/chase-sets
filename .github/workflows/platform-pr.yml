@@ -31,6 +31,9 @@ jobs:
       e2e_suites: ${{ steps.scope.outputs.e2e_suites }}
       e2e_suites_json: ${{ steps.scope.outputs.e2e_suites_json }}
       e2e_suite_batches_json: ${{ steps.scope.outputs.e2e_suite_batches_json }}
+      exposure_posture_categories: ${{ steps.scope.outputs.exposure_posture_categories }}
+      exposure_posture_categories_json: ${{ steps.scope.outputs.exposure_posture_categories_json }}
+      exposure_posture_changed: ${{ steps.scope.outputs.exposure_posture_changed }}
       local_checks: ${{ steps.scope.outputs.local_checks }}
       terraform: ${{ steps.scope.outputs.terraform }}
       typecheck: ${{ steps.scope.outputs.typecheck }}
