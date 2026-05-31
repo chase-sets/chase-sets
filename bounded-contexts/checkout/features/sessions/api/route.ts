@@ -466,7 +466,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         });
       }
 
-      if (!marketplaceCheckoutFeeQuoteFingerprint) {
+      if (!deferPayment && !marketplaceCheckoutFeeQuoteFingerprint) {
         return c.json(
           {
             error: {
@@ -503,6 +503,18 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
           status: "orders-created",
           session,
         });
+      }
+
+      if (!marketplaceCheckoutFeeQuoteFingerprint) {
+        return c.json(
+          {
+            error: {
+              code: "payment_quote_required",
+              message: t("checkout.features.sessions.api.route.payment.quote.required"),
+            },
+          },
+          409,
+        );
       }
 
       const paymentId = await createCheckoutPaymentThroughPayments(

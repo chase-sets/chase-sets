@@ -428,6 +428,62 @@ describe("checkout session routes", () => {
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
+  it("allows production proof order creation to defer payment before fee quote review", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          deferPayment: true,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      order_ids: ["ord_1"],
+      status: "orders-created",
+    });
+    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-deferred payment confirmation before committing orders when fee quote is missing", async () => {
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+    });
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ shippingAddress }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "payment_quote_required",
+        message: "Review the latest payment quote before creating purchases.",
+      },
+    });
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+  });
+
   it("retries payment recording without recreating orders", async () => {
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_existing");
     const services = createServices({
