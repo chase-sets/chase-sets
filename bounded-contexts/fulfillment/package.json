@@ -29,6 +29,7 @@
     "@chase-sets/postage-labels": "workspace:*",
     "@chase-sets/product-measures": "workspace:*",
     "@chase-sets/primitives": "workspace:*",
+    "@chase-sets/transactional-email-outbox": "workspace:*",
     "hono": "^4.12.12"
   },
   "devDependencies": {

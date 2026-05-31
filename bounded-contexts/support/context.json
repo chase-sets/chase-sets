@@ -53,7 +53,13 @@
       "resetStrategy": "replay-only"
     }
   ],
-  "hostPorts": [],
+  "hostPorts": [
+    {
+      "portName": "transactionalEmailOutbox",
+      "providedBy": "platform-worker",
+      "purpose": "Durable transactional email outbox consumed only by support request event projectors."
+    }
+  ],
   "apiDeployables": ["platform-api"],
   "apiMounts": [
     {

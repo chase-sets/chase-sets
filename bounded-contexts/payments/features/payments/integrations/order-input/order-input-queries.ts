@@ -4,6 +4,7 @@ import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
 export type PaymentOrderInputRow = Readonly<{
   order_id: string;
   buyer_account_id: string;
+  buyer_email: string | null;
   seller_account_id: string;
   total_amount: string;
   marketplace_sales_fee_amount: string;
@@ -34,6 +35,7 @@ export async function listPaymentOrderInputs(
     `SELECT
        order_id,
        buyer_account_id,
+       buyer_email,
        seller_account_id,
        total_amount::text AS total_amount,
        marketplace_sales_fee_amount::text AS marketplace_sales_fee_amount,

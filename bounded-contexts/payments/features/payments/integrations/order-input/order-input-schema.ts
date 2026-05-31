@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS payments_order_inputs (
   source_type text NULL,
   source_reference_id text NULL,
   buyer_account_id text NOT NULL,
+  buyer_email text NULL,
   seller_account_id text NOT NULL DEFAULT '',
   total_amount numeric(12, 2) NOT NULL,
   marketplace_sales_fee_amount numeric(12, 2) NOT NULL,
@@ -34,6 +35,8 @@ ALTER TABLE payments_order_inputs
   ADD COLUMN IF NOT EXISTS source_reference_id text NULL;
 ALTER TABLE payments_order_inputs
   ADD COLUMN IF NOT EXISTS seller_account_id text NOT NULL DEFAULT '';
+ALTER TABLE payments_order_inputs
+  ADD COLUMN IF NOT EXISTS buyer_email text NULL;
 ALTER TABLE payments_order_inputs
   ADD COLUMN IF NOT EXISTS seller_item_net_amount numeric(12, 2) NOT NULL DEFAULT 0;
 ALTER TABLE payments_order_inputs

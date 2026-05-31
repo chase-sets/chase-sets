@@ -436,6 +436,9 @@ importers:
       '@chase-sets/product-measures':
         specifier: workspace:*
         version: link:../../contracts/product-measures
+      '@chase-sets/transactional-email-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/transactional-email-outbox
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -711,6 +714,9 @@ importers:
       '@chase-sets/reputation':
         specifier: workspace:*
         version: link:../reputation
+      '@chase-sets/transactional-email-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/transactional-email-outbox
       '@chase-sets/ucp':
         specifier: workspace:*
         version: link:../../contracts/ucp
@@ -739,6 +745,9 @@ importers:
       '@chase-sets/checkout':
         specifier: workspace:*
         version: link:../checkout
+      '@chase-sets/communications-email':
+        specifier: workspace:*
+        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -781,6 +790,9 @@ importers:
       '@chase-sets/provider-webhook-inbox':
         specifier: workspace:*
         version: link:../../infrastructure/provider-webhook-inbox
+      '@chase-sets/transactional-email-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/transactional-email-outbox
       '@chase-sets/ucp':
         specifier: workspace:*
         version: link:../../contracts/ucp
@@ -1035,6 +1047,9 @@ importers:
       '@chase-sets/bounded-context-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/bounded-context-runtime
+      '@chase-sets/communications-email':
+        specifier: workspace:*
+        version: link:../../contracts/communications-email
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
@@ -1062,6 +1077,9 @@ importers:
       '@chase-sets/primitives':
         specifier: workspace:*
         version: link:../../contracts/primitives
+      '@chase-sets/transactional-email-outbox':
+        specifier: workspace:*
+        version: link:../../infrastructure/transactional-email-outbox
       hono:
         specifier: ^4.12.12
         version: 4.12.18

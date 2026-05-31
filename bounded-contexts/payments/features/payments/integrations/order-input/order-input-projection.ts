@@ -10,6 +10,7 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
         sourceReferenceId: string | null;
         buyerAccountId: string;
         sellerAccountId: string;
+        shippingDestinationSnapshot?: { email?: string | null } | null;
         totalAmount: string;
         shippingAllowanceAmount?: string;
         shippingOverageAmount?: string;
@@ -33,6 +34,7 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
            source_type,
            source_reference_id,
            buyer_account_id,
+           buyer_email,
            seller_account_id,
            total_amount,
            marketplace_sales_fee_amount,
@@ -52,11 +54,12 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
            updated_at,
            cancelled_at,
            ready_for_fulfillment_at
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 'pending-reservation', $19, $19, NULL, NULL)
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'pending-reservation', $20, $20, NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE
          SET source_type = EXCLUDED.source_type,
              source_reference_id = EXCLUDED.source_reference_id,
              buyer_account_id = EXCLUDED.buyer_account_id,
+             buyer_email = EXCLUDED.buyer_email,
              seller_account_id = EXCLUDED.seller_account_id,
              total_amount = EXCLUDED.total_amount,
              marketplace_sales_fee_amount = EXCLUDED.marketplace_sales_fee_amount,
@@ -80,6 +83,7 @@ export function buildPaymentsOrderInputProjectionHandlers(db: PgQueryable): Proj
           data.sourceType,
           data.sourceReferenceId,
           data.buyerAccountId,
+          data.shippingDestinationSnapshot?.email?.trim() || null,
           data.sellerAccountId,
           data.totalAmount,
           data.commercialTermsSnapshot.marketplaceSalesFeeAmount,

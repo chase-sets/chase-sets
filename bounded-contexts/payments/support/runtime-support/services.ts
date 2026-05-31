@@ -5,6 +5,8 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
+import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
 import { createPaymentRuntime } from "../../features/payments/api/runtime";
 import { createRefundRuntime } from "../../features/refunds/api/runtime";
 import type { PaymentProcessorGateway, PaymentProcessorPublicConfig } from "@chase-sets/payment-processing";
@@ -13,6 +15,7 @@ import type { BalanceCreditResolver } from "../../features/payments/api/balance-
 export type PaymentsServiceOptions = Readonly<{
   processorGateway?: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 export type PaymentsServices = Readonly<{
@@ -56,6 +59,7 @@ export function createPaymentsServices(
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const processorGateway = options.processorGateway ?? createMissingProcessorGateway();
+  const transactionalEmailOutbox = options.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
 
   const payments = createPaymentRuntime({
     eventStore,
@@ -63,12 +67,14 @@ export function createPaymentsServices(
     db,
     processorGateway,
     balanceCreditResolver: options.balanceCreditResolver,
+    transactionalEmailOutbox,
   });
   const refunds = createRefundRuntime({
     eventStore,
     checkpointStore,
     db,
     processorGateway,
+    transactionalEmailOutbox,
   });
 
   return {

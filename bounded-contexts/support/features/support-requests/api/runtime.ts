@@ -6,6 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, SupportRequestId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -31,6 +32,10 @@ import {
   type SupportRequestState,
 } from "../domain/domain";
 import { getSupportFlowDefinition, supportFlowCatalog } from "../domain/flow-catalog";
+import {
+  buildSupportRequestTransactionalEmailProjectionHandlers,
+  SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
+} from "../integrations/transactional-email/transactional-email-projector";
 import { buildSupportRequestProjectionHandlers } from "../read-model/projection";
 import {
   findOpenSupportRequestForOrderAndFlow,
@@ -44,6 +49,7 @@ type SupportRequestRuntimeDeps = Readonly<{
   eventStore: EventStore;
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 export type SupportOrderSource = Readonly<{
@@ -178,6 +184,7 @@ async function requireAccountSupportRequest(db: PgQueryable, supportRequestId: s
 }
 
 export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): SupportRequestServices {
+  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -374,6 +381,14 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
       createProjectionHandlerSet({
         projectionName: "support-request-projection",
         handlers: buildSupportRequestProjectionHandlers(deps.db),
+      }),
+      createProjectionHandlerSet({
+        projectionName: SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
+        handlers: buildSupportRequestTransactionalEmailProjectionHandlers(
+          deps.db,
+          transactionalEmailOutbox,
+          SUPPORT_REQUEST_TRANSACTIONAL_EMAIL_PROJECTION,
+        ),
       }),
     ],
   };

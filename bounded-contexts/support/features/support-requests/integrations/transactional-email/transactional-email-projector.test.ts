@@ -1,0 +1,89 @@
+import { describe, expect, it, vi } from "vitest";
+import { projectSupportRequestEventToTransactionalEmail } from "./transactional-email-projector";
+
+describe("support request transactional email projector", () => {
+  it("uses order source buyer email to enqueue support request email", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),
+    };
+    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+
+    await projectSupportRequestEventToTransactionalEmail(db, outbox, {
+      id: "evt_support",
+      type: "support.support-request.opened",
+      globalPosition: "14",
+      trace: { traceId: "trace_support" },
+      timing: { occurredAt: "2026-05-31T00:00:00.000Z", recordedAt: "2026-05-31T00:00:01.000Z" },
+      data: {
+        supportRequestId: "sup_123",
+        orderId: "ord_123",
+        flowType: "item-not-as-described",
+      },
+    } as never);
+
+    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
+    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0]).toMatchObject({
+      message: {
+        messageType: "support.support-request.opened",
+        to: [{ email: "buyer@example.com" }],
+      },
+      source: {
+        sourceEventId: "evt_support",
+        sourceGlobalPosition: "14",
+      },
+    });
+  });
+
+  it("uses order source buyer email to enqueue support request resolution email", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [{ buyer_email: "buyer@example.com" }] })),
+    };
+    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+
+    await projectSupportRequestEventToTransactionalEmail(db, outbox, {
+      id: "evt_support_resolved",
+      type: "support.support-request.resolved",
+      globalPosition: "15",
+      trace: { traceId: "trace_support_resolved" },
+      timing: { occurredAt: "2026-05-31T00:00:00.000Z", recordedAt: "2026-05-31T00:00:01.000Z" },
+      data: {
+        supportRequestId: "sup_123",
+        orderId: "ord_123",
+        flowType: "item-not-as-described",
+        resolution: { resolutionType: "partial-refund" },
+      },
+    } as never);
+
+    expect(outbox.enqueueTransactionalEmail).toHaveBeenCalledOnce();
+    expect(outbox.enqueueTransactionalEmail.mock.calls[0]?.[0]).toMatchObject({
+      message: {
+        messageType: "support.support-request.resolved",
+        templateId: "support_request_resolved",
+        templateData: { resolutionType: "partial-refund" },
+        to: [{ email: "buyer@example.com" }],
+      },
+    });
+  });
+
+  it("does not enqueue when no buyer email has been projected for the order", async () => {
+    const db = {
+      query: vi.fn(async () => ({ rows: [{ buyer_email: " " }] })),
+    };
+    const outbox = { enqueueTransactionalEmail: vi.fn(async (_input: unknown) => undefined) };
+
+    await projectSupportRequestEventToTransactionalEmail(db, outbox, {
+      id: "evt_support",
+      type: "support.support-request.opened",
+      globalPosition: "14",
+      trace: { traceId: "trace_support" },
+      timing: { occurredAt: "2026-05-31T00:00:00.000Z", recordedAt: "2026-05-31T00:00:01.000Z" },
+      data: {
+        supportRequestId: "sup_123",
+        orderId: "ord_123",
+        flowType: "item-not-as-described",
+      },
+    } as never);
+
+    expect(outbox.enqueueTransactionalEmail).not.toHaveBeenCalled();
+  });
+});

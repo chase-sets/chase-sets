@@ -7,6 +7,7 @@ export function buildSupportOrderSourceProjectionHandlers(db: PgQueryable): Proj
       const data = event.data as {
         orderId: string;
         buyerAccountId: string;
+        shippingDestinationSnapshot?: { email?: string | null } | null;
         sellerAccountId: string;
         totalAmount: string;
       };
@@ -15,6 +16,7 @@ export function buildSupportOrderSourceProjectionHandlers(db: PgQueryable): Proj
         `INSERT INTO support_order_sources (
            order_id,
            buyer_account_id,
+           buyer_email,
            seller_account_id,
            status,
            total_amount,
@@ -22,13 +24,20 @@ export function buildSupportOrderSourceProjectionHandlers(db: PgQueryable): Proj
            updated_at,
            cancelled_at,
            ready_for_fulfillment_at
-         ) VALUES ($1, $2, $3, 'created', $4, now(), now(), NULL, NULL)
+         ) VALUES ($1, $2, $3, $4, 'created', $5, now(), now(), NULL, NULL)
          ON CONFLICT (order_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
+             buyer_email = EXCLUDED.buyer_email,
              seller_account_id = EXCLUDED.seller_account_id,
              total_amount = EXCLUDED.total_amount,
              updated_at = now()`,
-        [data.orderId, data.buyerAccountId, data.sellerAccountId, data.totalAmount],
+        [
+          data.orderId,
+          data.buyerAccountId,
+          data.shippingDestinationSnapshot?.email?.trim() || null,
+          data.sellerAccountId,
+          data.totalAmount,
+        ],
       );
     },
     "ordering.order.cancelled": async (event) => {
