@@ -871,11 +871,16 @@ describe("Admin page projections", () => {
     const job = await confirmResponse.json();
 
     expect(confirmResponse.status).toBe(202);
-    await services.authoringBulkJobs.processNext({
-      claimOwnerId: "catalog_authoring_test",
-      claimTtlMs: 60_000,
-      services,
-    });
+    for (let attempt = 0; attempt < preview.item_ids.length + 1; attempt += 1) {
+      const processed = await services.authoringBulkJobs.processNext({
+        claimOwnerId: "catalog_authoring_test",
+        claimTtlMs: 60_000,
+        services,
+      });
+      if (!processed) {
+        break;
+      }
+    }
     const completedJob = await services.authoringBulkJobs.get(job.jobId);
     const result = completedJob?.result;
     expect(result).toMatchObject({

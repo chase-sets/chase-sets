@@ -25,6 +25,10 @@ function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
 }
 
+function expectTerraformAssignment(source, localName, expression) {
+  expect(source).toMatch(new RegExp(`${localName}\\s+=\\s+${expression.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+}
+
 function workflowStep(source, stepName) {
   const start = source.indexOf(`- name: ${stepName}`);
   expect(start).not.toBe(-1);
@@ -127,21 +131,29 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
-    expect(platformLocals).toContain('api_database_pool_max                = "6"');
-    expect(platformLocals).toContain("worker_default_database_pool_max     = local.is_non_production ? 8 : 6");
-    expect(platformLocals).toContain("worker_database_pool_max             = tostring(var.worker_database_pool_max");
-    expect(platformLocals).toContain('bootstrap_database_pool_max          = "4"');
-    expect(platformLocals).toContain('worker_projection_concurrency        = "2"');
-    expect(platformLocals).toContain("worker_default_job_concurrency       = local.is_staging ? 4 : 1");
-    expect(platformLocals).toContain("worker_job_concurrency               = tostring(var.worker_job_concurrency");
-    expect(platformLocals).toContain('source_observation_bulk_job_lanes    = local.is_staging ? "4" : "1"');
-    expect(platformLocals).toContain('source_observation_bulk_workflow_cap = local.is_staging ? "4" : "1"');
-    expect(platformLocals).toContain('source_observation_bulk_job_cap      = local.is_staging ? "2" : "1"');
-    expect(platformLocals).toContain('catalog_authoring_bulk_job_lanes     = local.is_staging ? "3" : "1"');
-    expect(platformLocals).toContain('source_observation_integration_job_lanes    = local.is_staging ? "4" : "1"');
-    expect(platformLocals).toContain('inventory_import_batch_job_lanes     = local.is_staging ? "4" : "1"');
-    expect(platformLocals).toContain('pricing_recommendation_job_lanes     = local.is_staging ? "3" : "1"');
-    expect(platformLocals).toContain('settlement_payout_reconciliation_job_lanes    = local.is_staging ? "2" : "1"');
+    expectTerraformAssignment(platformLocals, "api_database_pool_max", '"6"');
+    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_non_production ? 8 : 6");
+    expectTerraformAssignment(platformLocals, "worker_database_pool_max", "tostring(var.worker_database_pool_max");
+    expectTerraformAssignment(platformLocals, "bootstrap_database_pool_max", '"4"');
+    expectTerraformAssignment(platformLocals, "worker_projection_concurrency", '"2"');
+    expectTerraformAssignment(platformLocals, "worker_default_job_concurrency", "local.is_staging ? 4 : 1");
+    expectTerraformAssignment(platformLocals, "worker_job_concurrency", "tostring(var.worker_job_concurrency");
+    expectTerraformAssignment(platformLocals, "source_observation_bulk_job_lanes", 'local.is_staging ? "4" : "1"');
+    expectTerraformAssignment(platformLocals, "source_observation_bulk_workflow_cap", 'local.is_staging ? "4" : "1"');
+    expectTerraformAssignment(platformLocals, "source_observation_bulk_job_cap", 'local.is_staging ? "2" : "1"');
+    expectTerraformAssignment(platformLocals, "catalog_authoring_bulk_job_lanes", 'local.is_staging ? "3" : "1"');
+    expectTerraformAssignment(
+      platformLocals,
+      "source_observation_integration_job_lanes",
+      'local.is_staging ? "4" : "1"',
+    );
+    expectTerraformAssignment(platformLocals, "inventory_import_batch_job_lanes", 'local.is_staging ? "4" : "1"');
+    expectTerraformAssignment(platformLocals, "pricing_recommendation_job_lanes", 'local.is_staging ? "3" : "1"');
+    expectTerraformAssignment(
+      platformLocals,
+      "settlement_payout_reconciliation_job_lanes",
+      'local.is_staging ? "2" : "1"',
+    );
     expect(platformLocals).toContain("default_worker_instances = local.is_staging ? 2 : 1");
     expect(platformLocals).toContain("worker_instances         = var.worker_instance_count > 0");
     expect(platformVariables).toContain('variable "worker_instance_count"');
