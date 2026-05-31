@@ -176,6 +176,8 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.releaseControls.notRecorded": "Not recorded",
   "platformOperations.releaseControls.optOutSubjects": "Opt-out subjects",
   "platformOperations.releaseControls.percentage": "Percentage",
+  "platformOperations.releaseControls.persistReleaseLock": "Persist release lock",
+  "platformOperations.releaseControls.persistRolloutPolicy": "Persist rollout policy",
   "platformOperations.releaseControls.projectionOperations": "Projection operations",
   "platformOperations.releaseControls.reason": "Reason",
   "platformOperations.releaseControls.reference": "Reference",
@@ -190,5 +192,6 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.releaseControls.title": "Release Controls",
   "platformOperations.releaseControls.unlockAction": "Unlock production releases",
   "platformOperations.releaseControls.unlocked": "Unlocked",
+  "platformOperations.releaseControls.unknownAction": "Unknown release-controls action.",
   "platformOperations.releaseControls.yes": "yes",
 } as const;

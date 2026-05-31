@@ -13,6 +13,7 @@ import { contextManifest as marketplaceManifest, module as marketplaceModule } f
 import { contextManifest as notificationsManifest, module as notificationsModule } from "@chase-sets/notification-center";
 import { contextManifest as orderingManifest, module as orderingModule } from "@chase-sets/ordering";
 import { contextManifest as paymentsManifest, module as paymentsModule } from "@chase-sets/payments";
+import { contextManifest as platformOperationsManifest, module as platformOperationsModule } from "@chase-sets/platform-operations";
 import { contextManifest as pricingManifest, module as pricingModule } from "@chase-sets/pricing";
 import { contextManifest as publicPresenceManifest, module as publicPresenceModule } from "@chase-sets/public-presence";
 import { contextManifest as reputationManifest, module as reputationModule } from "@chase-sets/reputation";
@@ -97,6 +98,12 @@ export const apiContextRegistry = [
     packageName: "@chase-sets/payments",
     manifest: paymentsManifest,
     module: paymentsModule,
+  },
+  {
+    contextName: "platform-operations",
+    packageName: "@chase-sets/platform-operations",
+    manifest: platformOperationsManifest,
+    module: platformOperationsModule,
   },
   {
     contextName: "pricing",

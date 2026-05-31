@@ -4,15 +4,17 @@ import { redirect, useActionData, useLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createPricingRequestApiClient } from "../../support/request-support/api-client";
+import { requirePricingAccountRepricingRollout } from "../../support/request-support/rollout-guard";
 import { PricingRecommendationListPage } from "../../features/recommendations/ui/recommendation-list-page";
 
 const DEFAULT_RECOMMENDATION_QUERY = "limit=100&offset=0";
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "pricing.view",
   });
+  await requirePricingAccountRepricingRollout(request, actor);
   const api = createPricingRequestApiClient(request);
 
   return {
@@ -30,10 +32,11 @@ function selectedRecommendationIds(formData: FormData) {
 }
 
 export async function action({ request }: ActionFunctionArgs) {
-  await requireActorFromAuthApi({
+  const actor = await requireActorFromAuthApi({
     request,
     permission: "pricing.manage",
   });
+  await requirePricingAccountRepricingRollout(request, actor);
   const api = createPricingRequestApiClient(request);
   const formData = await request.formData();
   const intent = String(formData.get("intent") ?? "");
