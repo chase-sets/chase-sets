@@ -231,6 +231,7 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
     : PROOF_VARIABLE_RECOMMENDATIONS.PRODUCTION_MARKETPLACE_PROOF_REFERENCE({ checkedAt });
   const sesSnsEventDestinationSetup = buildSesSnsEventDestinationSetup(providerCallbackSetup);
   const easyPostWebhookSetup = buildEasyPostWebhookSetup(providerCallbackSetup);
+  const fulfillmentPostageProofApiSetup = buildFulfillmentPostageProofApiSetup(providerCallbackSetup);
   const launchSupplyProofApiSetup = buildLaunchSupplyProofApiSetup(providerCallbackSetup);
 
   return {
@@ -267,6 +268,7 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
     ],
     sesSnsEventDestinationSetup,
     easyPostWebhookSetup,
+    fulfillmentPostageProofApiSetup,
     launchSupplyProofApiSetup,
     stripeMoneySmokeCheckCommand: "pnpm run stripe:money-smoke -- --check-env",
     stripeMoneySmokeCommand: "pnpm run stripe:money-smoke -- --edge-check --seller-flow",
@@ -274,9 +276,39 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
       "Run secret commands interactively or pipe values from a private password manager; never commit secret values.",
       "Set PRODUCTION_MARKETPLACE_PROOF_REFERENCE to the private proof evidence record if the suggested date-based reference is not the final record id.",
       "Complete sesSnsEventDestinationSetup and easyPostWebhookSetup before collecting Transactional Email and Fulfillment Postage proof records.",
+      "Use fulfillmentPostageProofApiSetup only with operator-controlled proof orders; it opens authenticated seller shipment APIs, not public fulfillment surfaces.",
       "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
       "Use stripeMoneySmokeEnvironmentCommands for private production proof only after topology evidence passes and live Stripe secrets are loaded into the shell.",
+    ],
+  };
+}
+
+function buildFulfillmentPostageProofApiSetup(providerCallbackSetup) {
+  const baseUrl = providerCallbackSetup.productionProofBaseUrl;
+  return {
+    purpose:
+      "Drive operator-controlled seller shipment label purchase, void/refund, and exception proof while public marketplace promotion remains closed.",
+    baseUrl,
+    routedApiPrefixes: ["/api/fulfillment/account/sales/shipments"],
+    requiredTopologyChecks: [
+      `${baseUrl}/api/fulfillment/account/sales/shipments`,
+      `${baseUrl}/api/fulfillment/account/sales/shipments/topology-proof-shipment/label/purchase`,
+      `${baseUrl}/api/fulfillment/account/sales/shipments/topology-proof-shipment/label/void`,
+      `${baseUrl}/api/fulfillment/account/sales/shipments/topology-proof-shipment/exception`,
+    ],
+    evidenceFields: [
+      "gates.fulfillmentPostage.controlledParcelShipmentId",
+      "gates.fulfillmentPostage.parcelProviderShipmentId",
+      "gates.fulfillmentPostage.parcelProviderLabelId",
+      "gates.fulfillmentPostage.labelVoidRefundProviderObjectReference",
+      "gates.fulfillmentPostage.deliveryExceptionProviderEventId",
+    ],
+    checklist: [
+      "Run production proof topology evidence and verify each Fulfillment seller shipment private API returns a JSON 401 without redirects.",
+      "Authenticate with the operator-controlled proof seller that owns the shipment created from the deferred checkout order.",
+      "List seller shipments, pack the controlled shipment, purchase a USPS label through EasyPost production mode, void the label, and rehearse a delivery exception or provider-simulated exception.",
+      "Attach the redacted Fulfillment shipment id, EasyPost shipment/label/tracker ids, void/refund reference, and provider-event query output to PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE.",
     ],
   };
 }
