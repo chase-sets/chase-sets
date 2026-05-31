@@ -4,6 +4,7 @@ import {
   Badge,
   Banner,
   Button,
+  Checkbox,
   OrderProtectionModule,
   CheckoutLayout,
   Divider,
@@ -75,7 +76,7 @@ export type CheckoutSavedPaymentInstrument = Readonly<{
   display_label: string;
   confirmation_experience: "trusted-payment-step" | "off-session-token";
   is_default: boolean;
-  readiness: "ready" | "setup-required";
+  readiness: "ready" | "setup-required" | "removed";
 }>;
 
 function formatLineLabel(line: CheckoutSessionRow["lines"][number]) {
@@ -137,6 +138,7 @@ export function CheckoutSessionPage({
   savedShippingAddresses = [],
   savedCheckoutInstruments = [],
   canManageShippingAddresses = false,
+  canSavePaymentMethods = false,
 }: {
   session: CheckoutSessionRow;
   wallet?: { available_balance_amount: string; currency_code: string } | null;
@@ -150,6 +152,7 @@ export function CheckoutSessionPage({
   savedShippingAddresses?: readonly CheckoutSavedShippingAddress[];
   savedCheckoutInstruments?: readonly CheckoutSavedPaymentInstrument[];
   canManageShippingAddresses?: boolean;
+  canSavePaymentMethods?: boolean;
 }) {
   const lines = session.lines;
   const lineCount = lines.reduce((sum, line) => sum + line.quantity, 0);
@@ -1006,6 +1009,17 @@ export function CheckoutSessionPage({
                                 })
                               : instrument.display_label,
                           }))}
+                        />
+                      ) : null}
+                      {!isOfferIntent &&
+                      canSavePaymentMethods &&
+                      !selectedSavedPaymentInstrument &&
+                      effectivePaymentMethodCategory !== "platform-credit" ? (
+                        <Checkbox
+                          label={t("checkout.features.sessions.ui.checkoutPage.save.payment.method")}
+                          description={t("checkout.features.sessions.ui.checkoutPage.save.payment.method.description")}
+                          name="savePaymentMethodForFuture"
+                          value="true"
                         />
                       ) : null}
                       {!isOfferIntent ? (

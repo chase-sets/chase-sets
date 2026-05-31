@@ -108,22 +108,106 @@ CREATE TABLE IF NOT EXISTS payments_provider_operations (
 CREATE INDEX IF NOT EXISTS payments_provider_operations_status_idx
   ON payments_provider_operations (status, updated_at);
 
+CREATE TABLE IF NOT EXISTS payments_provider_customers (
+  account_id text NOT NULL,
+  provider text NOT NULL,
+  provider_customer_reference text NOT NULL,
+  display_name text NULL,
+  email text NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (account_id, provider),
+  UNIQUE (provider, provider_customer_reference)
+);
+
 CREATE TABLE IF NOT EXISTS payments_saved_checkout_instruments (
   instrument_id text PRIMARY KEY,
   account_id text NOT NULL,
   payment_method_category text NOT NULL CHECK (payment_method_category IN ('card', 'bank-account', 'platform-credit')),
   provider text NOT NULL,
+  provider_customer_reference text NULL,
   provider_reference text NOT NULL,
   display_label text NOT NULL,
   confirmation_experience text NOT NULL CHECK (confirmation_experience IN ('trusted-payment-step', 'off-session-token')),
-  readiness text NOT NULL CHECK (readiness IN ('ready', 'setup-required')),
+  readiness text NOT NULL CHECK (readiness IN ('ready', 'setup-required', 'removed')),
+  allow_redisplay text NOT NULL DEFAULT 'unspecified',
+  consent_id text NULL,
+  consent_text text NULL,
+  removed_at timestamptz NULL,
   is_default boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+ALTER TABLE payments_saved_checkout_instruments
+  ADD COLUMN IF NOT EXISTS provider_customer_reference text NULL;
+
+ALTER TABLE payments_saved_checkout_instruments
+  ADD COLUMN IF NOT EXISTS allow_redisplay text NOT NULL DEFAULT 'unspecified';
+
+ALTER TABLE payments_saved_checkout_instruments
+  ADD COLUMN IF NOT EXISTS consent_id text NULL;
+
+ALTER TABLE payments_saved_checkout_instruments
+  ADD COLUMN IF NOT EXISTS consent_text text NULL;
+
+ALTER TABLE payments_saved_checkout_instruments
+  ADD COLUMN IF NOT EXISTS removed_at timestamptz NULL;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'payments_saved_checkout_instruments_readiness_check'
+      AND conrelid = 'payments_saved_checkout_instruments'::regclass
+  ) THEN
+    ALTER TABLE payments_saved_checkout_instruments
+      DROP CONSTRAINT payments_saved_checkout_instruments_readiness_check;
+  END IF;
+
+  ALTER TABLE payments_saved_checkout_instruments
+    ADD CONSTRAINT payments_saved_checkout_instruments_readiness_check
+    CHECK (readiness IN ('ready', 'setup-required', 'removed')) NOT VALID;
+END $$;
+
 CREATE INDEX IF NOT EXISTS payments_saved_checkout_instruments_account_idx
   ON payments_saved_checkout_instruments (account_id, is_default DESC, updated_at DESC, instrument_id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS payments_saved_checkout_instruments_provider_ref_idx
+  ON payments_saved_checkout_instruments (provider, provider_reference);
+
+CREATE TABLE IF NOT EXISTS payments_saved_checkout_instrument_audit (
+  audit_id text PRIMARY KEY,
+  instrument_id text NOT NULL,
+  account_id text NOT NULL,
+  action text NOT NULL,
+  reason text NULL,
+  performed_by_account_id text NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS payments_saved_checkout_instrument_audit_account_idx
+  ON payments_saved_checkout_instrument_audit (account_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS payments_saved_checkout_setup_sessions (
+  setup_reference_id text PRIMARY KEY,
+  account_id text NOT NULL,
+  provider text NOT NULL,
+  provider_customer_reference text NOT NULL,
+  processor_setup_reference text NOT NULL UNIQUE,
+  processor_client_secret text NULL,
+  processor_redirect_url text NULL,
+  processor_status text NOT NULL,
+  consent_id text NOT NULL,
+  consent_text text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz NULL
+);
+
+CREATE INDEX IF NOT EXISTS payments_saved_checkout_setup_sessions_account_idx
+  ON payments_saved_checkout_setup_sessions (account_id, updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS payments_reconciliation_runs (
   reconciliation_run_id text PRIMARY KEY,

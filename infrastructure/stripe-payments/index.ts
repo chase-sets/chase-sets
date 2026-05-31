@@ -2,12 +2,18 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   CreatedProcessorPayment,
   CreatedProcessorRefund,
+  CreatedProcessorCustomer,
+  CreatedProcessorSetupSession,
   AgenticProcessorPaymentInput,
+  CreateProcessorCustomerInput,
   CreateProcessorPaymentInput,
   CreateProcessorRefundInput,
+  CreateProcessorSetupSessionInput,
   PaymentProcessorGateway,
   PaymentProcessorPublicConfig,
   PaymentProcessorWebhookEvent,
+  ProcessorSavedPaymentMethod,
+  ProcessorSetupSessionResult,
 } from "@chase-sets/payment-processing";
 import {
   ProviderAdapterError,
@@ -31,14 +37,50 @@ type StripeCheckoutSessionResponse = Readonly<{
   client_secret?: string | null;
   url?: string | null;
   status?: string | null;
+  mode?: string | null;
   payment_status?: string | null;
   payment_intent?: string | Readonly<{ id?: string | null }> | null;
+  setup_intent?: string | Readonly<{ id?: string | null }> | null;
+  customer?: string | Readonly<{ id?: string | null }> | null;
+  metadata?: Readonly<Record<string, string | null | undefined>> | null;
 }>;
 
 type StripePaymentIntentResponse = Readonly<{
   id: string;
   client_secret?: string | null;
   status?: string | null;
+  payment_method?: string | Readonly<StripePaymentMethodResponse> | null;
+  customer?: string | Readonly<{ id?: string | null }> | null;
+}>;
+
+type StripeCustomerResponse = Readonly<{
+  id: string;
+}>;
+
+type StripeSetupIntentResponse = Readonly<{
+  id: string;
+  status?: string | null;
+  payment_method?: string | Readonly<StripePaymentMethodResponse> | null;
+  customer?: string | Readonly<{ id?: string | null }> | null;
+  last_setup_error?: Readonly<{
+    code?: string | null;
+    message?: string | null;
+  }> | null;
+}>;
+
+type StripePaymentMethodResponse = Readonly<{
+  id: string;
+  type?: string | null;
+  customer?: string | Readonly<{ id?: string | null }> | null;
+  allow_redisplay?: "always" | "limited" | "unspecified" | null;
+  card?: Readonly<{
+    brand?: string | null;
+    last4?: string | null;
+  }> | null;
+  us_bank_account?: Readonly<{
+    bank_name?: string | null;
+    last4?: string | null;
+  }> | null;
 }>;
 
 type StripeRefundResponse = Readonly<{
@@ -56,6 +98,20 @@ type StripeEventEnvelope = Readonly<{
       status?: string | null;
       payment_status?: string | null;
       payment_intent?: string | null;
+      setup_intent?: string | null;
+      mode?: string | null;
+      customer?: string | null;
+      payment_method?: string | null;
+      type?: string | null;
+      allow_redisplay?: "always" | "limited" | "unspecified" | null;
+      card?: Readonly<{
+        brand?: string | null;
+        last4?: string | null;
+      }> | null;
+      us_bank_account?: Readonly<{
+        bank_name?: string | null;
+        last4?: string | null;
+      }> | null;
       metadata?: Readonly<Record<string, string | null | undefined>> | null;
       last_payment_error?: Readonly<{
         code?: string | null;
@@ -161,6 +217,72 @@ function paymentIntentReferenceFromSession(session: StripeCheckoutSessionRespons
   return normalizeOptionalText(paymentIntent?.id ?? null);
 }
 
+function setupIntentReferenceFromSession(session: StripeCheckoutSessionResponse) {
+  const setupIntent = session.setup_intent;
+  if (typeof setupIntent === "string") {
+    return normalizeOptionalText(setupIntent);
+  }
+  return normalizeOptionalText(setupIntent?.id ?? null);
+}
+
+function customerReference(value: string | Readonly<{ id?: string | null }> | null | undefined) {
+  if (typeof value === "string") {
+    return normalizeOptionalText(value);
+  }
+  return normalizeOptionalText(value?.id ?? null);
+}
+
+function paymentMethodReference(value: string | Readonly<StripePaymentMethodResponse> | null | undefined) {
+  if (typeof value === "string") {
+    return normalizeOptionalText(value);
+  }
+  return normalizeOptionalText(value?.id ?? null);
+}
+
+function paymentMethodCategory(
+  method: Pick<StripePaymentMethodResponse, "type">,
+): ProcessorSavedPaymentMethod["paymentMethodCategory"] {
+  return method.type === "us_bank_account" ? "bank-account" : "card";
+}
+
+function titleCase(value: string) {
+  return value
+    .split(/[\s_-]+/g)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1).toLowerCase()}`)
+    .join(" ");
+}
+
+function paymentMethodDisplayLabel(method: StripePaymentMethodResponse) {
+  if (method.type === "us_bank_account") {
+    const bankName = normalizeOptionalText(method.us_bank_account?.bank_name ?? null) ?? "Bank account";
+    const last4 = normalizeOptionalText(method.us_bank_account?.last4 ?? null);
+    return last4 ? `${bankName} ending in ${last4}` : bankName;
+  }
+
+  const brand = normalizeOptionalText(method.card?.brand ?? null);
+  const last4 = normalizeOptionalText(method.card?.last4 ?? null);
+  const label = brand ? titleCase(brand) : "Card";
+  return last4 ? `${label} ending in ${last4}` : label;
+}
+
+function mapSavedPaymentMethod(method: StripePaymentMethodResponse): ProcessorSavedPaymentMethod {
+  const providerReference = normalizeOptionalText(method.id);
+  if (!providerReference) {
+    throw new Error("Stripe payment method did not include an id.");
+  }
+  return {
+    processorName: "stripe",
+    providerCustomerReference: customerReference(method.customer),
+    providerReference,
+    paymentMethodCategory: paymentMethodCategory(method),
+    displayLabel: paymentMethodDisplayLabel(method),
+    readiness: method.customer ? "ready" : "setup-required",
+    allowRedisplay: method.allow_redisplay ?? "unspecified",
+    removed: !method.customer,
+  };
+}
+
 async function parseStripeResponse<T>(response: Response): Promise<T> {
   const body = await response.json().catch(() => null);
 
@@ -244,10 +366,31 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
   const failureCode = normalizeOptionalText(paymentObject.last_payment_error?.code ?? null);
   const failureMessage = normalizeOptionalText(paymentObject.last_payment_error?.message ?? null);
   const internalPaymentId = metadataPaymentId(paymentObject) as PaymentProcessorWebhookEvent["internalPaymentId"];
+  const savedPaymentConsentId = normalizeOptionalText(paymentObject.metadata?.saved_payment_consent_id ?? null);
+  const savedPaymentConsentText = normalizeOptionalText(paymentObject.metadata?.saved_payment_consent_text ?? null);
 
   switch (event.type) {
     case "checkout.session.completed":
     case "checkout.session.async_payment_succeeded":
+      if (paymentObject.mode === "setup") {
+        return {
+          eventId: event.id,
+          kind: "saved-payment-setup-succeeded",
+          processorName: "stripe",
+          processorPaymentKind: "checkout-session",
+          processorPaymentReference,
+          internalPaymentId,
+          processorStatus,
+          failureCode: null,
+          failureMessage: null,
+          occurredAt,
+          processorSetupReference: processorPaymentReference,
+          setupIntentReference: normalizeOptionalText(paymentObject.setup_intent ?? null),
+          savedPaymentConsentId,
+          savedPaymentConsentText,
+          savedPaymentMethod: null,
+        };
+      }
       return {
         eventId: event.id,
         kind: "payment-captured",
@@ -259,8 +402,29 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         failureCode: null,
         failureMessage: null,
         occurredAt,
+        savedPaymentConsentId,
+        savedPaymentConsentText,
       };
     case "checkout.session.async_payment_failed":
+      if (paymentObject.mode === "setup") {
+        return {
+          eventId: event.id,
+          kind: "saved-payment-setup-failed",
+          processorName: "stripe",
+          processorPaymentKind: "checkout-session",
+          processorPaymentReference,
+          internalPaymentId,
+          processorStatus,
+          failureCode,
+          failureMessage,
+          occurredAt,
+          processorSetupReference: processorPaymentReference,
+          setupIntentReference: normalizeOptionalText(paymentObject.setup_intent ?? null),
+          savedPaymentConsentId,
+          savedPaymentConsentText,
+          savedPaymentMethod: null,
+        };
+      }
       return {
         eventId: event.id,
         kind: "payment-failed",
@@ -312,6 +476,58 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         failureCode: null,
         failureMessage: null,
         occurredAt,
+      };
+    case "setup_intent.succeeded":
+      return {
+        eventId: event.id,
+        kind: "saved-payment-setup-succeeded",
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference,
+        internalPaymentId,
+        processorStatus,
+        failureCode: null,
+        failureMessage: null,
+        occurredAt,
+        processorSetupReference: null,
+        setupIntentReference: processorPaymentReference,
+        savedPaymentConsentId,
+        savedPaymentConsentText,
+        savedPaymentMethod: null,
+      };
+    case "setup_intent.setup_failed":
+      return {
+        eventId: event.id,
+        kind: "saved-payment-setup-failed",
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference,
+        internalPaymentId,
+        processorStatus,
+        failureCode,
+        failureMessage,
+        occurredAt,
+        processorSetupReference: null,
+        setupIntentReference: processorPaymentReference,
+        savedPaymentConsentId,
+        savedPaymentConsentText,
+        savedPaymentMethod: null,
+      };
+    case "payment_method.detached":
+      return {
+        eventId: event.id,
+        kind: "saved-payment-method-detached",
+        processorName: "stripe",
+        processorPaymentKind: "payment-intent",
+        processorPaymentReference,
+        internalPaymentId: null,
+        processorStatus,
+        failureCode: null,
+        failureMessage: null,
+        occurredAt,
+        savedPaymentConsentId,
+        savedPaymentConsentText,
+        savedPaymentMethod: mapSavedPaymentMethod(paymentObject as StripePaymentMethodResponse),
       };
     case "payment_intent.payment_failed":
       return {
@@ -404,12 +620,190 @@ export function createStripePaymentProcessorGateway(
     return parseStripeResponse<T>(response);
   }
 
+  async function retrievePaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null> {
+    const reference = normalizeOptionalText(providerReference);
+    if (!reference) {
+      return null;
+    }
+    const method = await stripeRequest<StripePaymentMethodResponse>(
+      `/v1/payment_methods/${encodeURIComponent(reference)}`,
+      { method: "GET" },
+    );
+    return mapSavedPaymentMethod(method);
+  }
+
+  async function retrievePaymentIntentPaymentMethod(
+    paymentIntentReference: string | null,
+  ): Promise<ProcessorSavedPaymentMethod | null> {
+    if (!paymentIntentReference) {
+      return null;
+    }
+    const intent = await stripeRequest<StripePaymentIntentResponse>(
+      `/v1/payment_intents/${encodeURIComponent(paymentIntentReference)}`,
+      { method: "GET" },
+    );
+    const methodReference = paymentMethodReference(intent.payment_method);
+    if (!methodReference) {
+      return null;
+    }
+    return retrievePaymentMethod(methodReference);
+  }
+
+  async function retrieveSetupIntentPaymentMethod(
+    setupIntentReference: string | null,
+  ): Promise<ProcessorSavedPaymentMethod | null> {
+    if (!setupIntentReference) {
+      return null;
+    }
+    const setupIntent = await stripeRequest<StripeSetupIntentResponse>(
+      `/v1/setup_intents/${encodeURIComponent(setupIntentReference)}`,
+      { method: "GET" },
+    );
+    const methodReference = paymentMethodReference(setupIntent.payment_method);
+    if (!methodReference) {
+      return null;
+    }
+    return retrievePaymentMethod(methodReference);
+  }
+
   return {
     getPublicConfiguration() {
       return publicConfiguration;
     },
+    async createCustomer(input: CreateProcessorCustomerInput): Promise<CreatedProcessorCustomer> {
+      const body = await stripeRequest<StripeCustomerResponse>(
+        "/v1/customers",
+        {
+          method: "POST",
+          body: toFormBody({
+            ...(input.displayName?.trim() ? { name: input.displayName.trim() } : {}),
+            ...(input.email?.trim() ? { email: input.email.trim() } : {}),
+            "metadata[account_id]": input.accountId,
+          }),
+        },
+        {
+          idempotencyKey: input.idempotencyKey ?? `payments:account:${input.accountId}:stripe-customer`,
+        },
+      );
+
+      if (!body.id?.trim()) {
+        throw new Error("Stripe did not return a customer id.");
+      }
+
+      return {
+        processorName: "stripe",
+        providerCustomerReference: body.id,
+      };
+    },
+    async createSetupSession(input: CreateProcessorSetupSessionInput): Promise<CreatedProcessorSetupSession> {
+      const setupReturnUrl = normalizeOptionalText(input.returnUrl) ?? "http://localhost/account/payment-methods";
+      const body = await stripeRequest<StripeCheckoutSessionResponse>(
+        "/v1/checkout/sessions",
+        {
+          method: "POST",
+          body: toFormBody({
+            mode: "setup",
+            customer: input.providerCustomerReference,
+            currency: input.currencyCode,
+            ui_mode: "hosted",
+            success_url: setupReturnUrl,
+            cancel_url: setupReturnUrl,
+            client_reference_id: input.accountId,
+            "metadata[account_id]": input.accountId,
+            "metadata[setup_reference]": input.consentId,
+            "metadata[saved_payment_consent_id]": input.consentId,
+            "metadata[saved_payment_consent_text]": input.consentText,
+          }),
+        },
+        {
+          idempotencyKey: input.idempotencyKey ?? `payments:account:${input.accountId}:setup:${input.consentId}`,
+        },
+      );
+
+      if (!body.id?.trim()) {
+        throw new Error("Stripe did not return a setup checkout session id.");
+      }
+
+      return {
+        processorName: "stripe",
+        processorSetupKind: "checkout-setup-session",
+        processorSetupReference: body.id,
+        processorClientSecret: body.client_secret?.trim() ?? null,
+        processorRedirectUrl: body.url?.trim() ?? null,
+        processorStatus: body.status?.trim() ?? "open",
+      };
+    },
+    async retrieveSetupSessionResult(processorSetupReference: string): Promise<ProcessorSetupSessionResult> {
+      const session = await stripeRequest<StripeCheckoutSessionResponse>(
+        `/v1/checkout/sessions/${encodeURIComponent(processorSetupReference)}`,
+        { method: "GET" },
+      );
+      const setupIntentReference = setupIntentReferenceFromSession(session);
+      return {
+        processorName: "stripe",
+        processorSetupReference: session.id,
+        processorStatus: session.status?.trim() ?? "unknown",
+        setupIntentReference,
+        savedPaymentMethod: await retrieveSetupIntentPaymentMethod(setupIntentReference),
+      };
+    },
+    retrieveSavedPaymentMethod: retrievePaymentMethod,
+    async detachSavedPaymentMethod(providerReference: string): Promise<ProcessorSavedPaymentMethod | null> {
+      const reference = normalizeOptionalText(providerReference);
+      if (!reference) {
+        return null;
+      }
+      const method = await stripeRequest<StripePaymentMethodResponse>(
+        `/v1/payment_methods/${encodeURIComponent(reference)}/detach`,
+        { method: "POST", body: toFormBody({}) },
+      );
+      return mapSavedPaymentMethod(method);
+    },
     async createPaymentSession(input: CreateProcessorPaymentInput): Promise<CreatedProcessorPayment> {
       const amount = moneyToMinorUnits(normalizeMoneyAmount(input.amount, "Payment amount"));
+      if (input.savedCheckoutInstrument?.providerReference) {
+        const body = await stripeRequest<StripePaymentIntentResponse>(
+          "/v1/payment_intents",
+          {
+            method: "POST",
+            body: toFormBody({
+              amount: String(amount),
+              currency: input.currencyCode,
+              customer: input.savedCheckoutInstrument.providerCustomerReference ?? "",
+              payment_method: input.savedCheckoutInstrument.providerReference,
+              confirm: "true",
+              off_session:
+                input.savedCheckoutInstrument.confirmationExperience === "off-session-token" ? "true" : "false",
+              description: input.description,
+              transfer_group: `payment:${input.paymentId}`,
+              ...paymentMetadataEntries(input, {
+                funds_strategy: "platform-held",
+                transfer_group: `payment:${input.paymentId}`,
+                saved_checkout_instrument_id: input.savedCheckoutInstrument.instrumentId,
+                saved_checkout_instrument_confirmation: input.savedCheckoutInstrument.confirmationExperience,
+              }),
+              ...marketplaceRiskMetadataEntries(input),
+            }),
+          },
+          {
+            idempotencyKey: input.idempotencyKey ?? `payments:payment:${input.paymentId}:saved-method:create`,
+          },
+        );
+
+        if (!body.id?.trim()) {
+          throw new Error("Stripe did not return a payment intent id.");
+        }
+
+        return {
+          processorName: "stripe",
+          processorPaymentKind: "payment-intent",
+          processorPaymentReference: body.id,
+          processorClientSecret: body.client_secret?.trim() ?? null,
+          processorRedirectUrl: null,
+          processorStatus: body.status?.trim() ?? "requires_confirmation",
+        };
+      }
+
       const paymentReturnUrl = normalizeOptionalText(input.returnUrl) ?? "http://localhost/account/payments";
       const sessionNavigation: Record<string, string> =
         checkoutUiMode === "hosted"
@@ -448,6 +842,15 @@ export function createStripePaymentProcessorGateway(
                     input.savedCheckoutInstrument.instrumentId,
                   "payment_intent_data[metadata][saved_checkout_instrument_confirmation]":
                     input.savedCheckoutInstrument.confirmationExperience,
+                }
+              : {}),
+            ...(input.savePaymentMethod
+              ? {
+                  customer: input.savePaymentMethod.providerCustomerReference,
+                  "payment_intent_data[setup_future_usage]": "off_session",
+                  "payment_intent_data[metadata][saved_payment_consent_id]": input.savePaymentMethod.consentId,
+                  "metadata[saved_payment_consent_id]": input.savePaymentMethod.consentId,
+                  "metadata[saved_payment_consent_text]": input.savePaymentMethod.consentText,
                 }
               : {}),
             ...marketplaceRiskMetadataEntries(input, "payment_intent_data[metadata]"),
@@ -572,7 +975,38 @@ export function createStripePaymentProcessorGateway(
     async parseWebhook(input) {
       verifyStripeSignature(input.rawBody, input.signatureHeader, options.webhookSecret, webhookToleranceSeconds);
       const event = JSON.parse(input.rawBody) as StripeEventEnvelope;
-      return mapWebhookEvent(event);
+      const mapped = mapWebhookEvent(event);
+      if (!mapped) {
+        return null;
+      }
+
+      if (mapped.kind === "saved-payment-setup-succeeded") {
+        const setupIntentReference = mapped.setupIntentReference ?? null;
+        return {
+          ...mapped,
+          savedPaymentMethod:
+            mapped.savedPaymentMethod ?? (await retrieveSetupIntentPaymentMethod(setupIntentReference)),
+        };
+      }
+
+      if (mapped.kind === "payment-captured") {
+        const object = event.data?.object;
+        const consentId = normalizeOptionalText(object?.metadata?.saved_payment_consent_id ?? null);
+        const paymentIntentReference =
+          typeof object?.payment_intent === "string"
+            ? normalizeOptionalText(object.payment_intent)
+            : mapped.processorPaymentReference.startsWith("pi_")
+              ? mapped.processorPaymentReference
+              : null;
+        if (consentId && paymentIntentReference) {
+          return {
+            ...mapped,
+            savedPaymentMethod: await retrievePaymentIntentPaymentMethod(paymentIntentReference),
+          };
+        }
+      }
+
+      return mapped;
     },
   };
 }

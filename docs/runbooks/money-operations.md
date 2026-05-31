@@ -38,6 +38,7 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 - Money Health must show provider diagnostics, platform balance forecast, payout issues, and reconciliation history.
 - Payout Operations must show recent provider idempotency keys.
 - Payment webhooks must cover checkout completion, async failure, expiration, refunds, and disputes.
+- Stored-payment webhooks must cover setup success, setup failure, payment-method detach, and saved-during-payment capture facts. Reconciliation must compare Payments-owned Saved Checkout Instruments with Stripe PaymentMethod state and mark stale methods `setup-required` or `removed` without deleting historical payment references.
 - Connect webhooks must cover account/readiness updates, `payout.paid`, and `payout.failed`.
 - Support must be able to open structured buyer and seller order issues before production marketplace launch, because support holds can block settlement release and support resolutions can produce refunds.
 - Run `pnpm run verify` before deployment. DB-backed rollout checks belong in `pnpm run verify:db` when database compatibility is in scope.

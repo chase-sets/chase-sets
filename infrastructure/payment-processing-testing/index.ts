@@ -1,8 +1,11 @@
 import type {
+  CreateProcessorCustomerInput,
   CreateProcessorPaymentInput,
   CreateProcessorRefundInput,
+  CreateProcessorSetupSessionInput,
   PaymentProcessorGateway,
   PaymentProcessorWebhookEvent,
+  ProcessorSavedPaymentMethod,
 } from "@chase-sets/payment-processing";
 
 type FakeWebhookEnvelope = Readonly<{
@@ -28,6 +31,22 @@ function createRefundReference(input: CreateProcessorRefundInput) {
   return `re_seed_${input.paymentId}_${input.amount.replace(".", "_")}`;
 }
 
+function fakeSavedPaymentMethod(
+  providerReference: string,
+  customerReference = "cus_seed",
+): ProcessorSavedPaymentMethod {
+  return {
+    processorName: "stripe",
+    providerCustomerReference: customerReference,
+    providerReference,
+    paymentMethodCategory: providerReference.includes("bank") ? "bank-account" : "card",
+    displayLabel: providerReference.includes("bank") ? "Bank account ending in 6789" : "Visa ending in 4242",
+    readiness: "ready",
+    allowRedisplay: "always",
+    removed: false,
+  };
+}
+
 export function createFakePaymentProcessorGateway(
   options: FakePaymentProcessorGatewayOptions = {},
 ): PaymentProcessorGateway {
@@ -41,17 +60,58 @@ export function createFakePaymentProcessorGateway(
         sensitivePaymentDetailsHandledByProcessor: true,
       };
     },
+    async createCustomer(input: CreateProcessorCustomerInput) {
+      return {
+        processorName: "stripe",
+        providerCustomerReference: `cus_seed_${input.accountId.replaceAll(/[^a-zA-Z0-9]+/g, "_")}`,
+      };
+    },
+    async createSetupSession(input: CreateProcessorSetupSessionInput) {
+      return {
+        processorName: "stripe",
+        processorSetupKind: "checkout-setup-session",
+        processorSetupReference: `cs_setup_seed_${input.accountId}`,
+        processorClientSecret: `cs_setup_seed_${input.accountId}_secret_seed`,
+        processorRedirectUrl: `https://checkout.stripe.test/setup/${input.accountId}`,
+        processorStatus: "open",
+      };
+    },
+    async retrieveSetupSessionResult(processorSetupReference) {
+      return {
+        processorName: "stripe",
+        processorSetupReference,
+        processorStatus: "complete",
+        setupIntentReference: `seti_${processorSetupReference}`,
+        savedPaymentMethod: fakeSavedPaymentMethod(`pm_${processorSetupReference}`, "cus_seed"),
+      };
+    },
+    async retrieveSavedPaymentMethod(providerReference) {
+      return fakeSavedPaymentMethod(providerReference);
+    },
+    async detachSavedPaymentMethod(providerReference) {
+      return {
+        ...fakeSavedPaymentMethod(providerReference),
+        providerCustomerReference: null,
+        readiness: "removed",
+        removed: true,
+      };
+    },
     async createPaymentSession(input) {
       return {
         processorName: "stripe",
-        processorPaymentKind: "checkout-session",
-        processorPaymentReference: createPaymentReference(input),
-        processorClientSecret: `cs_seed_${input.paymentId}_secret_seed`,
-        processorRedirectUrl:
-          options.confirmationExperience === "processor-hosted-page"
+        processorPaymentKind: input.savedCheckoutInstrument ? "payment-intent" : "checkout-session",
+        processorPaymentReference: input.savedCheckoutInstrument
+          ? `pi_seed_${input.paymentId}`
+          : createPaymentReference(input),
+        processorClientSecret: input.savedCheckoutInstrument
+          ? `pi_seed_${input.paymentId}_secret_seed`
+          : `cs_seed_${input.paymentId}_secret_seed`,
+        processorRedirectUrl: input.savedCheckoutInstrument
+          ? null
+          : options.confirmationExperience === "processor-hosted-page"
             ? `https://checkout.stripe.test/pay/${input.paymentId}`
             : null,
-        processorStatus: "open",
+        processorStatus: input.savedCheckoutInstrument ? "succeeded" : "open",
       };
     },
     async createRefund(input) {

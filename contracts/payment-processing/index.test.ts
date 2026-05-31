@@ -19,6 +19,27 @@ describe("payment processing contract", () => {
         processorRedirectUrl: null,
         processorStatus: "requires_payment_method",
       }),
+      createCustomer: async () => ({
+        processorName: "stripe",
+        providerCustomerReference: "cus_test",
+      }),
+      createSetupSession: async () => ({
+        processorName: "stripe",
+        processorSetupKind: "checkout-setup-session",
+        processorSetupReference: "cs_setup_test",
+        processorClientSecret: null,
+        processorRedirectUrl: "https://checkout.stripe.test/setup",
+        processorStatus: "open",
+      }),
+      retrieveSetupSessionResult: async () => ({
+        processorName: "stripe",
+        processorSetupReference: "cs_setup_test",
+        processorStatus: "complete",
+        setupIntentReference: "seti_test",
+        savedPaymentMethod: null,
+      }),
+      retrieveSavedPaymentMethod: async () => null,
+      detachSavedPaymentMethod: async () => null,
       createRefund: async () => ({
         processorName: "stripe",
         processorRefundReference: "re_test",

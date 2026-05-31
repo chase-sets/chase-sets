@@ -5,6 +5,8 @@ export const paymentsEnglishTranslations = {
   "payments.features.payments.api.route.forbidden": "Forbidden.",
   "payments.features.payments.api.route.payment.not.found": "Payment not found.",
   "payments.features.payments.api.route.payment.not.found.2": "Payment not found.",
+  "payments.features.payments.api.route.saved.payment.method.not.found": "Saved payment method not found.",
+  "payments.features.payments.api.route.saved.payment.method.not.found.2": "Saved payment method not found.",
   "payments.features.payments.api.route.marketplace.checkout.fee.quote.stale":
     "Marketplace checkout fee quote is stale.",
   "payments.features.payments.api.route.provider.event.not.found": "Provider event not found.",
@@ -212,6 +214,35 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPaymentNew.use.up.to.amount": "Use up to {amount}",
   "payments.routes.marketplace.accountPaymentNew.wallet.available.custom.description":
     "{amount} {currency} available; choose custom only when you want less than the maximum.",
+  "payments.routes.marketplace.accountPaymentMethods.add": "Add",
+  "payments.routes.marketplace.accountPaymentMethods.add.payment.method": "Add payment method",
+  "payments.routes.marketplace.accountPaymentMethods.back.to.buy.cart": "Back to Buy Cart",
+  "payments.routes.marketplace.accountPaymentMethods.bank.account": "Bank account",
+  "payments.routes.marketplace.accountPaymentMethods.card": "Card",
+  "payments.routes.marketplace.accountPaymentMethods.checkout": "Checkout",
+  "payments.routes.marketplace.accountPaymentMethods.choose.payment.method.action": "Choose a payment method action.",
+  "payments.routes.marketplace.accountPaymentMethods.default": "Default",
+  "payments.routes.marketplace.accountPaymentMethods.manage.payment.methods":
+    "Manage payment methods available for faster checkout.",
+  "payments.routes.marketplace.accountPaymentMethods.no.saved.payment.methods": "No saved payment methods",
+  "payments.routes.marketplace.accountPaymentMethods.no.saved.payment.methods.description":
+    "Add a payment method to make returning checkout faster.",
+  "payments.routes.marketplace.accountPaymentMethods.payment.method.saved": "Payment method saved",
+  "payments.routes.marketplace.accountPaymentMethods.payment.method.saved.description":
+    "This method is now available at checkout.",
+  "payments.routes.marketplace.accountPaymentMethods.payment.method.update.failed": "Payment method update failed",
+  "payments.routes.marketplace.accountPaymentMethods.payments": "Payments",
+  "payments.routes.marketplace.accountPaymentMethods.platform.credit": "Platform credit",
+  "payments.routes.marketplace.accountPaymentMethods.processor.setup.link.missing":
+    "The payment processor did not return a setup link.",
+  "payments.routes.marketplace.accountPaymentMethods.refresh": "Refresh",
+  "payments.routes.marketplace.accountPaymentMethods.remove": "Remove",
+  "payments.routes.marketplace.accountPaymentMethods.saved.payment.methods": "Saved payment methods",
+  "payments.routes.marketplace.accountPaymentMethods.set.default": "Set default",
+  "payments.routes.marketplace.accountPaymentMethods.setup.pending": "Setup pending",
+  "payments.routes.marketplace.accountPaymentMethods.setup.pending.description":
+    "Stripe has not confirmed a saved method yet.",
+  "payments.routes.marketplace.accountPaymentMethods.updated": "Updated {date}",
   "payments.routes.marketplace.accountPayment.claim.token": "Claim token",
   "payments.routes.marketplace.accountPayment.contact.name": "Contact name",
   "payments.routes.marketplace.accountPayment.continue.shopping": "Continue shopping",

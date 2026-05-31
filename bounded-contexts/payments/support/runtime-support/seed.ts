@@ -149,15 +149,34 @@ async function getAcceptedOfferSeedOrder(pool: PgTransactionalPool): Promise<Ord
 
 async function seedSavedCheckoutInstruments(pool: PgTransactionalPool) {
   await pool.query(
+    `INSERT INTO payments_provider_customers (
+       account_id,
+       provider,
+       provider_customer_reference,
+       display_name,
+       email,
+       created_at,
+       updated_at
+     ) VALUES ($1, 'stripe', 'cus_seed_collector', 'Seed collector', NULL, '2026-03-20T08:55:00.000Z', '2026-03-20T08:55:00.000Z')
+     ON CONFLICT (account_id, provider) DO UPDATE SET
+       provider_customer_reference = EXCLUDED.provider_customer_reference,
+       updated_at = EXCLUDED.updated_at`,
+    [identitySeedIds.collector.accountId],
+  );
+  await pool.query(
     `INSERT INTO payments_saved_checkout_instruments (
        instrument_id,
        account_id,
        payment_method_category,
        provider,
+       provider_customer_reference,
        provider_reference,
        display_label,
        confirmation_experience,
        readiness,
+       allow_redisplay,
+       consent_id,
+       consent_text,
        is_default,
        created_at,
        updated_at
@@ -168,10 +187,14 @@ async function seedSavedCheckoutInstruments(pool: PgTransactionalPool) {
          $1,
          'card',
          'stripe',
+         'cus_seed_collector',
          'pm_seed_collector_card',
          'Visa ending in 4242',
          'off-session-token',
          'ready',
+         'always',
+         'consent_seed_collector_card',
+         'Save this payment method for future Chase Sets checkout.',
          true,
          '2026-03-20T09:00:00.000Z',
          '2026-03-20T09:00:00.000Z'
@@ -181,18 +204,26 @@ async function seedSavedCheckoutInstruments(pool: PgTransactionalPool) {
          $1,
          'bank-account',
          'stripe',
+         'cus_seed_collector',
          'pm_seed_collector_bank',
          'Bank account ending in 6789',
          'trusted-payment-step',
          'ready',
+         'always',
+         'consent_seed_collector_bank',
+         'Save this payment method for future Chase Sets checkout.',
          false,
          '2026-03-20T09:05:00.000Z',
          '2026-03-20T09:05:00.000Z'
        )
      ON CONFLICT (instrument_id) DO UPDATE SET
        display_label = EXCLUDED.display_label,
+       provider_customer_reference = EXCLUDED.provider_customer_reference,
        confirmation_experience = EXCLUDED.confirmation_experience,
        readiness = EXCLUDED.readiness,
+       allow_redisplay = EXCLUDED.allow_redisplay,
+       consent_id = EXCLUDED.consent_id,
+       consent_text = EXCLUDED.consent_text,
        is_default = EXCLUDED.is_default,
        updated_at = EXCLUDED.updated_at`,
     [identitySeedIds.collector.accountId],

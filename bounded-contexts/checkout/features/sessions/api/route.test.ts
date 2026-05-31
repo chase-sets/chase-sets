@@ -383,6 +383,7 @@ describe("checkout session routes", () => {
       "card",
       "quote_1",
       null,
+      false,
       "/account/payments/:paymentId",
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
@@ -453,6 +454,7 @@ describe("checkout session routes", () => {
       "card",
       "quote_1",
       null,
+      false,
       "/account/payments/:paymentId",
     );
     expect(services.recordPaymentStarted).toHaveBeenCalledWith(
@@ -494,6 +496,7 @@ describe("checkout session routes", () => {
       "bank-account",
       "quote_1",
       null,
+      false,
       "/account/payments/:paymentId",
     );
   });
@@ -585,6 +588,7 @@ describe("checkout session routes", () => {
       "card",
       "quote_1",
       null,
+      false,
       "/checkout/payments/:paymentId",
     );
   });

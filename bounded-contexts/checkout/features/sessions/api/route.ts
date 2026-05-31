@@ -370,6 +370,8 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
       typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : null;
     const acknowledgedMaterialChanges = body.acknowledgedMaterialChanges === true;
     const deferPayment = body.deferPayment === true && access.actor.roleKey !== "guest-buyer";
+    const savePaymentMethodForFuture =
+      body.savePaymentMethodForFuture === true && access.actor.roleKey !== "guest-buyer" && !savedCheckoutInstrumentId;
 
     try {
       let session = await services.getSession(sessionId, access.actor.accountId);
@@ -511,6 +513,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         paymentMethodCategory,
         marketplaceCheckoutFeeQuoteFingerprint,
         savedCheckoutInstrumentId,
+        savePaymentMethodForFuture,
         access.actor.roleKey === "guest-buyer" ? "/checkout/payments/:paymentId" : "/account/payments/:paymentId",
       );
       await services.recordPaymentStarted(

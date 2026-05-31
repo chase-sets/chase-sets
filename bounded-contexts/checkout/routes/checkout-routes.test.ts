@@ -1168,6 +1168,7 @@ describe("checkout web routes", () => {
       paymentMethodCategory: "bank-account",
       marketplaceCheckoutFeeQuoteFingerprint: null,
       savedCheckoutInstrumentId: null,
+      savePaymentMethodForFuture: false,
       fulfillmentPreviewRevision: null,
       acknowledgedMaterialChanges: false,
       deferPayment: true,

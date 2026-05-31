@@ -131,6 +131,27 @@ function createProcessorGateway() {
       processorRedirectUrl: null,
       processorStatus: "requires_payment_method",
     })),
+    createCustomer: vi.fn(async () => ({
+      processorName: "stripe" as const,
+      providerCustomerReference: "cus_buyer",
+    })),
+    createSetupSession: vi.fn(async () => ({
+      processorName: "stripe" as const,
+      processorSetupKind: "checkout-setup-session" as const,
+      processorSetupReference: "cs_setup",
+      processorClientSecret: null,
+      processorRedirectUrl: "https://checkout.stripe.test/setup",
+      processorStatus: "open",
+    })),
+    retrieveSetupSessionResult: vi.fn(async () => ({
+      processorName: "stripe" as const,
+      processorSetupReference: "cs_setup",
+      processorStatus: "complete",
+      setupIntentReference: "seti_setup",
+      savedPaymentMethod: null,
+    })),
+    retrieveSavedPaymentMethod: vi.fn(async () => null),
+    detachSavedPaymentMethod: vi.fn(async () => null),
     createRefund: vi.fn(async () => {
       throw new Error("Refunds are not part of this test.");
     }),
@@ -200,6 +221,27 @@ describe("payment runtime", () => {
       createPaymentSession: vi.fn(async () => {
         throw new Error("Processor payment should not be recreated.");
       }),
+      createCustomer: vi.fn(async () => ({
+        processorName: "stripe" as const,
+        providerCustomerReference: "cus_buyer",
+      })),
+      createSetupSession: vi.fn(async () => ({
+        processorName: "stripe" as const,
+        processorSetupKind: "checkout-setup-session" as const,
+        processorSetupReference: "cs_setup",
+        processorClientSecret: null,
+        processorRedirectUrl: "https://checkout.stripe.test/setup",
+        processorStatus: "open",
+      })),
+      retrieveSetupSessionResult: vi.fn(async () => ({
+        processorName: "stripe" as const,
+        processorSetupReference: "cs_setup",
+        processorStatus: "complete",
+        setupIntentReference: "seti_setup",
+        savedPaymentMethod: null,
+      })),
+      retrieveSavedPaymentMethod: vi.fn(async () => null),
+      detachSavedPaymentMethod: vi.fn(async () => null),
       createRefund: vi.fn(async () => {
         throw new Error("Refunds are not part of this test.");
       }),
@@ -439,10 +481,15 @@ describe("payment runtime", () => {
           account_id: "acc_buyer",
           payment_method_category: "card",
           provider: "stripe",
+          provider_customer_reference: "cus_buyer",
           provider_reference: "pm_card_1",
           display_label: "Visa ending in 4242",
           confirmation_experience: "off-session-token",
           readiness: "ready",
+          allow_redisplay: "always",
+          consent_id: "consent_1",
+          consent_text: "Save for future checkout.",
+          removed_at: null,
           is_default: true,
           created_at: "2026-04-29T00:00:00.000Z",
           updated_at: "2026-04-29T00:00:00.000Z",
@@ -476,6 +523,7 @@ describe("payment runtime", () => {
       expect.objectContaining({
         savedCheckoutInstrument: {
           instrumentId: "sci_card_1",
+          providerCustomerReference: "cus_buyer",
           providerReference: "pm_card_1",
           confirmationExperience: "off-session-token",
           displayLabel: "Visa ending in 4242",
