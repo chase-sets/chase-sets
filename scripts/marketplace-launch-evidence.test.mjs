@@ -112,7 +112,7 @@ function validPacket(overrides = {}) {
         proofCompletedAt: "2026-05-30T10:25:00.000Z",
         environment: "live",
         releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
-        apiVersion: "2026-02-25.clover",
+        apiVersion: "2026-03-25.dahlia",
         paymentWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
         connectWebhookDestination: "https://marketplace.chasesets.com/api/settlement/provider/money-movement/webhooks",
         connectReturnUrl: "https://marketplace.chasesets.com/account/payouts",
@@ -1249,7 +1249,7 @@ describe("marketplace launch evidence verifier", () => {
 
     expect(result.ok).toBe(false);
     expect(result.errors).toContain("Stripe money operations environment must be live.");
-    expect(result.errors).toContain("Stripe money operations apiVersion must be 2026-02-25.clover.");
+    expect(result.errors).toContain("Stripe money operations apiVersion must be 2026-03-25.dahlia.");
     expect(result.errors).toContain("Stripe money operations must include at least one live connected account.");
     expect(result.errors).toContain("Stripe money operations proofCompletedAt cannot be older than 30 days.");
   });

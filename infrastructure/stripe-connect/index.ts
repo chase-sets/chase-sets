@@ -79,7 +79,7 @@ type StripeEventEnvelope = Readonly<{
   }>;
 }>;
 
-const STRIPE_API_VERSION = "2026-02-25.clover";
+const STRIPE_API_VERSION = "2026-03-25.dahlia";
 
 function encodeBasicAuth(secretKey: string) {
   return Buffer.from(`${secretKey}:`).toString("base64");

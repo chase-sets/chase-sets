@@ -232,8 +232,8 @@ function validateStripeMoneyOperationsProof(proof, checkedAt) {
   validateProofCompletedAt(proof.proofCompletedAt, checkedAt, errors);
   validateReleaseCommit("Stripe money operations", proof.releaseCommit, errors);
   validateEvidenceReference("Stripe money operations proofReference", proof.proofReference, errors);
-  if (proof.apiVersion !== "2026-02-25.clover") {
-    errors.push("Stripe money operations proof must confirm API version 2026-02-25.clover.");
+  if (proof.apiVersion !== "2026-03-25.dahlia") {
+    errors.push("Stripe money operations proof must confirm API version 2026-03-25.dahlia.");
   }
   if (!isProductionStripeUrl(proof.paymentWebhookDestination, PRODUCTION_STRIPE_PAYMENT_WEBHOOK_PATH)) {
     errors.push(

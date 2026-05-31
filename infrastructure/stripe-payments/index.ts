@@ -21,7 +21,7 @@ import {
   providerFailureCategoryFromText,
 } from "@chase-sets/http/provider-errors";
 
-const STRIPE_API_VERSION = "2026-02-25.clover";
+const STRIPE_API_VERSION = "2026-03-25.dahlia";
 
 export type StripePaymentProcessorGatewayOptions = Readonly<{
   secretKey: string;

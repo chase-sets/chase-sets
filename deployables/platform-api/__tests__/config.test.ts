@@ -366,7 +366,7 @@ describe("platform api config", () => {
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
 
     expect(loadConfig().stripeGoLive).toMatchObject({
-      apiVersion: "2026-02-25.clover",
+      apiVersion: "2026-03-25.dahlia",
       paymentsConfigured: true,
       connectConfigured: true,
       onboardingUrlsConfigured: true,

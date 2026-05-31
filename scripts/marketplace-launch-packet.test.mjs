@@ -127,7 +127,7 @@ function validInputs(overrides = {}) {
       proofCompletedAt: "2026-05-30T10:25:00.000Z",
       environment: "live",
       releaseCommit: "f318fd3577b635959dabc23117f509ed45621268",
-      apiVersion: "2026-02-25.clover",
+      apiVersion: "2026-03-25.dahlia",
       paymentWebhookDestination: "https://chasesets.com/api/payments/provider/webhooks",
       connectWebhookDestination: "https://chasesets.com/api/settlement/provider/money-movement/webhooks",
       connectReturnUrl: "https://marketplace.chasesets.com/account/payouts",

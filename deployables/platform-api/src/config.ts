@@ -175,7 +175,7 @@ export type PlatformApiMobileMessagingConfig =
       requireWebhookSignature: boolean;
     }>;
 
-export const STRIPE_PLATFORM_API_VERSION = "2026-02-25.clover";
+export const STRIPE_PLATFORM_API_VERSION = "2026-03-25.dahlia";
 
 export const REQUIRED_STRIPE_WEBHOOK_EVENTS = [
   "checkout.session.completed",
