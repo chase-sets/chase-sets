@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -31,6 +31,23 @@ function workflowStep(source, stepName) {
 
   const next = source.indexOf("\n      - name:", start + 1);
   return next === -1 ? source.slice(start) : source.slice(start, next);
+}
+
+function terraformStringList(source, localName) {
+  const match = new RegExp(`${localName} = \\[([\\s\\S]*?)\\n  \\]`).exec(source);
+  expect(match).not.toBeNull();
+  return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
+}
+
+function platformApiContextNames() {
+  return readdirSync(resolve("bounded-contexts"), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((contextName) => {
+      const manifest = JSON.parse(readFileSync(resolve("bounded-contexts", contextName, "context.json"), "utf8"));
+      return manifest.apiDeployables?.includes("platform-api");
+    })
+    .sort();
 }
 
 describe("DigitalOcean platform configuration", () => {
@@ -133,6 +150,11 @@ describe("DigitalOcean platform configuration", () => {
       'dynamic "worker" {\n      for_each = local.marketplace_platform_enabled ? [1] : []',
     );
     expect(platformMain).not.toMatch(/name\s+= "platform-worker"[\s\S]*?http_port\s+= 8080/);
+  });
+
+  it("provisions databases for every platform-api bounded context", () => {
+    const managedContexts = terraformStringList(platformLocals, "platform_context_names");
+    expect(managedContexts).toEqual(expect.arrayContaining(platformApiContextNames()));
   });
 
   it("routes staging root as the managed primary marketplace host", () => {

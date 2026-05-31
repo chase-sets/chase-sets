@@ -116,6 +116,7 @@ locals {
     "notifications",
     "ordering",
     "payments",
+    "platform-operations",
     "pricing",
     "public-presence",
     "reputation",
