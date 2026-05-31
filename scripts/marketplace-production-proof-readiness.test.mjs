@@ -122,6 +122,26 @@ describe("marketplace production proof readiness", () => {
             "gates.fulfillmentPostage.providerEventQueryReference",
           ]),
         },
+        launchSupplyProofApiSetup: {
+          purpose:
+            "Create operator-controlled launch supply listings while public marketplace promotion remains closed.",
+          baseUrl: "https://chasesets.com",
+          routedApiPrefixes: [
+            "/api/inventory/items/listing-stock/ensure",
+            "/api/inventory/storage-locations",
+            "/api/marketplace/account/listing-availability",
+            "/api/marketplace/account/listing-inventory",
+            "/api/marketplace/account/listings",
+          ],
+          requiredTopologyChecks: expect.arrayContaining([
+            "https://chasesets.com/api/inventory/items/listing-stock/ensure",
+            "https://chasesets.com/api/marketplace/account/listings",
+          ]),
+          evidenceFields: expect.arrayContaining([
+            "gates.launchSupplyMeasurements.activeLaunchListingCount",
+            "gates.launchSupplyMeasurements.sampledActiveLaunchListingIds",
+          ]),
+        },
         stripeMoneySmokeCheckCommand: "pnpm run stripe:money-smoke -- --check-env",
         stripeMoneySmokeCommand: "pnpm run stripe:money-smoke -- --edge-check --seller-flow",
       },
@@ -189,6 +209,9 @@ describe("marketplace production proof readiness", () => {
     );
     expect(readiness.operatorSetup.notes).toContain(
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
+    );
+    expect(readiness.operatorSetup.notes).toContain(
+      "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",
     );
   });
 

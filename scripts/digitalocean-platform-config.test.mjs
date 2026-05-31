@@ -243,6 +243,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain('"/api/payments/provider/webhooks"');
     expect(platformLocals).toContain('"/api/settlement/provider/money-movement/webhooks"');
     expect(platformLocals).toContain("proof_api_ingress_routes = {");
+    expect(platformLocals).toContain('"/api/inventory/items/listing-stock/ensure"');
+    expect(platformLocals).toContain('"/api/inventory/storage-locations"');
+    expect(platformLocals).toContain('"/api/marketplace/account/listing-availability"');
+    expect(platformLocals).toContain('"/api/marketplace/account/listing-inventory"');
+    expect(platformLocals).toContain('"/api/marketplace/account/listings"');
     expect(platformLocals).toContain('"/api/marketplace/account/payments"');
     expect(platformLocals).toContain('"/api/settlement/payout-setup"');
     expect(platformLocals).toContain("context_names = local.marketplace_platform_enabled");

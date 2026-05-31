@@ -233,6 +233,12 @@ describe("marketplace production proof topology evidence", () => {
       "Production proof topology private API GET /api/marketplace/account/checkout/status must not return 404.",
     );
     expect(evidence.errors).toContain(
+      "Production proof topology private API POST /api/inventory/items/listing-stock/ensure must not return 404.",
+    );
+    expect(evidence.errors).toContain(
+      "Production proof topology private API POST /api/marketplace/account/listings/topology-proof-listing/publish must not return 404.",
+    );
+    expect(evidence.errors).toContain(
       "Production proof topology private API POST /api/marketplace/account/checkout-sessions/topology-proof-session/confirm must not return 404.",
     );
   });

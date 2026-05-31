@@ -231,6 +231,7 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
     : PROOF_VARIABLE_RECOMMENDATIONS.PRODUCTION_MARKETPLACE_PROOF_REFERENCE({ checkedAt });
   const sesSnsEventDestinationSetup = buildSesSnsEventDestinationSetup(providerCallbackSetup);
   const easyPostWebhookSetup = buildEasyPostWebhookSetup(providerCallbackSetup);
+  const launchSupplyProofApiSetup = buildLaunchSupplyProofApiSetup(providerCallbackSetup);
 
   return {
     variableCommands: missingVariables.map((name) => {
@@ -266,14 +267,50 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
     ],
     sesSnsEventDestinationSetup,
     easyPostWebhookSetup,
+    launchSupplyProofApiSetup,
     stripeMoneySmokeCheckCommand: "pnpm run stripe:money-smoke -- --check-env",
     stripeMoneySmokeCommand: "pnpm run stripe:money-smoke -- --edge-check --seller-flow",
     notes: [
       "Run secret commands interactively or pipe values from a private password manager; never commit secret values.",
       "Set PRODUCTION_MARKETPLACE_PROOF_REFERENCE to the private proof evidence record if the suggested date-based reference is not the final record id.",
       "Complete sesSnsEventDestinationSetup and easyPostWebhookSetup before collecting Transactional Email and Fulfillment Postage proof records.",
+      "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
       "Use stripeMoneySmokeEnvironmentCommands for private production proof only after topology evidence passes and live Stripe secrets are loaded into the shell.",
+    ],
+  };
+}
+
+function buildLaunchSupplyProofApiSetup(providerCallbackSetup) {
+  const baseUrl = providerCallbackSetup.productionProofBaseUrl;
+  return {
+    purpose: "Create operator-controlled launch supply listings while public marketplace promotion remains closed.",
+    baseUrl,
+    routedApiPrefixes: [
+      "/api/inventory/items/listing-stock/ensure",
+      "/api/inventory/storage-locations",
+      "/api/marketplace/account/listing-availability",
+      "/api/marketplace/account/listing-inventory",
+      "/api/marketplace/account/listings",
+    ],
+    requiredTopologyChecks: [
+      `${baseUrl}/api/inventory/items/listing-stock/ensure`,
+      `${baseUrl}/api/inventory/storage-locations`,
+      `${baseUrl}/api/marketplace/account/listing-availability`,
+      `${baseUrl}/api/marketplace/account/listing-inventory`,
+      `${baseUrl}/api/marketplace/account/listings`,
+    ],
+    evidenceFields: [
+      "gates.launchSupplyMeasurements.activeLaunchListingCount",
+      "gates.launchSupplyMeasurements.activeLaunchSellerAccountCount",
+      "gates.launchSupplyMeasurements.sampledActiveLaunchListingIds",
+      "gates.launchSupplyMeasurements.queryReference",
+    ],
+    checklist: [
+      "Run production proof topology evidence and verify each launch-supply private API returns a JSON 401 without redirects.",
+      "Authenticate with an operator-controlled proof seller session on the proof API origin.",
+      "Create or reuse listing stock with a complete ship-from address, create the Marketplace Listing, publish it, then run launch-supply measurement.",
+      "Attach the redacted listing ids, seller account id, product-measure coverage output, and projection freshness reference to PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE.",
     ],
   };
 }
