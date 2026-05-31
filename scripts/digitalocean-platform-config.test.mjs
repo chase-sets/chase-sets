@@ -121,13 +121,16 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
-    expect(platformLocals).toContain('api_database_pool_max               = "6"');
-    expect(platformLocals).toContain("worker_default_database_pool_max    = local.is_non_production ? 8 : 6");
-    expect(platformLocals).toContain("worker_database_pool_max            = tostring(var.worker_database_pool_max");
-    expect(platformLocals).toContain('bootstrap_database_pool_max         = "4"');
-    expect(platformLocals).toContain('worker_projection_concurrency       = "2"');
-    expect(platformLocals).toContain("worker_default_job_concurrency      = local.is_staging ? 2 : 1");
-    expect(platformLocals).toContain("worker_job_concurrency              = tostring(var.worker_job_concurrency");
+    expect(platformLocals).toContain('api_database_pool_max                = "6"');
+    expect(platformLocals).toContain("worker_default_database_pool_max     = local.is_non_production ? 8 : 6");
+    expect(platformLocals).toContain("worker_database_pool_max             = tostring(var.worker_database_pool_max");
+    expect(platformLocals).toContain('bootstrap_database_pool_max          = "4"');
+    expect(platformLocals).toContain('worker_projection_concurrency        = "2"');
+    expect(platformLocals).toContain("worker_default_job_concurrency       = local.is_staging ? 3 : 1");
+    expect(platformLocals).toContain("worker_job_concurrency               = tostring(var.worker_job_concurrency");
+    expect(platformLocals).toContain('source_observation_bulk_job_lanes    = local.is_staging ? "3" : "1"');
+    expect(platformLocals).toContain('source_observation_bulk_workflow_cap = local.is_staging ? "3" : "1"');
+    expect(platformLocals).toContain('source_observation_bulk_job_cap      = local.is_staging ? "2" : "1"');
     expect(platformLocals).toContain("default_worker_instances = local.is_staging ? 2 : 1");
     expect(platformLocals).toContain("worker_instances         = var.worker_instance_count > 0");
     expect(platformVariables).toContain('variable "worker_instance_count"');
@@ -144,6 +147,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, "value = local.worker_database_pool_max")).toBe(2);
     expect(occurrenceCount(platformMain, "value = local.bootstrap_database_pool_max")).toBe(2);
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(2);
+    expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"')).toBe(1);
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain(

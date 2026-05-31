@@ -357,6 +357,9 @@
       "@chase-sets/platform-runtime/durable-job-web": [
         "./infrastructure/platform-runtime/durable-job-web.ts"
       ],
+      "@chase-sets/platform-runtime/durable-job-work-units": [
+        "./infrastructure/platform-runtime/durable-job-work-units.ts"
+      ],
       "@chase-sets/platform-runtime/health": [
         "./infrastructure/platform-runtime/health.ts"
       ],

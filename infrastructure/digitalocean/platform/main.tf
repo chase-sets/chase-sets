@@ -928,6 +928,24 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"
+          value = local.source_observation_bulk_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.source_observation_bulk_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.source_observation_bulk_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS"
           value = local.worker_dispatch_concurrency
           scope = "RUN_TIME"

@@ -484,7 +484,7 @@ describe("source observation runtime", () => {
     });
   });
 
-  it("processes persisted bulk review jobs in bounded resumable worker turns", async () => {
+  it("processes persisted bulk review jobs through durable work-unit turns", async () => {
     const harness = createBulkReviewJobHarness(30);
     const services = createSourceObservationRuntime(
       harness.deps,
@@ -499,14 +499,14 @@ describe("source observation runtime", () => {
       }),
     ).resolves.toBe(1);
 
-    expect(harness.job.status).toBe("queued");
+    expect(harness.job.status).toBe("running");
     expect(harness.job.progress).toMatchObject({
       phase: "processing",
-      completed: 25,
+      completed: 1,
       total: 30,
     });
-    expect(harness.job.result?.outcomes).toHaveLength(25);
-    expect(harness.appendedEvents).toHaveLength(25);
+    expect(harness.job.result?.outcomes).toHaveLength(1);
+    expect(harness.appendedEvents).toHaveLength(1);
 
     await expect(
       services.processNextBulkReviewJob({
@@ -515,20 +515,20 @@ describe("source observation runtime", () => {
       }),
     ).resolves.toBe(1);
 
-    expect(harness.job.status).toBe("completed");
+    expect(harness.job.status).toBe("running");
     expect(harness.job.progress).toMatchObject({
-      phase: "completed",
-      completed: 30,
+      phase: "processing",
+      completed: 2,
       total: 30,
     });
     expect(harness.job.result).toMatchObject({
       requested: 30,
-      rejected: 30,
+      rejected: 2,
       skipped: 0,
       failed: 0,
     });
-    expect(harness.job.result?.outcomes).toHaveLength(30);
-    expect(harness.appendedEvents).toHaveLength(30);
+    expect(harness.job.result?.outcomes).toHaveLength(2);
+    expect(harness.appendedEvents).toHaveLength(2);
   });
 
   it("reuses an active provider integration job with the same actor action and scope", async () => {
@@ -1327,10 +1327,119 @@ function createBulkReviewJobHarness(count: number) {
     updated_at: "2026-05-20T00:00:00.000Z",
   };
   const appendedEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
+  const workUnits = new Map<
+    string,
+    {
+      unit_id: string;
+      unit_kind: string;
+      state: "queued" | "running" | "completed" | "failed" | "skipped";
+      payload: { observationId: string };
+      result: Record<string, unknown> | null;
+      error_message: string | null;
+      claim_owner_id: string | null;
+      claim_token: string | null;
+      claimed_until: string | null;
+      attempt_count: number;
+      created_at: string;
+      updated_at: string;
+      completed_at: string | null;
+    }
+  >();
 
   const deps = {
     db: {
       query: async <T>(sql: string, values: readonly unknown[] = []) => {
+        if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_work_units")) {
+          const units = JSON.parse(String(values[1])) as Array<{
+            unit_id: string;
+            unit_kind: string;
+            payload: { observationId: string };
+          }>;
+          let inserted = 0;
+          for (const unit of units) {
+            if (workUnits.has(unit.unit_id)) {
+              continue;
+            }
+            inserted += 1;
+            workUnits.set(unit.unit_id, {
+              unit_id: unit.unit_id,
+              unit_kind: unit.unit_kind,
+              state: "queued",
+              payload: unit.payload,
+              result: null,
+              error_message: null,
+              claim_owner_id: null,
+              claim_token: null,
+              claimed_until: null,
+              attempt_count: 0,
+              created_at: "2026-05-20T00:00:00.000Z",
+              updated_at: "2026-05-20T00:00:00.000Z",
+              completed_at: null,
+            });
+          }
+          return { rowCount: inserted, rows: [] as T[] };
+        }
+
+        if (sql.includes("WITH workflow_budget")) {
+          const unit = [...workUnits.values()].find(
+            (candidate) => candidate.state === "queued" || candidate.claimed_until === "expired",
+          );
+          if (!unit) {
+            return { rowCount: 0, rows: [] as T[] };
+          }
+          unit.state = "running";
+          unit.claim_owner_id = String(values[0]);
+          unit.claim_token = String(values[1]);
+          unit.claimed_until = "2026-05-20T00:02:00.000Z";
+          unit.attempt_count += 1;
+          job.status = "running";
+          job.started_at ??= "2026-05-20T00:00:00.000Z";
+          return { rowCount: 1, rows: [{ ...prefixedBulkJobRow(job), ...prefixedBulkWorkUnitRow(unit) }] as T[] };
+        }
+
+        if (sql.includes("WITH terminal_unit")) {
+          const unit = workUnits.get(String(values[1]));
+          if (!unit || unit.claim_owner_id !== String(values[2]) || unit.claim_token !== String(values[3])) {
+            return { rowCount: 0, rows: [] as T[] };
+          }
+          unit.state = values[4] as typeof unit.state;
+          unit.result = values[5] == null ? null : JSON.parse(String(values[5]));
+          unit.error_message = values[6] == null ? null : String(values[6]);
+          unit.claim_owner_id = null;
+          unit.claim_token = null;
+          unit.claimed_until = null;
+          unit.completed_at = "2026-05-20T00:00:00.000Z";
+          return { rowCount: 1, rows: [{ job_id: job.job_id }] as T[] };
+        }
+
+        if (
+          sql.includes("UPDATE catalog_source_observation_bulk_review_jobs AS job") &&
+          sql.includes("CASE WHEN $4::boolean")
+        ) {
+          job.status = values[3] === true ? "completed" : "running";
+          job.progress = JSON.parse(String(values[1]));
+          job.result = values[2] == null ? job.result : JSON.parse(String(values[2]));
+          job.completed_at = values[3] === true ? "2026-05-20T00:00:00.000Z" : job.completed_at;
+          return { rowCount: 1, rows: [prefixedBulkJobRow(job)] as T[] };
+        }
+
+        if (
+          sql.includes("FROM catalog_source_observation_bulk_review_work_units") &&
+          sql.includes("count(*)::integer AS total")
+        ) {
+          const units = values[0]
+            ? [...workUnits.values()].filter((unit) => unit.unit_id || job.job_id === values[0])
+            : [...workUnits.values()];
+          return { rowCount: 1, rows: [bulkWorkUnitSummaryRow(units)] as T[] };
+        }
+
+        if (
+          sql.includes("FROM catalog_source_observation_bulk_review_work_units") &&
+          sql.includes("ORDER BY created_at ASC, unit_id ASC")
+        ) {
+          return { rowCount: workUnits.size, rows: [...workUnits.values()] as T[] };
+        }
+
         if (sql.includes("UPDATE catalog_source_observation_bulk_review_jobs AS job")) {
           if (job.status !== "queued") {
             return { rowCount: 0, rows: [] as T[] };
@@ -1456,6 +1565,57 @@ function createBulkReviewJobHarness(count: number) {
     deps,
     job,
     appendedEvents,
+  };
+}
+
+function prefixedBulkJobRow(job: Record<string, unknown>) {
+  return {
+    job_job_id: job.job_id,
+    job_job_kind: job.job_kind,
+    job_status: job.status,
+    job_payload: job.payload,
+    job_progress: job.progress,
+    job_result: job.result,
+    job_error_message: job.error_message,
+    job_event_context: job.event_context,
+    job_claim_owner_id: job.claim_owner_id,
+    job_claimed_until: job.claimed_until,
+    job_created_at: job.created_at,
+    job_started_at: job.started_at,
+    job_completed_at: job.completed_at,
+    job_updated_at: job.updated_at,
+  };
+}
+
+function prefixedBulkWorkUnitRow(unit: Record<string, unknown>) {
+  return {
+    unit_job_id: "job_bulk_review",
+    unit_unit_id: unit.unit_id,
+    unit_unit_kind: unit.unit_kind,
+    unit_state: unit.state,
+    unit_payload: unit.payload,
+    unit_result: unit.result,
+    unit_error_message: unit.error_message,
+    unit_claim_owner_id: unit.claim_owner_id,
+    unit_claim_token: unit.claim_token,
+    unit_claimed_until: unit.claimed_until,
+    unit_attempt_count: unit.attempt_count,
+    unit_created_at: unit.created_at,
+    unit_updated_at: unit.updated_at,
+    unit_completed_at: unit.completed_at,
+  };
+}
+
+function bulkWorkUnitSummaryRow(units: readonly { state: string; claimed_until: string | null }[]) {
+  return {
+    total: units.length,
+    queued: units.filter((unit) => unit.state === "queued").length,
+    running: units.filter((unit) => unit.state === "running").length,
+    completed: units.filter((unit) => unit.state === "completed").length,
+    failed: units.filter((unit) => unit.state === "failed").length,
+    skipped: units.filter((unit) => unit.state === "skipped").length,
+    active_claims: units.filter((unit) => unit.state === "running" && unit.claimed_until).length,
+    expired_claims: 0,
   };
 }
 

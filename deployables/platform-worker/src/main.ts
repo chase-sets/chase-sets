@@ -25,6 +25,7 @@ import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/serv
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
   collectWorkerRunners,
+  createDurableJobLaneRunners,
   createWorkerHost,
   createWorkerRunnerLoop,
   type WorkerHostRuntime,
@@ -236,11 +237,13 @@ app.get("/internal/workers/status", async (c) => {
     runnerCount: runnerLoop.runners.length,
     ...runnerLoop.loop.status(),
   }));
+  const durableWorkflows = await collectDurableWorkflowStatuses(runtime.services);
   return c.json({
     status: "ok",
     loop: summarizeLoopStatuses(config.workerId, loopStatuses),
     capacity: runnerCapacity,
     loops: loopStatuses,
+    durableWorkflows,
     workers: await controlPlane.listWorkerHeartbeats(),
     runners: await controlPlane.listRunnerStatuses(),
     leases: await controlPlane.listLeases(),
@@ -317,6 +320,23 @@ function summarizeLoopStatuses(workerId: string, loopStatuses: readonly ReturnTy
 
 async function stopRunnerLoops(loops: readonly WorkerRunnerLoop[]) {
   await Promise.allSettled(loops.map((loop) => loop.stop()));
+}
+
+async function collectDurableWorkflowStatuses(services: Readonly<Record<string, unknown>>) {
+  const catalog = services.catalog as
+    | {
+        sourceObservations?: {
+          getBulkReviewWorkUnitSummary?: () => Promise<unknown>;
+        };
+      }
+    | undefined;
+  const summaries = await Promise.all([
+    catalog?.sourceObservations?.getBulkReviewWorkUnitSummary?.().then((summary) => ({
+      workflowName: "catalog.source-observation-bulk-review",
+      summary,
+    })),
+  ]);
+  return summaries.filter(Boolean);
 }
 
 function createWorkerObserver(workerKind: string, runnerGroup?: string): WorkerRuntimeObserver {
@@ -569,7 +589,14 @@ function createDurableJobRetentionTask(services: Readonly<Record<string, unknown
 
 function createCatalogBulkJobRunners(
   services: Readonly<Record<string, unknown>>,
-  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
+  input: Pick<
+    ReturnType<typeof loadConfig>,
+    | "workerId"
+    | "leaseTtlMs"
+    | "sourceObservationBulkJobLaneCount"
+    | "sourceObservationBulkJobWorkflowMaxActiveClaims"
+    | "sourceObservationBulkJobMaxActiveClaimsPerJob"
+  >,
 ): readonly WorkerRunner[] {
   const catalog = services.catalog as
     | {
@@ -577,6 +604,9 @@ function createCatalogBulkJobRunners(
           processNextBulkReviewJob?: (input: {
             claimOwnerId: string;
             claimTtlMs: number;
+            workflowMaxActiveClaims?: number;
+            jobMaxActiveClaims?: number;
+            laneName?: string | null;
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
@@ -609,19 +639,24 @@ function createCatalogBulkJobRunners(
   const runners: WorkerRunner[] = [];
 
   if (processNextBulkReviewJob) {
-    runners.push({
-      name: "catalog.source-observation-bulk-jobs",
-      kind: "job",
-      runOnce: async (context) => ({
-        processed: await processNextBulkReviewJob({
-          claimOwnerId: input.workerId,
-          claimTtlMs: input.leaseTtlMs * 4,
-          signal: context?.signal,
-          throwIfLeaseLost: context?.throwIfLeaseLost,
+    runners.push(
+      ...createDurableJobLaneRunners({
+        workflowName: "catalog.source-observation-bulk-jobs",
+        laneCount: input.sourceObservationBulkJobLaneCount,
+        runLane: async (lane) => ({
+          processed: await processNextBulkReviewJob({
+            claimOwnerId: `${input.workerId}:${lane.laneName}`,
+            claimTtlMs: input.leaseTtlMs * 4,
+            workflowMaxActiveClaims: input.sourceObservationBulkJobWorkflowMaxActiveClaims,
+            jobMaxActiveClaims: input.sourceObservationBulkJobMaxActiveClaimsPerJob,
+            laneName: lane.laneName,
+            signal: lane.runnerContext?.signal,
+            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+          }),
+          lastGlobalPosition: "0" as never,
         }),
-        lastGlobalPosition: "0" as never,
       }),
-    });
+    );
   }
 
   if (processNextIntegrationJob) {
