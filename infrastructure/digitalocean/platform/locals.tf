@@ -198,6 +198,11 @@ locals {
     }
   }
   proof_api_route_prefixes = [
+    "/api/inventory/items/listing-stock/ensure",
+    "/api/inventory/storage-locations",
+    "/api/marketplace/account/listing-availability",
+    "/api/marketplace/account/listing-inventory",
+    "/api/marketplace/account/listings",
     "/api/marketplace/account/checkout",
     "/api/marketplace/account/checkout-sessions",
     "/api/marketplace/account/marketplace-checkout-fee-policy",

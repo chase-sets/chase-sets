@@ -18,6 +18,16 @@ export const PROVIDER_CALLBACK_EXPECTED_STATUSES = [200, 400];
 export const PRIVATE_PROOF_API_EXPECTED_STATUSES = [401];
 
 export const PRIVATE_PROOF_API_PATHS = [
+  { method: "POST", path: "/api/inventory/items/listing-stock/ensure" },
+  { method: "GET", path: "/api/inventory/storage-locations" },
+  { method: "POST", path: "/api/inventory/storage-locations" },
+  { method: "GET", path: "/api/marketplace/account/listing-availability" },
+  { method: "POST", path: "/api/marketplace/account/listing-availability/enable" },
+  { method: "GET", path: "/api/marketplace/account/listing-inventory" },
+  { method: "GET", path: "/api/marketplace/account/listings" },
+  { method: "POST", path: "/api/marketplace/account/listings/preview" },
+  { method: "POST", path: "/api/marketplace/account/listings" },
+  { method: "POST", path: "/api/marketplace/account/listings/topology-proof-listing/publish" },
   { method: "POST", path: "/api/marketplace/account/checkout-sessions" },
   { method: "POST", path: "/api/marketplace/account/checkout-sessions/topology-proof-session/confirm" },
   { method: "GET", path: "/api/marketplace/account/checkout/status" },
