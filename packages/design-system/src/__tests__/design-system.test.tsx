@@ -58,7 +58,9 @@ import {
   TaskSummary,
   AddressBlock,
   ChecklistCard,
+  OperationalLockBanner,
   WorkstationLayout,
+  QuantityChecklistControl,
   MarketplaceFacetChoiceGroup,
   MarketplaceFacetRail,
   MarketplaceFilterBottomSheet,
@@ -74,7 +76,8 @@ import {
   MarketingVisualCard,
   OrderIntentSummary,
   OfferCard,
-  OperationalStatusBanner,
+  TaskReference,
+  TaskScanInput,
   PaymentRecoveryPanel,
   ProductOptions,
   ProductMediaModule,
@@ -1360,17 +1363,34 @@ describe("design-system", () => {
         }
         primary={
           <div>
-            <OperationalStatusBanner title="Order changes locked while packing" description="Started today." />
+            <OperationalLockBanner title="Order changes locked while packing" description="Started today." />
+            <TaskScanInput
+              label="Scan or search"
+              value=""
+              buttonLabel="Confirm"
+              onValueChange={() => undefined}
+              onSubmit={() => undefined}
+              placeholder="Line, order line, product, or title"
+            />
             <ChecklistCard
               title="Item checklist"
-              progress={<TaskProgress label="1 of 1 checked" value={100} tone="success" />}
+              progress={<TaskProgress label="1 of 1 checked" value={100} valueLabel="100%" tone="success" />}
             >
               <TaskLineItem
                 title="Charizard"
                 subtitle="Base Set"
                 quantity={1}
+                quantityControl={
+                  <QuantityChecklistControl
+                    value={1}
+                    total={1}
+                    decreaseLabel="Decrease packed quantity"
+                    increaseLabel="Increase packed quantity"
+                  />
+                }
                 checked
                 checkboxLabel="Packed 1 x Charizard"
+                reference={<TaskReference label="Order" value="oli_1" displayValue="OLI_1" />}
               />
             </ChecklistCard>
             <StickyTaskFooter summary="1 of 1 checked">
@@ -1384,7 +1404,8 @@ describe("design-system", () => {
     expect(markup).toContain("lg:grid-cols-[minmax(0,1fr)_minmax(18rem,22rem)]");
     expect(markup).toContain("Order changes locked while packing");
     expect(markup).toContain("Packed 1 x Charizard");
-    expect(markup).toContain("bottom-[calc(7rem+env(safe-area-inset-bottom))]");
+    expect(markup).toContain("Line, order line, product, or title");
+    expect(markup).toContain("bottom-[calc(4.75rem+env(safe-area-inset-bottom))]");
   });
 
   it("renders mobile product commerce as an in-flow sticky action area", () => {

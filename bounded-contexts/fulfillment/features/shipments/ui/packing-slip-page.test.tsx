@@ -84,6 +84,7 @@ const slip: FulfillmentPackingSlip = {
       item_subtitle: "Base Set",
       product_summary: "Condition: Near Mint",
       quantity: 2,
+      packing_confirmed_quantity: 0,
       packing_confirmed_at: null,
     },
   ],
@@ -158,6 +159,7 @@ describe("fulfillment packing slip UI", () => {
       packing_started_at: "2026-04-02T00:01:00.000Z",
       lines: slip.lines.map((line) => ({
         ...line,
+        packing_confirmed_quantity: line.line_id === "spl_1" ? line.quantity : 0,
         packing_confirmed_at: line.line_id === "spl_1" ? "2026-04-02T00:02:00.000Z" : null,
       })),
     };

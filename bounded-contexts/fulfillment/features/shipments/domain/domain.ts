@@ -29,11 +29,15 @@ export type FulfillmentShipmentLine = Readonly<{
   itemSubtitle: string | null;
   productSummary: string | null;
   quantity: number;
+  packingConfirmedQuantity: number;
   packingConfirmedAt: string | null;
 }>;
 
-export type FulfillmentShipmentLineInput = Omit<FulfillmentShipmentLine, "packingConfirmedAt"> &
-  Readonly<{ packingConfirmedAt?: string | null }>;
+export type FulfillmentShipmentLineInput = Omit<
+  FulfillmentShipmentLine,
+  "packingConfirmedAt" | "packingConfirmedQuantity"
+> &
+  Readonly<{ packingConfirmedAt?: string | null; packingConfirmedQuantity?: number | null }>;
 
 export type FulfillmentShipmentException = Readonly<{
   exceptionType: ShipmentExceptionType;
@@ -183,6 +187,13 @@ export type UnconfirmShipmentPackingLineCommand = Readonly<{
   unconfirmedAt: string;
 }>;
 
+export type SetShipmentPackingLineQuantityCommand = Readonly<{
+  type: "SetShipmentPackingLineQuantity";
+  lineId: ShipmentLineId;
+  confirmedQuantity: number;
+  setAt: string;
+}>;
+
 export type AttachShipmentLabelCommand = Readonly<{
   type: "AttachShipmentLabel";
   shippingMethod: ShippingMethod;
@@ -251,6 +262,7 @@ export type FulfillmentShipmentCommand =
   | StartShipmentPackingCommand
   | ConfirmShipmentPackingLineCommand
   | UnconfirmShipmentPackingLineCommand
+  | SetShipmentPackingLineQuantityCommand
   | PrepareShipmentPackageCommand
   | AttachShipmentLabelCommand
   | RecordShipmentLabelPurchaseFailedCommand
@@ -312,6 +324,17 @@ export type ShipmentPackingLineUnconfirmedEvent = DomainEvent<
     shipmentId: ShipmentId;
     lineId: ShipmentLineId;
     unconfirmedAt: string;
+  }>
+>;
+
+export type ShipmentPackingLineQuantitySetEvent = DomainEvent<
+  "fulfillment.shipment.packing-line-quantity-set",
+  Readonly<{
+    shipmentId: ShipmentId;
+    lineId: ShipmentLineId;
+    confirmedQuantity: number;
+    confirmedAt: string | null;
+    setAt: string;
   }>
 >;
 
@@ -414,6 +437,7 @@ export type FulfillmentShipmentEvent =
   | ShipmentPackingStartedEvent
   | ShipmentPackingLineConfirmedEvent
   | ShipmentPackingLineUnconfirmedEvent
+  | ShipmentPackingLineQuantitySetEvent
   | ShipmentPackagePreparedEvent
   | ShipmentLabelAttachedEvent
   | ShipmentLabelPurchaseFailedEvent
@@ -426,19 +450,38 @@ export type FulfillmentShipmentEvent =
 
 function normalizeShipmentLines(lines: readonly FulfillmentShipmentLineInput[]) {
   assert(lines.length > 0, "Shipments must include at least one line.");
-  return lines.map((line) => ({
-    lineId: line.lineId,
-    orderLineId: normalizeRequiredText(line.orderLineId, "Shipment lines must reference an order line."),
-    catalogItemId: normalizeRequiredText(line.catalogItemId, "Shipment lines must reference a catalog item."),
-    productId: normalizeRequiredText(line.productId, "Shipment lines must reference a product id."),
-    itemTitle: normalizeRequiredText(line.itemTitle, "Shipment lines must include an item title."),
-    itemSubtitle: normalizeOptionalText(line.itemSubtitle),
-    productSummary: normalizeOptionalText(line.productSummary),
-    quantity: ensurePositiveInteger(line.quantity, "Shipment line quantity must be a positive whole number."),
-    packingConfirmedAt: line.packingConfirmedAt
+  return lines.map((line) => {
+    const quantity = ensurePositiveInteger(line.quantity, "Shipment line quantity must be a positive whole number.");
+    const packingConfirmedAt = line.packingConfirmedAt
       ? ensureIsoTimestamp(line.packingConfirmedAt, "Shipment line packing confirmation must record a timestamp.")
-      : null,
-  }));
+      : null;
+    const packingConfirmedQuantity =
+      line.packingConfirmedQuantity == null
+        ? packingConfirmedAt
+          ? quantity
+          : 0
+        : ensureNonNegativeInteger(
+            line.packingConfirmedQuantity,
+            "Shipment line packed quantity must be a non-negative whole number.",
+          );
+    assert(
+      packingConfirmedQuantity <= quantity,
+      "Shipment line packed quantity cannot exceed the shipment line quantity.",
+    );
+
+    return {
+      lineId: line.lineId,
+      orderLineId: normalizeRequiredText(line.orderLineId, "Shipment lines must reference an order line."),
+      catalogItemId: normalizeRequiredText(line.catalogItemId, "Shipment lines must reference a catalog item."),
+      productId: normalizeRequiredText(line.productId, "Shipment lines must reference a product id."),
+      itemTitle: normalizeRequiredText(line.itemTitle, "Shipment lines must include an item title."),
+      itemSubtitle: normalizeOptionalText(line.itemSubtitle),
+      productSummary: normalizeOptionalText(line.productSummary),
+      quantity,
+      packingConfirmedQuantity,
+      packingConfirmedAt: packingConfirmedQuantity >= quantity ? packingConfirmedAt : null,
+    };
+  });
 }
 
 export const decideFulfillmentShipment: AggregateDecider<
@@ -479,7 +522,7 @@ export const decideFulfillmentShipment: AggregateDecider<
         "Only shipments awaiting package preparation or in packing can be packed.",
       );
       assert(
-        state.lines.every((line) => line.packingConfirmedAt !== null),
+        state.lines.every((line) => line.packingConfirmedQuantity === line.quantity),
         "Every shipment line must be confirmed before the package can be packed.",
       );
       return [
@@ -518,7 +561,7 @@ export const decideFulfillmentShipment: AggregateDecider<
       assert(state.status === "packing", "Only shipments in packing can confirm packed lines.");
       const line = state.lines.find((candidate) => candidate.lineId === command.lineId);
       assert(line, "Shipment line must belong to this shipment.");
-      if (line.packingConfirmedAt !== null) {
+      if (line.packingConfirmedQuantity === line.quantity) {
         return [];
       }
       return [
@@ -532,12 +575,39 @@ export const decideFulfillmentShipment: AggregateDecider<
         },
       ];
     }
+    case "SetShipmentPackingLineQuantity": {
+      assert(state.shipmentId !== null, "Shipment must be created first.");
+      assert(state.status === "packing", "Only shipments in packing can update packed line quantities.");
+      const line = state.lines.find((candidate) => candidate.lineId === command.lineId);
+      assert(line, "Shipment line must belong to this shipment.");
+      const confirmedQuantity = ensureNonNegativeInteger(
+        command.confirmedQuantity,
+        "Packed quantity must be a non-negative whole number.",
+      );
+      assert(confirmedQuantity <= line.quantity, "Packed quantity cannot exceed the shipment line quantity.");
+      if (line.packingConfirmedQuantity === confirmedQuantity) {
+        return [];
+      }
+      const setAt = ensureIsoTimestamp(command.setAt, "Packed quantity update must record a timestamp.");
+      return [
+        {
+          type: "fulfillment.shipment.packing-line-quantity-set",
+          data: {
+            shipmentId: state.shipmentId,
+            lineId: command.lineId,
+            confirmedQuantity,
+            confirmedAt: confirmedQuantity >= line.quantity ? setAt : null,
+            setAt,
+          },
+        },
+      ];
+    }
     case "UnconfirmShipmentPackingLine": {
       assert(state.shipmentId !== null, "Shipment must be created first.");
       assert(state.status === "packing", "Only shipments in packing can clear packed line confirmations.");
       const line = state.lines.find((candidate) => candidate.lineId === command.lineId);
       assert(line, "Shipment line must belong to this shipment.");
-      if (line.packingConfirmedAt === null) {
+      if (line.packingConfirmedQuantity === 0) {
         return [];
       }
       return [
@@ -822,14 +892,29 @@ export const evolveFulfillmentShipment: AggregateEvolver<FulfillmentShipmentStat
       return {
         ...state,
         lines: state.lines.map((line) =>
-          line.lineId === event.data.lineId ? { ...line, packingConfirmedAt: event.data.confirmedAt } : line,
+          line.lineId === event.data.lineId
+            ? { ...line, packingConfirmedQuantity: line.quantity, packingConfirmedAt: event.data.confirmedAt }
+            : line,
         ),
       };
     case "fulfillment.shipment.packing-line-unconfirmed":
       return {
         ...state,
         lines: state.lines.map((line) =>
-          line.lineId === event.data.lineId ? { ...line, packingConfirmedAt: null } : line,
+          line.lineId === event.data.lineId ? { ...line, packingConfirmedQuantity: 0, packingConfirmedAt: null } : line,
+        ),
+      };
+    case "fulfillment.shipment.packing-line-quantity-set":
+      return {
+        ...state,
+        lines: state.lines.map((line) =>
+          line.lineId === event.data.lineId
+            ? {
+                ...line,
+                packingConfirmedQuantity: event.data.confirmedQuantity,
+                packingConfirmedAt: event.data.confirmedAt,
+              }
+            : line,
         ),
       };
     case "fulfillment.shipment.package-prepared":

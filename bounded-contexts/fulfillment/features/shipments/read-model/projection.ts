@@ -22,6 +22,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
           itemSubtitle: string | null;
           productSummary: string | null;
           quantity: number;
+          packingConfirmedQuantity?: number | null;
           packingConfirmedAt?: string | null;
         }>;
         createdAt: string;
@@ -111,9 +112,10 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
              item_subtitle,
              product_summary,
              quantity,
+             packing_confirmed_quantity,
              packing_confirmed_at
            ) VALUES (
-             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11
+             $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
            )`,
           [
             data.shipmentId,
@@ -126,6 +128,7 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
             line.itemSubtitle,
             line.productSummary,
             line.quantity,
+            line.packingConfirmedQuantity ?? (line.packingConfirmedAt ? line.quantity : 0),
             line.packingConfirmedAt ?? null,
           ],
         );
@@ -156,7 +159,8 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
 
       await db.query(
         `UPDATE fulfillment_shipment_line_pages
-         SET packing_confirmed_at = $3
+         SET packing_confirmed_quantity = quantity,
+             packing_confirmed_at = $3
          WHERE shipment_id = $1
            AND line_id = $2`,
         [data.shipmentId, data.lineId, data.confirmedAt],
@@ -178,7 +182,8 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
 
       await db.query(
         `UPDATE fulfillment_shipment_line_pages
-         SET packing_confirmed_at = NULL
+         SET packing_confirmed_quantity = 0,
+             packing_confirmed_at = NULL
          WHERE shipment_id = $1
            AND line_id = $2`,
         [data.shipmentId, data.lineId],
@@ -189,6 +194,31 @@ export function buildFulfillmentShipmentProjectionHandlers(db: PgQueryable): Pro
          SET updated_at = $2
          WHERE shipment_id = $1`,
         [data.shipmentId, data.unconfirmedAt],
+      );
+    },
+    "fulfillment.shipment.packing-line-quantity-set": async (event) => {
+      const data = event.data as {
+        shipmentId: string;
+        lineId: string;
+        confirmedQuantity: number;
+        confirmedAt: string | null;
+        setAt: string;
+      };
+
+      await db.query(
+        `UPDATE fulfillment_shipment_line_pages
+         SET packing_confirmed_quantity = $3,
+             packing_confirmed_at = $4
+         WHERE shipment_id = $1
+           AND line_id = $2`,
+        [data.shipmentId, data.lineId, data.confirmedQuantity, data.confirmedAt],
+      );
+
+      await db.query(
+        `UPDATE fulfillment_shipment_pages
+         SET updated_at = $2
+         WHERE shipment_id = $1`,
+        [data.shipmentId, data.setAt],
       );
     },
     "fulfillment.shipment.package-prepared": async (event) => {

@@ -275,30 +275,41 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
 
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const confirmed = body.confirmed === true || body.confirmed === "true";
+    const hasConfirmedQuantity = body.confirmedQuantity !== undefined;
 
     try {
-      const result = confirmed
-        ? await services.confirmPackingLine(
+      const result = hasConfirmedQuantity
+        ? await services.setPackingLineQuantity(
             {
               shipmentId: c.req.param("id"),
               sellerAccountId: access.actor.accountId,
               lineId: c.req.param("lineId"),
+              confirmedQuantity: Number(body.confirmedQuantity),
             },
             context,
           )
-        : await services.unconfirmPackingLine(
-            {
-              shipmentId: c.req.param("id"),
-              sellerAccountId: access.actor.accountId,
-              lineId: c.req.param("lineId"),
-            },
-            context,
-          );
+        : confirmed
+          ? await services.confirmPackingLine(
+              {
+                shipmentId: c.req.param("id"),
+                sellerAccountId: access.actor.accountId,
+                lineId: c.req.param("lineId"),
+              },
+              context,
+            )
+          : await services.unconfirmPackingLine(
+              {
+                shipmentId: c.req.param("id"),
+                sellerAccountId: access.actor.accountId,
+                lineId: c.req.param("lineId"),
+              },
+              context,
+            );
       return c.json({
         id: result.shipmentId,
         lineId: c.req.param("lineId"),
         version: result.version,
-        confirmed,
+        ...(hasConfirmedQuantity ? { confirmedQuantity: Number(body.confirmedQuantity) } : { confirmed }),
       });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);

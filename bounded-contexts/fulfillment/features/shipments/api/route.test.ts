@@ -48,6 +48,7 @@ function createServices(): FulfillmentShipmentServices {
     startPackingShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 2 })),
     confirmPackingLine: vi.fn(async () => ({ shipmentId: "shp_1", version: 3 })),
     unconfirmPackingLine: vi.fn(async () => ({ shipmentId: "shp_1", version: 4 })),
+    setPackingLineQuantity: vi.fn(async () => ({ shipmentId: "shp_1", version: 3 })),
     packShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 2 })),
     attachLabel: vi.fn(async () => ({ shipmentId: "shp_1", version: 3 })),
     purchaseUspsLabel: vi.fn(async () => ({
@@ -145,6 +146,7 @@ function createServices(): FulfillmentShipmentServices {
               item_subtitle: null,
               product_summary: "Condition: Near Mint",
               quantity: 1,
+              packing_confirmed_quantity: 0,
               packing_confirmed_at: null,
             },
           ],
@@ -367,7 +369,7 @@ describe("fulfillment shipment routes", () => {
       new Request("http://fulfillment.test/account/sales/shipments/shp_1/packing/lines/spl_1", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmed: true }),
+        body: JSON.stringify({ confirmedQuantity: 1 }),
       }),
     );
     const completePackingResponse = await app.fetch(
@@ -411,7 +413,7 @@ describe("fulfillment shipment routes", () => {
       id: "shp_1",
       lineId: "spl_1",
       version: 3,
-      confirmed: true,
+      confirmedQuantity: 1,
     });
     expect(completePackingResponse.status).toBe(200);
     await expect(completePackingResponse.json()).resolves.toEqual({
@@ -445,11 +447,12 @@ describe("fulfillment shipment routes", () => {
       },
       expect.any(Object),
     );
-    expect(services.confirmPackingLine).toHaveBeenCalledWith(
+    expect(services.setPackingLineQuantity).toHaveBeenCalledWith(
       {
         shipmentId: "shp_1",
         sellerAccountId: "acc_seller",
         lineId: "spl_1",
+        confirmedQuantity: 1,
       },
       expect.any(Object),
     );
