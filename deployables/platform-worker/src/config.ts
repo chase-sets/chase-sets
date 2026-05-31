@@ -22,6 +22,9 @@ export type PlatformWorkerConfig = Readonly<{
   jobMaxConcurrentRunners: number;
   dispatchMaxConcurrentRunners: number;
   scheduledMaxConcurrentRunners: number;
+  sourceObservationBulkJobLaneCount: number;
+  sourceObservationBulkJobWorkflowMaxActiveClaims: number;
+  sourceObservationBulkJobMaxActiveClaimsPerJob: number;
   pollIntervalMs: number;
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
@@ -230,6 +233,15 @@ export function loadConfig(): PlatformWorkerConfig {
     jobMaxConcurrentRunners: getPositiveNumberEnv("WORKER_JOB_MAX_CONCURRENT_RUNNERS", 1),
     dispatchMaxConcurrentRunners: getPositiveNumberEnv("WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS", 1),
     scheduledMaxConcurrentRunners: getPositiveNumberEnv("WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS", 1),
+    sourceObservationBulkJobLaneCount: getPositiveNumberEnv("SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT", 1),
+    sourceObservationBulkJobWorkflowMaxActiveClaims: getPositiveNumberEnv(
+      "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      1,
+    ),
+    sourceObservationBulkJobMaxActiveClaimsPerJob: getPositiveNumberEnv(
+      "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      1,
+    ),
     pollIntervalMs: getPositiveNumberEnv("WORKER_POLL_INTERVAL_MS", 1_000),
     leaseTtlMs: getPositiveNumberEnv("WORKER_LEASE_TTL_MS", 30_000),
     leaseRenewIntervalMs: getPositiveNumberEnv("WORKER_LEASE_RENEW_INTERVAL_MS", 10_000),

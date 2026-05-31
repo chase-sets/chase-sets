@@ -1,4 +1,5 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 
 export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS catalog_source_observations (
   observation_id text PRIMARY KEY,
@@ -35,6 +36,11 @@ ${durableJobSchemaSql({
   jobsTable: "catalog_source_observation_bulk_review_jobs",
   eventsTable: "catalog_source_observation_bulk_review_job_events",
   notifyChannel: "catalog_source_observation_durable_job_events",
+})}
+
+${durableJobWorkUnitSchemaSql({
+  jobsTable: "catalog_source_observation_bulk_review_jobs",
+  workUnitsTable: "catalog_source_observation_bulk_review_work_units",
 })}
 
 ${durableJobSchemaSql({

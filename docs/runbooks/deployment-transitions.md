@@ -54,6 +54,13 @@ job state. Progress writes renew durable job ownership, bounded-turn jobs
 release the live claim back to `queued`, and completion/failure writes are
 rejected after lease loss so a replacement worker can safely resume.
 
+Catalog Source Observation bulk review uses same-job work units. During deploy
+drain, each active lane receives cancellation through the platform runner lease
+context and releases its current work-unit claim; if the process exits first,
+the unit becomes claimable after its TTL. The parent job remains the public
+status/SSE aggregate, and deployment handoff should appear as a brief pause in
+progress rather than a failed job.
+
 Replayable jobs should resume the same target after worker replacement.
 Inventory import create jobs persist their target batch id before validation and
 protect active staged inputs from retention cleanup; Pricing recommendation
@@ -92,8 +99,27 @@ operation state and business facts.
   not coincide with sustained Postgres pool pressure.
 - Worker active runner count should fall to zero during drain.
 - Catalog job progress should resume after worker replacement.
+- Same-job work-unit summaries should show active claims falling during drain,
+  expired claims recovering after replacement, and no private payloads in worker
+  status.
 - Scheduled runner `next_run_at` should not jump backward after restart.
 - Provider-operation backlogs should be monitored by owning context.
+
+## Same-Job Parallelism Controls
+
+Staging starts Catalog Source Observation bulk review with three lane runners,
+a workflow active-claim cap of three, and a per-parent-job cap of two. This lets
+the staging job use spare capacity while leaving room for another bulk review
+job to make progress.
+
+Production defaults stay conservative: one Source Observation bulk lane and one
+active claim per parent job. To scale production, raise
+`SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT`,
+`SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS`, and then
+`SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB` in that order. Keep
+`WORKER_JOB_MAX_CONCURRENT_RUNNERS`, worker instance count, and database pool
+capacity above the requested lane count. Roll back by lowering the lane count or
+caps; active claims finish, release, or expire under the normal durable job TTL.
 
 ## Verification
 

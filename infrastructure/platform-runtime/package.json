@@ -10,6 +10,7 @@
     "./control-plane": "./control-plane.ts",
     "./durable-job-events": "./durable-job-events.ts",
     "./durable-job-store": "./durable-job-store.ts",
+    "./durable-job-work-units": "./durable-job-work-units.ts",
     "./durable-job-web": "./durable-job-web.ts",
     "./health": "./health.ts",
     "./http": "./http.ts",

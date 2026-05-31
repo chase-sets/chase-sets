@@ -1,6 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PlatformControlPlane } from "./control-plane";
-import { collectWorkerRunners, createWorkerRunnerLoop, type WorkerRunner } from "./worker";
+import { collectWorkerRunners, createDurableJobLaneRunners, createWorkerRunnerLoop, type WorkerRunner } from "./worker";
+
+describe("durable job lane runners", () => {
+  it("creates stable platform runner names for same-job lanes", async () => {
+    const seen: string[] = [];
+    const runners = createDurableJobLaneRunners({
+      workflowName: "catalog.source-observation-bulk-jobs",
+      laneCount: 3,
+      runLane: async (context) => {
+        seen.push(`${context.laneIndex}:${context.laneName}:${context.laneCount}`);
+        return { processed: context.laneIndex, lastGlobalPosition: "0" as never };
+      },
+    });
+
+    await Promise.all(runners.map((runner) => runner.runOnce()));
+
+    expect(runners.map((runner) => runner.name)).toEqual([
+      "job:catalog.source-observation-bulk-jobs.lane-1",
+      "job:catalog.source-observation-bulk-jobs.lane-2",
+      "job:catalog.source-observation-bulk-jobs.lane-3",
+    ]);
+    expect(seen).toEqual([
+      "1:job:catalog.source-observation-bulk-jobs.lane-1:3",
+      "2:job:catalog.source-observation-bulk-jobs.lane-2:3",
+      "3:job:catalog.source-observation-bulk-jobs.lane-3:3",
+    ]);
+  });
+});
 
 describe("worker runner loop", () => {
   it("rotates through runners when concurrency is lower than the runner count", async () => {

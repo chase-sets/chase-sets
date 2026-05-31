@@ -110,6 +110,14 @@ export type WorkerProjectionOperationEvent = Readonly<{
   streamId: string | null;
 }>;
 
+export type DurableJobLaneRunContext = Readonly<{
+  workflowName: string;
+  laneName: string;
+  laneIndex: number;
+  laneCount: number;
+  runnerContext?: ProjectionRunContext;
+}>;
+
 type WorkerRunnerLoopOptions = Readonly<{
   workerId: string;
   controlPlane: PlatformControlPlane;
@@ -123,6 +131,32 @@ type WorkerRunnerLoopOptions = Readonly<{
   observer?: WorkerRuntimeObserver;
   onError?: (error: unknown, runner: WorkerRunner) => void;
 }>;
+
+export function createDurableJobLaneRunners(input: {
+  workflowName: string;
+  laneCount: number;
+  runLane: (context: DurableJobLaneRunContext) => Promise<ProjectorRunResult>;
+  priority?: () => bigint | number;
+}): readonly WorkerRunner[] {
+  const laneCount = Math.max(1, Math.floor(input.laneCount));
+  return Array.from({ length: laneCount }, (_, index): WorkerRunner => {
+    const laneIndex = index + 1;
+    const laneName = `job:${input.workflowName}.lane-${laneIndex}`;
+    return {
+      name: laneName,
+      kind: "job",
+      priority: input.priority,
+      runOnce: (runnerContext) =>
+        input.runLane({
+          workflowName: input.workflowName,
+          laneName,
+          laneIndex,
+          laneCount,
+          runnerContext,
+        }),
+    };
+  });
+}
 
 export function getWorkerHostEntries<TRegistry extends WorkerContextRegistry>(
   registry: TRegistry,

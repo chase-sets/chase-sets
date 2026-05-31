@@ -36,6 +36,9 @@ const envNames = [
   "WORKER_JOB_MAX_CONCURRENT_RUNNERS",
   "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS",
   "WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS",
+  "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT",
+  "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+  "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
   "CATALOG_ASSET_STORAGE_KIND",
   "CATALOG_ASSET_LOCAL_ROOT",
   "CATALOG_ASSET_PUBLIC_BASE_URL",
@@ -110,6 +113,9 @@ describe("platform worker config", () => {
       jobMaxConcurrentRunners: 1,
       dispatchMaxConcurrentRunners: 1,
       scheduledMaxConcurrentRunners: 1,
+      sourceObservationBulkJobLaneCount: 1,
+      sourceObservationBulkJobWorkflowMaxActiveClaims: 1,
+      sourceObservationBulkJobMaxActiveClaimsPerJob: 1,
     });
   });
 
@@ -119,12 +125,18 @@ describe("platform worker config", () => {
     process.env.WORKER_JOB_MAX_CONCURRENT_RUNNERS = "3";
     process.env.WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS = "2";
     process.env.WORKER_SCHEDULED_MAX_CONCURRENT_RUNNERS = "2";
+    process.env.SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT = "4";
+    process.env.SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "4";
+    process.env.SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
 
     expect(loadConfig()).toMatchObject({
       projectionMaxConcurrentRunners: 6,
       jobMaxConcurrentRunners: 3,
       dispatchMaxConcurrentRunners: 2,
       scheduledMaxConcurrentRunners: 2,
+      sourceObservationBulkJobLaneCount: 4,
+      sourceObservationBulkJobWorkflowMaxActiveClaims: 4,
+      sourceObservationBulkJobMaxActiveClaimsPerJob: 2,
     });
   });
 

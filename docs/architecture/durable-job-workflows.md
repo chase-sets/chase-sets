@@ -24,6 +24,7 @@ Each durable job workflow has four parts:
 The shared infrastructure is intentionally small:
 
 - `durable-job-store.ts` provides the Postgres claim/update/event mechanics, notification wakeups, claimed release, and terminal-row pruning.
+- `durable-job-work-units.ts` provides same-job work-unit claim mechanics for workflows that need bounded parallel lanes without turning every row into a platform runner.
 - `durable-job-events.ts` provides SSE cursor parsing, keepalive, event formatting, stream limiting, and polling fallback.
 
 Domain payloads, progress language, result shapes, permissions, and worker composition stay in the owning bounded context. The payload is worker-private. API and SSE responses must return public job status snapshots that exclude worker payload, event context, claim owner, and claim expiration fields.
@@ -47,6 +48,15 @@ State transitions and event appends must be committed atomically. The shared Pos
 Do not store large request bodies directly in a durable job payload when the job will emit many progress events. Stage bulky or sensitive inputs in context-owned storage and put only a stable staging reference in the job payload.
 
 Replayable create-style jobs must also store the deterministic target id they will mutate. Inventory import create jobs, for example, persist the target `batchId` in the job payload before row validation begins and derive row ids from `(batchId, rowNumber)`. If a worker loses its claim after partial inserts, the next worker resumes the same batch instead of creating a second one.
+
+Large single-parent jobs should use context-owned work-unit tables when one runner turn cannot use available worker capacity. The parent durable job remains the public SSE/status aggregate. Work units store deterministic unit ids, small private payloads, claim owner, fencing token, claim expiry, attempt count, and terminal outcome. Lane runners claim units with `FOR UPDATE SKIP LOCKED`; parent progress and event append are recorded in the same transaction as the unit terminal transition.
+
+Same-job parallelism must have two budgets:
+
+- Workflow active-claim cap: limits total active units for one durable workflow so it cannot consume the worker job group.
+- Parent-job active-claim cap: limits active units for one parent job so a massive job cannot starve a second eligible job.
+
+Use fair claim ordering by fewest active claims per parent job, then oldest parent job and unit. Expired unit claims are eligible for reclaim. Deployment cancellation should release the live unit claim or let it expire without recording a business failure. Work-unit payloads are worker-private; operator status may expose counts, active/expired claims, lane identity, parent job id, and budget reason, but not private payloads.
 
 Projection operations are platform control-plane jobs rather than bounded-context jobs, but they follow the same durability contract: progress writes renew the claim to `now + ttl`, terminal writes require the live claim, operation state and event append commit together, SSE uses notification-backed waits, and event sequence numbers are reserved through the operation row instead of recomputing from event history. Long rebuild and retry operations must renew the operation claim while the inner projection-group lease is held, and the inner operation must abort when either claim is lost.
 
@@ -76,6 +86,8 @@ Workers should register a `job` runner that:
 - treats failed claimed writes as lease loss instead of silently continuing,
 - completes with a domain result or fails with an error message.
 
+Parallel workflows should register lanes with `createDurableJobLaneRunners`. Lane names are stable (`job:<workflow>.lane-1`, `job:<workflow>.lane-2`, ...), so each lane uses the existing platform runner lease. Lane count controls possible platform leases; work-unit budgets control how much of that possible capacity a workflow and parent job may actually use.
+
 Use `createDurableJobExecutionContext` for long side-effect loops. It exposes `throwIfCancelled`, `renew`, and `checkpointProgress`, and it converts failed claimed writes into lease-loss errors. Use `createDurableJobProgressCheckpoint` when a loop can process many records quickly; it writes public progress at bounded intervals while renewing the claim for intermediate records. `updateProgress` renews the claim. `releaseClaim` requeues bounded-turn jobs only for the live claim owner. `complete` and `fail` only succeed for the live claim owner before claim expiry. A processor must check those boolean results and stop work when ownership is lost.
 
 External or cross-context calls inside a durable job need a checkpoint or renew immediately before the call and again before recording the resulting domain fact. If a create operation can be replayed, pass a deterministic target id or provider idempotency key. Pricing recommendation apply jobs use this rule when creating marketplace draft listings. Lease-loss or cancellation errors are job control-flow outcomes, not business failures; per-item failure handlers must rethrow them instead of recording domain failure facts.
@@ -91,4 +103,5 @@ Scheduled jobs can remain scheduled triggers, but a manual operator trigger shou
 - Pricing Recommendation refresh/apply/dismiss persists `pricing_recommendation_jobs` and streams `/api/marketplace/account/recommendation-jobs/:jobId/events`.
 - Settlement manual payout reconciliation persists `settlement_payout_reconciliation_jobs` and streams `/api/settlement/payouts/reconciliation/jobs/:jobId/events`.
 - Catalog Source Observation import, reapply, promote, and reject already use durable context-owned job tables and SSE.
+- Catalog Source Observation bulk review uses same-job work units for promote/reject/reapply observation ids while preserving the existing public job snapshot.
 - Catalog authoring bulk lifecycle, Catalog Item bulk publish, and Catalog Item bulk edit persist `catalog_authoring_bulk_jobs` and stream `/api/catalog/bulk-authoring-jobs/:jobId/events`.
