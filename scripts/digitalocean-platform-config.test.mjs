@@ -39,6 +39,12 @@ function terraformStringList(source, localName) {
   return [...match[1].matchAll(/"([^"]+)"/g)].map((entry) => entry[1]);
 }
 
+function terraformStringMap(source, localName) {
+  const match = new RegExp(`${localName} = \\{([\\s\\S]*?)\\n  \\}`).exec(source);
+  expect(match).not.toBeNull();
+  return Object.fromEntries([...match[1].matchAll(/"([^"]+)"\s+=\s+"([^"]+)"/g)].map((entry) => [entry[1], entry[2]]));
+}
+
 function platformApiContextNames() {
   return readdirSync(resolve("bounded-contexts"), { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
@@ -161,6 +167,19 @@ describe("DigitalOcean platform configuration", () => {
   it("provisions databases for every platform-api bounded context", () => {
     const managedContexts = terraformStringList(platformLocals, "platform_context_names");
     expect(managedContexts).toEqual(expect.arrayContaining(platformApiContextNames()));
+  });
+
+  it("keeps production context database names within DigitalOcean limits", () => {
+    const managedContexts = terraformStringList(platformLocals, "platform_context_names");
+    const databaseNameOverrides = terraformStringMap(platformLocals, "context_database_name_token_overrides");
+    const databaseNames = managedContexts.map((contextName) => {
+      const token = databaseNameOverrides[contextName] ?? contextName.replaceAll("-", "_");
+      return `chase_sets_production_${token}`;
+    });
+
+    expect(platformMain).toContain('check "context_database_name_lengths"');
+    expect(databaseNames.filter((databaseName) => databaseName.length > 40)).toEqual([]);
+    expect(databaseNames).toContain("chase_sets_production_platform_ops");
   });
 
   it("routes staging root as the managed primary marketplace host", () => {

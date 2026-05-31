@@ -20,6 +20,13 @@ check "api_realtime_coordination" {
   }
 }
 
+check "context_database_name_lengths" {
+  assert {
+    condition     = alltrue([for database_name in values(local.context_databases) : length(database_name) <= 40])
+    error_message = "DigitalOcean context database names must be 40 characters or fewer; add an explicit token override for long bounded-context names."
+  }
+}
+
 check "production_marketplace_proof" {
   assert {
     condition = !var.production_marketplace_proof_enabled || (

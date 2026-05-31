@@ -129,9 +129,22 @@ locals {
 
   context_names = local.marketplace_platform_enabled ? local.platform_context_names : local.landing_context_names
 
+  context_database_name_token_overrides = {
+    "platform-operations" = "platform_ops"
+  }
+
+  context_database_name_tokens = {
+    for context_name in local.context_names :
+    context_name => (
+      length("chase_sets_${local.database_name_token}_${replace(context_name, "-", "_")}") <= 40
+      ? replace(context_name, "-", "_")
+      : lookup(local.context_database_name_token_overrides, context_name, replace(context_name, "-", "_"))
+    )
+  }
+
   context_databases = {
     for context_name in local.context_names :
-    context_name => "chase_sets_${local.database_name_token}_${replace(context_name, "-", "_")}"
+    context_name => "chase_sets_${local.database_name_token}_${local.context_database_name_tokens[context_name]}"
   }
 
   context_database_users = {
