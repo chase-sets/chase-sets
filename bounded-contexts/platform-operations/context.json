@@ -1,10 +1,10 @@
 {
   "contextName": "platform-operations",
   "packageName": "@chase-sets/platform-operations",
-  "ownedNouns": ["projection-operation", "platform-operation-attention"],
+  "ownedNouns": ["projection-operation", "platform-operation-attention", "feature-rollout", "release-lock"],
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
-  "slices": ["projection-operations"],
+  "slices": ["projection-operations", "release-controls"],
   "allowedSupportDirectories": [],
   "publicExports": [".", "./context", "./routes/*"],
   "allowedContextDependencies": [],
@@ -25,6 +25,14 @@
           "routeType": "route",
           "sourceContext": "platform-operations",
           "placement": "root"
+        },
+        {
+          "routeId": "release-controls",
+          "routePath": "release-controls",
+          "fileExport": "./routes/admin/release-controls",
+          "routeType": "route",
+          "sourceContext": "platform-operations",
+          "placement": "root"
         }
       ]
     }
@@ -36,6 +44,16 @@
       "purpose": "Own projection-operations operator workflow, UI contracts, and admin console language for Platform Operations.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal platform-operations module composition", "Admin web route contribution"]
+    },
+    "release-controls": {
+      "classification": "slice",
+      "purpose": "Own operator-facing release-lock and feature-rollout evaluation language plus kill-switch policy for cross-context platform capabilities.",
+      "allowedWhen": "Required when release automation or feature exposure is controlled by Platform Operations instead of a single business context.",
+      "expectedConsumers": [
+        "Production deployment workflow checks",
+        "Bounded-context capability guards",
+        "Admin operations controls"
+      ]
     },
     "routes": {
       "classification": "routes",

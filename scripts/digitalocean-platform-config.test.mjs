@@ -316,6 +316,75 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
     );
+    expect(platformProductionWorkflow).toContain("emergency_release:");
+    expect(platformProductionWorkflow).toContain(
+      "description: Bypass an active production release lock for an audited fix-forward or revert.",
+    );
+    expect(platformProductionWorkflow).toContain("emergency_reference:");
+    expect(platformProductionWorkflow).toContain(
+      "PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain("started_at: ${{ steps.staging_started.outputs.started_at }}");
+    expect(platformProductionWorkflow).toContain("completed_at: ${{ steps.staging_completed.outputs.completed_at }}");
+    expect(platformProductionWorkflow).toContain("- name: Record staging start");
+    expect(platformProductionWorkflow).toContain("- name: Record staging completion");
+    expect(platformProductionWorkflow).toContain("- name: Record production start");
+    expect(platformProductionWorkflow).toContain("- name: Evaluate production release lock");
+    expect(platformProductionWorkflow).toContain("RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}");
+    expect(platformProductionWorkflow).toContain(
+      "EMERGENCY_RELEASE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain("run: node ./scripts/release-lock.mjs");
+    expect(platformProductionWorkflow.indexOf("- name: Evaluate production release lock")).toBeLessThan(
+      platformProductionWorkflow.indexOf("- name: Validate production configuration"),
+    );
+    expect(platformProductionWorkflow).toContain("- name: Resolve release health metadata");
+    expect(platformProductionWorkflow).toContain("SOURCE_WORKFLOW_CREATED_AT");
+    expect(platformProductionWorkflow).toContain('git rev-list --count "origin/production..${release_commit}"');
+    expect(platformProductionWorkflow).toContain('echo "drift_commits=${drift_commits}"');
+    expect(platformProductionWorkflow).toContain('echo "drift_seconds=${drift_seconds}"');
+    expect(platformProductionWorkflow).toContain("- name: Write release health summary");
+    expect(platformProductionWorkflow).toContain(
+      "RELEASE_HEALTH_OUT: artifacts/release-health/production-release.json",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency' || 'normal' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}",
+    );
+    expect(platformProductionWorkflow).toContain("STAGING_RESULT: ${{ needs.deploy-staging.result }}");
+    expect(platformProductionWorkflow).toContain("STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}");
+    expect(platformProductionWorkflow).toContain(
+      "STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}",
+    );
+    expect(platformProductionWorkflow).toContain("CANARY_RESULT: skipped");
+    expect(platformProductionWorkflow).toContain("PRODUCTION_RESULT: ${{ job.status }}");
+    expect(platformProductionWorkflow).toContain(
+      "PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "MAIN_TO_PRODUCTION_DRIFT_COMMITS: ${{ steps.release_health_metadata.outputs.drift_commits }}",
+    );
+    expect(platformProductionWorkflow).toContain("run: node ./scripts/release-health.mjs");
+    expect(platformProductionWorkflow).toContain("- name: Upload release health summary");
+    expect(platformProductionWorkflow).toContain("name: production-release-health");
+    expect(platformProductionWorkflow).toContain("retention-days: 30");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_launch_evidence_reference: ${{ vars.PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE || '' }}",
     );

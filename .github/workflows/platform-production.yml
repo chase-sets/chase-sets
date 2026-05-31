@@ -18,6 +18,16 @@ on:
         required: false
         default: false
         type: boolean
+      emergency_release:
+        description: Bypass an active production release lock for an audited fix-forward or revert.
+        required: false
+        default: false
+        type: boolean
+      emergency_reference:
+        description: Incident, PR, or rollback evidence reference required when emergency_release is true.
+        required: false
+        default: ""
+        type: string
 
 permissions:
   contents: write
@@ -138,6 +148,8 @@ jobs:
     environment: staging
     outputs:
       deployed: ${{ steps.staging_deployed.outputs.deployed }}
+      started_at: ${{ steps.staging_started.outputs.started_at }}
+      completed_at: ${{ steps.staging_completed.outputs.completed_at }}
     concurrency:
       group: platform-deploy-staging
       cancel-in-progress: false
@@ -154,6 +166,10 @@ jobs:
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
     steps:
+      - name: Record staging start
+        id: staging_started
+        run: echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
 
@@ -725,6 +741,11 @@ jobs:
         if: steps.latest_main.outputs.should_deploy != 'false'
         run: echo "deployed=true" >> "$GITHUB_OUTPUT"
 
+      - name: Record staging completion
+        id: staging_completed
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        run: echo "completed_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
   deploy-production:
     name: Deploy Production
     runs-on: ubuntu-latest
@@ -767,6 +788,9 @@ jobs:
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"
       DESTRUCTIVE_CHANGE_ALLOW_FILE: .github/deployment/production-destructive-change-approved.md
+      PRODUCTION_RELEASE_LOCKED: ${{ vars.PRODUCTION_RELEASE_LOCKED || 'false' }}
+      PRODUCTION_RELEASE_LOCK_REASON: ${{ vars.PRODUCTION_RELEASE_LOCK_REASON || '' }}
+      PRODUCTION_RELEASE_LOCK_REFERENCE: ${{ vars.PRODUCTION_RELEASE_LOCK_REFERENCE || '' }}
     steps:
       - name: Configure Git defaults
         run: git config --global init.defaultBranch main
@@ -800,6 +824,20 @@ jobs:
             exit 0
           fi
           echo "should_deploy=true" >> "$GITHUB_OUTPUT"
+
+      - name: Record production start
+        id: production_started
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        run: echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate production release lock
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        env:
+          RELEASE_ENVIRONMENT: production
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          EMERGENCY_RELEASE_BYPASS: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'true' || 'false' }}
+          EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
+        run: node ./scripts/release-lock.mjs
 
       - name: Validate production configuration
         if: steps.latest_main.outputs.should_deploy != 'false'
@@ -1291,3 +1329,68 @@ jobs:
           fi
 
           git push origin production
+
+      - name: Resolve release health metadata
+        id: release_health_metadata
+        if: always() && steps.latest_main.outputs.should_deploy != 'false'
+        env:
+          SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.created_at || '' }}
+        run: |
+          set -euo pipefail
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          committed_at="$(git show -s --format=%cI "$release_commit")"
+          queue_queued_at="${SOURCE_WORKFLOW_CREATED_AT:-}"
+          queue_merged_at="${committed_at}"
+
+          git fetch origin production || true
+          drift_commits=0
+          drift_seconds=0
+          if git show-ref --verify --quiet refs/remotes/origin/production; then
+            drift_commits="$(git rev-list --count "origin/production..${release_commit}" 2>/dev/null || printf '0')"
+            release_epoch="$(git show -s --format=%ct "$release_commit")"
+            production_epoch="$(git show -s --format=%ct origin/production)"
+            if [ "$release_epoch" -gt "$production_epoch" ]; then
+              drift_seconds=$((release_epoch - production_epoch))
+            fi
+          fi
+
+          {
+            echo "completed_at=${completed_at}"
+            echo "committed_at=${committed_at}"
+            echo "queue_queued_at=${queue_queued_at}"
+            echo "queue_merged_at=${queue_merged_at}"
+            echo "drift_commits=${drift_commits}"
+            echo "drift_seconds=${drift_seconds}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Write release health summary
+        if: always() && steps.latest_main.outputs.should_deploy != 'false'
+        env:
+          RELEASE_HEALTH_OUT: artifacts/release-health/production-release.json
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency' || 'normal' }}
+          QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}
+          QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}
+          RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}
+          DEPLOYMENT_REQUIRED: ${{ needs.resolve-release.outputs.deployment_required }}
+          STAGING_RESULT: ${{ needs.deploy-staging.result }}
+          STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
+          STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
+          CANARY_RESULT: skipped
+          PRODUCTION_RESULT: ${{ job.status }}
+          PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
+          PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
+          MAIN_TO_PRODUCTION_DRIFT_COMMITS: ${{ steps.release_health_metadata.outputs.drift_commits }}
+          MAIN_TO_PRODUCTION_DRIFT_SECONDS: ${{ steps.release_health_metadata.outputs.drift_seconds }}
+          EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
+        run: node ./scripts/release-health.mjs
+
+      - name: Upload release health summary
+        if: always() && steps.latest_main.outputs.should_deploy != 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: production-release-health
+          path: artifacts/release-health/production-release.json
+          if-no-files-found: ignore
+          retention-days: 30
