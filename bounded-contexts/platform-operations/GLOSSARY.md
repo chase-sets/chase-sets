@@ -13,6 +13,9 @@
 - Attention: Any operator-facing condition that should be triaged before routine healthy rows, including failed operations, cancel-requested operations, degraded projections, blocked streams, poison events, stale snapshots, stale workers, and stale revisions.
 - Release Lock: An operator-controlled pause on automatic production promotion while an incident, maintenance window, or unsafe platform condition is active.
 - Emergency Release: An audited fix-forward or revert that may bypass an active release lock with an incident, pull request, or rollback evidence reference.
+- Release Dashboard: A read-only operator surface that explains whether production is current with `main`, blocked by release health, or paused by a release lock.
+- Production Marker: The smoke-verified `production` branch pointer used to identify the release commit currently considered healthy in production.
+- Main-to-Production Drift: The commit and time distance between `main` and the smoke-verified Production Marker.
 - Feature Rollout: A Platform Operations exposure policy for a named capability, evaluated by environment and subject before an owning bounded context exposes the behavior.
 - Rollout Subject: The stable account, membership, operator, or anonymous identity used to evaluate allowlists, opt-outs, and percentage rollout.
 - Kill Switch: A Feature Rollout override that disables a capability for every subject until an operator clears it.

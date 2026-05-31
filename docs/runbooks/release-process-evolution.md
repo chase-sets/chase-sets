@@ -112,19 +112,19 @@ Canary analysis compares canary signals to a recent stable baseline and fails cl
 
 Initial required signals:
 
-| Signal | Owner | Early threshold |
-| --- | --- | --- |
-| Component readiness and App Platform deployment phase | Infrastructure / deployment workflow | All canary components ready and deployment `ACTIVE`. |
-| Public/admin/marketplace route error rate | Platform runtime / owning route context | No sustained increase above baseline during observation. |
-| Route latency | Platform runtime / owning route context | No sustained p95 increase above baseline for canary routes. |
-| Worker health and durable job backlog | Platform Operations / infrastructure runtime | No new sustained backlog or runner failure. |
-| Projection lag and poison events | Owning bounded contexts / Platform Operations | No new degraded projection group caused by the canary release. |
-| Checkout/order/payment errors | Checkout, Ordering, Payments | No increase in command failures or provider-health failures. |
-| Settlement/payout errors | Settlement | No increase in payout setup, payout readiness, or provider reconciliation failures. |
-| Fulfillment/postage callback errors | Fulfillment | No new provider callback signature, parse, or reconciliation failures. |
-| Transactional email callback errors | Notifications | No new SES/SNS callback or outbox delivery failure spike. |
-| Database pool pressure | Infrastructure runtime | No connection exhaustion, pool saturation, or bootstrap migration pressure. |
-| UCP discovery and signed-write health | UCP facade owners | Discovery stays healthy and signed-write rejects do not spike when UCP is enabled. |
+| Signal | Owner | Data source | Current state | Early threshold |
+| --- | --- | --- | --- | --- |
+| App Platform deployment phase | Infrastructure / deployment workflow | DigitalOcean App Platform deployment phase | Available now | All canary components ready and deployment `ACTIVE`. |
+| Route error rate | Platform runtime / owning route context | HTTP telemetry by route and host | Needs instrumentation | No sustained increase above baseline during observation. |
+| Route latency p95 | Platform runtime / owning route context | HTTP latency histogram by route and host | Needs instrumentation | No sustained p95 increase above baseline for canary routes. |
+| Worker health and durable job backlog | Platform Operations / infrastructure runtime | Worker heartbeat and durable job backlog telemetry | Needs instrumentation | No new sustained backlog or runner failure. |
+| Projection lag and poison events | Owning bounded contexts / Platform Operations | Projection operation snapshots and poison-event telemetry | Available now | No new degraded projection group caused by the canary release. |
+| Checkout/order/payment errors | Checkout, Ordering, Payments | Checkout, order, payment, and provider-health telemetry | Needs instrumentation | No increase in command failures or provider-health failures. |
+| Settlement/payout errors | Settlement | Settlement and payout readiness telemetry | Needs instrumentation | No increase in payout setup, payout readiness, or provider reconciliation failures. |
+| Fulfillment/postage callback errors | Fulfillment | Postage provider callback telemetry | Needs instrumentation | No new provider callback signature, parse, or reconciliation failures. |
+| Transactional email callback errors | Notifications | SES/SNS callback and outbox telemetry | Needs instrumentation | No new SES/SNS callback or outbox delivery failure spike. |
+| Database pool pressure | Infrastructure runtime | Database pool and migration telemetry | Needs instrumentation | No connection exhaustion, pool saturation, or bootstrap migration pressure. |
+| UCP discovery and signed-write health | UCP facade owners | UCP discovery and signed-write telemetry | Deferred | Discovery stays healthy and signed-write rejects do not spike when UCP is enabled. |
 
 The first canary implementation may use smoke probes and workflow-collected health summaries while observability baselines mature. Automatic full promotion should wait until each required signal has an explicit data source and owner.
 
@@ -134,7 +134,13 @@ Evaluate a canary evidence file with:
 pnpm run canary:analysis -- --file .\artifacts\release-health\canary-analysis.json
 ```
 
-The input file uses `schemaVersion: "canary-analysis/v1"`, a concrete `releaseCommit`, an `observationWindowSeconds`, and a `signals` array. Each signal needs `name`, `owner`, and either `status: "pass"` or numeric `baseline`, `canary`, and `maxIncrease` values. Required signals fail closed when missing or above threshold; optional signals set `required: false`.
+Generate canary evidence from telemetry snapshots with:
+
+```powershell
+pnpm run canary:evidence -- --release-commit <40-char-sha> --observation-window-seconds 300 --source-file .\artifacts\release-health\telemetry.json --out .\artifacts\release-health\canary-analysis.json
+```
+
+The collector writes `schemaVersion: "canary-analysis/v1"`, a concrete `releaseCommit`, an `observationWindowSeconds`, and a `signals` array. Each signal includes `name`, `owner`, `source`, `currentState`, and either `status: "pass"` or numeric `baseline`, `canary`, and `maxIncrease` values. Required signals fail closed when telemetry is missing or above threshold; optional signals set `required: false`. Unsupported sources must be recorded as `status: "missing"`, never as pass.
 
 ## Release Health Metrics
 
@@ -225,6 +231,8 @@ The report includes SLO posture for cautious merge-queue batch tuning. Initial t
 | Canary abort rate | `<= 5%` |
 
 Increase deployable batch size only when all thresholds pass and there are at least 10 recent deployable release records. If any threshold fails, decrease or hold batch size until the cause is understood.
+
+Operators can inspect the current read-only release dashboard in the admin console at `/operations/release-dashboard`. The dashboard combines release-lock state, `main` and `production` marker SHAs, latest PR/deploy result fields, latest release-health summary, canary decision, and links to GitHub runs or the production marker. The server runtime reads GitHub refs and workflow runs when `GITHUB_TOKEN` or `RELEASE_DASHBOARD_GITHUB_TOKEN` is available, and falls back to explicit `RELEASE_DASHBOARD_*` environment values and release-health JSON when GitHub is unavailable.
 
 ## Feature Rollout Controls
 
@@ -344,9 +352,8 @@ The readiness output is a `rollback-readiness/v1` artifact. A passing readiness 
 
 ## Current Deferred Work
 
-The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, canary-analysis gate, release-health report generator, and production release-health artifact emission with queue, staging, production, canary, and drift timing. The next implementation steps are:
+The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, release dashboard, canary-analysis gate, telemetry-backed canary evidence collector, release-health report generator, and production release-health artifact emission with queue, staging, production, canary, and drift timing. The next implementation steps are:
 
 - configure GitHub native merge queue for `main` with the policy above
 - persist PR review/ready timestamps from GitHub API once merge queue is enabled
-- replace Stage 1 synthetic canary with telemetry-backed canary evidence once observability data sources are ready
-- add the release dashboard on top of release-health and release-control policy records
+- wire the canary evidence collector to production observability sources once telemetry data sources are ready

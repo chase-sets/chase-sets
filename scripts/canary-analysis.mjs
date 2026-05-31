@@ -60,6 +60,9 @@ function evaluateSignal(signal) {
     ...(typeof signal.baseline === "number" ? { baseline: signal.baseline } : {}),
     ...(typeof signal.canary === "number" ? { canary: signal.canary } : {}),
     ...(typeof signal.maxIncrease === "number" ? { maxIncrease: signal.maxIncrease } : {}),
+    ...(signal.source ? { source: String(signal.source) } : {}),
+    ...(signal.threshold ? { threshold: String(signal.threshold) } : {}),
+    ...(signal.currentState ? { currentState: String(signal.currentState) } : {}),
     ...(signal.detail ? { detail: String(signal.detail) } : {}),
   };
 }
