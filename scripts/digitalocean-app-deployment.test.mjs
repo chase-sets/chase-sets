@@ -65,6 +65,10 @@ describe("digitalocean-app-deployment", () => {
           resourceChange("digitalocean_app.platform", ["update"]),
           resourceChange("digitalocean_database_cluster.postgres", ["delete", "create"]),
           resourceChange('digitalocean_database_db.contexts["auth"]', ["delete"]),
+          resourceChange("terraform_data.context_database_grants", ["delete", "create"], {
+            type: "terraform_data",
+            name: "context_database_grants",
+          }),
         ]),
       ),
     ).toEqual([
