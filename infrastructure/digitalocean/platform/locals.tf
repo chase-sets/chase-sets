@@ -200,6 +200,7 @@ locals {
     }
   }
   proof_api_route_prefixes = [
+    "/api/fulfillment/account/sales/shipments",
     "/api/inventory/items/listing-stock/ensure",
     "/api/inventory/storage-locations",
     "/api/marketplace/account/listing-availability",

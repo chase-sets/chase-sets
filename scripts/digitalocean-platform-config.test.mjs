@@ -257,6 +257,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain('"/api/payments/provider/webhooks"');
     expect(platformLocals).toContain('"/api/settlement/provider/money-movement/webhooks"');
     expect(platformLocals).toContain("proof_api_ingress_routes = {");
+    expect(platformLocals).toContain('"/api/fulfillment/account/sales/shipments"');
     expect(platformLocals).toContain('"/api/inventory/items/listing-stock/ensure"');
     expect(platformLocals).toContain('"/api/inventory/storage-locations"');
     expect(platformLocals).toContain('"/api/marketplace/account/listing-availability"');
