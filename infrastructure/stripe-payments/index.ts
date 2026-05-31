@@ -868,7 +868,6 @@ export function createStripePaymentProcessorGateway(
             "line_items[0][price_data][currency]": input.currencyCode,
             "line_items[0][price_data][unit_amount]": String(amount),
             "line_items[0][price_data][product_data][name]": input.description,
-            "payment_intent_data[payment_method_options][card][request_three_d_secure]": "automatic",
             "payment_intent_data[transfer_group]": `payment:${input.paymentId}`,
             "payment_intent_data[metadata][payment_id]": input.paymentId,
             "payment_intent_data[metadata][buyer_account_id]": input.buyerAccountId,

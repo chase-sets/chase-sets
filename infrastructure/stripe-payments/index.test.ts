@@ -66,9 +66,6 @@ describe("Stripe payment processor gateway", () => {
     expect(String(init.body)).toContain("mode=payment");
     expect(String(init.body)).toContain("return_url=https%3A%2F%2Fmarketplace.test%2Faccount%2Fpayments%2Fpay_123");
     expect(String(init.body)).toContain("metadata%5Bpayment_id%5D=pay_123");
-    expect(String(init.body)).toContain(
-      "payment_intent_data%5Bpayment_method_options%5D%5Bcard%5D%5Brequest_three_d_secure%5D=automatic",
-    );
     expect(formSnapshot(init.body)).toMatchObject({
       mode: "payment",
       ui_mode: "elements",
@@ -81,10 +78,12 @@ describe("Stripe payment processor gateway", () => {
       "metadata[high_dollar_order]": "true",
       "payment_intent_data[metadata][seller_account_count]": "1",
       "payment_intent_data[metadata][explicit_payment_method_selection]": "true",
-      "payment_intent_data[payment_method_options][card][request_three_d_secure]": "automatic",
       "payment_intent_data[transfer_group]": "payment:pay_123",
     });
     expect(formSnapshot(init.body)).not.toHaveProperty("description");
+    expect(formSnapshot(init.body)).not.toHaveProperty(
+      "payment_intent_data[payment_method_options][card][request_three_d_secure]",
+    );
 
     vi.unstubAllGlobals();
   });
