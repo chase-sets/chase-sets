@@ -1,4 +1,5 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 
 export const inventoryImportBatchSchemaSql = `
 CREATE TABLE IF NOT EXISTS inventory_import_batches (
@@ -89,5 +90,10 @@ ALTER TABLE inventory_import_batch_rows
 ${durableJobSchemaSql({
   jobsTable: "inventory_import_batch_jobs",
   eventsTable: "inventory_import_batch_job_events",
+})}
+
+${durableJobWorkUnitSchemaSql({
+  jobsTable: "inventory_import_batch_jobs",
+  workUnitsTable: "inventory_import_batch_work_units",
 })}
 `;

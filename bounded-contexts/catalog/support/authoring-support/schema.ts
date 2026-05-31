@@ -1,5 +1,6 @@
 import { eventCorePostgresSchemaSql } from "@chase-sets/event-core-postgres";
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 import { realtimeOutboxSchemaSql } from "@chase-sets/platform-runtime/realtime";
 import { catalogBlueprintSchemaSql } from "../../features/blueprints/read-model/schema";
 import { catalogCatalogItemSchemaSql } from "../../features/catalog-items/read-model/schema";
@@ -26,6 +27,10 @@ export const catalogAuthoringSchemaSql = [
   durableJobSchemaSql({
     jobsTable: "catalog_authoring_bulk_jobs",
     eventsTable: "catalog_authoring_bulk_job_events",
+  }),
+  durableJobWorkUnitSchemaSql({
+    jobsTable: "catalog_authoring_bulk_jobs",
+    workUnitsTable: "catalog_authoring_bulk_work_units",
   }),
   catalogSourceObservationSchemaSql,
   realtimeOutboxSchemaSql,

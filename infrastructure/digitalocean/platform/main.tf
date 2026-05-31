@@ -953,6 +953,96 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT"
+          value = local.catalog_authoring_bulk_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.catalog_authoring_bulk_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.catalog_authoring_bulk_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT"
+          value = local.source_observation_integration_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.source_observation_integration_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.source_observation_integration_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT"
+          value = local.inventory_import_batch_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.inventory_import_batch_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.inventory_import_batch_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PRICING_RECOMMENDATION_JOB_LANE_COUNT"
+          value = local.pricing_recommendation_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.pricing_recommendation_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.pricing_recommendation_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT"
+          value = local.settlement_payout_reconciliation_job_lanes
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"
+          value = local.settlement_payout_reconciliation_workflow_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"
+          value = local.settlement_payout_reconciliation_job_cap
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "WORKER_DISPATCH_MAX_CONCURRENT_RUNNERS"
           value = local.worker_dispatch_concurrency
           scope = "RUN_TIME"

@@ -1,4 +1,5 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 
 export const settlementPayoutSchemaSql = `
 CREATE TABLE IF NOT EXISTS settlement_payout_pages (
@@ -153,5 +154,10 @@ END $$;
 ${durableJobSchemaSql({
   jobsTable: "settlement_payout_reconciliation_jobs",
   eventsTable: "settlement_payout_reconciliation_job_events",
+})}
+
+${durableJobWorkUnitSchemaSql({
+  jobsTable: "settlement_payout_reconciliation_jobs",
+  workUnitsTable: "settlement_payout_reconciliation_work_units",
 })}
 `;

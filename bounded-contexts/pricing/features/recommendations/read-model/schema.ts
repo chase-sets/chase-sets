@@ -1,4 +1,5 @@
 import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+import { durableJobWorkUnitSchemaSql } from "@chase-sets/platform-runtime/durable-job-work-units";
 
 export const pricingRecommendationSchemaSql = `
 CREATE TABLE IF NOT EXISTS pricing_recommendation_pages (
@@ -172,5 +173,10 @@ LEFT JOIN (
 ${durableJobSchemaSql({
   jobsTable: "pricing_recommendation_jobs",
   eventsTable: "pricing_recommendation_job_events",
+})}
+
+${durableJobWorkUnitSchemaSql({
+  jobsTable: "pricing_recommendation_jobs",
+  workUnitsTable: "pricing_recommendation_work_units",
 })}
 `;

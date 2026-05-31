@@ -327,12 +327,57 @@ async function collectDurableWorkflowStatuses(services: Readonly<Record<string, 
     | {
         sourceObservations?: {
           getBulkReviewWorkUnitSummary?: () => Promise<unknown>;
+          getIntegrationWorkUnitSummary?: () => Promise<unknown>;
+        };
+        authoringBulkJobs?: {
+          getWorkUnitSummary?: () => Promise<unknown>;
+        };
+      }
+    | undefined;
+  const inventory = services.inventory as
+    | {
+        importBatches?: {
+          getImportBatchWorkUnitSummary?: () => Promise<unknown>;
+        };
+      }
+    | undefined;
+  const pricing = services.pricing as
+    | {
+        recommendations?: {
+          getRecommendationWorkUnitSummary?: () => Promise<unknown>;
+        };
+      }
+    | undefined;
+  const settlement = services.settlement as
+    | {
+        payouts?: {
+          getPayoutReconciliationWorkUnitSummary?: () => Promise<unknown>;
         };
       }
     | undefined;
   const summaries = await Promise.all([
     catalog?.sourceObservations?.getBulkReviewWorkUnitSummary?.().then((summary) => ({
       workflowName: "catalog.source-observation-bulk-review",
+      summary,
+    })),
+    catalog?.sourceObservations?.getIntegrationWorkUnitSummary?.().then((summary) => ({
+      workflowName: "catalog.source-observation-integration",
+      summary,
+    })),
+    catalog?.authoringBulkJobs?.getWorkUnitSummary?.().then((summary) => ({
+      workflowName: "catalog.authoring-bulk",
+      summary,
+    })),
+    inventory?.importBatches?.getImportBatchWorkUnitSummary?.().then((summary) => ({
+      workflowName: "inventory.import-batch",
+      summary,
+    })),
+    pricing?.recommendations?.getRecommendationWorkUnitSummary?.().then((summary) => ({
+      workflowName: "pricing.recommendations",
+      summary,
+    })),
+    settlement?.payouts?.getPayoutReconciliationWorkUnitSummary?.().then((summary) => ({
+      workflowName: "settlement.payout-reconciliation",
       summary,
     })),
   ]);
@@ -596,6 +641,12 @@ function createCatalogBulkJobRunners(
     | "sourceObservationBulkJobLaneCount"
     | "sourceObservationBulkJobWorkflowMaxActiveClaims"
     | "sourceObservationBulkJobMaxActiveClaimsPerJob"
+    | "catalogAuthoringBulkJobLaneCount"
+    | "catalogAuthoringBulkJobWorkflowMaxActiveClaims"
+    | "catalogAuthoringBulkJobMaxActiveClaimsPerJob"
+    | "sourceObservationIntegrationJobLaneCount"
+    | "sourceObservationIntegrationJobWorkflowMaxActiveClaims"
+    | "sourceObservationIntegrationJobMaxActiveClaimsPerJob"
   >,
 ): readonly WorkerRunner[] {
   const catalog = services.catalog as
@@ -613,6 +664,9 @@ function createCatalogBulkJobRunners(
           processNextIntegrationJob?: (input: {
             claimOwnerId: string;
             claimTtlMs: number;
+            workflowMaxActiveClaims?: number;
+            jobMaxActiveClaims?: number;
+            laneName?: string | null;
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
@@ -622,6 +676,9 @@ function createCatalogBulkJobRunners(
             claimOwnerId: string;
             claimTtlMs: number;
             services: never;
+            workflowMaxActiveClaims?: number;
+            jobMaxActiveClaims?: number;
+            laneName?: string | null;
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
           }) => Promise<boolean>;
@@ -660,38 +717,48 @@ function createCatalogBulkJobRunners(
   }
 
   if (processNextIntegrationJob) {
-    runners.push({
-      name: "catalog.source-observation-integration-jobs",
-      kind: "job",
-      runOnce: async (context) => ({
-        processed: await processNextIntegrationJob({
-          claimOwnerId: input.workerId,
-          claimTtlMs: input.leaseTtlMs * 4,
-          signal: context?.signal,
-          throwIfLeaseLost: context?.throwIfLeaseLost,
+    runners.push(
+      ...createDurableJobLaneRunners({
+        workflowName: "catalog.source-observation-integration-jobs",
+        laneCount: input.sourceObservationIntegrationJobLaneCount,
+        runLane: async (lane) => ({
+          processed: await processNextIntegrationJob({
+            claimOwnerId: `${input.workerId}:${lane.laneName}`,
+            claimTtlMs: input.leaseTtlMs * 4,
+            workflowMaxActiveClaims: input.sourceObservationIntegrationJobWorkflowMaxActiveClaims,
+            jobMaxActiveClaims: input.sourceObservationIntegrationJobMaxActiveClaimsPerJob,
+            laneName: lane.laneName,
+            signal: lane.runnerContext?.signal,
+            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+          }),
+          lastGlobalPosition: "0" as never,
         }),
-        lastGlobalPosition: "0" as never,
       }),
-    });
+    );
   }
 
   if (processNextAuthoringBulkJob && catalog) {
-    runners.push({
-      name: "catalog.authoring-bulk-jobs",
-      kind: "job",
-      runOnce: async (context) => ({
-        processed: (await processNextAuthoringBulkJob({
-          claimOwnerId: input.workerId,
-          claimTtlMs: input.leaseTtlMs * 4,
-          services: catalog as never,
-          signal: context?.signal,
-          throwIfLeaseLost: context?.throwIfLeaseLost,
-        }))
-          ? 1
-          : 0,
-        lastGlobalPosition: "0" as never,
+    runners.push(
+      ...createDurableJobLaneRunners({
+        workflowName: "catalog.authoring-bulk-jobs",
+        laneCount: input.catalogAuthoringBulkJobLaneCount,
+        runLane: async (lane) => ({
+          processed: (await processNextAuthoringBulkJob({
+            claimOwnerId: `${input.workerId}:${lane.laneName}`,
+            claimTtlMs: input.leaseTtlMs * 4,
+            services: catalog as never,
+            workflowMaxActiveClaims: input.catalogAuthoringBulkJobWorkflowMaxActiveClaims,
+            jobMaxActiveClaims: input.catalogAuthoringBulkJobMaxActiveClaimsPerJob,
+            laneName: lane.laneName,
+            signal: lane.runnerContext?.signal,
+            throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+          }))
+            ? 1
+            : 0,
+          lastGlobalPosition: "0" as never,
+        }),
       }),
-    });
+    );
   }
 
   return runners;
@@ -699,7 +766,14 @@ function createCatalogBulkJobRunners(
 
 function createInventoryJobRunners(
   services: Readonly<Record<string, unknown>>,
-  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
+  input: Pick<
+    ReturnType<typeof loadConfig>,
+    | "workerId"
+    | "leaseTtlMs"
+    | "inventoryImportBatchJobLaneCount"
+    | "inventoryImportBatchJobWorkflowMaxActiveClaims"
+    | "inventoryImportBatchJobMaxActiveClaimsPerJob"
+  >,
 ): readonly WorkerRunner[] {
   const inventory = services.inventory as
     | {
@@ -707,6 +781,9 @@ function createInventoryJobRunners(
           processNextImportBatchJob?: (input: {
             claimOwnerId: string;
             claimTtlMs: number;
+            workflowMaxActiveClaims?: number;
+            jobMaxActiveClaims?: number;
+            laneName?: string | null;
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
@@ -719,26 +796,34 @@ function createInventoryJobRunners(
     return [];
   }
 
-  return [
-    {
-      name: "inventory.import-batch-jobs",
-      kind: "job",
-      runOnce: async (context) => ({
-        processed: await processNextImportBatchJob({
-          claimOwnerId: input.workerId,
-          claimTtlMs: input.leaseTtlMs * 4,
-          signal: context?.signal,
-          throwIfLeaseLost: context?.throwIfLeaseLost,
-        }),
-        lastGlobalPosition: "0" as never,
+  return createDurableJobLaneRunners({
+    workflowName: "inventory.import-batch-jobs",
+    laneCount: input.inventoryImportBatchJobLaneCount,
+    runLane: async (lane) => ({
+      processed: await processNextImportBatchJob({
+        claimOwnerId: `${input.workerId}:${lane.laneName}`,
+        claimTtlMs: input.leaseTtlMs * 4,
+        workflowMaxActiveClaims: input.inventoryImportBatchJobWorkflowMaxActiveClaims,
+        jobMaxActiveClaims: input.inventoryImportBatchJobMaxActiveClaimsPerJob,
+        laneName: lane.laneName,
+        signal: lane.runnerContext?.signal,
+        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
       }),
-    },
-  ];
+      lastGlobalPosition: "0" as never,
+    }),
+  });
 }
 
 function createPricingJobRunners(
   services: Readonly<Record<string, unknown>>,
-  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
+  input: Pick<
+    ReturnType<typeof loadConfig>,
+    | "workerId"
+    | "leaseTtlMs"
+    | "pricingRecommendationJobLaneCount"
+    | "pricingRecommendationJobWorkflowMaxActiveClaims"
+    | "pricingRecommendationJobMaxActiveClaimsPerJob"
+  >,
 ): readonly WorkerRunner[] {
   const pricing = services.pricing as
     | {
@@ -760,6 +845,9 @@ function createPricingJobRunners(
               }) => Promise<{ id?: string; listing_id?: string }>;
               staleFeeQuoteFingerprint?: (error: unknown) => string | null;
             };
+            workflowMaxActiveClaims?: number;
+            jobMaxActiveClaims?: number;
+            laneName?: string | null;
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
@@ -796,38 +884,46 @@ function createPricingJobRunners(
     return [];
   }
 
-  return [
-    {
-      name: "pricing.recommendation-jobs",
-      kind: "job",
-      runOnce: async (context) => ({
-        processed: await processNextRecommendationJob({
-          claimOwnerId: input.workerId,
-          claimTtlMs: input.leaseTtlMs * 4,
-          marketplaceListingGatewayForAccount: (accountId) => ({
-            previewListingTerms: (body) => marketplace.listings!.previewListingTerms!({ accountId, ...body }),
-            updateListingPrice: (listingId, body) =>
-              marketplace.listings!.updateListingPrice!({ accountId, listingId, ...body }, SYSTEM_CONTEXT),
-            createListing: async (body) => {
-              const result = await marketplace.listings!.createListing!({ accountId, ...body }, SYSTEM_CONTEXT);
-              return {
-                id: result.id ?? result.listingId,
-                listing_id: result.listing_id ?? result.listingId,
-              };
-            },
-          }),
-          signal: context?.signal,
-          throwIfLeaseLost: context?.throwIfLeaseLost,
+  return createDurableJobLaneRunners({
+    workflowName: "pricing.recommendation-jobs",
+    laneCount: input.pricingRecommendationJobLaneCount,
+    runLane: async (lane) => ({
+      processed: await processNextRecommendationJob({
+        claimOwnerId: `${input.workerId}:${lane.laneName}`,
+        claimTtlMs: input.leaseTtlMs * 4,
+        workflowMaxActiveClaims: input.pricingRecommendationJobWorkflowMaxActiveClaims,
+        jobMaxActiveClaims: input.pricingRecommendationJobMaxActiveClaimsPerJob,
+        laneName: lane.laneName,
+        marketplaceListingGatewayForAccount: (accountId) => ({
+          previewListingTerms: (body) => marketplace.listings!.previewListingTerms!({ accountId, ...body }),
+          updateListingPrice: (listingId, body) =>
+            marketplace.listings!.updateListingPrice!({ accountId, listingId, ...body }, SYSTEM_CONTEXT),
+          createListing: async (body) => {
+            const result = await marketplace.listings!.createListing!({ accountId, ...body }, SYSTEM_CONTEXT);
+            return {
+              id: result.id ?? result.listingId,
+              listing_id: result.listing_id ?? result.listingId,
+            };
+          },
         }),
-        lastGlobalPosition: "0" as never,
+        signal: lane.runnerContext?.signal,
+        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
       }),
-    },
-  ];
+      lastGlobalPosition: "0" as never,
+    }),
+  });
 }
 
 function createSettlementJobRunners(
   services: Readonly<Record<string, unknown>>,
-  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
+  input: Pick<
+    ReturnType<typeof loadConfig>,
+    | "workerId"
+    | "leaseTtlMs"
+    | "settlementPayoutReconciliationJobLaneCount"
+    | "settlementPayoutReconciliationJobWorkflowMaxActiveClaims"
+    | "settlementPayoutReconciliationJobMaxActiveClaimsPerJob"
+  >,
 ): readonly WorkerRunner[] {
   const settlement = services.settlement as
     | {
@@ -835,6 +931,9 @@ function createSettlementJobRunners(
           processNextPayoutReconciliationJob?: (input: {
             claimOwnerId: string;
             claimTtlMs: number;
+            workflowMaxActiveClaims?: number;
+            jobMaxActiveClaims?: number;
+            laneName?: string | null;
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
@@ -847,21 +946,22 @@ function createSettlementJobRunners(
     return [];
   }
 
-  return [
-    {
-      name: "settlement.payout-reconciliation-jobs",
-      kind: "job",
-      runOnce: async (context) => ({
-        processed: await processNextPayoutReconciliationJob({
-          claimOwnerId: input.workerId,
-          claimTtlMs: input.leaseTtlMs * 4,
-          signal: context?.signal,
-          throwIfLeaseLost: context?.throwIfLeaseLost,
-        }),
-        lastGlobalPosition: "0" as never,
+  return createDurableJobLaneRunners({
+    workflowName: "settlement.payout-reconciliation-jobs",
+    laneCount: input.settlementPayoutReconciliationJobLaneCount,
+    runLane: async (lane) => ({
+      processed: await processNextPayoutReconciliationJob({
+        claimOwnerId: `${input.workerId}:${lane.laneName}`,
+        claimTtlMs: input.leaseTtlMs * 4,
+        workflowMaxActiveClaims: input.settlementPayoutReconciliationJobWorkflowMaxActiveClaims,
+        jobMaxActiveClaims: input.settlementPayoutReconciliationJobMaxActiveClaimsPerJob,
+        laneName: lane.laneName,
+        signal: lane.runnerContext?.signal,
+        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
       }),
-    },
-  ];
+      lastGlobalPosition: "0" as never,
+    }),
+  });
 }
 
 function createCatalogAssetStorage(storageConfig: PlatformWorkerCatalogAssetStorageConfig): ObjectStorage {

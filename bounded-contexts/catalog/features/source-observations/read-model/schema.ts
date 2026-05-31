@@ -48,4 +48,9 @@ ${durableJobSchemaSql({
   eventsTable: "catalog_source_observation_integration_job_events",
   notifyChannel: "catalog_source_observation_durable_job_events",
 })}
+
+${durableJobWorkUnitSchemaSql({
+  jobsTable: "catalog_source_observation_integration_durable_jobs",
+  workUnitsTable: "catalog_source_observation_integration_work_units",
+})}
 `;

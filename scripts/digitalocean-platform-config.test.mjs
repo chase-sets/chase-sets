@@ -132,11 +132,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("worker_database_pool_max             = tostring(var.worker_database_pool_max");
     expect(platformLocals).toContain('bootstrap_database_pool_max          = "4"');
     expect(platformLocals).toContain('worker_projection_concurrency        = "2"');
-    expect(platformLocals).toContain("worker_default_job_concurrency       = local.is_staging ? 3 : 1");
+    expect(platformLocals).toContain("worker_default_job_concurrency       = local.is_staging ? 4 : 1");
     expect(platformLocals).toContain("worker_job_concurrency               = tostring(var.worker_job_concurrency");
-    expect(platformLocals).toContain('source_observation_bulk_job_lanes    = local.is_staging ? "3" : "1"');
-    expect(platformLocals).toContain('source_observation_bulk_workflow_cap = local.is_staging ? "3" : "1"');
+    expect(platformLocals).toContain('source_observation_bulk_job_lanes    = local.is_staging ? "4" : "1"');
+    expect(platformLocals).toContain('source_observation_bulk_workflow_cap = local.is_staging ? "4" : "1"');
     expect(platformLocals).toContain('source_observation_bulk_job_cap      = local.is_staging ? "2" : "1"');
+    expect(platformLocals).toContain('catalog_authoring_bulk_job_lanes     = local.is_staging ? "3" : "1"');
+    expect(platformLocals).toContain('source_observation_integration_job_lanes    = local.is_staging ? "4" : "1"');
+    expect(platformLocals).toContain('inventory_import_batch_job_lanes     = local.is_staging ? "4" : "1"');
+    expect(platformLocals).toContain('pricing_recommendation_job_lanes     = local.is_staging ? "3" : "1"');
+    expect(platformLocals).toContain('settlement_payout_reconciliation_job_lanes    = local.is_staging ? "2" : "1"');
     expect(platformLocals).toContain("default_worker_instances = local.is_staging ? 2 : 1");
     expect(platformLocals).toContain("worker_instances         = var.worker_instance_count > 0");
     expect(platformVariables).toContain('variable "worker_instance_count"');
@@ -156,6 +161,25 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"')).toBe(1);
+    for (const key of [
+      "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT",
+      "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      "SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT",
+      "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT",
+      "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      "PRICING_RECOMMENDATION_JOB_LANE_COUNT",
+      "PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT",
+      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+    ]) {
+      expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(1);
+    }
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain(

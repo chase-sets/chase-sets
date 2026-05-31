@@ -19,6 +19,11 @@ import {
   toDurableJobPublicSnapshot,
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
+  createPostgresDurableJobWorkUnitStore,
+  type DurableJobWorkUnitRecord,
+  type DurableJobWorkUnitSummary,
+} from "@chase-sets/platform-runtime/durable-job-work-units";
+import {
   getAccountRecommendation,
   listAccountRecommendations,
   listAccountRecommendationsByIds,
@@ -96,6 +101,16 @@ export type PricingRecommendationJobResult = Readonly<{
   appliedCount?: number;
   failedCount?: number;
   dismissedCount?: number;
+}>;
+
+type PricingRecommendationWorkUnitPayload = Readonly<{
+  recommendationId: string;
+}>;
+
+type PricingRecommendationWorkUnitResult = Readonly<{
+  recommendationId: string;
+  status: "dismissed" | "skipped" | "failed";
+  message: string | null;
 }>;
 
 export type PricingRecommendationJob = DurableJobRecord<
@@ -370,10 +385,14 @@ export type PricingRecommendationServices = Readonly<{
   processNextRecommendationJob: (input: {
     claimOwnerId: string;
     claimTtlMs: number;
+    workflowMaxActiveClaims?: number;
+    jobMaxActiveClaims?: number;
+    laneName?: string | null;
     marketplaceListingGatewayForAccount: (accountId: string) => PricingMarketplaceListingGateway;
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
   }) => Promise<number>;
+  getRecommendationWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -388,6 +407,23 @@ export function createPricingRecommendationRuntime(
     jobsTable: "pricing_recommendation_jobs",
     eventsTable: "pricing_recommendation_job_events",
   });
+  const workUnitStore = createPostgresDurableJobWorkUnitStore<
+    PricingRecommendationJobPayload,
+    PricingRecommendationJobProgress,
+    PricingRecommendationJobResult,
+    PricingRecommendationWorkUnitPayload,
+    PricingRecommendationWorkUnitResult
+  >(
+    deps.db,
+    {
+      jobsTable: "pricing_recommendation_jobs",
+      eventsTable: "pricing_recommendation_job_events",
+      workUnitsTable: "pricing_recommendation_work_units",
+    },
+    {
+      workflowName: "pricing.recommendations",
+    },
+  );
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -672,18 +708,34 @@ export function createPricingRecommendationRuntime(
     refreshRecommendations,
     applyRecommendations,
     dismissRecommendations,
-    enqueueRecommendationJob: (params, context) =>
-      jobStore.enqueue({
+    enqueueRecommendationJob: async (params, context) => {
+      const recommendationIds = uniqueRecommendationIds(params.recommendationIds ?? []);
+      if ((params.action === "apply" || params.action === "dismiss") && recommendationIds.length === 0) {
+        throw new Error("Recommendation job requires at least one recommendation.");
+      }
+      const job = await jobStore.enqueue({
         jobId: createPricingRecommendationJobId(),
         jobKind: params.action,
         payload: {
           action: params.action,
           accountId: params.accountId,
-          recommendationIds: params.recommendationIds ?? [],
+          recommendationIds,
         },
-        progress: pricingJobProgress("queued", 0, params.recommendationIds?.length ?? 0, "Recommendation job queued."),
+        progress: pricingJobProgress("queued", 0, recommendationIds.length, "Recommendation job queued."),
         eventContext: context,
-      }),
+      });
+      if (params.action === "dismiss") {
+        await workUnitStore.enqueue({
+          jobId: job.jobId,
+          units: recommendationIds.map((recommendationId) => ({
+            unitId: recommendationId,
+            unitKind: "dismiss",
+            payload: { recommendationId },
+          })),
+        });
+      }
+      return job;
+    },
     getRecommendationJob: (jobId) => jobStore.get(jobId),
     listRecommendationJobEvents: (jobId, afterSequence = 0) => jobStore.listEvents(jobId, afterSequence),
     waitForRecommendationJobEvents: (jobId, signal) => jobStore.waitForEvents({ jobId, signal }),
@@ -693,10 +745,16 @@ export function createPricingRecommendationRuntime(
         limit: input.limit,
       }),
     processNextRecommendationJob: async (input) => {
+      await ensureDismissWorkUnitsForLegacyJobs();
+      const processedDismissUnit = await processNextDismissWorkUnit(input);
+      if (processedDismissUnit > 0) {
+        return processedDismissUnit;
+      }
+
       const claimed = await jobStore.claimNext({
         claimOwnerId: input.claimOwnerId,
         claimTtlMs: input.claimTtlMs,
-        jobKinds: ["refresh", "apply", "dismiss"],
+        jobKinds: ["refresh", "apply"],
       });
       if (!claimed) {
         return 0;
@@ -799,6 +857,7 @@ export function createPricingRecommendationRuntime(
     listAccountRecommendations: (params) => listAccountRecommendations(deps.db, params),
     getAccountRecommendation: (recommendationId, accountId) =>
       getAccountRecommendation(deps.db, recommendationId, accountId),
+    getRecommendationWorkUnitSummary: (input = {}) => workUnitStore.summarize(input),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "pricing-recommendation-projection",
@@ -806,6 +865,142 @@ export function createPricingRecommendationRuntime(
       }),
     ],
   };
+
+  async function processNextDismissWorkUnit(input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    workflowMaxActiveClaims?: number;
+    jobMaxActiveClaims?: number;
+    laneName?: string | null;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+  }): Promise<number> {
+    const claimResult = await workUnitStore.claimNext({
+      claimOwnerId: input.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
+      jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
+      jobKinds: ["dismiss"],
+      laneName: input.laneName ?? null,
+    });
+    const claim = claimResult.claim;
+    if (!claim) {
+      return 0;
+    }
+
+    try {
+      input.throwIfLeaseLost?.();
+      if (input.signal?.aborted) {
+        throw new Error("Pricing recommendation job was cancelled.");
+      }
+      if (!claim.job.eventContext) {
+        throw new Error("Pricing recommendation job is missing event context.");
+      }
+      const result = await dismissRecommendations(
+        {
+          accountId: claim.job.payload.accountId,
+          recommendationIds: [claim.unit.payload.recommendationId],
+        },
+        claim.job.eventContext,
+      );
+      const outcome: PricingRecommendationWorkUnitResult = {
+        recommendationId: claim.unit.payload.recommendationId,
+        status: result.dismissedCount > 0 ? "dismissed" : "skipped",
+        message: null,
+      };
+      await requirePricingRecommendationJobClaim(
+        workUnitStore.recordTerminal({
+          jobId: claim.job.jobId,
+          unitId: claim.unit.unitId,
+          claimOwnerId: claim.claimOwnerId,
+          claimToken: claim.claimToken,
+          state: outcome.status === "dismissed" ? "completed" : "skipped",
+          unitResult: outcome,
+          parentProgress: claim.job.progress,
+          parentResult: claim.job.result,
+          resolveParentUpdate: (queryable) => pricingDismissParentUpdateFromWorkUnits(queryable, claim.job),
+        }),
+      );
+      return 1;
+    } catch (error) {
+      if (isPricingRecommendationJobHandoff(error, input)) {
+        await workUnitStore.releaseClaim({
+          jobId: claim.job.jobId,
+          unitId: claim.unit.unitId,
+          claimOwnerId: claim.claimOwnerId,
+          claimToken: claim.claimToken,
+        });
+        return 0;
+      }
+      await requirePricingRecommendationJobClaim(
+        workUnitStore.recordTerminal({
+          jobId: claim.job.jobId,
+          unitId: claim.unit.unitId,
+          claimOwnerId: claim.claimOwnerId,
+          claimToken: claim.claimToken,
+          state: "failed",
+          unitResult: {
+            recommendationId: claim.unit.payload.recommendationId,
+            status: "failed",
+            message: error instanceof Error ? error.message : "Recommendation dismiss failed.",
+          },
+          errorMessage: error instanceof Error ? error.message : "Recommendation dismiss failed.",
+          parentProgress: claim.job.progress,
+          parentResult: claim.job.result,
+          resolveParentUpdate: (queryable) => pricingDismissParentUpdateFromWorkUnits(queryable, claim.job),
+        }),
+      );
+      return 1;
+    }
+  }
+
+  async function ensureDismissWorkUnitsForLegacyJobs() {
+    const activeJobs = await jobStore.listActive({ jobKinds: ["dismiss"] });
+    for (const job of activeJobs) {
+      const existing = await workUnitStore.summarize({ jobId: job.jobId });
+      if (existing.total > 0) {
+        continue;
+      }
+      await workUnitStore.enqueue({
+        jobId: job.jobId,
+        units: uniqueRecommendationIds(job.payload.recommendationIds).map((recommendationId) => ({
+          unitId: recommendationId,
+          unitKind: "dismiss",
+          payload: { recommendationId },
+        })),
+      });
+    }
+  }
+
+  async function pricingDismissParentUpdateFromWorkUnits(
+    queryable: PgQueryable,
+    job: PricingRecommendationJob,
+  ): Promise<
+    Readonly<{
+      parentProgress: PricingRecommendationJobProgress;
+      parentResult: PricingRecommendationJobResult;
+      completeJob: boolean;
+    }>
+  > {
+    const units = await listPricingRecommendationWorkUnitsForJob(queryable, job.jobId);
+    const terminalUnits = units.filter(
+      (unit) => unit.state === "completed" || unit.state === "failed" || unit.state === "skipped",
+    );
+    const outcomes = terminalUnits.flatMap((unit) => (unit.result ? [unit.result] : []));
+    const total = Math.max(job.progress.total, units.length, outcomes.length);
+    const completeJob = total > 0 && terminalUnits.length >= total;
+    const dismissedCount = outcomes.filter((outcome) => outcome.status === "dismissed").length;
+    return {
+      parentProgress: pricingJobProgress(
+        completeJob ? "completed" : "processing",
+        terminalUnits.length,
+        total,
+        completeJob ? "Recommendation job completed." : "Dismissed recommendation.",
+      ),
+      parentResult: { dismissedCount },
+      completeJob,
+    };
+  }
 }
 
 function pricingJobProgress(
@@ -846,6 +1041,75 @@ function listingIdForPricingRecommendation(recommendationId: string): string {
 function createPricingRecommendationJobId(): string {
   const cryptoLike = globalThis.crypto as { randomUUID?: () => string } | undefined;
   return `job_${cryptoLike?.randomUUID?.() ?? `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`}`;
+}
+
+async function listPricingRecommendationWorkUnitsForJob(
+  queryable: PgQueryable,
+  jobId: string,
+): Promise<
+  readonly DurableJobWorkUnitRecord<PricingRecommendationWorkUnitPayload, PricingRecommendationWorkUnitResult>[]
+> {
+  const result = await queryable.query<{
+    unit_id: string;
+    unit_kind: string;
+    state: "queued" | "running" | "completed" | "failed" | "skipped";
+    payload: unknown;
+    result: unknown;
+    error_message: string | null;
+    claim_owner_id: string | null;
+    claim_token: string | null;
+    claimed_until: Date | string | null;
+    attempt_count: number | string;
+    created_at: Date | string;
+    updated_at: Date | string;
+    completed_at: Date | string | null;
+  }>(
+    `SELECT unit_id,
+            unit_kind,
+            state,
+            payload,
+            result,
+            error_message,
+            claim_owner_id,
+            claim_token,
+            claimed_until,
+            attempt_count,
+            created_at,
+            updated_at,
+            completed_at
+     FROM pricing_recommendation_work_units
+     WHERE job_id = $1
+     ORDER BY created_at ASC, unit_id ASC`,
+    [jobId],
+  );
+  return result.rows.map((row) => ({
+    jobId,
+    unitId: row.unit_id,
+    unitKind: row.unit_kind,
+    state: row.state,
+    payload: readJsonValue(row.payload),
+    result: row.result == null ? null : readJsonValue(row.result),
+    errorMessage: row.error_message,
+    claimOwnerId: row.claim_owner_id,
+    claimToken: row.claim_token,
+    claimedUntil: row.claimed_until == null ? null : formatTimestamp(row.claimed_until),
+    attemptCount: Number(row.attempt_count),
+    createdAt: formatTimestamp(row.created_at),
+    updatedAt: formatTimestamp(row.updated_at),
+    completedAt: row.completed_at == null ? null : formatTimestamp(row.completed_at),
+  }));
+}
+
+function uniqueRecommendationIds(values: readonly string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function readJsonValue<T>(value: unknown): T {
+  return typeof value === "string" ? (JSON.parse(value) as T) : (value as T);
+}
+
+function formatTimestamp(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : String(value);
 }
 
 function recommendationRetentionCutoff(daysAgo: number): Date {
