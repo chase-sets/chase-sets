@@ -30,11 +30,25 @@ Queue behavior:
 - Keep stale release behavior from the deployment workflow: if a queued automatic deployment starts after a newer `origin/main` exists, skip that stale deployment and let the newest release proceed.
 - Keep direct pushes disabled for normal work. Emergency release bypass must be explicit and audited.
 
+Initial GitHub native merge queue settings for `main`:
+
+| Setting | Value |
+| --- | --- |
+| Merge method | `SQUASH` |
+| Grouping strategy | `ALLGREEN` |
+| Minimum pull requests to merge | `1` |
+| Maximum pull requests to merge | `1` |
+| Maximum pull requests to build | `1` |
+| Required check | `PR Required` |
+| Check response timeout | `60 minutes` |
+
+`.github/workflows/platform-pr.yml` must run on `pull_request`, `merge_group`, and `push` to `main` so `PR Required` is evaluated for both pull request heads and merge queue synthetic commits.
+
 Current repository evidence from May 31, 2026:
 
 - `main` has branch protection with strict required status checks, `PR Required`, required conversation resolution, required linear history, and admin enforcement.
 - Repository rulesets currently include `Protect production deployed marker` for `refs/heads/production`, blocking deletion and non-fast-forward updates.
-- Native merge queue is not yet visible in the current branch protection or repository ruleset evidence. Enable it for `main` before increasing release batch size beyond one.
+- Native merge queue is configured through a `main` branch ruleset. Keep the settings above until release-health metrics justify a larger batch size.
 - Repository auto-merge is currently disabled; leave it disabled unless merge queue policy deliberately adopts it.
 
 Emergency release behavior:
@@ -352,8 +366,7 @@ The readiness output is a `rollback-readiness/v1` artifact. A passing readiness 
 
 ## Current Deferred Work
 
-The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, release dashboard, canary-analysis gate, telemetry-backed canary evidence collector, release-health report generator, and production release-health artifact emission with queue, staging, production, canary, and drift timing. The next implementation steps are:
+The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, release dashboard, canary-analysis gate, telemetry-backed canary evidence collector, release-health report generator, merge-queue-aware PR validation, and production release-health artifact emission with queue, staging, production, canary, and drift timing. The next implementation steps are:
 
-- configure GitHub native merge queue for `main` with the policy above
 - persist PR review/ready timestamps from GitHub API once merge queue is enabled
 - wire the canary evidence collector to production observability sources once telemetry data sources are ready

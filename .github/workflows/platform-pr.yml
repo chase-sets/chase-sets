@@ -2,6 +2,8 @@ name: Platform PR
 
 on:
   pull_request:
+  merge_group:
+    types: [checks_requested]
   push:
     branches:
       - main
@@ -53,9 +55,19 @@ jobs:
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             base="${{ github.event.pull_request.base.sha }}"
             head="${{ github.sha }}"
+          elif [ "${{ github.event_name }}" = "merge_group" ]; then
+            base="${{ github.event.merge_group.base_sha }}"
+            head="${{ github.event.merge_group.head_sha }}"
           else
             base="${{ github.event.before }}"
             head="${{ github.sha }}"
+          fi
+
+          if [ -z "$head" ]; then
+            head="${{ github.sha }}"
+          fi
+          if [ -z "$base" ]; then
+            base="$(git rev-parse origin/main)"
           fi
 
           if [[ "$base" =~ ^0+$ ]]; then
