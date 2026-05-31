@@ -79,7 +79,61 @@ describe("ses email adapter", () => {
       attemptCount: 1,
     });
     const [request] = sendRequest.mock.calls[0] as [SesSendEmailRequest];
+    expect(request.FromEmailAddress).toBe("Chase Sets <no-reply@chasesets.com>");
     expect(request.Content.Simple.Body.Text.Data).toContain("https://chasesets.com/magic");
+  });
+
+  it("supports explicit friendly sender display names", async () => {
+    const sendRequest = vi.fn(async (_request: SesSendEmailRequest) => ({ MessageId: "ses_msg_sender" }));
+    const gateway = createSesTransactionalEmailGateway({
+      fromEmail: "notifications@chasesets.com",
+      fromName: "Chase Sets Early Access",
+      sendRequest,
+      templateRenderer,
+    });
+
+    await gateway.sendTransactionalEmail({
+      messageType: "public-presence.waitlist-signup.recorded",
+      criticality: "operational",
+      to: [{ email: "collector@example.com" }],
+      subject: "Welcome to Chase Sets early access",
+      templateId: "waitlist_signup_confirmation",
+      templateVersion: 1,
+      locale: "en",
+      templateData: { magicLink: "welcome" },
+      idempotencyKey: "public-presence:waitlist-signup-confirmation:wls_123",
+      correlationId: "req_123",
+      actor: { userId: null, accountId: null },
+    });
+
+    const [request] = sendRequest.mock.calls[0] as [SesSendEmailRequest];
+    expect(request.FromEmailAddress).toBe("Chase Sets Early Access <notifications@chasesets.com>");
+  });
+
+  it("preserves preformatted SES sender addresses", async () => {
+    const sendRequest = vi.fn(async (_request: SesSendEmailRequest) => ({ MessageId: "ses_msg_sender" }));
+    const gateway = createSesTransactionalEmailGateway({
+      fromEmail: "Chase Sets <notifications@chasesets.com>",
+      sendRequest,
+      templateRenderer,
+    });
+
+    await gateway.sendTransactionalEmail({
+      messageType: "auth.magic-link.requested",
+      criticality: "security",
+      to: [{ email: "buyer@example.com" }],
+      subject: "Your sign-in link",
+      templateId: "auth_magic_link",
+      templateVersion: 1,
+      locale: "en",
+      templateData: { magicLink: "https://chasesets.com/magic" },
+      idempotencyKey: "auth:magic:usr_123",
+      correlationId: "req_123",
+      actor: { userId: null, accountId: null },
+    });
+
+    const [request] = sendRequest.mock.calls[0] as [SesSendEmailRequest];
+    expect(request.FromEmailAddress).toBe("Chase Sets <notifications@chasesets.com>");
   });
 
   it("retries transient failures and emits observability hooks", async () => {

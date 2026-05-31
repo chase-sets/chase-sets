@@ -27,6 +27,7 @@ import {
 
 export type SesEmailGatewayOptions = Readonly<{
   fromEmail: string;
+  fromName?: string | null;
   configurationSetName?: string | null;
   sourceArn?: string | null;
   maxAttempts?: number;
@@ -334,6 +335,7 @@ function mapSesEventKind(eventType: SesNotificationEvent["eventType"]): EmailPro
 export function createSesTransactionalEmailGateway(options: SesEmailGatewayOptions): TransactionalEmailGateway {
   const now = options.now ?? (() => new Date());
   const maxAttempts = Math.max(1, options.maxAttempts ?? 3);
+  const fromEmailAddress = formatSesFromEmailAddress(options.fromEmail, options.fromName);
 
   return {
     async sendTransactionalEmail(message: TransactionalEmailMessage): Promise<SentTransactionalEmailReceipt> {
@@ -345,7 +347,7 @@ export function createSesTransactionalEmailGateway(options: SesEmailGatewayOptio
       const bccAddresses = message.bcc?.map((item) => item.email);
 
       const input: SesSendEmailRequest = {
-        FromEmailAddress: options.fromEmail,
+        FromEmailAddress: fromEmailAddress,
         Destination: {
           ToAddresses: toAddresses,
           ...(ccAddresses && ccAddresses.length > 0 ? { CcAddresses: ccAddresses } : {}),
@@ -401,6 +403,24 @@ export function createSesTransactionalEmailGateway(options: SesEmailGatewayOptio
       throw lastError ?? mapError(new Error("SES send failed."));
     },
   };
+}
+
+function formatSesFromEmailAddress(email: string, displayName?: string | null) {
+  const normalizedEmail = email.trim();
+  if (normalizedEmail.includes("<") && normalizedEmail.includes(">")) {
+    return normalizedEmail;
+  }
+
+  const normalizedDisplayName = normalizeOptional(displayName) ?? "Chase Sets";
+  return `${formatEmailDisplayName(normalizedDisplayName)} <${normalizedEmail}>`;
+}
+
+function formatEmailDisplayName(displayName: string) {
+  if (/^[A-Za-z0-9 .'-]+$/.test(displayName)) {
+    return displayName;
+  }
+
+  return `"${displayName.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
 }
 
 export function createSesEmailNotificationAdapter(options: SesEmailGatewayOptions): NotificationChannelAdapter {
