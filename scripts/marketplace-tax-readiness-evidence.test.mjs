@@ -18,12 +18,12 @@ function noCollectionReport(overrides = {}) {
       currentYearStart: "2026-01-01T00:00:00.000Z",
       nextYearStart: "2027-01-01T00:00:00.000Z",
     },
-    sourceMeasurementJurisdictionCount: 52,
+    sourceMeasurementJurisdictionCount: 51,
     sourceMeasurementMissingJurisdictionOrderCount: 0,
     sourceMeasurementUnknownJurisdictionOrderCount: 0,
     sourceMeasurementRequiresManualReview: false,
     sourceMeasurementPasses: true,
-    stateByStateJurisdictionReviewCount: 52,
+    stateByStateJurisdictionReviewCount: 51,
     providerBackedQuotesRequired: false,
     providerBackedQuotesMissing: false,
     collectionRequiredJurisdictions: [],
@@ -79,12 +79,12 @@ describe("marketplace tax readiness evidence", () => {
         currentYearStart: "2026-01-01T00:00:00.000Z",
         nextYearStart: "2027-01-01T00:00:00.000Z",
       },
-      sourceMeasurementJurisdictionCount: 52,
+      sourceMeasurementJurisdictionCount: 51,
       sourceMeasurementMissingJurisdictionOrderCount: 0,
       sourceMeasurementUnknownJurisdictionOrderCount: 0,
       sourceMeasurementRequiresManualReview: false,
       sourceMeasurementPasses: true,
-      stateByStateJurisdictionReviewCount: 52,
+      stateByStateJurisdictionReviewCount: 51,
       providerBackedQuotesMissing: false,
       registrationRequiredJurisdictions: [],
       preparationJurisdictions: [],
@@ -227,12 +227,12 @@ describe("marketplace tax readiness evidence", () => {
             currentYearStart: "2025-01-01T00:00:00.000Z",
             nextYearStart: "2024-01-01T00:00:00.000Z",
           },
-          sourceMeasurementJurisdictionCount: 51,
+          sourceMeasurementJurisdictionCount: 50,
           sourceMeasurementMissingJurisdictionOrderCount: 1,
           sourceMeasurementUnknownJurisdictionOrderCount: 1,
           sourceMeasurementRequiresManualReview: true,
           sourceMeasurementPasses: false,
-          stateByStateJurisdictionReviewCount: 51,
+          stateByStateJurisdictionReviewCount: 50,
         }),
       }),
     );
@@ -250,7 +250,7 @@ describe("marketplace tax readiness evidence", () => {
     expect(evidence.errors).toContain(
       "Tax nexus readiness report sourceMeasurementQueryWindow.currentYearStart must be before nextYearStart.",
     );
-    expect(evidence.errors).toContain("Tax nexus readiness report sourceMeasurementJurisdictionCount must be 52.");
+    expect(evidence.errors).toContain("Tax nexus readiness report sourceMeasurementJurisdictionCount must be 51.");
     expect(evidence.errors).toContain(
       "Tax nexus readiness report sourceMeasurementMissingJurisdictionOrderCount must be 0.",
     );
@@ -262,7 +262,7 @@ describe("marketplace tax readiness evidence", () => {
     );
     expect(evidence.errors).toContain("Tax nexus readiness report sourceMeasurementPasses must be true.");
     expect(evidence.errors).toContain(
-      "Tax nexus readiness report stateByStateJurisdictionReviewCount must be at least 52.",
+      "Tax nexus readiness report stateByStateJurisdictionReviewCount must be at least 51.",
     );
   });
 

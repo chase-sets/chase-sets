@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isIsoTimestamp } from "./marketplace-evidence-references.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
+import { TAX_NEXUS_JURISDICTION_CODES } from "./marketplace-tax-nexus-measurement.mjs";
 
 export const MARKETPLACE_LAUNCH_EVIDENCE_SCHEMA_VERSION = "marketplace-launch-evidence/v1";
 
@@ -67,7 +68,7 @@ const REQUIRED_FULFILLMENT_POSTAGE_EVENT_ID_GROUPS = [
 ];
 const REQUIRED_LAUNCH_SUPPLY_MEASUREMENT_QUERY_VERSION = "launch-supply-measurement-query/v1";
 const REQUIRED_TAX_NEXUS_MEASUREMENT_QUERY_VERSION = "tax-nexus-measurement-query/v1";
-const REQUIRED_TAX_NEXUS_JURISDICTION_COUNT = 52;
+const REQUIRED_TAX_NEXUS_JURISDICTION_COUNT = TAX_NEXUS_JURISDICTION_CODES.length;
 const REQUIRED_PUBLIC_PRESENCE_COPY_AUDIT_VERSION = "marketplace-public-presence-copy-audit/v1";
 const REQUIRED_PUBLIC_PRESENCE_COPY_AUDIT_PAGE_COUNT = 8;
 const REQUIRED_MARKETPLACE_CHECKOUT_FEE_POLICY_VERSION = "marketplace-checkout-fee-v1";

@@ -490,12 +490,12 @@ Use `pnpm run marketplace:production-proof-topology-evidence` after enabling pro
         "currentYearStart": "2026-01-01T00:00:00.000Z",
         "nextYearStart": "2027-01-01T00:00:00.000Z"
       },
-      "sourceMeasurementJurisdictionCount": 52,
+      "sourceMeasurementJurisdictionCount": 51,
       "sourceMeasurementMissingJurisdictionOrderCount": 0,
       "sourceMeasurementUnknownJurisdictionOrderCount": 0,
       "sourceMeasurementRequiresManualReview": false,
       "sourceMeasurementPasses": true,
-      "stateByStateJurisdictionReviewCount": 52,
+      "stateByStateJurisdictionReviewCount": 51,
       "providerBackedQuotesMissing": false,
       "registrationRequiredJurisdictions": [],
       "preparationJurisdictions": [],
@@ -587,7 +587,7 @@ Build the source activity measurement from production order tax snapshots before
 pnpm run marketplace:tax-nexus-measurement -- --database-url $env:PRODUCTION_DATABASE_URL --environment production --operator "ops@chasesets.com" --projection-freshness-reference ORDERING-PROJECTION-2026-05-30 --reference TAX-NEXUS-SOURCE-2026-05-30
 ```
 
-The measurement command prints redacted state-by-state activity for the current and previous calendar years. It fails unless the measurement is explicitly production-scoped, `checkedAt` is an ISO timestamp, the operator is present, the source measurement and projection-freshness references are real evidence records, the query window is internally consistent, all 52 supported US tax jurisdictions are represented in the redacted activity output, every measured order has a recognized jurisdiction, and the source measurement reports `passesSourceMeasurementGate=true`. Tax counsel/accounting must review that output, threshold policy, registration/collection status, provider posture, and filing ownership before producing the `TaxNexusReadinessReport`.
+The measurement command prints redacted state-by-state activity for the current and previous calendar years. It fails unless the measurement is explicitly production-scoped, `checkedAt` is an ISO timestamp, the operator is present, the source measurement and projection-freshness references are real evidence records, the query window is internally consistent, every Tax-supported US jurisdiction is represented in the redacted activity output, every measured order has a recognized jurisdiction, and the source measurement reports `passesSourceMeasurementGate=true`. Tax counsel/accounting must review that output, threshold policy, registration/collection status, provider posture, and filing ownership before producing the `TaxNexusReadinessReport`.
 
 Build the Tax gate from the reviewed redacted Tax nexus readiness report instead of hand-editing the packet. The command input should contain only the reviewed `TaxNexusReadinessReport` fields needed for the launch packet.
 

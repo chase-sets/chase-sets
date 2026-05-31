@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isIsoTimestamp, validateEvidenceReference } from "./marketplace-evidence-references.mjs";
+import { TAX_NEXUS_JURISDICTION_CODES } from "./marketplace-tax-nexus-measurement.mjs";
 
 export const MARKETPLACE_TAX_READINESS_EVIDENCE_VERSION = "marketplace-tax-readiness-evidence/v1";
 const TAX_NEXUS_MEASUREMENT_QUERY_VERSION = "tax-nexus-measurement-query/v1";
-const TAX_NEXUS_JURISDICTION_COUNT = 52;
+const TAX_NEXUS_JURISDICTION_COUNT = TAX_NEXUS_JURISDICTION_CODES.length;
 
 export function parseTaxReadinessEvidenceArgs(argv, env = process.env) {
   return {
