@@ -188,6 +188,10 @@ type SourceObservationIntegrationJobPayload = Readonly<{
   scope: SourceObservationIntegrationJobScope;
 }>;
 
+type SourceObservationIntegrationWorkUnitPayload = Readonly<{
+  observationId: string;
+}>;
+
 export type SourceObservationIntegrationJobOutcome = Readonly<{
   providerKey: string;
   languageCode: string;
@@ -344,8 +348,15 @@ export type SourceObservationServices = Readonly<{
     context?: EventStoreContext | null;
   }) => Promise<readonly SourceObservationIntegrationJob[]>;
   processNextIntegrationJob: (
-    input: { claimOwnerId: string; claimTtlMs: number } & SourceObservationJobRunContext,
+    input: {
+      claimOwnerId: string;
+      claimTtlMs: number;
+      workflowMaxActiveClaims?: number;
+      jobMaxActiveClaims?: number;
+      laneName?: string | null;
+    } & SourceObservationJobRunContext,
   ) => Promise<number>;
+  getIntegrationWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
   listSourceObservations: (
     params?: Parameters<typeof listSourceObservations>[1],
   ) => ReturnType<typeof listSourceObservations>;
@@ -433,6 +444,26 @@ export function createSourceObservationRuntime(
       notifyChannel: "catalog_source_observation_durable_job_events",
     },
     { eventSnapshot: toSourceObservationIntegrationJobEventSnapshot },
+  );
+  const integrationWorkUnitStore = createPostgresDurableJobWorkUnitStore<
+    SourceObservationIntegrationJobPayload,
+    BulkSourceObservationProgress,
+    SourceObservationIntegrationJobResult,
+    SourceObservationIntegrationWorkUnitPayload,
+    SourceObservationIntegrationJobOutcome,
+    SourceObservationIntegrationJob
+  >(
+    deps.db,
+    {
+      jobsTable: "catalog_source_observation_integration_durable_jobs",
+      eventsTable: "catalog_source_observation_integration_job_events",
+      workUnitsTable: "catalog_source_observation_integration_work_units",
+      notifyChannel: "catalog_source_observation_durable_job_events",
+    },
+    {
+      workflowName: "catalog.source-observation-integration",
+      eventSnapshot: toSourceObservationIntegrationJobEventSnapshot,
+    },
   );
 
   async function recordObservation(
@@ -1121,6 +1152,67 @@ export function createSourceObservationRuntime(
     }));
   }
 
+  async function listIntegrationWorkUnitsForJob(
+    queryable: PgQueryable,
+    jobId: string,
+  ): Promise<
+    readonly DurableJobWorkUnitRecord<
+      SourceObservationIntegrationWorkUnitPayload,
+      SourceObservationIntegrationJobOutcome
+    >[]
+  > {
+    const result = await queryable.query<{
+      unit_id: string;
+      unit_kind: string;
+      state: "queued" | "running" | "completed" | "failed" | "skipped";
+      payload: unknown;
+      result: unknown;
+      error_message: string | null;
+      claim_owner_id: string | null;
+      claim_token: string | null;
+      claimed_until: Date | string | null;
+      attempt_count: number | string;
+      created_at: Date | string;
+      updated_at: Date | string;
+      completed_at: Date | string | null;
+    }>(
+      `SELECT unit_id,
+              unit_kind,
+              state,
+              payload,
+              result,
+              error_message,
+              claim_owner_id,
+              claim_token,
+              claimed_until,
+              attempt_count,
+              created_at,
+              updated_at,
+              completed_at
+       FROM catalog_source_observation_integration_work_units
+       WHERE job_id = $1
+       ORDER BY created_at ASC, unit_id ASC`,
+      [jobId],
+    );
+
+    return result.rows.map((row) => ({
+      jobId,
+      unitId: row.unit_id,
+      unitKind: row.unit_kind,
+      state: row.state,
+      payload: parseJsonField(row.payload, "integration work unit payload"),
+      result: row.result == null ? null : parseJsonField(row.result, "integration work unit result"),
+      errorMessage: row.error_message,
+      claimOwnerId: row.claim_owner_id,
+      claimToken: row.claim_token,
+      claimedUntil: row.claimed_until == null ? null : formatDateLike(row.claimed_until),
+      attemptCount: Number(row.attempt_count),
+      createdAt: formatDateLike(row.created_at),
+      updatedAt: formatDateLike(row.updated_at),
+      completedAt: row.completed_at == null ? null : formatDateLike(row.completed_at),
+    }));
+  }
+
   async function enqueueIntegrationJob(input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
@@ -1136,7 +1228,11 @@ export function createSourceObservationRuntime(
     }
 
     const jobId = createId("job");
-    const progress = bulkProgress(0, 0, null, null, "queued");
+    const unitObservationIds =
+      input.action === "reapply"
+        ? await listSourceObservationIdsForReapply(deps.db, integrationScopeToObservationScope(scope))
+        : [];
+    const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
 
     const job = await integrationJobStore.enqueue({
       jobId,
@@ -1145,12 +1241,28 @@ export function createSourceObservationRuntime(
       progress,
       eventContext: input.context,
     });
+    if (input.action === "reapply") {
+      await integrationWorkUnitStore.enqueue({
+        jobId,
+        units: unitObservationIds.map((observationId) => ({
+          unitId: observationId,
+          unitKind: "reapply",
+          payload: { observationId },
+        })),
+      });
+    }
 
     return toSourceObservationIntegrationJob(job);
   }
 
   async function processNextIntegrationJob(
-    input: { claimOwnerId: string; claimTtlMs: number } & SourceObservationJobRunContext,
+    input: {
+      claimOwnerId: string;
+      claimTtlMs: number;
+      workflowMaxActiveClaims?: number;
+      jobMaxActiveClaims?: number;
+      laneName?: string | null;
+    } & SourceObservationJobRunContext,
   ): Promise<number> {
     if (isJobRunCancelled(input)) {
       return 0;
@@ -1159,11 +1271,28 @@ export function createSourceObservationRuntime(
     const claimedJob = await integrationJobStore.claimNext({
       claimOwnerId: input.claimOwnerId,
       claimTtlMs: input.claimTtlMs,
-      jobKinds: ["import", "reapply"],
+      jobKinds: ["import"],
     });
-    const claimed = claimedJob ? toClaimedSourceObservationIntegrationJob(claimedJob) : null;
+    let claimed = claimedJob ? toClaimedSourceObservationIntegrationJob(claimedJob) : null;
     if (!claimed) {
-      return 0;
+      await ensureIntegrationReapplyWorkUnitsForLegacyJobs();
+      const processedReapplyUnit = await processIntegrationReapplyWorkUnit(input);
+      if (processedReapplyUnit > 0) {
+        return processedReapplyUnit;
+      }
+      const unitSummary = await integrationWorkUnitStore.summarize();
+      if (unitSummary.queued > 0 || unitSummary.running > 0) {
+        return 0;
+      }
+      const reapplyClaimedJob = await integrationJobStore.claimNext({
+        claimOwnerId: input.claimOwnerId,
+        claimTtlMs: input.claimTtlMs,
+        jobKinds: ["reapply"],
+      });
+      claimed = reapplyClaimedJob ? toClaimedSourceObservationIntegrationJob(reapplyClaimedJob) : null;
+      if (!claimed) {
+        return 0;
+      }
     }
 
     try {
@@ -1217,6 +1346,164 @@ export function createSourceObservationRuntime(
       );
       return 1;
     }
+  }
+
+  async function processIntegrationReapplyWorkUnit(
+    input: {
+      claimOwnerId: string;
+      claimTtlMs: number;
+      workflowMaxActiveClaims?: number;
+      jobMaxActiveClaims?: number;
+      laneName?: string | null;
+    } & SourceObservationJobRunContext,
+  ): Promise<number> {
+    const claimResult = await integrationWorkUnitStore.claimNext({
+      claimOwnerId: input.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
+      jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
+      jobKinds: ["reapply"],
+      laneName: input.laneName ?? null,
+    });
+    const claim = claimResult.claim;
+    if (!claim) {
+      return 0;
+    }
+
+    const job = toSourceObservationIntegrationJob(claim.job);
+    const context = claim.job.eventContext;
+    try {
+      throwIfJobRunCancelled(input);
+      if (!context) {
+        throw new Error("Source Observation integration job is missing event context.");
+      }
+      const runReapplyObservation = createSourceObservationWorkUnitSideEffectRunner(integrationWorkUnitStore, claim, {
+        signal: input.signal,
+        throwIfLeaseLost: input.throwIfLeaseLost,
+        claimTtlMs: input.claimTtlMs,
+      });
+      const itemResult = await reapplyObservationIds({
+        observationIds: [claim.unit.payload.observationId],
+        context,
+        runReapplyObservation,
+      });
+      const outcome = integrationReapplyOutcomeFromBulkOutcome(
+        job,
+        claim.unit.payload.observationId,
+        itemResult.outcomes[0],
+      );
+      await requireSourceObservationJobClaim(
+        integrationWorkUnitStore.recordTerminal({
+          jobId: claim.job.jobId,
+          unitId: claim.unit.unitId,
+          claimOwnerId: claim.claimOwnerId,
+          claimToken: claim.claimToken,
+          state: outcome.status === "failed" ? "failed" : outcome.status === "skipped" ? "skipped" : "completed",
+          unitResult: outcome,
+          errorMessage: outcome.reason,
+          parentProgress: claim.job.progress,
+          parentResult: claim.job.result,
+          resolveParentUpdate: (queryable) => integrationParentUpdateFromWorkUnits(queryable, job),
+        }),
+      );
+      return 1;
+    } catch (error) {
+      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error, input)) {
+        await integrationWorkUnitStore.releaseClaim({
+          jobId: claim.job.jobId,
+          unitId: claim.unit.unitId,
+          claimOwnerId: claim.claimOwnerId,
+          claimToken: claim.claimToken,
+        });
+        return 0;
+      }
+      const outcome: SourceObservationIntegrationJobOutcome = {
+        providerKey: job.scope.provider || tcgdexPokemonTcgProviderProfile.providerKey,
+        languageCode: job.scope.language || "",
+        expansionId: claim.unit.payload.observationId,
+        status: "failed",
+        observed: 0,
+        reapplied: 0,
+        reason: error instanceof Error ? error.message : "Source Observation integration reapply failed.",
+      };
+      await requireSourceObservationJobClaim(
+        integrationWorkUnitStore.recordTerminal({
+          jobId: claim.job.jobId,
+          unitId: claim.unit.unitId,
+          claimOwnerId: claim.claimOwnerId,
+          claimToken: claim.claimToken,
+          state: "failed",
+          unitResult: outcome,
+          errorMessage: outcome.reason,
+          parentProgress: claim.job.progress,
+          parentResult: claim.job.result,
+          resolveParentUpdate: (queryable) => integrationParentUpdateFromWorkUnits(queryable, job),
+        }),
+      );
+      return 1;
+    }
+  }
+
+  async function ensureIntegrationReapplyWorkUnitsForLegacyJobs(): Promise<void> {
+    const activeJobs = await integrationJobStore.listActive({ jobKinds: ["reapply"] });
+    for (const rawJob of activeJobs) {
+      const existing = await integrationWorkUnitStore.summarize({ jobId: rawJob.jobId });
+      if (existing.total > 0) {
+        continue;
+      }
+      const job = toSourceObservationIntegrationJob(rawJob);
+      const completedObservationIds = new Set(
+        (job.result?.outcomes ?? []).map((outcome) => outcome.expansionId).filter(Boolean),
+      );
+      const observationIds = (
+        await listSourceObservationIdsForReapply(deps.db, integrationScopeToObservationScope(job.scope))
+      ).filter((observationId) => !completedObservationIds.has(observationId));
+      await integrationWorkUnitStore.enqueue({
+        jobId: job.jobId,
+        units: observationIds.map((observationId) => ({
+          unitId: observationId,
+          unitKind: "reapply",
+          payload: { observationId },
+        })),
+      });
+    }
+  }
+
+  async function integrationParentUpdateFromWorkUnits(
+    queryable: PgQueryable,
+    job: SourceObservationIntegrationJob,
+  ): Promise<
+    Readonly<{
+      parentProgress: BulkSourceObservationProgress;
+      parentResult: SourceObservationIntegrationJobResult;
+      completeJob: boolean;
+    }>
+  > {
+    const units = await listIntegrationWorkUnitsForJob(queryable, job.jobId);
+    const unitIds = new Set(units.map((unit) => unit.unitId));
+    const carriedOutcomes = (job.result?.outcomes ?? []).filter((outcome) => !unitIds.has(outcome.expansionId ?? ""));
+    const unitOutcomes = units
+      .filter((unit) => unit.state === "completed" || unit.state === "failed" || unit.state === "skipped")
+      .flatMap((unit) => (unit.result ? [unit.result] : []));
+    const outcomes = [...carriedOutcomes, ...unitOutcomes];
+    const total = Math.max(job.progress.total, carriedOutcomes.length + units.length, outcomes.length);
+    const completeJob =
+      total > 0 &&
+      outcomes.length >= total &&
+      units.every((unit) => unit.state === "completed" || unit.state === "failed" || unit.state === "skipped");
+    const result = summarizeIntegrationJobOutcomes(total, outcomes);
+    const latestOutcome = outcomes[outcomes.length - 1] ?? null;
+    return {
+      parentProgress: bulkProgress(
+        outcomes.length,
+        total,
+        null,
+        latestOutcome?.status ?? null,
+        completeJob ? "completed" : "processing",
+      ),
+      parentResult: result,
+      completeJob,
+    };
   }
 
   async function processIntegrationImportJobTurn(input: {
@@ -1657,6 +1944,7 @@ export function createSourceObservationRuntime(
         .map(toSourceObservationIntegrationJob);
     },
     processNextIntegrationJob,
+    getIntegrationWorkUnitSummary: (input = {}) => integrationWorkUnitStore.summarize({ jobId: input.jobId ?? null }),
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
     listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
     pruneSourceObservationJobRetention: async (input = {}) => {
@@ -2932,21 +3220,15 @@ function createSourceObservationSideEffectRunner<TResult>(
     });
 }
 
-function createSourceObservationWorkUnitSideEffectRunner<TJobPayload, TJobProgress, TJobResult>(
-  store: DurableJobWorkUnitStore<
-    TJobPayload,
-    TJobProgress,
-    TJobResult,
-    SourceObservationBulkWorkUnitPayload,
-    SourceObservationBulkWorkUnitResult
-  >,
-  claim: DurableJobWorkUnitClaim<
-    TJobPayload,
-    TJobProgress,
-    TJobResult,
-    SourceObservationBulkWorkUnitPayload,
-    SourceObservationBulkWorkUnitResult
-  >,
+function createSourceObservationWorkUnitSideEffectRunner<
+  TJobPayload,
+  TJobProgress,
+  TJobResult,
+  TUnitPayload,
+  TUnitResult,
+>(
+  store: DurableJobWorkUnitStore<TJobPayload, TJobProgress, TJobResult, TUnitPayload, TUnitResult>,
+  claim: DurableJobWorkUnitClaim<TJobPayload, TJobProgress, TJobResult, TUnitPayload, TUnitResult>,
   input: Readonly<{
     claimTtlMs: number;
     signal?: AbortSignal;
@@ -3042,6 +3324,22 @@ function summarizeIntegrationJobOutcomes(
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,
+  };
+}
+
+function integrationReapplyOutcomeFromBulkOutcome(
+  job: SourceObservationIntegrationJob,
+  observationId: string,
+  outcome: BulkSourceObservationReapplyOutcome | undefined,
+): SourceObservationIntegrationJobOutcome {
+  return {
+    providerKey: job.scope.provider || tcgdexPokemonTcgProviderProfile.providerKey,
+    languageCode: job.scope.language || "",
+    expansionId: observationId,
+    status: outcome?.status ?? "failed",
+    observed: 0,
+    reapplied: outcome?.status === "reapplied" ? 1 : 0,
+    reason: outcome?.reason ?? (outcome ? null : "No reapply outcome."),
   };
 }
 

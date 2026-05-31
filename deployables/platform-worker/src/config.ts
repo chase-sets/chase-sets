@@ -25,6 +25,21 @@ export type PlatformWorkerConfig = Readonly<{
   sourceObservationBulkJobLaneCount: number;
   sourceObservationBulkJobWorkflowMaxActiveClaims: number;
   sourceObservationBulkJobMaxActiveClaimsPerJob: number;
+  catalogAuthoringBulkJobLaneCount: number;
+  catalogAuthoringBulkJobWorkflowMaxActiveClaims: number;
+  catalogAuthoringBulkJobMaxActiveClaimsPerJob: number;
+  sourceObservationIntegrationJobLaneCount: number;
+  sourceObservationIntegrationJobWorkflowMaxActiveClaims: number;
+  sourceObservationIntegrationJobMaxActiveClaimsPerJob: number;
+  inventoryImportBatchJobLaneCount: number;
+  inventoryImportBatchJobWorkflowMaxActiveClaims: number;
+  inventoryImportBatchJobMaxActiveClaimsPerJob: number;
+  pricingRecommendationJobLaneCount: number;
+  pricingRecommendationJobWorkflowMaxActiveClaims: number;
+  pricingRecommendationJobMaxActiveClaimsPerJob: number;
+  settlementPayoutReconciliationJobLaneCount: number;
+  settlementPayoutReconciliationJobWorkflowMaxActiveClaims: number;
+  settlementPayoutReconciliationJobMaxActiveClaimsPerJob: number;
   pollIntervalMs: number;
   leaseTtlMs: number;
   leaseRenewIntervalMs: number;
@@ -240,6 +255,54 @@ export function loadConfig(): PlatformWorkerConfig {
     ),
     sourceObservationBulkJobMaxActiveClaimsPerJob: getPositiveNumberEnv(
       "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      1,
+    ),
+    catalogAuthoringBulkJobLaneCount: getPositiveNumberEnv("CATALOG_AUTHORING_BULK_JOB_LANE_COUNT", 1),
+    catalogAuthoringBulkJobWorkflowMaxActiveClaims: getPositiveNumberEnv(
+      "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      1,
+    ),
+    catalogAuthoringBulkJobMaxActiveClaimsPerJob: getPositiveNumberEnv(
+      "CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      1,
+    ),
+    sourceObservationIntegrationJobLaneCount: getPositiveNumberEnv("SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT", 1),
+    sourceObservationIntegrationJobWorkflowMaxActiveClaims: getPositiveNumberEnv(
+      "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      1,
+    ),
+    sourceObservationIntegrationJobMaxActiveClaimsPerJob: getPositiveNumberEnv(
+      "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      1,
+    ),
+    inventoryImportBatchJobLaneCount: getPositiveNumberEnv("INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT", 1),
+    inventoryImportBatchJobWorkflowMaxActiveClaims: getPositiveNumberEnv(
+      "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      1,
+    ),
+    inventoryImportBatchJobMaxActiveClaimsPerJob: getPositiveNumberEnv(
+      "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      1,
+    ),
+    pricingRecommendationJobLaneCount: getPositiveNumberEnv("PRICING_RECOMMENDATION_JOB_LANE_COUNT", 1),
+    pricingRecommendationJobWorkflowMaxActiveClaims: getPositiveNumberEnv(
+      "PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      1,
+    ),
+    pricingRecommendationJobMaxActiveClaimsPerJob: getPositiveNumberEnv(
+      "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      1,
+    ),
+    settlementPayoutReconciliationJobLaneCount: getPositiveNumberEnv(
+      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT",
+      1,
+    ),
+    settlementPayoutReconciliationJobWorkflowMaxActiveClaims: getPositiveNumberEnv(
+      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      1,
+    ),
+    settlementPayoutReconciliationJobMaxActiveClaimsPerJob: getPositiveNumberEnv(
+      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
       1,
     ),
     pollIntervalMs: getPositiveNumberEnv("WORKER_POLL_INTERVAL_MS", 1_000),

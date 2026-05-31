@@ -48,6 +48,18 @@ function createJobServices(overrides: Partial<CatalogAuthoringBulkJobServices> =
     waitForEvents: async () => undefined,
     pruneRetention: async () => 0,
     processNext: async () => false,
+    getWorkUnitSummary: async () => ({
+      workflowName: "catalog.authoring-bulk",
+      jobId: null,
+      total: 0,
+      queued: 0,
+      running: 0,
+      completed: 0,
+      failed: 0,
+      skipped: 0,
+      activeClaims: 0,
+      expiredClaims: 0,
+    }),
     ...overrides,
   };
 }

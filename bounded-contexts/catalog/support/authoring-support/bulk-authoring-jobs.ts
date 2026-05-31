@@ -7,6 +7,11 @@ import {
   type DurableJobEvent,
   type DurableJobExecutionContext,
 } from "@chase-sets/platform-runtime/durable-job-store";
+import {
+  createPostgresDurableJobWorkUnitStore,
+  type DurableJobWorkUnitRecord,
+  type DurableJobWorkUnitSummary,
+} from "@chase-sets/platform-runtime/durable-job-work-units";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type {
   BulkLifecycleExecutionOptions,
@@ -44,6 +49,26 @@ export type CatalogAuthoringBulkJobProgress = Readonly<{
 }>;
 
 export type CatalogAuthoringBulkJobResult = unknown;
+
+type CatalogAuthoringBulkWorkUnitPayload = Readonly<{
+  itemId: string;
+}>;
+
+type CatalogAuthoringBulkWorkUnitResult = Readonly<{
+  itemId: string;
+  result: unknown;
+}>;
+
+type CatalogAuthoringBulkWorkUnitStore = ReturnType<
+  typeof createPostgresDurableJobWorkUnitStore<
+    CatalogAuthoringBulkJobPayload,
+    CatalogAuthoringBulkJobProgress,
+    CatalogAuthoringBulkJobResult,
+    CatalogAuthoringBulkWorkUnitPayload,
+    CatalogAuthoringBulkWorkUnitResult,
+    CatalogAuthoringBulkJob
+  >
+>;
 
 export type CatalogAuthoringBulkJob = Readonly<{
   jobId: string;
@@ -88,9 +113,13 @@ export type CatalogAuthoringBulkJobServices = Readonly<{
     claimOwnerId: string;
     claimTtlMs?: number;
     services: CatalogServices;
+    workflowMaxActiveClaims?: number;
+    jobMaxActiveClaims?: number;
+    laneName?: string | null;
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
   }) => Promise<boolean>;
+  getWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
 }>;
 
 const storeTables = {
@@ -105,23 +134,55 @@ export function createCatalogAuthoringBulkJobServices(db: PgQueryable): CatalogA
     CatalogAuthoringBulkJobResult,
     CatalogAuthoringBulkJob
   >(db, storeTables, { eventSnapshot: toCatalogAuthoringBulkJob });
+  const workUnitStore = createPostgresDurableJobWorkUnitStore<
+    CatalogAuthoringBulkJobPayload,
+    CatalogAuthoringBulkJobProgress,
+    CatalogAuthoringBulkJobResult,
+    CatalogAuthoringBulkWorkUnitPayload,
+    CatalogAuthoringBulkWorkUnitResult,
+    CatalogAuthoringBulkJob
+  >(
+    db,
+    {
+      ...storeTables,
+      workUnitsTable: "catalog_authoring_bulk_work_units",
+    },
+    {
+      workflowName: "catalog.authoring-bulk",
+      eventSnapshot: toCatalogAuthoringBulkJob,
+    },
+  );
 
   return {
     enqueue: async (input) => {
+      const publishItemIds = input.kind === "catalog.authoring.items.publish" ? uniqueStrings(input.itemIds ?? []) : [];
+      if (input.kind === "catalog.authoring.items.publish" && publishItemIds.length === 0) {
+        throw new Error("Catalog authoring item publish job requires at least one Catalog Item.");
+      }
       const payload: CatalogAuthoringBulkJobPayload = {
         kind: input.kind,
         action: input.action,
         selection: input.selection,
-        itemIds: input.itemIds,
+        itemIds: input.kind === "catalog.authoring.items.publish" ? publishItemIds : input.itemIds,
         operation: input.operation,
       };
       const job = await store.enqueue({
         jobId: createId("job"),
         jobKind: input.kind,
         payload,
-        progress: progress("queued"),
+        progress: progress("queued", 0, input.kind === "catalog.authoring.items.publish" ? publishItemIds.length : 1),
         eventContext: input.context,
       });
+      if (input.kind === "catalog.authoring.items.publish") {
+        await workUnitStore.enqueue({
+          jobId: job.jobId,
+          units: publishItemIds.map((itemId) => ({
+            unitId: itemId,
+            unitKind: input.kind,
+            payload: { itemId },
+          })),
+        });
+      }
 
       return toCatalogAuthoringBulkJob(job);
     },
@@ -151,9 +212,19 @@ export function createCatalogAuthoringBulkJobServices(db: PgQueryable): CatalogA
       }),
     processNext: async (input) => {
       const claimTtlMs = input.claimTtlMs ?? 60_000;
+      const processedUnit = await processNextCatalogAuthoringWorkUnit({
+        ...input,
+        claimTtlMs,
+        workUnitStore,
+      });
+      if (processedUnit) {
+        return true;
+      }
+
       const job = await store.claimNext({
         claimOwnerId: input.claimOwnerId,
         claimTtlMs,
+        jobKinds: CATALOG_AUTHORING_PARENT_CLAIM_KINDS,
       });
 
       if (!job) {
@@ -218,7 +289,195 @@ export function createCatalogAuthoringBulkJobServices(db: PgQueryable): CatalogA
 
       return true;
     },
+    getWorkUnitSummary: (input = {}) => workUnitStore.summarize(input),
   };
+}
+
+const CATALOG_AUTHORING_PARENT_CLAIM_KINDS: readonly CatalogAuthoringBulkJobKind[] = [
+  "catalog.authoring.dimensions.lifecycle",
+  "catalog.authoring.fields.lifecycle",
+  "catalog.authoring.components.lifecycle",
+  "catalog.authoring.blueprints.lifecycle",
+  "catalog.authoring.categories.lifecycle",
+  "catalog.authoring.reference-types.lifecycle",
+  "catalog.authoring.reference-records.lifecycle",
+  "catalog.authoring.items.lifecycle",
+  "catalog.authoring.items.edit",
+];
+
+async function processNextCatalogAuthoringWorkUnit(input: {
+  claimOwnerId: string;
+  claimTtlMs: number;
+  services: CatalogServices;
+  workflowMaxActiveClaims?: number;
+  jobMaxActiveClaims?: number;
+  laneName?: string | null;
+  signal?: AbortSignal;
+  throwIfLeaseLost?: () => void;
+  workUnitStore: CatalogAuthoringBulkWorkUnitStore;
+}): Promise<boolean> {
+  const claimResult = await input.workUnitStore.claimNext({
+    claimOwnerId: input.claimOwnerId,
+    claimTtlMs: input.claimTtlMs,
+    workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
+    jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
+    jobKinds: ["catalog.authoring.items.publish"],
+    laneName: input.laneName ?? null,
+  });
+  const claim = claimResult.claim;
+  if (!claim) {
+    return false;
+  }
+
+  try {
+    throwIfCatalogAuthoringBulkJobCancelled(input);
+    const context = claim.job.eventContext;
+    if (!context) {
+      throw new Error("Catalog authoring bulk job is missing event context.");
+    }
+    const itemResult = await input.services.items.publishBulk([claim.unit.payload.itemId], context, {
+      throwIfCancelled: () => throwIfCatalogAuthoringBulkJobCancelled(input),
+    });
+    await requireCatalogAuthoringBulkJobClaim(
+      input.workUnitStore.recordTerminal({
+        jobId: claim.job.jobId,
+        unitId: claim.unit.unitId,
+        claimOwnerId: claim.claimOwnerId,
+        claimToken: claim.claimToken,
+        state: itemResult.failed_count > 0 ? "failed" : itemResult.skipped_count > 0 ? "skipped" : "completed",
+        unitResult: { itemId: claim.unit.payload.itemId, result: itemResult },
+        errorMessage: itemResult.failed_count > 0 ? "Catalog Item publish failed." : null,
+        parentProgress: claim.job.progress,
+        parentResult: claim.job.result,
+        resolveParentUpdate: (queryable) => catalogAuthoringParentUpdateFromWorkUnits(queryable, claim.job),
+      }),
+    );
+    return true;
+  } catch (error) {
+    if (isCatalogAuthoringBulkJobHandoff(error, input)) {
+      await input.workUnitStore.releaseClaim({
+        jobId: claim.job.jobId,
+        unitId: claim.unit.unitId,
+        claimOwnerId: claim.claimOwnerId,
+        claimToken: claim.claimToken,
+      });
+      return false;
+    }
+    await requireCatalogAuthoringBulkJobClaim(
+      input.workUnitStore.recordTerminal({
+        jobId: claim.job.jobId,
+        unitId: claim.unit.unitId,
+        claimOwnerId: claim.claimOwnerId,
+        claimToken: claim.claimToken,
+        state: "failed",
+        unitResult: {
+          itemId: claim.unit.payload.itemId,
+          result: { error: error instanceof Error ? error.message : String(error) },
+        },
+        errorMessage: error instanceof Error ? error.message : "Catalog authoring bulk work unit failed.",
+        parentProgress: claim.job.progress,
+        parentResult: claim.job.result,
+        resolveParentUpdate: (queryable) => catalogAuthoringParentUpdateFromWorkUnits(queryable, claim.job),
+      }),
+    );
+    return true;
+  }
+}
+
+async function catalogAuthoringParentUpdateFromWorkUnits(
+  queryable: PgQueryable,
+  job: Readonly<{
+    jobId: string;
+    progress: CatalogAuthoringBulkJobProgress;
+    payload: CatalogAuthoringBulkJobPayload;
+  }>,
+): Promise<
+  Readonly<{
+    parentProgress: CatalogAuthoringBulkJobProgress;
+    parentResult: CatalogAuthoringBulkJobResult;
+    completeJob: boolean;
+  }>
+> {
+  const units = await listCatalogAuthoringWorkUnitsForJob(queryable, job.jobId);
+  const terminalUnits = units.filter(
+    (unit) => unit.state === "completed" || unit.state === "failed" || unit.state === "skipped",
+  );
+  const total = Math.max(job.progress.total, units.length);
+  const completeJob = total > 0 && terminalUnits.length >= total;
+  const unitResults = terminalUnits.flatMap((unit) => (unit.result ? [unit.result] : []));
+  const itemResults = unitResults.flatMap((unitResult) => readCatalogAuthoringPublishCandidates(unitResult.result));
+  const parentResult = {
+    item_ids: uniqueStrings(job.payload.itemIds ?? units.map((unit) => unit.unitId)),
+    total: itemResults.length,
+    published_count: itemResults.filter((candidate) => candidate.outcome === "published").length,
+    failed_count: itemResults.filter((candidate) => candidate.outcome === "failed").length,
+    skipped_count: itemResults.filter((candidate) => candidate.outcome === "skipped").length,
+    candidates: itemResults,
+  };
+
+  return {
+    parentProgress: progress(completeJob ? "completed" : "running", terminalUnits.length, total),
+    parentResult,
+    completeJob,
+  };
+}
+
+async function listCatalogAuthoringWorkUnitsForJob(
+  queryable: PgQueryable,
+  jobId: string,
+): Promise<
+  readonly DurableJobWorkUnitRecord<CatalogAuthoringBulkWorkUnitPayload, CatalogAuthoringBulkWorkUnitResult>[]
+> {
+  const result = await queryable.query<{
+    unit_id: string;
+    unit_kind: string;
+    state: "queued" | "running" | "completed" | "failed" | "skipped";
+    payload: unknown;
+    result: unknown;
+    error_message: string | null;
+    claim_owner_id: string | null;
+    claim_token: string | null;
+    claimed_until: Date | string | null;
+    attempt_count: number | string;
+    created_at: Date | string;
+    updated_at: Date | string;
+    completed_at: Date | string | null;
+  }>(
+    `SELECT unit_id,
+            unit_kind,
+            state,
+            payload,
+            result,
+            error_message,
+            claim_owner_id,
+            claim_token,
+            claimed_until,
+            attempt_count,
+            created_at,
+            updated_at,
+            completed_at
+     FROM catalog_authoring_bulk_work_units
+     WHERE job_id = $1
+     ORDER BY created_at ASC, unit_id ASC`,
+    [jobId],
+  );
+
+  return result.rows.map((row) => ({
+    jobId,
+    unitId: row.unit_id,
+    unitKind: row.unit_kind,
+    state: row.state,
+    payload: readJsonValue(row.payload),
+    result: row.result == null ? null : readJsonValue(row.result),
+    errorMessage: row.error_message,
+    claimOwnerId: row.claim_owner_id,
+    claimToken: row.claim_token,
+    claimedUntil: row.claimed_until == null ? null : formatDateLike(row.claimed_until),
+    attemptCount: Number(row.attempt_count),
+    createdAt: formatDateLike(row.created_at),
+    updatedAt: formatDateLike(row.updated_at),
+    completedAt: row.completed_at == null ? null : formatDateLike(row.completed_at),
+  }));
 }
 
 export function toCatalogAuthoringBulkJob(
@@ -337,11 +596,15 @@ function requireSelection(payload: CatalogAuthoringBulkJobPayload): BulkSelectio
   return payload.selection as BulkSelection<never>;
 }
 
-function progress(phase: CatalogAuthoringBulkJobProgress["phase"]): CatalogAuthoringBulkJobProgress {
+function progress(
+  phase: CatalogAuthoringBulkJobProgress["phase"],
+  completed = phase === "completed" ? 1 : 0,
+  total = 1,
+): CatalogAuthoringBulkJobProgress {
   return {
     phase,
-    completed: phase === "completed" ? 1 : 0,
-    total: 1,
+    completed,
+    total,
     currentName: null,
     status: phase,
   };
@@ -395,4 +658,24 @@ function isCatalogAuthoringBulkJobHandoff(error: unknown, input?: { signal?: Abo
     input?.signal?.aborted ||
     (error instanceof Error && (error.message.startsWith("Lost lease ") || error.message.includes("claim was lost")))
   );
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function readJsonValue<T>(value: unknown): T {
+  return typeof value === "string" ? (JSON.parse(value) as T) : (value as T);
+}
+
+function formatDateLike(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
+function readCatalogAuthoringPublishCandidates(value: unknown): ReadonlyArray<{ outcome?: string }> {
+  if (!value || typeof value !== "object" || !("candidates" in value)) {
+    return [];
+  }
+  const candidates = (value as { candidates?: unknown }).candidates;
+  return Array.isArray(candidates) ? (candidates as ReadonlyArray<{ outcome?: string }>) : [];
 }

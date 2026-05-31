@@ -39,6 +39,21 @@ const envNames = [
   "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT",
   "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
   "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+  "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT",
+  "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+  "CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+  "SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT",
+  "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+  "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+  "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT",
+  "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+  "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+  "PRICING_RECOMMENDATION_JOB_LANE_COUNT",
+  "PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+  "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+  "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT",
+  "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+  "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
   "CATALOG_ASSET_STORAGE_KIND",
   "CATALOG_ASSET_LOCAL_ROOT",
   "CATALOG_ASSET_PUBLIC_BASE_URL",
@@ -116,6 +131,21 @@ describe("platform worker config", () => {
       sourceObservationBulkJobLaneCount: 1,
       sourceObservationBulkJobWorkflowMaxActiveClaims: 1,
       sourceObservationBulkJobMaxActiveClaimsPerJob: 1,
+      catalogAuthoringBulkJobLaneCount: 1,
+      catalogAuthoringBulkJobWorkflowMaxActiveClaims: 1,
+      catalogAuthoringBulkJobMaxActiveClaimsPerJob: 1,
+      sourceObservationIntegrationJobLaneCount: 1,
+      sourceObservationIntegrationJobWorkflowMaxActiveClaims: 1,
+      sourceObservationIntegrationJobMaxActiveClaimsPerJob: 1,
+      inventoryImportBatchJobLaneCount: 1,
+      inventoryImportBatchJobWorkflowMaxActiveClaims: 1,
+      inventoryImportBatchJobMaxActiveClaimsPerJob: 1,
+      pricingRecommendationJobLaneCount: 1,
+      pricingRecommendationJobWorkflowMaxActiveClaims: 1,
+      pricingRecommendationJobMaxActiveClaimsPerJob: 1,
+      settlementPayoutReconciliationJobLaneCount: 1,
+      settlementPayoutReconciliationJobWorkflowMaxActiveClaims: 1,
+      settlementPayoutReconciliationJobMaxActiveClaimsPerJob: 1,
     });
   });
 
@@ -128,6 +158,21 @@ describe("platform worker config", () => {
     process.env.SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT = "4";
     process.env.SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "4";
     process.env.SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
+    process.env.CATALOG_AUTHORING_BULK_JOB_LANE_COUNT = "3";
+    process.env.CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "3";
+    process.env.CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
+    process.env.SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT = "4";
+    process.env.SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "4";
+    process.env.SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
+    process.env.INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT = "4";
+    process.env.INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "4";
+    process.env.INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
+    process.env.PRICING_RECOMMENDATION_JOB_LANE_COUNT = "3";
+    process.env.PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "3";
+    process.env.PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "2";
+    process.env.SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT = "2";
+    process.env.SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "2";
+    process.env.SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "1";
 
     expect(loadConfig()).toMatchObject({
       projectionMaxConcurrentRunners: 6,
@@ -137,6 +182,21 @@ describe("platform worker config", () => {
       sourceObservationBulkJobLaneCount: 4,
       sourceObservationBulkJobWorkflowMaxActiveClaims: 4,
       sourceObservationBulkJobMaxActiveClaimsPerJob: 2,
+      catalogAuthoringBulkJobLaneCount: 3,
+      catalogAuthoringBulkJobWorkflowMaxActiveClaims: 3,
+      catalogAuthoringBulkJobMaxActiveClaimsPerJob: 2,
+      sourceObservationIntegrationJobLaneCount: 4,
+      sourceObservationIntegrationJobWorkflowMaxActiveClaims: 4,
+      sourceObservationIntegrationJobMaxActiveClaimsPerJob: 2,
+      inventoryImportBatchJobLaneCount: 4,
+      inventoryImportBatchJobWorkflowMaxActiveClaims: 4,
+      inventoryImportBatchJobMaxActiveClaimsPerJob: 2,
+      pricingRecommendationJobLaneCount: 3,
+      pricingRecommendationJobWorkflowMaxActiveClaims: 3,
+      pricingRecommendationJobMaxActiveClaimsPerJob: 2,
+      settlementPayoutReconciliationJobLaneCount: 2,
+      settlementPayoutReconciliationJobWorkflowMaxActiveClaims: 2,
+      settlementPayoutReconciliationJobMaxActiveClaimsPerJob: 1,
     });
   });
 

@@ -25,6 +25,10 @@ function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
 }
 
+function expectTerraformAssignment(source, localName, expression) {
+  expect(source).toMatch(new RegExp(`${localName}\\s+=\\s+${expression.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+}
+
 function workflowStep(source, stepName) {
   const start = source.indexOf(`- name: ${stepName}`);
   expect(start).not.toBe(-1);
@@ -127,16 +131,29 @@ describe("DigitalOcean platform configuration", () => {
   });
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
-    expect(platformLocals).toContain('api_database_pool_max                = "6"');
-    expect(platformLocals).toContain("worker_default_database_pool_max     = local.is_non_production ? 8 : 6");
-    expect(platformLocals).toContain("worker_database_pool_max             = tostring(var.worker_database_pool_max");
-    expect(platformLocals).toContain('bootstrap_database_pool_max          = "4"');
-    expect(platformLocals).toContain('worker_projection_concurrency        = "2"');
-    expect(platformLocals).toContain("worker_default_job_concurrency       = local.is_staging ? 3 : 1");
-    expect(platformLocals).toContain("worker_job_concurrency               = tostring(var.worker_job_concurrency");
-    expect(platformLocals).toContain('source_observation_bulk_job_lanes    = local.is_staging ? "3" : "1"');
-    expect(platformLocals).toContain('source_observation_bulk_workflow_cap = local.is_staging ? "3" : "1"');
-    expect(platformLocals).toContain('source_observation_bulk_job_cap      = local.is_staging ? "2" : "1"');
+    expectTerraformAssignment(platformLocals, "api_database_pool_max", '"6"');
+    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_non_production ? 8 : 6");
+    expectTerraformAssignment(platformLocals, "worker_database_pool_max", "tostring(var.worker_database_pool_max");
+    expectTerraformAssignment(platformLocals, "bootstrap_database_pool_max", '"4"');
+    expectTerraformAssignment(platformLocals, "worker_projection_concurrency", '"2"');
+    expectTerraformAssignment(platformLocals, "worker_default_job_concurrency", "local.is_staging ? 4 : 1");
+    expectTerraformAssignment(platformLocals, "worker_job_concurrency", "tostring(var.worker_job_concurrency");
+    expectTerraformAssignment(platformLocals, "source_observation_bulk_job_lanes", 'local.is_staging ? "4" : "1"');
+    expectTerraformAssignment(platformLocals, "source_observation_bulk_workflow_cap", 'local.is_staging ? "4" : "1"');
+    expectTerraformAssignment(platformLocals, "source_observation_bulk_job_cap", 'local.is_staging ? "2" : "1"');
+    expectTerraformAssignment(platformLocals, "catalog_authoring_bulk_job_lanes", 'local.is_staging ? "3" : "1"');
+    expectTerraformAssignment(
+      platformLocals,
+      "source_observation_integration_job_lanes",
+      'local.is_staging ? "4" : "1"',
+    );
+    expectTerraformAssignment(platformLocals, "inventory_import_batch_job_lanes", 'local.is_staging ? "4" : "1"');
+    expectTerraformAssignment(platformLocals, "pricing_recommendation_job_lanes", 'local.is_staging ? "3" : "1"');
+    expectTerraformAssignment(
+      platformLocals,
+      "settlement_payout_reconciliation_job_lanes",
+      'local.is_staging ? "2" : "1"',
+    );
     expect(platformLocals).toContain("default_worker_instances = local.is_staging ? 2 : 1");
     expect(platformLocals).toContain("worker_instances         = var.worker_instance_count > 0");
     expect(platformVariables).toContain('variable "worker_instance_count"');
@@ -156,6 +173,25 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS"')).toBe(1);
     expect(occurrenceCount(platformMain, 'key   = "SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB"')).toBe(1);
+    for (const key of [
+      "CATALOG_AUTHORING_BULK_JOB_LANE_COUNT",
+      "CATALOG_AUTHORING_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "CATALOG_AUTHORING_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      "SOURCE_OBSERVATION_INTEGRATION_JOB_LANE_COUNT",
+      "SOURCE_OBSERVATION_INTEGRATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "SOURCE_OBSERVATION_INTEGRATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      "INVENTORY_IMPORT_BATCH_JOB_LANE_COUNT",
+      "INVENTORY_IMPORT_BATCH_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "INVENTORY_IMPORT_BATCH_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      "PRICING_RECOMMENDATION_JOB_LANE_COUNT",
+      "PRICING_RECOMMENDATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "PRICING_RECOMMENDATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT",
+      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS",
+      "SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB",
+    ]) {
+      expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(1);
+    }
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain(

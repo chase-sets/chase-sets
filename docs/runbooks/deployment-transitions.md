@@ -54,12 +54,14 @@ job state. Progress writes renew durable job ownership, bounded-turn jobs
 release the live claim back to `queued`, and completion/failure writes are
 rejected after lease loss so a replacement worker can safely resume.
 
-Catalog Source Observation bulk review uses same-job work units. During deploy
-drain, each active lane receives cancellation through the platform runner lease
-context and releases its current work-unit claim; if the process exits first,
-the unit becomes claimable after its TTL. The parent job remains the public
-status/SSE aggregate, and deployment handoff should appear as a brief pause in
-progress rather than a failed job.
+Catalog Source Observation bulk review, Catalog Source Observation integration
+reapply, Catalog authoring item publish, Inventory import create, Pricing
+recommendation dismiss, and manual Settlement payout reconciliation use same-job
+work units. During deploy drain, each active lane receives cancellation through
+the platform runner lease context and releases its current work-unit claim; if
+the process exits first, the unit becomes claimable after its TTL. The parent job
+remains the public status/SSE aggregate, and deployment handoff should appear as
+a brief pause in progress rather than a failed job.
 
 Replayable jobs should resume the same target after worker replacement.
 Inventory import create jobs persist their target batch id before validation and
@@ -107,19 +109,26 @@ operation state and business facts.
 
 ## Same-Job Parallelism Controls
 
-Staging starts Catalog Source Observation bulk review with three lane runners,
-a workflow active-claim cap of three, and a per-parent-job cap of two. This lets
-the staging job use spare capacity while leaving room for another bulk review
-job to make progress.
+Staging runs two platform-worker instances with four job runners per instance.
+Same-job lanes are enabled for the migrated workflows, with workflow caps higher
+than per-parent caps so a massive job can use spare capacity without starving a
+second job:
 
-Production defaults stay conservative: one Source Observation bulk lane and one
-active claim per parent job. To scale production, raise
-`SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT`,
-`SOURCE_OBSERVATION_BULK_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS`, and then
-`SOURCE_OBSERVATION_BULK_JOB_MAX_ACTIVE_CLAIMS_PER_JOB` in that order. Keep
+- Source Observation bulk review: four lanes, workflow cap four, parent cap two.
+- Source Observation integration reapply: four lanes, workflow cap four, parent cap two.
+- Inventory import create: four lanes, workflow cap four, parent cap two.
+- Catalog authoring item publish: three lanes, workflow cap three, parent cap two.
+- Pricing recommendation dismiss: three lanes, workflow cap three, parent cap two.
+- Settlement payout reconciliation: two lanes, workflow cap two, parent cap one.
+
+Production defaults stay conservative: one lane and one active claim per parent
+job for each migrated workflow. To scale production, raise the workflow's
+`*_LANE_COUNT`, then `*_WORKFLOW_MAX_ACTIVE_CLAIMS`, then
+`*_MAX_ACTIVE_CLAIMS_PER_JOB` in that order. Keep
 `WORKER_JOB_MAX_CONCURRENT_RUNNERS`, worker instance count, and database pool
-capacity above the requested lane count. Roll back by lowering the lane count or
-caps; active claims finish, release, or expire under the normal durable job TTL.
+capacity above the requested active lanes. Roll back by lowering the lane count
+or caps; active claims finish, release, or expire under the normal durable job
+TTL.
 
 ## Verification
 

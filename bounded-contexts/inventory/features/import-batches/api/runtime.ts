@@ -9,6 +9,11 @@ import {
   type DurableJobRecord,
   toDurableJobPublicSnapshot,
 } from "@chase-sets/platform-runtime/durable-job-store";
+import {
+  createPostgresDurableJobWorkUnitStore,
+  type DurableJobWorkUnitRecord,
+  type DurableJobWorkUnitSummary,
+} from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, InventoryItemId, ListingId } from "@chase-sets/primitives/typed-ids";
 import { createId } from "@chase-sets/primitives/typed-ids";
@@ -109,9 +114,13 @@ export type InventoryImportBatchServices = Readonly<{
   processNextImportBatchJob: (input: {
     claimOwnerId: string;
     claimTtlMs: number;
+    workflowMaxActiveClaims?: number;
+    jobMaxActiveClaims?: number;
+    laneName?: string | null;
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
   }) => Promise<number>;
+  getImportBatchWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
 }>;
 
 type InventoryImportBatchRuntimeDeps = Readonly<{
@@ -194,6 +203,15 @@ type InventoryImportBatchJobInput = Readonly<{
   quantityMode?: InventoryImportQuantityMode;
   defaultStorageLocationId?: string | null;
   sourceFilename?: string | null;
+}>;
+
+type InventoryImportBatchWorkUnitPayload = Readonly<{
+  rowNumber: number;
+}>;
+
+type InventoryImportBatchWorkUnitResult = Readonly<{
+  rowId: string;
+  status: InventoryImportRowStatus;
 }>;
 
 export function toInventoryImportBatchJobStatus(job: InventoryImportBatchJob): InventoryImportBatchJobStatus {
@@ -498,6 +516,23 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     jobsTable: "inventory_import_batch_jobs",
     eventsTable: "inventory_import_batch_job_events",
   });
+  const workUnitStore = createPostgresDurableJobWorkUnitStore<
+    InventoryImportBatchJobPayload,
+    InventoryImportBatchJobProgress,
+    InventoryImportBatchJobResult,
+    InventoryImportBatchWorkUnitPayload,
+    InventoryImportBatchWorkUnitResult
+  >(
+    deps.db,
+    {
+      jobsTable: "inventory_import_batch_jobs",
+      eventsTable: "inventory_import_batch_job_events",
+      workUnitsTable: "inventory_import_batch_work_units",
+    },
+    {
+      workflowName: "inventory.import-batch",
+    },
+  );
 
   async function stageCreateBatchJobInput(params: Parameters<InventoryImportBatchServices["createBatch"]>[0]) {
     const inputId = createId("job_input");
@@ -1015,6 +1050,265 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     return detail;
   }
 
+  function normalizedCreateBatchRows(input: InventoryImportBatchJobInput): readonly NormalizedInventoryImportRow[] {
+    const quantityMode = input.quantityMode ?? "add";
+    return getInventoryImportSourceAdapter(input.sourceKey).normalize({
+      csvText: input.csvText,
+      parsedRows: input.parsedRows,
+      quantityMode,
+      defaultStorageLocationId: input.defaultStorageLocationId,
+    });
+  }
+
+  async function ensureCreateBatchHeader(input: InventoryImportBatchJobInput, batchId: string) {
+    const quantityMode = input.quantityMode ?? "add";
+    const adapter = getInventoryImportSourceAdapter(input.sourceKey);
+    await deps.db.query(
+      `INSERT INTO inventory_import_batches (
+        batch_id,
+        account_id,
+        status,
+        source_key,
+        adapter_version,
+        quantity_mode,
+        default_storage_location_id,
+        source_filename,
+        created_at,
+        updated_at
+      ) VALUES ($1, $2, 'uploaded', $3, $4, $5, $6, $7, now(), now())
+      ON CONFLICT (batch_id) DO UPDATE
+      SET account_id = EXCLUDED.account_id,
+          status = CASE
+            WHEN inventory_import_batches.status = 'committed' THEN inventory_import_batches.status
+            ELSE EXCLUDED.status
+          END,
+          source_key = EXCLUDED.source_key,
+          adapter_version = EXCLUDED.adapter_version,
+          quantity_mode = EXCLUDED.quantity_mode,
+          default_storage_location_id = EXCLUDED.default_storage_location_id,
+          source_filename = EXCLUDED.source_filename,
+          updated_at = now()`,
+      [
+        batchId,
+        input.accountId,
+        adapter.sourceKey,
+        adapter.adapterVersion,
+        quantityMode,
+        input.defaultStorageLocationId ?? null,
+        input.sourceFilename ?? null,
+      ],
+    );
+  }
+
+  async function validateAndStoreCreateBatchRow(
+    accountId: AccountId,
+    batchId: string,
+    row: NormalizedInventoryImportRow,
+    quantityMode: InventoryImportQuantityMode,
+  ): Promise<InventoryImportBatchWorkUnitResult> {
+    const rowId = rowIdForBatchRow(batchId, row.rowNumber);
+    const validated = await validateRow(accountId, row, quantityMode);
+    await deps.db.query(
+      `INSERT INTO inventory_import_batch_rows (
+        row_id,
+        batch_id,
+        row_number,
+        status,
+        raw_row,
+        external_reference,
+        row_fingerprint,
+        quantity_mode,
+        quantity_delta,
+        set_quantity,
+        source_price_amount,
+        resolution_status,
+        catalog_item_id,
+        product_id,
+        selected_options,
+        storage_location_id,
+        total_quantity,
+        acquisition_cost_amount,
+        seller_sku,
+        listing_price_amount,
+        listing_quantity_cap,
+        row_note,
+        validation_errors,
+        created_at,
+        updated_at
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15, $16, $17, $18,
+        $19, $20, $21, $22, $23, now(), now()
+      )
+      ON CONFLICT (batch_id, row_number) DO UPDATE
+      SET row_id = EXCLUDED.row_id,
+          status = EXCLUDED.status,
+          raw_row = EXCLUDED.raw_row,
+          external_reference = EXCLUDED.external_reference,
+          row_fingerprint = EXCLUDED.row_fingerprint,
+          quantity_mode = EXCLUDED.quantity_mode,
+          quantity_delta = EXCLUDED.quantity_delta,
+          set_quantity = EXCLUDED.set_quantity,
+          source_price_amount = EXCLUDED.source_price_amount,
+          resolution_status = EXCLUDED.resolution_status,
+          catalog_item_id = EXCLUDED.catalog_item_id,
+          product_id = EXCLUDED.product_id,
+          selected_options = EXCLUDED.selected_options,
+          storage_location_id = EXCLUDED.storage_location_id,
+          total_quantity = EXCLUDED.total_quantity,
+          acquisition_cost_amount = EXCLUDED.acquisition_cost_amount,
+          seller_sku = EXCLUDED.seller_sku,
+          listing_price_amount = EXCLUDED.listing_price_amount,
+          listing_quantity_cap = EXCLUDED.listing_quantity_cap,
+          row_note = EXCLUDED.row_note,
+          validation_errors = EXCLUDED.validation_errors,
+          updated_at = now()
+      WHERE inventory_import_batch_rows.status <> 'committed'`,
+      [
+        rowId,
+        batchId,
+        row.rowNumber,
+        validated.status,
+        JSON.stringify(row.rawRow),
+        validated.externalReference ? JSON.stringify(validated.externalReference) : null,
+        validated.rowFingerprint,
+        validated.quantityMode,
+        validated.quantityDelta,
+        validated.setQuantity,
+        validated.sourcePriceAmount,
+        validated.resolutionStatus,
+        validated.catalogItemId,
+        validated.productId,
+        JSON.stringify(validated.selectedOptions),
+        validated.storageLocationId,
+        validated.totalQuantity,
+        validated.acquisitionCostAmount,
+        validated.sellerSku,
+        validated.listingPriceAmount,
+        validated.listingQuantityCap,
+        validated.rowNote,
+        JSON.stringify(validated.validationErrors),
+      ],
+    );
+    await refreshBatchCounts(deps.db, batchId);
+    return { rowId, status: validated.status };
+  }
+
+  async function ensureCreateWorkUnitsForLegacyJobs() {
+    const activeJobs = await jobStore.listActive({ jobKinds: [IMPORT_BATCH_JOB_KIND_CREATE] });
+    for (const job of activeJobs) {
+      const existing = await workUnitStore.summarize({ jobId: job.jobId });
+      if (existing.total > 0) {
+        continue;
+      }
+      const stagedInput = await loadCreateBatchJobInput(
+        requireCreateInputId(job.payload),
+        job.payload.accountId as AccountId,
+      );
+      const rows = normalizedCreateBatchRows(stagedInput);
+      await workUnitStore.enqueue({
+        jobId: job.jobId,
+        units: rows.map((row) => ({
+          unitId: String(row.rowNumber),
+          unitKind: IMPORT_BATCH_JOB_KIND_CREATE,
+          payload: { rowNumber: row.rowNumber },
+        })),
+      });
+    }
+  }
+
+  async function importBatchCreateParentUpdateFromWorkUnits(
+    queryable: PgQueryable,
+    job: Readonly<{
+      jobId: string;
+      payload: InventoryImportBatchJobPayload;
+      progress: InventoryImportBatchJobProgress;
+    }>,
+    batchId: string,
+  ): Promise<
+    Readonly<{
+      parentProgress: InventoryImportBatchJobProgress;
+      parentResult: InventoryImportBatchJobResult | null;
+      completeJob: boolean;
+    }>
+  > {
+    const units = await listImportBatchWorkUnitsForJob(queryable, job.jobId);
+    const terminalUnits = units.filter(
+      (unit) => unit.state === "completed" || unit.state === "failed" || unit.state === "skipped",
+    );
+    const total = Math.max(job.progress.total, units.length);
+    const completeJob = total > 0 && terminalUnits.length >= total;
+    const batch = await getImportBatch(queryable, batchId, job.payload.accountId);
+    return {
+      parentProgress: importBatchJobProgress(
+        completeJob ? "completed" : "processing",
+        terminalUnits.length,
+        total,
+        null,
+        completeJob ? "Import validation completed." : "Validated row.",
+      ),
+      parentResult: batch ? { batch } : null,
+      completeJob,
+    };
+  }
+
+  async function listImportBatchWorkUnitsForJob(
+    queryable: PgQueryable,
+    jobId: string,
+  ): Promise<
+    readonly DurableJobWorkUnitRecord<InventoryImportBatchWorkUnitPayload, InventoryImportBatchWorkUnitResult>[]
+  > {
+    const result = await queryable.query<{
+      unit_id: string;
+      unit_kind: string;
+      state: "queued" | "running" | "completed" | "failed" | "skipped";
+      payload: unknown;
+      result: unknown;
+      error_message: string | null;
+      claim_owner_id: string | null;
+      claim_token: string | null;
+      claimed_until: Date | string | null;
+      attempt_count: number | string;
+      created_at: Date | string;
+      updated_at: Date | string;
+      completed_at: Date | string | null;
+    }>(
+      `SELECT unit_id,
+              unit_kind,
+              state,
+              payload,
+              result,
+              error_message,
+              claim_owner_id,
+              claim_token,
+              claimed_until,
+              attempt_count,
+              created_at,
+              updated_at,
+              completed_at
+       FROM inventory_import_batch_work_units
+       WHERE job_id = $1
+       ORDER BY created_at ASC, unit_id ASC`,
+      [jobId],
+    );
+    return result.rows.map((row) => ({
+      jobId,
+      unitId: row.unit_id,
+      unitKind: row.unit_kind,
+      state: row.state,
+      payload: readJsonValue(row.payload),
+      result: row.result == null ? null : readJsonValue(row.result),
+      errorMessage: row.error_message,
+      claimOwnerId: row.claim_owner_id,
+      claimToken: row.claim_token,
+      claimedUntil: row.claimed_until == null ? null : formatTimestamp(row.claimed_until),
+      attemptCount: Number(row.attempt_count),
+      createdAt: formatTimestamp(row.created_at),
+      updatedAt: formatTimestamp(row.updated_at),
+      completedAt: row.completed_at == null ? null : formatTimestamp(row.completed_at),
+    }));
+  }
+
   return {
     createBatch: (params) => createBatchRows(params),
     getBatch: (batchId, accountId) => getImportBatch(deps.db, batchId, accountId),
@@ -1023,7 +1317,14 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     enqueueCreateBatchJob: async (params, context) => {
       const inputId = await stageCreateBatchJobInput(params);
       const batchId = createId("imb");
-      return jobStore.enqueue({
+      const quantityMode = params.quantityMode ?? "add";
+      const rowCount = getInventoryImportSourceAdapter(params.sourceKey).normalize({
+        csvText: params.csvText,
+        parsedRows: params.parsedRows,
+        quantityMode,
+        defaultStorageLocationId: params.defaultStorageLocationId,
+      }).length;
+      const job = await jobStore.enqueue({
         jobId: createId("job"),
         jobKind: IMPORT_BATCH_JOB_KIND_CREATE,
         payload: {
@@ -1034,9 +1335,21 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
             batchId,
           },
         },
-        progress: importBatchJobProgress("queued", 0, 1, null, "Import validation queued."),
+        progress: importBatchJobProgress("queued", 0, rowCount, null, "Import validation queued."),
         eventContext: context,
       });
+      await workUnitStore.enqueue({
+        jobId: job.jobId,
+        units: Array.from({ length: rowCount }, (_, index) => {
+          const rowNumber = index + 1;
+          return {
+            unitId: String(rowNumber),
+            unitKind: IMPORT_BATCH_JOB_KIND_CREATE,
+            payload: { rowNumber },
+          };
+        }),
+      });
+      return job;
     },
     enqueueCommitBatchJob: async (params, context) => {
       const detail = await getImportBatch(deps.db, params.batchId, params.accountId);
@@ -1089,6 +1402,17 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       return { jobs, stagedInputs: Number(result.rowCount ?? 0) };
     },
     processNextImportBatchJob: async (input) => {
+      await ensureCreateWorkUnitsForLegacyJobs();
+      const processedCreateUnit = await processNextCreateBatchWorkUnit(input);
+      if (processedCreateUnit > 0) {
+        return processedCreateUnit;
+      }
+
+      const unitSummary = await workUnitStore.summarize();
+      if (unitSummary.queued > 0 || unitSummary.running > 0) {
+        return 0;
+      }
+
       const claimed = await jobStore.claimNext({
         claimOwnerId: input.claimOwnerId,
         claimTtlMs: input.claimTtlMs,
@@ -1199,7 +1523,138 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
         return 1;
       }
     },
+    getImportBatchWorkUnitSummary: (input = {}) => workUnitStore.summarize(input),
   };
+
+  async function processNextCreateBatchWorkUnit(input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    workflowMaxActiveClaims?: number;
+    jobMaxActiveClaims?: number;
+    laneName?: string | null;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+  }): Promise<number> {
+    const claimResult = await workUnitStore.claimNext({
+      claimOwnerId: input.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
+      jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
+      jobKinds: [IMPORT_BATCH_JOB_KIND_CREATE],
+      laneName: input.laneName ?? null,
+    });
+    const claim = claimResult.claim;
+    if (!claim) {
+      return 0;
+    }
+
+    try {
+      throwIfImportBatchJobCancelled(input);
+      const stagedInput = await loadCreateBatchJobInput(
+        requireCreateInputId(claim.job.payload),
+        claim.job.payload.accountId as AccountId,
+      );
+      const batchId = requireCreateBatchId(claim.job.payload);
+      const rows = normalizedCreateBatchRows(stagedInput);
+      const row = rows.find((candidate) => candidate.rowNumber === claim.unit.payload.rowNumber);
+      if (!row) {
+        throw new InventoryDomainError("Import batch work unit row was not found.");
+      }
+      await ensureCreateBatchHeader(stagedInput, batchId);
+      const storedRow = await validateAndStoreCreateBatchRow(
+        stagedInput.accountId,
+        batchId,
+        row,
+        stagedInput.quantityMode ?? "add",
+      );
+      const batch = await finishCreateBatchWorkUnit({
+        jobId: claim.job.jobId,
+        batchId,
+        accountId: stagedInput.accountId,
+        inputId: stagedInput.inputId,
+        rowResult: {
+          rowId: storedRow.rowId,
+          status: storedRow.status,
+        },
+        claimOwnerId: claim.claimOwnerId,
+        claimToken: claim.claimToken,
+        unitId: claim.unit.unitId,
+        parentProgress: claim.job.progress,
+        parentResult: claim.job.result,
+      });
+      if (batch.complete) {
+        await deleteCreateBatchJobInput(stagedInput.inputId).catch(() => undefined);
+      }
+      return 1;
+    } catch (error) {
+      if (isImportBatchJobHandoff(error, input)) {
+        await workUnitStore.releaseClaim({
+          jobId: claim.job.jobId,
+          unitId: claim.unit.unitId,
+          claimOwnerId: claim.claimOwnerId,
+          claimToken: claim.claimToken,
+        });
+        return 0;
+      }
+      await requireImportBatchJobClaim(
+        workUnitStore.recordTerminal({
+          jobId: claim.job.jobId,
+          unitId: claim.unit.unitId,
+          claimOwnerId: claim.claimOwnerId,
+          claimToken: claim.claimToken,
+          state: "failed",
+          unitResult: { rowId: String(claim.unit.payload.rowNumber), status: "rejected" },
+          errorMessage: error instanceof Error ? error.message : "Import batch row validation failed.",
+          parentProgress: claim.job.progress,
+          parentResult: claim.job.result,
+          resolveParentUpdate: (queryable) =>
+            importBatchCreateParentUpdateFromWorkUnits(queryable, claim.job, requireCreateBatchId(claim.job.payload)),
+        }),
+      );
+      return 1;
+    }
+  }
+
+  async function finishCreateBatchWorkUnit(input: {
+    jobId: string;
+    batchId: string;
+    accountId: AccountId;
+    inputId: string;
+    rowResult: InventoryImportBatchWorkUnitResult;
+    claimOwnerId: string;
+    claimToken: string;
+    unitId: string;
+    parentProgress: InventoryImportBatchJobProgress;
+    parentResult: InventoryImportBatchJobResult | null;
+  }): Promise<{ complete: boolean }> {
+    const completed = await workUnitStore.recordTerminal({
+      jobId: input.jobId,
+      unitId: input.unitId,
+      claimOwnerId: input.claimOwnerId,
+      claimToken: input.claimToken,
+      state: input.rowResult.status === "rejected" ? "skipped" : "completed",
+      unitResult: input.rowResult,
+      parentProgress: input.parentProgress,
+      parentResult: input.parentResult,
+      resolveParentUpdate: (queryable) =>
+        importBatchCreateParentUpdateFromWorkUnits(
+          queryable,
+          {
+            jobId: input.jobId,
+            progress: input.parentProgress,
+            payload: {
+              accountId: input.accountId,
+              batchId: input.batchId,
+              create: { inputId: input.inputId, batchId: input.batchId },
+            },
+          },
+          input.batchId,
+        ),
+    });
+    await requireImportBatchJobClaim(completed);
+    const summary = await workUnitStore.summarize({ jobId: input.jobId });
+    return { complete: summary.total > 0 && summary.total === summary.completed + summary.failed + summary.skipped };
+  }
 }
 
 function importBatchJobProgress(
@@ -1259,6 +1714,10 @@ function retentionCutoff(daysAgo: number): Date {
 
 function formatRetentionDate(value: string | Date): string {
   return value instanceof Date ? value.toISOString() : value;
+}
+
+function formatTimestamp(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : String(value);
 }
 
 function throwIfImportBatchJobCancelled(input?: { signal?: AbortSignal; throwIfLeaseLost?: () => void }) {
