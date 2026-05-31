@@ -61,7 +61,17 @@ type StripePaymentElement = {
 
 type StripeCheckoutController = {
   createPaymentElement(): StripePaymentElement;
-  confirm(options?: { redirect: "if_required" }): Promise<{ error?: { message?: string } }>;
+  loadActions(): Promise<StripeCheckoutActionsLoadResult>;
+};
+
+type StripeCheckoutActionsLoadResult = {
+  type?: "success" | "error";
+  actions?: StripeCheckoutActions;
+  error?: { message?: string };
+};
+
+type StripeCheckoutActions = {
+  confirm(options?: { redirect: "if_required"; email?: string }): Promise<{ error?: { message?: string } }>;
 };
 
 type StripeElements = {
@@ -434,11 +444,29 @@ export async function action({ request, params }: ActionFunctionArgs): Promise<R
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({ title: t("payments.routes.marketplace.accountPayment.payment.marketplace") });
 
-function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail }) {
+function resolveBuyerEmail(orders: readonly PurchaseDetail[]) {
+  for (const order of orders) {
+    const email = order.shipping_destination_snapshot.email?.trim();
+    if (email) {
+      return email;
+    }
+  }
+
+  return null;
+}
+
+function StripeConfirmationCard({
+  payment,
+  buyerEmail,
+}: {
+  payment: PaymentsPaymentDetail;
+  buyerEmail: string | null;
+}) {
   const revalidator = useRevalidator();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const stripeRef = useRef<StripeClient | null>(null);
   const checkoutRef = useRef<StripeCheckoutController | null>(null);
+  const checkoutActionsRef = useRef<StripeCheckoutActions | null>(null);
   const elementsRef = useRef<StripeElements | null>(null);
   const elementRef = useRef<StripePaymentElement | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -481,8 +509,28 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
         const paymentElement = checkout ? checkout.createPaymentElement() : elements!.create("payment");
         paymentElement.mount(containerRef.current!);
 
+        const checkoutActionsResult = checkout ? await checkout.loadActions() : null;
+        if (cancelled) {
+          paymentElement.destroy();
+          return;
+        }
+
+        if (checkoutActionsResult?.type === "error" || checkoutActionsResult?.error?.message) {
+          paymentElement.destroy();
+          throw new Error(
+            checkoutActionsResult.error?.message ??
+              t("payments.routes.marketplace.accountPayment.stripe.could.not.load"),
+          );
+        }
+
+        if (checkout && !checkoutActionsResult?.actions) {
+          paymentElement.destroy();
+          throw new Error(t("payments.routes.marketplace.accountPayment.stripe.could.not.load"));
+        }
+
         stripeRef.current = stripe;
         checkoutRef.current = checkout;
+        checkoutActionsRef.current = checkoutActionsResult?.actions ?? null;
         elementsRef.current = elements;
         elementRef.current = paymentElement;
         setIsReady(true);
@@ -502,6 +550,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
       elementRef.current?.destroy();
       elementRef.current = null;
       checkoutRef.current = null;
+      checkoutActionsRef.current = null;
       elementsRef.current = null;
       stripeRef.current = null;
       setIsReady(false);
@@ -549,7 +598,7 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
   }, [payment.payment_id, payment.status, revalidator]);
 
   async function handleConfirm() {
-    if (!stripeRef.current || (!checkoutRef.current && !elementsRef.current)) {
+    if (!stripeRef.current || (checkoutRef.current ? !checkoutActionsRef.current : !elementsRef.current)) {
       setErrorMessage(t("payments.routes.marketplace.accountPayment.stripe.is.still.loading"));
       return;
     }
@@ -557,8 +606,13 @@ function StripeConfirmationCard({ payment }: { payment: PaymentsPaymentDetail })
     setIsSubmitting(true);
     setErrorMessage(null);
     try {
+      if (checkoutRef.current && !buyerEmail) {
+        setErrorMessage(t("payments.routes.marketplace.accountPayment.stripe.buyer.email.is.required"));
+        return;
+      }
+
       const result = checkoutRef.current
-        ? await checkoutRef.current.confirm({ redirect: "if_required" })
+        ? await checkoutActionsRef.current!.confirm({ redirect: "if_required", email: buyerEmail ?? undefined })
         : await stripeRef.current.confirmPayment({
             elements: elementsRef.current!,
             redirect: "if_required",
@@ -752,6 +806,7 @@ export default function MarketplaceAccountPaymentRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const statusCopy = paymentStatusCopy(data.payment.status);
+  const buyerEmail = resolveBuyerEmail(data.orders);
   const retryActionError =
     actionData && "error" in actionData && actionData.scope === "retry" ? actionData.error : null;
   const zeroDollarBalanceCovered =
@@ -1038,7 +1093,7 @@ export default function MarketplaceAccountPaymentRoute() {
           {data.payment.status === "pending-confirmation" ? (
             <PageSection title={t("payments.routes.marketplace.accountPayment.secure.payment.2")}>
               {data.payment.processor_client_secret && data.payment.processor_publishable_key ? (
-                <StripeConfirmationCard payment={data.payment} />
+                <StripeConfirmationCard payment={data.payment} buyerEmail={buyerEmail} />
               ) : data.payment.processor_redirect_url ? (
                 <Surface elevated glow>
                   <Stack gap={3}>
