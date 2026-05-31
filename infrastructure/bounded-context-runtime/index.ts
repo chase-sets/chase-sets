@@ -2713,9 +2713,12 @@ export async function compactRuntimeSubscriptionLedgers(
 export async function cleanupRuntimeProjectionGenerations(
   runtime: Readonly<{
     mountedContexts: readonly MountedContextRuntimeEntry[];
+    projectionGroups?: readonly Pick<ContextProjectionGroup, "targetContextName">[];
   }>,
 ): Promise<number> {
-  const targetPools = uniqueMountedContextPools(runtime.mountedContexts);
+  const targetPools = runtime.projectionGroups
+    ? uniqueProjectionGroupTargetPools(runtime.mountedContexts, runtime.projectionGroups)
+    : uniqueMountedContextPools(runtime.mountedContexts);
   let cleaned = 0;
 
   for (const pool of targetPools) {
@@ -2729,6 +2732,20 @@ function uniqueMountedContextPools(
   mountedContexts: readonly Pick<MountedContextRuntimeEntry, "pool">[],
 ): readonly PgTransactionalPool[] {
   return [...new Set(mountedContexts.map((entry) => entry.pool))];
+}
+
+function uniqueProjectionGroupTargetPools(
+  mountedContexts: readonly Pick<MountedContextRuntimeEntry, "contextName" | "pool">[],
+  projectionGroups: readonly Pick<ContextProjectionGroup, "targetContextName">[],
+): readonly PgTransactionalPool[] {
+  const poolsByContextName = new Map(mountedContexts.map((entry) => [entry.contextName, entry.pool]));
+  return [
+    ...new Set(
+      projectionGroups
+        .map((group) => poolsByContextName.get(group.targetContextName))
+        .filter((pool): pool is PgTransactionalPool => Boolean(pool)),
+    ),
+  ];
 }
 
 export async function summarizeRuntimeSubscriptionLedgers(

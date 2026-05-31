@@ -1509,6 +1509,67 @@ describe("bounded context projection replay", () => {
     expect(getGenerationRetentionStore(targetPool)).toEqual(new Set());
   });
 
+  it("cleans projection generations only for mounted contexts that own projection groups", async () => {
+    const sourcePool = createMockPool();
+    const targetPool = createMockPool();
+    const analyticalPool = createMockPool();
+    sourceEventsByPool.set(sourcePool, [createStoredEvent("1", "catalog.catalog-item.published", { itemId: "cat_1" })]);
+
+    const runner = createSubscriptionRunner("inventory", targetPool as never, sourcePool as never, {
+      subscriptionName: "inventory.catalog-item-projection",
+      sourceContextName: "catalog",
+      projectionName: "inventory-catalog-item-projection",
+      subscriptionVersion: 1,
+      handlers: {
+        "catalog.catalog-item.published": async () => undefined,
+      },
+      eventTypes: ["catalog.catalog-item.published"],
+    });
+    const [group] = createProjectionGroupRuntime(
+      "inventory",
+      targetPool,
+      [
+        {
+          projectionName: "inventory-catalog-item-projection",
+          sourceContextNames: ["catalog"],
+          ownedTables: ["inventory_catalog_items"],
+          resetStrategy: "generation-cutover",
+          reset: async () => undefined,
+          requiredDuringBootstrap: true,
+        } as BcProjectionGroupDeclaration,
+      ],
+      [runner],
+    );
+
+    await rebuildProjectionGroup(group, { operationId: "projection-operation-test" });
+    getGenerationRetentionStore(analyticalPool).add("insights:stale-analytical-projection");
+
+    await expect(
+      cleanupRuntimeProjectionGenerations({
+        mountedContexts: [
+          {
+            contextName: "inventory",
+            module: {} as unknown as BcApiModule,
+            services: {},
+            pool: targetPool as never,
+            projectionHandlerSets: [],
+          },
+          {
+            contextName: "insights",
+            module: {} as unknown as BcApiModule,
+            services: {},
+            pool: analyticalPool as never,
+            projectionHandlerSets: [],
+          },
+        ],
+        projectionGroups: [group],
+      }),
+    ).resolves.toBe(1);
+
+    expect(getGenerationRetentionStore(targetPool)).toEqual(new Set());
+    expect(getGenerationRetentionStore(analyticalPool)).toEqual(new Set(["insights:stale-analytical-projection"]));
+  });
+
   it("keeps the active projection generation retained when a generation rebuild fails", async () => {
     const sourcePool = createMockPool();
     const targetPool = createMockPool();
