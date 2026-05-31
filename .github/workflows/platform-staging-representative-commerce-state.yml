@@ -13,6 +13,11 @@ on:
         required: false
         default: "50"
         type: string
+      step_timeout_ms:
+        description: Per-step timeout for projection sync and representative refresh work.
+        required: false
+        default: "300000"
+        type: string
       confirm:
         description: Type "seed staging commerce" to generate representative staging usage.
         required: true
@@ -39,6 +44,7 @@ jobs:
       NODE_ENV: production
       REPRESENTATIVE_COMMERCE_STATE_CONFIRM: seed staging commerce
       REPRESENTATIVE_COMMERCE_STATE_CATALOG_ITEM_LIMIT: ${{ inputs.catalog_item_limit }}
+      REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS: ${{ inputs.step_timeout_ms }}
       PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET }}
       STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
       STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
