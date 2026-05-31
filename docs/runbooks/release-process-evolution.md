@@ -239,7 +239,30 @@ Supported primitives:
 - Percentage Rollout: deterministic cohort from 0 to 100
 - Kill Switch: disable the feature for every subject
 
-Operators can evaluate a candidate policy and subject in the admin console at `/operations/release-controls`. The console is intentionally deterministic and read-only: it shows the policy decision, reason, and bucket before a context wires the same policy into a capability guard.
+Operators can evaluate a candidate policy and subject in the admin console at `/operations/release-controls`. The console keeps the command-builder path for GitHub Environment release locks, and the Platform Operations API now persists application-level release-control policy events.
+
+Policy API:
+
+- `GET /api/platform/release-controls` lists the active release lock and rollout policies.
+- `POST /api/platform/release-controls/release-lock` changes the audited application release lock. Enabling a lock requires `reason`; clearing an active lock requires a concrete `reference`.
+- `PUT /api/platform/release-controls/rollouts/:featureKey` changes a rollout policy for one environment. Every change requires `reason` and `reference`.
+- `GET /api/platform/release-controls/rollouts/:featureKey/decision` evaluates a single subject decision. Non-platform operators can only read decisions for their own account or operator subject.
+
+Example Stage 2 canary policy for the first guarded capability:
+
+```powershell
+$body = @{
+  environment = "production"
+  percentage = 0
+  allowSubjects = @("account:acc_canary")
+  optOutSubjects = @()
+  killSwitchActive = $false
+  reason = "Stage 2 account canary for pricing.account-repricing"
+  reference = "https://github.com/todd-skelton/chase-sets/pull/<pr>"
+} | ConvertTo-Json
+
+Invoke-RestMethod -Method Put -Uri "https://<platform-api>/api/platform/release-controls/rollouts/pricing.account-repricing" -ContentType "application/json" -Body $body
+```
 
 Evaluation order:
 
@@ -253,11 +276,13 @@ Percentage cohorts must be deterministic and monotonic. Increasing from 10% to 2
 
 Initial candidate guarded capabilities:
 
+- `pricing.account-repricing`, currently the first real bounded-context consumer
 - production marketplace public checkout by account cohort after launch
 - UCP/AP2 agentic write capabilities by account or operator cohort
 - live payout actions by operator-controlled seller accounts
 - postage provider label purchase by operator-controlled accounts
-- pricing recommendation apply flows by account cohort
+
+Abort an account canary by setting `killSwitchActive=true` for the feature policy. Remove a canary subject by deleting it from `allowSubjects`; opt-out a subject with `optOutSubjects` when the percentage cohort would otherwise include them. Do not expand `percentage` above `0` until release-health and canary-analysis evidence is green for the allowlisted account cohort.
 
 ## Production Gate Categories
 
@@ -319,9 +344,9 @@ The readiness output is a `rollback-readiness/v1` artifact. A passing readiness 
 
 ## Current Deferred Work
 
-The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, operator release-controls console, canary-analysis gate, release-health report generator, and production release-health artifact emission with queue, staging, production, and drift timing. The next implementation steps are:
+The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, canary-analysis gate, release-health report generator, and production release-health artifact emission with queue, staging, production, canary, and drift timing. The next implementation steps are:
 
 - configure GitHub native merge queue for `main` with the policy above
 - persist PR review/ready timestamps from GitHub API once merge queue is enabled
 - replace Stage 1 synthetic canary with telemetry-backed canary evidence once observability data sources are ready
-- persist release-lock and rollout policy changes through an audited Platform Operations API instead of command generation once the policy store is introduced
+- add the release dashboard on top of release-health and release-control policy records

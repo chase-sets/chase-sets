@@ -33,6 +33,20 @@ describe("marketplace repricing route", () => {
           );
         }
 
+        if (url.includes("/api/platform/release-controls/rollouts/pricing.account-repricing/decision")) {
+          return Promise.resolve(
+            jsonResponse({
+              enabled: true,
+              reason: "subject-allowlist",
+              bucket: 10,
+              featureKey: "pricing.account-repricing",
+              environment: "production",
+              subject: { subjectType: "account", subjectId: "acc_1" },
+              cohortSize: 1,
+            }),
+          );
+        }
+
         return Promise.resolve(
           jsonResponse({
             items: [
@@ -75,6 +89,11 @@ describe("marketplace repricing route", () => {
     } as never);
 
     expect(result.recommendations.items[0]?.recommendation_id).toBe("rec_1");
+    expect(
+      requestedUrls.some((url) =>
+        url.includes("/api/platform/release-controls/rollouts/pricing.account-repricing/decision"),
+      ),
+    ).toBe(true);
     expect(requestedUrls.some((url) => url.includes("/api/marketplace/account/recommendations"))).toBe(true);
   });
 });

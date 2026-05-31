@@ -5,15 +5,21 @@
   "streamPrefix": "platform-operations.",
   "apiBasePath": "/api/platform",
   "slices": ["projection-operations", "release-controls"],
-  "allowedSupportDirectories": [],
+  "allowedSupportDirectories": ["runtime-support"],
   "publicExports": [".", "./context", "./routes/*"],
   "allowedContextDependencies": [],
   "seedRequirements": [],
   "eventSubscriptions": [],
   "projectionGroups": [],
   "hostPorts": [],
-  "apiDeployables": [],
-  "apiMounts": [],
+  "apiDeployables": ["platform-api"],
+  "apiMounts": [
+    {
+      "mountPath": "/api/platform",
+      "kind": "primary",
+      "requiresAuth": true
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "admin-web",
@@ -54,6 +60,15 @@
         "Bounded-context capability guards",
         "Admin operations controls"
       ]
+    },
+    "runtime-support": {
+      "classification": "support",
+      "purpose": "Provide reusable runtime-support assets shared by Platform Operations release-controls API composition.",
+      "allowedWhen": "Allowed only when policy runtime composition cannot stay inside one release-controls feature file.",
+      "expectedConsumers": ["Root platform-operations composition"],
+      "justification": "runtime-support centralizes event-store-backed Platform Operations services for API composition.",
+      "createdFor": "release-controls policy API persistence",
+      "sunsetWhen": "Remove when Platform Operations has no API-backed runtime services."
     },
     "routes": {
       "classification": "routes",

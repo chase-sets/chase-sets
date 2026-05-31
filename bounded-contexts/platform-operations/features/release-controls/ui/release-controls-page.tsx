@@ -115,6 +115,9 @@ function ReleaseLockPanel({ data }: Readonly<{ data: ReleaseControlsSnapshot }>)
               <Button type="submit" leadingIcon="lock">
                 {t(`${routeKey}.buildCommands`)}
               </Button>
+              <Button type="submit" name="intent" value="set-release-lock" formMethod="post" leadingIcon="check">
+                {t(`${routeKey}.persistReleaseLock`)}
+              </Button>
             </Stack>
           </form>
 
@@ -191,6 +194,12 @@ function RolloutEvaluationPanel({ data }: Readonly<{ data: ReleaseControlsSnapsh
                 defaultValue={data.query.rolloutOptOutSubjects}
                 rows={3}
               />
+              <TextInput label={t(`${routeKey}.reason`)} name="releaseReason" defaultValue={data.query.releaseReason} />
+              <TextInput
+                label={t(`${routeKey}.reference`)}
+                name="releaseReference"
+                defaultValue={data.query.releaseReference}
+              />
               <Checkbox
                 label={t(`${routeKey}.killSwitch`)}
                 name="rolloutKillSwitchActive"
@@ -199,6 +208,9 @@ function RolloutEvaluationPanel({ data }: Readonly<{ data: ReleaseControlsSnapsh
               />
               <Button type="submit" leadingIcon="rocket">
                 {t(`${routeKey}.evaluateRollout`)}
+              </Button>
+              <Button type="submit" name="intent" value="set-rollout-policy" formMethod="post" leadingIcon="check">
+                {t(`${routeKey}.persistRolloutPolicy`)}
               </Button>
             </Stack>
           </form>

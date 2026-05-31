@@ -15,9 +15,16 @@
   },
   "types": "./index.ts",
   "dependencies": {
+    "@chase-sets/auth-context": "workspace:*",
+    "@chase-sets/bounded-context-module": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
+    "@chase-sets/event-core": "workspace:*",
+    "@chase-sets/event-core-postgres": "workspace:*",
+    "@chase-sets/http": "workspace:*",
     "@chase-sets/localization": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
+    "@chase-sets/release-controls": "workspace:*",
+    "hono": "^4.12.12",
     "react": "^19.2.5",
     "react-router": "^7.14.0"
   },

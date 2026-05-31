@@ -444,6 +444,9 @@
       "@chase-sets/realtime": [
         "./contracts/realtime/index.ts"
       ],
+      "@chase-sets/release-controls": [
+        "./contracts/release-controls/index.ts"
+      ],
       "@chase-sets/reputation": [
         "./bounded-contexts/reputation/index.ts"
       ],
