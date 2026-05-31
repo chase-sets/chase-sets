@@ -14,6 +14,10 @@ function minMoney(left: string, right: string) {
   return Math.min(Number.parseFloat(left), Number.parseFloat(right)).toFixed(2);
 }
 
+export function createPaymentsSupportRefundEffectId(supportRequestId: string): string {
+  return `sre_${supportRequestId.replace(/^sup_/, "")}`;
+}
+
 async function claimSupportRefundEffect(
   db: PgQueryable,
   params: Readonly<{
@@ -27,6 +31,7 @@ async function claimSupportRefundEffect(
   const result = await db.query<{ support_request_id: string }>(
     `INSERT INTO payments_support_refund_effects (
        support_request_id,
+       refund_effect_id,
        order_id,
        resolution_type,
        requested_amount,
@@ -34,10 +39,17 @@ async function claimSupportRefundEffect(
        failure_message,
        created_at,
        updated_at
-     ) VALUES ($1, $2, $3, $4, 'processing', NULL, $5, $5)
+     ) VALUES ($1, $2, $3, $4, $5, 'processing', NULL, $6, $6)
      ON CONFLICT (support_request_id) DO NOTHING
      RETURNING support_request_id`,
-    [params.supportRequestId, params.orderId, params.resolutionType, params.amount, params.now],
+    [
+      params.supportRequestId,
+      createPaymentsSupportRefundEffectId(params.supportRequestId),
+      params.orderId,
+      params.resolutionType,
+      params.amount,
+      params.now,
+    ],
   );
 
   return (result.rowCount ?? 0) > 0;
@@ -71,6 +83,7 @@ export function buildPaymentsSupportRefundEffectHandlers(
         await db.query(
           `INSERT INTO payments_support_refund_effects (
              support_request_id,
+             refund_effect_id,
              order_id,
              resolution_type,
              requested_amount,
@@ -78,10 +91,11 @@ export function buildPaymentsSupportRefundEffectHandlers(
              failure_message,
              created_at,
              updated_at
-           ) VALUES ($1, $2, $3, NULL, 'skipped', $4, $5, $5)
+           ) VALUES ($1, $2, $3, $4, NULL, 'skipped', $5, $6, $6)
            ON CONFLICT (support_request_id) DO NOTHING`,
           [
             data.supportRequestId,
+            createPaymentsSupportRefundEffectId(data.supportRequestId),
             data.orderId,
             data.resolution.resolutionType,
             "Captured payment was not found for support refund.",
@@ -99,6 +113,7 @@ export function buildPaymentsSupportRefundEffectHandlers(
         await db.query(
           `INSERT INTO payments_support_refund_effects (
              support_request_id,
+             refund_effect_id,
              order_id,
              payment_id,
              resolution_type,
@@ -107,10 +122,11 @@ export function buildPaymentsSupportRefundEffectHandlers(
              failure_message,
              created_at,
              updated_at
-           ) VALUES ($1, $2, $3, $4, NULL, 'skipped', $5, $6, $6)
+           ) VALUES ($1, $2, $3, $4, $5, NULL, 'skipped', $6, $7, $7)
            ON CONFLICT (support_request_id) DO NOTHING`,
           [
             data.supportRequestId,
+            createPaymentsSupportRefundEffectId(data.supportRequestId),
             data.orderId,
             payment.payment_id,
             data.resolution.resolutionType,

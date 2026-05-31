@@ -3,6 +3,10 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 const refundResolutionTypes = new Set(["full-refund", "partial-refund", "return-for-refund", "cancel-order"]);
 
+export function createSettlementSupportHoldId(supportRequestId: string): string {
+  return `hold_${supportRequestId.replace(/^sup_/, "")}`;
+}
+
 export function buildSettlementSupportHoldProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "support.support-request.opened": async (event) => {
@@ -19,6 +23,7 @@ export function buildSettlementSupportHoldProjectionHandlers(db: PgQueryable): P
       await db.query(
         `INSERT INTO settlement_support_holds (
            support_request_id,
+           hold_id,
            order_id,
            buyer_account_id,
            seller_account_id,
@@ -31,9 +36,10 @@ export function buildSettlementSupportHoldProjectionHandlers(db: PgQueryable): P
            released_at,
            release_reason,
            last_stream_version
-         ) VALUES ($1, $2, $3, $4, $5, $6, NULL, TRUE, $7, $7, NULL, NULL, $8)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, TRUE, $8, $8, NULL, NULL, $9)
          ON CONFLICT (support_request_id) DO UPDATE
-         SET order_id = EXCLUDED.order_id,
+         SET hold_id = EXCLUDED.hold_id,
+             order_id = EXCLUDED.order_id,
              buyer_account_id = EXCLUDED.buyer_account_id,
              seller_account_id = EXCLUDED.seller_account_id,
              flow_type = EXCLUDED.flow_type,
@@ -46,6 +52,7 @@ export function buildSettlementSupportHoldProjectionHandlers(db: PgQueryable): P
          WHERE settlement_support_holds.last_stream_version < EXCLUDED.last_stream_version`,
         [
           data.supportRequestId,
+          createSettlementSupportHoldId(data.supportRequestId),
           data.orderId,
           data.buyerAccountId,
           data.sellerAccountId,
