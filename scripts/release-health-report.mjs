@@ -29,12 +29,18 @@ export async function runReleaseHealthReport(options) {
 
 export function buildReleaseHealthReport(input) {
   const records = [...input.records].sort(compareReleaseRecords);
+  const timing = summarizeTimings(records);
+  const slo = evaluateReleaseSloPosture(records, timing);
   const summary = {
     releaseCount: records.length,
     successCount: records.filter((record) => record.production?.result === "success").length,
     failureCount: records.filter((record) => ["failure", "cancelled"].includes(record.production?.result)).length,
     emergencyCount: records.filter((record) => record.releaseMode === "emergency").length,
     lockedCount: records.filter((record) => record.releaseLock?.locked).length,
+    rollbackCount: records.filter((record) => ["rollback", "fix-forward"].includes(record.recovery?.mode)).length,
+    canaryAbortCount: records.filter((record) => record.canary?.result === "failure").length,
+    timing,
+    slo,
   };
 
   const lines = [
@@ -50,12 +56,23 @@ export function buildReleaseHealthReport(input) {
     `- Production failures/cancellations: ${summary.failureCount}`,
     `- Emergency releases: ${summary.emergencyCount}`,
     `- Releases with lock active: ${summary.lockedCount}`,
+    `- Rollback/fix-forward releases: ${summary.rollbackCount}`,
+    `- Canary aborts: ${summary.canaryAbortCount}`,
+    `- Average queue wait: ${formatOptionalSeconds(summary.timing.averageQueueWaitSeconds)}`,
+    `- Average merge to staging start: ${formatOptionalSeconds(summary.timing.averageMergeToStagingSeconds)}`,
+    `- Batch-size posture: ${summary.slo.batchSizeRecommendation}`,
     "",
     "## Releases",
     "",
-    "| Commit | Mode | Staging | Canary | Production | Drift | Queue to prod | Lock |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Commit | Category | Mode | Staging | Canary | Production | Drift | Queue wait | Merge to staging | Recovery | Lock |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...records.map(formatReleaseRow),
+    "",
+    "## SLO Posture",
+    "",
+    "| Signal | Threshold | Current | Status |",
+    "| --- | --- | --- | --- |",
+    ...formatSloRows(summary.slo),
     "",
   ];
 
@@ -70,18 +87,97 @@ export function buildReleaseHealthReport(input) {
 function formatReleaseRow(record) {
   return [
     shortCommit(record.releaseCommit),
+    record.releaseCategory?.primary ?? "unknown",
     record.releaseMode ?? "unknown",
     record.staging?.result ?? "unknown",
     record.canary?.result ?? "unknown",
     record.production?.result ?? "unknown",
     formatDrift(record.mainToProductionDrift),
-    formatDuration(record.queue?.queuedAt ?? record.queue?.mergedAt, record.production?.completedAt),
+    formatDuration(record.queue?.queuedAt, record.queue?.mergedAt),
+    formatDuration(record.queue?.mergedAt, record.staging?.startedAt),
+    formatRecovery(record.recovery),
     formatLock(record.releaseLock),
   ]
     .map(escapeMarkdownCell)
     .join(" | ")
     .replace(/^/, "| ")
     .replace(/$/, " |");
+}
+
+export function evaluateReleaseSloPosture(records, timing = summarizeTimings(records)) {
+  const releaseCount = records.length;
+  const deployedRecords = records.filter((record) => record.deploymentRequired !== false);
+  const productionFailureRate = rate(
+    deployedRecords.filter((record) => ["failure", "cancelled"].includes(record.production?.result)).length,
+    deployedRecords.length,
+  );
+  const stagingFailureRate = rate(
+    deployedRecords.filter((record) => ["failure", "cancelled"].includes(record.staging?.result)).length,
+    deployedRecords.length,
+  );
+  const recoveryRate = rate(
+    records.filter((record) => ["rollback", "fix-forward"].includes(record.recovery?.mode)).length,
+    releaseCount,
+  );
+  const canaryAbortRate = rate(records.filter((record) => record.canary?.result === "failure").length, releaseCount);
+  const maxDriftCommits = Math.max(0, ...records.map((record) => record.mainToProductionDrift?.commits ?? 0));
+  const p95QueueWaitSeconds = percentile(timing.queueWaitSeconds, 0.95);
+
+  const signals = {
+    stagingFailureRate: {
+      threshold: "<= 5%",
+      current: formatPercent(stagingFailureRate),
+      passes: stagingFailureRate <= 0.05,
+    },
+    productionFailureRate: {
+      threshold: "<= 2%",
+      current: formatPercent(productionFailureRate),
+      passes: productionFailureRate <= 0.02,
+    },
+    recoveryRate: {
+      threshold: "<= 2%",
+      current: formatPercent(recoveryRate),
+      passes: recoveryRate <= 0.02,
+    },
+    maxDriftCommits: {
+      threshold: "<= 3 commits",
+      current: String(maxDriftCommits),
+      passes: maxDriftCommits <= 3,
+    },
+    p95QueueWait: {
+      threshold: "<= 30m",
+      current: formatOptionalSeconds(p95QueueWaitSeconds),
+      passes: p95QueueWaitSeconds === null || p95QueueWaitSeconds <= 1800,
+    },
+    canaryAbortRate: {
+      threshold: "<= 5%",
+      current: formatPercent(canaryAbortRate),
+      passes: canaryAbortRate <= 0.05,
+    },
+  };
+  const passes = Object.values(signals).every((signal) => signal.passes);
+
+  return {
+    signals,
+    batchSizeRecommendation:
+      passes && releaseCount >= 10 ? "increase-cautiously" : passes ? "hold-until-more-data" : "decrease-or-hold",
+  };
+}
+
+function summarizeTimings(records) {
+  const queueWaitSeconds = records
+    .map((record) => durationSeconds(record.queue?.queuedAt, record.queue?.mergedAt))
+    .filter((seconds) => seconds !== null);
+  const mergeToStagingSeconds = records
+    .map((record) => durationSeconds(record.queue?.mergedAt, record.staging?.startedAt))
+    .filter((seconds) => seconds !== null);
+
+  return {
+    queueWaitSeconds,
+    mergeToStagingSeconds,
+    averageQueueWaitSeconds: average(queueWaitSeconds),
+    averageMergeToStagingSeconds: average(mergeToStagingSeconds),
+  };
 }
 
 async function findJsonFiles(dir) {
@@ -108,12 +204,17 @@ function formatDrift(value) {
 }
 
 function formatDuration(start, end) {
+  const seconds = durationSeconds(start, end);
+  return seconds === null ? "unknown" : formatSeconds(seconds);
+}
+
+function durationSeconds(start, end) {
   const startTime = Date.parse(start ?? "");
   const endTime = Date.parse(end ?? "");
   if (Number.isNaN(startTime) || Number.isNaN(endTime) || endTime < startTime) {
-    return "unknown";
+    return null;
   }
-  return formatSeconds(Math.round((endTime - startTime) / 1000));
+  return Math.round((endTime - startTime) / 1000);
 }
 
 function formatSeconds(seconds) {
@@ -135,6 +236,51 @@ function formatLock(lock) {
     return "clear";
   }
   return lock.bypassed ? `bypassed ${lock.emergencyReference ?? ""}`.trim() : `locked ${lock.reference ?? ""}`.trim();
+}
+
+function formatRecovery(recovery) {
+  if (!recovery || recovery.mode === "none") {
+    return "none";
+  }
+  return `${recovery.mode} ${recovery.reference ?? ""}`.trim();
+}
+
+function formatSloRows(slo) {
+  return Object.entries(slo.signals).map(([name, signal]) =>
+    [name, signal.threshold, signal.current, signal.passes ? "pass" : "fail"]
+      .map(escapeMarkdownCell)
+      .join(" | ")
+      .replace(/^/, "| ")
+      .replace(/$/, " |"),
+  );
+}
+
+function average(values) {
+  if (values.length === 0) {
+    return null;
+  }
+  return Math.round(values.reduce((sum, value) => sum + value, 0) / values.length);
+}
+
+function percentile(values, percentileValue) {
+  if (values.length === 0) {
+    return null;
+  }
+  const sorted = [...values].sort((a, b) => a - b);
+  const index = Math.min(sorted.length - 1, Math.ceil(sorted.length * percentileValue) - 1);
+  return sorted[index];
+}
+
+function rate(numerator, denominator) {
+  return denominator === 0 ? 0 : numerator / denominator;
+}
+
+function formatPercent(value) {
+  return `${Math.round(value * 1000) / 10}%`;
+}
+
+function formatOptionalSeconds(seconds) {
+  return seconds === null ? "unknown" : formatSeconds(seconds);
 }
 
 function escapeMarkdownCell(value) {

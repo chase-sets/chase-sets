@@ -33,6 +33,7 @@ permissions:
   contents: write
   actions: read
   checks: read
+  pull-requests: read
 
 jobs:
   resolve-release:
@@ -47,6 +48,8 @@ jobs:
     outputs:
       release_commit: ${{ steps.release.outputs.release_commit }}
       deployment_required: ${{ steps.deployment_scope.outputs.deploy }}
+      exposure_posture_categories: ${{ steps.deployment_scope.outputs.exposure_posture_categories }}
+      exposure_posture_changed: ${{ steps.deployment_scope.outputs.exposure_posture_changed }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -120,7 +123,12 @@ jobs:
           git fetch origin production || true
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_deploy }}" = "true" ]; then
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "deploy=true"
+              echo "exposure_posture_changed=false"
+              echo "exposure_posture_categories="
+              echo "exposure_posture_categories_json=[]"
+            } >> "$GITHUB_OUTPUT"
             echo "Manual force deployment requested for ${release_commit}."
             exit 0
           fi
@@ -132,7 +140,12 @@ jobs:
           fi
 
           if [ -z "$base_commit" ]; then
-            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "deploy=true"
+              echo "exposure_posture_changed=false"
+              echo "exposure_posture_categories="
+              echo "exposure_posture_categories_json=[]"
+            } >> "$GITHUB_OUTPUT"
             echo "No base commit was available for ${release_commit}; deployment is required."
             exit 0
           fi
@@ -1300,6 +1313,38 @@ jobs:
           curl --fail --silent --show-error --head --retry 12 --retry-delay 10 --retry-all-errors \
             "${catalog_asset_public_base_url}/" >/dev/null
 
+      - name: Stage 1 production canary
+        id: stage1_canary
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "started_at=${started_at}" >> "$GITHUB_OUTPUT"
+
+          public_domain="$(terraform output -raw landing_domain)"
+          admin_domain="$(terraform output -raw admin_domain)"
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          canary_urls=("https://${public_domain}" "https://${admin_domain}")
+          if [ "${TF_VAR_production_marketplace_public_enabled:-false}" = "true" ]; then
+            if [ -z "$marketplace_domain" ]; then
+              echo "Production marketplace canary was requested but no marketplace domain was present." >&2
+              exit 1
+            fi
+            canary_urls+=("https://${marketplace_domain}")
+          fi
+
+          for url in "${canary_urls[@]}"; do
+            curl --fail --silent --show-error --head --retry 12 --retry-delay 10 --retry-all-errors "$url" >/dev/null
+          done
+
+          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
+          echo "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
+
       - name: Mark production release
         if: steps.latest_main.outputs.should_deploy != 'false'
         run: |
@@ -1335,6 +1380,7 @@ jobs:
         if: always() && steps.latest_main.outputs.should_deploy != 'false'
         env:
           SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.created_at || '' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
@@ -1342,6 +1388,25 @@ jobs:
           committed_at="$(git show -s --format=%cI "$release_commit")"
           queue_queued_at="${SOURCE_WORKFLOW_CREATED_AT:-}"
           queue_merged_at="${committed_at}"
+          pr_opened_at=""
+          pr_ready_for_review_at=""
+          pr_approved_at=""
+          merge_sha="${release_commit}"
+
+          pr_number="$(gh api -H "Accept: application/vnd.github+json" "repos/${{ github.repository }}/commits/${release_commit}/pulls" --jq '.[0].number // ""' 2>/dev/null || true)"
+          if [ -n "$pr_number" ]; then
+            pr_opened_at="$(gh api "repos/${{ github.repository }}/pulls/${pr_number}" --jq '.created_at // ""' 2>/dev/null || true)"
+            pr_merged_at="$(gh api "repos/${{ github.repository }}/pulls/${pr_number}" --jq '.merged_at // ""' 2>/dev/null || true)"
+            pr_merge_sha="$(gh api "repos/${{ github.repository }}/pulls/${pr_number}" --jq '.merge_commit_sha // ""' 2>/dev/null || true)"
+            pr_approved_at="$(gh api "repos/${{ github.repository }}/pulls/${pr_number}/reviews" --jq '[.[] | select(.state == "APPROVED") | .submitted_at] | sort | last // ""' 2>/dev/null || true)"
+
+            if [ -n "$pr_merged_at" ]; then
+              queue_merged_at="$pr_merged_at"
+            fi
+            if [ -n "$pr_merge_sha" ]; then
+              merge_sha="$pr_merge_sha"
+            fi
+          fi
 
           git fetch origin production || true
           drift_commits=0
@@ -1358,8 +1423,12 @@ jobs:
           {
             echo "completed_at=${completed_at}"
             echo "committed_at=${committed_at}"
+            echo "pr_opened_at=${pr_opened_at}"
+            echo "pr_ready_for_review_at=${pr_ready_for_review_at}"
+            echo "pr_approved_at=${pr_approved_at}"
             echo "queue_queued_at=${queue_queued_at}"
             echo "queue_merged_at=${queue_merged_at}"
+            echo "merge_sha=${merge_sha}"
             echo "drift_commits=${drift_commits}"
             echo "drift_seconds=${drift_seconds}"
           } >> "$GITHUB_OUTPUT"
@@ -1370,20 +1439,36 @@ jobs:
           RELEASE_HEALTH_OUT: artifacts/release-health/production-release.json
           RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
           RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency' || 'normal' }}
+          PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}
+          PR_READY_FOR_REVIEW_AT: ${{ steps.release_health_metadata.outputs.pr_ready_for_review_at }}
+          PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}
+          QUEUE_BATCH_SIZE: "1"
           QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}
           QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}
+          MERGE_SHA: ${{ steps.release_health_metadata.outputs.merge_sha }}
           RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}
+          RELEASE_CATEGORY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency-recovery' || needs.resolve-release.outputs.exposure_posture_changed == 'true' && 'exposure-posture-change' || 'ordinary-deploy' }}
+          EXPOSURE_POSTURE_CATEGORIES: ${{ needs.resolve-release.outputs.exposure_posture_categories }}
           DEPLOYMENT_REQUIRED: ${{ needs.resolve-release.outputs.deployment_required }}
           STAGING_RESULT: ${{ needs.deploy-staging.result }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
-          CANARY_RESULT: skipped
+          CANARY_RESULT: ${{ steps.stage1_canary.outcome || 'skipped' }}
+          CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}
+          CANARY_COMPLETED_AT: ${{ steps.stage1_canary.outputs.completed_at }}
+          CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
+          CANARY_COHORT_SUBJECT_TYPE: operator
+          CANARY_COHORT_SIZE: "0"
+          CANARY_PROMOTION_DECISION: ${{ steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
           PRODUCTION_RESULT: ${{ job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
           MAIN_TO_PRODUCTION_DRIFT_COMMITS: ${{ steps.release_health_metadata.outputs.drift_commits }}
           MAIN_TO_PRODUCTION_DRIFT_SECONDS: ${{ steps.release_health_metadata.outputs.drift_seconds }}
           EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
+          RECOVERY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'fix-forward' || 'none' }}
+          RECOVERY_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
+          ROLLBACK_READINESS_RESULT: unknown
         run: node ./scripts/release-health.mjs
 
       - name: Upload release health summary

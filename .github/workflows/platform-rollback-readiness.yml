@@ -1,0 +1,123 @@
+name: Platform Rollback Readiness
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_commit:
+        description: Smoke-verified production commit to validate as a rollback or fix-forward target.
+        required: true
+        type: string
+      release_tag:
+        description: Production release tag for the target commit.
+        required: true
+        type: string
+      image_ref:
+        description: Production container image reference for the rollback target.
+        required: true
+        type: string
+      emergency_reference:
+        description: Incident, rollback evidence, or fix-forward reference.
+        required: true
+        type: string
+      mode:
+        description: Recovery mode being validated.
+        required: true
+        default: rollback
+        type: choice
+        options:
+          - readiness
+          - rollback
+          - fix-forward
+      destructive_plan_approved:
+        description: Explicitly approve a destructive Terraform plan if one is attached to the evidence.
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    name: Rollback Readiness
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: production
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: digitalocean/action-doctl@v2.5.2
+        env:
+          NODE_OPTIONS: --no-deprecation
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Validate rollback target evidence
+        id: evidence
+        run: |
+          set -euo pipefail
+          target_commit="${{ inputs.target_commit }}"
+          release_tag="${{ inputs.release_tag }}"
+          image_ref="${{ inputs.image_ref }}"
+
+          git fetch origin production --tags
+          if ! git cat-file -e "${target_commit}^{commit}"; then
+            echo "Target commit ${target_commit} does not exist in repository history." >&2
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "${target_commit}" origin/production; then
+            echo "Target commit ${target_commit} is not reachable from the smoke-verified production marker." >&2
+            exit 1
+          fi
+
+          if ! git rev-parse --verify --quiet "refs/tags/${release_tag}^{commit}" >/dev/null; then
+            echo "Release tag ${release_tag} does not exist locally after fetching tags." >&2
+            exit 1
+          fi
+
+          tag_commit="$(git rev-list -n 1 "${release_tag}")"
+          if [ "${tag_commit}" != "${target_commit}" ]; then
+            echo "Release tag ${release_tag} points to ${tag_commit}, expected ${target_commit}." >&2
+            exit 1
+          fi
+
+          doctl registry login --expiry-seconds 3600
+          if docker buildx imagetools inspect "${image_ref}" >/dev/null; then
+            echo "image_exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "image_exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "last_known_good_commit=$(git rev-parse origin/production)" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate rollback readiness
+        env:
+          ROLLBACK_READINESS_OUT: artifacts/release-health/rollback-readiness.json
+          RECOVERY_MODE: ${{ inputs.mode }}
+          ROLLBACK_TARGET_COMMIT: ${{ inputs.target_commit }}
+          LAST_KNOWN_GOOD_COMMIT: ${{ steps.evidence.outputs.last_known_good_commit }}
+          ROLLBACK_RELEASE_TAG: ${{ inputs.release_tag }}
+          ROLLBACK_IMAGE_REF: ${{ inputs.image_ref }}
+          ROLLBACK_IMAGE_EXISTS: ${{ steps.evidence.outputs.image_exists }}
+          ROLLBACK_SMOKE_VERIFIED: "true"
+          ROLLBACK_DESTRUCTIVE_PLAN_APPROVED: ${{ inputs.destructive_plan_approved && 'true' || 'false' }}
+          EMERGENCY_RELEASE_REFERENCE: ${{ inputs.emergency_reference }}
+        run: pnpm run rollback:readiness
+
+      - name: Upload rollback readiness summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: rollback-readiness
+          path: artifacts/release-health/rollback-readiness.json
+          if-no-files-found: ignore
+          retention-days: 30
