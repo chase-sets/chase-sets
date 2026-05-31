@@ -6,6 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { recordProviderWebhookEvent } from "@chase-sets/provider-webhook-inbox";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
@@ -28,6 +29,10 @@ import type {
 } from "@chase-sets/payment-processing";
 import type { BalanceCreditResolver } from "./balance-credit-resolver";
 import { listPaymentOrderInputs } from "../integrations/order-input/order-input-queries";
+import {
+  buildPaymentTransactionalEmailProjectionHandlers,
+  PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
+} from "../integrations/transactional-email/transactional-email-projector";
 import { buildPaymentProjectionHandlers } from "../read-model/projection";
 import {
   getAccountPayment,
@@ -81,6 +86,7 @@ type PaymentRuntimeDeps = Readonly<{
   db: PgQueryable;
   processorGateway: PaymentProcessorGateway;
   balanceCreditResolver?: BalanceCreditResolver;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 type CheckoutStatusResult = Readonly<{
@@ -713,6 +719,7 @@ export type PaymentServices = Readonly<{
 }>;
 
 export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices {
+  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -1662,6 +1669,14 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
       createProjectionHandlerSet({
         projectionName: "payments-payment-projection",
         handlers: buildPaymentProjectionHandlers(deps.db),
+      }),
+      createProjectionHandlerSet({
+        projectionName: PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
+        handlers: buildPaymentTransactionalEmailProjectionHandlers(
+          deps.db,
+          transactionalEmailOutbox,
+          PAYMENTS_PAYMENT_TRANSACTIONAL_EMAIL_PROJECTION,
+        ),
       }),
     ],
   };

@@ -78,6 +78,11 @@
       "portName": "balanceCreditResolver",
       "providedBy": "settlement",
       "purpose": "Apply available settlement wallet balance as checkout credit without Payments querying Settlement storage."
+    },
+    {
+      "portName": "transactionalEmailOutbox",
+      "providedBy": "platform-worker",
+      "purpose": "Durable transactional email outbox consumed only by payment and refund event projectors."
     }
   ],
   "apiDeployables": ["platform-api"],

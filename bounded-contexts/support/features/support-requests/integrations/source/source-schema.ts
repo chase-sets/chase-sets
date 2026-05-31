@@ -2,6 +2,7 @@ export const supportSourceProjectionSchemaSql = `
 CREATE TABLE IF NOT EXISTS support_order_sources (
   order_id text PRIMARY KEY,
   buyer_account_id text NOT NULL,
+  buyer_email text NULL,
   seller_account_id text NOT NULL,
   status text NOT NULL,
   total_amount numeric(12,2) NOT NULL DEFAULT 0,
@@ -13,6 +14,9 @@ CREATE TABLE IF NOT EXISTS support_order_sources (
 
 CREATE INDEX IF NOT EXISTS support_order_sources_buyer_idx
   ON support_order_sources (buyer_account_id, updated_at DESC);
+
+ALTER TABLE support_order_sources
+  ADD COLUMN IF NOT EXISTS buyer_email text NULL;
 
 CREATE INDEX IF NOT EXISTS support_order_sources_seller_idx
   ON support_order_sources (seller_account_id, updated_at DESC);

@@ -155,6 +155,11 @@
       "portName": "taxQuoteResolver",
       "providedBy": "platform-api",
       "purpose": "Consume the Tax-owned provider-agnostic quote resolver when creating order tax snapshots."
+    },
+    {
+      "portName": "transactionalEmailOutbox",
+      "providedBy": "platform-worker",
+      "purpose": "Durable transactional email outbox consumed only by order event projectors."
     }
   ],
   "apiDeployables": ["platform-api"],

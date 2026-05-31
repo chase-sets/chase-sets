@@ -6,6 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { OrderId, PaymentId } from "@chase-sets/primitives/typed-ids";
 import {
@@ -16,6 +17,10 @@ import {
 } from "../../../support/runtime-support/common";
 import type { PaymentProcessorGateway } from "@chase-sets/payment-processing";
 import { getPaymentById } from "../../payments/read-model/queries";
+import {
+  buildRefundTransactionalEmailProjectionHandlers,
+  PAYMENTS_REFUND_TRANSACTIONAL_EMAIL_PROJECTION,
+} from "../integrations/transactional-email/transactional-email-projector";
 import { buildRefundProjectionHandlers } from "../read-model/projection";
 import {
   decideRefund,
@@ -31,6 +36,7 @@ type RefundRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   processorGateway: PaymentProcessorGateway;
+  transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
 
 export type RefundServices = Readonly<{
@@ -48,6 +54,7 @@ export type RefundServices = Readonly<{
 }>;
 
 export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
+  const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -142,6 +149,14 @@ export function createRefundRuntime(deps: RefundRuntimeDeps): RefundServices {
       createProjectionHandlerSet({
         projectionName: "payments-refund-projection",
         handlers: buildRefundProjectionHandlers(deps.db),
+      }),
+      createProjectionHandlerSet({
+        projectionName: PAYMENTS_REFUND_TRANSACTIONAL_EMAIL_PROJECTION,
+        handlers: buildRefundTransactionalEmailProjectionHandlers(
+          deps.db,
+          transactionalEmailOutbox,
+          PAYMENTS_REFUND_TRANSACTIONAL_EMAIL_PROJECTION,
+        ),
       }),
     ],
   };
