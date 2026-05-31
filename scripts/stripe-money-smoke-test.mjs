@@ -219,6 +219,7 @@ export function envReport(env = process.env) {
     "STRIPE_SECRET_KEY",
     "STRIPE_PUBLISHABLE_KEY",
     "STRIPE_WEBHOOK_SECRET",
+    "STRIPE_CONNECT_WEBHOOK_SECRET",
     "STRIPE_CONNECT_RETURN_URL",
     "STRIPE_CONNECT_REFRESH_URL",
   ];
@@ -229,6 +230,8 @@ export function envReport(env = process.env) {
     "PLATFORM_ADMIN_BASE_URL",
     "PLATFORM_ADMIN_EMAIL",
     "PLATFORM_ADMIN_PASSWORD",
+    "PRODUCTION_MARKETPLACE_PROOF_REFERENCE",
+    "PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE",
     "SMOKE_REGISTER_SELLER",
     "SMOKE_SELLER_ACCOUNT_ID",
     "SMOKE_SELLER_DISPLAY_NAME",
@@ -240,17 +243,113 @@ export function envReport(env = process.env) {
     "SMOKE_PAYOUT_AMOUNT",
     "SMOKE_PAYMENT_METHOD_CATEGORY",
     "SMOKE_REQUEST_PAYOUT",
+    "STRIPE_MONEY_SMOKE_ALLOW_LIVE",
   ];
   const missing = required.filter((name) => !readEnv(name, env));
   const presentOptional = optional.filter((name) => Boolean(readEnv(name, env)));
+  const stripeKeyMode = resolveStripeKeyMode(env);
+  const readinessErrors = validateSmokeEnvironmentForReport(env, missing);
 
   return {
     missing,
+    readinessErrors,
     presentOptional,
-    testModeKeysLikely:
-      readEnv("STRIPE_SECRET_KEY", env)?.startsWith("sk_test") === true &&
-      readEnv("STRIPE_PUBLISHABLE_KEY", env)?.startsWith("pk_test") === true,
+    stripeKeyMode,
+    connectRedirectsMatchApiOrigin: connectRedirectsMatchApiOrigin(env),
+    testModeKeysLikely: stripeKeyMode === "test",
+    liveModeKeysLikely: stripeKeyMode === "live",
+    liveModeAllowed: liveModeSmokeAllowed(env),
   };
+}
+
+function validateSmokeEnvironmentForReport(env, missing) {
+  const errors = missing.map((name) => `Missing required environment: ${name}.`);
+  if (missing.length > 0) {
+    return errors;
+  }
+
+  try {
+    validateStripeKeyModeForRun(env);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+  return errors;
+}
+
+function resolveStripeKeyMode(env = process.env) {
+  const secretKey = readEnv("STRIPE_SECRET_KEY", env);
+  const publishableKey = readEnv("STRIPE_PUBLISHABLE_KEY", env);
+  if (secretKey?.startsWith("sk_test") === true && publishableKey?.startsWith("pk_test") === true) {
+    return "test";
+  }
+  if (secretKey?.startsWith("sk_live") === true && publishableKey?.startsWith("pk_live") === true) {
+    return "live";
+  }
+  return "unknown";
+}
+
+function liveModeSmokeAllowed(env = process.env) {
+  return readEnv("STRIPE_MONEY_SMOKE_ALLOW_LIVE", env) === "true";
+}
+
+export function validateStripeKeyModeForRun(env = process.env) {
+  const keyMode = resolveStripeKeyMode(env);
+  if (keyMode === "test") {
+    return;
+  }
+
+  if (keyMode !== "live") {
+    throw new Error("This smoke test requires matching Stripe test keys or matching Stripe live keys.");
+  }
+
+  if (!liveModeSmokeAllowed(env)) {
+    throw new Error("Set STRIPE_MONEY_SMOKE_ALLOW_LIVE=true before running this smoke test with Stripe live keys.");
+  }
+
+  const reference =
+    readEnv("PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE", env) ??
+    readEnv("PRODUCTION_MARKETPLACE_PROOF_REFERENCE", env);
+  if (!reference) {
+    throw new Error(
+      "Set PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE or PRODUCTION_MARKETPLACE_PROOF_REFERENCE before running this smoke test with Stripe live keys.",
+    );
+  }
+
+  const baseUrl = readEnv("PLATFORM_API_BASE_URL", env);
+  if (!baseUrl || !isProductionChaseSetsUrl(baseUrl)) {
+    throw new Error("Stripe live-key smoke tests must target https://chasesets.com or https://admin.chasesets.com.");
+  }
+
+  if (!connectRedirectsMatchApiOrigin(env)) {
+    throw new Error(
+      "Stripe live-key smoke tests must use STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL on the same origin as PLATFORM_API_BASE_URL because the private payout setup API rejects cross-origin hosted setup redirects.",
+    );
+  }
+}
+
+function isProductionChaseSetsUrl(value) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && ["chasesets.com", "admin.chasesets.com"].includes(url.hostname);
+  } catch {
+    return false;
+  }
+}
+
+function connectRedirectsMatchApiOrigin(env = process.env) {
+  const baseUrl = readEnv("PLATFORM_API_BASE_URL", env);
+  const returnUrl = readEnv("STRIPE_CONNECT_RETURN_URL", env);
+  const refreshUrl = readEnv("STRIPE_CONNECT_REFRESH_URL", env);
+  if (!baseUrl || !returnUrl || !refreshUrl) {
+    return false;
+  }
+
+  try {
+    const origin = new URL(baseUrl).origin;
+    return new URL(returnUrl).origin === origin && new URL(refreshUrl).origin === origin;
+  } catch {
+    return false;
+  }
 }
 
 export async function runEdgeCheck(baseUrl, options = {}) {
@@ -557,12 +656,12 @@ export async function main(options = {}) {
   const checkOnly = runArgs.has("--check-env") || argv.length <= 2;
 
   if (checkOnly) {
-    console.log(JSON.stringify({ ok: report.missing.length === 0, ...report }, null, 2));
+    console.log(JSON.stringify({ ok: report.readinessErrors.length === 0, ...report }, null, 2));
     return;
   }
 
   assert(report.missing.length === 0, `Missing required environment: ${report.missing.join(", ")}.`);
-  assert(report.testModeKeysLikely, "This smoke test must run with Stripe test-mode keys (sk_test and pk_test).");
+  validateStripeKeyModeForRun(env);
 
   const baseUrl = stripTrailingSlash(readEnv("PLATFORM_API_BASE_URL", env));
   const result = {

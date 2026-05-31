@@ -1,7 +1,10 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import {
+  createNoopEmailWebhookGateway,
   createNoopMobileMessageWebhookGateway,
+  type EmailProviderWebhookEvent,
+  type EmailWebhookGateway,
   type MobileMessageProviderWebhookEvent,
   type MobileMessageWebhookGateway,
 } from "@chase-sets/notifications";
@@ -30,6 +33,8 @@ export interface NotificationPreferenceStore {
 }
 
 export type NotificationsServices = Readonly<{
+  emailMessages: EmailProviderEventStore;
+  emailWebhookGateway: EmailWebhookGateway;
   feed: ReturnType<typeof createPostgresWebNotificationFeed>;
   mobileMessages: MobileMessageProviderEventStore;
   mobileMessageWebhookGateway: MobileMessageWebhookGateway;
@@ -38,8 +43,13 @@ export type NotificationsServices = Readonly<{
 }>;
 
 export type NotificationsHostPorts = Readonly<{
+  emailWebhookGateway?: EmailWebhookGateway;
   mobileMessageWebhookGateway?: MobileMessageWebhookGateway;
 }>;
+
+export interface EmailProviderEventStore {
+  recordProviderEvent(event: EmailProviderWebhookEvent): Promise<Readonly<{ recorded: boolean }>>;
+}
 
 export interface MobileMessageProviderEventStore {
   recordProviderEvent(event: MobileMessageProviderWebhookEvent): Promise<Readonly<{ recorded: boolean }>>;
@@ -50,11 +60,46 @@ export function createNotificationsServices(
   ports: NotificationsHostPorts = {},
 ): NotificationsServices {
   return {
+    emailMessages: createPostgresEmailProviderEventStore(db),
+    emailWebhookGateway: ports.emailWebhookGateway ?? createNoopEmailWebhookGateway(),
     feed: createPostgresWebNotificationFeed({ db }),
     mobileMessages: createPostgresMobileMessageProviderEventStore(db),
     mobileMessageWebhookGateway: ports.mobileMessageWebhookGateway ?? createNoopMobileMessageWebhookGateway(),
     notificationOutbox: createPostgresNotificationOutbox({ db }),
     preferences: createPostgresNotificationPreferenceStore(db),
+  };
+}
+
+function createPostgresEmailProviderEventStore(db: PgQueryable): EmailProviderEventStore {
+  return {
+    async recordProviderEvent(event) {
+      const receivedAt = event.receivedAt ?? new Date().toISOString();
+      const result = await db.query(
+        `INSERT INTO notification_email_provider_events (
+           provider_event_id,
+           provider_name,
+           event_kind,
+           provider_object_reference,
+           recipients_json,
+           occurred_at,
+           received_at,
+           payload_json
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (provider_event_id) DO NOTHING`,
+        [
+          event.providerEventId,
+          event.providerName,
+          event.eventKind,
+          event.providerMessageId,
+          JSON.stringify(event.recipients),
+          event.occurredAt,
+          receivedAt,
+          JSON.stringify(event),
+        ],
+      );
+
+      return { recorded: (result.rowCount ?? 0) > 0 };
+    },
   };
 }
 

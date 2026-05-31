@@ -1,7 +1,10 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   PostageAddress,
   PostageLabelProvider,
   PostagePackage,
+  PostageProviderWebhookEvent,
+  PostageProviderWebhookGateway,
   PostageProviderMode,
 } from "@chase-sets/postage-labels";
 
@@ -96,6 +99,27 @@ type EasyPostShipment = Readonly<{
   refund_status?: string | null;
 }>;
 
+type EasyPostWebhookEvent = Readonly<{
+  id?: unknown;
+  object?: unknown;
+  mode?: unknown;
+  description?: unknown;
+  status?: unknown;
+  created_at?: unknown;
+  updated_at?: unknown;
+  result?: Readonly<{
+    id?: unknown;
+    object?: unknown;
+    mode?: unknown;
+    tracking_code?: unknown;
+    status?: unknown;
+    status_detail?: unknown;
+    public_url?: unknown;
+    shipment_id?: unknown;
+    updated_at?: unknown;
+  }>;
+}>;
+
 export function createEasyPostPostageLabelProvider(
   options: Readonly<{
     apiKey: string;
@@ -187,4 +211,171 @@ export function createEasyPostPostageLabelProvider(
       };
     },
   };
+}
+
+export function createEasyPostPostageWebhookGateway(
+  options: Readonly<{
+    webhookSecret?: string | null;
+    requireSignature?: boolean;
+    timestampToleranceMinutes?: number;
+    now?: () => Date;
+  }> = {},
+): PostageProviderWebhookGateway {
+  const now = options.now ?? (() => new Date());
+  const requireSignature = options.requireSignature ?? true;
+
+  return {
+    async processPostageProviderWebhook(input) {
+      if (requireSignature) {
+        verifyEasyPostWebhookSignature({
+          ...input,
+          webhookSecret: options.webhookSecret,
+          timestampToleranceMinutes: options.timestampToleranceMinutes,
+          now,
+        });
+      }
+
+      const payload = JSON.parse(input.rawBody) as EasyPostWebhookEvent;
+      return normalizeEasyPostWebhookEvent(payload, now().toISOString());
+    },
+  };
+}
+
+export function verifyEasyPostWebhookSignature(
+  input: Readonly<{
+    rawBody: string;
+    method: string;
+    path: string;
+    headers: Headers;
+    webhookSecret?: string | null;
+    timestampToleranceMinutes?: number;
+    now?: () => Date;
+  }>,
+) {
+  const webhookSecret = normalizeOptionalText(input.webhookSecret);
+  if (!webhookSecret) {
+    throw new Error("EasyPost webhook secret is required.");
+  }
+
+  const timestamp = requireHeader(input.headers, "x-timestamp");
+  const signedPath = requireHeader(input.headers, "x-path");
+  if (signedPath !== input.path) {
+    throw new Error("EasyPost webhook signed path does not match the request path.");
+  }
+
+  assertFreshEasyPostWebhookTimestamp(timestamp, input.timestampToleranceMinutes, input.now ?? (() => new Date()));
+  const signature = parseEasyPostHmacSignature(requireHeader(input.headers, "x-hmac-signature-v2"));
+  const signedPayload = `${timestamp}${input.method.toUpperCase()}${signedPath}${input.rawBody}`;
+  const expected = createHmac("sha256", webhookSecret).update(signedPayload, "utf8").digest("hex");
+  const expectedBuffer = Buffer.from(expected, "hex");
+  const receivedBuffer = Buffer.from(signature, "hex");
+  if (expectedBuffer.length !== receivedBuffer.length || !timingSafeEqual(expectedBuffer, receivedBuffer)) {
+    throw new Error("EasyPost webhook signature verification failed.");
+  }
+}
+
+function normalizeEasyPostWebhookEvent(
+  payload: EasyPostWebhookEvent,
+  receivedAt: string,
+): PostageProviderWebhookEvent | null {
+  const providerEventId = normalizeOptionalText(asString(payload.id));
+  const description = normalizeOptionalText(asString(payload.description));
+  const result = payload.result;
+  if (!providerEventId || !description || !result) {
+    return null;
+  }
+
+  const resultObject = normalizeOptionalText(asString(result.object));
+  const resultId = normalizeOptionalText(asString(result.id));
+  const providerMode = asPostageProviderMode(result.mode) ?? asPostageProviderMode(payload.mode) ?? "test";
+  const occurredAt =
+    normalizeOptionalText(asString(result.updated_at)) ??
+    normalizeOptionalText(asString(payload.updated_at)) ??
+    normalizeOptionalText(asString(payload.created_at)) ??
+    receivedAt;
+
+  if (description.startsWith("tracker.") && resultObject === "Tracker" && resultId) {
+    return {
+      providerEventId,
+      providerName: "easypost",
+      providerMode,
+      eventKind: "tracking-status",
+      providerObjectReference: resultId,
+      providerShipmentId: normalizeOptionalText(asString(result.shipment_id)),
+      trackingIdentifier: normalizeOptionalText(asString(result.tracking_code)),
+      status: normalizeOptionalText(asString(result.status)),
+      statusDetail: normalizeOptionalText(asString(result.status_detail)),
+      message: normalizeOptionalText(asString(result.public_url)),
+      occurredAt,
+      receivedAt,
+      payload,
+    };
+  }
+
+  if (description.startsWith("refund.") && resultId) {
+    return {
+      providerEventId,
+      providerName: "easypost",
+      providerMode,
+      eventKind: "refund-status",
+      providerObjectReference: resultId,
+      status: normalizeOptionalText(asString(payload.status)),
+      occurredAt,
+      receivedAt,
+      payload,
+    };
+  }
+
+  return {
+    providerEventId,
+    providerName: "easypost",
+    providerMode,
+    eventKind: "provider-event",
+    providerObjectReference: resultId ?? providerEventId,
+    status: normalizeOptionalText(asString(payload.status)),
+    occurredAt,
+    receivedAt,
+    payload,
+  };
+}
+
+function requireHeader(headers: Headers, name: string) {
+  const value = normalizeOptionalText(headers.get(name));
+  if (!value) {
+    throw new Error(`EasyPost webhook header '${name}' is required.`);
+  }
+
+  return value;
+}
+
+function parseEasyPostHmacSignature(value: string) {
+  const prefix = "hmac-sha256-hex=";
+  const normalized = value.toLowerCase();
+  const signature = normalized.startsWith(prefix) ? normalized.slice(prefix.length) : normalized;
+  if (!/^[a-f0-9]{64}$/.test(signature)) {
+    throw new Error("EasyPost webhook signature format is invalid.");
+  }
+
+  return signature;
+}
+
+function assertFreshEasyPostWebhookTimestamp(value: string, toleranceMinutes = 1, now: () => Date) {
+  const parsed = Date.parse(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error("EasyPost webhook timestamp format is invalid.");
+  }
+
+  const toleranceMs = Math.max(0, Math.min(toleranceMinutes, 60)) * 60_000;
+  const deltaMs = now().getTime() - parsed;
+  if (deltaMs > toleranceMs || deltaMs < -30_000) {
+    throw new Error("EasyPost webhook timestamp is outside the allowed tolerance.");
+  }
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function asPostageProviderMode(value: unknown): PostageProviderMode | null {
+  return value === "production" || value === "test" ? value : null;
 }

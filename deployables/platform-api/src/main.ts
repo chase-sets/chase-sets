@@ -7,7 +7,7 @@ import { createFacebookSocialLoginProvider, createGoogleSocialLoginProvider } fr
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
 import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-connect";
-import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
+import { createEasyPostPostageLabelProvider, createEasyPostPostageWebhookGateway } from "@chase-sets/easypost-postage";
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import {
   createFilesystemObjectStorage,
@@ -15,6 +15,7 @@ import {
   readFilesystemObject,
   type ObjectStorage,
 } from "@chase-sets/object-storage";
+import { createSesEmailWebhookGateway } from "@chase-sets/ses-email";
 import { createTwilioMessagingWebhookGateway } from "@chase-sets/twilio-messaging";
 import {
   createMergedRealtimeWakeSignal,
@@ -111,6 +112,12 @@ const postageLabelProvider =
         mode: config.postage.mode,
       })
     : createSandboxPostageLabelProvider();
+const postageWebhookGateway =
+  config.postage.kind === "easypost"
+    ? createEasyPostPostageWebhookGateway({
+        webhookSecret: config.postage.webhookSecret,
+      })
+    : undefined;
 const socialLoginProviders = [
   ...(config.socialLogin.google
     ? [
@@ -136,6 +143,7 @@ const mobileMessageWebhookGateway =
         requireSignature: config.mobileMessaging.requireWebhookSignature,
       })
     : undefined;
+const emailWebhookGateway = createSesEmailWebhookGateway();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
@@ -175,11 +183,13 @@ const runtime = createPlatformApiHost({
     moneyMovementGateway,
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
+    ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
     listingPhotoStorage,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
+    emailWebhookGateway,
     ...(mobileMessageWebhookGateway ? { mobileMessageWebhookGateway } : {}),
   },
 });

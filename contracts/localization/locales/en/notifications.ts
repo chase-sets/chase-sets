@@ -1,5 +1,6 @@
 export const notificationsEnglishTranslations = {
   "notifications.api.authentication.required": "Authentication required.",
+  "notifications.api.email.webhook.failed": "Email webhook failed.",
   "notifications.api.forbidden": "Forbidden.",
   "notifications.api.mobile.webhook.failed": "Mobile message webhook failed.",
   "notifications.api.preference.invalid": "Notification preference is not supported.",

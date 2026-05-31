@@ -28,6 +28,7 @@ const allowedTopLevelDirectories = new Set([
   "node_modules",
   "packages",
   "scripts",
+  "secure",
 ]);
 const forbiddenBoundedContextDirectoryNames = new Set(["infrastructure", "shared"]);
 const nonSupportSuffixDirectoryExceptions = new Set(["tests"]);

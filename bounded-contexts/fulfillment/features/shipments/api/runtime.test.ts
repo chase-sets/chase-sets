@@ -8,7 +8,7 @@ import type {
   ReadStreamInput,
   StoredEvent,
 } from "@chase-sets/event-core/storage";
-import type { PostageLabelProvider } from "@chase-sets/postage-labels";
+import type { PostageLabelProvider, PostageProviderWebhookGateway } from "@chase-sets/postage-labels";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createFulfillmentShipmentRuntime } from "./runtime";
@@ -587,5 +587,160 @@ describe("fulfillment shipment runtime", () => {
         }),
       },
     });
+  });
+
+  it("records EasyPost tracking webhooks and advances labeled shipments to delivered", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const postageWebhookGateway: PostageProviderWebhookGateway = {
+      processPostageProviderWebhook: vi.fn(async () => ({
+        providerEventId: "evt_tracker_1",
+        providerName: "easypost",
+        providerMode: "production" as const,
+        eventKind: "tracking-status" as const,
+        providerObjectReference: "trk_provider_1",
+        providerShipmentId: "shp_provider_1",
+        trackingIdentifier: "940000000000000000",
+        status: "delivered",
+        statusDetail: "arrived_at_destination",
+        occurredAt: "2026-05-30T12:00:01.000Z",
+        receivedAt: "2026-05-30T12:00:03.000Z",
+        payload: { id: "evt_tracker_1" },
+      })),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                shipment_id: "shp_1",
+                seller_account_id: "acc_seller",
+                status: "label-attached",
+                tracking_identifier: "940000000000000000",
+                postage_provider_shipment_id: "shp_provider_1",
+              },
+            ],
+          };
+        }
+        if (sql.includes("INSERT INTO fulfillment_postage_provider_events")) {
+          return { rows: [{ provider_event_id: "evt_tracker_1" }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageWebhookGateway,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        shippingPlanSnapshot: parcelShippingPlan,
+        lines: [
+          {
+            lineId: "spl_1" as never,
+            orderLineId: "oli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-05-30T11:45:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "StartShipmentPacking",
+        startedAt: "2026-05-30T11:48:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "ConfirmShipmentPackingLine",
+        lineId: "spl_1" as never,
+        confirmedAt: "2026-05-30T11:49:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "PrepareShipmentPackage",
+        packageCount: 1,
+        preparedAt: "2026-05-30T11:50:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "AttachShipmentLabel",
+        shippingMethod: "standard",
+        carrierName: "USPS",
+        labelReference: "pl_1",
+        labelDocumentUrl: "https://labels.easypost.test/pl_1.pdf",
+        trackingIdentifier: "940000000000000000",
+        postageProviderName: "easypost",
+        postageProviderMode: "production",
+        postageProviderShipmentId: "shp_provider_1",
+        postageProviderLabelId: "pl_1",
+        attachedAt: "2026-05-30T11:55:00.000Z",
+      },
+      context,
+    });
+
+    await expect(
+      services.processPostageProviderWebhook(
+        {
+          rawBody: "{}",
+          method: "POST",
+          path: "/api/fulfillment/provider/postage/webhooks",
+          headers: new Headers(),
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({
+      status: "recorded",
+      providerEventId: "evt_tracker_1",
+      shipmentId: "shp_1",
+      processingResult: "delivered",
+    });
+
+    expect(readAllEvents().map((event) => event.eventType)).toEqual(
+      expect.arrayContaining(["fulfillment.shipment.dispatched", "fulfillment.shipment.delivered"]),
+    );
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO fulfillment_postage_provider_events"),
+      expect.arrayContaining(["evt_tracker_1", "easypost", "production", "tracking-status"]),
+    );
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE fulfillment_postage_provider_events"), [
+      "evt_tracker_1",
+      "delivered",
+    ]);
   });
 });

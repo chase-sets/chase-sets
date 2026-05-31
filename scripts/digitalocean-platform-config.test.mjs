@@ -157,6 +157,16 @@ describe("DigitalOcean platform configuration", () => {
   it("keeps production marketplace promotion explicitly gated", () => {
     expect(platformVariables).toContain('variable "production_marketplace_public_enabled"');
     expect(platformVariables).toContain("production_marketplace_public_enabled may only be true for production.");
+    expect(platformVariables).toContain('variable "production_marketplace_launch_evidence_reference"');
+    expect(platformVariables).toContain(
+      "production_marketplace_launch_evidence_reference must be a real Marketplace Launch Evidence packet reference, not a placeholder.",
+    );
+    expect(platformVariables).toContain('variable "production_marketplace_proof_enabled"');
+    expect(platformVariables).toContain("production_marketplace_proof_enabled may only be true for production.");
+    expect(platformVariables).toContain('variable "production_marketplace_proof_reference"');
+    expect(platformVariables).toContain(
+      "production_marketplace_proof_reference is required when production_marketplace_proof_enabled is true.",
+    );
     expect(platformVariables).toContain('variable "production_marketplace_promotion_approved"');
     expect(platformVariables).toContain("production_marketplace_promotion_approved may only be true for production.");
     expect(platformVariables).toContain('variable "production_marketplace_promotion_reference"');
@@ -211,19 +221,50 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformVariables).toContain('startswith(var.stripe_secret_key, "sk_live")');
     expect(platformVariables).toContain('startswith(var.stripe_publishable_key, "pk_live")');
+    expect(platformVariables).toContain('variable "stripe_connect_webhook_secret"');
+    expect(platformVariables).toContain(
+      "stripe_connect_webhook_secret is required outside gated landing-only production and during production marketplace proof or promotion.",
+    );
+    expect(platformMain).toContain('key   = "STRIPE_CONNECT_WEBHOOK_SECRET"');
+    expect(platformMain).toContain("value = var.stripe_connect_webhook_secret");
+    expect(platformVariables).toContain('variable "easypost_webhook_secret"');
+    expect(platformVariables).toContain(
+      "easypost_webhook_secret is required when production marketplace proof or promotion is enabled.",
+    );
     expect(platformVariables).toContain('var.easypost_mode == "production"');
     expect(platformLocals).toContain("marketplace_platform_enabled = (");
+    expect(platformLocals).toContain("placeholder_evidence_references = [");
+    expect(platformLocals).toContain('"launch-000"');
+    expect(platformLocals).toContain("var.production_marketplace_proof_enabled");
+    expect(platformLocals).toContain("marketplace_public_enabled = (");
     expect(platformLocals).toContain("local.is_non_production || var.production_marketplace_public_enabled");
     expect(platformLocals).toContain('local.is_production ? "marketplace.${var.root_domain}"');
+    expect(platformLocals).toContain("provider_webhook_ingress_routes = {");
+    expect(platformLocals).toContain('"/api/payments/provider/webhooks"');
+    expect(platformLocals).toContain('"/api/settlement/provider/money-movement/webhooks"');
+    expect(platformLocals).toContain("proof_api_ingress_routes = {");
+    expect(platformLocals).toContain('"/api/marketplace/account/payments"');
+    expect(platformLocals).toContain('"/api/settlement/payout-setup"');
     expect(platformLocals).toContain("context_names = local.marketplace_platform_enabled");
+    expect(platformMain).toContain('check "production_marketplace_proof"');
+    expect(platformMain).toContain(
+      'error_message = "Production marketplace proof mode requires a production environment and a real evidence-collection approval reference."',
+    );
     expect(platformMain).toContain('check "production_marketplace_promotion"');
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires production environment and complete Amazon SES transactional email configuration."',
     );
     expect(platformMain).toContain('check "production_marketplace_launch_approval"');
+    expect(platformMain).toContain("var.production_marketplace_launch_evidence_reference");
     expect(platformMain).toContain("var.production_marketplace_promotion_approved");
     expect(platformMain).toContain(
-      'error_message = "Production marketplace promotion requires approved launch evidence before deploying the public marketplace."',
+      'error_message = "Production marketplace promotion requires approved launch evidence and a passing Marketplace Launch Evidence packet reference before deploying the public marketplace."',
+    );
+    expect(platformMain).toContain('check "production_marketplace_evidence_reference_quality"');
+    expect(platformMain).toContain("var.production_transactional_email_reference");
+    expect(platformMain).toContain("local.placeholder_evidence_references");
+    expect(platformMain).toContain(
+      'error_message = "Production marketplace promotion evidence references must point to real external evidence records, not placeholders."',
     );
     expect(platformMain).toContain('check "production_marketplace_checkout_fee_approval"');
     expect(platformMain).toContain("var.production_marketplace_checkout_fee_approved");
@@ -245,6 +286,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain(
       'error_message = "Production marketplace promotion requires approved Fulfillment postage evidence before live shipment labels."',
     );
+    expect(platformMain).toContain('key   = "EASYPOST_WEBHOOK_SECRET"');
+    expect(platformMain).toContain("value = var.easypost_webhook_secret");
     expect(platformMain).toContain('check "production_transactional_email_readiness"');
     expect(platformMain).toContain("var.production_transactional_email_approved");
     expect(platformMain).toContain(
@@ -261,9 +304,21 @@ describe("DigitalOcean platform configuration", () => {
       'error_message = "Production marketplace promotion requires approved Tax readiness evidence before live order creation."',
     );
     expect(platformMain).toContain("for_each = local.marketplace_platform_enabled ? [1] : []");
-    expect(platformMain).toContain("for_each = local.marketplace_platform_enabled ? [] : [1]");
+    expect(platformMain).toContain("for_each = local.marketplace_public_enabled ? [1] : []");
+    expect(platformMain).toContain("for_each = local.marketplace_public_enabled ? [] : [1]");
+    expect(platformMain).toContain("for_each = local.provider_webhook_ingress_routes");
+    expect(platformMain).toContain("for_each = local.proof_api_ingress_routes");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_public_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_marketplace_launch_evidence_reference: ${{ vars.PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_marketplace_proof_enabled: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true' && 'true' || 'false' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_production_marketplace_proof_reference: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_promotion_approved: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED == 'true' && 'true' || 'false' }}",
@@ -284,6 +339,9 @@ describe("DigitalOcean platform configuration", () => {
       "TF_VAR_production_stripe_money_operations_reference: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
+      "TF_VAR_stripe_connect_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.STRIPE_CONNECT_WEBHOOK_SECRET || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_support_operations_approved: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED == 'true' && 'true' || 'false' }}",
     );
     expect(platformProductionWorkflow).toContain(
@@ -294,6 +352,18 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_fulfillment_postage_reference: ${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_easypost_webhook_secret: ${{ (vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED == 'true' || vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true') && secrets.EASYPOST_WEBHOOK_SECRET || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_google_social_login_client_id: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_google_social_login_client_secret: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "TF_VAR_admin_google_workspace_hosted_domains: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS || '' }}",
     );
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_transactional_email_approved: ${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED == 'true' && 'true' || 'false' }}",
@@ -313,8 +383,27 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_tax_readiness_reference: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE || '' }}",
     );
-    expect(platformProductionWorkflow).toContain("Production marketplace promotion requires Stripe live-mode keys.");
+    expect(platformProductionWorkflow).toContain(
+      "PRODUCTION_TAX_PROVIDER_BACKED_QUOTES_REQUIRED_RAW: ${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace platform deployment requires Stripe live-mode keys.",
+    );
+    expect(platformProductionWorkflow).toContain("Missing required production marketplace platform configuration");
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace platform deployment requires EASYPOST_MODE=production.",
+    );
+    expect(platformProductionWorkflow).toContain("Missing required production Google Workspace SSO configuration");
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace proof mode requires an evidence-collection approval reference.",
+    );
     expect(platformProductionWorkflow).toContain("Production marketplace promotion requires approved launch evidence.");
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace promotion requires a Marketplace Launch Evidence packet reference.",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace promotion requires a real Marketplace Launch Evidence packet reference, not a placeholder.",
+    );
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved Marketplace Checkout Fee evidence.",
     );
@@ -335,6 +424,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires approved Tax readiness evidence.",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "Production marketplace promotion requires TAX_PROVIDER_BACKED_QUOTES_REQUIRED to be explicitly true or false.",
     );
     expect(platformProductionWorkflow).toContain(
       "Production marketplace promotion requires NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
@@ -374,6 +466,9 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
       "TF_VAR_easypost_api_key",
+    );
+    expect(workflowStep(platformProductionWorkflow, "Reconcile staging App Platform alias DNS state")).toContain(
+      "TF_VAR_easypost_webhook_secret",
     );
     expect(platformStagingResetWorkflow).toContain("Reconcile staging App Platform alias DNS state");
     expect(platformStagingResetWorkflow).toContain('doctl apps get "$app_id" --format DefaultIngress --no-header');

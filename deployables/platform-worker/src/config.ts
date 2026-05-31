@@ -140,6 +140,7 @@ export function loadConfig(): PlatformWorkerConfig {
   const stripeSecretKey = getOptionalEnv("STRIPE_SECRET_KEY");
   const stripePublishableKey = getOptionalEnv("STRIPE_PUBLISHABLE_KEY");
   const stripeWebhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
+  const stripeConnectWebhookSecret = getOptionalEnv("STRIPE_CONNECT_WEBHOOK_SECRET");
   const stripeApiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
   const stripeCheckoutUiMode = getOptionalEnv("STRIPE_CHECKOUT_UI_MODE");
   const stripeConnectReturnUrl = getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
@@ -154,6 +155,8 @@ export function loadConfig(): PlatformWorkerConfig {
   const twilioApiBaseUrl = getOptionalEnv("TWILIO_API_BASE_URL") ?? undefined;
   const twilioStatusCallbackBaseUrl = getOptionalEnv("TWILIO_STATUS_CALLBACK_BASE_URL") ?? undefined;
   const productionLike = process.env.NODE_ENV === "production";
+  const resolvedStripeConnectWebhookSecret =
+    stripeConnectWebhookSecret ?? (!productionLike ? stripeWebhookSecret : undefined);
   const notificationEmailProvider =
     getOptionalEnv("NOTIFICATION_EMAIL_PROVIDER") === "amazon-ses" ? "amazon-ses" : "noop";
   const sesAwsRegion = getOptionalEnv("SES_AWS_REGION") ?? undefined;
@@ -163,9 +166,12 @@ export function loadConfig(): PlatformWorkerConfig {
   const sesConfigurationSetName = getOptionalEnv("SES_CONFIGURATION_SET_NAME") ?? undefined;
   const sesSourceArn = getOptionalEnv("SES_SOURCE_ARN") ?? undefined;
 
-  if (productionLike && (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret)) {
+  if (
+    productionLike &&
+    (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret || !stripeConnectWebhookSecret)
+  ) {
     throw new Error(
-      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
     );
   }
   if (productionLike && !easyPostApiKey) {
@@ -235,11 +241,11 @@ export function loadConfig(): PlatformWorkerConfig {
           }
         : { kind: "fake" },
     moneyMovement:
-      stripeSecretKey && stripeWebhookSecret
+      stripeSecretKey && resolvedStripeConnectWebhookSecret
         ? {
             kind: "stripe",
             secretKey: stripeSecretKey,
-            webhookSecret: stripeWebhookSecret,
+            webhookSecret: resolvedStripeConnectWebhookSecret,
             apiBaseUrl: stripeApiBaseUrl,
             onboardingReturnUrl: stripeConnectReturnUrl,
             onboardingRefreshUrl: stripeConnectRefreshUrl,

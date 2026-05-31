@@ -9,6 +9,7 @@ const envNames = [
   "STRIPE_SECRET_KEY",
   "STRIPE_PUBLISHABLE_KEY",
   "STRIPE_WEBHOOK_SECRET",
+  "STRIPE_CONNECT_WEBHOOK_SECRET",
   "STRIPE_API_BASE_URL",
   "STRIPE_CHECKOUT_UI_MODE",
   "STRIPE_CONNECT_RETURN_URL",
@@ -162,7 +163,7 @@ describe("platform worker config", () => {
     process.env.NODE_ENV = "production";
 
     expect(() => loadConfig()).toThrow(
-      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for platform worker payment processing and money movement in production.",
     );
   });
 
@@ -173,6 +174,7 @@ describe("platform worker config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
 
     expect(() => loadConfig()).toThrow(
       "EASYPOST_API_KEY is required for platform worker postage label work in production.",
@@ -186,6 +188,7 @@ describe("platform worker config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
     process.env.EASYPOST_API_KEY = "EZTK_test";
 
     expect(() => loadConfig()).toThrow(
@@ -200,6 +203,7 @@ describe("platform worker config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_test_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
     process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.staging.chasesets.com/account/payouts";
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.staging.chasesets.com/account/payouts/setup";
     process.env.EASYPOST_API_KEY = "EZTK_test";
@@ -214,6 +218,7 @@ describe("platform worker config", () => {
     expect(config.paymentProcessor).toMatchObject({ kind: "stripe" });
     expect(config.moneyMovement).toMatchObject({
       kind: "stripe",
+      webhookSecret: "whsec_connect_test",
       onboardingReturnUrl: "https://marketplace.staging.chasesets.com/account/payouts",
       onboardingRefreshUrl: "https://marketplace.staging.chasesets.com/account/payouts/setup",
     });

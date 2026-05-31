@@ -82,6 +82,7 @@ Additional `preview` and `staging` secrets for the full platform:
 - `STRIPE_SECRET_KEY`
 - `STRIPE_PUBLISHABLE_KEY`
 - `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_CONNECT_WEBHOOK_SECRET`
 - `EASYPOST_API_KEY`
 
 Optional `preview` and `staging` variables:
@@ -247,13 +248,47 @@ If cleanup fails, rerun the cleanup workflow for the closed PR. If the state key
 
 Production deploys automatically through `.github/workflows/platform-production.yml` after the staging job succeeds. It promotes the same immutable commit-tagged image that staging just deployed, instead of rebuilding a second artifact. Non-deployable release commits do not reach production promotion because staging is intentionally skipped.
 
-Production is intentionally gated to landing and admin-support by default. The marketplace, full platform API, platform worker, and commerce bounded-context databases are deployed to production only when the production GitHub Environment sets `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` and the separate launch, Marketplace Checkout Fee, Support operations, Fulfillment postage, transactional email, launch supply measurement, and Tax evidence variables approve the launch posture. Keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED` unset or `false` until the [marketplace production promotion](./marketplace-production-promotion.md) gates are complete and the [Marketplace Launch Evidence](./marketplace-launch-evidence.md) verifier passes.
+Production is intentionally gated to landing and admin-support by default. Operators may set `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` with a non-empty `PRODUCTION_MARKETPLACE_PROOF_REFERENCE` to deploy the production `platform-api`, `platform-worker`, and commerce bounded-context databases for private provider proof collection while the public marketplace remains closed. Proof mode also requires the live Stripe keys, Stripe webhook secret, EasyPost production key, EasyPost webhook secret, and `EASYPOST_MODE=production` because production `platform-api` must not start with fake money or sandbox postage providers. Proof mode does not deploy `marketplace.chasesets.com`, does not deploy marketplace web, keeps broad public/admin `/api/*` traffic on admin-support, and routes only provider callback plus private proof API paths to `platform-api`. The routed provider callbacks are Stripe payment webhooks, Stripe Connect money-movement webhooks, SES/SNS email webhooks, and EasyPost postage webhooks. The routed private proof APIs are the Checkout deferred session create/confirm paths, Ordering checkout preview/create path, Payments checkout/payment/refund/reconciliation/provider-health paths, and Settlement wallet/payout-readiness/payout-setup/payout/reconciliation/provider-health paths required to collect live money evidence with authenticated operator accounts.
+
+Before flipping proof mode on, run the GitHub Environment readiness preflight from the repo root:
+
+```powershell
+gh variable list --env production --json name,value > .\secure\github-production-variables-2026-05-30.json
+gh secret list --env production --json name,updatedAt > .\secure\github-production-secrets-2026-05-30.json
+pnpm run marketplace:production-proof-readiness -- --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
+```
+
+The readiness command also accepts `--variables -` or `--secrets -` for stdin when an operator wants to pipe one export directly instead of keeping both JSON files.
+
+The preflight is intentionally secret-name-only. It proves that production has the proof-mode switches, SES transactional variables, live Stripe and EasyPost secret names, SES secret names, Google Workspace admin SSO variables and secret names, and the baseline deployment secret names before the workflow attempts a private production proof deployment.
+
+If the preflight fails, the JSON output includes `operatorSetup.variableCommands` and `operatorSetup.secretCommands` for the missing values. Treat those commands as the deployment setup checklist; run the secret commands only through an interactive prompt or private password manager input.
+
+The same readiness output includes `providerCallbackSetup.dashboardDestinations`. Use those exact URLs for Stripe, Stripe Connect, SES/SNS, and EasyPost provider dashboards after proof topology passes. Use the `stripeConnectOnboarding.privateProof*` URLs when running live smoke tests through the private proof API because payout setup redirects must stay on the same origin as `PLATFORM_API_BASE_URL`; use the `stripeConnectOnboarding.finalLaunch*` URLs for final Stripe money evidence and public launch. Use `operatorSetup.stripeMoneySmokeEnvironmentCommands` after topology passes to export the same-origin private proof URLs, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live Stripe smoke command.
+
+After proof mode deploys, run:
+
+```powershell
+pnpm run marketplace:production-proof-topology-evidence -- --base-url https://chasesets.com --reference PRODUCTION-PROOF-2026-05-30 --operator "ops@chasesets.com" --proof-enabled true --public-enabled false
+```
+
+The command fails until the base URL is `https://chasesets.com` or `https://admin.chasesets.com`, `/api/health/ready` returns JSON `200`, Stripe payment, Stripe Connect money-movement, SES/SNS email, and EasyPost postage callback paths return JSON `200` or `400` without redirects, the private Checkout/Ordering/Payments/Settlement proof APIs used by live money smoke and deferred-checkout order creation return JSON `401` without redirects, proof mode is explicitly enabled, and public marketplace promotion remains disabled. Attach the redacted output to the private proof record before configuring provider dashboards.
+
+The public marketplace is deployed to production only when the production GitHub Environment sets `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, `PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE` points to the passing packet, and the separate launch, Marketplace Checkout Fee, Support operations, Fulfillment postage, transactional email, launch supply measurement, and Tax evidence variables approve the launch posture. Keep `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED` unset or `false` until the [marketplace production promotion](./marketplace-production-promotion.md) gates are complete and the [Marketplace Launch Evidence](./marketplace-launch-evidence.md) verifier passes.
+
+After all launch gates pass and production variables are updated from the passing packet, run the final public launch readiness preflight before triggering production promotion:
+
+```powershell
+pnpm run marketplace:production-launch-readiness -- --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
+```
+
+This command combines the launch evidence variable snapshot with required production secret-name checks and fails until public promotion is on, proof mode is off, launch references are real, admin Google Workspace SSO is configured for `chasesets.com`, live Stripe/EasyPost secret names exist, and Amazon SES is set to `transactional-production`.
 
 The workflow:
 
 1. Checks out the release commit that already passed `PR Required` and staging deployment.
 2. Skips stale automatic deployments when the release commit is no longer the current `origin/main`.
-3. Validates required production secrets and variables. When `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, validation also requires `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true`, a non-empty `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE`, approved Marketplace Checkout Fee evidence, approved Stripe money operations evidence, approved Support operations evidence, approved Fulfillment postage evidence, approved transactional email evidence, approved launch supply measurement evidence, approved Tax readiness evidence, Stripe live-mode keys, Stripe webhook secret, EasyPost production configuration, production Connect return/refresh URLs, and complete Amazon SES transactional email configuration.
+3. Validates required production secrets and variables. When `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true`, validation requires a real `PRODUCTION_MARKETPLACE_PROOF_REFERENCE`, Stripe live-mode keys, Stripe webhook secret, EasyPost production API and webhook configuration, and production Connect return/refresh URLs before the private production proof topology can deploy. When `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, workflow validation and Terraform checks also require a non-placeholder `PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE`, `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true`, a real `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE`, approved Marketplace Checkout Fee evidence, approved Stripe money operations evidence, approved Support operations evidence, approved Fulfillment postage evidence, approved transactional email evidence, approved launch supply measurement evidence, approved Tax readiness evidence, an explicit `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true` or `false` value from the Tax readiness packet, and complete Amazon SES transactional email configuration. Terraform rejects placeholder-like production evidence references even when they are non-empty.
 4. Verifies `registry.digitalocean.com/<account-registry>/chase-sets-platform:<release_commit>` already exists in DigitalOcean Container Registry. If it is missing, run a successful staging deployment for that commit before production promotion.
 5. Runs Terraform fmt and plan for `environment=production` with the staging-promoted image tag, blocks destructive changes unless `.github/deployment/production-destructive-change-approved.md` exists in the reviewed commit, and records whether `digitalocean_app.platform` will change.
 6. Waits for any prior DigitalOcean App Platform deployment to reach a terminal phase before Terraform apply.

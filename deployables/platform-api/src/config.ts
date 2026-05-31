@@ -45,6 +45,7 @@ export type PlatformApiPostageConfig =
   | Readonly<{
       kind: "easypost";
       apiKey: string;
+      webhookSecret?: string;
       apiBaseUrl?: string;
       mode: "test" | "production";
     }>;
@@ -189,8 +190,6 @@ export const REQUIRED_STRIPE_WEBHOOK_EVENTS = [
   "charge.dispute.created",
   "charge.dispute.updated",
   "charge.dispute.closed",
-  "shared_payment.granted_token.used",
-  "shared_payment.granted_token.deactivated",
   "v2.core.account[requirements].updated",
   "v2.core.account.updated",
   "payout.paid",
@@ -562,11 +561,13 @@ export function loadConfig(): PlatformApiConfig {
   const stripeSecretKey = getOptionalEnv("STRIPE_SECRET_KEY");
   const stripePublishableKey = getOptionalEnv("STRIPE_PUBLISHABLE_KEY");
   const stripeWebhookSecret = getOptionalEnv("STRIPE_WEBHOOK_SECRET");
+  const stripeConnectWebhookSecret = getOptionalEnv("STRIPE_CONNECT_WEBHOOK_SECRET");
   const stripeApiBaseUrl = getOptionalEnv("STRIPE_API_BASE_URL") ?? undefined;
   const stripeCheckoutUiMode = getOptionalEnv("STRIPE_CHECKOUT_UI_MODE");
   const stripeConnectReturnUrl = getOptionalEnv("STRIPE_CONNECT_RETURN_URL") ?? undefined;
   const stripeConnectRefreshUrl = getOptionalEnv("STRIPE_CONNECT_REFRESH_URL") ?? undefined;
   const easyPostApiKey = getOptionalEnv("EASYPOST_API_KEY");
+  const easyPostWebhookSecret = getOptionalEnv("EASYPOST_WEBHOOK_SECRET") ?? undefined;
   const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
   const easyPostMode = getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
   const googleSocialLoginClientId = getOptionalEnv("GOOGLE_SOCIAL_LOGIN_CLIENT_ID");
@@ -580,6 +581,8 @@ export function loadConfig(): PlatformApiConfig {
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
   const twilioRequireWebhookSignature = getBooleanEnv("TWILIO_WEBHOOK_SIGNATURE_REQUIRED", true);
   const productionLike = isProductionDeployment();
+  const resolvedStripeConnectWebhookSecret =
+    stripeConnectWebhookSecret ?? (!productionLike ? stripeWebhookSecret : undefined);
   const ucpBusinessSigningKeys = loadUcpBusinessSigningKeys(productionLike);
 
   if (
@@ -591,9 +594,12 @@ export function loadConfig(): PlatformApiConfig {
     );
   }
 
-  if (productionLike && (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret)) {
+  if (
+    productionLike &&
+    (!stripeSecretKey || !stripePublishableKey || !stripeWebhookSecret || !stripeConnectWebhookSecret)
+  ) {
     throw new Error(
-      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
     );
   }
   if (productionLike && !easyPostApiKey) {
@@ -608,6 +614,9 @@ export function loadConfig(): PlatformApiConfig {
     throw new Error(
       `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
     );
+  }
+  if (productionLike && easyPostApiKey && !easyPostWebhookSecret) {
+    throw new Error("EASYPOST_WEBHOOK_SECRET is required for EasyPost webhook verification in production.");
   }
   if (productionLike && Boolean(googleSocialLoginClientId) !== Boolean(googleSocialLoginClientSecret)) {
     throw new Error("GOOGLE_SOCIAL_LOGIN_CLIENT_ID and GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET must be configured together.");
@@ -654,11 +663,11 @@ export function loadConfig(): PlatformApiConfig {
       : null;
 
   const moneyMovement =
-    stripeSecretKey && stripeWebhookSecret
+    stripeSecretKey && resolvedStripeConnectWebhookSecret
       ? {
           kind: "stripe" as const,
           secretKey: stripeSecretKey,
-          webhookSecret: stripeWebhookSecret,
+          webhookSecret: resolvedStripeConnectWebhookSecret,
           apiBaseUrl: stripeApiBaseUrl,
           onboardingReturnUrl: stripeConnectReturnUrl,
           onboardingRefreshUrl: stripeConnectRefreshUrl,
@@ -686,6 +695,7 @@ export function loadConfig(): PlatformApiConfig {
         ? {
             kind: "easypost",
             apiKey: easyPostApiKey,
+            webhookSecret: easyPostWebhookSecret,
             apiBaseUrl: easyPostApiBaseUrl,
             mode: easyPostMode,
           }
@@ -694,7 +704,7 @@ export function loadConfig(): PlatformApiConfig {
         apiVersion: STRIPE_PLATFORM_API_VERSION,
         requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
         paymentsConfigured: true,
-        connectConfigured: moneyMovement.kind === "stripe",
+        connectConfigured: moneyMovement.kind === "stripe" && Boolean(resolvedStripeConnectWebhookSecret),
         onboardingUrlsConfigured: Boolean(stripeConnectReturnUrl && stripeConnectRefreshUrl),
         fakeFallbackAllowed: !productionLike,
         liveSecretKeyLikely: stripeSecretKey.startsWith("sk_live"),
@@ -723,6 +733,7 @@ export function loadConfig(): PlatformApiConfig {
       ? {
           kind: "easypost",
           apiKey: easyPostApiKey,
+          webhookSecret: easyPostWebhookSecret,
           apiBaseUrl: easyPostApiBaseUrl,
           mode: easyPostMode,
         }

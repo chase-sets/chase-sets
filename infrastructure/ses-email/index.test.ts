@@ -1,5 +1,7 @@
+import { createSign, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
+  createSesEmailWebhookGateway,
   createSesSendRequest,
   createSesEmailNotificationAdapter,
   createSesTransactionalEmailGateway,
@@ -139,6 +141,148 @@ describe("ses email adapter", () => {
     });
   });
 
+  it("normalizes SES notification envelopes into provider-neutral email webhook events", async () => {
+    const message = JSON.stringify({
+      eventType: "Complaint",
+      mail: {
+        messageId: "ses_msg_complaint",
+        timestamp: "2026-05-09T00:00:00.000Z",
+        destination: ["buyer@example.com"],
+      },
+    });
+    const body = buildSignedSnsEnvelope({
+      Message: message,
+      MessageId: "sns_msg_1",
+      Timestamp: "2026-05-09T00:00:00.000Z",
+      TopicArn: "arn:aws:sns:us-east-2:123456789012:ses-transactional",
+    });
+    const gateway = createSesEmailWebhookGateway({
+      fetchCertificate: async () => body.publicKey,
+      now: () => new Date("2026-05-09T00:00:01.000Z"),
+    });
+
+    await expect(
+      gateway.processEmailWebhook({
+        rawBody: body.rawBody,
+        contentType: "application/json",
+      }),
+    ).resolves.toEqual({
+      providerEventId: "amazon-ses:ses_msg_complaint:complaint:2026-05-09T00:00:00.000Z",
+      providerName: "amazon-ses",
+      eventKind: "complaint",
+      providerMessageId: "ses_msg_complaint",
+      recipients: ["buyer@example.com"],
+      occurredAt: "2026-05-09T00:00:00.000Z",
+      receivedAt: "2026-05-09T00:00:01.000Z",
+    });
+  });
+
+  it("confirms signed SNS subscription confirmation envelopes", async () => {
+    const subscribeUrl =
+      "https://sns.us-east-2.amazonaws.com/?Action=ConfirmSubscription&TopicArn=arn%3Aaws%3Asns%3Aus-east-2%3A123456789012%3Ases-transactional&Token=token_123";
+    const body = buildSignedSnsEnvelope({
+      Type: "SubscriptionConfirmation",
+      Message: "You have chosen to subscribe to the topic.",
+      MessageId: "sns_msg_subscription",
+      SubscribeURL: subscribeUrl,
+      Timestamp: "2026-05-09T00:00:00.000Z",
+      Token: "token_123",
+      TopicArn: "arn:aws:sns:us-east-2:123456789012:ses-transactional",
+    });
+    const confirmSubscription = vi.fn(async () => undefined);
+    const gateway = createSesEmailWebhookGateway({
+      fetchCertificate: async () => body.publicKey,
+      confirmSubscription,
+    });
+
+    await expect(
+      gateway.processEmailWebhook({
+        rawBody: body.rawBody,
+        contentType: "application/json",
+      }),
+    ).resolves.toBeNull();
+
+    expect(confirmSubscription).toHaveBeenCalledWith(subscribeUrl);
+  });
+
+  it("rejects signed SNS subscription confirmations with untrusted subscribe urls", async () => {
+    const body = buildSignedSnsEnvelope({
+      Type: "SubscriptionConfirmation",
+      Message: "You have chosen to subscribe to the topic.",
+      MessageId: "sns_msg_subscription",
+      SubscribeURL: "https://example.com/?Action=ConfirmSubscription&Token=token_123",
+      Timestamp: "2026-05-09T00:00:00.000Z",
+      Token: "token_123",
+      TopicArn: "arn:aws:sns:us-east-2:123456789012:ses-transactional",
+    });
+    const gateway = createSesEmailWebhookGateway({
+      fetchCertificate: async () => body.publicKey,
+      confirmSubscription: vi.fn(async () => undefined),
+    });
+
+    await expect(
+      gateway.processEmailWebhook({
+        rawBody: body.rawBody,
+        contentType: "application/json",
+      }),
+    ).rejects.toThrow("SNS subscription confirmation URL is not trusted.");
+  });
+
+  it("rejects unsigned SES webhook payloads when SNS signature verification is required", async () => {
+    const gateway = createSesEmailWebhookGateway();
+
+    await expect(
+      gateway.processEmailWebhook({
+        rawBody: JSON.stringify({
+          eventType: "Bounce",
+          mail: {
+            messageId: "ses_msg_123",
+            timestamp: "2026-05-09T00:00:00.000Z",
+            destination: ["buyer@example.com"],
+          },
+        }),
+      }),
+    ).rejects.toThrow("SES email webhooks must be delivered through a signed SNS notification.");
+  });
+
+  it("can parse direct SES event payloads for local provider simulations", async () => {
+    const gateway = createSesEmailWebhookGateway({
+      requireSnsSignature: false,
+      now: () => new Date("2026-05-09T00:00:01.000Z"),
+    });
+
+    await expect(
+      gateway.processEmailWebhook({
+        rawBody: JSON.stringify({
+          eventType: "Delivery",
+          mail: {
+            messageId: "ses_msg_direct",
+            timestamp: "2026-05-09T00:00:00.000Z",
+            destination: ["buyer@example.com"],
+          },
+        }),
+      }),
+    ).resolves.toMatchObject({
+      providerEventId: "amazon-ses:ses_msg_direct:delivery:2026-05-09T00:00:00.000Z",
+      eventKind: "delivery",
+      providerMessageId: "ses_msg_direct",
+    });
+  });
+
+  it("ignores SES notification events without a provider message id", () => {
+    expect(
+      parseSesNotificationEvent(
+        JSON.stringify({
+          eventType: "Delivery",
+          mail: {
+            timestamp: "2026-05-09T00:00:00.000Z",
+            destination: ["buyer@example.com"],
+          },
+        }),
+      ),
+    ).toBeNull();
+  });
+
   it("adapts notification email channels through transactional SES rendering", async () => {
     const sendRequest = vi.fn(async (_request: SesSendEmailRequest) => ({ MessageId: "ses_msg_notify" }));
     const adapter = createSesEmailNotificationAdapter({
@@ -181,3 +325,45 @@ describe("ses email adapter", () => {
     });
   });
 });
+
+function buildSignedSnsEnvelope(input: Readonly<SignedSnsEnvelopeInput>) {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const envelope = {
+    Type: input.Type ?? "Notification",
+    Message: input.Message,
+    MessageId: input.MessageId,
+    Timestamp: input.Timestamp,
+    TopicArn: input.TopicArn,
+    SignatureVersion: "2",
+    SigningCertURL: "https://sns.us-east-2.amazonaws.com/SimpleNotificationService.pem",
+    ...(input.SubscribeURL ? { SubscribeURL: input.SubscribeURL } : {}),
+    ...(input.Token ? { Token: input.Token } : {}),
+  };
+  const fields =
+    envelope.Type === "Notification"
+      ? ["Message", "MessageId", "Timestamp", "TopicArn", "Type"]
+      : ["Message", "MessageId", "SubscribeURL", "Timestamp", "Token", "TopicArn", "Type"];
+  const stringToSign = fields
+    .flatMap((field) => [field, String(envelope[field as keyof typeof envelope])])
+    .map((value) => `${value}\n`)
+    .join("");
+  const signature = createSign("RSA-SHA256").update(stringToSign).end().sign(privateKey, "base64");
+
+  return {
+    rawBody: JSON.stringify({
+      ...envelope,
+      Signature: signature,
+    }),
+    publicKey: publicKey.export({ format: "pem", type: "spki" }).toString(),
+  };
+}
+
+type SignedSnsEnvelopeInput = Readonly<{
+  Type?: "Notification" | "SubscriptionConfirmation";
+  Message: string;
+  MessageId: string;
+  SubscribeURL?: string;
+  Timestamp: string;
+  Token?: string;
+  TopicArn: string;
+}>;

@@ -23,6 +23,43 @@ Until `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production copy must keep th
 
 Keep UCP, AP2, autonomous payment, headless checkout, AI-agent checkout, Payment Handler, and Shared Payment Token claims out of launch marketing unless a separate UCP/AP2 certification record exists. Public Presence may describe trusted checkout, visible totals, and provider-backed payment review, but it must not imply agents can complete orders or payments without buyer UI review until Payments, Checkout, Auth, Identity, and Operations have approved production verifier, merchant signing key, provider-backed Stripe Shared Payment Token, OAuth, signed-write, incident-response, and support evidence.
 
+Before marketplace production promotion, build the Marketplace Promotion and UCP/AP2 Marketing launch gates from the final launch review record:
+
+```powershell
+pnpm run marketplace:promotion-evidence -- --review .\secure\marketplace-promotion-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
+```
+
+The Public Presence evidence in that review must confirm launch-mode copy for home, terms, privacy, refunds and returns, order protection, sales fee, FAQ, and contact pages, removal of future-only live-transaction language, and absence of uncertified UCP/AP2/headless-checkout claims.
+
+Run the live copy audit before the final review. Use prelaunch mode while production is intentionally gated:
+
+```powershell
+pnpm run marketplace:public-presence-copy-audit -- --base-url https://chasesets.com --mode prelaunch
+```
+
+For launch review, run the same command with `--mode launch`. Launch mode fails while future-only copy such as early access, waitlist, or production-promotion-gated checkout language remains on any required public page.
+
+The final promotion review record must carry the launch-mode copy audit reference, `publicPresenceCopyAuditVersion: "marketplace-public-presence-copy-audit/v1"`, `publicPresenceCopyAuditBaseUrl: "https://chasesets.com"`, `publicPresenceCopyAuditCompletedAt`, `publicPresenceCopyAuditRequiredPageCount: 8`, and true values for `publicPresenceCopyAuditPassed`, `publicPresenceCopyAuditFutureOnlyLaunchCopyRemoved`, `publicPresenceCopyAuditPolicyPagesReviewed`, and `publicPresenceCopyAuditUncertifiedClaimsAbsent`. Rerun the launch-mode audit when it is older than 30 days at promotion review.
+
+## Launch Copy Replacement Inventory
+
+Current source copy is intentionally prelaunch-only. Do not replace it while `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; the prelaunch copy is the safer public posture until the launch evidence packet passes.
+
+The final launch-copy pass must review and replace future-only language across all eight required Public Presence pages before production promotion:
+
+| Page | Route | Current source posture | Launch-copy decision |
+| --- | --- | --- | --- |
+| Home | `/` | Seller beta, early access, waitlist form, no live transaction commitment. | Replace waitlist CTAs with the approved marketplace entry point only after the commerce route and smoke evidence are approved. |
+| Terms | `/terms` | Public site and marketplace workflows remain gated until production promotion approval. | State live marketplace operating terms and keep account, checkout, fee, fulfillment, review, and payout responsibilities explicit. |
+| Privacy | `/privacy` | Public-site and early access data posture. | Confirm live marketplace data uses, provider processors, support evidence, and account activity records are covered. |
+| Refunds and returns | `/refunds-and-returns` | Checkout, refunds, and returns are not available before promotion. | State live refund and return paths only after Payments, Fulfillment, Support, and Settlement proof passes. |
+| Order Protection | `/order-protection` | Explains planned checkout clarity and support coverage. | State live protection scope, exclusions, support handoff, and evidence review without implying guaranteed outcomes. |
+| Marketplace sales fees | `/sales-fees` | Beta seller fee lock and production-promotion-gated availability. | Preserve founding seller economics, remove gated-checkout language, and keep buyer-side Marketplace Checkout Fee visibility explicit. |
+| FAQ | `/faq` | Answers whether Chase Sets is live by pointing to production promotion. | Replace availability answers with the approved live marketplace posture and avoid unsupported scale, demand, or uptime claims. |
+| Contact | `/contact` | Support contact for prelaunch questions. | Confirm support contact, response ownership, and transaction support paths match the Support operations rehearsal. |
+
+Do not add a browse, checkout, listing, payout, delivery, refund, transaction-volume, or launch-date claim unless the target deployable route is promoted and the matching launch evidence gate is green. If public web remains a product/policy surface while marketplace commerce lives on a separate host, launch copy must name that relationship plainly instead of implying local browse routes exist on `chasesets.com`.
+
 Do not invent testimonials, waitlist counts, partnerships, founder bios, launch dates, transaction volume, or community proof.
 
 Promote new trust proof only when all of these are true:

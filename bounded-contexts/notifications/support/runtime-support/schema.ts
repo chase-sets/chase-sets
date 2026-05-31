@@ -37,4 +37,21 @@ CREATE INDEX IF NOT EXISTS notification_mobile_message_provider_events_delivery_
 
 CREATE INDEX IF NOT EXISTS notification_mobile_message_provider_events_received_idx
   ON notification_mobile_message_provider_events (received_at DESC);
+
+CREATE TABLE IF NOT EXISTS notification_email_provider_events (
+  provider_event_id text PRIMARY KEY,
+  provider_name text NOT NULL,
+  event_kind text NOT NULL,
+  provider_object_reference text NOT NULL,
+  recipients_json text NOT NULL,
+  occurred_at timestamptz NOT NULL,
+  received_at timestamptz NOT NULL,
+  payload_json text NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS notification_email_provider_events_message_idx
+  ON notification_email_provider_events (provider_object_reference, occurred_at DESC);
+
+CREATE INDEX IF NOT EXISTS notification_email_provider_events_received_idx
+  ON notification_email_provider_events (received_at DESC);
 `;

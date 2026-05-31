@@ -1607,6 +1607,9 @@ importers:
       '@chase-sets/reputation':
         specifier: workspace:*
         version: link:../../bounded-contexts/reputation
+      '@chase-sets/ses-email':
+        specifier: workspace:*
+        version: link:../../infrastructure/ses-email
       '@chase-sets/settlement':
         specifier: workspace:*
         version: link:../../bounded-contexts/settlement
