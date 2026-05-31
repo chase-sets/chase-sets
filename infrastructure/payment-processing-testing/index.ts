@@ -28,7 +28,7 @@ function createPaymentReference(input: CreateProcessorPaymentInput) {
 }
 
 function createRefundReference(input: CreateProcessorRefundInput) {
-  return `re_seed_${input.paymentId}_${input.amount.replace(".", "_")}`;
+  return `re_seed_${input.refundId}`;
 }
 
 function fakeSavedPaymentMethod(

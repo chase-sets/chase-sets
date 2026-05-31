@@ -77,6 +77,74 @@ describe("payments payment domain", () => {
     ).toEqual([]);
   });
 
+  it("records refund and dispute provider facts once for captured payments", () => {
+    const createdState = decidePayment(initialPaymentState, {
+      type: "CreatePayment",
+      paymentId: "pay_1" as never,
+      buyerAccountId: "acc_buyer" as never,
+      orderIds: ["ord_1" as never],
+      amount: "10.00",
+      marketplaceSalesFeeAmount: "1.00",
+      marketplaceCheckoutFeeAmount: "0.50",
+      sellerNetAmount: "8.50",
+      sellerPayouts: [
+        {
+          orderId: "ord_1" as never,
+          sellerAccountId: "acc_seller" as never,
+          sellerItemNetAmount: "8.00",
+          shippingAllowanceAmount: "0.50",
+          sellerShippingPayoutAmount: "0.50",
+          sellerPayoutAmount: "8.50",
+        },
+      ],
+      currencyCode: "usd",
+      processorName: "stripe",
+      processorPaymentKind: "payment-intent",
+      processorPaymentReference: "pi_123",
+      processorClientSecret: "pi_123_secret_456",
+      processorStatus: "requires_payment_method",
+      createdAt: "2026-04-01T00:00:00.000Z",
+    }).reduce(evolvePayment, initialPaymentState);
+    const capturedState = decidePayment(createdState, {
+      type: "RecordPaymentCapture",
+      processorStatus: "succeeded",
+      capturedAt: "2026-04-01T00:01:00.000Z",
+    }).reduce(evolvePayment, createdState);
+
+    const disputedState = decidePayment(capturedState, {
+      type: "RecordPaymentDispute",
+      processorStatus: "needs_response",
+      disputeStatus: "charge.dispute.created",
+      disputeMessage: "needs_response",
+      amount: "6.00",
+      disputedAt: "2026-04-01T00:02:00.000Z",
+    }).reduce(evolvePayment, capturedState);
+    const refundEvents = decidePayment(disputedState, {
+      type: "RecordPaymentRefund",
+      processorStatus: "succeeded",
+      processorRefundReference: "ch_123",
+      amount: "4.00",
+      refundedAt: "2026-04-01T00:03:00.000Z",
+    });
+    const refundedState = refundEvents.reduce(evolvePayment, disputedState);
+
+    expect(disputedState.status).toBe("disputed");
+    expect(refundEvents[0]?.data).toMatchObject({
+      amount: "4.00",
+      sellerPayouts: [expect.objectContaining({ sellerAccountId: "acc_seller" })],
+    });
+    expect(refundedState.status).toBe("refunded");
+    expect(
+      decidePayment(refundedState, {
+        type: "RecordPaymentRefund",
+        processorStatus: "succeeded",
+        processorRefundReference: "ch_123",
+        amount: "4.00",
+        refundedAt: "2026-04-01T00:03:00.000Z",
+      }),
+    ).toEqual([]);
+  });
+
   it("rejects invalid payment creation", () => {
     expect(() =>
       decidePayment(initialPaymentState, {

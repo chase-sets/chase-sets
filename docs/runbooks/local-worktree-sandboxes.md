@@ -118,8 +118,8 @@ The Stripe listener uses the sandbox platform API URL by default:
 pnpm run stripe:listen
 ```
 
-The listener stores the session `STRIPE_WEBHOOK_SECRET` in
-`.env.sandbox.local`. It does not push that session value to the shared env
+The listener stores the session `STRIPE_WEBHOOK_SECRET` and `STRIPE_CONNECT_WEBHOOK_SECRET` in
+`.env.sandbox.local`. It does not push those session values to the shared env
 store, so another worktree can run its own listener safely.
 
 ## Observability

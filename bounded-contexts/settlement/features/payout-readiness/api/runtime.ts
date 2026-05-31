@@ -6,7 +6,7 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { createId, type AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   normalizeCurrencyCode,
   normalizePayoutReadinessStatus,
@@ -196,7 +196,7 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         providerReference: ensured.providerReference,
         returnUrl: params.returnUrl,
         refreshUrl: params.refreshUrl,
-        idempotencyKey: `settlement:payout-account:${params.accountId}:onboarding`,
+        idempotencyKey: `settlement:payout-account:${params.accountId}:onboarding:${createId("setup")}`,
       });
 
       await recordProviderReadiness(

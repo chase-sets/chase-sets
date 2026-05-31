@@ -3,7 +3,7 @@ import type { AccountId, OrderId, PaymentId } from "@chase-sets/primitives/typed
 
 export type RefundId = TypedUlid<"rfd">;
 
-export type PaymentStatus = "pending-confirmation" | "captured" | "failed" | "cancelled";
+export type PaymentStatus = "pending-confirmation" | "captured" | "failed" | "cancelled" | "refunded" | "disputed";
 
 export type RefundStatus = "requested" | "issued" | "failed";
 
@@ -110,6 +110,10 @@ export function normalizePaymentStatus(value: string): PaymentStatus {
       return "failed";
     case "cancelled":
       return "cancelled";
+    case "refunded":
+      return "refunded";
+    case "disputed":
+      return "disputed";
     default:
       throw new PaymentsDomainError("Payment status is not supported.");
   }

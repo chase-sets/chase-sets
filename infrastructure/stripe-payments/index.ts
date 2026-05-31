@@ -53,6 +53,12 @@ type StripePaymentIntentResponse = Readonly<{
   customer?: string | Readonly<{ id?: string | null }> | null;
 }>;
 
+type StripeChargeResponse = Readonly<{
+  id: string;
+  payment_intent?: string | Readonly<{ id?: string | null }> | null;
+  metadata?: Readonly<Record<string, string | null | undefined>> | null;
+}>;
+
 type StripeCustomerResponse = Readonly<{
   id: string;
 }>;
@@ -98,7 +104,11 @@ type StripeEventEnvelope = Readonly<{
       status?: string | null;
       payment_status?: string | null;
       payment_intent?: string | null;
+      charge?: string | null;
       setup_intent?: string | null;
+      amount?: number | null;
+      amount_refunded?: number | null;
+      currency?: string | null;
       mode?: string | null;
       customer?: string | null;
       payment_method?: string | null;
@@ -175,6 +185,7 @@ function paymentMetadataEntries(
     "metadata[buyer_account_id]": input.buyerAccountId,
     "metadata[order_ids]": input.orderIds.join(","),
     "metadata[payment_method_category]": input.paymentMethodCategory,
+    "metadata[explicit_payment_method_selection]": "true",
     ...Object.fromEntries(
       Object.entries(extra).flatMap(([key, value]) => (value?.trim() ? [[`metadata[${key}]`, value.trim()]] : [])),
     ),
@@ -215,6 +226,18 @@ function paymentIntentReferenceFromSession(session: StripeCheckoutSessionRespons
     return normalizeOptionalText(paymentIntent);
   }
   return normalizeOptionalText(paymentIntent?.id ?? null);
+}
+
+function paymentIntentReferenceFromCharge(charge: StripeChargeResponse) {
+  const paymentIntent = charge.payment_intent;
+  if (typeof paymentIntent === "string") {
+    return normalizeOptionalText(paymentIntent);
+  }
+  return normalizeOptionalText(paymentIntent?.id ?? null);
+}
+
+function minorUnitsToMoney(amount: number | null | undefined) {
+  return typeof amount === "number" && Number.isFinite(amount) && amount > 0 ? (amount / 100).toFixed(2) : null;
 }
 
 function setupIntentReferenceFromSession(session: StripeCheckoutSessionResponse) {
@@ -542,34 +565,49 @@ function mapWebhookEvent(event: StripeEventEnvelope): PaymentProcessorWebhookEve
         failureMessage,
         occurredAt,
       };
-    case "charge.refunded":
+    case "charge.refunded": {
+      const refundPaymentReference =
+        normalizeOptionalText(paymentObject.payment_intent ?? null) ?? processorPaymentReference;
       return {
         eventId: event.id,
         kind: "payment-refunded",
         processorName: "stripe",
-        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
-        processorPaymentReference,
+        processorPaymentKind: paymentKindForStripeObject(refundPaymentReference),
+        processorPaymentReference: refundPaymentReference,
+        providerObjectReference: processorPaymentReference,
+        processorRefundReference: null,
+        amount: minorUnitsToMoney(paymentObject.amount_refunded ?? paymentObject.amount ?? null),
+        currencyCode: paymentObject.currency?.toLowerCase() === "usd" ? "usd" : null,
         internalPaymentId,
         processorStatus,
         failureCode: null,
         failureMessage: null,
         occurredAt,
       };
+    }
     case "charge.dispute.created":
     case "charge.dispute.updated":
-    case "charge.dispute.closed":
+    case "charge.dispute.closed": {
+      const disputePaymentReference =
+        normalizeOptionalText(paymentObject.payment_intent ?? null) ??
+        normalizeOptionalText(paymentObject.charge ?? null) ??
+        processorPaymentReference;
       return {
         eventId: event.id,
         kind: "payment-disputed",
         processorName: "stripe",
-        processorPaymentKind: paymentKindForStripeObject(processorPaymentReference),
-        processorPaymentReference,
+        processorPaymentKind: paymentKindForStripeObject(disputePaymentReference),
+        processorPaymentReference: disputePaymentReference,
+        providerObjectReference: processorPaymentReference,
+        amount: minorUnitsToMoney(paymentObject.amount ?? null),
+        currencyCode: paymentObject.currency?.toLowerCase() === "usd" ? "usd" : null,
         internalPaymentId,
         processorStatus,
         failureCode: normalizeOptionalText(event.type),
-        failureMessage: null,
+        failureMessage: normalizeOptionalText(paymentObject.status ?? null),
         occurredAt,
       };
+    }
     default:
       return null;
   }
@@ -587,7 +625,7 @@ export function createStripePaymentProcessorGateway(
     processorName: "stripe",
     publishableKey: options.publishableKey,
     confirmationExperience: checkoutUiMode === "hosted" ? "processor-hosted-page" : "processor-managed-form",
-    dynamicPaymentMethods: true,
+    dynamicPaymentMethods: false,
     sensitivePaymentDetailsHandledByProcessor: true,
     agenticPaymentHandlers: [
       {
@@ -836,6 +874,7 @@ export function createStripePaymentProcessorGateway(
             "payment_intent_data[metadata][buyer_account_id]": input.buyerAccountId,
             "payment_intent_data[metadata][order_ids]": input.orderIds.join(","),
             "payment_intent_data[metadata][payment_method_category]": input.paymentMethodCategory,
+            "payment_intent_data[metadata][explicit_payment_method_selection]": "true",
             ...(input.savedCheckoutInstrument
               ? {
                   "payment_intent_data[metadata][saved_checkout_instrument_id]":
@@ -953,12 +992,13 @@ export function createStripePaymentProcessorGateway(
             amount: String(amount),
             reason: "requested_by_customer",
             "metadata[payment_id]": input.paymentId,
+            "metadata[refund_id]": input.refundId,
             "metadata[order_ids]": input.orderIds.join(","),
             "metadata[refund_reason]": input.reason,
           }),
         },
         {
-          idempotencyKey: `payments:payment:${input.paymentId}:refund:${input.amount}`,
+          idempotencyKey: `payments:refund:${input.refundId}`,
         },
       );
 
@@ -1004,6 +1044,26 @@ export function createStripePaymentProcessorGateway(
             savedPaymentMethod: await retrievePaymentIntentPaymentMethod(paymentIntentReference),
           };
         }
+      }
+
+      if (
+        mapped.kind === "payment-disputed" &&
+        mapped.processorPaymentReference.startsWith("ch_") &&
+        !mapped.internalPaymentId
+      ) {
+        const charge = await stripeRequest<StripeChargeResponse>(
+          `/v1/charges/${encodeURIComponent(mapped.processorPaymentReference)}`,
+          { method: "GET" },
+        );
+        const paymentIntentReference = paymentIntentReferenceFromCharge(charge);
+        return {
+          ...mapped,
+          processorPaymentKind: paymentIntentReference ? "payment-intent" : mapped.processorPaymentKind,
+          processorPaymentReference: paymentIntentReference ?? mapped.processorPaymentReference,
+          internalPaymentId: metadataPaymentId(
+            charge as StripeWebhookObject,
+          ) as PaymentProcessorWebhookEvent["internalPaymentId"],
+        };
       }
 
       return mapped;

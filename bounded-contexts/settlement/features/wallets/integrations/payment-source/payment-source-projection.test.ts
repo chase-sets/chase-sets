@@ -88,4 +88,137 @@ describe("settlement payment source projection", () => {
       }),
     );
   });
+
+  it("posts idempotent seller refund debits when a payment refund webhook is projected", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT amount::text AS amount")) {
+          return {
+            rows: [
+              {
+                amount: "20.00",
+                seller_payouts: [
+                  {
+                    orderId: "ord_1",
+                    sellerAccountId: "acc_seller",
+                    sellerItemNetAmount: "15.00",
+                    shippingAllowanceAmount: "1.00",
+                    sellerShippingPayoutAmount: "1.00",
+                    sellerPayoutAmount: "16.00",
+                  },
+                ],
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const wallets = {
+      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    await handlers["payments.payment-refunded"]!(
+      transportEvent("payments.payment-refunded", {
+        paymentId: "pay_1",
+        amount: "10.00",
+        currencyCode: "usd",
+        processorStatus: "succeeded",
+        refundedAt: "2026-05-01T00:10:00.000Z",
+      }),
+    );
+
+    expect(wallets.postEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        ledgerEntryId: "led_refund_pay_1_ord_1",
+        kind: "refund",
+        direction: "debit",
+        amount: "8.00",
+        fundsStatus: "available",
+        orderId: "ord_1",
+        paymentId: "pay_1",
+      }),
+      expect.objectContaining({
+        tenantId: "tnt_test",
+      }),
+    );
+  });
+
+  it("posts dispute holds and releases won disputes against seller payout exposure", async () => {
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("SELECT amount::text AS amount")) {
+          return {
+            rows: [
+              {
+                amount: "20.00",
+                seller_payouts: [
+                  {
+                    orderId: "ord_1",
+                    sellerAccountId: "acc_seller",
+                    sellerItemNetAmount: "15.00",
+                    shippingAllowanceAmount: "1.00",
+                    sellerShippingPayoutAmount: "1.00",
+                    sellerPayoutAmount: "16.00",
+                  },
+                ],
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }),
+    };
+    const wallets = {
+      postEntry: vi.fn(async () => ({ accountId: "acc_seller", version: 1 })),
+    };
+    const handlers = buildSettlementPaymentInputProjectionHandlers(db as never, wallets as never);
+
+    await handlers["payments.payment-disputed"]!(
+      transportEvent("payments.payment-disputed", {
+        paymentId: "pay_1",
+        amount: "10.00",
+        currencyCode: "usd",
+        processorStatus: "won",
+        disputeStatus: "charge.dispute.closed",
+        disputeMessage: "won",
+        disputedAt: "2026-05-01T00:15:00.000Z",
+      }),
+    );
+
+    expect(wallets.postEntry).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        accountId: "acc_seller",
+        ledgerEntryId: "led_dispute_hold_pay_1_ord_1",
+        kind: "adjustment",
+        direction: "debit",
+        amount: "8.00",
+        fundsStatus: "available",
+        orderId: "ord_1",
+        paymentId: "pay_1",
+      }),
+      expect.objectContaining({
+        tenantId: "tnt_test",
+      }),
+    );
+    expect(wallets.postEntry).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        accountId: "acc_seller",
+        ledgerEntryId: "led_dispute_release_pay_1_ord_1",
+        kind: "adjustment",
+        direction: "credit",
+        amount: "8.00",
+        fundsStatus: "available",
+        orderId: "ord_1",
+        paymentId: "pay_1",
+      }),
+      expect.objectContaining({
+        tenantId: "tnt_test",
+      }),
+    );
+  });
 });

@@ -1246,6 +1246,8 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         captured_at: compareMoney(processorAmount, "0.00") === 0 ? createdAt : null,
         failed_at: null,
         cancelled_at: null,
+        refunded_at: null,
+        disputed_at: null,
         processor_publishable_key: publicConfig.publishableKey,
         provider_events: [],
       };
@@ -1395,6 +1397,30 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
               },
             ]
           : []),
+        ...(payment.refunded_at
+          ? [
+              {
+                occurred_at: payment.refunded_at,
+                kind: "payment-refunded",
+                label: "Payment refunded",
+                reference: payment.processor_payment_reference,
+                amount: payment.amount,
+                currency_code: payment.currency_code,
+              },
+            ]
+          : []),
+        ...(payment.disputed_at
+          ? [
+              {
+                occurred_at: payment.disputed_at,
+                kind: "payment-disputed",
+                label: "Payment disputed",
+                reference: payment.processor_payment_reference,
+                amount: payment.amount,
+                currency_code: payment.currency_code,
+              },
+            ]
+          : []),
       ].sort((left, right) => left.occurred_at.localeCompare(right.occurred_at));
 
       return {
@@ -1446,7 +1472,10 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
         providerEventId: webhookEvent.eventId,
         providerName: webhookEvent.processorName,
         eventKind: webhookEvent.kind,
-        providerObjectReference: webhookEvent.internalPaymentId ?? webhookEvent.processorPaymentReference,
+        providerObjectReference:
+          webhookEvent.internalPaymentId ??
+          webhookEvent.providerObjectReference ??
+          webhookEvent.processorPaymentReference,
       });
       if (!isNewProviderEvent) {
         return { received: true, ignored: true };
@@ -1593,7 +1622,32 @@ export function createPaymentRuntime(deps: PaymentRuntimeDeps): PaymentServices 
           });
           break;
         case "payment-refunded":
+          await commandHandler({
+            streamId,
+            command: {
+              type: "RecordPaymentRefund",
+              processorStatus: webhookEvent.processorStatus,
+              processorRefundReference:
+                webhookEvent.processorRefundReference ?? webhookEvent.providerObjectReference ?? null,
+              amount: webhookEvent.amount ?? null,
+              refundedAt: webhookEvent.occurredAt,
+            },
+            context,
+          });
+          break;
         case "payment-disputed":
+          await commandHandler({
+            streamId,
+            command: {
+              type: "RecordPaymentDispute",
+              processorStatus: webhookEvent.processorStatus,
+              disputeStatus: webhookEvent.failureCode,
+              disputeMessage: webhookEvent.failureMessage,
+              amount: webhookEvent.amount ?? null,
+              disputedAt: webhookEvent.occurredAt,
+            },
+            context,
+          });
           break;
         case "saved-payment-method-detached":
           break;

@@ -34,9 +34,19 @@ function createSmokeFetch(calls) {
       );
     }
     if (path === "/api/payments/provider/webhooks") {
+      if (
+        !String(init.headers?.["Stripe-Signature"] ?? init.headers?.get?.("Stripe-Signature") ?? "").includes("invalid")
+      ) {
+        return jsonResponse({ received: true, ignored: true });
+      }
       return jsonResponse({ error: { code: "validation_failed" } }, 400);
     }
     if (path === "/api/settlement/provider/money-movement/webhooks") {
+      if (
+        !String(init.headers?.["Stripe-Signature"] ?? init.headers?.get?.("Stripe-Signature") ?? "").includes("invalid")
+      ) {
+        return jsonResponse({ received: true, ignored: true });
+      }
       return jsonResponse({ error: { code: "validation_failed" } }, 400);
     }
     if (path === "/api/settlement/account-status") {
@@ -233,12 +243,39 @@ describe("stripe money smoke test", () => {
       health: "ok",
       unsignedPaymentWebhookRejected: true,
       unsignedMoneyMovementWebhookRejected: true,
+      signedPaymentWebhookAccepted: false,
+      signedMoneyMovementWebhookAccepted: false,
     });
 
     expect(calls.map((call) => new URL(call.url).pathname)).toContain("/api/payments/provider/webhooks");
     expect(calls.map((call) => new URL(call.url).pathname)).toContain(
       "/api/settlement/provider/money-movement/webhooks",
     );
+  });
+
+  it("accepts correctly signed payment and money movement webhook probes in edge checks", async () => {
+    const calls = [];
+    await expect(
+      runEdgeCheck("https://api.preview.test", {
+        fetchImpl: createSmokeFetch(calls),
+        env: {
+          STRIPE_WEBHOOK_SECRET: "whsec_payment_test",
+          STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect_test",
+        },
+      }),
+    ).resolves.toMatchObject({
+      signedPaymentWebhookAccepted: true,
+      signedMoneyMovementWebhookAccepted: true,
+    });
+
+    const paymentWebhookCalls = calls.filter(
+      (call) => new URL(call.url).pathname === "/api/payments/provider/webhooks",
+    );
+    const moneyMovementWebhookCalls = calls.filter(
+      (call) => new URL(call.url).pathname === "/api/settlement/provider/money-movement/webhooks",
+    );
+    expect(paymentWebhookCalls).toHaveLength(2);
+    expect(moneyMovementWebhookCalls).toHaveLength(2);
   });
 
   it("covers seller health, balance-credit checkout, onboarding, preview, and requested payout", async () => {

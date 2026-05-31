@@ -122,6 +122,7 @@ export type CreatedProcessorPayment = Readonly<{
 }>;
 
 export type CreateProcessorRefundInput = Readonly<{
+  refundId: string;
   paymentId: PaymentId;
   processorPaymentReference: string;
   orderIds: readonly OrderId[];
@@ -153,6 +154,10 @@ export type PaymentProcessorWebhookEvent = Readonly<{
   processorName: PaymentProcessorName;
   processorPaymentKind: ProcessorPaymentKind;
   processorPaymentReference: string;
+  providerObjectReference?: string | null;
+  processorRefundReference?: string | null;
+  amount?: string | null;
+  currencyCode?: PaymentCurrencyCode | null;
   internalPaymentId?: PaymentId | null;
   processorStatus: string;
   failureCode: string | null;

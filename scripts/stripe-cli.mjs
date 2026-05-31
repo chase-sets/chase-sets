@@ -13,12 +13,27 @@ const platformApiEnvExamplePath = path.join(rootDir, "deployables", "platform-ap
 const platformApiEnvLocalPath = path.join(rootDir, "deployables", "platform-api", ".env.local");
 const dockerImage = process.env.STRIPE_CLI_DOCKER_IMAGE ?? "stripe/stripe-cli";
 const defaultForwardUrl = sandboxEnv.STRIPE_WEBHOOK_FORWARD_URL;
+const defaultConnectForwardUrl =
+  sandboxEnv.STRIPE_CONNECT_WEBHOOK_FORWARD_URL ??
+  defaultForwardUrl?.replace("/api/payments/provider/webhooks", "/api/settlement/provider/money-movement/webhooks");
 const readyFilePath = process.env.STRIPE_READY_FILE ?? null;
 const supportedWebhookEvents = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
   "payment_intent.processing",
   "payment_intent.amount_capturable_updated",
   "payment_intent.succeeded",
   "payment_intent.payment_failed",
+  "charge.refunded",
+  "charge.dispute.created",
+  "charge.dispute.updated",
+  "charge.dispute.closed",
+  "v2.core.account[requirements].updated",
+  "v2.core.account.updated",
+  "payout.paid",
+  "payout.failed",
 ];
 
 function printUsage() {
@@ -28,6 +43,7 @@ function printUsage() {
   console.log("Environment:");
   console.log("  STRIPE_API_KEY                Overrides STRIPE_SECRET_KEY from deployables/platform-api/.env.local.");
   console.log("  STRIPE_WEBHOOK_FORWARD_URL    Overrides the sandbox webhook endpoint.");
+  console.log("  STRIPE_CONNECT_WEBHOOK_FORWARD_URL Overrides the sandbox Connect webhook endpoint.");
   console.log("  STRIPE_CLI_DOCKER_IMAGE       Overrides the Stripe CLI Docker image name.");
 }
 
@@ -39,8 +55,16 @@ function resolveStripeApiKey() {
 }
 
 function persistWebhookSecret(webhookSecret) {
-  const { sandbox } = mergeSandboxEnvFile({ STRIPE_WEBHOOK_SECRET: webhookSecret }, { rootDir });
-  console.log(`[stripe] Saved STRIPE_WEBHOOK_SECRET to ${path.relative(rootDir, sandbox.envFilePath)}`);
+  const { sandbox } = mergeSandboxEnvFile(
+    { STRIPE_WEBHOOK_SECRET: webhookSecret, STRIPE_CONNECT_WEBHOOK_SECRET: webhookSecret },
+    { rootDir },
+  );
+  console.log(
+    `[stripe] Saved STRIPE_WEBHOOK_SECRET and STRIPE_CONNECT_WEBHOOK_SECRET to ${path.relative(
+      rootDir,
+      sandbox.envFilePath,
+    )}`,
+  );
   console.log("[stripe] Restart platform-api if it was already running.");
 }
 
@@ -84,15 +108,19 @@ async function runListen() {
   }
 
   const forwardTo = process.env.STRIPE_WEBHOOK_FORWARD_URL ?? defaultForwardUrl;
+  const forwardConnectTo = process.env.STRIPE_CONNECT_WEBHOOK_FORWARD_URL ?? defaultConnectForwardUrl;
   const dockerArgs = buildDockerRunArgs(stripeApiKey, [
     "listen",
     "--forward-to",
     forwardTo,
+    "--forward-connect-to",
+    forwardConnectTo,
     "--events",
     supportedWebhookEvents.join(","),
   ]);
 
   console.log(`[stripe] Forwarding Stripe webhooks to ${forwardTo}`);
+  console.log(`[stripe] Forwarding Stripe Connect webhooks to ${forwardConnectTo}`);
   console.log(`[stripe] Using Docker image ${dockerImage}`);
 
   await new Promise((resolve, reject) => {

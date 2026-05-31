@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
@@ -208,6 +209,12 @@ function statusFailureMessage(label, result, expected) {
   );
 }
 
+function stripeSignature(rawBody, secret) {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+  return `t=${timestamp},v1=${digest}`;
+}
+
 function assertObject(value, message) {
   assert(typeof value === "object" && value !== null, message);
   return value;
@@ -354,14 +361,17 @@ function connectRedirectsMatchApiOrigin(env = process.env) {
 
 export async function runEdgeCheck(baseUrl, options = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const env = options.env ?? process.env;
   const health = await requestJson(`${baseUrl}/health`, {}, fetchImpl);
   assert(health.response.status === 200, `Expected /health to return 200, got ${health.response.status}.`);
 
+  const paymentWebhookBody =
+    '{"id":"evt_payment_smoke","type":"checkout.session.completed","data":{"object":{"id":"cs_smoke"}}}';
   const paymentWebhook = await requestJson(
     `${baseUrl}/api/payments/provider/webhooks`,
     {
       method: "POST",
-      body: '{"id":"evt_payment_smoke","type":"checkout.session.completed","data":{"object":{"id":"cs_smoke"}}}',
+      body: paymentWebhookBody,
       headers: {
         "Content-Type": "application/json",
         "Stripe-Signature": "t=1,v1=invalid",
@@ -374,11 +384,12 @@ export async function runEdgeCheck(baseUrl, options = {}) {
     `Expected unsigned payment webhook probe to be rejected with 400, got ${paymentWebhook.response.status}.`,
   );
 
+  const moneyMovementWebhookBody = '{"id":"evt_smoke","type":"payout.failed","data":{"object":{"id":"po_smoke"}}}';
   const moneyMovementWebhook = await requestJson(
     `${baseUrl}/api/settlement/provider/money-movement/webhooks`,
     {
       method: "POST",
-      body: '{"id":"evt_smoke","type":"payout.failed","data":{"object":{"id":"po_smoke"}}}',
+      body: moneyMovementWebhookBody,
       headers: {
         "Content-Type": "application/json",
         "Stripe-Signature": "t=1,v1=invalid",
@@ -391,10 +402,57 @@ export async function runEdgeCheck(baseUrl, options = {}) {
     `Expected unsigned money movement webhook probe to be rejected with 400, got ${moneyMovementWebhook.response.status}.`,
   );
 
+  const paymentSecret = readEnv("STRIPE_WEBHOOK_SECRET", env);
+  const connectSecret = readEnv("STRIPE_CONNECT_WEBHOOK_SECRET", env);
+  let signedPaymentWebhookAccepted = false;
+  let signedMoneyMovementWebhookAccepted = false;
+
+  if (paymentSecret) {
+    const signedPaymentWebhook = await requestJson(
+      `${baseUrl}/api/payments/provider/webhooks`,
+      {
+        method: "POST",
+        body: paymentWebhookBody,
+        headers: {
+          "Content-Type": "application/json",
+          "Stripe-Signature": stripeSignature(paymentWebhookBody, paymentSecret),
+        },
+      },
+      fetchImpl,
+    );
+    assert(
+      signedPaymentWebhook.response.status === 200,
+      `Expected signed payment webhook probe to be accepted with 200, got ${signedPaymentWebhook.response.status}.`,
+    );
+    signedPaymentWebhookAccepted = true;
+  }
+
+  if (connectSecret) {
+    const signedMoneyMovementWebhook = await requestJson(
+      `${baseUrl}/api/settlement/provider/money-movement/webhooks`,
+      {
+        method: "POST",
+        body: moneyMovementWebhookBody,
+        headers: {
+          "Content-Type": "application/json",
+          "Stripe-Signature": stripeSignature(moneyMovementWebhookBody, connectSecret),
+        },
+      },
+      fetchImpl,
+    );
+    assert(
+      signedMoneyMovementWebhook.response.status === 200,
+      `Expected signed money movement webhook probe to be accepted with 200, got ${signedMoneyMovementWebhook.response.status}.`,
+    );
+    signedMoneyMovementWebhookAccepted = true;
+  }
+
   return {
     health: "ok",
     unsignedPaymentWebhookRejected: true,
     unsignedMoneyMovementWebhookRejected: true,
+    signedPaymentWebhookAccepted,
+    signedMoneyMovementWebhookAccepted,
   };
 }
 
@@ -667,7 +725,7 @@ export async function main(options = {}) {
   const result = {
     edge:
       runArgs.has("--edge-check") || runArgs.has("--seller-flow")
-        ? await runEdgeCheck(baseUrl, { fetchImpl })
+        ? await runEdgeCheck(baseUrl, { env, fetchImpl })
         : "skipped",
     sellerFlow: runArgs.has("--seller-flow") ? await runSellerFlow(baseUrl, { env, fetchImpl }) : "skipped",
   };
