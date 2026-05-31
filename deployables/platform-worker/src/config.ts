@@ -95,7 +95,7 @@ export type PlatformWorkerMobileMessagingConfig =
     }>;
 
 export type PlatformWorkerNotificationEmailConfig = Readonly<{
-  provider: "noop" | "amazon-ses";
+  provider: "noop" | "amazon-ses" | "local-capture";
   ses: Readonly<{
     region?: string;
     accessKeyId?: string;
@@ -103,6 +103,9 @@ export type PlatformWorkerNotificationEmailConfig = Readonly<{
     fromEmail?: string;
     configurationSetName?: string;
     sourceArn?: string;
+  }>;
+  localCapture: Readonly<{
+    filePath: string;
   }>;
 }>;
 
@@ -157,14 +160,15 @@ export function loadConfig(): PlatformWorkerConfig {
   const productionLike = process.env.NODE_ENV === "production";
   const resolvedStripeConnectWebhookSecret =
     stripeConnectWebhookSecret ?? (!productionLike ? stripeWebhookSecret : undefined);
-  const notificationEmailProvider =
-    getOptionalEnv("NOTIFICATION_EMAIL_PROVIDER") === "amazon-ses" ? "amazon-ses" : "noop";
+  const notificationEmailProvider = resolveNotificationEmailProvider(getOptionalEnv("NOTIFICATION_EMAIL_PROVIDER"));
   const sesAwsRegion = getOptionalEnv("SES_AWS_REGION") ?? undefined;
   const sesAwsAccessKeyId = getOptionalEnv("SES_AWS_ACCESS_KEY_ID") ?? undefined;
   const sesAwsSecretAccessKey = getOptionalEnv("SES_AWS_SECRET_ACCESS_KEY") ?? undefined;
   const sesFromEmail = getOptionalEnv("SES_FROM_EMAIL") ?? undefined;
   const sesConfigurationSetName = getOptionalEnv("SES_CONFIGURATION_SET_NAME") ?? undefined;
   const sesSourceArn = getOptionalEnv("SES_SOURCE_ARN") ?? undefined;
+  const localEmailCaptureFile =
+    getOptionalEnv("LOCAL_EMAIL_CAPTURE_FILE") ?? "artifacts/notifications/local-email-capture.jsonl";
 
   if (
     productionLike &&
@@ -181,6 +185,9 @@ export function loadConfig(): PlatformWorkerConfig {
     throw new Error(
       "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for platform worker hosted payout setup in production.",
     );
+  }
+  if (productionLike && notificationEmailProvider === "local-capture") {
+    throw new Error("NOTIFICATION_EMAIL_PROVIDER=local-capture is only allowed outside production.");
   }
   if (
     notificationEmailProvider === "amazon-ses" &&
@@ -280,8 +287,19 @@ export function loadConfig(): PlatformWorkerConfig {
         configurationSetName: sesConfigurationSetName,
         sourceArn: sesSourceArn,
       },
+      localCapture: {
+        filePath: localEmailCaptureFile,
+      },
     },
   };
+}
+
+function resolveNotificationEmailProvider(value: string | null): PlatformWorkerNotificationEmailConfig["provider"] {
+  if (value === "amazon-ses" || value === "local-capture") {
+    return value;
+  }
+
+  return "noop";
 }
 
 function loadCatalogAssetStorageConfig(port: number, productionLike: boolean): PlatformWorkerCatalogAssetStorageConfig {

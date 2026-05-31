@@ -8,6 +8,10 @@ import {
   createSesSendRequest,
   createSesTransactionalEmailGateway,
 } from "@chase-sets/ses-email";
+import {
+  createLocalEmailCaptureGateway,
+  createLocalEmailCaptureNotificationAdapter,
+} from "@chase-sets/local-email-capture";
 import { createFakePaymentProcessorGateway } from "@chase-sets/payment-processing-testing";
 import { createStripePaymentProcessorGateway } from "@chase-sets/stripe-payments";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
@@ -943,6 +947,13 @@ function createScheduledJobRunner(
 function createPlatformTransactionalEmailGateway(
   input: ReturnType<typeof loadConfig>["notificationEmail"],
 ): TransactionalEmailGateway {
+  if (input.provider === "local-capture") {
+    return createLocalEmailCaptureGateway({
+      captureFilePath: input.localCapture.filePath,
+      templateRenderer: platformEmailTemplateRenderer,
+    });
+  }
+
   if (input.provider !== "amazon-ses") {
     return createNoopTransactionalEmailGateway();
   }
@@ -992,6 +1003,13 @@ function createPlatformTransactionalEmailGateway(
 function createPlatformEmailNotificationAdapter(
   input: ReturnType<typeof loadConfig>["notificationEmail"],
 ): NotificationChannelAdapter {
+  if (input.provider === "local-capture") {
+    return createLocalEmailCaptureNotificationAdapter({
+      captureFilePath: input.localCapture.filePath,
+      templateRenderer: platformEmailTemplateRenderer,
+    });
+  }
+
   if (input.provider !== "amazon-ses") {
     return createNoopNotificationAdapter("email");
   }

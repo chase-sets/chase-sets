@@ -24,6 +24,7 @@ const envNames = [
   "SES_FROM_EMAIL",
   "SES_CONFIGURATION_SET_NAME",
   "SES_SOURCE_ARN",
+  "LOCAL_EMAIL_CAPTURE_FILE",
   "MOBILE_MESSAGING_PROVIDER",
   "TWILIO_ACCOUNT_SID",
   "TWILIO_AUTH_TOKEN",
@@ -263,6 +264,52 @@ describe("platform worker config", () => {
         configurationSetName: "transactional-preview",
         sourceArn: "arn:aws:ses:us-east-2:812517519777:identity/preview.chasesets.com",
       },
+      localCapture: {
+        filePath: "artifacts/notifications/local-email-capture.jsonl",
+      },
     });
+  });
+
+  it("loads local email capture provider config", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NOTIFICATION_EMAIL_PROVIDER = "local-capture";
+    process.env.LOCAL_EMAIL_CAPTURE_FILE = "artifacts/test-email.jsonl";
+
+    const config = loadConfig();
+
+    expect(config.notificationEmail).toEqual({
+      provider: "local-capture",
+      ses: {
+        region: undefined,
+        accessKeyId: undefined,
+        secretAccessKey: undefined,
+        fromEmail: undefined,
+        configurationSetName: undefined,
+        sourceArn: undefined,
+      },
+      localCapture: {
+        filePath: "artifacts/test-email.jsonl",
+      },
+    });
+  });
+
+  it("rejects local email capture in production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.NODE_ENV = "production";
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.staging.chasesets.com/account/payouts";
+    process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.staging.chasesets.com/account/payouts/setup";
+    process.env.EASYPOST_API_KEY = "EZTK_test";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets-staging";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.staging.chasesets.com";
+    process.env.NOTIFICATION_EMAIL_PROVIDER = "local-capture";
+
+    expect(() => loadConfig()).toThrow("NOTIFICATION_EMAIL_PROVIDER=local-capture is only allowed outside production.");
   });
 });
