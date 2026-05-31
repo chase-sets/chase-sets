@@ -326,6 +326,39 @@ variable "app_instance_size_slug" {
   default = "apps-s-1vcpu-1gb"
 }
 
+variable "worker_instance_count" {
+  type        = number
+  default     = 0
+  description = "Optional worker instance-count override. Zero uses the environment default: staging runs two workers for handoff capacity; preview and production run one until explicitly scaled."
+
+  validation {
+    condition     = var.worker_instance_count >= 0 && var.worker_instance_count <= 10
+    error_message = "worker_instance_count must be between 0 and 10. Use 0 to accept the environment default."
+  }
+}
+
+variable "worker_job_concurrency" {
+  type        = number
+  default     = 0
+  description = "Optional per-worker job runner concurrency override. Zero uses the environment default: staging runs two job runners; preview and production run one until explicitly scaled."
+
+  validation {
+    condition     = var.worker_job_concurrency >= 0 && var.worker_job_concurrency <= 10
+    error_message = "worker_job_concurrency must be between 0 and 10. Use 0 to accept the environment default."
+  }
+}
+
+variable "worker_database_pool_max" {
+  type        = number
+  default     = 0
+  description = "Optional per-worker DATABASE_POOL_MAX override. Zero uses the environment default and any positive override must be kept at or above total configured runner concurrency."
+
+  validation {
+    condition     = var.worker_database_pool_max >= 0 && var.worker_database_pool_max <= 30
+    error_message = "worker_database_pool_max must be between 0 and 30. Use 0 to accept the environment default."
+  }
+}
+
 variable "platform_image_repository" {
   type        = string
   default     = "chase-sets-platform"

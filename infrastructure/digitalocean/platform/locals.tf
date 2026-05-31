@@ -65,13 +65,15 @@ locals {
   database_size      = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
 
   api_database_pool_max               = "6"
-  worker_database_pool_max            = local.is_non_production ? "8" : "6"
+  worker_default_database_pool_max    = local.is_non_production ? 8 : 6
+  worker_database_pool_max            = tostring(var.worker_database_pool_max > 0 ? var.worker_database_pool_max : local.worker_default_database_pool_max)
   bootstrap_database_pool_max         = "4"
   database_pool_idle_timeout_ms       = "5000"
   database_pool_connection_timeout_ms = "10000"
   worker_max_concurrent_runners       = "5"
   worker_projection_concurrency       = "2"
-  worker_job_concurrency              = "1"
+  worker_default_job_concurrency      = local.is_staging ? 2 : 1
+  worker_job_concurrency              = tostring(var.worker_job_concurrency > 0 ? var.worker_job_concurrency : local.worker_default_job_concurrency)
   worker_dispatch_concurrency         = "1"
   worker_scheduled_concurrency        = "1"
   realtime_stream_limiter             = local.is_non_production ? "local" : "postgres"
@@ -265,10 +267,11 @@ locals {
     }
   }
 
-  public_web_instances = local.is_production ? 2 : 1
-  api_instances        = local.is_production ? 2 : 1
-  admin_web_instances  = 1
-  worker_instances     = 1
+  public_web_instances     = local.is_production ? 2 : 1
+  api_instances            = local.is_production ? 2 : 1
+  admin_web_instances      = 1
+  default_worker_instances = local.is_staging ? 2 : 1
+  worker_instances         = var.worker_instance_count > 0 ? var.worker_instance_count : local.default_worker_instances
 
   public_uptime_check_targets = {
     for domain in local.public_domains :

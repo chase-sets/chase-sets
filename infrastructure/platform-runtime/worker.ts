@@ -224,6 +224,7 @@ export function collectWorkerRunners(
 
 export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): WorkerRunnerLoop {
   const active = new Set<Promise<void>>();
+  const activeAbortControllers = new Map<Promise<void>, AbortController>();
   const activeRunnerNames = new Set<string>();
   const failedRunnerBackoffs = new Map<string, Readonly<{ attempt: number; eligibleAt: number }>>();
   let stopped = false;
@@ -257,7 +258,8 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       const { runner, index } = selection;
       nextRunnerIndex = (index + 1) % options.runners.length;
 
-      const promise = runLeasedRunner(options, runner)
+      const runAbortController = new AbortController();
+      const promise = runLeasedRunner(options, runner, runAbortController.signal)
         .then((leaseAcquired) => {
           if (!leaseAcquired) {
             leaseMissCount += 1;
@@ -280,9 +282,11 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
         })
         .finally(() => {
           active.delete(promise);
+          activeAbortControllers.delete(promise);
           activeRunnerNames.delete(runner.name);
         });
       active.add(promise);
+      activeAbortControllers.set(promise, runAbortController);
       activeRunnerNames.add(runner.name);
     }
 
@@ -296,6 +300,9 @@ export function createWorkerRunnerLoop(options: WorkerRunnerLoopOptions): Worker
       stopped = true;
       if (timer) {
         clearTimeout(timer);
+      }
+      for (const abortController of activeAbortControllers.values()) {
+        abortController.abort();
       }
       await Promise.allSettled([...active]);
     },
@@ -350,7 +357,15 @@ function resolveRunnerPriority(runner: WorkerRunner): bigint {
   }
 }
 
-async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerRunner): Promise<boolean> {
+async function runLeasedRunner(
+  options: WorkerRunnerLoopOptions,
+  runner: WorkerRunner,
+  runSignal?: AbortSignal,
+): Promise<boolean> {
+  if (runSignal?.aborted) {
+    return true;
+  }
+
   const leaseName = createWorkerRunnerLeaseName(runner);
   const lease = await options.controlPlane.acquireLease({
     leaseName,
@@ -370,6 +385,13 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
 
   let leaseActive = true;
   const abortController = new AbortController();
+  const abortForStop = () => abortController.abort();
+  if (runSignal?.aborted) {
+    abortController.abort();
+  } else {
+    runSignal?.addEventListener("abort", abortForStop, { once: true });
+  }
+  const stoppedCooperatively = () => runSignal?.aborted === true && abortController.signal.aborted;
   const throwIfLeaseLost = () => {
     if (!leaseActive || abortController.signal.aborted) {
       throw new Error(`Lost lease '${lease.leaseName}'.`);
@@ -411,13 +433,13 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
       throwIfLeaseLost,
     };
     const result = await runner.runOnce(runnerContext);
+    throwIfLeaseLost();
     options.observer?.runnerCompleted?.({
       ...leaseEvent(options.workerId, runner, lease),
       processed: result.processed,
       state: result.state,
       operationId: runnerContext.operationId,
     });
-    throwIfLeaseLost();
     const state = result.state === "degraded" ? "degraded" : result.processed > 0 ? "running" : "caught-up";
 
     throwIfLeaseLost();
@@ -448,6 +470,9 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
       });
     }
   } catch (error) {
+    if (stoppedCooperatively()) {
+      return true;
+    }
     options.observer?.runnerFailed?.({
       ...leaseEvent(options.workerId, runner, lease),
       error,
@@ -464,6 +489,7 @@ async function runLeasedRunner(options: WorkerRunnerLoopOptions, runner: WorkerR
     }
     throw error;
   } finally {
+    runSignal?.removeEventListener("abort", abortForStop);
     clearInterval(renewalTimer);
     await options.controlPlane.releaseLease(lease);
   }

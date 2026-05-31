@@ -328,7 +328,7 @@ Production sets `SMOKE_REQUIRE_MARKETPLACE=true` only when `PRODUCTION_MARKETPLA
 
 Production secrets are scoped to validation, Terraform, smoke, and Git release-marker steps. The production workflow must not run dependency installation, workspace builds, or Docker builds with production provider/admin secrets in scope.
 
-`platform-worker` has no public ingress rule. Its `/health/ready` endpoint is covered by the App Platform component health check, and the workflow verifies that the deployment reaches `ACTIVE` after DigitalOcean evaluates component health.
+`platform-worker` is deployed as an App Platform worker component, not a public service component. It still runs its local HTTP health and status endpoints for process diagnostics, but App Platform does not route public ingress to them. The workflow verifies that the deployment reaches `ACTIVE` after DigitalOcean starts the worker process. Staging defaults to two worker instances and two job runners per worker so durable jobs can hand off during replacement and independent job runners can progress together. Production defaults remain conservative; operators can scale `worker_instance_count`, `worker_job_concurrency`, and `worker_database_pool_max` together when production backlog or deploy-handoff measurements justify it.
 
 ## Recovering Preview Connection Exhaustion
 

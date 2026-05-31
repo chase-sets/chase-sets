@@ -105,9 +105,17 @@ describe("DigitalOcean platform configuration", () => {
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
     expect(platformLocals).toContain('api_database_pool_max               = "6"');
-    expect(platformLocals).toContain('worker_database_pool_max            = local.is_non_production ? "8" : "6"');
+    expect(platformLocals).toContain("worker_default_database_pool_max    = local.is_non_production ? 8 : 6");
+    expect(platformLocals).toContain("worker_database_pool_max            = tostring(var.worker_database_pool_max");
     expect(platformLocals).toContain('bootstrap_database_pool_max         = "4"');
     expect(platformLocals).toContain('worker_projection_concurrency       = "2"');
+    expect(platformLocals).toContain("worker_default_job_concurrency      = local.is_staging ? 2 : 1");
+    expect(platformLocals).toContain("worker_job_concurrency              = tostring(var.worker_job_concurrency");
+    expect(platformLocals).toContain("default_worker_instances = local.is_staging ? 2 : 1");
+    expect(platformLocals).toContain("worker_instances         = var.worker_instance_count > 0");
+    expect(platformVariables).toContain('variable "worker_instance_count"');
+    expect(platformVariables).toContain('variable "worker_job_concurrency"');
+    expect(platformVariables).toContain('variable "worker_database_pool_max"');
     expect(platformVariables).toContain('default     = "db-s-2vcpu-4gb"');
     expect(platformVariables).toContain('variable "staging_database_size"');
     expect(platformLocals).toContain("local.is_staging ? var.staging_database_size");
@@ -119,6 +127,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(occurrenceCount(platformMain, "value = local.worker_database_pool_max")).toBe(2);
     expect(occurrenceCount(platformMain, "value = local.bootstrap_database_pool_max")).toBe(2);
     expect(occurrenceCount(platformMain, 'key   = "WORKER_PROJECTION_MAX_CONCURRENT_RUNNERS"')).toBe(2);
+    expect(platformMain).toContain('check "worker_runner_capacity"');
+    expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
+    expect(platformMain).toContain(
+      'dynamic "worker" {\n      for_each = local.marketplace_platform_enabled ? [1] : []',
+    );
+    expect(platformMain).not.toMatch(/name\s+= "platform-worker"[\s\S]*?http_port\s+= 8080/);
   });
 
   it("routes staging root as the managed primary marketplace host", () => {

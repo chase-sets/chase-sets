@@ -196,6 +196,65 @@ describe("worker runner loop", () => {
     expect(failed).toContain("failing-backlog-projection");
   });
 
+  it("aborts active runner contexts during stop and releases the lease without recording a runner error", async () => {
+    const failures: string[] = [];
+    const releasedLeases: string[] = [];
+    const statuses: Array<Readonly<{ runnerName: string; state: string }>> = [];
+    let markStarted: (() => void) | null = null;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    const controlPlane = createAlwaysLeasedControlPlane({
+      releaseLease: async (lease) => {
+        releasedLeases.push(lease.leaseName);
+      },
+      recordRunnerStatus: async (status) => {
+        statuses.push(status);
+      },
+    });
+    const runner: WorkerRunner = {
+      name: "catalog.source-observation-bulk-jobs",
+      kind: "job",
+      runOnce: async (context) => {
+        markStarted?.();
+        await vi.waitFor(() => {
+          expect(context?.signal?.aborted).toBe(true);
+        });
+        context?.throwIfLeaseLost?.();
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [runner],
+      maxConcurrentRunners: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+      onError: (_error, failedRunner) => failures.push(failedRunner.name),
+    });
+
+    loop.start();
+    await started;
+    await loop.stop();
+
+    expect(failures).toEqual([]);
+    expect(releasedLeases).toEqual(["job:catalog.source-observation-bulk-jobs"]);
+    expect(statuses).toContainEqual(
+      expect.objectContaining({
+        runnerName: "catalog.source-observation-bulk-jobs",
+        state: "running",
+      }),
+    );
+    expect(statuses).not.toContainEqual(
+      expect.objectContaining({
+        runnerName: "catalog.source-observation-bulk-jobs",
+        state: "error",
+      }),
+    );
+  });
+
   it("records degraded when a projection runner reports blocked streams", async () => {
     const statuses: Array<Readonly<{ runnerName: string; state: string; lastError?: string | null }>> = [];
     const controlPlane = createAlwaysLeasedControlPlane({
