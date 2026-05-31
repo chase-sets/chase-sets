@@ -143,6 +143,10 @@ export function appPlatformChanges(plan) {
 export function destructiveResourceChanges(plan) {
   return (plan.resource_changes ?? [])
     .filter((resourceChange) => {
+      if (resourceChange.type === "terraform_data") {
+        return false;
+      }
+
       const actions = resourceChange.change?.actions ?? [];
       return actions.includes("delete");
     })
