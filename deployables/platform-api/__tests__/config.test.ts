@@ -23,11 +23,13 @@ function resetConfigEnv() {
   delete process.env.STRIPE_SECRET_KEY;
   delete process.env.STRIPE_PUBLISHABLE_KEY;
   delete process.env.STRIPE_WEBHOOK_SECRET;
+  delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
   delete process.env.STRIPE_API_BASE_URL;
   delete process.env.STRIPE_CHECKOUT_UI_MODE;
   delete process.env.STRIPE_CONNECT_RETURN_URL;
   delete process.env.STRIPE_CONNECT_REFRESH_URL;
   delete process.env.EASYPOST_API_KEY;
+  delete process.env.EASYPOST_WEBHOOK_SECRET;
   delete process.env.EASYPOST_API_BASE_URL;
   delete process.env.EASYPOST_MODE;
   delete process.env.GOOGLE_SOCIAL_LOGIN_CLIENT_ID;
@@ -314,6 +316,7 @@ describe("platform api config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.STRIPE_SECRET_KEY = "sk_test";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
     process.env.STRIPE_API_BASE_URL = "https://stripe.test";
     process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
@@ -321,7 +324,7 @@ describe("platform api config", () => {
     expect(loadConfig().moneyMovement).toEqual({
       kind: "stripe",
       secretKey: "sk_test",
-      webhookSecret: "whsec_test",
+      webhookSecret: "whsec_connect_test",
       apiBaseUrl: "https://stripe.test",
       onboardingReturnUrl: "https://example.test/return",
       onboardingRefreshUrl: "https://example.test/refresh",
@@ -334,7 +337,7 @@ describe("platform api config", () => {
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
 
     expect(() => loadConfig()).toThrow(
-      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, and STRIPE_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
+      "STRIPE_SECRET_KEY, STRIPE_PUBLISHABLE_KEY, STRIPE_WEBHOOK_SECRET, and STRIPE_CONNECT_WEBHOOK_SECRET are required for Stripe payment processing and Connect money movement in production.",
     );
   });
 
@@ -345,6 +348,7 @@ describe("platform api config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
     process.env.EASYPOST_API_KEY = "EZAK_live";
 
     expect(() => loadConfig()).toThrow(
@@ -357,6 +361,7 @@ describe("platform api config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
     process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
 
@@ -374,6 +379,22 @@ describe("platform api config", () => {
     expect(loadConfig().stripeGoLive.requiredWebhookEvents).toContain("payout.failed");
   });
 
+  it("loads EasyPost webhook configuration from environment variables", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.EASYPOST_API_KEY = "EZAK_test";
+    process.env.EASYPOST_WEBHOOK_SECRET = "whsec_easypost";
+    process.env.EASYPOST_API_BASE_URL = "https://api.easypost.test/v2";
+    process.env.EASYPOST_MODE = "production";
+
+    expect(loadConfig().postage).toEqual({
+      kind: "easypost",
+      apiKey: "EZAK_test",
+      webhookSecret: "whsec_easypost",
+      apiBaseUrl: "https://api.easypost.test/v2",
+      mode: "production",
+    });
+  });
+
   it("forces Stripe adapters and disables fake fallback in production", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
@@ -381,9 +402,11 @@ describe("platform api config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
     process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
     process.env.EASYPOST_API_KEY = "EZAK_live";
+    process.env.EASYPOST_WEBHOOK_SECRET = "whsec_live_easypost";
     process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
     process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
@@ -417,6 +440,32 @@ describe("platform api config", () => {
     });
   });
 
+  it("requires EasyPost webhook verification in production", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.NODE_ENV = "production";
+    process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
+    process.env.STRIPE_SECRET_KEY = "sk_live_123";
+    process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
+    process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
+    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
+    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
+    process.env.EASYPOST_API_KEY = "EZAK_live";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
+    process.env.MARKETPLACE_LISTING_PHOTO_STORAGE_KIND = "s3";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_BUCKET = "listing-photos";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_REGION = "nyc3";
+    process.env.MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL = "https://listing-photos.chasesets.com";
+
+    expect(() => loadConfig()).toThrow(
+      "EASYPOST_WEBHOOK_SECRET is required for EasyPost webhook verification in production.",
+    );
+  });
+
   it("requires an internal auth secret in production", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
@@ -424,6 +473,7 @@ describe("platform api config", () => {
     process.env.STRIPE_SECRET_KEY = "sk_live_123";
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
     process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
     process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
     process.env.EASYPOST_API_KEY = "EZAK_live";

@@ -32,8 +32,8 @@ This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfer
 
 ## Launch Readiness
 
-- Required environment: `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, Connect onboarding return URL, and Connect onboarding refresh URL.
-- Production marketplace launch additionally requires `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true`, a `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE` pointing to the final launch review record, `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED=true`, a `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE` pointing to the Payments fee approval record, `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED=true`, a `PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE` pointing to the live Stripe money operations record, approved launch supply measurement evidence, `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, approved Tax readiness evidence, Stripe live-mode keys, production Connect return and refresh URLs on `https://marketplace.chasesets.com`, EasyPost production mode, and complete Amazon SES transactional email configuration. Tax readiness may approve a no-provider launch only while state-by-state nexus tracking shows no jurisdiction requires collection; set `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true` before collecting sales tax in any jurisdiction. Keep the public switch off while production remains landing/admin-support only and run the [Marketplace Launch Evidence](./marketplace-launch-evidence.md) verifier before setting approval variables.
+- Required environment: `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET`, Connect onboarding return URL, and Connect onboarding refresh URL.
+- Production marketplace launch additionally requires `PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE` pointing to the passing packet, `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true`, a `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE` pointing to the final launch review record, `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED=true`, a `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE` pointing to the Payments fee approval record, `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED=true`, a `PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE` pointing to the live Stripe money operations record, approved launch supply measurement evidence, `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, approved Tax readiness evidence, Stripe live-mode keys, production Connect return and refresh URLs on `https://marketplace.chasesets.com`, EasyPost production mode, and complete Amazon SES transactional email configuration. Tax readiness may approve a no-provider launch only while state-by-state nexus tracking shows no jurisdiction requires collection; set `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true` before collecting sales tax in any jurisdiction. Keep the public switch off while production remains landing/admin-support only and run the [Marketplace Launch Evidence](./marketplace-launch-evidence.md) verifier before setting approval variables.
 - `STRIPE_API_BASE_URL` is optional and should normally be unset outside adapter tests or controlled sandbox endpoints.
 - Money Health must show provider diagnostics, platform balance forecast, payout issues, and reconciliation history.
 - Payout Operations must show recent provider idempotency keys.
@@ -51,7 +51,8 @@ Stripe mode uses:
 
 - `STRIPE_SECRET_KEY`: server-side Stripe API key used to create and update payment intents.
 - `STRIPE_PUBLISHABLE_KEY`: buyer-facing Stripe key returned with payment intent client data.
-- `STRIPE_WEBHOOK_SECRET`: signing secret used to verify inbound Stripe webhook payloads.
+- `STRIPE_WEBHOOK_SECRET`: signing secret used to verify inbound Stripe Payments webhook payloads.
+- `STRIPE_CONNECT_WEBHOOK_SECRET`: signing secret used to verify inbound Stripe Connect money-movement webhook payloads.
 - `STRIPE_API_BASE_URL`: optional override for Stripe API calls in non-default environments or tests.
 
 For local development, keep real Stripe values in `deployables/platform-api/.env.local` when you want to exercise real Stripe flows. If any required Stripe value is missing, the platform API falls back to the fake payment gateway so local startup works without webhook forwarding.
@@ -62,7 +63,7 @@ When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized
 
 ## Stripe Connect Notes
 
-- Configure platform API with `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` for Stripe Connect money movement; production startup fails without both.
+- Configure platform API with `STRIPE_SECRET_KEY` and `STRIPE_CONNECT_WEBHOOK_SECRET` for Stripe Connect money movement; production startup fails without the separate Payments and Connect webhook secrets.
 - Optional onboarding URLs are `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL`; account payout routes can also pass request-specific return and refresh URLs when creating setup sessions.
 - Payout setup and account management use hosted provider sessions. Settlement never collects or stores payout destination account numbers, tax identity details, or hosted-dashboard credentials.
 - Stripe-connected accounts are configured for manual payout schedules by the Stripe adapter so marketplace payouts remain account-requested and settlement-triggered.
@@ -74,18 +75,21 @@ When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized
 - Register provider webhooks for `v2.core.account[requirements].updated`, `v2.core.account.updated`, `payout.paid`, and `payout.failed`. Settlement consumes them through the unauthenticated provider webhook mount and maps them into provider-neutral payout/readiness events.
 - Existing payout readiness and payout read models backfill provider fields with nullable references and conservative setup defaults, so old rows remain readable.
 
-## Stripe Test-Mode Smoke Test
+## Stripe Money Smoke Test
 
-Use the executable smoke test before enabling Stripe money movement in a shared or production-like environment.
+Use the executable smoke test before enabling Stripe money movement in a shared or production-like environment. It runs with Stripe test keys by default. Live-key runs are allowed only for approved production proof collection and require an explicit launch evidence reference.
 
 Required environment:
 
 - `PLATFORM_API_BASE_URL`
-- `STRIPE_SECRET_KEY` using a `sk_test` key
-- `STRIPE_PUBLISHABLE_KEY` using a `pk_test` key
+- `STRIPE_SECRET_KEY` using a `sk_test` key, or a `sk_live` key only when `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`
+- `STRIPE_PUBLISHABLE_KEY` using a matching `pk_test` key, or a `pk_live` key only when `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`
 - `STRIPE_WEBHOOK_SECRET`
+- `STRIPE_CONNECT_WEBHOOK_SECRET`
 - `STRIPE_CONNECT_RETURN_URL`
 - `STRIPE_CONNECT_REFRESH_URL`
+
+For private production proof with live keys, `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL` must use the same origin as `PLATFORM_API_BASE_URL` because the private payout setup API rejects cross-origin hosted setup redirects before contacting Stripe. Use `operatorSetup.stripeMoneySmokeEnvironmentCommands` from `pnpm run marketplace:production-proof-readiness` for the private live smoke shell, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry for seller-flow authentication, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live smoke command. Keep the marketplace-domain Connect return and refresh URLs for final launch evidence.
 
 For authenticated payout-flow checks, set one of:
 
@@ -102,6 +106,7 @@ when that account has payout permissions.
 
 Optional authenticated preview checks:
 
+- `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`: permits a live-key production proof run only when `PLATFORM_API_BASE_URL` is `https://chasesets.com` or `https://admin.chasesets.com`, `PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE` or `PRODUCTION_MARKETPLACE_PROOF_REFERENCE` is set, and the Connect return/refresh URLs are on the same origin as `PLATFORM_API_BASE_URL`.
 - `SMOKE_REGISTER_SELLER=true`: legacy smoke variable name; registers a new owner account before checking payout flows.
 - `SMOKE_AUTH_READY_ATTEMPTS`: number of sign-in retries after disposable account registration. Defaults to `24`.
 - `SMOKE_AUTH_READY_RETRY_DELAY_MS`: delay between post-registration sign-in retries. Defaults to `5000`.
@@ -122,6 +127,16 @@ pnpm run stripe:money-smoke -- --check-env
 pnpm run stripe:money-smoke -- --edge-check
 pnpm run stripe:money-smoke -- --seller-flow
 ```
+
+For live-key proof, the `--check-env` output must show `"ok": true` and an empty `readinessErrors` array before running `--edge-check` or `--seller-flow`. The preflight reports readiness errors for mismatched Stripe key modes, missing live-proof references, missing `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`, non-production live API origins, and Connect return/refresh URLs that do not match the private proof API origin.
+
+For private production proof, create the pending-payment order ids before running the live-key payment smoke:
+
+```bash
+pnpm run marketplace:deferred-checkout-order-proof -- --request ./redacted-live-checkout-request.json --reference STRIPE-MONEY-OPS-2026-05-30 --operator ops@chasesets.com
+```
+
+The command requires `PLATFORM_API_AUTHORIZATION` or `PLATFORM_API_COOKIE`, `DEFERRED_CHECKOUT_ORDER_PROOF_ALLOW_PRODUCTION=true`, a production proof reference, an operator, and a request JSON with `proofInputReference`. The request JSON contains the operator-controlled buy-now `source` and `shippingAddress`; the command starts the checkout session, confirms it with `deferPayment: true`, and prints `orderIdsCsv` for `SMOKE_ORDER_IDS`. The evidence fails closed unless the proof reference and proof input reference are real evidence records, `checkedAt` is an ISO timestamp, the target is `https://chasesets.com` or `https://admin.chasesets.com`, the checkout session id is present, returned order ids are non-empty and unique, and confirmation returns `orders-created`. Run `pnpm run marketplace:production-proof-topology-evidence` first; it must prove both the checkout session create route and the dynamic confirm route no longer return `404`.
 
 `--seller-flow` is the existing command name for the authenticated payout-readiness smoke path; it does not create a separate seller account identity.
 
@@ -157,15 +172,19 @@ Set `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED=true` only after the production
 
 The evidence record must include:
 
-- Stripe account and Dashboard posture: API version `2026-02-25.clover`, live-mode keys scoped to production, Connect enabled for Accounts v2 recipient onboarding, manual payout schedules, webhook endpoints registered on production domains, Radar/Radar for Platforms rules reviewed, and no `STRIPE_API_BASE_URL` override unless an approved provider endpoint exception exists.
+- Stripe account and Dashboard posture: API version `2026-02-25.clover`, live-mode keys scoped to production, Connect enabled for Accounts v2 recipient onboarding, manual payout schedules, payment webhooks registered at `/api/payments/provider/webhooks`, Connect money-movement webhooks registered at `/api/settlement/provider/money-movement/webhooks`, Radar/Radar for Platforms rules reviewed, and no `STRIPE_API_BASE_URL` override unless an approved provider endpoint exception exists.
 - Live checkout proof: a controlled production checkout or provider-approved live-mode rehearsal showing internal payment id metadata on the Checkout Session and PaymentIntent, successful authorization/capture mapping into Payments, correct Marketplace Checkout Fee allocation, and no raw card data stored in Chase Sets.
 - Refund and dispute proof: at least one controlled refund path, replay-safe refund webhook handling, `charge.dispute.created` coverage, and Finance-owned accounting notes for partial refunds, lost disputes, and recovered disputes.
 - Connect onboarding proof: hosted onboarding/account-management URLs on `https://marketplace.chasesets.com`, requirement/readiness refresh, account/readiness webhook handling, and provider-neutral readiness status shown to the account.
 - Payout proof: payout preview, platform balance forecast, transfer with transfer group `payout:<internal payout id>`, connected-account payout creation, `payout.paid`, `payout.failed`, failure reversal, and idempotent retry evidence.
-- Reconciliation proof: payment reconciliation, payout reconciliation, duplicate provider webhook replay, provider event inbox idempotency, and ledger entries matching provider balances and wallet timelines.
+- Reconciliation proof: payment reconciliation, payout reconciliation, duplicate provider webhook replay, provider event inbox idempotency, at least five redacted `payments_provider_webhook_events` rows covering checkout completion/failure/expiration/refund/dispute, at least two redacted `settlement_money_movement_webhook_events` rows covering readiness and payout failure or completion, and ledger entries matching provider balances and wallet timelines.
 - Operations proof: Money Health, Payout Operations, support escalation, platform balance funding, provider outage rollback, and disabled/frozen payout actions rehearsed with named operators.
 
 Do not commit live payment IDs tied to private buyers, connected-account IDs tied to real sellers, card/bank details, webhook signatures, Stripe payload bodies, Dashboard screenshots with sensitive account data, or secret values. Store redacted evidence in the external launch record referenced by `PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE`.
+
+Use `pnpm run marketplace:stripe-money-operations-evidence` with the redacted live proof record to produce the `gates.stripeMoneyOperations` fields for the launch evidence packet. The proof record must include `proofCompletedAt`; rerun the live Stripe proof when the proof is older than 30 days at launch review. The command fails the gate unless Stripe proof is live-mode, current, uses the pinned `2026-02-25.clover` API version, includes separate production Chase Sets payment and Connect webhook destinations, includes production Connect return and refresh URLs, has at least one live connected account, includes concrete live Stripe object IDs for the PaymentIntent, Checkout Session, refund, dispute, connected account, payout-failure payout, payout-failure balance transaction, and platform-funding balance transaction, includes at least five Payments `evt_` IDs and at least two Settlement money-movement `evt_` IDs matched to the provider webhook rows, includes concrete evidence references for checkout, refund, dispute, Connect onboarding, payout readiness, payout failure reversal, reconciliation, platform balance funding, webhook replay, Payments provider event query, Settlement money-movement provider event query, and Radar/risk posture, includes the required provider webhook row counts from both bounded contexts, and proves every required money workflow.
+
+When `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, broad marketplace traffic stays closed, but production root/admin domains route the narrow authenticated Checkout, Ordering, Payments, and Settlement proof APIs needed for this record to `platform-api`. Use those private proof APIs only with operator-controlled accounts and orders tied to the external evidence record; they are not public launch surfaces. To create live `SMOKE_ORDER_IDS` without charging a buyer first, create an operator-controlled buy-now checkout session from a recorded proof input, confirm it with `deferPayment: true`, attach the returned order ids and command output to the external proof record, then run the Stripe money smoke with those order ids, `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`, and `SMOKE_CREATE_PAYMENT=true` only when the approved live payment rehearsal is ready.
 
 ## Ownership
 

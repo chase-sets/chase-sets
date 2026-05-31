@@ -151,8 +151,40 @@ export function buildNotificationsApi(services: NotificationsServices) {
   return app;
 }
 
-export function buildNotificationsMobileMessageWebhookApi(services: NotificationsServices) {
+export function buildNotificationsProviderWebhookApi(services: NotificationsServices) {
   const app = new Hono();
+
+  app.post("/email/webhooks", async (c) => {
+    try {
+      const rawBody = await c.req.raw.text();
+      const event = await services.emailWebhookGateway.processEmailWebhook({
+        rawBody,
+        contentType: c.req.header("Content-Type") ?? null,
+      });
+
+      if (!event) {
+        return c.json({ status: "ignored" });
+      }
+
+      const result = await services.emailMessages.recordProviderEvent(event);
+
+      return c.json({
+        status: result.recorded ? "recorded" : "duplicate",
+        event_kind: event.eventKind,
+        provider_message_id: event.providerMessageId,
+      });
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : t("notifications.api.email.webhook.failed"),
+          },
+        },
+        400,
+      );
+    }
+  });
 
   app.post("/mobile-messaging/webhooks", async (c) => {
     try {

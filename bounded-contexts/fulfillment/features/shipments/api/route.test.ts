@@ -1,7 +1,11 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { FulfillmentApiEnv } from "../../../api";
-import { createAccountShipmentRoutes, createAccountSaleShipmentRoutes } from "./route";
+import {
+  createAccountShipmentRoutes,
+  createAccountSaleShipmentRoutes,
+  createPostageProviderWebhookRoutes,
+} from "./route";
 import type { FulfillmentShipmentServices } from "./runtime";
 
 function buildSellerApp(
@@ -61,6 +65,13 @@ function createServices(): FulfillmentShipmentServices {
     deliverShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 5 })),
     returnShipment: vi.fn(async () => ({ shipmentId: "shp_1", version: 6 })),
     raiseShipmentException: vi.fn(async () => ({ shipmentId: "shp_1", version: 7 })),
+    processPostageProviderWebhook: vi.fn(async () => ({
+      status: "recorded" as const,
+      providerEventId: "evt_1",
+      eventKind: "tracking-status",
+      shipmentId: "shp_1",
+      processingResult: "delivered",
+    })),
     listBuyerShipments: vi.fn(async () => ({ items: [], total: 0 })),
     getBuyerShipment: vi.fn(async () => null),
     listSellerShipments: vi.fn(async () => ({ items: [], total: 0 })),
@@ -560,6 +571,47 @@ describe("fulfillment shipment routes", () => {
         },
       },
       expect.any(Object),
+    );
+  });
+
+  it("accepts provider postage webhooks without account authentication", async () => {
+    const services = createServices();
+    const app = new Hono();
+    const rawBody = JSON.stringify({ id: "evt_1" });
+
+    app.route("/api/fulfillment/provider", createPostageProviderWebhookRoutes(services));
+
+    const response = await app.fetch(
+      new Request("http://fulfillment.test/api/fulfillment/provider/postage/webhooks", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-provider-test": "present",
+        },
+        body: rawBody,
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "recorded",
+      providerEventId: "evt_1",
+      processingResult: "delivered",
+    });
+    expect(services.processPostageProviderWebhook).toHaveBeenCalledWith(
+      {
+        rawBody,
+        method: "POST",
+        path: "/api/fulfillment/provider/postage/webhooks",
+        headers: expect.any(Headers),
+      },
+      {
+        tenantId: "tnt_identity",
+        audit: {
+          performedByUserId: "usr_identity_system",
+          forAccountId: "acc_identity_system",
+        },
+      },
     );
   });
 });

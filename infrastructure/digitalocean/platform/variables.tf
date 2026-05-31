@@ -26,11 +26,50 @@ variable "environment" {
 variable "production_marketplace_public_enabled" {
   type        = bool
   default     = false
-  description = "Explicit gate for deploying public marketplace, platform API, worker, and commerce contexts in production. Keep false until marketplace production promotion is approved."
+  description = "Explicit gate for deploying public marketplace web/domain routing in production. Keep false until marketplace production promotion is approved."
 
   validation {
     condition     = var.environment == "production" || var.production_marketplace_public_enabled == false
     error_message = "production_marketplace_public_enabled may only be true for production."
+  }
+}
+
+variable "production_marketplace_launch_evidence_reference" {
+  type        = string
+  default     = ""
+  description = "Operator-owned reference to the passing Marketplace Launch Evidence packet used to set production launch variables."
+
+  validation {
+    condition = trimspace(var.production_marketplace_launch_evidence_reference) == "" || (
+      length(trimspace(var.production_marketplace_launch_evidence_reference)) >= 6 &&
+      !contains(
+        ["tbd", "todo", "none", "null", "n/a", "na", "placeholder", "example", "sample", "test", "ticket", "record", "launch-000"],
+        lower(trimspace(var.production_marketplace_launch_evidence_reference))
+      )
+    )
+    error_message = "production_marketplace_launch_evidence_reference must be a real Marketplace Launch Evidence packet reference, not a placeholder."
+  }
+}
+
+variable "production_marketplace_proof_enabled" {
+  type        = bool
+  default     = false
+  description = "Explicit gate for deploying production platform-api, platform-worker, and commerce contexts for private provider proof while the public marketplace stays closed."
+
+  validation {
+    condition     = var.environment == "production" || var.production_marketplace_proof_enabled == false
+    error_message = "production_marketplace_proof_enabled may only be true for production."
+  }
+}
+
+variable "production_marketplace_proof_reference" {
+  type        = string
+  default     = ""
+  description = "Operator-owned evidence-collection approval reference for private production platform proof mode."
+
+  validation {
+    condition     = !var.production_marketplace_proof_enabled || trimspace(var.production_marketplace_proof_reference) != ""
+    error_message = "production_marketplace_proof_reference is required when production_marketplace_proof_enabled is true."
   }
 }
 
@@ -331,9 +370,10 @@ variable "stripe_secret_key" {
 
   validation {
     condition = var.environment == "production" ? (
-      !var.production_marketplace_public_enabled || startswith(var.stripe_secret_key, "sk_live")
+      !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled) ||
+      startswith(var.stripe_secret_key, "sk_live")
     ) : startswith(var.stripe_secret_key, "sk_test")
-    error_message = "stripe_secret_key must be test-mode outside production and live-mode when production marketplace promotion is enabled."
+    error_message = "stripe_secret_key must be test-mode outside production and live-mode when production marketplace proof or promotion is enabled."
   }
 }
 
@@ -344,9 +384,10 @@ variable "stripe_publishable_key" {
 
   validation {
     condition = var.environment == "production" ? (
-      !var.production_marketplace_public_enabled || startswith(var.stripe_publishable_key, "pk_live")
+      !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled) ||
+      startswith(var.stripe_publishable_key, "pk_live")
     ) : startswith(var.stripe_publishable_key, "pk_test")
-    error_message = "stripe_publishable_key must be test-mode outside production and live-mode when production marketplace promotion is enabled."
+    error_message = "stripe_publishable_key must be test-mode outside production and live-mode when production marketplace proof or promotion is enabled."
   }
 }
 
@@ -356,8 +397,25 @@ variable "stripe_webhook_secret" {
   default   = ""
 
   validation {
-    condition     = (var.environment == "production" && !var.production_marketplace_public_enabled) || trimspace(var.stripe_webhook_secret) != ""
-    error_message = "stripe_webhook_secret is required outside gated landing-only production and during production marketplace promotion."
+    condition = (
+      (var.environment == "production" && !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled)) ||
+      trimspace(var.stripe_webhook_secret) != ""
+    )
+    error_message = "stripe_webhook_secret is required outside gated landing-only production and during production marketplace proof or promotion."
+  }
+}
+
+variable "stripe_connect_webhook_secret" {
+  type      = string
+  sensitive = true
+  default   = ""
+
+  validation {
+    condition = (
+      (var.environment == "production" && !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled)) ||
+      trimspace(var.stripe_connect_webhook_secret) != ""
+    )
+    error_message = "stripe_connect_webhook_secret is required outside gated landing-only production and during production marketplace proof or promotion."
   }
 }
 
@@ -372,7 +430,7 @@ variable "stripe_connect_return_url" {
 
   validation {
     condition = (
-      (var.environment == "production" && !var.production_marketplace_public_enabled) ||
+      (var.environment == "production" && !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled)) ||
       var.stripe_connect_return_url == (
         var.environment == "production" ?
         format("https://marketplace.%s/account/payouts", var.root_domain) :
@@ -392,7 +450,7 @@ variable "stripe_connect_refresh_url" {
 
   validation {
     condition = (
-      (var.environment == "production" && !var.production_marketplace_public_enabled) ||
+      (var.environment == "production" && !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled)) ||
       var.stripe_connect_refresh_url == (
         var.environment == "production" ?
         format("https://marketplace.%s/account/payouts/setup", var.root_domain) :
@@ -413,15 +471,30 @@ variable "easypost_api_key" {
 
   validation {
     condition = var.environment == "production" ? (
-      !var.production_marketplace_public_enabled || trimspace(var.easypost_api_key) != ""
+      !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled) ||
+      trimspace(var.easypost_api_key) != ""
     ) : startswith(var.easypost_api_key, "EZTK")
-    error_message = "easypost_api_key must be an EasyPost test API key outside production and must be present when production marketplace promotion is enabled."
+    error_message = "easypost_api_key must be an EasyPost test API key outside production and must be present when production marketplace proof or promotion is enabled."
   }
 }
 
 variable "easypost_api_base_url" {
   type    = string
   default = ""
+}
+
+variable "easypost_webhook_secret" {
+  type      = string
+  sensitive = true
+  default   = ""
+
+  validation {
+    condition = var.environment == "production" ? (
+      !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled) ||
+      trimspace(var.easypost_webhook_secret) != ""
+    ) : true
+    error_message = "easypost_webhook_secret is required when production marketplace proof or promotion is enabled."
+  }
 }
 
 variable "easypost_mode" {
@@ -439,8 +512,12 @@ variable "easypost_mode" {
   }
 
   validation {
-    condition     = var.environment != "production" || !var.production_marketplace_public_enabled || var.easypost_mode == "production"
-    error_message = "easypost_mode must be production when production marketplace promotion is enabled."
+    condition = (
+      var.environment != "production" ||
+      !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled) ||
+      var.easypost_mode == "production"
+    )
+    error_message = "easypost_mode must be production when production marketplace proof or promotion is enabled."
   }
 }
 

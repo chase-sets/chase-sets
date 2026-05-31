@@ -1,3 +1,4 @@
+import { createVerify } from "node:crypto";
 import {
   SendEmailCommand,
   SESv2Client,
@@ -11,6 +12,8 @@ import type {
   TransactionalEmailTemplateRenderer,
 } from "@chase-sets/communications-email";
 import type {
+  EmailProviderWebhookEvent,
+  EmailWebhookGateway,
   EmailNotificationChannel,
   NotificationChannelAdapter,
   NotificationDelivery,
@@ -71,6 +74,13 @@ export type SesNotificationEvent = Readonly<{
   recipients: readonly string[];
 }>;
 
+export type SesEmailWebhookGatewayOptions = Readonly<{
+  requireSnsSignature?: boolean;
+  fetchCertificate?: (url: string) => Promise<string>;
+  confirmSubscription?: (url: string) => Promise<void>;
+  now?: () => Date;
+}>;
+
 type SesNotificationEnvelope = Readonly<{
   Message?: unknown;
   eventType?: unknown;
@@ -79,6 +89,20 @@ type SesNotificationEnvelope = Readonly<{
     timestamp?: unknown;
     destination?: unknown;
   }>;
+}>;
+
+type SnsNotificationEnvelope = Readonly<{
+  Message?: unknown;
+  MessageId?: unknown;
+  Signature?: unknown;
+  SignatureVersion?: unknown;
+  SigningCertURL?: unknown;
+  Subject?: unknown;
+  SubscribeURL?: unknown;
+  Timestamp?: unknown;
+  Token?: unknown;
+  TopicArn?: unknown;
+  Type?: unknown;
 }>;
 
 function normalizeOptional(value?: string | null) {
@@ -142,14 +166,169 @@ export function parseSesNotificationEvent(rawBody: string): SesNotificationEvent
   const message = (typeof body.Message === "string" ? JSON.parse(body.Message) : body) as SesNotificationEnvelope;
   const eventType = typeof message.eventType === "string" ? message.eventType : "";
   if (!["Delivery", "Bounce", "Complaint"].includes(eventType)) return null;
+  const messageId = typeof message.mail?.messageId === "string" ? message.mail.messageId.trim() : "";
+  if (!messageId) return null;
   const destination = Array.isArray(message.mail?.destination) ? message.mail.destination : [];
   const recipients = destination.filter((v): v is string => typeof v === "string");
   return {
-    messageId: String(message.mail?.messageId ?? ""),
+    messageId,
     eventType: eventType as SesNotificationEvent["eventType"],
     occurredAt: String(message.mail?.timestamp ?? new Date().toISOString()),
     recipients,
   };
+}
+
+export function createSesEmailWebhookGateway(options: SesEmailWebhookGatewayOptions = {}): EmailWebhookGateway {
+  const now = options.now ?? (() => new Date());
+  const requireSnsSignature = options.requireSnsSignature ?? true;
+  const fetchCertificate = options.fetchCertificate ?? fetchSnsSigningCertificate;
+  const confirmSubscription = options.confirmSubscription ?? confirmSnsSubscription;
+
+  return {
+    async processEmailWebhook(input) {
+      let envelope: SnsNotificationEnvelope | null = null;
+      if (requireSnsSignature) {
+        envelope = await verifySnsNotificationEnvelope(input.rawBody, fetchCertificate);
+      }
+
+      if (envelope?.Type === "SubscriptionConfirmation") {
+        const subscribeUrl = assertSnsString(envelope.SubscribeURL, "SubscribeURL");
+        assertTrustedSnsSubscribeUrl(subscribeUrl);
+        await confirmSubscription(subscribeUrl);
+        return null;
+      }
+
+      const event = parseSesNotificationEvent(input.rawBody);
+      if (!event) {
+        return null;
+      }
+
+      const eventKind = mapSesEventKind(event.eventType);
+
+      return {
+        providerEventId: `amazon-ses:${event.messageId}:${eventKind}:${event.occurredAt}`,
+        providerName: "amazon-ses",
+        eventKind,
+        providerMessageId: event.messageId,
+        recipients: event.recipients,
+        occurredAt: event.occurredAt,
+        receivedAt: now().toISOString(),
+      } satisfies EmailProviderWebhookEvent;
+    },
+  };
+}
+
+async function verifySnsNotificationEnvelope(rawBody: string, fetchCertificate: (url: string) => Promise<string>) {
+  const envelope = JSON.parse(rawBody) as SnsNotificationEnvelope;
+  if (!isSnsNotificationEnvelope(envelope)) {
+    throw new Error("SES email webhooks must be delivered through a signed SNS notification.");
+  }
+
+  const signingCertUrl = assertSnsString(envelope.SigningCertURL, "SigningCertURL");
+  assertTrustedSnsSigningCertUrl(signingCertUrl);
+  const algorithm = snsSignatureAlgorithm(assertSnsString(envelope.SignatureVersion, "SignatureVersion"));
+  const verifier = createVerify(algorithm);
+  verifier.update(buildSnsStringToSign(envelope));
+  verifier.end();
+
+  const certificate = await fetchCertificate(signingCertUrl);
+  const signature = assertSnsString(envelope.Signature, "Signature");
+  if (!verifier.verify(certificate, signature, "base64")) {
+    throw new Error("SNS notification signature verification failed.");
+  }
+
+  return envelope;
+}
+
+function isSnsNotificationEnvelope(envelope: SnsNotificationEnvelope) {
+  return typeof envelope.Type === "string" && typeof envelope.Message === "string";
+}
+
+function snsSignatureAlgorithm(version: string) {
+  if (version === "1") {
+    return "RSA-SHA1";
+  }
+  if (version === "2") {
+    return "RSA-SHA256";
+  }
+
+  throw new Error(`Unsupported SNS signature version '${version}'.`);
+}
+
+function buildSnsStringToSign(envelope: SnsNotificationEnvelope) {
+  const type = assertSnsString(envelope.Type, "Type");
+  const fields =
+    type === "Notification"
+      ? [
+          "Message",
+          "MessageId",
+          ...(typeof envelope.Subject === "string" ? ["Subject"] : []),
+          "Timestamp",
+          "TopicArn",
+          "Type",
+        ]
+      : ["Message", "MessageId", "SubscribeURL", "Timestamp", "Token", "TopicArn", "Type"];
+
+  return fields
+    .map((field) => `${field}\n${assertSnsString(envelope[field as keyof SnsNotificationEnvelope], field)}\n`)
+    .join("");
+}
+
+function assertSnsString(value: unknown, field: string) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`SNS notification field '${field}' is required.`);
+  }
+
+  return value;
+}
+
+function assertTrustedSnsSigningCertUrl(value: string) {
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    !/^sns\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$/.test(url.hostname) ||
+    !url.pathname.endsWith(".pem")
+  ) {
+    throw new Error("SNS notification signing certificate URL is not trusted.");
+  }
+}
+
+function assertTrustedSnsSubscribeUrl(value: string) {
+  const url = new URL(value);
+  if (
+    url.protocol !== "https:" ||
+    !/^sns\.[a-z0-9-]+\.amazonaws\.com(\.cn)?$/.test(url.hostname) ||
+    url.searchParams.get("Action") !== "ConfirmSubscription"
+  ) {
+    throw new Error("SNS subscription confirmation URL is not trusted.");
+  }
+}
+
+async function fetchSnsSigningCertificate(url: string) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`SNS signing certificate fetch failed with status ${response.status}.`);
+  }
+
+  return response.text();
+}
+
+async function confirmSnsSubscription(url: string) {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`SNS subscription confirmation failed with status ${response.status}.`);
+  }
+}
+
+function mapSesEventKind(eventType: SesNotificationEvent["eventType"]): EmailProviderWebhookEvent["eventKind"] {
+  switch (eventType) {
+    case "Delivery":
+      return "delivery";
+    case "Bounce":
+      return "bounce";
+    case "Complaint":
+      return "complaint";
+  }
 }
 
 export function createSesTransactionalEmailGateway(options: SesEmailGatewayOptions): TransactionalEmailGateway {

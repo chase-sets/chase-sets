@@ -1,7 +1,16 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
+import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { FulfillmentApiEnv } from "../../../api";
 import type { FulfillmentShipmentServices } from "./runtime";
+
+const providerWebhookContext = {
+  tenantId: "tnt_identity" as never,
+  audit: {
+    performedByUserId: "usr_identity_system" as never,
+    forAccountId: "acc_identity_system" as never,
+  },
+} satisfies EventStoreContext;
 
 function requireShipmentAccess(
   c: {
@@ -605,6 +614,33 @@ export function createAccountSaleShipmentRoutes(services: FulfillmentShipmentSer
       return c.json({ id: result.shipmentId, version: result.version, status: "exception-raised" });
     } catch (error) {
       return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  return app;
+}
+
+export function createPostageProviderWebhookRoutes(services: FulfillmentShipmentServices) {
+  const app = new Hono();
+
+  app.post("/postage/webhooks", async (c) => {
+    const rawBody = await c.req.text();
+    const path = new URL(c.req.url).pathname;
+
+    try {
+      const result = await services.processPostageProviderWebhook(
+        {
+          rawBody,
+          method: c.req.method,
+          path,
+          headers: c.req.raw.headers,
+        },
+        providerWebhookContext,
+      );
+
+      return c.json(result);
+    } catch (error) {
+      return c.json({ error: { code: "postage_webhook_rejected", message: errorMessage(error) } }, 400);
     }
   });
 

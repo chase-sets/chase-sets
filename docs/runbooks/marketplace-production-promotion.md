@@ -1,6 +1,16 @@
 # Marketplace Production Promotion
 
-Production remains a landing and admin-support deployment until marketplace promotion is explicitly approved. Do not set `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` until every gate below has an accountable owner and passing evidence, and do not mark `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true` until the final launch review record exists. Keep the redacted [Marketplace Launch Evidence](./marketplace-launch-evidence.md) packet passing before copying its values into the production GitHub Environment.
+Production remains a landing and admin-support deployment until marketplace promotion is explicitly approved. Do not set `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` until every gate below has an accountable owner and passing evidence, and do not mark `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED=true` until the final launch review record exists. Keep the redacted [Marketplace Launch Evidence](./marketplace-launch-evidence.md) packet passing before copying its values into the production GitHub Environment, including `PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE` for that passing packet.
+
+Private production proof collection uses `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PROOF_REFERENCE` to deploy `platform-api`, `platform-worker`, and commerce bounded-context databases without deploying marketplace web or the marketplace production domain. Proof mode requires live Stripe, Stripe webhook, EasyPost production, and EasyPost webhook configuration so production provider evidence cannot be collected from fake/noop adapters. Use proof mode only to collect production provider evidence such as Stripe payment callbacks, Stripe Connect money-movement callbacks, private authenticated Checkout/Ordering/Payments/Settlement proof API results, SES/SNS callbacks, EasyPost callbacks, production worker health, and redacted database measurements. It is not a public launch approval and does not replace any gate below.
+
+Run `pnpm run marketplace:production-proof-readiness` before setting proof mode variables or triggering a production deploy. The readiness record must show `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`, `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true`, a real proof reference, Amazon SES transactional variables, live Stripe and EasyPost secret names, SES secret names, and the baseline production deployment secret names are present.
+
+If readiness fails, use the emitted `operatorSetup.variableCommands` and `operatorSetup.secretCommands` as the missing-value checklist. The secret commands are intentionally value-free; run them interactively or from a private password manager.
+
+Use the emitted `providerCallbackSetup.dashboardDestinations` as the provider-dashboard callback manifest after proof topology passes with JSON API responses from the production proof origin. Use the private proof Stripe Connect return and refresh URLs for same-origin live smoke tests against `chasesets.com` or `admin.chasesets.com`; carry the final marketplace-domain Stripe Connect return and refresh URLs into the Stripe money operations evidence record.
+
+Run `pnpm run marketplace:production-proof-topology-evidence` after proof mode deploys and before configuring provider callbacks. The proof topology record must show production health is ready, Stripe payment, Stripe Connect money-movement, SES/SNS email, and EasyPost postage callback paths return expected JSON callback responses without redirects, the exact private Checkout/Ordering/Payments/Settlement proof APIs used by live money smoke return unauthenticated JSON challenges without redirects, and public marketplace promotion remains disabled.
 
 ## Required Gates
 
@@ -18,11 +28,25 @@ Production remains a landing and admin-support deployment until marketplace prom
 
 ## Promotion Switch
 
-The production deploy uses `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED` from the production GitHub Environment. Keep it unset or `false` for the current launch posture.
+The production deploy uses `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED` from the production GitHub Environment for public launch posture. Keep it unset or `false` for the current launch posture.
 
-When set to `true`, Terraform deploys the production marketplace surface, full platform API, platform worker, and commerce bounded-context databases. The same switch also requires approved marketplace promotion evidence, approved Marketplace Checkout Fee evidence, approved Stripe money operations evidence, approved Support operations evidence, approved Fulfillment postage evidence, approved transactional email evidence, approved launch supply measurement evidence, live payment/shipping/email configuration, and approved Tax readiness evidence before Terraform can plan.
+When set to `true`, Terraform deploys the production marketplace surface, full platform API, platform worker, and commerce bounded-context databases. The same switch also requires a real `PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE`, approved marketplace promotion evidence, approved Marketplace Checkout Fee evidence, approved Stripe money operations evidence, approved Support operations evidence, approved Fulfillment postage evidence, approved transactional email evidence, approved launch supply measurement evidence, live payment/shipping/email configuration, and approved Tax readiness evidence before Terraform can plan. The production workflow passes that packet reference through `TF_VAR_production_marketplace_launch_evidence_reference`, and Terraform rejects public promotion when any production evidence reference is missing or placeholder-like.
 
 Marketplace promotion evidence is carried by `PRODUCTION_MARKETPLACE_PROMOTION_APPROVED` and `PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE` in the production GitHub Environment. The reference must point to the final launch review record that confirms each required gate above has an accountable owner and passing evidence. `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true` is only the deployment shape switch; it is not the launch approval by itself.
+
+`PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE` must point to the passing redacted packet verifier output. Set it only through `pnpm run marketplace:production-env-commands -- --file <packet>` so public promotion uses the same packet that passed `marketplace:launch-evidence`, instead of hand-set gate variables.
+
+After applying the packet-derived variables and required secret names, run `pnpm run marketplace:production-launch-readiness -- --variables <github-production-variables.json> --secrets <github-production-secrets.json>`. This final preflight combines the launch evidence variable snapshot with required production secret-name checks and fails while public launch is still disabled, proof mode is still on, launch evidence references are missing or placeholders, admin Google Workspace SSO is not configured for `chasesets.com`, SES is not set to `amazon-ses`/`transactional-production`, or live Stripe/EasyPost/Google SSO secret names are absent.
+
+Build the redacted launch-packet promotion and UCP/AP2 marketing gates from the final launch review record instead of hand-editing `gates.marketplacePromotion` or `gates.ucpAp2Marketing`:
+
+```powershell
+pnpm run marketplace:promotion-evidence -- --review .\secure\marketplace-promotion-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
+```
+
+The final launch review record must include `reviewCompletedAt` and a launch-mode Public Presence copy audit with `publicPresenceCopyAuditCompletedAt`. Rerun launch review and copy audit when either timestamp is older than 30 days at promotion review.
+
+The command fails unless the review is production-scoped, includes staging and production workflow run references, carries the launch-mode Public Presence copy audit reference, proves launch-mode public copy and policy-page review, assigns a rollback owner, and either keeps UCP/AP2 public claims disabled with uncertified claims absent or supplies a separate certification reference.
 
 Marketplace Checkout Fee evidence is carried by `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED` and `PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE` in the production GitHub Environment. Keep approval unset until Payments has a counsel/provider-reviewed record covering buyer-facing fee copy, fee labels, refund handling language, state-specific disclosures, and Stripe live-mode configuration.
 
@@ -36,7 +60,7 @@ Transactional email evidence is carried by `PRODUCTION_TRANSACTIONAL_EMAIL_APPRO
 
 Launch supply measurement evidence is carried by `PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED` and `PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE` in the production GitHub Environment. Keep approval unset until Catalog has a production data-quality sweep proving active checkout-eligible launch listings have `activeLaunchListingCount > 0`, `activeLaunchListingsMissingResolvedProductMeasures=0`, and `resolvedProductMeasureCoveragePercent=100`. Ordering keeps the runtime checkout blocker for missing measures; this gate prevents opening public checkout with avoidable listing failures.
 
-Tax readiness evidence is carried by `PRODUCTION_TAX_READINESS_APPROVED` and `PRODUCTION_TAX_READINESS_REFERENCE` in the production GitHub Environment. Keep approval unset until the Tax-owned launch posture has counsel/accounting review, state-by-state nexus tracking, and a documented collection-provider decision. `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=false` is allowed only while the Tax readiness record confirms no tracked jurisdiction requires collection. When a jurisdiction becomes registered for collection or otherwise collection-required, set `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true`; Platform API then installs a production Tax blocker resolver until a provider-backed `TaxQuoteResolver` is composed.
+Tax readiness evidence is carried by `PRODUCTION_TAX_READINESS_APPROVED` and `PRODUCTION_TAX_READINESS_REFERENCE` in the production GitHub Environment. Keep approval unset until the Tax-owned launch posture has counsel/accounting review, state-by-state nexus tracking, and a documented collection-provider decision. Public promotion also requires `TAX_PROVIDER_BACKED_QUOTES_REQUIRED` to be set explicitly from the approved Tax readiness packet. `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=false` is allowed only while the Tax readiness record confirms no tracked jurisdiction requires collection. When a jurisdiction becomes registered for collection or otherwise collection-required, set `TAX_PROVIDER_BACKED_QUOTES_REQUIRED=true`; Platform API then installs a production Tax blocker resolver until a provider-backed `TaxQuoteResolver` is composed.
 
 ## Rollback Posture
 

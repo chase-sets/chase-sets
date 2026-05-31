@@ -53,6 +53,41 @@ export type VoidedPostageLabel = Readonly<{
   voidedAt: string;
 }>;
 
+export type PostageProviderWebhookEvent = Readonly<{
+  providerEventId: string;
+  providerName: string;
+  providerMode: PostageProviderMode;
+  eventKind: "tracking-status" | "refund-status" | "provider-event";
+  providerObjectReference: string;
+  providerShipmentId?: string | null;
+  trackingIdentifier?: string | null;
+  status?: string | null;
+  statusDetail?: string | null;
+  message?: string | null;
+  occurredAt: string;
+  receivedAt?: string;
+  payload: unknown;
+}>;
+
+export type PostageProviderWebhookInput = Readonly<{
+  rawBody: string;
+  method: string;
+  path: string;
+  headers: Headers;
+}>;
+
+export interface PostageProviderWebhookGateway {
+  processPostageProviderWebhook(input: PostageProviderWebhookInput): Promise<PostageProviderWebhookEvent | null>;
+}
+
+export function createNoopPostageProviderWebhookGateway(): PostageProviderWebhookGateway {
+  return {
+    async processPostageProviderWebhook() {
+      return null;
+    },
+  };
+}
+
 export interface PostageLabelProvider {
   readonly providerName: string;
   readonly providerMode: PostageProviderMode;

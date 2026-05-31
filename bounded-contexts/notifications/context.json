@@ -46,6 +46,11 @@
       "portName": "mobileMessageWebhookGateway",
       "providedBy": "platform-api",
       "purpose": "Provider-specific SMS/RCS webhook verifier and normalizer for mobile messaging interactions."
+    },
+    {
+      "portName": "emailWebhookGateway",
+      "providedBy": "platform-api",
+      "purpose": "Provider-specific email delivery webhook normalizer for bounce, complaint, and delivery events."
     }
   ],
   "apiDeployables": ["platform-api"],

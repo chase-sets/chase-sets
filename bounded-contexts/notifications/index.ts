@@ -7,7 +7,7 @@ import type {
 } from "@chase-sets/bounded-context-module";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
-import { buildNotificationsApi, buildNotificationsMobileMessageWebhookApi } from "./api";
+import { buildNotificationsApi, buildNotificationsProviderWebhookApi } from "./api";
 import { notificationsSchemaSql } from "./support/runtime-support/schema";
 import {
   createNotificationsServices,
@@ -49,7 +49,7 @@ export const module: BcApiModule<NotificationsServices, PgTransactionalPool, Not
   >["apiMounts"],
   projectionGroups,
   createServices: (pool, ports) => createNotificationsServices(pool, ports),
-  buildApis: (services) => [buildNotificationsApi(services), buildNotificationsMobileMessageWebhookApi(services)],
+  buildApis: (services) => [buildNotificationsApi(services), buildNotificationsProviderWebhookApi(services)],
   projectionHandlerSets: () => [],
   buildSubscriptions: (services) => {
     const orderingSubscription = getEventSubscription("ordering", NOTIFICATIONS_SOURCE_FACTS_OUTBOX_PROJECTION);

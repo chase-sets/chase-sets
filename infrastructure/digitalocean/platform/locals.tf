@@ -2,7 +2,27 @@ locals {
   is_production     = var.environment == "production"
   is_staging        = var.environment == "staging"
   is_non_production = !local.is_production
+  placeholder_evidence_references = [
+    "tbd",
+    "todo",
+    "none",
+    "null",
+    "n/a",
+    "na",
+    "placeholder",
+    "example",
+    "sample",
+    "test",
+    "ticket",
+    "record",
+    "launch-000",
+  ]
   marketplace_platform_enabled = (
+    local.is_non_production ||
+    var.production_marketplace_public_enabled ||
+    var.production_marketplace_proof_enabled
+  )
+  marketplace_public_enabled = (
     local.is_non_production || var.production_marketplace_public_enabled
   )
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
@@ -21,7 +41,7 @@ locals {
     "landing-${var.environment}.${var.root_domain}",
   ] : []
 
-  marketplace_domains = local.marketplace_platform_enabled ? [
+  marketplace_domains = local.marketplace_public_enabled ? [
     local.is_production ? "marketplace.${var.root_domain}" : local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
   ] : []
 
@@ -39,8 +59,8 @@ locals {
     "marketplace-${var.environment}.${var.root_domain}" = local.marketplace_domain
     "admin-${var.environment}.${var.root_domain}"       = local.admin_domain
   } : {}
-  api_component_name = local.marketplace_platform_enabled ? "platform-api" : "admin-support-api"
-  api_private_url    = local.marketplace_platform_enabled ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
+  api_component_name = local.marketplace_public_enabled ? "platform-api" : "admin-support-api"
+  api_private_url    = local.marketplace_public_enabled ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
   marketplace_origin = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
   database_size      = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
 
@@ -158,7 +178,54 @@ locals {
 
   all_public_hostnames = concat(local.public_domains, keys(local.legacy_domain_redirects), local.all_marketplace_domains)
   ucp_route_prefixes   = ["/.well-known", "/ucp"]
-  ucp_route_domains    = local.marketplace_platform_enabled ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
+  ucp_route_domains    = local.marketplace_public_enabled ? concat(local.public_domains, [local.admin_domain], local.all_marketplace_domains) : []
+  provider_webhook_route_prefixes = [
+    "/api/payments/provider/webhooks",
+    "/api/settlement/provider/money-movement/webhooks",
+    "/api/notifications/provider/email/webhooks",
+    "/api/fulfillment/provider/postage/webhooks",
+  ]
+  provider_webhook_route_domains = local.marketplace_platform_enabled ? distinct(concat(
+    local.public_domains,
+    [local.admin_domain],
+    local.all_marketplace_domains,
+  )) : []
+  provider_webhook_ingress_routes = {
+    for route in setproduct(local.provider_webhook_route_domains, local.provider_webhook_route_prefixes) :
+    "${route[0]}:${route[1]}" => {
+      authority   = route[0]
+      path_prefix = route[1]
+    }
+  }
+  proof_api_route_prefixes = [
+    "/api/marketplace/account/checkout",
+    "/api/marketplace/account/checkout-sessions",
+    "/api/marketplace/account/marketplace-checkout-fee-policy",
+    "/api/marketplace/account/payments",
+    "/api/marketplace/account/provider-events",
+    "/api/marketplace/account/provider-health",
+    "/api/marketplace/account/provider-idempotency",
+    "/api/marketplace/account/purchases/checkout",
+    "/api/marketplace/account/reconciliation",
+    "/api/settlement/account-status",
+    "/api/settlement/money-health",
+    "/api/settlement/payout-readiness",
+    "/api/settlement/payout-setup",
+    "/api/settlement/payouts",
+    "/api/settlement/provider-health",
+    "/api/settlement/wallet",
+  ]
+  proof_api_route_domains = local.is_production && var.production_marketplace_proof_enabled && !var.production_marketplace_public_enabled ? distinct(concat(
+    local.public_domains,
+    [local.admin_domain],
+  )) : []
+  proof_api_ingress_routes = {
+    for route in setproduct(local.proof_api_route_domains, local.proof_api_route_prefixes) :
+    "${route[0]}:${route[1]}" => {
+      authority   = route[0]
+      path_prefix = route[1]
+    }
+  }
   app_domain_zones = merge(
     {
       for domain in local.public_domains :

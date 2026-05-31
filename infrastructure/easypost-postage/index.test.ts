@@ -1,5 +1,10 @@
+import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { createEasyPostPostageLabelProvider } from ".";
+import {
+  createEasyPostPostageLabelProvider,
+  createEasyPostPostageWebhookGateway,
+  verifyEasyPostWebhookSignature,
+} from ".";
 
 const sampleRequest = {
   shipmentId: "shp_1",
@@ -133,4 +138,111 @@ describe("EasyPost postage adapter", () => {
 
     await expect(provider.purchaseUspsLabel(sampleRequest)).rejects.toThrow("Invalid address.");
   });
+
+  it("verifies EasyPost webhook HMAC signatures", () => {
+    const rawBody = JSON.stringify({ id: "evt_1" });
+    const timestamp = "Tue, 19 Aug 2025 20:37:09 -0000";
+    const headers = signedEasyPostHeaders({
+      rawBody,
+      timestamp,
+      path: "/api/fulfillment/provider/postage/webhooks",
+      secret: "whsec_test",
+    });
+
+    expect(() =>
+      verifyEasyPostWebhookSignature({
+        rawBody,
+        method: "POST",
+        path: "/api/fulfillment/provider/postage/webhooks",
+        headers,
+        webhookSecret: "whsec_test",
+        now: () => new Date("2025-08-19T20:37:20.000Z"),
+      }),
+    ).not.toThrow();
+  });
+
+  it("rejects EasyPost webhook signatures outside the tolerance window", () => {
+    const rawBody = JSON.stringify({ id: "evt_1" });
+    const timestamp = "Tue, 19 Aug 2025 20:37:09 -0000";
+    const headers = signedEasyPostHeaders({
+      rawBody,
+      timestamp,
+      path: "/api/fulfillment/provider/postage/webhooks",
+      secret: "whsec_test",
+    });
+
+    expect(() =>
+      verifyEasyPostWebhookSignature({
+        rawBody,
+        method: "POST",
+        path: "/api/fulfillment/provider/postage/webhooks",
+        headers,
+        webhookSecret: "whsec_test",
+        now: () => new Date("2025-08-19T20:39:00.000Z"),
+      }),
+    ).toThrow("EasyPost webhook timestamp is outside the allowed tolerance.");
+  });
+
+  it("normalizes EasyPost tracker webhook events", async () => {
+    const rawBody = JSON.stringify({
+      id: "evt_tracker_1",
+      object: "Event",
+      mode: "production",
+      description: "tracker.updated",
+      created_at: "2026-05-30T12:00:00Z",
+      updated_at: "2026-05-30T12:00:01Z",
+      result: {
+        id: "trk_provider_1",
+        object: "Tracker",
+        mode: "production",
+        tracking_code: "940000000000000000",
+        shipment_id: "shp_provider_1",
+        status: "delivered",
+        status_detail: "arrived_at_destination",
+        updated_at: "2026-05-30T12:00:01Z",
+      },
+    });
+    const timestamp = "Sat, 30 May 2026 12:00:02 -0000";
+    const gateway = createEasyPostPostageWebhookGateway({
+      webhookSecret: "whsec_test",
+      now: () => new Date("2026-05-30T12:00:03.000Z"),
+    });
+
+    await expect(
+      gateway.processPostageProviderWebhook({
+        rawBody,
+        method: "POST",
+        path: "/api/fulfillment/provider/postage/webhooks",
+        headers: signedEasyPostHeaders({
+          rawBody,
+          timestamp,
+          path: "/api/fulfillment/provider/postage/webhooks",
+          secret: "whsec_test",
+        }),
+      }),
+    ).resolves.toMatchObject({
+      providerEventId: "evt_tracker_1",
+      providerName: "easypost",
+      providerMode: "production",
+      eventKind: "tracking-status",
+      providerObjectReference: "trk_provider_1",
+      providerShipmentId: "shp_provider_1",
+      trackingIdentifier: "940000000000000000",
+      status: "delivered",
+      statusDetail: "arrived_at_destination",
+      occurredAt: "2026-05-30T12:00:01Z",
+      receivedAt: "2026-05-30T12:00:03.000Z",
+    });
+  });
 });
+
+function signedEasyPostHeaders(input: Readonly<{ rawBody: string; timestamp: string; path: string; secret: string }>) {
+  const signedPayload = `${input.timestamp}POST${input.path}${input.rawBody}`;
+  const signature = createHmac("sha256", input.secret).update(signedPayload, "utf8").digest("hex");
+
+  return new Headers({
+    "x-timestamp": input.timestamp,
+    "x-path": input.path,
+    "x-hmac-signature-v2": `hmac-sha256-hex=${signature}`,
+  });
+}

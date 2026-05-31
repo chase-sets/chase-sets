@@ -5,7 +5,7 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
-import type { PostageLabelProvider } from "@chase-sets/postage-labels";
+import type { PostageLabelProvider, PostageProviderWebhookGateway } from "@chase-sets/postage-labels";
 import { createFulfillmentShipmentRuntime } from "../../features/shipments/api/runtime";
 
 export type FulfillmentServices = Readonly<{
@@ -17,6 +17,7 @@ export type FulfillmentServices = Readonly<{
 
 export type FulfillmentHostPorts = Readonly<{
   postageLabelProvider?: PostageLabelProvider;
+  postageWebhookGateway?: PostageProviderWebhookGateway;
 }>;
 
 export function createFulfillmentServices(
@@ -31,6 +32,7 @@ export function createFulfillmentServices(
     checkpointStore,
     db,
     postageLabelProvider: ports?.postageLabelProvider,
+    postageWebhookGateway: ports?.postageWebhookGateway,
   });
 
   return {

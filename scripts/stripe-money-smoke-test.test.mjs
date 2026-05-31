@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { envReport, runEdgeCheck, runSellerFlow } from "./stripe-money-smoke-test.mjs";
+import { envReport, runEdgeCheck, runSellerFlow, validateStripeKeyModeForRun } from "./stripe-money-smoke-test.mjs";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -114,8 +114,18 @@ describe("stripe money smoke test", () => {
         "STRIPE_SECRET_KEY",
         "STRIPE_PUBLISHABLE_KEY",
         "STRIPE_WEBHOOK_SECRET",
+        "STRIPE_CONNECT_WEBHOOK_SECRET",
         "STRIPE_CONNECT_RETURN_URL",
         "STRIPE_CONNECT_REFRESH_URL",
+      ],
+      readinessErrors: [
+        "Missing required environment: PLATFORM_API_BASE_URL.",
+        "Missing required environment: STRIPE_SECRET_KEY.",
+        "Missing required environment: STRIPE_PUBLISHABLE_KEY.",
+        "Missing required environment: STRIPE_WEBHOOK_SECRET.",
+        "Missing required environment: STRIPE_CONNECT_WEBHOOK_SECRET.",
+        "Missing required environment: STRIPE_CONNECT_RETURN_URL.",
+        "Missing required environment: STRIPE_CONNECT_REFRESH_URL.",
       ],
       testModeKeysLikely: false,
     });
@@ -126,13 +136,91 @@ describe("stripe money smoke test", () => {
         STRIPE_SECRET_KEY: "sk_test_123",
         STRIPE_PUBLISHABLE_KEY: "pk_test_123",
         STRIPE_WEBHOOK_SECRET: "whsec_test",
+        STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect_test",
         STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
         STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
       }),
     ).toMatchObject({
       missing: [],
+      readinessErrors: [],
+      stripeKeyMode: "test",
       testModeKeysLikely: true,
+      liveModeKeysLikely: false,
     });
+  });
+
+  it("requires an explicit production proof reference before live-key smoke runs", () => {
+    const liveEnv = {
+      PLATFORM_API_BASE_URL: "https://chasesets.com",
+      STRIPE_SECRET_KEY: "sk_live_123",
+      STRIPE_PUBLISHABLE_KEY: "pk_live_123",
+      STRIPE_WEBHOOK_SECRET: "whsec_live",
+      STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect_live",
+      STRIPE_CONNECT_RETURN_URL: "https://marketplace.chasesets.com/account/payouts",
+      STRIPE_CONNECT_REFRESH_URL: "https://marketplace.chasesets.com/account/payouts/setup",
+    };
+
+    expect(envReport(liveEnv)).toMatchObject({
+      stripeKeyMode: "live",
+      connectRedirectsMatchApiOrigin: false,
+      testModeKeysLikely: false,
+      liveModeKeysLikely: true,
+      liveModeAllowed: false,
+      readinessErrors: ["Set STRIPE_MONEY_SMOKE_ALLOW_LIVE=true before running this smoke test with Stripe live keys."],
+    });
+    expect(() => validateStripeKeyModeForRun(liveEnv)).toThrow(/STRIPE_MONEY_SMOKE_ALLOW_LIVE=true/);
+    expect(() =>
+      validateStripeKeyModeForRun({
+        ...liveEnv,
+        STRIPE_MONEY_SMOKE_ALLOW_LIVE: "true",
+      }),
+    ).toThrow(/PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE/);
+    expect(() =>
+      validateStripeKeyModeForRun({
+        ...liveEnv,
+        STRIPE_MONEY_SMOKE_ALLOW_LIVE: "true",
+        PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: "STRIPE-LIVE-PROOF-2026-05-30",
+      }),
+    ).toThrow(/same origin as PLATFORM_API_BASE_URL/);
+    expect(() =>
+      validateStripeKeyModeForRun({
+        ...liveEnv,
+        STRIPE_CONNECT_RETURN_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
+        STRIPE_CONNECT_REFRESH_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
+        STRIPE_MONEY_SMOKE_ALLOW_LIVE: "true",
+        PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: "STRIPE-LIVE-PROOF-2026-05-30",
+      }),
+    ).not.toThrow();
+  });
+
+  it("reports check-env readiness errors for live keys until all production proof safeguards are present", () => {
+    const liveReadyEnv = {
+      PLATFORM_API_BASE_URL: "https://chasesets.com",
+      STRIPE_SECRET_KEY: "sk_live_123",
+      STRIPE_PUBLISHABLE_KEY: "pk_live_123",
+      STRIPE_WEBHOOK_SECRET: "whsec_live",
+      STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect_live",
+      STRIPE_CONNECT_RETURN_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
+      STRIPE_CONNECT_REFRESH_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
+      STRIPE_MONEY_SMOKE_ALLOW_LIVE: "true",
+      PRODUCTION_MARKETPLACE_PROOF_REFERENCE: "PRODUCTION-PROOF-2026-05-30",
+    };
+
+    expect(envReport(liveReadyEnv)).toMatchObject({
+      missing: [],
+      readinessErrors: [],
+      stripeKeyMode: "live",
+      liveModeAllowed: true,
+      connectRedirectsMatchApiOrigin: true,
+    });
+
+    expect(
+      envReport({
+        ...liveReadyEnv,
+        STRIPE_SECRET_KEY: "sk_live_123",
+        STRIPE_PUBLISHABLE_KEY: "pk_test_123",
+      }).readinessErrors,
+    ).toContain("This smoke test requires matching Stripe test keys or matching Stripe live keys.");
   });
 
   it("rejects unsigned payment and money movement webhooks in edge checks", async () => {

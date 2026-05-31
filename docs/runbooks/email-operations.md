@@ -90,7 +90,17 @@ Before enabling SES in a shared environment:
 
 Before setting `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, production must pass the same SES checks. Marketplace launch depends on transactional email for sign-in, account security, order, payment, fulfillment, refund, support, and payout notices; a `noop` production provider is acceptable only while production remains landing/admin-support.
 
-Provider bounces, complaints, and delivery notifications should flow through SES/SNS into the provider webhook inbox path before tightening DMARC policy or broadening email volume.
+Provider bounces, complaints, and delivery notifications should flow through SES/SNS into the Notifications provider webhook path before tightening DMARC policy or broadening email volume. Register the SES/SNS HTTPS destination against:
+
+```text
+https://<public-host>/api/notifications/provider/email/webhooks
+```
+
+For production prelaunch proof, first deploy private proof mode with `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; DigitalOcean then routes this provider callback path to `platform-api` while normal public/admin `/api/*` traffic remains on admin-support. Use `https://chasesets.com/api/notifications/provider/email/webhooks` for the production SES/SNS destination in that posture.
+
+The platform API requires a signed SNS notification envelope by default. It confirms signed `SubscriptionConfirmation` messages only when the `SubscribeURL` points back to an AWS SNS host, then parses SES `Delivery`, `Bounce`, and `Complaint` notifications through the SES infrastructure adapter and records them idempotently in the Notifications-owned `notification_email_provider_events` table. Attach the SES event destination ARN, confirmed subscription status, delivery status, and redacted query output from that table to the launch evidence record.
+
+Run `pnpm run marketplace:production-proof-readiness` before dashboard setup and use `operatorSetup.sesSnsEventDestinationSetup` from its JSON output as the canonical production setup manifest. The manifest includes the SNS topic name, HTTPS subscription endpoint, SES `transactional-production` event-destination command, required event types, and launch evidence fields that must be backed by the resulting AWS records. Do not hand-enter alternate callback URLs.
 
 ## Production SES Proof
 
@@ -103,9 +113,13 @@ The rehearsal record must include:
 2. The production GitHub Environment has `NOTIFICATION_EMAIL_PROVIDER=amazon-ses` plus complete `SES_AWS_REGION`, `SES_AWS_ACCESS_KEY_ID`, `SES_AWS_SECRET_ACCESS_KEY`, `SES_FROM_EMAIL`, `SES_CONFIGURATION_SET_NAME`, and `SES_SOURCE_ARN` values.
 3. Production deploy validation and `platform-worker` health pass with the SES configuration active.
 4. Controlled sends prove the transactional outbox marks provider delivery `sent` with provider `amazon-ses` and stores the SES message id.
-5. SES/SNS bounce and complaint notifications are parsed into the provider webhook inbox path, with at least one controlled bounce and one controlled complaint or provider-simulated equivalent attached to the evidence record.
+5. SES/SNS subscription confirmation completes for `/api/notifications/provider/email/webhooks`, and bounce and complaint notifications are parsed into `notification_email_provider_events`, with at least one controlled bounce and one controlled complaint or provider-simulated equivalent attached to the evidence record.
 6. Critical marketplace templates are verified for magic link, account security, order, payment, fulfillment, refund, support, and payout notices.
 7. Delivery monitoring is ready: SES configuration set events, bounce/complaint alert ownership, and the DMARC policy posture are documented before broadening email volume.
 8. Operator rollback is documented: if production email proof fails after marketplace promotion, set `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` and redeploy while preserving outbox rows, provider message ids, and SES notification payloads for investigation.
 
+The redacted proof record must also include `proofCompletedAt`, `providerEventRowCount` of at least `3`, `snsSubscriptionConfirmed=true`, the controlled-send SES provider message id, the `transactional_email_outbox.outbox_id`, concrete `amazon-ses:<message-id>:delivery|bounce|complaint:<occurred-at>` provider event ids for delivery, bounce, and complaint rows, and concrete evidence references for SES identity verification, controlled send message, transactional outbox dispatch, SES delivery event, SES bounce event, SES complaint event, delivery monitoring, SNS subscription confirmation, and critical template review. Do not approve the gate from booleans alone, and rerun the production email proof when the proof is older than 30 days at launch review.
+
 Do not commit live emails, recipient addresses, provider message ids tied to private recipients, IAM keys, or SES console screenshots to the repository. Store the evidence in the approved launch record and reference it with `PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE`.
+
+Use `pnpm run marketplace:transactional-email-evidence` with the redacted production SES proof record to produce the `gates.transactionalEmail` fields for the launch evidence packet. The command fails the gate unless the proof is production-scoped, current, uses the `transactional-production` configuration set, points to the Notifications email provider webhook path on a production Chase Sets host, proves SES DNS, controlled send, outbox dispatch, SNS subscription confirmation, bounce/complaint parsing, delivery monitoring, includes provider event rows and concrete provider event ids for delivery/bounce/complaint coverage, carries the concrete evidence references above, and covers auth, orders, payments, fulfillment, refunds, support, and payouts templates.

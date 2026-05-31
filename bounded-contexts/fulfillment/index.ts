@@ -8,7 +8,7 @@ import type {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import type { FulfillmentHostPorts, FulfillmentServices } from "./support/runtime-support/services";
-import { buildFulfillmentApi } from "./api";
+import { buildFulfillmentApi, buildFulfillmentProviderWebhookApi } from "./api";
 import { createFulfillmentServices } from "./support/runtime-support/services";
 import { fulfillmentSchemaSql } from "./support/runtime-support/schema";
 import { seedFulfillmentDatabase } from "./support/runtime-support/seed";
@@ -46,7 +46,7 @@ export const module: BcApiModule<FulfillmentServices, PgTransactionalPool, Fulfi
   >["apiMounts"],
   projectionGroups,
   createServices: (pool, ports) => createFulfillmentServices(pool, ports),
-  buildApis: (services) => [buildFulfillmentApi(services)],
+  buildApis: (services) => [buildFulfillmentApi(services), buildFulfillmentProviderWebhookApi(services)],
   projectionHandlerSets: (services) => services.projectors,
   buildSubscriptions: (services) => {
     const identitySubscription = getEventSubscription("identity", "fulfillment-account-projection");

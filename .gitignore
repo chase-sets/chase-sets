@@ -51,3 +51,6 @@ desktop.ini
 !deployables/catalog-api/.env
 !deployables/identity-api/.env
 !deployables/inventory-api/.env
+
+# Private launch evidence and operator-local approval packets
+secure/

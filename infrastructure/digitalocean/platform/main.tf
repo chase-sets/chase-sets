@@ -20,6 +20,17 @@ check "api_realtime_coordination" {
   }
 }
 
+check "production_marketplace_proof" {
+  assert {
+    condition = !var.production_marketplace_proof_enabled || (
+      var.environment == "production" &&
+      length(trimspace(var.production_marketplace_proof_reference)) >= 6 &&
+      !contains(local.placeholder_evidence_references, lower(trimspace(var.production_marketplace_proof_reference)))
+    )
+    error_message = "Production marketplace proof mode requires a production environment and a real evidence-collection approval reference."
+  }
+}
+
 check "production_marketplace_promotion" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
@@ -40,10 +51,35 @@ check "production_marketplace_launch_approval" {
   assert {
     condition = !var.production_marketplace_public_enabled || (
       var.environment == "production" &&
+      trimspace(var.production_marketplace_launch_evidence_reference) != "" &&
+      length(trimspace(var.production_marketplace_launch_evidence_reference)) >= 6 &&
+      !contains(
+        ["tbd", "todo", "none", "null", "n/a", "na", "placeholder", "example", "sample", "test", "ticket", "record", "launch-000"],
+        lower(trimspace(var.production_marketplace_launch_evidence_reference))
+      ) &&
       var.production_marketplace_promotion_approved &&
       trimspace(var.production_marketplace_promotion_reference) != ""
     )
-    error_message = "Production marketplace promotion requires approved launch evidence before deploying the public marketplace."
+    error_message = "Production marketplace promotion requires approved launch evidence and a passing Marketplace Launch Evidence packet reference before deploying the public marketplace."
+  }
+}
+
+check "production_marketplace_evidence_reference_quality" {
+  assert {
+    condition = !var.production_marketplace_public_enabled || alltrue([
+      for reference in [
+        var.production_marketplace_launch_evidence_reference,
+        var.production_marketplace_promotion_reference,
+        var.production_marketplace_checkout_fee_reference,
+        var.production_stripe_money_operations_reference,
+        var.production_support_operations_reference,
+        var.production_fulfillment_postage_reference,
+        var.production_transactional_email_reference,
+        var.production_launch_supply_measurements_reference,
+        var.production_tax_readiness_reference,
+      ] : length(trimspace(reference)) >= 6 && !contains(local.placeholder_evidence_references, lower(trimspace(reference)))
+    ])
+    error_message = "Production marketplace promotion evidence references must point to real external evidence records, not placeholders."
   }
 }
 
@@ -311,7 +347,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.marketplace_platform_enabled ? [1] : []
+      for_each = local.marketplace_public_enabled ? [1] : []
       content {
         name               = "marketplace"
         run_command        = "pnpm --filter @chase-sets/app-marketplace-web run start"
@@ -500,6 +536,13 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "STRIPE_CONNECT_WEBHOOK_SECRET"
+          value = var.stripe_connect_webhook_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "STRIPE_API_BASE_URL"
           value = var.stripe_api_base_url
           scope = "RUN_TIME"
@@ -527,6 +570,13 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "EASYPOST_API_BASE_URL"
           value = var.easypost_api_base_url
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "EASYPOST_WEBHOOK_SECRET"
+          value = var.easypost_webhook_secret
+          type  = "SECRET"
           scope = "RUN_TIME"
         }
 
@@ -651,7 +701,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.marketplace_platform_enabled ? [] : [1]
+      for_each = local.marketplace_public_enabled ? [] : [1]
       content {
         name               = "admin-support-api"
         run_command        = "pnpm --filter @chase-sets/app-admin-support-api run start:production"
@@ -967,6 +1017,13 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "STRIPE_CONNECT_WEBHOOK_SECRET"
+          value = var.stripe_connect_webhook_secret
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "STRIPE_API_BASE_URL"
           value = var.stripe_api_base_url
           scope = "RUN_TIME"
@@ -1095,7 +1152,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "worker" {
-      for_each = local.marketplace_platform_enabled ? [] : [1]
+      for_each = local.marketplace_public_enabled ? [] : [1]
       content {
         name               = "admin-support-worker"
         run_command        = "pnpm --filter @chase-sets/app-admin-support-worker run start:production"
@@ -1357,7 +1414,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "job" {
-      for_each = local.marketplace_platform_enabled ? [] : [1]
+      for_each = local.marketplace_public_enabled ? [] : [1]
       content {
         name               = "admin-support-bootstrap"
         kind               = "PRE_DEPLOY"
@@ -1517,6 +1574,42 @@ resource "digitalocean_app" "platform" {
 
       dynamic "rule" {
         for_each = local.ucp_ingress_routes
+        content {
+          match {
+            authority {
+              exact = rule.value.authority
+            }
+            path {
+              prefix = rule.value.path_prefix
+            }
+          }
+          component {
+            name                 = "platform-api"
+            preserve_path_prefix = true
+          }
+        }
+      }
+
+      dynamic "rule" {
+        for_each = local.provider_webhook_ingress_routes
+        content {
+          match {
+            authority {
+              exact = rule.value.authority
+            }
+            path {
+              prefix = rule.value.path_prefix
+            }
+          }
+          component {
+            name                 = "platform-api"
+            preserve_path_prefix = true
+          }
+        }
+      }
+
+      dynamic "rule" {
+        for_each = local.proof_api_ingress_routes
         content {
           match {
             authority {

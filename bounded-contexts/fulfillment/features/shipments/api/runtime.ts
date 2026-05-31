@@ -6,7 +6,15 @@ import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-se
 import type { ProjectionCheckpointStore } from "@chase-sets/event-core/projector";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { PostageAddress, PostageLabelProvider, PostagePackage } from "@chase-sets/postage-labels";
+import {
+  createNoopPostageProviderWebhookGateway,
+  type PostageAddress,
+  type PostageLabelProvider,
+  type PostagePackage,
+  type PostageProviderWebhookEvent,
+  type PostageProviderWebhookGateway,
+  type PostageProviderWebhookInput,
+} from "@chase-sets/postage-labels";
 import {
   addressSnapshotsEqual,
   changedAddressSnapshotSide,
@@ -42,6 +50,23 @@ type ShipmentRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   postageLabelProvider?: PostageLabelProvider;
+  postageWebhookGateway?: PostageProviderWebhookGateway;
+}>;
+
+type ShipmentForPostageProviderEvent = Readonly<{
+  shipment_id: string;
+  seller_account_id: string;
+  status: string;
+  tracking_identifier: string | null;
+  postage_provider_shipment_id: string | null;
+}>;
+
+export type PostageProviderWebhookProcessingResult = Readonly<{
+  status: "ignored" | "recorded" | "duplicate";
+  providerEventId?: string;
+  eventKind?: string;
+  shipmentId?: string | null;
+  processingResult?: string;
 }>;
 
 type ReadyOrderLineSnapshot = Readonly<{
@@ -143,6 +168,10 @@ export type FulfillmentShipmentServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ shipmentId: string; version: number }>;
+  processPostageProviderWebhook: (
+    input: PostageProviderWebhookInput,
+    context: EventStoreContext,
+  ) => Promise<PostageProviderWebhookProcessingResult>;
   cancelShipmentForCancelledOrder: (params: {
     orderId: string;
     cancelledAt: string;
@@ -255,6 +284,202 @@ async function loadCancellableShipmentForOrder(
   return result.rows[0] ?? null;
 }
 
+async function findShipmentForPostageProviderEvent(
+  db: PgQueryable,
+  event: PostageProviderWebhookEvent,
+): Promise<ShipmentForPostageProviderEvent | null> {
+  const trackingIdentifier = event.trackingIdentifier?.trim() || null;
+  const providerShipmentId = event.providerShipmentId?.trim() || null;
+  if (!trackingIdentifier && !providerShipmentId) {
+    return null;
+  }
+
+  const result = await db.query<ShipmentForPostageProviderEvent>(
+    `SELECT
+       shipment_id,
+       seller_account_id,
+       status,
+       tracking_identifier,
+       postage_provider_shipment_id
+     FROM fulfillment_shipment_pages
+     WHERE ($1::text IS NOT NULL AND tracking_identifier = $1)
+        OR ($2::text IS NOT NULL AND postage_provider_shipment_id = $2)
+     ORDER BY updated_at DESC, shipment_id DESC
+     LIMIT 1`,
+    [trackingIdentifier, providerShipmentId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
+async function reservePostageProviderEvent(
+  db: PgQueryable,
+  event: PostageProviderWebhookEvent,
+  shipment: ShipmentForPostageProviderEvent | null,
+) {
+  const result = await db.query<{ provider_event_id: string }>(
+    `INSERT INTO fulfillment_postage_provider_events (
+       provider_event_id,
+       provider_name,
+       provider_mode,
+       event_kind,
+       provider_object_reference,
+       shipment_id,
+       tracking_identifier,
+       status,
+       status_detail,
+       occurred_at,
+       received_at,
+       processing_result,
+       payload_json
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::timestamptz, $11::timestamptz, 'received', $12::jsonb)
+     ON CONFLICT (provider_event_id) DO NOTHING
+     RETURNING provider_event_id`,
+    [
+      event.providerEventId,
+      event.providerName,
+      event.providerMode,
+      event.eventKind,
+      event.providerObjectReference,
+      shipment?.shipment_id ?? null,
+      event.trackingIdentifier ?? shipment?.tracking_identifier ?? null,
+      event.status ?? null,
+      event.statusDetail ?? null,
+      event.occurredAt,
+      event.receivedAt ?? new Date().toISOString(),
+      JSON.stringify(event.payload ?? {}),
+    ],
+  );
+
+  return result.rows.length > 0 || (result.rowCount ?? 0) > 0;
+}
+
+async function markPostageProviderEventProcessed(db: PgQueryable, providerEventId: string, processingResult: string) {
+  await db.query(
+    `UPDATE fulfillment_postage_provider_events
+     SET processing_result = $2
+     WHERE provider_event_id = $1`,
+    [providerEventId, processingResult],
+  );
+}
+
+async function applyPostageProviderTrackingEvent(
+  commandHandler: CommandHandler<FulfillmentShipmentCommand, FulfillmentShipmentState, FulfillmentShipmentEvent>,
+  event: PostageProviderWebhookEvent,
+  shipment: ShipmentForPostageProviderEvent,
+  context: EventStoreContext,
+) {
+  const status = (event.status ?? "").trim().toLowerCase();
+  const detail = (event.statusDetail ?? "").trim().toLowerCase();
+  const occurredAt = event.occurredAt;
+  const streamId = `fulfillment.shipment-${shipment.shipment_id}`;
+  let shipmentStatus = shipment.status;
+
+  async function dispatchIfNeeded() {
+    if (shipmentStatus !== "label-attached") {
+      return false;
+    }
+
+    await commandHandler({
+      streamId,
+      command: {
+        type: "DispatchShipment",
+        dispatchedAt: occurredAt,
+      },
+      context,
+    });
+    shipmentStatus = "dispatched";
+    return true;
+  }
+
+  if (status === "delivered") {
+    await dispatchIfNeeded();
+    if (shipmentStatus === "dispatched" || shipmentStatus === "exception") {
+      await commandHandler({
+        streamId,
+        command: {
+          type: "RecordShipmentDelivery",
+          deliveredAt: occurredAt,
+        },
+        context,
+      });
+      return "delivered";
+    }
+    return "recorded";
+  }
+
+  if (status === "return_to_sender") {
+    await dispatchIfNeeded();
+    if (shipmentStatus === "dispatched" || shipmentStatus === "exception") {
+      await commandHandler({
+        streamId,
+        command: {
+          type: "ReturnShipment",
+          reason: event.statusDetail ?? event.message ?? "Carrier marked the shipment return to sender.",
+          returnedAt: occurredAt,
+        },
+        context,
+      });
+      return "returned";
+    }
+    return "recorded";
+  }
+
+  if (status === "in_transit" || status === "out_for_delivery" || status === "available_for_pickup") {
+    return (await dispatchIfNeeded()) ? "dispatched" : "recorded";
+  }
+
+  if (isExceptionTrackingStatus(status, detail)) {
+    if (shipmentStatus === "delivered" || shipmentStatus === "returned" || shipmentStatus === "cancelled") {
+      return "recorded";
+    }
+
+    await commandHandler({
+      streamId,
+      command: {
+        type: "RaiseShipmentException",
+        exceptionType: classifyShipmentException(status, detail),
+        notes: event.statusDetail ?? event.message ?? event.status ?? null,
+        raisedAt: occurredAt,
+      },
+      context,
+    });
+    return "exception-raised";
+  }
+
+  return "recorded";
+}
+
+function isExceptionTrackingStatus(status: string, detail: string) {
+  return (
+    status === "failure" ||
+    status === "error" ||
+    detail.includes("lost") ||
+    detail.includes("damage") ||
+    detail.includes("exception") ||
+    detail.includes("unable") ||
+    detail.includes("delayed") ||
+    detail.includes("held")
+  );
+}
+
+function classifyShipmentException(status: string, detail: string) {
+  if (status === "return_to_sender" || detail.includes("return")) {
+    return "return-to-sender" as const;
+  }
+  if (detail.includes("lost")) {
+    return "lost-in-transit" as const;
+  }
+  if (detail.includes("damage")) {
+    return "damaged-package" as const;
+  }
+  if (detail.includes("delay") || detail.includes("held")) {
+    return "carrier-delay" as const;
+  }
+  return "other" as const;
+}
+
 function postageAddressFromSnapshot(address: AddressSnapshot): PostageAddress {
   return {
     name: address.name,
@@ -311,6 +536,7 @@ function postagePackageFromShippingPlan(plan: PackagePlan | null): PostagePackag
 
 export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices {
   const postageLabelProvider = deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
+  const postageWebhookGateway = deps.postageWebhookGateway ?? createNoopPostageProviderWebhookGateway();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -332,6 +558,41 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
 
   return {
     commandHandler,
+    processPostageProviderWebhook: async (input, context) => {
+      const event = await postageWebhookGateway.processPostageProviderWebhook(input);
+      if (!event) {
+        return { status: "ignored", processingResult: "ignored" };
+      }
+
+      const shipment = await findShipmentForPostageProviderEvent(deps.db, event);
+      const reserved = await reservePostageProviderEvent(deps.db, event, shipment);
+      if (!reserved) {
+        return {
+          status: "duplicate",
+          providerEventId: event.providerEventId,
+          eventKind: event.eventKind,
+          shipmentId: shipment?.shipment_id ?? null,
+          processingResult: "duplicate",
+        };
+      }
+
+      let processingResult = "recorded";
+      if (!shipment) {
+        processingResult = "unmatched";
+      } else if (event.eventKind === "tracking-status") {
+        processingResult = await applyPostageProviderTrackingEvent(commandHandler, event, shipment, context);
+      }
+
+      await markPostageProviderEventProcessed(deps.db, event.providerEventId, processingResult);
+
+      return {
+        status: "recorded",
+        providerEventId: event.providerEventId,
+        eventKind: event.eventKind,
+        shipmentId: shipment?.shipment_id ?? null,
+        processingResult,
+      };
+    },
     createShipmentForReadyOrder: async (params) => {
       const existingShipmentId = await findExistingShipmentIdForOrder(deps.db, params.orderId);
       if (existingShipmentId) {

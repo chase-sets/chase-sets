@@ -141,4 +141,27 @@ CREATE TABLE IF NOT EXISTS fulfillment_postage_label_operations (
 
 CREATE INDEX IF NOT EXISTS fulfillment_postage_label_operations_status_idx
   ON fulfillment_postage_label_operations (status, updated_at);
+
+CREATE TABLE IF NOT EXISTS fulfillment_postage_provider_events (
+  provider_event_id text PRIMARY KEY,
+  provider_name text NOT NULL,
+  provider_mode text NOT NULL,
+  event_kind text NOT NULL,
+  provider_object_reference text NOT NULL,
+  shipment_id text NULL,
+  tracking_identifier text NULL,
+  status text NULL,
+  status_detail text NULL,
+  occurred_at timestamptz NOT NULL,
+  received_at timestamptz NOT NULL,
+  processing_result text NOT NULL,
+  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS fulfillment_postage_provider_events_shipment_idx
+  ON fulfillment_postage_provider_events (shipment_id, occurred_at DESC)
+  WHERE shipment_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS fulfillment_postage_provider_events_received_idx
+  ON fulfillment_postage_provider_events (received_at DESC);
 `;

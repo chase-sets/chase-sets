@@ -272,6 +272,35 @@ export function createNoopMobileMessageWebhookGateway(): MobileMessageWebhookGat
   };
 }
 
+export type EmailProviderWebhookEventKind = "delivery" | "bounce" | "complaint";
+
+export type EmailProviderWebhookEvent = Readonly<{
+  providerEventId: string;
+  providerName: NotificationProviderName;
+  eventKind: EmailProviderWebhookEventKind;
+  providerMessageId: string;
+  recipients: readonly string[];
+  occurredAt: string;
+  receivedAt?: string;
+}>;
+
+export type EmailProviderWebhookInput = Readonly<{
+  rawBody: string;
+  contentType?: string | null;
+}>;
+
+export interface EmailWebhookGateway {
+  processEmailWebhook(input: EmailProviderWebhookInput): Promise<EmailProviderWebhookEvent | null>;
+}
+
+export function createNoopEmailWebhookGateway(): EmailWebhookGateway {
+  return {
+    async processEmailWebhook() {
+      return null;
+    },
+  };
+}
+
 export type NotificationChannelPreference = Readonly<{
   channel: NotificationChannelName;
   enabled: boolean;

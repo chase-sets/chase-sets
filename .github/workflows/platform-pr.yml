@@ -427,6 +427,7 @@ jobs:
       TF_VAR_stripe_secret_key: sk_test_pr_validation
       TF_VAR_stripe_publishable_key: pk_test_pr_validation
       TF_VAR_stripe_webhook_secret: whsec_pr_validation
+      TF_VAR_stripe_connect_webhook_secret: whsec_pr_validation
       TF_VAR_stripe_connect_return_url: https://marketplace.pr-0.preview.chasesets.com/account/payouts
       TF_VAR_stripe_connect_refresh_url: https://marketplace.pr-0.preview.chasesets.com/account/payouts/setup
       TF_VAR_easypost_api_key: EZTK_pr_validation
@@ -590,6 +591,7 @@ jobs:
       TF_VAR_stripe_secret_key: sk_test_pr_validation
       TF_VAR_stripe_publishable_key: pk_test_pr_validation
       TF_VAR_stripe_webhook_secret: whsec_pr_validation
+      TF_VAR_stripe_connect_webhook_secret: whsec_pr_validation
       TF_VAR_stripe_connect_return_url: https://marketplace.staging.chasesets.com/account/payouts
       TF_VAR_stripe_connect_refresh_url: https://marketplace.staging.chasesets.com/account/payouts/setup
       TF_VAR_easypost_api_key: EZTK_pr_validation
@@ -726,6 +728,7 @@ jobs:
           TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
           TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
           TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
@@ -748,6 +751,7 @@ jobs:
             TF_VAR_stripe_secret_key \
             TF_VAR_stripe_publishable_key \
             TF_VAR_stripe_webhook_secret \
+            TF_VAR_stripe_connect_webhook_secret \
             TF_VAR_easypost_api_key
           do
             if [ -z "${!name:-}" ]; then
@@ -863,6 +867,7 @@ jobs:
           TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
           TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
           TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
           TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
@@ -912,6 +917,7 @@ jobs:
           TF_VAR_stripe_secret_key: ${{ secrets.STRIPE_SECRET_KEY }}
           TF_VAR_stripe_publishable_key: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           TF_VAR_stripe_webhook_secret: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           TF_VAR_stripe_api_base_url: ${{ vars.STRIPE_API_BASE_URL || '' }}
           TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
           TF_VAR_easypost_api_base_url: ${{ vars.EASYPOST_API_BASE_URL || '' }}
@@ -1008,6 +1014,7 @@ jobs:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_CONNECT_RETURN_URL: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts
           STRIPE_CONNECT_REFRESH_URL: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts/setup
         run: |

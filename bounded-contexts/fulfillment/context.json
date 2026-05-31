@@ -59,6 +59,11 @@
       "portName": "postageLabelProvider",
       "providedBy": "platform-api",
       "purpose": "Supplies the configured USPS-compatible postage provider so fulfillment can purchase, void, and test labels without owning deployable environment configuration."
+    },
+    {
+      "portName": "postageWebhookGateway",
+      "providedBy": "platform-api",
+      "purpose": "Verifies and normalizes postage provider webhook payloads before fulfillment records provider events and advances shipment state."
     }
   ],
   "apiDeployables": ["platform-api"],
@@ -67,6 +72,11 @@
       "mountPath": "/api/marketplace",
       "kind": "primary",
       "requiresAuth": true
+    },
+    {
+      "mountPath": "/api/fulfillment/provider",
+      "kind": "additional",
+      "requiresAuth": false
     }
   ],
   "deployableContributions": [
