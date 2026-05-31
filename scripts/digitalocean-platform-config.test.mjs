@@ -502,7 +502,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformRepresentativeWorkflow).toContain("REPRESENTATIVE_COMMERCE_STATE_STEP_TIMEOUT_MS");
     expect(platformRepresentativeWorkflow).toContain('default: "300000"');
     expect(platformRepresentativeWorkflow).toContain("terraform state pull");
-    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_connection_pool");
+    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_cluster");
+    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_db");
+    expect(platformRepresentativeWorkflow).toContain("digitalocean_database_user");
+    expect(platformRepresentativeWorkflow).toContain("Direct database state is incomplete");
     expect(platformRepresentativeWorkflow).toContain("PLATFORM_CONTROL_DATABASE_URL");
     expect(platformRepresentativeWorkflow).toContain("DATABASE_URL_${String(contextName).toUpperCase()");
     expect(platformRepresentativeWorkflow).toContain("MARKETPLACE_LISTING_PHOTO_STORAGE_KIND: s3");

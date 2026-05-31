@@ -143,23 +143,41 @@ jobs:
           const fs = require("node:fs");
           const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
           const resources = Array.isArray(state.resources) ? state.resources : [];
-          const pool = resources.find((resource) =>
-            resource.type === "digitalocean_database_connection_pool" && resource.name === "contexts"
+          const cluster = resources.find((resource) =>
+            resource.type === "digitalocean_database_cluster" && resource.name === "postgres"
           );
-          if (!pool) {
-            throw new Error("Staging Terraform state does not contain context database connection pools.");
+          const databases = resources.find((resource) =>
+            resource.type === "digitalocean_database_db" && resource.name === "contexts"
+          );
+          const users = resources.find((resource) =>
+            resource.type === "digitalocean_database_user" && resource.name === "contexts"
+          );
+          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
+          if (!clusterAttrs.host || !clusterAttrs.port) {
+            throw new Error("Staging Terraform state does not contain a usable DigitalOcean database cluster.");
+          }
+
+          const databaseByContext = new Map(
+            (databases?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const userByContext = new Map(
+            (users?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const contextNames = [...new Set([...databaseByContext.keys(), ...userByContext.keys()])].sort();
+          if (contextNames.length === 0) {
+            throw new Error("Staging Terraform state does not contain context database users and databases.");
           }
 
           const lines = [];
-          for (const instance of pool.instances ?? []) {
-            const contextName = instance.index_key;
-            const attrs = instance.attributes ?? {};
-            if (!contextName || !attrs.user || !attrs.password || !attrs.host || !attrs.port || !attrs.name) {
-              throw new Error(`Connection pool state is incomplete for context '${contextName ?? "unknown"}'.`);
+          for (const contextName of contextNames) {
+            const database = databaseByContext.get(contextName);
+            const user = userByContext.get(contextName);
+            if (!contextName || !database?.name || !user?.name || !user?.password) {
+              throw new Error(`Direct database state is incomplete for context '${contextName ?? "unknown"}'.`);
             }
 
-            const url = `postgresql://${encodeURIComponent(attrs.user)}:${encodeURIComponent(attrs.password)}` +
-              `@${attrs.host}:${attrs.port}/${encodeURIComponent(attrs.name)}?sslmode=require`;
+            const url = `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
+              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
             const envName = contextName === "control"
               ? "PLATFORM_CONTROL_DATABASE_URL"
               : `DATABASE_URL_${String(contextName).toUpperCase().replaceAll("-", "_")}`;

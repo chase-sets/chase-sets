@@ -10,7 +10,7 @@ Do not run it as part of production deployment. The platform API command rejects
 
 ## Command
 
-The preferred staging operation is the `Platform Staging Representative Commerce State` GitHub Actions workflow. It is manually dispatched, requires the confirmation phrase, reads the live staging database connection pools from Terraform state, and runs the representative refresh command against current staging Catalog integration output. Use it after a staging reset or after a new Catalog integration import/promotion. Dispatch it with the release ref that is already deployed to staging, usually `main`. The workflow defaults each bounded refresh step to a five-minute timeout; increase the `step_timeout_ms` input only when projection backlog evidence shows a healthy catch-up path that needs more time.
+The preferred staging operation is the `Platform Staging Representative Commerce State` GitHub Actions workflow. It is manually dispatched, requires the confirmation phrase, reads the live staging database users and databases from Terraform state, and runs the representative refresh command against current staging Catalog integration output. Use it after a staging reset or after a new Catalog integration import/promotion. Dispatch it with the release ref that is already deployed to staging, usually `main`. The workflow uses direct database URLs for the operator refresh so long projection syncs are not bounded by transaction-pool connection lifetimes. It defaults each bounded refresh step to a five-minute timeout; increase the `step_timeout_ms` input only when projection backlog evidence shows a healthy catch-up path that needs more time.
 
 The platform API package owns the runtime composition command:
 
