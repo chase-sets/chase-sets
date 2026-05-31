@@ -11,3 +11,10 @@
 - Source Lag: The source-context event distance between a subscription checkpoint and the source head.
 - Applicable Lag: The estimated count of source events after the checkpoint that match a subscription's filters.
 - Attention: Any operator-facing condition that should be triaged before routine healthy rows, including failed operations, cancel-requested operations, degraded projections, blocked streams, poison events, stale snapshots, stale workers, and stale revisions.
+- Release Lock: An operator-controlled pause on automatic production promotion while an incident, maintenance window, or unsafe platform condition is active.
+- Emergency Release: An audited fix-forward or revert that may bypass an active release lock with an incident, pull request, or rollback evidence reference.
+- Feature Rollout: A Platform Operations exposure policy for a named capability, evaluated by environment and subject before an owning bounded context exposes the behavior.
+- Rollout Subject: The stable account, membership, operator, or anonymous identity used to evaluate allowlists, opt-outs, and percentage rollout.
+- Kill Switch: A Feature Rollout override that disables a capability for every subject until an operator clears it.
+- Account Allowlist: A rollout list that enables a capability for specific account subjects before or outside the percentage cohort.
+- Account Opt-Out: A rollout list that disables a capability for specific account subjects even when the percentage cohort includes them.

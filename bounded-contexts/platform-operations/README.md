@@ -5,6 +5,8 @@ Platform Operations owns internal operator workflows for cross-context platform 
 ## Owns
 
 - Projection operation console journeys
+- Release lock and emergency release workflow language
+- Feature rollout, allowlist, opt-out, and kill-switch policy
 - Platform operation UI language
 - Platform operation admin route modules
 - Platform operation API clients
@@ -17,9 +19,12 @@ Platform Operations owns internal operator workflows for cross-context platform 
 - Source-context event facts
 - Bounded-context business repair policy
 - Deployable runtime composition
+- Business-context decisions about whether a released capability should exist
 
 ## Boundary Notes
 
 Platform Operations gives staff a coherent way to inspect and act on platform runtime signals. Shared infrastructure still owns generic projection runtime behavior, while each bounded context owns the projections and read models it declares.
+
+Release controls are operator-facing platform controls, not business ownership transfers. Platform Operations owns the rollout and lock language, deterministic evaluation rules, and operator audit policy. The bounded context that owns the behavior still decides the domain invariant and calls the rollout decision only as an exposure guard.
 
 Deployables compose Platform Operations routes. They should not own page behavior, view models, workflow state, or route tests.
