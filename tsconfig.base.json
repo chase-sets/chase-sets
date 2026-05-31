@@ -225,6 +225,9 @@
       "@chase-sets/inventory/server": [
         "./bounded-contexts/inventory/server.ts"
       ],
+      "@chase-sets/local-email-capture": [
+        "./infrastructure/local-email-capture/index.ts"
+      ],
       "@chase-sets/localization": [
         "./contracts/localization/index.ts"
       ],

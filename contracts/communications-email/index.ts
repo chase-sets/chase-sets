@@ -1,7 +1,7 @@
 import type { AccountId, UserId } from "@chase-sets/primitives/typed-ids";
 
 export type TransactionalEmailChannel = "transactional";
-export type TransactionalEmailProviderName = "amazon-ses";
+export type TransactionalEmailProviderName = "amazon-ses" | "local-capture";
 export type TransactionalEmailCriticality = "security" | "commerce" | "operational";
 export type TransactionalEmailMessageType = `${string}.${string}`;
 

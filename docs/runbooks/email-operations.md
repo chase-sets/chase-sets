@@ -24,6 +24,19 @@ SES_SOURCE_ARN=<environment SES identity ARN>
 
 The worker refuses to start with `NOTIFICATION_EMAIL_PROVIDER=amazon-ses` unless all six `SES_*` values are present.
 
+## Local Development Capture
+
+Use local capture instead of `noop` when testing notification email flows on a developer machine:
+
+```env
+NOTIFICATION_EMAIL_PROVIDER=local-capture
+LOCAL_EMAIL_CAPTURE_FILE=../../artifacts/notifications/local-email-capture.jsonl
+```
+
+`local-capture` runs the same platform-worker outbox dispatch path and template renderer used before provider delivery, then appends one JSON object per rendered email to `LOCAL_EMAIL_CAPTURE_FILE`. The capture record includes recipients, message type, template id/version, subject, rendered HTML/text, idempotency key, correlation id, and a synthetic `local-capture:<id>` provider message id.
+
+Keep `noop` only for tests or composition roots where email delivery is intentionally irrelevant. `local-capture` is not a provider proof and must not satisfy staging or production transactional email readiness; shared environments still use `amazon-ses` with the SES checks below.
+
 ## Sender Credentials
 
 Create one IAM access key pair for the platform email sender, scoped to the SES identities and configuration sets used by Chase Sets. Store the key id and secret key as GitHub Environment secrets named `SES_AWS_ACCESS_KEY_ID` and `SES_AWS_SECRET_ACCESS_KEY` in `preview`, `staging`, and `production`.

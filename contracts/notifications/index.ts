@@ -4,6 +4,7 @@ export type KnownNotificationChannelName = "email" | "sms" | "rcs" | "web" | "pu
 export type NotificationChannelName = KnownNotificationChannelName | (string & {});
 export type KnownNotificationProviderName =
   | "amazon-ses"
+  | "local-capture"
   | "twilio"
   | "web-notification-feed"
   | "push-notification-service"
