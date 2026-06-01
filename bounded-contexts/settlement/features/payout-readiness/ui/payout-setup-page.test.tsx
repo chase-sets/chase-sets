@@ -1,7 +1,25 @@
+// @vitest-environment jsdom
+
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
-import { PayoutSetupPage } from "./payout-setup-page";
+
+const { mockLoadConnectAndInitialize } = vi.hoisted(() => ({
+  mockLoadConnectAndInitialize: vi.fn(),
+}));
+
+vi.mock("@stripe/connect-js/pure", () => ({
+  loadConnectAndInitialize: mockLoadConnectAndInitialize,
+}));
+
+import {
+  fetchEmbeddedClientSecret,
+  loadStripeConnectComponent,
+  PayoutSetupPage,
+  StripeConnectEmbeddedComponent,
+} from "./payout-setup-page";
 
 function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
   return {
@@ -30,6 +48,30 @@ function renderPage(row: SettlementPayoutReadinessRow, options: { providerErrorM
 }
 
 describe("payout setup page", () => {
+  let root: Root | null = null;
+  let container: HTMLDivElement | null = null;
+
+  beforeEach(() => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    vi.spyOn(console, "log").mockImplementation(() => undefined);
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root?.unmount();
+    });
+    container?.remove();
+    root = null;
+    container = null;
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    mockLoadConnectAndInitialize.mockReset();
+  });
+
   it("renders a Chase Sets setup page for accounts that have not started", () => {
     const html = renderPage(readiness());
 
@@ -101,5 +143,114 @@ describe("payout setup page", () => {
     expect(html).toContain("Setup could not load");
     expect(html).toContain("Provider session expired.");
     expect(html).toContain("Retry");
+  });
+
+  it("does not initialize the Connect runtime when setup is already ready", () => {
+    root = createRoot(container!);
+
+    act(() => {
+      root!.render(
+        <PayoutSetupPage
+          payoutReadiness={readiness({
+            status: "ready",
+            provider_reference: "acct_test",
+            onboarding_status: "complete",
+            transfer_capability_status: "active",
+            payout_capability_status: "active",
+            payout_destination_status: "ready",
+          })}
+          mode="setup"
+          stripePublishableKey="pk_test_123"
+        />,
+      );
+    });
+
+    expect(mockLoadConnectAndInitialize).not.toHaveBeenCalled();
+    expect(container!.querySelector("[data-testid='stripe-connect-embedded-component']")).toBeNull();
+  });
+
+  it("initializes the supported Connect loader only when the embedded component mounts", () => {
+    const connectElement = document.createElement("stripe-connect-account-onboarding");
+    Object.assign(connectElement, {
+      setOnLoaderStart: vi.fn(),
+      setOnLoadError: vi.fn(),
+      setOnExit: vi.fn(),
+    });
+    const create = vi.fn(() => connectElement);
+    mockLoadConnectAndInitialize.mockReturnValue({ create });
+    root = createRoot(container!);
+
+    act(() => {
+      root!.render(
+        <StripeConnectEmbeddedComponent mode="setup" publishableKey="pk_test_123" onProviderExit={vi.fn()} />,
+      );
+    });
+
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledTimes(1);
+    expect(mockLoadConnectAndInitialize).toHaveBeenCalledWith(
+      expect.objectContaining({
+        publishableKey: "pk_test_123",
+        locale: "en-US",
+        fetchClientSecret: expect.any(Function),
+      }),
+    );
+    expect(create).toHaveBeenCalledWith("account-onboarding");
+    expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(connectElement);
+    expect(container!.textContent).not.toContain("cs_test_secret");
+  });
+
+  it("requests a fresh embedded session whenever Connect asks for a client secret", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        clientSecret: "acs_test_secret",
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    loadStripeConnectComponent({ mode: "management", publishableKey: "pk_test_123" });
+    const fetchClientSecret = mockLoadConnectAndInitialize.mock.calls[0][0].fetchClientSecret;
+
+    await expect(fetchClientSecret()).resolves.toBe("acs_test_secret");
+    await expect(fetchClientSecret()).resolves.toBe("acs_test_secret");
+
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenNthCalledWith(
+      1,
+      "/api/settlement/payout-setup/account-management-embedded-session",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: "{}",
+      }),
+    );
+    expect(console.log).not.toHaveBeenCalled();
+    expect(console.info).not.toHaveBeenCalled();
+    expect(console.warn).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
+  });
+
+  it("keeps embedded client secrets transient when fetching setup sessions", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        clientSecret: "acs_setup_secret",
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+
+    await expect(fetchEmbeddedClientSecret("setup")).resolves.toBe("acs_setup_secret");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settlement/payout-setup/embedded-session",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: "{}",
+      }),
+    );
+    expect(container!.innerHTML).not.toContain("acs_setup_secret");
+    expect(console.log).not.toHaveBeenCalled();
+    expect(console.info).not.toHaveBeenCalled();
+    expect(console.warn).not.toHaveBeenCalled();
+    expect(console.error).not.toHaveBeenCalled();
   });
 });

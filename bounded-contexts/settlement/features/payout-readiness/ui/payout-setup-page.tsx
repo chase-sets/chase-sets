@@ -1,4 +1,9 @@
 import { t } from "@chase-sets/localization";
+import {
+  loadConnectAndInitialize,
+  type ConnectElementTagName,
+  type ConnectHTMLElementRecord,
+} from "@stripe/connect-js/pure";
 import { useEffect, useRef, useState } from "react";
 import {
   Badge,
@@ -19,7 +24,7 @@ import { PayoutReadinessPanel } from "./payout-readiness-panel";
 
 export type PayoutSetupMode = "setup" | "management";
 
-type StripeConnectComponentName = "account-onboarding" | "account-management";
+type StripeConnectComponentName = Extract<ConnectElementTagName, "account-onboarding" | "account-management">;
 
 type StripeConnectElement = HTMLElement & {
   setOnExit?: (callback: () => void) => void;
@@ -27,83 +32,28 @@ type StripeConnectElement = HTMLElement & {
   setOnLoaderStart?: (callback: () => void) => void;
 };
 
-type StripeConnectInstance = {
-  create(componentName: StripeConnectComponentName): StripeConnectElement;
-};
-
-type StripeConnectGlobal = {
-  init?: (options: {
-    publishableKey: string;
-    fetchClientSecret: () => Promise<string | undefined>;
-    locale?: string;
-    appearance?: Record<string, unknown>;
-  }) => StripeConnectInstance;
-  onLoad?: () => void;
-};
-
-declare global {
-  interface Window {
-    StripeConnect?: StripeConnectGlobal;
-  }
-}
-
-let stripeConnectPromise: Promise<StripeConnectGlobal> | null = null;
-
-function loadStripeConnect(): Promise<StripeConnectGlobal> {
+export function loadStripeConnectComponent({
+  mode,
+  publishableKey,
+}: {
+  mode: PayoutSetupMode;
+  publishableKey: string;
+}) {
   if (typeof window === "undefined") {
-    return Promise.reject(
-      new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser")),
-    );
+    throw new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser"));
   }
 
-  if (window.StripeConnect?.init) {
-    return Promise.resolve(window.StripeConnect);
-  }
-
-  if (!stripeConnectPromise) {
-    stripeConnectPromise = new Promise((resolve, reject) => {
-      window.StripeConnect = window.StripeConnect ?? {};
-      const previousOnLoad = window.StripeConnect.onLoad;
-      window.StripeConnect.onLoad = () => {
-        previousOnLoad?.();
-        if (window.StripeConnect?.init) {
-          resolve(window.StripeConnect);
-          return;
-        }
-
-        reject(
-          new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.loaded.without.initializer")),
-        );
-        stripeConnectPromise = null;
-      };
-
-      const existingScript = document.querySelector<HTMLScriptElement>('script[data-stripe-connect-js="true"]');
-      if (existingScript) {
-        existingScript.addEventListener("load", () => {
-          if (window.StripeConnect?.init) {
-            resolve(window.StripeConnect);
-          }
-        });
-        existingScript.addEventListener("error", () => {
-          stripeConnectPromise = null;
-          reject(new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.failed.to.load")));
-        });
-        return;
-      }
-
-      const script = document.createElement("script");
-      script.async = true;
-      script.src = "https://connect-js.stripe.com/v1.0/connect.js";
-      script.dataset.stripeConnectJs = "true";
-      script.onerror = () => {
-        stripeConnectPromise = null;
-        reject(new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.failed.to.load")));
-      };
-      document.head.appendChild(script);
-    });
-  }
-
-  return stripeConnectPromise;
+  return loadConnectAndInitialize({
+    publishableKey,
+    fetchClientSecret: () => fetchEmbeddedClientSecret(mode),
+    locale: "en-US",
+    appearance: {
+      overlays: "dialog",
+      variables: {
+        fontFamily: "inherit",
+      },
+    },
+  });
 }
 
 function embeddedEndpoint(mode: PayoutSetupMode) {
@@ -112,7 +62,7 @@ function embeddedEndpoint(mode: PayoutSetupMode) {
     : "/api/settlement/payout-setup/embedded-session";
 }
 
-async function fetchEmbeddedClientSecret(mode: PayoutSetupMode) {
+export async function fetchEmbeddedClientSecret(mode: PayoutSetupMode) {
   const response = await fetch(embeddedEndpoint(mode), {
     method: "POST",
     credentials: "include",
@@ -140,6 +90,13 @@ async function fetchEmbeddedClientSecret(mode: PayoutSetupMode) {
 
 function componentName(mode: PayoutSetupMode): StripeConnectComponentName {
   return mode === "management" ? "account-management" : "account-onboarding";
+}
+
+function createStripeConnectElement(
+  mode: PayoutSetupMode,
+  publishableKey: string,
+): ConnectHTMLElementRecord[StripeConnectComponentName] {
+  return loadStripeConnectComponent({ mode, publishableKey }).create(componentName(mode));
 }
 
 function providerPanelTitle(mode: PayoutSetupMode) {
@@ -224,26 +181,11 @@ export function StripeConnectEmbeddedComponent({
     setErrorMessage(null);
 
     const mount = async () => {
-      const stripeConnect = await loadStripeConnect();
+      const component = createStripeConnectElement(mode, publishableKey) as StripeConnectElement;
       if (cancelled || !containerRef.current) {
         return;
       }
-      if (!stripeConnect.init) {
-        throw new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.loaded.without.initializer"));
-      }
 
-      const instance = stripeConnect.init({
-        publishableKey,
-        fetchClientSecret: () => fetchEmbeddedClientSecret(mode),
-        locale: "en-US",
-        appearance: {
-          overlays: "dialog",
-          variables: {
-            fontFamily: "inherit",
-          },
-        },
-      });
-      const component = instance.create(componentName(mode));
       component.setOnLoaderStart?.(() => {
         if (!cancelled) {
           setStatus("visible");

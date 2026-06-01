@@ -1052,6 +1052,9 @@ importers:
       '@chase-sets/transactional-email-outbox':
         specifier: workspace:*
         version: link:../../infrastructure/transactional-email-outbox
+      '@stripe/connect-js':
+        specifier: 3.4.5
+        version: 3.4.5
       hono:
         specifier: ^4.12.12
         version: 4.12.18
@@ -4035,6 +4038,9 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
+  '@stripe/connect-js@3.4.5':
+    resolution: {integrity: sha512-2GZYc1pO2gYtq5rooZei483oSqeNROTD4XwnKXK8GXILvrLVJjMUCLDXi8Rmu8ojL5DWMnEOtXdnZxs8xxZecQ==}
 
   '@tailwindcss/node@4.3.0':
     resolution: {integrity: sha512-aFb4gUhFOgdh9AXo4IzBEOzBkkAxm9VigwDJnMIYv3lcfXCJVesNfbEaBl4BNgVRyid92AmdviqwBUBRKSeY3g==}
@@ -7908,6 +7914,8 @@ snapshots:
       tslib: 2.8.1
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@stripe/connect-js@3.4.5': {}
 
   '@tailwindcss/node@4.3.0':
     dependencies:

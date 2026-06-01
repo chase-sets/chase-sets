@@ -33,6 +33,7 @@
     "@chase-sets/primitives": "workspace:*",
     "@chase-sets/provider-webhook-inbox": "workspace:*",
     "@chase-sets/transactional-email-outbox": "workspace:*",
+    "@stripe/connect-js": "3.4.5",
     "hono": "^4.12.12"
   },
   "devDependencies": {
