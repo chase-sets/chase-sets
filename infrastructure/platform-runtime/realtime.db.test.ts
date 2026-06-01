@@ -77,12 +77,14 @@ describe("realtime outbox Postgres integration", () => {
   });
 
   it("records idempotent patches, indexes topics, and replays in outbox order", async () => {
+    const activeRecordedAt = new Date(Date.now() - 60_000).toISOString();
+
     await recordRealtimeProjectionPatch(pools.realtime, {
       sourceGlobalPosition: "1",
       projectionName: "discovery-market-projection",
       patchKey: "listing:list_1",
       topics: ["public:market", "listing:list_1"],
-      recordedAt: "2026-05-02T00:00:00.000Z",
+      recordedAt: activeRecordedAt,
       retentionMs: 30 * 24 * 60 * 60 * 1000,
       patch: {
         kind: "projection.patch",
@@ -104,7 +106,7 @@ describe("realtime outbox Postgres integration", () => {
       projectionName: "discovery-market-projection",
       patchKey: "listing:list_1",
       topics: ["listing:list_1"],
-      recordedAt: "2026-05-02T00:00:01.000Z",
+      recordedAt: activeRecordedAt,
       retentionMs: 30 * 24 * 60 * 60 * 1000,
       patch: {
         kind: "projection.patch",
@@ -126,7 +128,7 @@ describe("realtime outbox Postgres integration", () => {
       projectionName: "discovery-market-projection",
       patchKey: "listing:list_2",
       topics: ["listing:list_2"],
-      recordedAt: "2026-05-02T00:00:02.000Z",
+      recordedAt: activeRecordedAt,
       retentionMs: 30 * 24 * 60 * 60 * 1000,
       patch: {
         kind: "projection.patch",
