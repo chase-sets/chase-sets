@@ -31,14 +31,20 @@ export function buildReleaseHealthReport(input) {
   const records = [...input.records].sort(compareReleaseRecords);
   const timing = summarizeTimings(records);
   const slo = evaluateReleaseSloPosture(records, timing);
+  const deployableRecords = records.filter((record) => record.deploymentRequired !== false);
+  const ci = summarizeCiPosture(records);
   const summary = {
     releaseCount: records.length,
+    deployableReleaseCount: deployableRecords.length,
     successCount: records.filter((record) => record.production?.result === "success").length,
     failureCount: records.filter((record) => ["failure", "cancelled"].includes(record.production?.result)).length,
+    stagingAbortCount: deployableRecords.filter(isStagingAbort).length,
+    staleSkipCount: deployableRecords.filter(isStaleStagingSkip).length,
     emergencyCount: records.filter((record) => record.releaseMode === "emergency").length,
     lockedCount: records.filter((record) => record.releaseLock?.locked).length,
     rollbackCount: records.filter((record) => ["rollback", "fix-forward"].includes(record.recovery?.mode)).length,
     canaryAbortCount: records.filter((record) => record.canary?.result === "failure").length,
+    ci,
     timing,
     slo,
   };
@@ -52,8 +58,11 @@ export function buildReleaseHealthReport(input) {
     "## Summary",
     "",
     `- Releases: ${summary.releaseCount}`,
+    `- Deployable release attempts: ${summary.deployableReleaseCount}`,
     `- Production successes: ${summary.successCount}`,
     `- Production failures/cancellations: ${summary.failureCount}`,
+    `- Staging aborts: ${summary.stagingAbortCount}`,
+    `- Stale staging skips: ${summary.staleSkipCount}`,
     `- Emergency releases: ${summary.emergencyCount}`,
     `- Releases with lock active: ${summary.lockedCount}`,
     `- Rollback/fix-forward releases: ${summary.rollbackCount}`,
@@ -61,6 +70,33 @@ export function buildReleaseHealthReport(input) {
     `- Average queue wait: ${formatOptionalSeconds(summary.timing.averageQueueWaitSeconds)}`,
     `- Average merge to staging start: ${formatOptionalSeconds(summary.timing.averageMergeToStagingSeconds)}`,
     `- Batch-size posture: ${summary.slo.batchSizeRecommendation}`,
+    `- Batch-size reason: ${summary.slo.batchSizeReason}`,
+    "",
+    "## CI Flake Posture",
+    "",
+    `- Releases with CI telemetry: ${summary.ci.releaseCountWithTelemetry}`,
+    `- Releases affected by CI retries or flakes: ${summary.ci.affectedReleaseCount}`,
+    `- Total CI retries: ${summary.ci.retryCount}`,
+    `- Total flaky CI failures: ${summary.ci.flakyFailureCount}`,
+    "",
+    "| Job | Retries | Flaky failures |",
+    "| --- | --- | --- |",
+    ...formatCiRows(summary.ci),
+    "",
+    "## Release Process Review Checklist",
+    "",
+    "- Review staging aborts and stale skips before tuning merge queue rules.",
+    "- Increase merge queue batch size only when the SLO posture recommends `increase-to-2`.",
+    "- Keep batch size unchanged when sample size, queue timing, or CI flake data is missing or inconclusive.",
+    "- Record any developer or operator friction that is not visible in release-health artifacts.",
+    "- Open follow-up issues for recurring abort reasons, canary gaps, or rollback-readiness gaps.",
+    "",
+    "## Image Group Decision Inputs",
+    "",
+    `- Average staging duration: ${formatOptionalSeconds(summary.timing.averageStagingDurationSeconds)}`,
+    `- Average production duration: ${formatOptionalSeconds(summary.timing.averageProductionDurationSeconds)}`,
+    "- Split deployable image groups only when release-health evidence shows repeated wait, build, or rollback cost concentrated in one deployable boundary.",
+    "- Keep the shared image when the expected operator cost of another image, dashboard, rollback path, and release gate is higher than the measured release delay.",
     "",
     "## Releases",
     "",
@@ -107,14 +143,12 @@ function formatReleaseRow(record) {
 export function evaluateReleaseSloPosture(records, timing = summarizeTimings(records)) {
   const releaseCount = records.length;
   const deployedRecords = records.filter((record) => record.deploymentRequired !== false);
+  const ci = summarizeCiPosture(records);
   const productionFailureRate = rate(
     deployedRecords.filter((record) => ["failure", "cancelled"].includes(record.production?.result)).length,
     deployedRecords.length,
   );
-  const stagingFailureRate = rate(
-    deployedRecords.filter((record) => ["failure", "cancelled"].includes(record.staging?.result)).length,
-    deployedRecords.length,
-  );
+  const stagingFailureRate = rate(deployedRecords.filter(isStagingAbort).length, deployedRecords.length);
   const recoveryRate = rate(
     records.filter((record) => ["rollback", "fix-forward"].includes(record.recovery?.mode)).length,
     releaseCount,
@@ -122,8 +156,15 @@ export function evaluateReleaseSloPosture(records, timing = summarizeTimings(rec
   const canaryAbortRate = rate(records.filter((record) => record.canary?.result === "failure").length, releaseCount);
   const maxDriftCommits = Math.max(0, ...records.map((record) => record.mainToProductionDrift?.commits ?? 0));
   const p95QueueWaitSeconds = percentile(timing.queueWaitSeconds, 0.95);
+  const ciAffectedRate =
+    ci.releaseCountWithTelemetry === 0 ? null : rate(ci.affectedReleaseCount, ci.releaseCountWithTelemetry);
 
   const signals = {
+    deployableSampleSize: {
+      threshold: ">= 10 deployable attempts",
+      current: String(deployedRecords.length),
+      passes: deployedRecords.length >= 10,
+    },
     stagingFailureRate: {
       threshold: "<= 5%",
       current: formatPercent(stagingFailureRate),
@@ -147,20 +188,40 @@ export function evaluateReleaseSloPosture(records, timing = summarizeTimings(rec
     p95QueueWait: {
       threshold: "<= 30m",
       current: formatOptionalSeconds(p95QueueWaitSeconds),
-      passes: p95QueueWaitSeconds === null || p95QueueWaitSeconds <= 1800,
+      passes: p95QueueWaitSeconds !== null && p95QueueWaitSeconds <= 1800,
     },
     canaryAbortRate: {
       threshold: "<= 5%",
       current: formatPercent(canaryAbortRate),
       passes: canaryAbortRate <= 0.05,
     },
+    ciRetryOrFlakeRate: {
+      threshold: "<= 5% when telemetry is present",
+      current: ciAffectedRate === null ? "unknown" : formatPercent(ciAffectedRate),
+      passes: ciAffectedRate === null || ciAffectedRate <= 0.05,
+    },
   };
+  const hardFailure = [
+    signals.stagingFailureRate,
+    signals.productionFailureRate,
+    signals.recoveryRate,
+    signals.maxDriftCommits,
+    signals.canaryAbortRate,
+    signals.ciRetryOrFlakeRate,
+  ].some((signal) => !signal.passes);
+  const missingTuningData = !signals.deployableSampleSize.passes || !signals.p95QueueWait.passes;
   const passes = Object.values(signals).every((signal) => signal.passes);
 
   return {
     signals,
-    batchSizeRecommendation:
-      passes && releaseCount >= 10 ? "increase-cautiously" : passes ? "hold-until-more-data" : "decrease-or-hold",
+    batchSizeRecommendation: hardFailure ? "decrease-or-hold" : missingTuningData ? "hold" : "increase-to-2",
+    batchSizeReason: hardFailure
+      ? "One or more release-health signals exceeds the release process SLO threshold."
+      : missingTuningData
+        ? "At least 10 deployable attempts and known p95 queue wait are required before increasing batch size."
+        : passes
+          ? "Release-health evidence supports testing a merge queue batch size of 2."
+          : "Hold batch size until release-health evidence is complete.",
   };
 }
 
@@ -171,12 +232,22 @@ function summarizeTimings(records) {
   const mergeToStagingSeconds = records
     .map((record) => durationSeconds(record.queue?.mergedAt, record.staging?.startedAt))
     .filter((seconds) => seconds !== null);
+  const stagingDurationSeconds = records
+    .map((record) => durationSeconds(record.staging?.startedAt, record.staging?.completedAt))
+    .filter((seconds) => seconds !== null);
+  const productionDurationSeconds = records
+    .map((record) => durationSeconds(record.production?.startedAt, record.production?.completedAt))
+    .filter((seconds) => seconds !== null);
 
   return {
     queueWaitSeconds,
     mergeToStagingSeconds,
+    stagingDurationSeconds,
+    productionDurationSeconds,
     averageQueueWaitSeconds: average(queueWaitSeconds),
     averageMergeToStagingSeconds: average(mergeToStagingSeconds),
+    averageStagingDurationSeconds: average(stagingDurationSeconds),
+    averageProductionDurationSeconds: average(productionDurationSeconds),
   };
 }
 
@@ -253,6 +324,77 @@ function formatSloRows(slo) {
       .replace(/^/, "| ")
       .replace(/$/, " |"),
   );
+}
+
+function summarizeCiPosture(records) {
+  const ciRecords = records.filter((record) => record.ci && typeof record.ci === "object");
+  const jobs = new Map();
+  let retryCount = 0;
+  let flakyFailureCount = 0;
+  let affectedReleaseCount = 0;
+
+  for (const record of ciRecords) {
+    const ci = record.ci ?? {};
+    const recordRetryCount = nonNegativeInteger(ci.retryCount);
+    const recordFlakyFailureCount = nonNegativeInteger(ci.flakyFailureCount);
+    retryCount += recordRetryCount;
+    flakyFailureCount += recordFlakyFailureCount;
+    if (recordRetryCount > 0 || recordFlakyFailureCount > 0) {
+      affectedReleaseCount += 1;
+    }
+
+    for (const job of Array.isArray(ci.topFlakyJobs) ? ci.topFlakyJobs : []) {
+      const name = typeof job.name === "string" && job.name.trim() ? job.name.trim() : "unknown";
+      const previous = jobs.get(name) ?? { name, retryCount: 0, flakyFailureCount: 0 };
+      previous.retryCount += nonNegativeInteger(job.retryCount);
+      previous.flakyFailureCount += nonNegativeInteger(job.flakyFailureCount);
+      jobs.set(name, previous);
+    }
+  }
+
+  const topFlakyJobs = [...jobs.values()]
+    .sort((a, b) => b.retryCount + b.flakyFailureCount - (a.retryCount + a.flakyFailureCount))
+    .slice(0, 5);
+
+  return {
+    releaseCountWithTelemetry: ciRecords.length,
+    affectedReleaseCount,
+    retryCount,
+    flakyFailureCount,
+    topFlakyJobs,
+  };
+}
+
+function formatCiRows(ci) {
+  if (ci.topFlakyJobs.length === 0) {
+    return ["| none | 0 | 0 |"];
+  }
+  return ci.topFlakyJobs.map((job) =>
+    [job.name, String(job.retryCount), String(job.flakyFailureCount)]
+      .map(escapeMarkdownCell)
+      .join(" | ")
+      .replace(/^/, "| ")
+      .replace(/$/, " |"),
+  );
+}
+
+function isStagingAbort(record) {
+  return (
+    ["failure", "cancelled"].includes(record.staging?.result) ||
+    (record.attempt?.phase === "staging" && ["failure", "cancelled"].includes(record.attempt?.result))
+  );
+}
+
+function isStaleStagingSkip(record) {
+  return (
+    record.attempt?.phase === "staging" &&
+    record.staging?.result === "skipped" &&
+    ["stale-release", "staging-not-deployed"].includes(record.attempt?.reason)
+  );
+}
+
+function nonNegativeInteger(value) {
+  return Number.isInteger(value) && value > 0 ? value : 0;
 }
 
 function average(values) {

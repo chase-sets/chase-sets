@@ -759,6 +759,158 @@ jobs:
         if: steps.latest_main.outputs.should_deploy != 'false'
         run: echo "completed_at=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
 
+  record-staging-release-health:
+    name: Record Staging Release Health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    needs:
+      - resolve-release
+      - deploy-staging
+    if: always() && needs.resolve-release.outputs.deployment_required == 'true' && needs.deploy-staging.outputs.deployed != 'true'
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Check out release commit
+        run: |
+          set -euo pipefail
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          git checkout --detach "$release_commit"
+
+      - name: Resolve staging release health metadata
+        id: release_health_metadata
+        env:
+          SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.created_at || '' }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          release_commit="${{ needs.resolve-release.outputs.release_commit }}"
+          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          committed_at="$(git show -s --format=%cI "$release_commit")"
+          if ! node ./scripts/release-health-github-metadata.mjs \
+            --repository "${{ github.repository }}" \
+            --release-commit "$release_commit" \
+            --source-workflow-created-at "${SOURCE_WORKFLOW_CREATED_AT:-}" \
+            --format github-output >> "$GITHUB_OUTPUT"; then
+            echo "GitHub release-health metadata was unavailable; writing deterministic fallbacks." >&2
+            {
+              echo "pr_number="
+              echo "pr_opened_at="
+              echo "pr_ready_for_review_at="
+              echo "pr_approved_at="
+              echo "queue_queued_at=${SOURCE_WORKFLOW_CREATED_AT:-}"
+              echo "queue_merge_group_started_at="
+              echo "queue_merged_at=${committed_at}"
+              echo "queue_dequeued_at="
+              echo "queue_failure_reason="
+              echo "merge_sha=${release_commit}"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+          git fetch origin production || true
+          drift_commits=0
+          drift_seconds=0
+          if git show-ref --verify --quiet refs/remotes/origin/production; then
+            drift_commits="$(git rev-list --count "origin/production..${release_commit}" 2>/dev/null || printf '0')"
+            release_epoch="$(git show -s --format=%ct "$release_commit")"
+            production_epoch="$(git show -s --format=%ct origin/production)"
+            if [ "$release_epoch" -gt "$production_epoch" ]; then
+              drift_seconds=$((release_epoch - production_epoch))
+            fi
+          fi
+
+          {
+            echo "completed_at=${completed_at}"
+            echo "committed_at=${committed_at}"
+            echo "drift_commits=${drift_commits}"
+            echo "drift_seconds=${drift_seconds}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve staging CI retry metadata
+        id: ci_metadata
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! node ./scripts/release-health-ci-metadata.mjs \
+            --repository "${{ github.repository }}" \
+            --release-commit "${{ needs.resolve-release.outputs.release_commit }}" \
+            --format github-output >> "$GITHUB_OUTPUT"; then
+            {
+              echo "ci_retry_count=0"
+              echo "ci_flaky_failure_count=0"
+              echo "ci_top_flaky_jobs=[]"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write staging release health summary
+        env:
+          RELEASE_HEALTH_OUT: artifacts/release-health/staging-release.json
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          RELEASE_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency' || 'normal' }}
+          PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}
+          PR_READY_FOR_REVIEW_AT: ${{ steps.release_health_metadata.outputs.pr_ready_for_review_at }}
+          PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}
+          QUEUE_BATCH_SIZE: "1"
+          QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}
+          QUEUE_MERGE_GROUP_STARTED_AT: ${{ steps.release_health_metadata.outputs.queue_merge_group_started_at }}
+          QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}
+          QUEUE_DEQUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_dequeued_at }}
+          QUEUE_FAILURE_REASON: ${{ steps.release_health_metadata.outputs.queue_failure_reason }}
+          MERGE_SHA: ${{ steps.release_health_metadata.outputs.merge_sha }}
+          RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}
+          RELEASE_CATEGORY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency-recovery' || needs.resolve-release.outputs.exposure_posture_changed == 'true' && 'exposure-posture-change' || 'ordinary-deploy' }}
+          EXPOSURE_POSTURE_CATEGORIES: ${{ needs.resolve-release.outputs.exposure_posture_categories }}
+          DEPLOYMENT_REQUIRED: ${{ needs.resolve-release.outputs.deployment_required }}
+          STAGING_JOB_RESULT: ${{ needs.deploy-staging.result }}
+          STAGING_DEPLOYED: ${{ needs.deploy-staging.outputs.deployed }}
+          STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
+          STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
+          CANARY_RESULT: skipped
+          CANARY_COHORT_SUBJECT_TYPE: operator
+          CANARY_COHORT_SIZE: "0"
+          CANARY_PROMOTION_DECISION: skipped
+          PRODUCTION_RESULT: skipped
+          PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
+          CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}
+          CI_FLAKY_FAILURE_COUNT: ${{ steps.ci_metadata.outputs.ci_flaky_failure_count }}
+          CI_TOP_FLAKY_JOBS: ${{ steps.ci_metadata.outputs.ci_top_flaky_jobs }}
+          MAIN_TO_PRODUCTION_DRIFT_COMMITS: ${{ steps.release_health_metadata.outputs.drift_commits }}
+          MAIN_TO_PRODUCTION_DRIFT_SECONDS: ${{ steps.release_health_metadata.outputs.drift_seconds }}
+          EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
+          RECOVERY_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'fix-forward' || 'none' }}
+          RECOVERY_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}
+          ROLLBACK_READINESS_RESULT: unknown
+        run: |
+          set -euo pipefail
+          staging_result="${STAGING_JOB_RESULT:-unknown}"
+          attempt_reason="staging-${staging_result}"
+          if [ "${STAGING_DEPLOYED:-}" = "true" ]; then
+            staging_result="success"
+            attempt_reason="staging-deployed"
+          elif [ "$staging_result" = "success" ]; then
+            staging_result="skipped"
+            attempt_reason="staging-not-deployed"
+          fi
+
+          export STAGING_RESULT="$staging_result"
+          export CANARY_SKIPPED_REASON="$attempt_reason"
+          export RELEASE_ATTEMPT_RESULT="$staging_result"
+          export RELEASE_ATTEMPT_PHASE="staging"
+          export RELEASE_ATTEMPT_REASON="$attempt_reason"
+          export RELEASE_ATTEMPT_WORKFLOW_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}"
+
+          node ./scripts/release-health.mjs
+
+      - name: Upload staging release health summary
+        uses: actions/upload-artifact@v7
+        with:
+          name: staging-release-health
+          path: artifacts/release-health/staging-release.json
+          if-no-files-found: error
+          retention-days: 30
+
   deploy-production:
     name: Deploy Production
     runs-on: ubuntu-latest
@@ -1441,6 +1593,24 @@ jobs:
             echo "drift_seconds=${drift_seconds}"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Resolve CI retry metadata
+        id: ci_metadata
+        if: always() && steps.latest_main.outputs.should_deploy != 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! node ./scripts/release-health-ci-metadata.mjs \
+            --repository "${{ github.repository }}" \
+            --release-commit "${{ needs.resolve-release.outputs.release_commit }}" \
+            --format github-output >> "$GITHUB_OUTPUT"; then
+            {
+              echo "ci_retry_count=0"
+              echo "ci_flaky_failure_count=0"
+              echo "ci_top_flaky_jobs=[]"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Write release health summary
         if: always() && steps.latest_main.outputs.should_deploy != 'false'
         env:
@@ -1474,6 +1644,13 @@ jobs:
           PRODUCTION_RESULT: ${{ job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
+          RELEASE_ATTEMPT_RESULT: ${{ job.status }}
+          RELEASE_ATTEMPT_PHASE: production
+          RELEASE_ATTEMPT_REASON: production-release
+          RELEASE_ATTEMPT_WORKFLOW_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}
+          CI_FLAKY_FAILURE_COUNT: ${{ steps.ci_metadata.outputs.ci_flaky_failure_count }}
+          CI_TOP_FLAKY_JOBS: ${{ steps.ci_metadata.outputs.ci_top_flaky_jobs }}
           MAIN_TO_PRODUCTION_DRIFT_COMMITS: ${{ steps.release_health_metadata.outputs.drift_commits }}
           MAIN_TO_PRODUCTION_DRIFT_SECONDS: ${{ steps.release_health_metadata.outputs.drift_seconds }}
           EMERGENCY_RELEASE_REFERENCE: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_reference || '' }}

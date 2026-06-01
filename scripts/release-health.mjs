@@ -55,6 +55,22 @@ export function parseReleaseHealthArgs(argv, env = process.env) {
     productionStartedAt: readOption(argv, "--production-started-at") ?? readEnv("PRODUCTION_STARTED_AT", env) ?? null,
     productionCompletedAt:
       readOption(argv, "--production-completed-at") ?? readEnv("PRODUCTION_COMPLETED_AT", env) ?? null,
+    releaseAttemptResult:
+      readOption(argv, "--release-attempt-result") ?? readEnv("RELEASE_ATTEMPT_RESULT", env) ?? null,
+    releaseAttemptPhase: readOption(argv, "--release-attempt-phase") ?? readEnv("RELEASE_ATTEMPT_PHASE", env) ?? null,
+    releaseAttemptReason:
+      readOption(argv, "--release-attempt-reason") ?? readEnv("RELEASE_ATTEMPT_REASON", env) ?? null,
+    releaseAttemptWorkflowUrl:
+      readOption(argv, "--release-attempt-workflow-url") ?? readEnv("RELEASE_ATTEMPT_WORKFLOW_URL", env) ?? null,
+    ciRetryCount: normalizeOptionalInteger(
+      readOption(argv, "--ci-retry-count") ?? readEnv("CI_RETRY_COUNT", env),
+      "CI_RETRY_COUNT",
+    ),
+    ciFlakyFailureCount: normalizeOptionalInteger(
+      readOption(argv, "--ci-flaky-failure-count") ?? readEnv("CI_FLAKY_FAILURE_COUNT", env),
+      "CI_FLAKY_FAILURE_COUNT",
+    ),
+    ciTopFlakyJobs: parseJsonList(readOption(argv, "--ci-top-flaky-jobs") ?? readEnv("CI_TOP_FLAKY_JOBS", env) ?? "[]"),
     mainToProductionDriftCommits: normalizeInteger(
       readOption(argv, "--main-to-production-drift-commits") ?? readEnv("MAIN_TO_PRODUCTION_DRIFT_COMMITS", env) ?? "0",
       "MAIN_TO_PRODUCTION_DRIFT_COMMITS",
@@ -122,6 +138,12 @@ export function buildReleaseHealthRecord(input) {
   }
   if (isNonEmptyString(input.recoveryTargetCommit) && !isCommitSha(input.recoveryTargetCommit)) {
     errors.push("recoveryTargetCommit must be a 40-character Git commit SHA when provided.");
+  }
+  if (
+    isNonEmptyString(input.releaseAttemptPhase) &&
+    !["queue", "staging", "canary", "production", "review"].includes(input.releaseAttemptPhase.trim())
+  ) {
+    errors.push("releaseAttemptPhase must be queue, staging, canary, production, or review when provided.");
   }
 
   const record = {
@@ -194,6 +216,32 @@ export function buildReleaseHealthRecord(input) {
       rollbackReadinessResult: normalizeResult(input.rollbackReadinessResult),
     },
   };
+
+  if (
+    isNonEmptyString(input.releaseAttemptResult) ||
+    isNonEmptyString(input.releaseAttemptPhase) ||
+    isNonEmptyString(input.releaseAttemptReason) ||
+    isNonEmptyString(input.releaseAttemptWorkflowUrl)
+  ) {
+    record.attempt = {
+      result: normalizeResult(input.releaseAttemptResult),
+      phase: emptyToNull(input.releaseAttemptPhase),
+      reason: emptyToNull(input.releaseAttemptReason),
+      workflowUrl: emptyToNull(input.releaseAttemptWorkflowUrl),
+    };
+  }
+
+  if (
+    Number.isInteger(input.ciRetryCount) ||
+    Number.isInteger(input.ciFlakyFailureCount) ||
+    (Array.isArray(input.ciTopFlakyJobs) && input.ciTopFlakyJobs.length > 0)
+  ) {
+    record.ci = {
+      retryCount: input.ciRetryCount ?? 0,
+      flakyFailureCount: input.ciFlakyFailureCount ?? 0,
+      topFlakyJobs: normalizeTopFlakyJobs(input.ciTopFlakyJobs),
+    };
+  }
 
   return {
     record,
@@ -287,6 +335,26 @@ function parseCategoryList(value) {
     .map((entry) => entry.trim())
     .filter(Boolean)
     .sort();
+}
+
+function parseJsonList(value) {
+  if (!isNonEmptyString(value)) {
+    return [];
+  }
+  const parsed = JSON.parse(value);
+  if (!Array.isArray(parsed)) {
+    throw new Error("JSON list input must be an array.");
+  }
+  return parsed;
+}
+
+function normalizeTopFlakyJobs(value) {
+  return (Array.isArray(value) ? value : []).map((job) => ({
+    name: isNonEmptyString(job?.name) ? job.name.trim() : "unknown",
+    retryCount: Number.isInteger(job?.retryCount) && job.retryCount > 0 ? job.retryCount : 0,
+    flakyFailureCount:
+      Number.isInteger(job?.flakyFailureCount) && job.flakyFailureCount > 0 ? job.flakyFailureCount : 0,
+  }));
 }
 
 function validateOptionalIsoInstant(name, value, errors) {

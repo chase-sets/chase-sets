@@ -159,16 +159,31 @@ pnpm run canary:evidence -- --release-commit <40-char-sha> --observation-window-
 Generate canary evidence from production Prometheus snapshots with:
 
 ```powershell
-pnpm run canary:evidence -- --release-commit <40-char-sha> --observation-window-seconds 300 --prometheus-base-url https://<prometheus-host> --prometheus-query-file .\config\release\canary-prometheus-queries.json --out .\artifacts\release-health\canary-analysis.json
+pnpm run canary:evidence -- --release-commit <40-char-sha> --observation-window-seconds 300 --prometheus-base-url https://<prometheus-host> --prometheus-query-file .\bounded-contexts\platform-operations\features\release-dashboard\read-model\canary-prometheus-queries.json --out .\artifacts\release-health\canary-analysis.json
 ```
 
 The production deployment workflow runs the same collector before advancing the `production` marker when `CANARY_PROMETHEUS_URL` and `CANARY_PROMETHEUS_QUERY_FILE` repository variables are configured. The query file maps canary signal names to `baselineQuery`, `canaryQuery`, `owner`, and `maxIncrease`. Keep the workflow variables unset until production telemetry sources exist for every required signal that should gate promotion.
 
 The collector writes `schemaVersion: "canary-analysis/v1"`, a concrete `releaseCommit`, an `observationWindowSeconds`, and a `signals` array. Each signal includes `name`, `owner`, `source`, `currentState`, and either `status: "pass"` or numeric `baseline`, `canary`, and `maxIncrease` values. Required signals fail closed when telemetry is missing or above threshold; optional signals set `required: false`. Unsupported sources must be recorded as `status: "missing"`, never as pass.
 
+The Platform Operations-owned Prometheus query contract is `bounded-contexts/platform-operations/features/release-dashboard/read-model/canary-prometheus-queries.json`. Do not point `CANARY_PROMETHEUS_QUERY_FILE` at a different path unless the replacement includes the same owner, source, baseline query, canary query, and threshold metadata for every required signal.
+
+Canary ownership starts with this matrix:
+
+| Signal | Owner | Source | Failure action |
+| --- | --- | --- | --- |
+| `app-platform-deployment-phase` | `infrastructure/deployment-workflow` | DigitalOcean App Platform deployment phase gauge | Abort promotion and inspect the App Platform deployment. |
+| `route-error-rate` | `platform-runtime/route-owner` | HTTP 5xx rate by route, host, and release cohort | Abort promotion and compare route-level errors against the stable cohort. |
+| `route-latency-p95` | `platform-runtime/route-owner` | HTTP latency histogram by route, host, and release cohort | Hold promotion until latency source and threshold are understood. |
+| `checkout-order-payment-errors` | `checkout/ordering/payments` | Checkout command, order, payment, and provider-health counters | Abort promotion and page the owning bounded context before exposing traffic. |
+
+Signals whose `currentState` is `needs-instrumentation` must remain unset in production gating until telemetry is live. They can appear in dry-run canary evidence, but they must fail closed or stay optional; they must not silently pass.
+
 ## Release Health Metrics
 
-Every deployable release should produce a structured release-health record keyed by release commit and workflow run.
+Every deployable release attempt should produce a structured release-health record keyed by release commit and workflow run. Production releases write `production-release.json`; staging failures, cancellations, and stale automatic skips write `staging-release.json` before production starts.
+
+PRs get a lightweight Release Status summary after `PR Required` evaluates. The summary explains whether the change is deployable, whether preview was required, whether exposure posture changed, and whether GitHub merge queue is ready. This is informational only; GitHub native merge queue remains the admission and ordering mechanism.
 
 Minimum schema:
 
@@ -204,6 +219,17 @@ Minimum schema:
     "promotionDecision": "promote|abort|hold|skipped|null"
   },
   "production": { "startedAt": "<iso>", "completedAt": "<iso>", "result": "success|failure|skipped" },
+  "attempt": {
+    "result": "success|failure|cancelled|skipped|unknown",
+    "phase": "queue|staging|canary|production|review",
+    "reason": "<string|null>",
+    "workflowUrl": "<github-actions-run-url|null>"
+  },
+  "ci": {
+    "retryCount": 0,
+    "flakyFailureCount": 0,
+    "topFlakyJobs": [{ "name": "verify:static", "retryCount": 0, "flakyFailureCount": 0 }]
+  },
   "releaseLock": { "locked": false, "bypassed": false, "reference": null },
   "verification": {
     "platformSmoke": "success|failure|skipped",
@@ -237,7 +263,11 @@ Track these measures from the records:
 
 Use GitHub Actions summaries and artifacts first. Emit the same events to observability after production telemetry has stable cardinality limits.
 
-Production release-health metadata is resolved from GitHub API evidence. The production workflow records the pull request open time, ready-for-review time, last approval time, merge queue entry time, merge-group workflow start time, merge time, dequeue failure when present, and final merge SHA. If GitHub metadata is temporarily unavailable, the workflow writes deterministic fallbacks and leaves unknown fields empty rather than blocking production recovery.
+Release-health metadata is resolved from GitHub API evidence. The production workflow records the pull request open time, ready-for-review time, last approval time, merge queue entry time, merge-group workflow start time, merge time, dequeue failure when present, and final merge SHA. If GitHub metadata is temporarily unavailable, the workflow writes deterministic fallbacks and leaves unknown fields empty rather than blocking production recovery.
+
+Staging abort records are release evidence, not production releases. Treat `attempt.phase: "staging"` with `attempt.result: "failure"` or `"cancelled"` as an abort that must be reviewed before queue tuning. Treat `attempt.reason: "staging-not-deployed"` as a stale skip; it should not count as a production failure, but repeated stale skips are a signal that deployment cadence and queue latency need review.
+
+CI retry posture is resolved from GitHub Actions workflow runs for the release commit. `run_attempt > 1` contributes to `ci.retryCount`; retried runs that eventually pass contribute to `ci.flakyFailureCount`. The release-health report lists the top flaky workflow names and blocks batch-size increase when CI retry/flake rate is unhealthy.
 
 Build a Markdown dashboard from release-health artifacts with:
 
@@ -255,8 +285,11 @@ The report includes SLO posture for cautious merge-queue batch tuning. Initial t
 | Main-to-production drift | `<= 3 commits` |
 | p95 queue wait | `<= 30m` |
 | Canary abort rate | `<= 5%` |
+| CI retry or flake rate | `<= 5%` when telemetry is present |
 
-Increase deployable batch size only when all thresholds pass and there are at least 10 recent deployable release records. If any threshold fails, decrease or hold batch size until the cause is understood.
+Increase deployable batch size only when all thresholds pass, p95 queue wait is known, and there are at least 10 recent deployable release attempts. The report returns `increase-to-2`, `hold`, or `decrease-or-hold`; do not mutate repository merge queue rules automatically from the report. If any threshold fails, decrease or hold batch size until the cause is understood.
+
+The same report includes a release process review checklist and image group decision inputs. Keep the shared platform image unless release-health data repeatedly shows that one deployable boundary causes disproportionate queue wait, staging duration, production duration, rollback cost, or operator recovery effort. A split image group must come with its own owner, dashboard, production marker, rollback path, and release-health gate before it reduces risk.
 
 Operators can inspect the current read-only release dashboard in the admin console at `/operations/release-dashboard`. The dashboard combines release-lock state, `main` and `production` marker SHAs, latest PR/deploy result fields, latest release-health summary, canary decision, and links to GitHub runs or the production marker. The server runtime reads GitHub refs and workflow runs when `GITHUB_TOKEN` or `RELEASE_DASHBOARD_GITHUB_TOKEN` is available, and falls back to explicit `RELEASE_DASHBOARD_*` environment values and release-health JSON when GitHub is unavailable.
 
@@ -317,6 +350,22 @@ Initial candidate guarded capabilities:
 - postage provider label purchase by operator-controlled accounts
 
 Abort an account canary by setting `killSwitchActive=true` for the feature policy. Remove a canary subject by deleting it from `allowSubjects`; opt-out a subject with `optOutSubjects` when the percentage cohort would otherwise include them. Do not expand `percentage` above `0` until release-health and canary-analysis evidence is green for the allowlisted account cohort.
+
+Generate deterministic account canary evidence before any percentage rollout:
+
+```powershell
+pnpm run account-canary:evidence -- --policy-file .\artifacts\release-health\feature-policy.json --feature-key marketplace.public-seller-proof --release-commit <40-char-sha> --account account:acct_canary --out .\artifacts\release-health\account-canary.json
+```
+
+The account canary evidence requires:
+
+- every canary subject is an `account:<id>` subject
+- every canary subject is explicitly allowlisted
+- `percentage` remains `0`
+- `killSwitchActive` is false
+- no canary subject is in `optOutSubjects`
+
+The output includes `releaseHealth.canaryCohortSubjectType`, `releaseHealth.canaryCohortSize`, and `releaseHealth.canaryPromotionDecision` so the same cohort and decision can be copied into the release-health artifact. Any blocker returns `promotionDecision: "abort"` and should be handled with the kill switch or allowlist/opt-out policy before exposing more traffic.
 
 ## Production Gate Categories
 
