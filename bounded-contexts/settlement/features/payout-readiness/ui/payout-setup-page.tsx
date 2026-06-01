@@ -18,8 +18,10 @@ import {
   ProgressiveDisclosure,
   Stack,
   Text,
+  UiInline,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
+import { buildMissingRequirementGroups, type MissingRequirementGroup } from "../domain/setup-progress";
 import { PayoutReadinessPanel } from "./payout-readiness-panel";
 
 export type PayoutSetupMode = "setup" | "management";
@@ -154,6 +156,19 @@ function modeHref(mode: PayoutSetupMode) {
   return mode === "management" ? "/account/payouts/setup?mode=manage" : "/account/payouts/setup";
 }
 
+function requirementGroupLabel(group: MissingRequirementGroup) {
+  switch (group.id) {
+    case "payout-account":
+      return t("settlement.features.payoutReadiness.ui.payoutSetupPage.payout.account");
+    case "identity-and-business":
+      return t("settlement.features.payoutReadiness.ui.payoutSetupPage.identity.and.business.details");
+    case "account-agreement":
+      return t("settlement.features.payoutReadiness.ui.payoutSetupPage.account.agreement");
+    default:
+      return t("settlement.features.payoutReadiness.ui.payoutSetupPage.verification.review");
+  }
+}
+
 export function StripeConnectEmbeddedComponent({
   mode,
   publishableKey,
@@ -233,11 +248,18 @@ export function StripeConnectEmbeddedComponent({
         <Banner
           tone="warning"
           title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.could.not.load")}
-          description={errorMessage}
+          description={
+            errorMessage ?? t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.session.may.have.expired")
+          }
           actions={
-            <Button type="button" tone="secondary" onClick={() => setRetryCount((value) => value + 1)}>
-              {t("settlement.features.payoutReadiness.ui.payoutSetupPage.retry")}
-            </Button>
+            <UiInline>
+              <Button type="button" tone="secondary" onClick={() => setRetryCount((value) => value + 1)}>
+                {t("settlement.features.payoutReadiness.ui.payoutSetupPage.retry")}
+              </Button>
+              <LinkButton href="/account/support" tone="secondary">
+                {t("settlement.features.payoutReadiness.ui.payoutSetupPage.contact.support")}
+              </LinkButton>
+            </UiInline>
           }
         />
       ) : null}
@@ -263,7 +285,10 @@ export function PayoutSetupPage({
 }) {
   const hasProviderAccount = Boolean(payoutReadiness.provider_reference);
   const canRenderProviderComponent = mode === "setup" ? payoutReadiness.status !== "ready" : hasProviderAccount;
-  const missingRequirementCount = payoutReadiness.missing_requirements.length;
+  const missingRequirementGroups = buildMissingRequirementGroups(payoutReadiness.missing_requirements);
+  const missingRequirementCount = missingRequirementGroups.reduce((count, group) => count + group.count, 0);
+  const showSupportEscalation =
+    payoutReadiness.status === "restricted" || providerErrorMessage !== null || missingRequirementCount > 0;
 
   return (
     <Page>
@@ -310,6 +335,7 @@ export function PayoutSetupPage({
               readyDescription={t(
                 "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup.is.complete.and.available",
               )}
+              showSupportEscalation={showSupportEscalation}
             />
             {missingRequirementCount > 0 ? (
               <ProgressiveDisclosure
@@ -320,9 +346,12 @@ export function PayoutSetupPage({
                 tone="info"
               >
                 <Stack gap={1}>
-                  {payoutReadiness.missing_requirements.map((requirement) => (
-                    <Text key={requirement} size="sm" tone="secondary">
-                      {requirement}
+                  {missingRequirementGroups.map((group) => (
+                    <Text key={group.id} size="sm" tone="secondary">
+                      {requirementGroupLabel(group)}:{" "}
+                      {t("settlement.features.payoutReadiness.ui.payoutSetupPage.requirement.group.count", {
+                        count: String(group.count),
+                      })}
                     </Text>
                   ))}
                 </Stack>
@@ -346,11 +375,18 @@ export function PayoutSetupPage({
               <Banner
                 tone="warning"
                 title={t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.could.not.load")}
-                description={providerErrorMessage}
+                description={t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.load.failed.with.reason", {
+                  reason: providerErrorMessage,
+                })}
                 actions={
-                  <LinkButton href={modeHref(mode)} tone="secondary">
-                    {t("settlement.features.payoutReadiness.ui.payoutSetupPage.retry")}
-                  </LinkButton>
+                  <UiInline>
+                    <LinkButton href={modeHref(mode)} tone="secondary">
+                      {t("settlement.features.payoutReadiness.ui.payoutSetupPage.retry")}
+                    </LinkButton>
+                    <LinkButton href="/account/support" tone="secondary">
+                      {t("settlement.features.payoutReadiness.ui.payoutSetupPage.contact.support")}
+                    </LinkButton>
+                  </UiInline>
                 }
               />
             ) : null}

@@ -115,10 +115,12 @@ describe("payout setup page", () => {
       }),
     );
 
-    expect(html).toContain("Identity details");
+    expect(html).toContain("Identity and business details");
     expect(html).toContain("Payout account");
     expect(html).toContain("Support details");
-    expect(html).toContain("individual.verification.document");
+    expect(html).toContain("Contact support");
+    expect(html).not.toContain("individual.verification.document");
+    expect(html).not.toContain("external_account");
   });
 
   it("renders the ready state without mounting setup by default", () => {
@@ -147,6 +149,8 @@ describe("payout setup page", () => {
     expect(html).toContain("Setup could not load");
     expect(html).toContain("Provider session expired.");
     expect(html).toContain("Retry");
+    expect(html).toContain("Contact support");
+    expect(html).toContain("The setup session may have expired");
   });
 
   it("does not initialize the Connect runtime when setup is already ready", () => {
