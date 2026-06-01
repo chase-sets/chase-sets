@@ -26,6 +26,8 @@ Relevant Stripe documentation:
 
 Chase Sets will migrate payout accounts to a custom embedded Connect account experience.
 
+Chase Sets chooses Stripe embedded components over full raw API onboarding because the product needs a Chase Sets-owned account workflow, not a Chase Sets-owned verification system. Embedded components keep the account operator in Chase Sets while Stripe continues to render localized requirement collection, verification validation, document upload, service-agreement presentation, and payout destination handling. Full raw API onboarding would add materially more compliance, localization, validation, support, and data-handling responsibility without improving the core marketplace payout workflow.
+
 Target Stripe connected account configuration:
 
 - Accounts are created and managed through Stripe Accounts v2.
@@ -68,6 +70,13 @@ Migration sequencing:
 - Existing Express-dashboard accounts remain supported until a migration issue defines whether they can be updated in place, must be recreated, or need a mixed-mode bridge.
 - The runtime adapter must not switch default account creation to `dashboard: "none"` until preview or staging can create a test payout account, render embedded onboarding, refresh readiness through webhooks and polling, and run a payout smoke path without hosted Account Links.
 - Hosted onboarding and Express login links may remain in code behind compatibility paths during migration, but new account-facing product copy should use `payout setup` and `payout account management`, not Express-dashboard terminology.
+
+Rollback strategy:
+
+- Before cutover, keep hosted Account Links and Express login links available only as compatibility paths for accounts that still require them.
+- If embedded setup fails in preview or staging, keep default account creation on `dashboard: "express"` and continue using the hosted setup routes while fixing Account Sessions, CSP, or webhook handling.
+- If embedded setup fails after a limited production rollout, disable creation of new `dashboard: "none"` payout accounts, keep webhook processing and reconciliation online, and route affected accounts through the compatibility path or support-led recovery defined by the migration issue.
+- Do not roll back by mutating ledger entries, payout release rules, wallet balances, payment charge strategy, or provider webhook storage. The fallback is account setup surface selection, not money movement semantics.
 
 ## Consequences
 
