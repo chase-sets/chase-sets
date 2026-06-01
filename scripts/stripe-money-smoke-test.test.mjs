@@ -84,6 +84,12 @@ function createSmokeFetch(calls) {
     if (path === "/api/settlement/payouts/platform-balance-forecast") {
       return jsonResponse({ currency_code: "usd", available_amount: "100.00" });
     }
+    if (path === "/account/payouts/setup") {
+      return new Response("<html><body>Payout setup</body></html>", {
+        status: 200,
+        headers: { "Content-Type": "text/html" },
+      });
+    }
     if (path === "/api/marketplace/account/checkout/status") {
       return jsonResponse({
         can_start_payment: true,
@@ -106,10 +112,27 @@ function createSmokeFetch(calls) {
       );
     }
     if (path === "/api/settlement/payout-setup/onboarding-session") {
-      return jsonResponse({ url: "https://connect.stripe.test/setup" }, 201);
+      return jsonResponse({ error: { code: "legacy_hosted_setup_not_expected" } }, 410);
+    }
+    if (path === "/api/settlement/payout-setup/embedded-session") {
+      return jsonResponse(
+        {
+          providerReference: "acct_embedded_smoke",
+          clientSecret: "acs_embedded_smoke_secret",
+          expiresAt: "2026-06-01T15:00:00.000Z",
+          components: ["payout-setup"],
+        },
+        201,
+      );
     }
     if (path === "/api/settlement/payout-setup/refresh") {
-      return jsonResponse({ status: "ready" });
+      return jsonResponse({
+        account_id: "acc_smoke_seller",
+        status: "ready",
+        provider_reference: "acct_embedded_smoke",
+        payout_account_dashboard: "none",
+        requirements: [],
+      });
     }
     if (path === "/api/settlement/payouts/preview") {
       return jsonResponse({ can_request: true });
@@ -351,7 +374,7 @@ describe("stripe money smoke test", () => {
     expect(moneyMovementWebhookCalls).toHaveLength(2);
   });
 
-  it("covers seller health, balance-credit checkout, onboarding, preview, and requested payout", async () => {
+  it("covers seller health, balance-credit checkout, embedded setup, preview, and requested payout", async () => {
     const calls = [];
     const result = await runSellerFlow("https://api.preview.test", {
       fetchImpl: createSmokeFetch(calls),
@@ -376,6 +399,28 @@ describe("stripe money smoke test", () => {
         paymentId: "pay_smoke",
         processorPaymentKind: "balance-credit",
       },
+      setupPage: {
+        status: "ok",
+        statusCode: 200,
+      },
+      embeddedSetupSession: {
+        status: "created",
+        providerReference: "acct_embedded_smoke",
+        clientSecretPresent: true,
+        components: ["payout-setup"],
+        expiresAt: "2026-06-01T15:00:00.000Z",
+      },
+      readinessRefresh: {
+        status: "ok",
+        readinessStatus: "ready",
+        providerReference: "acct_embedded_smoke",
+        payoutAccountDashboard: "none",
+        requirementsCount: 0,
+      },
+      payoutPreview: {
+        status: "available",
+        canRequest: true,
+      },
       payoutRequest: {
         status: "ok",
         payoutId: "po_smoke",
@@ -386,9 +431,75 @@ describe("stripe money smoke test", () => {
         "/api/settlement/account-status",
         "/api/marketplace/account/checkout/status",
         "/api/marketplace/account/payments",
+        "/api/settlement/payout-setup/embedded-session",
         "/api/settlement/payouts",
       ]),
     );
+    expect(calls.map((call) => new URL(call.url).pathname)).not.toContain(
+      "/api/settlement/payout-setup/onboarding-session",
+    );
+    expect(JSON.stringify(result)).not.toContain("acs_embedded_smoke_secret");
+  });
+
+  it("fails seller flow when the payout setup page route does not load", async () => {
+    const calls = [];
+    await expect(
+      runSellerFlow("https://marketplace.preview.test", {
+        fetchImpl: async (url, init) => {
+          const path = new URL(String(url)).pathname;
+          if (path === "/account/payouts/setup") {
+            return jsonResponse({ error: { code: "not_found" } }, 404);
+          }
+          return createSmokeFetch(calls)(url, init);
+        },
+        env: {
+          PLATFORM_API_AUTHORIZATION: "Bearer preview",
+          STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
+          STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
+        },
+      }),
+    ).rejects.toThrow(/payout setup page/);
+  });
+
+  it("reports safe payout preview blocking reasons without requesting a payout", async () => {
+    const calls = [];
+    const result = await runSellerFlow("https://marketplace.preview.test", {
+      fetchImpl: async (url, init) => {
+        const path = new URL(String(url)).pathname;
+        if (path === "/api/settlement/payouts/preview") {
+          return jsonResponse({
+            can_request: false,
+            unavailable_reasons: ["payout-setup-incomplete"],
+            unavailable_reason_details: [
+              {
+                code: "payout-setup-incomplete",
+                message: "Finish payout setup before requesting payouts.",
+              },
+            ],
+          });
+        }
+        return createSmokeFetch(calls)(url, init);
+      },
+      env: {
+        PLATFORM_API_AUTHORIZATION: "Bearer preview",
+        STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
+        STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
+        SMOKE_REQUEST_PAYOUT: "false",
+      },
+    });
+
+    expect(result.payoutPreview).toMatchObject({
+      status: "blocked",
+      canRequest: false,
+      unavailableReasons: ["payout-setup-incomplete"],
+      unavailableReasonDetails: [
+        {
+          code: "payout-setup-incomplete",
+          message: "Finish payout setup before requesting payouts.",
+        },
+      ],
+    });
+    expect(calls.map((call) => new URL(call.url).pathname)).not.toContain("/api/settlement/payouts");
   });
 
   it("can sign in with preview admin credentials when no bearer or cookie is supplied", async () => {

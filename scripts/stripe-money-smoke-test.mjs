@@ -237,6 +237,7 @@ export function envReport(env = process.env) {
     "PLATFORM_ADMIN_BASE_URL",
     "PLATFORM_ADMIN_EMAIL",
     "PLATFORM_ADMIN_PASSWORD",
+    "MARKETPLACE_WEB_BASE_URL",
     "PRODUCTION_MARKETPLACE_PROOF_REFERENCE",
     "PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE",
     "SMOKE_REGISTER_SELLER",
@@ -407,6 +408,10 @@ function connectRedirectsMatchApiOrigin(env = process.env) {
   }
 }
 
+function resolveMarketplaceWebBaseUrl(apiBaseUrl, env = process.env) {
+  return stripTrailingSlash(readEnv("MARKETPLACE_WEB_BASE_URL", env) ?? apiBaseUrl);
+}
+
 export async function runEdgeCheck(baseUrl, options = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const env = options.env ?? process.env;
@@ -519,9 +524,96 @@ async function getJsonOk(fetchImpl, url, headers, label) {
   return assertObject(result.body, `Expected ${label} to return a JSON object.`);
 }
 
+async function getRouteOk(fetchImpl, url, headers, label) {
+  const result = await requestJson(url, { headers }, fetchImpl);
+  assert(result.response.status === 200, statusFailureMessage(label, result, "200"));
+  return {
+    status: "ok",
+    statusCode: result.response.status,
+  };
+}
+
+function summarizeEmbeddedSetupSession(body) {
+  const session = assertObject(body, "Expected embedded payout setup session to return a JSON object.");
+  assert(
+    typeof session.clientSecret === "string" && session.clientSecret.trim().length > 0,
+    "Expected embedded payout setup session to return a clientSecret.",
+  );
+  assert(
+    typeof session.providerReference === "string" && session.providerReference.trim().length > 0,
+    "Expected embedded payout setup session to return a providerReference.",
+  );
+  assert(Array.isArray(session.components), "Expected embedded payout setup session to return components.");
+  assert(
+    session.components.includes("payout-setup"),
+    "Expected embedded payout setup session components to include payout-setup.",
+  );
+
+  return {
+    status: "created",
+    providerReference: session.providerReference,
+    clientSecretPresent: true,
+    components: session.components,
+    expiresAt: typeof session.expiresAt === "string" ? session.expiresAt : null,
+  };
+}
+
+function summarizeReadinessRefresh(body) {
+  const readiness = assertObject(body, "Expected payout setup refresh to return provider-neutral readiness state.");
+  return {
+    status: "ok",
+    readinessStatus: typeof readiness.status === "string" ? readiness.status : null,
+    providerReference: typeof readiness.provider_reference === "string" ? readiness.provider_reference : null,
+    payoutAccountDashboard:
+      typeof readiness.payout_account_dashboard === "string" ? readiness.payout_account_dashboard : null,
+    requirementsCount: Array.isArray(readiness.requirements) ? readiness.requirements.length : null,
+  };
+}
+
+function summarizePayoutPreview(result) {
+  if (result.response.status === 400) {
+    const error = assertObject(result.body?.error, "Expected payout preview validation failure to include an error.");
+    assert(typeof error.code === "string" && error.code.trim(), "Expected payout preview error to include a code.");
+    assert(
+      typeof error.message === "string" && error.message.trim(),
+      "Expected payout preview error to include a support-safe message.",
+    );
+    return {
+      status: "blocked",
+      statusCode: result.response.status,
+      canRequest: false,
+      unavailableReasons: [],
+      unavailableReasonDetails: [{ code: error.code, message: error.message }],
+    };
+  }
+
+  assert(result.response.status === 200, statusFailureMessage("payout preview", result, "200 or validation 400"));
+  const preview = assertObject(result.body, "Expected payout preview to return a JSON object.");
+  assert(typeof preview.can_request === "boolean", "Expected payout preview to return can_request.");
+  const unavailableReasons = Array.isArray(preview.unavailable_reasons) ? preview.unavailable_reasons : [];
+  const unavailableReasonDetails = Array.isArray(preview.unavailable_reason_details)
+    ? preview.unavailable_reason_details
+    : [];
+  if (!preview.can_request) {
+    assert(
+      unavailableReasons.length > 0 || unavailableReasonDetails.length > 0,
+      "Expected blocked payout preview to include safe unavailable reasons.",
+    );
+  }
+
+  return {
+    status: preview.can_request ? "available" : "blocked",
+    statusCode: result.response.status,
+    canRequest: preview.can_request,
+    unavailableReasons,
+    unavailableReasonDetails,
+  };
+}
+
 export async function runSellerFlow(baseUrl, options = {}) {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
+  const marketplaceWebBaseUrl = resolveMarketplaceWebBaseUrl(baseUrl, env);
   const headers = await resolveAuthHeaders(env, fetchImpl);
   assert(
     headers.has("Authorization") || headers.has("Cookie"),
@@ -589,32 +681,37 @@ export async function runSellerFlow(baseUrl, options = {}) {
 
   const checkout = await runCheckoutProbe(baseUrl, { env, fetchImpl, headers });
 
-  const onboardingHeaders = new Headers(headers);
-  onboardingHeaders.set("Content-Type", "application/json");
-  const onboarding = await requestJson(
-    `${baseUrl}/api/settlement/payout-setup/onboarding-session`,
+  const setupPage = await getRouteOk(
+    fetchImpl,
+    `${marketplaceWebBaseUrl}/account/payouts/setup`,
+    headers,
+    "payout setup page",
+  );
+
+  const setupHeaders = new Headers(headers);
+  setupHeaders.set("Content-Type", "application/json");
+  const embeddedSetup = await requestJson(
+    `${baseUrl}/api/settlement/payout-setup/embedded-session`,
     {
       method: "POST",
-      headers: onboardingHeaders,
+      headers: setupHeaders,
       body: JSON.stringify({
         contactEmail: readEnv("SMOKE_SELLER_EMAIL", env),
-        returnUrl: readEnv("STRIPE_CONNECT_RETURN_URL", env),
-        refreshUrl: readEnv("STRIPE_CONNECT_REFRESH_URL", env),
       }),
     },
     fetchImpl,
   );
-  assert(onboarding.response.status === 201, statusFailureMessage("onboarding session", onboarding, "201"));
   assert(
-    typeof onboarding.body?.url === "string" && onboarding.body.url.startsWith("https://"),
-    "Expected onboarding session to return a hosted setup URL.",
+    embeddedSetup.response.status === 201,
+    statusFailureMessage("embedded payout setup session", embeddedSetup, "201"),
   );
+  const embeddedSetupSession = summarizeEmbeddedSetupSession(embeddedSetup.body);
 
   const refresh = await requestJson(
     `${baseUrl}/api/settlement/payout-setup/refresh`,
     {
       method: "POST",
-      headers: onboardingHeaders,
+      headers: setupHeaders,
       body: JSON.stringify({
         contactEmail: readEnv("SMOKE_SELLER_EMAIL", env),
       }),
@@ -622,6 +719,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
     fetchImpl,
   );
   assert(refresh.response.status === 200, statusFailureMessage("payout setup refresh", refresh, "200"));
+  const readinessRefresh = summarizeReadinessRefresh(refresh.body);
 
   const previewHeaders = new Headers(headers);
   previewHeaders.set("Content-Type", "application/json");
@@ -634,10 +732,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
     },
     fetchImpl,
   );
-  assert(
-    preview.response.status === 200 || preview.response.status === 400,
-    statusFailureMessage("payout preview", preview, "200 or validation 400"),
-  );
+  const payoutPreview = summarizePayoutPreview(preview);
 
   const payoutRequest = await maybeRequestPayout(baseUrl, {
     env,
@@ -655,10 +750,13 @@ export async function runSellerFlow(baseUrl, options = {}) {
     platformBalanceForecast: "ok",
     checkout,
     readiness: "ok",
-    hostedOnboardingCreated: true,
-    refresh: "ok",
+    setupPage,
+    embeddedSetupSession,
+    readinessRefresh,
+    refresh: readinessRefresh.status,
     payoutPreviewStatus: preview.response.status,
-    payoutPreviewCanRequest: preview.body?.can_request ?? null,
+    payoutPreviewCanRequest: payoutPreview.canRequest,
+    payoutPreview,
     payoutRequest,
   };
 }
