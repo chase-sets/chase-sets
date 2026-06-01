@@ -244,7 +244,7 @@ jobs:
 
       - name: Run EasyPost test label smoke
         env:
-          EASYPOST_SANDBOX_EVIDENCE_PATH: artifacts/sandbox-provider-evidence/easypost-test-smoke.json
+          EASYPOST_SANDBOX_EVIDENCE_PATH: ${{ github.workspace }}/artifacts/sandbox-provider-evidence/easypost-test-smoke.json
         run: |
           set -euo pipefail
           pnpm --filter @chase-sets/easypost-postage test -- easypost-smoke.test.ts
