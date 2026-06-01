@@ -218,9 +218,17 @@ Payment creation must submit the confirmed `marketplaceCheckoutFeeQuoteFingerpri
 Payout setup:
 
 1. `GET /api/settlement/account-status`
-2. `POST /api/settlement/payout-setup/onboarding-session`
+2. `POST /api/settlement/payout-setup/embedded-session`
 3. `POST /api/settlement/payout-setup/refresh`
 4. `POST /api/settlement/payouts/preview`
 5. `POST /api/settlement/payouts`
+
+Embedded payout setup and account management:
+
+- `POST /api/settlement/payout-setup/embedded-session` creates a short-lived embedded setup session for the authenticated account.
+- `POST /api/settlement/payout-setup/account-management-embedded-session` creates a short-lived embedded account management session for an account with an existing payout account.
+- Both routes require `payouts.setup`, return `401 authentication_required` without account context, and return `403 authorization_forbidden` without setup permission.
+- Embedded routes return only `{ "clientSecret", "providerReference", "expiresAt", "components" }`. Clients pass `clientSecret` directly to the embedded provider UI and must not store or log it.
+- Hosted fallback routes remain available at `/api/settlement/payout-setup/onboarding-session` and `/api/settlement/payout-setup/account-management-session`; those routes require same-origin `returnUrl` and `refreshUrl` values when supplied.
 
 After purchase capture, Settlement posts seller item proceeds and shipping allowance credits as pending wallet entries. Pending credits become payout-eligible only after the order has a delivered Fulfillment fact, no active support hold, and the applicable release window has elapsed. Standard accounts release at the later of capture plus two days and delivery plus two days. New, unrated, untrusted, high-dollar, or manual-review accounts use delivery plus seven days. Payout preview can return `payout-release-hold-active` when the wallet has pending funds that are still blocked by delivery or risk release policy.

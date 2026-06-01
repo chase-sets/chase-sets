@@ -144,8 +144,9 @@ describe("payout readiness runtime", () => {
       retrieveConnectedAccountPayout: vi.fn(),
       parseMoneyMovementWebhook: vi.fn(),
     };
+    const eventStore = createEventStore();
     const services = createPayoutReadinessRuntime({
-      eventStore: createEventStore() as never,
+      eventStore: eventStore as never,
       checkpointStore: {
         loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
         saveCheckpoint: vi.fn(async () => {}),
@@ -162,5 +163,6 @@ describe("payout readiness runtime", () => {
     });
     expect(setupKeys).toHaveLength(1);
     expect(setupKeys[0]).toMatch(/^settlement:payout-account:acc_seller:embedded-setup:setup_/);
+    expect(JSON.stringify(eventStore.appendToStream.mock.calls)).not.toContain("provider_session_secret");
   });
 });

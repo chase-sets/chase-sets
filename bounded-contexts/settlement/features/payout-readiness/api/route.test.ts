@@ -49,6 +49,34 @@ describe("settlement payout setup routes", () => {
     expect(response.status).toBe(403);
   });
 
+  it("requires authentication for embedded setup sessions", async () => {
+    const createPayoutSetupSession = vi.fn();
+    const app = createApp({ createPayoutSetupSession }, null);
+
+    const response = await app.request("/payout-setup/embedded-session", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(401);
+    expect(createPayoutSetupSession).not.toHaveBeenCalled();
+  });
+
+  it("requires payout setup permission for embedded setup sessions", async () => {
+    const createPayoutSetupSession = vi.fn();
+    const app = createApp({ createPayoutSetupSession }, ["payouts.view"]);
+
+    const response = await app.request("/payout-setup/embedded-session", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(createPayoutSetupSession).not.toHaveBeenCalled();
+  });
+
   it("creates onboarding sessions for sellers that can manage payouts", async () => {
     const createOnboardingSession = vi.fn(async () => ({
       providerReference: "acct_test",
@@ -75,6 +103,37 @@ describe("settlement payout setup routes", () => {
         accountId: "acc_seller",
         returnUrl: "https://example.test/return",
         refreshUrl: "https://example.test/refresh",
+      }),
+      context,
+    );
+  });
+
+  it("creates embedded payout setup sessions for sellers that can manage payouts", async () => {
+    const createPayoutSetupSession = vi.fn(async () => ({
+      providerReference: "acct_test",
+      clientSecret: "provider_session_secret",
+      expiresAt: "2026-06-01T15:00:00.000Z",
+      components: ["payout-setup"],
+    }));
+    const app = createApp({ createPayoutSetupSession }, ["payouts.setup"]);
+
+    const response = await app.request("/payout-setup/embedded-session", {
+      method: "POST",
+      body: JSON.stringify({ contactEmail: "seller@example.test" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      providerReference: "acct_test",
+      clientSecret: "provider_session_secret",
+      expiresAt: "2026-06-01T15:00:00.000Z",
+      components: ["payout-setup"],
+    });
+    expect(createPayoutSetupSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
+        contactEmail: "seller@example.test",
       }),
       context,
     );
@@ -190,6 +249,50 @@ describe("settlement payout setup routes", () => {
       expect.objectContaining({
         accountId: "acc_seller",
         returnUrl: "https://example.test/account/payouts",
+      }),
+      context,
+    );
+  });
+
+  it("requires payout setup permission for embedded account management sessions", async () => {
+    const createPayoutAccountManagementSession = vi.fn();
+    const app = createApp({ createPayoutAccountManagementSession }, ["payouts.view"]);
+
+    const response = await app.request("/payout-setup/account-management-embedded-session", {
+      method: "POST",
+      body: JSON.stringify({}),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    expect(createPayoutAccountManagementSession).not.toHaveBeenCalled();
+  });
+
+  it("creates embedded account management sessions through the payout adapter", async () => {
+    const createPayoutAccountManagementSession = vi.fn(async () => ({
+      providerReference: "acct_test",
+      clientSecret: "provider_management_secret",
+      expiresAt: "2026-06-01T15:30:00.000Z",
+      components: ["payout-account-management"],
+    }));
+    const app = createApp({ createPayoutAccountManagementSession }, ["payouts.setup"]);
+
+    const response = await app.request("/payout-setup/account-management-embedded-session", {
+      method: "POST",
+      body: JSON.stringify({ returnUrl: "https://attacker.test/ignored" }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toEqual({
+      providerReference: "acct_test",
+      clientSecret: "provider_management_secret",
+      expiresAt: "2026-06-01T15:30:00.000Z",
+      components: ["payout-account-management"],
+    });
+    expect(createPayoutAccountManagementSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_seller",
       }),
       context,
     );

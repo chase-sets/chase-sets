@@ -148,6 +148,42 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
     }
   });
 
+  app.post("/payout-setup/embedded-session", async (c) => {
+    const access = requirePayoutReadinessAccess(c, "payouts.setup");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payoutReadiness.api.route.authentication.context.missing"),
+          },
+        },
+        401,
+      );
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+
+    try {
+      const result = await services.createPayoutSetupSession(
+        {
+          accountId: access.actor.accountId as never,
+          contactEmail: typeof body.contactEmail === "string" ? body.contactEmail : null,
+        },
+        context,
+      );
+
+      return c.json(result, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.post("/payout-setup/account-management-session", async (c) => {
     const access = requirePayoutReadinessAccess(c, "payouts.setup");
     if (access.response) {
@@ -174,6 +210,39 @@ export function createPayoutReadinessRoutes(services: PayoutReadinessServices) {
         {
           accountId: access.actor.accountId as never,
           returnUrl: hostedRedirectUrlFromBody(body, "returnUrl", c.req.raw),
+        },
+        context,
+      );
+
+      return c.json(result, 201);
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
+  app.post("/payout-setup/account-management-embedded-session", async (c) => {
+    const access = requirePayoutReadinessAccess(c, "payouts.setup");
+    if (access.response) {
+      return access.response;
+    }
+
+    const context = c.get("context");
+    if (!context) {
+      return c.json(
+        {
+          error: {
+            code: "authentication_required",
+            message: t("settlement.features.payoutReadiness.api.route.authentication.context.missing.2"),
+          },
+        },
+        401,
+      );
+    }
+
+    try {
+      const result = await services.createPayoutAccountManagementSession(
+        {
+          accountId: access.actor.accountId as never,
         },
         context,
       );
