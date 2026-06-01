@@ -30,6 +30,7 @@ function proof(overrides = {}) {
     connectEmbeddedSetupSessionCount: 2,
     connectLegacyHostedAccountCount: 0,
     connectLegacyPayoutReadyAccountCount: 0,
+    connectReleaseHardeningOpenP0P2FindingCount: 0,
     sensitiveProviderDataStoredCount: 0,
     paymentProviderEventRowCount: 5,
     connectProviderEventRowCount: 2,
@@ -61,6 +62,9 @@ function proof(overrides = {}) {
     connectAccountWebhookRowsReference: "STRIPE-CONNECT-WEBHOOK-ROWS-2026-05-30",
     connectSensitiveDataReviewReference: "STRIPE-CONNECT-SENSITIVE-DATA-REVIEW-2026-05-30",
     connectLegacyMigrationReportReference: "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
+    connectReleaseHardeningReference: "STRIPE-CONNECT-RELEASE-HARDENING-2026-05-30",
+    stagingCustomConnectSandboxSmokeReference: "STRIPE-CONNECT-STAGING-SANDBOX-SMOKE-2026-05-30",
+    connectRollbackRehearsalReference: "STRIPE-CONNECT-ROLLBACK-REHEARSAL-2026-05-30",
     payoutReadinessReference: "STRIPE-PAYOUT-READINESS-2026-05-30",
     payoutPreviewAndRequestReference: "STRIPE-PAYOUT-PREVIEW-REQUEST-2026-05-30",
     transferAndConnectedAccountPayoutReference: "STRIPE-TRANSFER-PAYOUT-2026-05-30",
@@ -83,6 +87,9 @@ function proof(overrides = {}) {
     connectNoSensitiveProviderDataStored: true,
     connectCustomAccountProofProven: true,
     connectLegacyMigrationReportReviewed: true,
+    connectReleaseHardeningFindingsResolved: true,
+    stagingCustomConnectSandboxSmokeProven: true,
+    connectRollbackRehearsalProven: true,
     payoutReadinessProven: true,
     payoutPreviewAndRequestProven: true,
     transferAndConnectedAccountPayoutProven: true,
@@ -132,6 +139,7 @@ describe("marketplace stripe money operations evidence", () => {
       connectEmbeddedSetupSessionCount: 2,
       connectLegacyHostedAccountCount: 0,
       connectLegacyPayoutReadyAccountCount: 0,
+      connectReleaseHardeningOpenP0P2FindingCount: 0,
       sensitiveProviderDataStoredCount: 0,
       paymentProviderEventRowCount: 5,
       connectProviderEventRowCount: 2,
@@ -163,6 +171,9 @@ describe("marketplace stripe money operations evidence", () => {
       connectAccountWebhookRowsReference: "STRIPE-CONNECT-WEBHOOK-ROWS-2026-05-30",
       connectSensitiveDataReviewReference: "STRIPE-CONNECT-SENSITIVE-DATA-REVIEW-2026-05-30",
       connectLegacyMigrationReportReference: "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
+      connectReleaseHardeningReference: "STRIPE-CONNECT-RELEASE-HARDENING-2026-05-30",
+      stagingCustomConnectSandboxSmokeReference: "STRIPE-CONNECT-STAGING-SANDBOX-SMOKE-2026-05-30",
+      connectRollbackRehearsalReference: "STRIPE-CONNECT-ROLLBACK-REHEARSAL-2026-05-30",
       payoutReadinessReference: "STRIPE-PAYOUT-READINESS-2026-05-30",
       payoutPreviewAndRequestReference: "STRIPE-PAYOUT-PREVIEW-REQUEST-2026-05-30",
       transferAndConnectedAccountPayoutReference: "STRIPE-TRANSFER-PAYOUT-2026-05-30",
@@ -185,6 +196,9 @@ describe("marketplace stripe money operations evidence", () => {
       connectNoSensitiveProviderDataStored: true,
       connectCustomAccountProofProven: true,
       connectLegacyMigrationReportReviewed: true,
+      connectReleaseHardeningFindingsResolved: true,
+      stagingCustomConnectSandboxSmokeProven: true,
+      connectRollbackRehearsalProven: true,
       payoutReadinessProven: true,
       payoutPreviewAndRequestProven: true,
       transferAndConnectedAccountPayoutProven: true,
@@ -253,6 +267,31 @@ describe("marketplace stripe money operations evidence", () => {
     expect(evidence.errors).toContain(
       "Stripe money operations proof must not store raw sensitive provider data in Chase Sets.",
     );
+  });
+
+  it("fails when custom Connect release hardening or rollback rehearsal is incomplete", () => {
+    const evidence = buildStripeMoneyOperationsEvidence(
+      input({
+        proof: proof({
+          connectReleaseHardeningOpenP0P2FindingCount: 1,
+          connectReleaseHardeningFindingsResolved: false,
+          stagingCustomConnectSandboxSmokeProven: false,
+          connectRollbackRehearsalProven: false,
+        }),
+      }),
+    );
+
+    expect(evidence.approved).toBe(false);
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must resolve all P0-P2 custom Connect hardening findings.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must prove connectReleaseHardeningFindingsResolved=true.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must prove stagingCustomConnectSandboxSmokeProven=true.",
+    );
+    expect(evidence.errors).toContain("Stripe money operations proof must prove connectRollbackRehearsalProven=true.");
   });
 
   it("fails when embedded Custom Connect setup proof is missing or stale", () => {
@@ -515,6 +554,9 @@ describe("marketplace stripe money operations evidence", () => {
       "connectNoSensitiveProviderDataStored",
       "connectCustomAccountProofProven",
       "connectLegacyMigrationReportReviewed",
+      "connectReleaseHardeningFindingsResolved",
+      "stagingCustomConnectSandboxSmokeProven",
+      "connectRollbackRehearsalProven",
       "payoutReadinessProven",
       "payoutPreviewAndRequestProven",
       "transferAndConnectedAccountPayoutProven",
@@ -536,6 +578,9 @@ describe("marketplace stripe money operations evidence", () => {
       "connectAccountWebhookRowsReference",
       "connectSensitiveDataReviewReference",
       "connectLegacyMigrationReportReference",
+      "connectReleaseHardeningReference",
+      "stagingCustomConnectSandboxSmokeReference",
+      "connectRollbackRehearsalReference",
       "payoutReadinessReference",
       "payoutPreviewAndRequestReference",
       "transferAndConnectedAccountPayoutReference",

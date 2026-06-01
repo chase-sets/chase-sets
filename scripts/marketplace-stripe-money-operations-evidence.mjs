@@ -25,6 +25,9 @@ export const REQUIRED_STRIPE_MONEY_OPERATION_PROOFS = [
   "connectNoSensitiveProviderDataStored",
   "connectCustomAccountProofProven",
   "connectLegacyMigrationReportReviewed",
+  "connectReleaseHardeningFindingsResolved",
+  "stagingCustomConnectSandboxSmokeProven",
+  "connectRollbackRehearsalProven",
   "payoutReadinessProven",
   "payoutPreviewAndRequestProven",
   "transferAndConnectedAccountPayoutProven",
@@ -47,6 +50,9 @@ export const REQUIRED_STRIPE_MONEY_OPERATION_REFERENCES = [
   "connectAccountWebhookRowsReference",
   "connectSensitiveDataReviewReference",
   "connectLegacyMigrationReportReference",
+  "connectReleaseHardeningReference",
+  "stagingCustomConnectSandboxSmokeReference",
+  "connectRollbackRehearsalReference",
   "payoutReadinessReference",
   "payoutPreviewAndRequestReference",
   "transferAndConnectedAccountPayoutReference",
@@ -128,6 +134,7 @@ export function buildStripeMoneyOperationsEvidence(input) {
     connectEmbeddedSetupSessionCount: proof.connectEmbeddedSetupSessionCount,
     connectLegacyHostedAccountCount: proof.connectLegacyHostedAccountCount,
     connectLegacyPayoutReadyAccountCount: proof.connectLegacyPayoutReadyAccountCount,
+    connectReleaseHardeningOpenP0P2FindingCount: proof.connectReleaseHardeningOpenP0P2FindingCount,
     sensitiveProviderDataStoredCount: proof.sensitiveProviderDataStoredCount,
     paymentProviderEventRowCount: proof.paymentProviderEventRowCount,
     connectProviderEventRowCount: proof.connectProviderEventRowCount,
@@ -219,6 +226,10 @@ function normalizeStripeMoneyOperationsProof(proof) {
     connectLegacyPayoutReadyAccountCount: requireNonNegativeInteger(
       proof.connectLegacyPayoutReadyAccountCount,
       "Stripe connectLegacyPayoutReadyAccountCount",
+    ),
+    connectReleaseHardeningOpenP0P2FindingCount: requireNonNegativeInteger(
+      proof.connectReleaseHardeningOpenP0P2FindingCount,
+      "Stripe connectReleaseHardeningOpenP0P2FindingCount",
     ),
     sensitiveProviderDataStoredCount: requireNonNegativeInteger(
       proof.sensitiveProviderDataStoredCount,
@@ -345,6 +356,9 @@ function validateStripeMoneyOperationsProof(proof, checkedAt) {
     errors.push(
       "Stripe money operations proof cannot report more payout-ready legacy accounts than total legacy hosted accounts.",
     );
+  }
+  if (proof.connectReleaseHardeningOpenP0P2FindingCount !== 0) {
+    errors.push("Stripe money operations proof must resolve all P0-P2 custom Connect hardening findings.");
   }
   if (proof.sensitiveProviderDataStoredCount !== 0) {
     errors.push("Stripe money operations proof must not store raw sensitive provider data in Chase Sets.");
