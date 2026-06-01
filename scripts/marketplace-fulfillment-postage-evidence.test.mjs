@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  FULFILLMENT_POSTAGE_DELIVERY_EXCEPTION_EVIDENCE_KINDS,
   MARKETPLACE_FULFILLMENT_POSTAGE_EVIDENCE_VERSION,
   REQUIRED_FULFILLMENT_POSTAGE_EVENT_ID_GROUPS,
   REQUIRED_FULFILLMENT_POSTAGE_IDENTIFIERS,
@@ -26,6 +27,7 @@ function proof(overrides = {}) {
     parcelProviderLabelId: "pl_controlledParcel20260530",
     trackingProviderObjectReference: "trk_controlledParcel20260530",
     trackingIdentifier: "9400111202555012345678",
+    deliveryExceptionEvidenceKind: "provider-event",
     deliveryExceptionProviderEventId: "evt_deliveryException20260530",
     labelVoidRefundProviderObjectReference: "rfnd_labelVoid20260530",
     letterMailpieceShipmentId: "ship_letter_mailpiece_20260530",
@@ -94,6 +96,7 @@ describe("marketplace fulfillment postage evidence", () => {
       parcelProviderLabelId: "pl_controlledParcel20260530",
       trackingProviderObjectReference: "trk_controlledParcel20260530",
       trackingIdentifier: "9400111202555012345678",
+      deliveryExceptionEvidenceKind: "provider-event",
       deliveryExceptionProviderEventId: "evt_deliveryException20260530",
       labelVoidRefundProviderObjectReference: "rfnd_labelVoid20260530",
       letterMailpieceShipmentId: "ship_letter_mailpiece_20260530",
@@ -344,6 +347,45 @@ describe("marketplace fulfillment postage evidence", () => {
     );
   });
 
+  it("accepts Fulfillment rehearsal evidence for the delivery exception path", () => {
+    const evidence = buildFulfillmentPostageEvidence(
+      input({
+        proof: proof({
+          deliveryExceptionEvidenceKind: "fulfillment-rehearsal",
+          deliveryExceptionProviderEventId: undefined,
+          deliveryExceptionRehearsalShipmentId: "shp_rehearsedException20260530",
+          deliveryExceptionReference: "FULFILLMENT-DELIVERY-EXCEPTION-REHEARSAL-2026-05-30",
+        }),
+      }),
+    );
+
+    expect(evidence).toMatchObject({
+      approved: true,
+      passesFulfillmentPostageGate: true,
+      deliveryExceptionEvidenceKind: "fulfillment-rehearsal",
+      deliveryExceptionRehearsalShipmentId: "shp_rehearsedException20260530",
+      deliveryExceptionReference: "FULFILLMENT-DELIVERY-EXCEPTION-REHEARSAL-2026-05-30",
+    });
+    expect(evidence).not.toHaveProperty("deliveryExceptionProviderEventId");
+  });
+
+  it("fails when Fulfillment rehearsal delivery exception proof lacks a concrete shipment id", () => {
+    const evidence = buildFulfillmentPostageEvidence(
+      input({
+        proof: proof({
+          deliveryExceptionEvidenceKind: "fulfillment-rehearsal",
+          deliveryExceptionProviderEventId: undefined,
+          deliveryExceptionRehearsalShipmentId: "placeholder",
+        }),
+      }),
+    );
+
+    expect(evidence.approved).toBe(false);
+    expect(evidence.errors).toContain(
+      "Fulfillment postage deliveryExceptionRehearsalShipmentId must be a concrete identifier, not a placeholder.",
+    );
+  });
+
   it("fails when concrete postage references are missing", () => {
     expect(() =>
       buildFulfillmentPostageEvidence(
@@ -398,10 +440,10 @@ describe("marketplace fulfillment postage evidence", () => {
       "parcelProviderLabelId",
       "trackingProviderObjectReference",
       "trackingIdentifier",
-      "deliveryExceptionProviderEventId",
       "labelVoidRefundProviderObjectReference",
       "letterMailpieceShipmentId",
     ]);
+    expect(FULFILLMENT_POSTAGE_DELIVERY_EXCEPTION_EVIDENCE_KINDS).toEqual(["provider-event", "fulfillment-rehearsal"]);
     expect(REQUIRED_FULFILLMENT_POSTAGE_EVENT_ID_GROUPS).toEqual([
       { key: "providerEventIds", minimumCount: 4 },
       { key: "trackingStatusProviderEventIds", minimumCount: 3 },

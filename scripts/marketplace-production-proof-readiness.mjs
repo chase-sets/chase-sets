@@ -302,13 +302,14 @@ function buildFulfillmentPostageProofApiSetup(providerCallbackSetup) {
       "gates.fulfillmentPostage.parcelProviderShipmentId",
       "gates.fulfillmentPostage.parcelProviderLabelId",
       "gates.fulfillmentPostage.labelVoidRefundProviderObjectReference",
-      "gates.fulfillmentPostage.deliveryExceptionProviderEventId",
+      "gates.fulfillmentPostage.deliveryExceptionEvidenceKind",
+      "gates.fulfillmentPostage.deliveryExceptionProviderEventId or deliveryExceptionRehearsalShipmentId",
     ],
     checklist: [
       "Run production proof topology evidence and verify each Fulfillment seller shipment private API returns a JSON 401 without redirects.",
       "Authenticate with the operator-controlled proof seller that owns the shipment created from the deferred checkout order.",
       "List seller shipments, pack the controlled shipment, purchase a USPS label through EasyPost production mode, void the label, and rehearse a delivery exception or provider-simulated exception.",
-      "Attach the redacted Fulfillment shipment id, EasyPost shipment/label/tracker ids, void/refund reference, and provider-event query output to PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE.",
+      "Attach the redacted Fulfillment shipment id, EasyPost shipment/label/tracker ids, void/refund reference, delivery-exception evidence kind, and provider-event query output to PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE.",
     ],
   };
 }

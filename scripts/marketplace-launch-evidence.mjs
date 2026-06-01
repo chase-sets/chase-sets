@@ -57,10 +57,10 @@ const REQUIRED_FULFILLMENT_POSTAGE_IDENTIFIERS = [
   "parcelProviderLabelId",
   "trackingProviderObjectReference",
   "trackingIdentifier",
-  "deliveryExceptionProviderEventId",
   "labelVoidRefundProviderObjectReference",
   "letterMailpieceShipmentId",
 ];
+const FULFILLMENT_POSTAGE_DELIVERY_EXCEPTION_EVIDENCE_KINDS = ["provider-event", "fulfillment-rehearsal"];
 const REQUIRED_FULFILLMENT_POSTAGE_EVENT_ID_GROUPS = [
   { key: "providerEventIds", minimumCount: 4 },
   { key: "trackingStatusProviderEventIds", minimumCount: 3 },
@@ -882,6 +882,7 @@ function validateFulfillmentPostage(gate, now, errors) {
       "releaseCommit",
       "easyPostMode",
       "webhookDestination",
+      "deliveryExceptionEvidenceKind",
       ...REQUIRED_FULFILLMENT_POSTAGE_IDENTIFIERS,
     ],
     errors,
@@ -945,12 +946,7 @@ function validateFulfillmentPostageIdentifiers(gate, errors) {
     errors,
   );
   validateConcretePostageIdentifier("Fulfillment postage trackingIdentifier", gate.trackingIdentifier, errors);
-  validateEasyPostId(
-    "Fulfillment postage deliveryExceptionProviderEventId",
-    gate.deliveryExceptionProviderEventId,
-    "evt_",
-    errors,
-  );
+  validateFulfillmentPostageDeliveryExceptionEvidence(gate, errors);
   validateConcretePostageIdentifier(
     "Fulfillment postage labelVoidRefundProviderObjectReference",
     gate.labelVoidRefundProviderObjectReference,
@@ -961,6 +957,48 @@ function validateFulfillmentPostageIdentifiers(gate, errors) {
     gate.letterMailpieceShipmentId,
     errors,
   );
+}
+
+function validateFulfillmentPostageDeliveryExceptionEvidence(gate, errors) {
+  if (!FULFILLMENT_POSTAGE_DELIVERY_EXCEPTION_EVIDENCE_KINDS.includes(gate.deliveryExceptionEvidenceKind)) {
+    errors.push(
+      `Fulfillment postage deliveryExceptionEvidenceKind must be one of: ${FULFILLMENT_POSTAGE_DELIVERY_EXCEPTION_EVIDENCE_KINDS.join(
+        ", ",
+      )}.`,
+    );
+    return;
+  }
+
+  if (gate.deliveryExceptionEvidenceKind === "provider-event") {
+    validateEasyPostId(
+      "Fulfillment postage deliveryExceptionProviderEventId",
+      gate.deliveryExceptionProviderEventId,
+      "evt_",
+      errors,
+    );
+    if (isNonEmptyString(gate.deliveryExceptionRehearsalShipmentId)) {
+      validateConcretePostageIdentifier(
+        "Fulfillment postage deliveryExceptionRehearsalShipmentId",
+        gate.deliveryExceptionRehearsalShipmentId,
+        errors,
+      );
+    }
+    return;
+  }
+
+  validateConcretePostageIdentifier(
+    "Fulfillment postage deliveryExceptionRehearsalShipmentId",
+    gate.deliveryExceptionRehearsalShipmentId,
+    errors,
+  );
+  if (isNonEmptyString(gate.deliveryExceptionProviderEventId)) {
+    validateEasyPostId(
+      "Fulfillment postage deliveryExceptionProviderEventId",
+      gate.deliveryExceptionProviderEventId,
+      "evt_",
+      errors,
+    );
+  }
 }
 
 function validateFulfillmentPostageEventIdGroups(gate, errors) {
