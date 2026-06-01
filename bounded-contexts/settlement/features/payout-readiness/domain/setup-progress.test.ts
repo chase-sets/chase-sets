@@ -1,0 +1,64 @@
+import { describe, expect, it } from "vitest";
+import type { SettlementPayoutReadinessRow } from "../read-model/queries";
+import { buildPayoutSetupProgress } from "./setup-progress";
+
+function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): SettlementPayoutReadinessRow {
+  return {
+    account_id: "acc_seller",
+    status: "pending",
+    missing_requirements: [],
+    provider_reference: "acct_test",
+    onboarding_status: "pending",
+    transfer_capability_status: "pending",
+    payout_capability_status: "pending",
+    payout_destination_status: "pending",
+    updated_at: "2026-06-01T17:00:00.000Z",
+    ...overrides,
+  };
+}
+
+describe("payout setup progress", () => {
+  it("groups embedded setup requirements into support-safe account-facing buckets", () => {
+    const progress = buildPayoutSetupProgress(
+      readiness({
+        missing_requirements: [
+          "external_account",
+          "individual.verification.document",
+          "company.tax_id",
+          "tos_acceptance.date",
+          "external_account",
+          "future_requirement.review",
+        ],
+      }),
+    );
+
+    expect(progress.missing_requirement_groups).toEqual([
+      {
+        id: "payout-account",
+        label: "Payout account",
+        count: 1,
+        detail: "Add or confirm the payout account before requesting payouts.",
+      },
+      {
+        id: "identity-and-business",
+        label: "Identity and business details",
+        count: 2,
+        detail: "Review the account, identity, or business details requested during setup.",
+      },
+      {
+        id: "account-agreement",
+        label: "Account agreement",
+        count: 1,
+        detail: "Review and accept the required account terms.",
+      },
+      {
+        id: "verification-review",
+        label: "Verification review",
+        count: 1,
+        detail: "Review the remaining verification details requested during setup.",
+      },
+    ]);
+    expect(JSON.stringify(progress.missing_requirement_groups)).not.toContain("external_account");
+    expect(JSON.stringify(progress.missing_requirement_groups)).not.toContain("individual.verification.document");
+  });
+});

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import type { ProviderPayoutReadiness } from "@chase-sets/money-movement";
 import { createPayoutReadinessRuntime } from "./runtime";
 
 const context = {
@@ -164,5 +165,89 @@ describe("payout readiness runtime", () => {
     expect(setupKeys).toHaveLength(1);
     expect(setupKeys[0]).toMatch(/^settlement:payout-account:acc_seller:embedded-setup:setup_/);
     expect(JSON.stringify(eventStore.appendToStream.mock.calls)).not.toContain("provider_session_secret");
+  });
+
+  it("records the same provider-neutral readiness shape from manual refresh and webhooks", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T17:00:00.000Z"));
+    const readiness: ProviderPayoutReadiness = {
+      providerReference: "acct_123",
+      onboardingStatus: "pending",
+      transferCapabilityStatus: "active",
+      payoutCapabilityStatus: "pending",
+      payoutDestinationStatus: "missing",
+      missingRequirements: ["external_account", "individual.verification.document"],
+    };
+    const db = {
+      query: vi.fn(async () => ({
+        rows: [
+          {
+            account_id: "acc_seller",
+            status: "pending",
+            missing_requirements: ["external_account"],
+            provider_reference: "acct_123",
+            onboarding_status: "pending",
+            transfer_capability_status: "active",
+            payout_capability_status: "pending",
+            payout_destination_status: "missing",
+            updated_at: "2026-06-01T16:00:00.000Z",
+          },
+        ],
+      })),
+    };
+    const moneyMovementGateway = {
+      providerName: "stripe",
+      ensurePayoutAccount: vi.fn(),
+      refreshPayoutReadiness: vi.fn(async () => readiness),
+      createOnboardingSession: vi.fn(),
+      createAccountManagementSession: vi.fn(),
+      createPayoutSetupSession: vi.fn(),
+      createPayoutAccountManagementSession: vi.fn(),
+      retrievePlatformBalance: vi.fn(),
+      transferPlatformBalanceToConnectedAccount: vi.fn(),
+      createConnectedAccountPayout: vi.fn(),
+      retrieveConnectedAccountPayout: vi.fn(),
+      parseMoneyMovementWebhook: vi.fn(),
+    };
+    const eventStore = createEventStore();
+    const services = createPayoutReadinessRuntime({
+      eventStore: eventStore as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: db as never,
+      moneyMovementGateway: moneyMovementGateway as never,
+    });
+
+    await services.refreshProviderReadiness({ accountId: "acc_seller" as never }, context);
+    await services.recordProviderReadinessFromWebhook(
+      {
+        providerReference: "acct_123",
+        readiness,
+        recordedAt: "2026-06-01T17:00:00.000Z",
+      },
+      context,
+    );
+
+    const recordedPayloads = eventStore.appendToStream.mock.calls
+      .flatMap(([input]) => input.events)
+      .map((event) => event.payload as { data?: Record<string, unknown> } & Record<string, unknown>)
+      .map((payload) => payload.data ?? payload);
+
+    expect(recordedPayloads).toHaveLength(2);
+    expect(recordedPayloads[0]).toEqual(recordedPayloads[1]);
+    expect(recordedPayloads[0]).toMatchObject({
+      accountId: "acc_seller",
+      status: "pending",
+      providerReference: "acct_123",
+      onboardingStatus: "pending",
+      transferCapabilityStatus: "active",
+      payoutCapabilityStatus: "pending",
+      payoutDestinationStatus: "missing",
+      missingRequirements: ["external_account", "individual.verification.document"],
+      recordedAt: "2026-06-01T17:00:00.000Z",
+    });
+    vi.useRealTimers();
   });
 });

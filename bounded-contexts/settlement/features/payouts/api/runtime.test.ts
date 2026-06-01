@@ -98,18 +98,21 @@ async function seedAvailableWallet(wallets: ReturnType<typeof createWalletRuntim
   );
 }
 
-function createPayoutReadiness(status: "not-started" | "pending" | "ready" | "restricted") {
+function createPayoutReadiness(
+  status: "not-started" | "pending" | "ready" | "restricted",
+  options: Readonly<{ updatedAt?: string | null; missingRequirements?: readonly string[] }> = {},
+) {
   return {
     getPayoutReadiness: async () => ({
       account_id: "acc_seller",
       status,
-      missing_requirements: status === "ready" ? [] : ["provider-onboarding"],
+      missing_requirements: options.missingRequirements ?? (status === "ready" ? [] : ["provider-onboarding"]),
       provider_reference: "acct_test",
       onboarding_status: status === "ready" ? "complete" : "pending",
       transfer_capability_status: status === "ready" ? "active" : "pending",
       payout_capability_status: status === "ready" ? "active" : "pending",
       payout_destination_status: status === "ready" ? "ready" : "missing",
-      updated_at: new Date().toISOString(),
+      updated_at: options.updatedAt ?? new Date().toISOString(),
     }),
   } as unknown as PayoutReadinessServices;
 }
@@ -338,6 +341,71 @@ describe("settlement payout runtime", () => {
       ),
     ).rejects.toThrow("Payout setup must be complete before requesting payouts.");
     expect(readAllEvents()).toHaveLength(0);
+  });
+
+  it("keeps payout preview and requests blocked when embedded setup readiness is stale or requirements remain open", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-01T17:00:00.000Z"));
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready", {
+        updatedAt: "2026-04-01T17:00:00.000Z",
+        missingRequirements: ["external_account"],
+      }),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+    });
+
+    const preview = await payouts.previewPayoutRequest({
+      accountId: "acc_seller" as never,
+      amount: "12.50",
+    });
+
+    expect(preview.can_request).toBe(false);
+    expect(preview.unavailable_reasons).toEqual(["payout-setup-refresh-required", "provider-requirements-open"]);
+    await expect(
+      payouts.requestPayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "12.50",
+          destinationReference: "bank_123",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Payout setup status must be refreshed before requesting a payout.");
+    expect(readAllEvents()).toHaveLength(0);
+    vi.useRealTimers();
   });
 
   it("uses deterministic provider idempotency keys for transfer and payout submission", async () => {
