@@ -254,7 +254,7 @@ describe("platform worker config", () => {
     );
   });
 
-  it("fails production config when Stripe Connect URLs are missing", () => {
+  it("does not require hosted payout setup URLs in production config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
     process.env.NODE_ENV = "production";
@@ -263,10 +263,16 @@ describe("platform worker config", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
     process.env.EASYPOST_API_KEY = "EZTK_test";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets-staging";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.staging.chasesets.com";
 
-    expect(() => loadConfig()).toThrow(
-      "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for platform worker hosted payout setup in production.",
-    );
+    const config = loadConfig();
+
+    expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
+    expect(config.moneyMovement).not.toHaveProperty("onboardingReturnUrl");
+    expect(config.moneyMovement).not.toHaveProperty("onboardingRefreshUrl");
   });
 
   it("loads production provider adapters when staging-style provider config is complete", () => {
@@ -277,8 +283,6 @@ describe("platform worker config", () => {
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.staging.chasesets.com/account/payouts";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.staging.chasesets.com/account/payouts/setup";
     process.env.EASYPOST_API_KEY = "EZTK_test";
     process.env.EASYPOST_MODE = "test";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
@@ -292,14 +296,28 @@ describe("platform worker config", () => {
     expect(config.moneyMovement).toMatchObject({
       kind: "stripe",
       webhookSecret: "whsec_connect_test",
-      onboardingReturnUrl: "https://marketplace.staging.chasesets.com/account/payouts",
-      onboardingRefreshUrl: "https://marketplace.staging.chasesets.com/account/payouts/setup",
     });
+    expect(config.moneyMovement).not.toHaveProperty("onboardingReturnUrl");
+    expect(config.moneyMovement).not.toHaveProperty("onboardingRefreshUrl");
     expect(config.postage).toEqual({
       kind: "easypost",
       apiKey: "EZTK_test",
       apiBaseUrl: undefined,
       mode: "test",
+    });
+  });
+
+  it("passes through legacy hosted setup URLs when explicitly configured", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.STRIPE_SECRET_KEY = "sk_test_123";
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
+    process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.staging.chasesets.com/account/payouts";
+    process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.staging.chasesets.com/account/payouts/setup";
+
+    expect(loadConfig().moneyMovement).toMatchObject({
+      kind: "stripe",
+      onboardingReturnUrl: "https://marketplace.staging.chasesets.com/account/payouts",
+      onboardingRefreshUrl: "https://marketplace.staging.chasesets.com/account/payouts/setup",
     });
   });
 
@@ -373,8 +391,6 @@ describe("platform worker config", () => {
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_test_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_test";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_test";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://marketplace.staging.chasesets.com/account/payouts";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://marketplace.staging.chasesets.com/account/payouts/setup";
     process.env.EASYPOST_API_KEY = "EZTK_test";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
     process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets-staging";

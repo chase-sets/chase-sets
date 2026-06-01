@@ -235,7 +235,7 @@ describe("marketplace production proof readiness", () => {
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
     );
     expect(readiness.operatorSetup.notes).toContain(
-      "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only while the smoke command still checks legacy Connect return/refresh environment variables.",
+      "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only when manually exercising legacy hosted Account Link compatibility.",
     );
     expect(readiness.operatorSetup.notes).toContain(
       "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",

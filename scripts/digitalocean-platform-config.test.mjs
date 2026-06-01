@@ -325,6 +325,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformMain).toContain('key   = "STRIPE_CONNECT_WEBHOOK_SECRET"');
     expect(platformMain).toContain("value = var.stripe_connect_webhook_secret");
+    expect(platformVariables).not.toContain('variable "stripe_connect_return_url"');
+    expect(platformVariables).not.toContain('variable "stripe_connect_refresh_url"');
+    expect(platformMain).not.toContain('key   = "STRIPE_CONNECT_RETURN_URL"');
+    expect(platformMain).not.toContain('key   = "STRIPE_CONNECT_REFRESH_URL"');
     expect(platformVariables).toContain('variable "easypost_webhook_secret"');
     expect(platformVariables).toContain(
       "easypost_webhook_secret is required when production marketplace proof or promotion is enabled.",
@@ -776,9 +780,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).toContain(
       "SMOKE_SELLER_DISPLAY_NAME: Stripe Staging Smoke ${{ github.run_id }}-${{ github.run_attempt }}",
     );
-    expect(stagingMoneySmokeStep).toContain(
-      "STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts",
-    );
+    expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_RETURN_URL");
+    expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_REFRESH_URL");
     expect(stagingMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: staging");
     expect(stagingMoneySmokeStep).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true"');
     expect(stagingMoneySmokeStep).toContain("STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID");

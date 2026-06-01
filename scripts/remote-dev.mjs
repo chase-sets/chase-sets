@@ -278,8 +278,6 @@ export function buildSessionEnv({ domain, slug, providerMode = remoteDevDefaults
     REMOTE_DEV_SESSION_SLUG: slug,
     REMOTE_DEV_DOMAIN: normalizeDomain(domain),
     REMOTE_DEV_PROVIDER_MODE: providerMode,
-    STRIPE_CONNECT_RETURN_URL: `${urls.marketplace}/account/payouts`,
-    STRIPE_CONNECT_REFRESH_URL: `${urls.marketplace}/account/payouts/setup`,
     STRIPE_WEBHOOK_FORWARD_URL: "http://host.docker.internal:6182/api/payments/provider/webhooks",
   };
 

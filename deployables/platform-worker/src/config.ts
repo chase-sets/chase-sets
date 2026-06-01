@@ -199,11 +199,6 @@ export function loadConfig(): PlatformWorkerConfig {
   if (productionLike && !easyPostApiKey) {
     throw new Error("EASYPOST_API_KEY is required for platform worker postage label work in production.");
   }
-  if (productionLike && (!stripeConnectReturnUrl || !stripeConnectRefreshUrl)) {
-    throw new Error(
-      "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for platform worker hosted payout setup in production.",
-    );
-  }
   if (productionLike && notificationEmailProvider === "local-capture") {
     throw new Error("NOTIFICATION_EMAIL_PROVIDER=local-capture is only allowed outside production.");
   }
@@ -329,8 +324,8 @@ export function loadConfig(): PlatformWorkerConfig {
             secretKey: stripeSecretKey,
             webhookSecret: resolvedStripeConnectWebhookSecret,
             apiBaseUrl: stripeApiBaseUrl,
-            onboardingReturnUrl: stripeConnectReturnUrl,
-            onboardingRefreshUrl: stripeConnectRefreshUrl,
+            ...(stripeConnectReturnUrl ? { onboardingReturnUrl: stripeConnectReturnUrl } : {}),
+            ...(stripeConnectRefreshUrl ? { onboardingRefreshUrl: stripeConnectRefreshUrl } : {}),
           }
         : { kind: "fake" },
     mobileMessaging:

@@ -341,7 +341,7 @@ describe("platform api config", () => {
     );
   });
 
-  it("fails production config when hosted payout setup URLs are missing", () => {
+  it("does not require hosted payout setup URLs in production config", () => {
     process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
     process.env.NODE_ENV = "production";
     process.env.PLATFORM_CONTROL_DATABASE_URL = "postgresql://localhost/control";
@@ -350,10 +350,23 @@ describe("platform api config", () => {
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
     process.env.EASYPOST_API_KEY = "EZAK_live";
+    process.env.EASYPOST_WEBHOOK_SECRET = "whsec_live_easypost";
+    process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
+    process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
+    process.env.CATALOG_ASSET_S3_BUCKET = "catalog-assets";
+    process.env.CATALOG_ASSET_S3_REGION = "nyc3";
+    process.env.CATALOG_ASSET_PUBLIC_BASE_URL = "https://assets.chasesets.com";
+    process.env.MARKETPLACE_LISTING_PHOTO_STORAGE_KIND = "s3";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_BUCKET = "listing-photos";
+    process.env.MARKETPLACE_LISTING_PHOTO_S3_REGION = "nyc3";
+    process.env.MARKETPLACE_LISTING_PHOTO_PUBLIC_BASE_URL = "https://listing-photos.chasesets.com";
 
-    expect(() => loadConfig()).toThrow(
-      "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for hosted payout setup in production.",
-    );
+    const config = loadConfig();
+
+    expect(config.moneyMovement).toMatchObject({ kind: "stripe" });
+    expect(config.moneyMovement).not.toHaveProperty("onboardingReturnUrl");
+    expect(config.moneyMovement).not.toHaveProperty("onboardingRefreshUrl");
+    expect(config.stripeGoLive.legacyHostedSetupUrlsConfigured).toBe(false);
   });
 
   it("reports Stripe go-live checks", () => {
@@ -369,7 +382,7 @@ describe("platform api config", () => {
       apiVersion: "2026-03-25.dahlia",
       paymentsConfigured: true,
       connectConfigured: true,
-      onboardingUrlsConfigured: true,
+      legacyHostedSetupUrlsConfigured: true,
       fakeFallbackAllowed: true,
       liveSecretKeyLikely: true,
     });
@@ -403,8 +416,6 @@ describe("platform api config", () => {
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
     process.env.EASYPOST_API_KEY = "EZAK_live";
     process.env.EASYPOST_WEBHOOK_SECRET = "whsec_live_easypost";
     process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
@@ -424,7 +435,7 @@ describe("platform api config", () => {
     expect(config.stripeGoLive).toMatchObject({
       paymentsConfigured: true,
       connectConfigured: true,
-      onboardingUrlsConfigured: true,
+      legacyHostedSetupUrlsConfigured: false,
       fakeFallbackAllowed: false,
       liveSecretKeyLikely: true,
     });
@@ -448,8 +459,6 @@ describe("platform api config", () => {
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
     process.env.EASYPOST_API_KEY = "EZAK_live";
     process.env[PLATFORM_INTERNAL_AUTH_SECRET_ENV] = "internal-test-secret";
     process.env.CATALOG_ASSET_STORAGE_KIND = "s3";
@@ -474,8 +483,6 @@ describe("platform api config", () => {
     process.env.STRIPE_PUBLISHABLE_KEY = "pk_live_123";
     process.env.STRIPE_WEBHOOK_SECRET = "whsec_live";
     process.env.STRIPE_CONNECT_WEBHOOK_SECRET = "whsec_connect_live";
-    process.env.STRIPE_CONNECT_RETURN_URL = "https://example.test/return";
-    process.env.STRIPE_CONNECT_REFRESH_URL = "https://example.test/refresh";
     process.env.EASYPOST_API_KEY = "EZAK_live";
 
     expect(() => loadConfig()).toThrow(

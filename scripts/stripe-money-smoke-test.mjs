@@ -227,8 +227,6 @@ export function envReport(env = process.env) {
     "STRIPE_PUBLISHABLE_KEY",
     "STRIPE_WEBHOOK_SECRET",
     "STRIPE_CONNECT_WEBHOOK_SECRET",
-    "STRIPE_CONNECT_RETURN_URL",
-    "STRIPE_CONNECT_REFRESH_URL",
   ];
   const optional = [
     "PLATFORM_API_AUTHORIZATION",
@@ -252,6 +250,8 @@ export function envReport(env = process.env) {
     "SMOKE_PAYMENT_METHOD_CATEGORY",
     "SMOKE_REQUEST_PAYOUT",
     "STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID",
+    "STRIPE_CONNECT_RETURN_URL",
+    "STRIPE_CONNECT_REFRESH_URL",
     "STRIPE_MONEY_SMOKE_ENVIRONMENT",
     "STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS",
     "STRIPE_MONEY_SMOKE_ALLOW_LIVE",
@@ -374,12 +374,6 @@ export function validateStripeKeyModeForRun(env = process.env) {
   const baseUrl = readEnv("PLATFORM_API_BASE_URL", env);
   if (!baseUrl || !isProductionChaseSetsUrl(baseUrl)) {
     throw new Error("Stripe live-key smoke tests must target https://chasesets.com or https://admin.chasesets.com.");
-  }
-
-  if (!connectRedirectsMatchApiOrigin(env)) {
-    throw new Error(
-      "Stripe live-key smoke tests must use STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL on the same origin as PLATFORM_API_BASE_URL because the private payout setup API rejects cross-origin hosted setup redirects.",
-    );
   }
 }
 
