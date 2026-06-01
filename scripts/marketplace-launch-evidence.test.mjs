@@ -205,6 +205,7 @@ function validPacket(overrides = {}) {
         parcelProviderLabelId: "pl_controlledParcel20260530",
         trackingProviderObjectReference: "trk_controlledParcel20260530",
         trackingIdentifier: "9400111202555012345678",
+        deliveryExceptionEvidenceKind: "provider-event",
         deliveryExceptionProviderEventId: "evt_deliveryException20260530",
         labelVoidRefundProviderObjectReference: "rfnd_labelVoid20260530",
         letterMailpieceShipmentId: "ship_letter_mailpiece_20260530",
@@ -1523,6 +1524,46 @@ describe("marketplace launch evidence verifier", () => {
     );
     expect(result.errors).toContain(
       "Fulfillment postage refundStatusProviderEventIds must include at least 1 concrete EasyPost event IDs.",
+    );
+  });
+
+  it("accepts Fulfillment rehearsal evidence for the delivery exception path", () => {
+    const result = validateMarketplaceLaunchEvidence(
+      validPacket({
+        gates: {
+          fulfillmentPostage: {
+            ...validPacket().gates.fulfillmentPostage,
+            deliveryExceptionEvidenceKind: "fulfillment-rehearsal",
+            deliveryExceptionProviderEventId: undefined,
+            deliveryExceptionRehearsalShipmentId: "shp_rehearsedException20260530",
+            deliveryExceptionReference: "FULFILLMENT-DELIVERY-EXCEPTION-REHEARSAL-2026-05-30",
+          },
+        },
+      }),
+      { now },
+    );
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("fails when Fulfillment rehearsal delivery exception proof lacks a concrete shipment id", () => {
+    const result = validateMarketplaceLaunchEvidence(
+      validPacket({
+        gates: {
+          fulfillmentPostage: {
+            ...validPacket().gates.fulfillmentPostage,
+            deliveryExceptionEvidenceKind: "fulfillment-rehearsal",
+            deliveryExceptionProviderEventId: undefined,
+            deliveryExceptionRehearsalShipmentId: "placeholder",
+          },
+        },
+      }),
+      { now },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain(
+      "Fulfillment postage deliveryExceptionRehearsalShipmentId must be a concrete identifier, not a placeholder.",
     );
   });
 

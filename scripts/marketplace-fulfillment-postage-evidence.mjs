@@ -42,10 +42,11 @@ export const REQUIRED_FULFILLMENT_POSTAGE_IDENTIFIERS = [
   "parcelProviderLabelId",
   "trackingProviderObjectReference",
   "trackingIdentifier",
-  "deliveryExceptionProviderEventId",
   "labelVoidRefundProviderObjectReference",
   "letterMailpieceShipmentId",
 ];
+
+export const FULFILLMENT_POSTAGE_DELIVERY_EXCEPTION_EVIDENCE_KINDS = ["provider-event", "fulfillment-rehearsal"];
 
 export const REQUIRED_FULFILLMENT_POSTAGE_EVENT_ID_GROUPS = [
   { key: "providerEventIds", minimumCount: 4 },
@@ -88,6 +89,13 @@ export function buildFulfillmentPostageEvidence(input) {
     trackingStatusProviderEventRowCount: proof.trackingStatusProviderEventRowCount,
     refundStatusProviderEventRowCount: proof.refundStatusProviderEventRowCount,
     ...Object.fromEntries(REQUIRED_FULFILLMENT_POSTAGE_IDENTIFIERS.map((key) => [key, proof[key]])),
+    deliveryExceptionEvidenceKind: proof.deliveryExceptionEvidenceKind,
+    ...(proof.deliveryExceptionProviderEventId
+      ? { deliveryExceptionProviderEventId: proof.deliveryExceptionProviderEventId }
+      : {}),
+    ...(proof.deliveryExceptionRehearsalShipmentId
+      ? { deliveryExceptionRehearsalShipmentId: proof.deliveryExceptionRehearsalShipmentId }
+      : {}),
     ...Object.fromEntries(REQUIRED_FULFILLMENT_POSTAGE_EVENT_ID_GROUPS.map(({ key }) => [key, proof[key]])),
     ...Object.fromEntries(REQUIRED_FULFILLMENT_POSTAGE_REFERENCES.map((key) => [key, proof[key]])),
     ...Object.fromEntries(REQUIRED_FULFILLMENT_POSTAGE_PROOFS.map((key) => [key, proof[key]])),
@@ -158,6 +166,9 @@ function normalizeFulfillmentPostageProof(proof) {
         requireString(proof[key], `Fulfillment postage ${key}`),
       ]),
     ),
+    deliveryExceptionEvidenceKind: normalizeDeliveryExceptionEvidenceKind(proof),
+    deliveryExceptionProviderEventId: optionalString(proof.deliveryExceptionProviderEventId),
+    deliveryExceptionRehearsalShipmentId: optionalString(proof.deliveryExceptionRehearsalShipmentId),
     ...Object.fromEntries(
       REQUIRED_FULFILLMENT_POSTAGE_EVENT_ID_GROUPS.map(({ key }) => [
         key,
@@ -250,18 +261,55 @@ function validateFulfillmentPostageIdentifiers(proof, errors) {
     errors,
   );
   validateConcreteIdentifier("Fulfillment postage trackingIdentifier", proof.trackingIdentifier, errors);
-  validateEasyPostId(
-    "Fulfillment postage deliveryExceptionProviderEventId",
-    proof.deliveryExceptionProviderEventId,
-    "evt_",
-    errors,
-  );
+  validateFulfillmentPostageDeliveryExceptionEvidence(proof, errors);
   validateConcreteIdentifier(
     "Fulfillment postage labelVoidRefundProviderObjectReference",
     proof.labelVoidRefundProviderObjectReference,
     errors,
   );
   validateConcreteIdentifier("Fulfillment postage letterMailpieceShipmentId", proof.letterMailpieceShipmentId, errors);
+}
+
+function validateFulfillmentPostageDeliveryExceptionEvidence(proof, errors) {
+  if (!FULFILLMENT_POSTAGE_DELIVERY_EXCEPTION_EVIDENCE_KINDS.includes(proof.deliveryExceptionEvidenceKind)) {
+    errors.push(
+      `Fulfillment postage deliveryExceptionEvidenceKind must be one of: ${FULFILLMENT_POSTAGE_DELIVERY_EXCEPTION_EVIDENCE_KINDS.join(
+        ", ",
+      )}.`,
+    );
+    return;
+  }
+
+  if (proof.deliveryExceptionEvidenceKind === "provider-event") {
+    validateEasyPostId(
+      "Fulfillment postage deliveryExceptionProviderEventId",
+      proof.deliveryExceptionProviderEventId,
+      "evt_",
+      errors,
+    );
+    if (proof.deliveryExceptionRehearsalShipmentId) {
+      validateConcreteIdentifier(
+        "Fulfillment postage deliveryExceptionRehearsalShipmentId",
+        proof.deliveryExceptionRehearsalShipmentId,
+        errors,
+      );
+    }
+    return;
+  }
+
+  validateConcreteIdentifier(
+    "Fulfillment postage deliveryExceptionRehearsalShipmentId",
+    proof.deliveryExceptionRehearsalShipmentId,
+    errors,
+  );
+  if (proof.deliveryExceptionProviderEventId) {
+    validateEasyPostId(
+      "Fulfillment postage deliveryExceptionProviderEventId",
+      proof.deliveryExceptionProviderEventId,
+      "evt_",
+      errors,
+    );
+  }
 }
 
 function validateFulfillmentPostageEventIdGroups(proof, errors) {
@@ -369,6 +417,23 @@ function requireString(value, label) {
     throw new Error(`${label} must be a non-empty string.`);
   }
   return value.trim();
+}
+
+function optionalString(value) {
+  return isNonEmptyString(value) ? value.trim() : null;
+}
+
+function normalizeDeliveryExceptionEvidenceKind(proof) {
+  if (isNonEmptyString(proof.deliveryExceptionEvidenceKind)) {
+    return proof.deliveryExceptionEvidenceKind.trim();
+  }
+  if (isNonEmptyString(proof.deliveryExceptionProviderEventId)) {
+    return "provider-event";
+  }
+  if (isNonEmptyString(proof.deliveryExceptionRehearsalShipmentId)) {
+    return "fulfillment-rehearsal";
+  }
+  throw new Error("Fulfillment postage deliveryExceptionEvidenceKind must be a non-empty string.");
 }
 
 function requireBoolean(value, label) {

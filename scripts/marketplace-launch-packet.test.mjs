@@ -220,6 +220,7 @@ function validInputs(overrides = {}) {
       parcelProviderLabelId: "pl_controlledParcel20260530",
       trackingProviderObjectReference: "trk_controlledParcel20260530",
       trackingIdentifier: "9400111202555012345678",
+      deliveryExceptionEvidenceKind: "provider-event",
       deliveryExceptionProviderEventId: "evt_deliveryException20260530",
       labelVoidRefundProviderObjectReference: "rfnd_labelVoid20260530",
       letterMailpieceShipmentId: "ship_letter_mailpiece_20260530",
