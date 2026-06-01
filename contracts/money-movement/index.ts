@@ -5,6 +5,7 @@ export type PayoutAccountCountryCode = "US";
 export type ProviderSetupStatus = "not-started" | "pending" | "complete";
 export type ProviderCapabilityStatus = "inactive" | "pending" | "active";
 export type ProviderPayoutDestinationStatus = "missing" | "pending" | "ready";
+export type ProviderPayoutAccountSessionComponent = "payout-setup" | "payout-account-management";
 
 export type ProviderPayoutReadiness = Readonly<{
   providerReference: string;
@@ -31,6 +32,21 @@ export type CreatedAccountManagementSession = Readonly<{
   providerReference: string;
   url: string;
   expiresAt: string | null;
+}>;
+
+export type CreatedPayoutSetupSession = Readonly<{
+  providerReference: string;
+  clientSecret: string;
+  expiresAt: string | null;
+  components: readonly ["payout-setup"];
+  readiness: ProviderPayoutReadiness;
+}>;
+
+export type CreatedPayoutAccountManagementSession = Readonly<{
+  providerReference: string;
+  clientSecret: string;
+  expiresAt: string | null;
+  components: readonly ["payout-account-management"];
 }>;
 
 export type CreatedProviderTransfer = Readonly<{
@@ -103,6 +119,20 @@ export type MoneyMovementGateway = Readonly<{
       idempotencyKey: string;
     }>,
   ) => Promise<CreatedAccountManagementSession>;
+  createPayoutSetupSession: (
+    input: Readonly<{
+      accountId: AccountId;
+      providerReference: string;
+      idempotencyKey: string;
+    }>,
+  ) => Promise<CreatedPayoutSetupSession>;
+  createPayoutAccountManagementSession: (
+    input: Readonly<{
+      accountId: AccountId;
+      providerReference: string;
+      idempotencyKey: string;
+    }>,
+  ) => Promise<CreatedPayoutAccountManagementSession>;
   refreshPayoutReadiness: (
     input: Readonly<{
       accountId: AccountId;

@@ -2,6 +2,8 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import type {
   CreatedAccountManagementSession,
   CreatedOnboardingSession,
+  CreatedPayoutAccountManagementSession,
+  CreatedPayoutSetupSession,
   CreatedProviderPayout,
   CreatedProviderTransfer,
   CurrencyCode,
@@ -112,6 +114,27 @@ export function createFakeMoneyMovementGateway(
         providerReference: input.providerReference,
         url: `https://example.test/payout-account/${input.providerReference}`,
         expiresAt: null,
+      };
+    },
+    async createPayoutSetupSession(input): Promise<CreatedPayoutSetupSession> {
+      usedIdempotencyKeys.push(input.idempotencyKey);
+      const readiness = readyReadiness(input.providerReference);
+      accounts.set(input.accountId, readiness);
+      return {
+        providerReference: input.providerReference,
+        clientSecret: `fake_payout_setup_secret_${input.providerReference}`,
+        expiresAt: null,
+        components: ["payout-setup"],
+        readiness,
+      };
+    },
+    async createPayoutAccountManagementSession(input): Promise<CreatedPayoutAccountManagementSession> {
+      usedIdempotencyKeys.push(input.idempotencyKey);
+      return {
+        providerReference: input.providerReference,
+        clientSecret: `fake_payout_account_management_secret_${input.providerReference}`,
+        expiresAt: null,
+        components: ["payout-account-management"],
       };
     },
     async refreshPayoutReadiness(input) {

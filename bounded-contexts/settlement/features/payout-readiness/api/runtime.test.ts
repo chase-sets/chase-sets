@@ -101,4 +101,66 @@ describe("payout readiness runtime", () => {
     expect(onboardingKeys[1]).toMatch(/^settlement:payout-account:acc_seller:onboarding:setup_/);
     expect(onboardingKeys[0]).not.toBe(onboardingKeys[1]);
   });
+
+  it("creates embedded payout setup sessions with provider-neutral components", async () => {
+    const setupKeys: string[] = [];
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const moneyMovementGateway = {
+      providerName: "stripe",
+      ensurePayoutAccount: vi.fn(async () => ({
+        providerReference: "acct_123",
+        onboardingStatus: "pending",
+        transferCapabilityStatus: "active",
+        payoutCapabilityStatus: "pending",
+        payoutDestinationStatus: "pending",
+        missingRequirements: ["external_account"],
+      })),
+      refreshPayoutReadiness: vi.fn(),
+      createOnboardingSession: vi.fn(),
+      createAccountManagementSession: vi.fn(),
+      createPayoutSetupSession: vi.fn(async (input: { idempotencyKey: string }) => {
+        setupKeys.push(input.idempotencyKey);
+        return {
+          providerReference: "acct_123",
+          clientSecret: "provider_session_secret",
+          expiresAt: "2026-06-01T15:00:00.000Z",
+          components: ["payout-setup"],
+          readiness: {
+            providerReference: "acct_123",
+            onboardingStatus: "pending",
+            transferCapabilityStatus: "active",
+            payoutCapabilityStatus: "pending",
+            payoutDestinationStatus: "pending",
+            missingRequirements: ["external_account"],
+          },
+        };
+      }),
+      createPayoutAccountManagementSession: vi.fn(),
+      retrievePlatformBalance: vi.fn(),
+      transferPlatformBalanceToConnectedAccount: vi.fn(),
+      createConnectedAccountPayout: vi.fn(),
+      retrieveConnectedAccountPayout: vi.fn(),
+      parseMoneyMovementWebhook: vi.fn(),
+    };
+    const services = createPayoutReadinessRuntime({
+      eventStore: createEventStore() as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: db as never,
+      moneyMovementGateway: moneyMovementGateway as never,
+    });
+
+    await expect(services.createPayoutSetupSession({ accountId: "acc_seller" as never }, context)).resolves.toEqual({
+      clientSecret: "provider_session_secret",
+      providerReference: "acct_123",
+      expiresAt: "2026-06-01T15:00:00.000Z",
+      components: ["payout-setup"],
+    });
+    expect(setupKeys).toHaveLength(1);
+    expect(setupKeys[0]).toMatch(/^settlement:payout-account:acc_seller:embedded-setup:setup_/);
+  });
 });

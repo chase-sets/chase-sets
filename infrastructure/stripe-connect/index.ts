@@ -448,6 +448,14 @@ export function createStripeConnectMoneyMovementGateway(
         expiresAt: null,
       };
     },
+    async createPayoutSetupSession() {
+      throw new Error("Stripe embedded payout setup sessions are implemented in the Stripe adapter migration.");
+    },
+    async createPayoutAccountManagementSession() {
+      throw new Error(
+        "Stripe embedded payout account management sessions are implemented in the Stripe adapter migration.",
+      );
+    },
     async refreshPayoutReadiness(input) {
       return mapAccountReadiness(await retrieveAccount(input.providerReference));
     },

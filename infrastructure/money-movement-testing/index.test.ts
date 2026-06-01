@@ -24,6 +24,31 @@ describe("fake money movement gateway", () => {
       payoutDestinationStatus: "ready",
     });
     await expect(
+      gateway.createPayoutSetupSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_fake",
+        idempotencyKey: "embedded-setup-key",
+      }),
+    ).resolves.toMatchObject({
+      providerReference: "acct_fake",
+      clientSecret: "fake_payout_setup_secret_acct_fake",
+      components: ["payout-setup"],
+      readiness: {
+        payoutDestinationStatus: "ready",
+      },
+    });
+    await expect(
+      gateway.createPayoutAccountManagementSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_fake",
+        idempotencyKey: "embedded-manage-key",
+      }),
+    ).resolves.toMatchObject({
+      providerReference: "acct_fake",
+      clientSecret: "fake_payout_account_management_secret_acct_fake",
+      components: ["payout-account-management"],
+    });
+    await expect(
       gateway.createAccountManagementSession({
         accountId: "acc_seller" as never,
         providerReference: "acct_fake",
