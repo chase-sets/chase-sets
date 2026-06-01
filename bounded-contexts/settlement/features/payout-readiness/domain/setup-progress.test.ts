@@ -12,6 +12,10 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
     transfer_capability_status: "pending",
     payout_capability_status: "pending",
     payout_destination_status: "pending",
+    payout_account_dashboard: "none",
+    losses_collector: "application",
+    fees_collector: "application",
+    requirements_collector: "application",
     updated_at: "2026-06-01T17:00:00.000Z",
     ...overrides,
   };

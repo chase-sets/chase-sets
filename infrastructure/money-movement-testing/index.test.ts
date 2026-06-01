@@ -22,6 +22,8 @@ describe("fake money movement gateway", () => {
       transferCapabilityStatus: "active",
       payoutCapabilityStatus: "active",
       payoutDestinationStatus: "ready",
+      payoutAccountDashboard: "none",
+      requirementsCollector: "application",
     });
     await expect(
       gateway.createPayoutSetupSession({

@@ -176,6 +176,10 @@ describe("payout readiness runtime", () => {
       transferCapabilityStatus: "active",
       payoutCapabilityStatus: "pending",
       payoutDestinationStatus: "missing",
+      payoutAccountDashboard: "none",
+      lossesCollector: "application",
+      feesCollector: "application",
+      requirementsCollector: "application",
       missingRequirements: ["external_account", "individual.verification.document"],
     };
     const db = {
@@ -190,6 +194,10 @@ describe("payout readiness runtime", () => {
             transfer_capability_status: "active",
             payout_capability_status: "pending",
             payout_destination_status: "missing",
+            payout_account_dashboard: "none",
+            losses_collector: "application",
+            fees_collector: "application",
+            requirements_collector: "application",
             updated_at: "2026-06-01T16:00:00.000Z",
           },
         ],
@@ -245,6 +253,10 @@ describe("payout readiness runtime", () => {
       transferCapabilityStatus: "active",
       payoutCapabilityStatus: "pending",
       payoutDestinationStatus: "missing",
+      payoutAccountDashboard: "none",
+      lossesCollector: "application",
+      feesCollector: "application",
+      requirementsCollector: "application",
       missingRequirements: ["external_account", "individual.verification.document"],
       recordedAt: "2026-06-01T17:00:00.000Z",
     });

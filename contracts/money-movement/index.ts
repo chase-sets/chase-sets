@@ -5,6 +5,8 @@ export type PayoutAccountCountryCode = "US";
 export type ProviderSetupStatus = "not-started" | "pending" | "complete";
 export type ProviderCapabilityStatus = "inactive" | "pending" | "active";
 export type ProviderPayoutDestinationStatus = "missing" | "pending" | "ready";
+export type ProviderPayoutAccountDashboard = "none" | "express" | "full" | "unknown";
+export type ProviderPayoutAccountResponsibility = "application" | "stripe" | "unknown";
 export type ProviderPayoutAccountSessionComponent = "payout-setup" | "payout-account-management";
 
 export type ProviderPayoutReadiness = Readonly<{
@@ -13,6 +15,10 @@ export type ProviderPayoutReadiness = Readonly<{
   transferCapabilityStatus: ProviderCapabilityStatus;
   payoutCapabilityStatus: ProviderCapabilityStatus;
   payoutDestinationStatus: ProviderPayoutDestinationStatus;
+  payoutAccountDashboard: ProviderPayoutAccountDashboard;
+  lossesCollector: ProviderPayoutAccountResponsibility;
+  feesCollector: ProviderPayoutAccountResponsibility;
+  requirementsCollector: ProviderPayoutAccountResponsibility;
   missingRequirements: readonly string[];
 }>;
 

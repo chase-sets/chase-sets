@@ -53,6 +53,10 @@ function readyReadiness(providerReference: string): ProviderPayoutReadiness {
     transferCapabilityStatus: "active",
     payoutCapabilityStatus: "active",
     payoutDestinationStatus: "ready",
+    payoutAccountDashboard: "none",
+    lossesCollector: "application",
+    feesCollector: "application",
+    requirementsCollector: "application",
     missingRequirements: [],
   };
 }
@@ -64,6 +68,10 @@ function pendingReadiness(providerReference: string): ProviderPayoutReadiness {
     transferCapabilityStatus: "pending",
     payoutCapabilityStatus: "pending",
     payoutDestinationStatus: "missing",
+    payoutAccountDashboard: "none",
+    lossesCollector: "application",
+    feesCollector: "application",
+    requirementsCollector: "application",
     missingRequirements: ["provider-onboarding"],
   };
 }

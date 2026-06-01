@@ -9,6 +9,10 @@ describe("payout readiness", () => {
       status: "restricted",
       missingRequirements: ["tax-id", " bank-account ", "tax-id", ""],
       providerReference: " stripe-acct ",
+      payoutAccountDashboard: "express",
+      lossesCollector: "application",
+      feesCollector: "bad-value",
+      requirementsCollector: "stripe",
       recordedAt: "2026-04-30T00:00:00.000Z",
     });
 
@@ -17,6 +21,10 @@ describe("payout readiness", () => {
       status: "restricted",
       missingRequirements: ["bank-account", "tax-id"],
       providerReference: "stripe-acct",
+      payoutAccountDashboard: "express",
+      lossesCollector: "application",
+      feesCollector: "unknown",
+      requirementsCollector: "stripe",
       updatedAt: "2026-04-30T00:00:00.000Z",
     });
   });

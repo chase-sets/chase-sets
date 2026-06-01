@@ -67,7 +67,7 @@ Create these records before enabling the production marketplace switch:
 
 - `00 Launch Review`: final promotion approval, release commit, production GitHub Environment export, passing verifier output, staging workflow run, production workflow run, rollback owner, and launch approver.
 - `01 Payments Fee`: Marketplace Checkout Fee approval, live policy endpoint `200` observation, buyer-facing fee copy, state disclosure review, refund language, and Stripe live-mode fee configuration.
-- `02 Stripe Money Operations`: live Stripe checkout, refund, dispute, Connect onboarding, payout schedule, payout hold, platform-balance funding, payout failure reversal, webhook replay, Radar/risk posture, and reconciliation evidence.
+- `02 Stripe Money Operations`: live Stripe checkout, refund, dispute, embedded dashboard-none Connect setup, legacy hosted-dashboard migration reporting, payout schedule, payout hold, platform-balance funding, payout failure reversal, webhook replay, Radar/risk posture, and reconciliation evidence.
 - `03 Fulfillment Postage`: EasyPost production mode, `/api/fulfillment/provider/postage/webhooks` destination, `fulfillment_postage_provider_events` proof, parcel label purchase, label void/refund, tracking event, delivery exception path, and Letter Mailpiece handling evidence.
 - `04 Transactional Email`: Amazon SES DNS, production identity, controlled sends, outbox dispatch, `/api/notifications/provider/email/webhooks` event destination, `notification_email_provider_events` bounce/complaint rows, monitoring, and critical template coverage.
 - `05 Launch Supply Measurements`: production query, raw redacted result, active checkout-eligible listing count, seller account count, sampled active listing IDs, missing-measure count, coverage percentage, operator, and timestamp.
@@ -107,7 +107,7 @@ Build the Stripe Money Operations gate from the live proof record:
 pnpm run marketplace:stripe-money-operations-evidence -- --proof .\secure\stripe-money-operations-2026-05-30.json --reference STRIPE-MONEY-2026-05-30
 ```
 
-The proof JSON must include `proofReference`, `proofCompletedAt`, `environment: "live"`, `releaseCommit`, `apiVersion: "2026-03-25.dahlia"`, `paymentWebhookDestination`, `connectWebhookDestination`, `connectReturnUrl`, `connectRefreshUrl`, `connectConnectedAccountCount`, `paymentProviderEventRowCount` of at least `5`, `connectProviderEventRowCount` of at least `2`, concrete live Stripe object IDs (`livePaymentIntentId`, `liveCheckoutSessionId`, `refundId`, `disputeId`, `connectAccountId`, `payoutReadinessAccountId`, `payoutFailurePayoutId`, `payoutFailureBalanceTransactionId`, `platformFundingBalanceTransactionId`), `paymentProviderEventIds` with at least five concrete `evt_` IDs, `connectProviderEventIds` with at least two concrete `evt_` IDs, concrete references for live checkout, refund, dispute, Connect onboarding, payout readiness, payout failure reversal, reconciliation, platform balance funding, webhook replay, Payments provider event query, Settlement money-movement provider event query, and Radar/risk posture, plus true values for each of those workflows. The command prints the fields that map into `gates.stripeMoneyOperations`, and the launch verifier rejects Stripe money gates that only provide booleans, a generic proof link, stale live proof, or missing Stripe object and provider-event IDs.
+The proof JSON must include `proofReference`, `proofCompletedAt`, `environment: "live"`, `releaseCommit`, `apiVersion: "2026-03-25.dahlia"`, `paymentWebhookDestination`, `connectWebhookDestination`, `connectReturnUrl`, `connectRefreshUrl`, `connectConnectedAccountCount`, `connectCustomDashboardNoneAccountCount`, `connectLegacyHostedAccountCount`, `connectLegacyPayoutReadyAccountCount`, `paymentProviderEventRowCount` of at least `5`, `connectProviderEventRowCount` of at least `2`, concrete live Stripe object IDs (`livePaymentIntentId`, `liveCheckoutSessionId`, `refundId`, `disputeId`, `connectAccountId`, `payoutReadinessAccountId`, `payoutFailurePayoutId`, `payoutFailureBalanceTransactionId`, `platformFundingBalanceTransactionId`), `paymentProviderEventIds` with at least five concrete `evt_` IDs, `connectProviderEventIds` with at least two concrete `evt_` IDs, concrete references for live checkout, refund, dispute, Connect onboarding, embedded custom account proof, legacy migration report, payout readiness, payout failure reversal, reconciliation, platform balance funding, webhook replay, Payments provider event query, Settlement money-movement provider event query, and Radar/risk posture, plus true values for each of those workflows. The command prints the fields that map into `gates.stripeMoneyOperations`, and the launch verifier rejects Stripe money gates that only provide booleans, a generic proof link, stale live proof, missing dashboard-none account proof, invalid legacy account counts, or missing Stripe object and provider-event IDs.
 
 During private production proof mode, register Stripe payment webhooks to `/api/payments/provider/webhooks` and Stripe Connect money-movement webhooks to `/api/settlement/provider/money-movement/webhooks` on the production root or admin domain. These provider callback paths route to `platform-api` while broad public/admin `/api/*` traffic remains on admin-support until `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`. Proof mode also routes narrow authenticated Checkout, Ordering, Payments, and Settlement proof APIs to `platform-api` so operators can create deferred checkout orders, live payment, refund, payout-readiness, payout, reconciliation, and provider-health evidence without opening the public marketplace. It also routes the authenticated Inventory and Marketplace listing-publication proof APIs needed to create operator-controlled active listings for the launch-supply measurement gate, and the authenticated Fulfillment seller-shipment proof APIs needed to pack controlled shipments, purchase production EasyPost labels, void labels, and rehearse delivery exceptions; these are not public browse, marketplace web, or buyer-facing launch surfaces.
 
@@ -284,6 +284,9 @@ Use `pnpm run marketplace:production-proof-topology-evidence` after enabling pro
       "connectReturnUrl": "https://marketplace.chasesets.com/account/payouts",
       "connectRefreshUrl": "https://marketplace.chasesets.com/account/payouts/setup",
       "connectConnectedAccountCount": 1,
+      "connectCustomDashboardNoneAccountCount": 1,
+      "connectLegacyHostedAccountCount": 0,
+      "connectLegacyPayoutReadyAccountCount": 0,
       "paymentProviderEventRowCount": 5,
       "connectProviderEventRowCount": 2,
       "livePaymentIntentId": "pi_liveCheckout20260530",
@@ -310,6 +313,8 @@ Use `pnpm run marketplace:production-proof-topology-evidence` after enabling pro
       "refundReference": "STRIPE-REFUND-2026-05-30",
       "disputeReference": "STRIPE-DISPUTE-2026-05-30",
       "connectOnboardingReference": "STRIPE-CONNECT-ONBOARDING-2026-05-30",
+      "connectCustomAccountProofReference": "STRIPE-CONNECT-CUSTOM-ACCOUNT-2026-05-30",
+      "connectLegacyMigrationReportReference": "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
       "payoutReadinessReference": "STRIPE-PAYOUT-READINESS-2026-05-30",
       "payoutFailureReversalReference": "STRIPE-PAYOUT-FAILURE-REVERSAL-2026-05-30",
       "reconciliationReference": "STRIPE-RECONCILIATION-2026-05-30",
@@ -322,6 +327,8 @@ Use `pnpm run marketplace:production-proof-topology-evidence` after enabling pro
       "refundProven": true,
       "disputeProven": true,
       "connectOnboardingProven": true,
+      "connectCustomAccountProofProven": true,
+      "connectLegacyMigrationReportReviewed": true,
       "payoutReadinessProven": true,
       "payoutFailureReversalProven": true,
       "reconciliationProven": true,

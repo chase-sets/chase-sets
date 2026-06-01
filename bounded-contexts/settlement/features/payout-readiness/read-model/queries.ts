@@ -9,6 +9,10 @@ export type SettlementPayoutReadinessRow = Readonly<{
   transfer_capability_status: "inactive" | "pending" | "active";
   payout_capability_status: "inactive" | "pending" | "active";
   payout_destination_status: "missing" | "pending" | "ready";
+  payout_account_dashboard: "none" | "express" | "full" | "unknown";
+  losses_collector: "application" | "stripe" | "unknown";
+  fees_collector: "application" | "stripe" | "unknown";
+  requirements_collector: "application" | "stripe" | "unknown";
   updated_at: string | null;
 }>;
 
@@ -20,6 +24,10 @@ type PayoutReadinessPageRow = Omit<SettlementPayoutReadinessRow, "status" | "mis
     transfer_capability_status: string;
     payout_capability_status: string;
     payout_destination_status: string;
+    payout_account_dashboard: string;
+    losses_collector: string;
+    fees_collector: string;
+    requirements_collector: string;
   }>;
 
 function normalizeStatus(status: string): SettlementPayoutReadinessRow["status"] {
@@ -63,6 +71,27 @@ function normalizeDestinationStatus(status: string): SettlementPayoutReadinessRo
   }
 }
 
+function normalizeDashboard(value: string): SettlementPayoutReadinessRow["payout_account_dashboard"] {
+  switch (value) {
+    case "none":
+    case "express":
+    case "full":
+      return value;
+    default:
+      return "unknown";
+  }
+}
+
+function normalizeResponsibility(value: string): SettlementPayoutReadinessRow["losses_collector"] {
+  switch (value) {
+    case "application":
+    case "stripe":
+      return value;
+    default:
+      return "unknown";
+  }
+}
+
 function mapPayoutReadiness(row: PayoutReadinessPageRow): SettlementPayoutReadinessRow {
   return {
     ...row,
@@ -71,6 +100,10 @@ function mapPayoutReadiness(row: PayoutReadinessPageRow): SettlementPayoutReadin
     transfer_capability_status: normalizeCapabilityStatus(row.transfer_capability_status),
     payout_capability_status: normalizeCapabilityStatus(row.payout_capability_status),
     payout_destination_status: normalizeDestinationStatus(row.payout_destination_status),
+    payout_account_dashboard: normalizeDashboard(row.payout_account_dashboard),
+    losses_collector: normalizeResponsibility(row.losses_collector),
+    fees_collector: normalizeResponsibility(row.fees_collector),
+    requirements_collector: normalizeResponsibility(row.requirements_collector),
     missing_requirements: Array.isArray(row.missing_requirements)
       ? row.missing_requirements.filter((value): value is string => typeof value === "string")
       : [],
@@ -87,6 +120,10 @@ export function createEmptyPayoutReadiness(accountId: string): SettlementPayoutR
     transfer_capability_status: "inactive",
     payout_capability_status: "inactive",
     payout_destination_status: "missing",
+    payout_account_dashboard: "unknown",
+    losses_collector: "unknown",
+    fees_collector: "unknown",
+    requirements_collector: "unknown",
     updated_at: null,
   };
 }
@@ -102,6 +139,10 @@ export async function getPayoutReadiness(db: PgQueryable, accountId: string): Pr
        transfer_capability_status,
        payout_capability_status,
        payout_destination_status,
+       payout_account_dashboard,
+       losses_collector,
+       fees_collector,
+       requirements_collector,
        updated_at
      FROM settlement_payout_readiness_pages
      WHERE account_id = $1`,
@@ -126,6 +167,10 @@ export async function getPayoutReadinessByProviderReference(
        transfer_capability_status,
        payout_capability_status,
        payout_destination_status,
+       payout_account_dashboard,
+       losses_collector,
+       fees_collector,
+       requirements_collector,
        updated_at
      FROM settlement_payout_readiness_pages
      WHERE provider_reference = $1`,

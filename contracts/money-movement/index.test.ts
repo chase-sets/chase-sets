@@ -13,6 +13,10 @@ describe("money movement contract", () => {
       transferCapabilityStatus: "active",
       payoutCapabilityStatus: "active",
       payoutDestinationStatus: "ready",
+      payoutAccountDashboard: "none",
+      lossesCollector: "application",
+      feesCollector: "application",
+      requirementsCollector: "application",
       missingRequirements: [],
     } satisfies ProviderPayoutReadiness;
 
@@ -29,6 +33,10 @@ describe("money movement contract", () => {
       transferCapabilityStatus: "active",
       payoutCapabilityStatus: "pending",
       payoutDestinationStatus: "missing",
+      payoutAccountDashboard: "express",
+      lossesCollector: "application",
+      feesCollector: "application",
+      requirementsCollector: "stripe",
       missingRequirements: ["external_account"],
     } satisfies ProviderPayoutReadiness;
     const setupSession = {
@@ -47,6 +55,7 @@ describe("money movement contract", () => {
 
     expect(setupSession.components).toEqual(["payout-setup"]);
     expect(setupSession.readiness.missingRequirements).toEqual(["external_account"]);
+    expect(setupSession.readiness.payoutAccountDashboard).toBe("express");
     expect(managementSession.components).toEqual(["payout-account-management"]);
   });
 });
