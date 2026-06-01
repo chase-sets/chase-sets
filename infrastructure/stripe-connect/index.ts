@@ -21,6 +21,14 @@ export type StripeConnectMoneyMovementOptions = Readonly<{
 
 type StripeAccountResponse = Readonly<{
   id?: string;
+  dashboard?: string | null;
+  defaults?: Readonly<{
+    responsibilities?: Readonly<{
+      losses_collector?: string | null;
+      fees_collector?: string | null;
+      requirements_collector?: string | null;
+    }> | null;
+  }> | null;
   requirements?: Readonly<{
     currently_due?: readonly string[];
     eventually_due?: readonly string[];
@@ -203,6 +211,27 @@ function statusToCapabilityStatus(status: string | null | undefined) {
   }
 }
 
+function dashboardToPayoutAccountDashboard(status: string | null | undefined) {
+  switch (status) {
+    case "none":
+    case "express":
+    case "full":
+      return status;
+    default:
+      return "unknown";
+  }
+}
+
+function collectorToPayoutAccountResponsibility(status: string | null | undefined) {
+  switch (status) {
+    case "application":
+    case "stripe":
+      return status;
+    default:
+      return "unknown";
+  }
+}
+
 function collectRequirements(account: StripeAccountResponse) {
   return [
     ...(account.requirements?.currently_due ?? []),
@@ -240,6 +269,12 @@ function mapAccountReadiness(account: StripeAccountResponse): ProviderPayoutRead
     transferCapabilityStatus,
     payoutCapabilityStatus,
     payoutDestinationStatus,
+    payoutAccountDashboard: dashboardToPayoutAccountDashboard(account.dashboard),
+    lossesCollector: collectorToPayoutAccountResponsibility(account.defaults?.responsibilities?.losses_collector),
+    feesCollector: collectorToPayoutAccountResponsibility(account.defaults?.responsibilities?.fees_collector),
+    requirementsCollector: collectorToPayoutAccountResponsibility(
+      account.defaults?.responsibilities?.requirements_collector,
+    ),
     missingRequirements,
   };
 }
@@ -320,6 +355,7 @@ export function createStripeConnectMoneyMovementGateway(
     const include = new URLSearchParams();
     include.set("include[0]", "configuration.recipient");
     include.set("include[1]", "requirements");
+    include.set("include[2]", "defaults");
 
     return stripeRequest<StripeAccountResponse>(`/v2/core/accounts/${providerReference}?${include.toString()}`, {
       method: "GET",
@@ -372,7 +408,7 @@ export function createStripeConnectMoneyMovementGateway(
   return {
     providerName: "stripe",
     async ensurePayoutAccount(input) {
-      const account = await stripeRequest<StripeAccountResponse>("/v2/core/accounts", {
+      const createdAccount = await stripeRequest<StripeAccountResponse>("/v2/core/accounts", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -407,7 +443,12 @@ export function createStripeConnectMoneyMovementGateway(
         idempotencyKey: input.idempotencyKey,
       });
 
-      const readiness = mapAccountReadiness(account);
+      const providerReference = createdAccount.id?.trim();
+      if (!providerReference) {
+        throw new Error("Stripe account response did not include an id.");
+      }
+
+      const readiness = mapAccountReadiness(await retrieveAccount(providerReference));
       await configureOnDemandPayouts(readiness.providerReference, `${input.idempotencyKey}:manual-payouts`);
 
       return readiness;

@@ -3,11 +3,15 @@ import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import {
   ensureIsoTimestamp,
   normalizeProviderCapabilityStatus,
+  normalizeProviderPayoutAccountDashboard,
+  normalizeProviderPayoutAccountResponsibility,
   normalizeProviderPayoutDestinationStatus,
   normalizeProviderSetupStatus,
   normalizeOptionalText,
   normalizePayoutReadinessStatus,
   type ProviderCapabilityStatus,
+  type ProviderPayoutAccountDashboard,
+  type ProviderPayoutAccountResponsibility,
   type ProviderPayoutDestinationStatus,
   type ProviderSetupStatus,
   type PayoutReadinessStatus,
@@ -22,6 +26,10 @@ export type PayoutReadinessState = Readonly<{
   transferCapabilityStatus: ProviderCapabilityStatus;
   payoutCapabilityStatus: ProviderCapabilityStatus;
   payoutDestinationStatus: ProviderPayoutDestinationStatus;
+  payoutAccountDashboard: ProviderPayoutAccountDashboard;
+  lossesCollector: ProviderPayoutAccountResponsibility;
+  feesCollector: ProviderPayoutAccountResponsibility;
+  requirementsCollector: ProviderPayoutAccountResponsibility;
   updatedAt: string | null;
 }>;
 
@@ -34,6 +42,10 @@ export const initialPayoutReadinessState: PayoutReadinessState = {
   transferCapabilityStatus: "inactive",
   payoutCapabilityStatus: "inactive",
   payoutDestinationStatus: "missing",
+  payoutAccountDashboard: "unknown",
+  lossesCollector: "unknown",
+  feesCollector: "unknown",
+  requirementsCollector: "unknown",
   updatedAt: null,
 };
 
@@ -47,6 +59,10 @@ export type RecordPayoutReadinessCommand = Readonly<{
   transferCapabilityStatus?: ProviderCapabilityStatus | string;
   payoutCapabilityStatus?: ProviderCapabilityStatus | string;
   payoutDestinationStatus?: ProviderPayoutDestinationStatus | string;
+  payoutAccountDashboard?: ProviderPayoutAccountDashboard | string;
+  lossesCollector?: ProviderPayoutAccountResponsibility | string;
+  feesCollector?: ProviderPayoutAccountResponsibility | string;
+  requirementsCollector?: ProviderPayoutAccountResponsibility | string;
   recordedAt: string;
 }>;
 
@@ -63,6 +79,10 @@ export type PayoutReadinessRecordedEvent = DomainEvent<
     transferCapabilityStatus: ProviderCapabilityStatus;
     payoutCapabilityStatus: ProviderCapabilityStatus;
     payoutDestinationStatus: ProviderPayoutDestinationStatus;
+    payoutAccountDashboard: ProviderPayoutAccountDashboard;
+    lossesCollector: ProviderPayoutAccountResponsibility;
+    feesCollector: ProviderPayoutAccountResponsibility;
+    requirementsCollector: ProviderPayoutAccountResponsibility;
     recordedAt: string;
   }>
 >;
@@ -96,6 +116,14 @@ export const decidePayoutReadiness: AggregateDecider<
             payoutDestinationStatus: normalizeProviderPayoutDestinationStatus(
               command.payoutDestinationStatus ?? "missing",
             ),
+            payoutAccountDashboard: normalizeProviderPayoutAccountDashboard(
+              command.payoutAccountDashboard ?? "unknown",
+            ),
+            lossesCollector: normalizeProviderPayoutAccountResponsibility(command.lossesCollector ?? "unknown"),
+            feesCollector: normalizeProviderPayoutAccountResponsibility(command.feesCollector ?? "unknown"),
+            requirementsCollector: normalizeProviderPayoutAccountResponsibility(
+              command.requirementsCollector ?? "unknown",
+            ),
             recordedAt: ensureIsoTimestamp(command.recordedAt, "Payout readiness recording must include a timestamp."),
           },
         },
@@ -115,6 +143,10 @@ export const evolvePayoutReadiness: AggregateEvolver<PayoutReadinessState, Payou
         transferCapabilityStatus: event.data.transferCapabilityStatus,
         payoutCapabilityStatus: event.data.payoutCapabilityStatus,
         payoutDestinationStatus: event.data.payoutDestinationStatus,
+        payoutAccountDashboard: event.data.payoutAccountDashboard,
+        lossesCollector: event.data.lossesCollector,
+        feesCollector: event.data.feesCollector,
+        requirementsCollector: event.data.requirementsCollector,
         updatedAt: event.data.recordedAt,
       };
   }

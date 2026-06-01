@@ -31,6 +31,10 @@ function readiness(overrides: Partial<SettlementPayoutReadinessRow> = {}): Settl
     transfer_capability_status: "inactive",
     payout_capability_status: "inactive",
     payout_destination_status: "missing",
+    payout_account_dashboard: "unknown",
+    losses_collector: "unknown",
+    fees_collector: "unknown",
+    requirements_collector: "unknown",
     updated_at: null,
     ...overrides,
   };

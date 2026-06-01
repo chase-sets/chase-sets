@@ -112,6 +112,10 @@ function createPayoutReadiness(
       transfer_capability_status: status === "ready" ? "active" : "pending",
       payout_capability_status: status === "ready" ? "active" : "pending",
       payout_destination_status: status === "ready" ? "ready" : "missing",
+      payout_account_dashboard: "none",
+      losses_collector: "application",
+      fees_collector: "application",
+      requirements_collector: "application",
       updated_at: options.updatedAt ?? new Date().toISOString(),
     }),
   } as unknown as PayoutReadinessServices;

@@ -21,6 +21,9 @@ function proof(overrides = {}) {
     connectReturnUrl: "https://marketplace.chasesets.com/account/payouts",
     connectRefreshUrl: "https://marketplace.chasesets.com/account/payouts/setup",
     connectConnectedAccountCount: 1,
+    connectCustomDashboardNoneAccountCount: 1,
+    connectLegacyHostedAccountCount: 0,
+    connectLegacyPayoutReadyAccountCount: 0,
     paymentProviderEventRowCount: 5,
     connectProviderEventRowCount: 2,
     livePaymentIntentId: "pi_liveCheckout20260530",
@@ -44,6 +47,8 @@ function proof(overrides = {}) {
     refundReference: "STRIPE-REFUND-2026-05-30",
     disputeReference: "STRIPE-DISPUTE-2026-05-30",
     connectOnboardingReference: "STRIPE-CONNECT-ONBOARDING-2026-05-30",
+    connectCustomAccountProofReference: "STRIPE-CONNECT-CUSTOM-ACCOUNT-2026-05-30",
+    connectLegacyMigrationReportReference: "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
     payoutReadinessReference: "STRIPE-PAYOUT-READINESS-2026-05-30",
     payoutFailureReversalReference: "STRIPE-PAYOUT-FAILURE-REVERSAL-2026-05-30",
     reconciliationReference: "STRIPE-RECONCILIATION-2026-05-30",
@@ -56,6 +61,8 @@ function proof(overrides = {}) {
     refundProven: true,
     disputeProven: true,
     connectOnboardingProven: true,
+    connectCustomAccountProofProven: true,
+    connectLegacyMigrationReportReviewed: true,
     payoutReadinessProven: true,
     payoutFailureReversalProven: true,
     reconciliationProven: true,
@@ -94,6 +101,9 @@ describe("marketplace stripe money operations evidence", () => {
       connectReturnUrl: "https://marketplace.chasesets.com/account/payouts",
       connectRefreshUrl: "https://marketplace.chasesets.com/account/payouts/setup",
       connectConnectedAccountCount: 1,
+      connectCustomDashboardNoneAccountCount: 1,
+      connectLegacyHostedAccountCount: 0,
+      connectLegacyPayoutReadyAccountCount: 0,
       paymentProviderEventRowCount: 5,
       connectProviderEventRowCount: 2,
       livePaymentIntentId: "pi_liveCheckout20260530",
@@ -117,6 +127,8 @@ describe("marketplace stripe money operations evidence", () => {
       refundReference: "STRIPE-REFUND-2026-05-30",
       disputeReference: "STRIPE-DISPUTE-2026-05-30",
       connectOnboardingReference: "STRIPE-CONNECT-ONBOARDING-2026-05-30",
+      connectCustomAccountProofReference: "STRIPE-CONNECT-CUSTOM-ACCOUNT-2026-05-30",
+      connectLegacyMigrationReportReference: "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
       payoutReadinessReference: "STRIPE-PAYOUT-READINESS-2026-05-30",
       payoutFailureReversalReference: "STRIPE-PAYOUT-FAILURE-REVERSAL-2026-05-30",
       reconciliationReference: "STRIPE-RECONCILIATION-2026-05-30",
@@ -129,6 +141,8 @@ describe("marketplace stripe money operations evidence", () => {
       refundProven: true,
       disputeProven: true,
       connectOnboardingProven: true,
+      connectCustomAccountProofProven: true,
+      connectLegacyMigrationReportReviewed: true,
       payoutReadinessProven: true,
       payoutFailureReversalProven: true,
       reconciliationProven: true,
@@ -166,6 +180,26 @@ describe("marketplace stripe money operations evidence", () => {
     expect(evidence.errors).toContain("Stripe money operations proof must use Stripe live mode.");
     expect(evidence.errors).toContain(
       "Stripe money operations proof must include at least one live connected account.",
+    );
+  });
+
+  it("fails when custom account proof and legacy migration counts are not supportable", () => {
+    const evidence = buildStripeMoneyOperationsEvidence(
+      input({
+        proof: proof({
+          connectCustomDashboardNoneAccountCount: 0,
+          connectLegacyHostedAccountCount: 1,
+          connectLegacyPayoutReadyAccountCount: 2,
+        }),
+      }),
+    );
+
+    expect(evidence.approved).toBe(false);
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must include at least one live dashboard-none connected account.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof cannot report more payout-ready legacy accounts than total legacy hosted accounts.",
     );
   });
 
@@ -377,6 +411,8 @@ describe("marketplace stripe money operations evidence", () => {
       "refundProven",
       "disputeProven",
       "connectOnboardingProven",
+      "connectCustomAccountProofProven",
+      "connectLegacyMigrationReportReviewed",
       "payoutReadinessProven",
       "payoutFailureReversalProven",
       "reconciliationProven",
@@ -389,6 +425,8 @@ describe("marketplace stripe money operations evidence", () => {
       "refundReference",
       "disputeReference",
       "connectOnboardingReference",
+      "connectCustomAccountProofReference",
+      "connectLegacyMigrationReportReference",
       "payoutReadinessReference",
       "payoutFailureReversalReference",
       "reconciliationReference",

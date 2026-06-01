@@ -574,6 +574,8 @@ function validateStripeMoneyOperations(gate, now, errors) {
       "refundProven",
       "disputeProven",
       "connectOnboardingProven",
+      "connectCustomAccountProofProven",
+      "connectLegacyMigrationReportReviewed",
       "payoutReadinessProven",
       "payoutFailureReversalProven",
       "reconciliationProven",
@@ -604,6 +606,8 @@ function validateStripeMoneyOperations(gate, now, errors) {
       "refundReference",
       "disputeReference",
       "connectOnboardingReference",
+      "connectCustomAccountProofReference",
+      "connectLegacyMigrationReportReference",
       "payoutReadinessReference",
       "payoutFailureReversalReference",
       "reconciliationReference",
@@ -624,6 +628,8 @@ function validateStripeMoneyOperations(gate, now, errors) {
       "refundReference",
       "disputeReference",
       "connectOnboardingReference",
+      "connectCustomAccountProofReference",
+      "connectLegacyMigrationReportReference",
       "payoutReadinessReference",
       "payoutFailureReversalReference",
       "reconciliationReference",
@@ -647,6 +653,27 @@ function validateStripeMoneyOperations(gate, now, errors) {
 
   if (!Number.isInteger(gate.connectConnectedAccountCount) || gate.connectConnectedAccountCount <= 0) {
     errors.push("Stripe money operations must include at least one live connected account.");
+  }
+  if (
+    !Number.isInteger(gate.connectCustomDashboardNoneAccountCount) ||
+    gate.connectCustomDashboardNoneAccountCount <= 0
+  ) {
+    errors.push("Stripe money operations must include at least one live dashboard-none connected account.");
+  }
+  if (!Number.isInteger(gate.connectLegacyHostedAccountCount) || gate.connectLegacyHostedAccountCount < 0) {
+    errors.push("Stripe money operations must include a non-negative connectLegacyHostedAccountCount.");
+  }
+  if (!Number.isInteger(gate.connectLegacyPayoutReadyAccountCount) || gate.connectLegacyPayoutReadyAccountCount < 0) {
+    errors.push("Stripe money operations must include a non-negative connectLegacyPayoutReadyAccountCount.");
+  }
+  if (
+    Number.isInteger(gate.connectLegacyHostedAccountCount) &&
+    Number.isInteger(gate.connectLegacyPayoutReadyAccountCount) &&
+    gate.connectLegacyPayoutReadyAccountCount > gate.connectLegacyHostedAccountCount
+  ) {
+    errors.push(
+      "Stripe money operations cannot report more payout-ready legacy accounts than total legacy hosted accounts.",
+    );
   }
   if (!Number.isInteger(gate.paymentProviderEventRowCount) || gate.paymentProviderEventRowCount < 5) {
     errors.push("Stripe money operations must include paymentProviderEventRowCount of at least 5.");

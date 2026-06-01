@@ -102,6 +102,10 @@ export type PayoutReadinessServices = Readonly<{
       transferCapabilityStatus?: string;
       payoutCapabilityStatus?: string;
       payoutDestinationStatus?: string;
+      payoutAccountDashboard?: string;
+      lossesCollector?: string;
+      feesCollector?: string;
+      requirementsCollector?: string;
       recordedAt?: string;
     }>,
     context: EventStoreContext,
@@ -149,6 +153,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
       transferCapabilityStatus?: string;
       payoutCapabilityStatus?: string;
       payoutDestinationStatus?: string;
+      payoutAccountDashboard?: string;
+      lossesCollector?: string;
+      feesCollector?: string;
+      requirementsCollector?: string;
       recordedAt?: string;
     }>,
     context: EventStoreContext,
@@ -168,6 +176,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         transferCapabilityStatus: params.transferCapabilityStatus ?? "inactive",
         payoutCapabilityStatus: params.payoutCapabilityStatus ?? "inactive",
         payoutDestinationStatus: params.payoutDestinationStatus ?? "missing",
+        payoutAccountDashboard: params.payoutAccountDashboard ?? "unknown",
+        lossesCollector: params.lossesCollector ?? "unknown",
+        feesCollector: params.feesCollector ?? "unknown",
+        requirementsCollector: params.requirementsCollector ?? "unknown",
         recordedAt: params.recordedAt ?? new Date().toISOString(),
       },
       context,
@@ -210,6 +222,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           transferCapabilityStatus: ensured.transferCapabilityStatus,
           payoutCapabilityStatus: ensured.payoutCapabilityStatus,
           payoutDestinationStatus: ensured.payoutDestinationStatus,
+          payoutAccountDashboard: ensured.payoutAccountDashboard,
+          lossesCollector: ensured.lossesCollector,
+          feesCollector: ensured.feesCollector,
+          requirementsCollector: ensured.requirementsCollector,
         },
         context,
       );
@@ -232,6 +248,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           transferCapabilityStatus: session.readiness.transferCapabilityStatus,
           payoutCapabilityStatus: session.readiness.payoutCapabilityStatus,
           payoutDestinationStatus: session.readiness.payoutDestinationStatus,
+          payoutAccountDashboard: session.readiness.payoutAccountDashboard,
+          lossesCollector: session.readiness.lossesCollector,
+          feesCollector: session.readiness.feesCollector,
+          requirementsCollector: session.readiness.requirementsCollector,
         },
         context,
       );
@@ -286,6 +306,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           transferCapabilityStatus: ensured.transferCapabilityStatus,
           payoutCapabilityStatus: ensured.payoutCapabilityStatus,
           payoutDestinationStatus: ensured.payoutDestinationStatus,
+          payoutAccountDashboard: ensured.payoutAccountDashboard,
+          lossesCollector: ensured.lossesCollector,
+          feesCollector: ensured.feesCollector,
+          requirementsCollector: ensured.requirementsCollector,
         },
         context,
       );
@@ -306,6 +330,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           transferCapabilityStatus: session.readiness.transferCapabilityStatus,
           payoutCapabilityStatus: session.readiness.payoutCapabilityStatus,
           payoutDestinationStatus: session.readiness.payoutDestinationStatus,
+          payoutAccountDashboard: session.readiness.payoutAccountDashboard,
+          lossesCollector: session.readiness.lossesCollector,
+          feesCollector: session.readiness.feesCollector,
+          requirementsCollector: session.readiness.requirementsCollector,
         },
         context,
       );
@@ -361,6 +389,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           transferCapabilityStatus: readiness.transferCapabilityStatus,
           payoutCapabilityStatus: readiness.payoutCapabilityStatus,
           payoutDestinationStatus: readiness.payoutDestinationStatus,
+          payoutAccountDashboard: readiness.payoutAccountDashboard,
+          lossesCollector: readiness.lossesCollector,
+          feesCollector: readiness.feesCollector,
+          requirementsCollector: readiness.requirementsCollector,
         },
         context,
       );
@@ -383,6 +415,10 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
           transferCapabilityStatus: params.readiness.transferCapabilityStatus,
           payoutCapabilityStatus: params.readiness.payoutCapabilityStatus,
           payoutDestinationStatus: params.readiness.payoutDestinationStatus,
+          payoutAccountDashboard: params.readiness.payoutAccountDashboard,
+          lossesCollector: params.readiness.lossesCollector,
+          feesCollector: params.readiness.feesCollector,
+          requirementsCollector: params.readiness.requirementsCollector,
           recordedAt: params.recordedAt,
         },
         context,

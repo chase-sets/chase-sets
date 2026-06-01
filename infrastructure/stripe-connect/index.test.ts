@@ -33,43 +33,60 @@ describe("money movement adapters", () => {
         });
       }
 
-      expect(String(input)).toBe("https://stripe.test/v2/core/accounts");
-      expect(init?.method).toBe("POST");
-      expect(init?.headers).toBeInstanceOf(Headers);
-      const headers = init?.headers as Headers;
-      expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
-      expect(headers.get("Content-Type")).toBe("application/json");
-      expect(headers.get("Idempotency-Key")).toBe("account-key");
-      expect(JSON.parse(String(init?.body))).toMatchObject({
-        contact_email: "seller@example.test",
-        identity: {
-          country: "US",
-        },
-        metadata: {
-          chase_sets_account_id: "acc_seller",
-        },
-        configuration: {
-          recipient: {
-            capabilities: {
-              stripe_balance: {
-                stripe_transfers: { requested: true },
+      if (String(input) === "https://stripe.test/v2/core/accounts") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Content-Type")).toBe("application/json");
+        expect(headers.get("Idempotency-Key")).toBe("account-key");
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          contact_email: "seller@example.test",
+          identity: {
+            country: "US",
+          },
+          metadata: {
+            chase_sets_account_id: "acc_seller",
+          },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: { requested: true },
+                },
               },
             },
           },
-        },
-        defaults: {
-          responsibilities: {
-            fees_collector: "application",
-            losses_collector: "application",
+          defaults: {
+            responsibilities: {
+              fees_collector: "application",
+              losses_collector: "application",
+            },
           },
-        },
-        dashboard: "none",
-      });
-      expect(JSON.parse(String(init?.body)).defaults.responsibilities).not.toHaveProperty("requirements_collector");
+          dashboard: "none",
+        });
+        expect(JSON.parse(String(init?.body)).defaults.responsibilities).not.toHaveProperty("requirements_collector");
 
+        return new Response(JSON.stringify({ id: "acct_123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      expect(String(input)).toBe(
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+      );
       return new Response(
         JSON.stringify({
           id: "acct_123",
+          dashboard: "none",
+          defaults: {
+            responsibilities: {
+              fees_collector: "application",
+              losses_collector: "application",
+              requirements_collector: "application",
+            },
+          },
           requirements: { currently_due: [] },
           configuration: {
             recipient: {
@@ -105,8 +122,16 @@ describe("money movement adapters", () => {
       transferCapabilityStatus: "active",
       payoutCapabilityStatus: "active",
       payoutDestinationStatus: "ready",
+      payoutAccountDashboard: "none",
+      lossesCollector: "application",
+      feesCollector: "application",
+      requirementsCollector: "application",
     });
-    expect(calls).toEqual(["https://stripe.test/v2/core/accounts", "https://stripe.test/v1/balance_settings"]);
+    expect(calls).toEqual([
+      "https://stripe.test/v2/core/accounts",
+      "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+      "https://stripe.test/v1/balance_settings",
+    ]);
   });
 
   it("Stripe adapter creates embedded payout setup account sessions", async () => {
@@ -138,11 +163,19 @@ describe("money movement adapters", () => {
       }
 
       expect(String(input)).toBe(
-        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements",
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
       );
       return new Response(
         JSON.stringify({
           id: "acct_123",
+          dashboard: "express",
+          defaults: {
+            responsibilities: {
+              fees_collector: "application",
+              losses_collector: "application",
+              requirements_collector: "stripe",
+            },
+          },
           requirements: { currently_due: ["external_account"] },
           configuration: {
             recipient: {
@@ -182,6 +215,10 @@ describe("money movement adapters", () => {
         transferCapabilityStatus: "active",
         payoutCapabilityStatus: "pending",
         payoutDestinationStatus: "missing",
+        payoutAccountDashboard: "express",
+        lossesCollector: "application",
+        feesCollector: "application",
+        requirementsCollector: "stripe",
         missingRequirements: ["external_account"],
       },
     });
@@ -197,11 +234,28 @@ describe("money movement adapters", () => {
         });
       }
 
-      expect(String(input)).toBe("https://stripe.test/v2/core/accounts");
-      expect(init?.method).toBe("POST");
+      if (String(input) === "https://stripe.test/v2/core/accounts") {
+        expect(init?.method).toBe("POST");
+        return new Response(JSON.stringify({ id: "acct_restricted" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      expect(String(input)).toBe(
+        "https://stripe.test/v2/core/accounts/acct_restricted?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
+      );
       return new Response(
         JSON.stringify({
           id: "acct_restricted",
+          dashboard: "none",
+          defaults: {
+            responsibilities: {
+              fees_collector: "application",
+              losses_collector: "application",
+              requirements_collector: "application",
+            },
+          },
           requirements: { currently_due: ["external_account"] },
           configuration: {
             recipient: {
@@ -320,11 +374,19 @@ describe("money movement adapters", () => {
       }
 
       expect(String(input)).toBe(
-        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements",
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
       );
       return new Response(
         JSON.stringify({
           id: "acct_123",
+          dashboard: "none",
+          defaults: {
+            responsibilities: {
+              fees_collector: "application",
+              losses_collector: "application",
+              requirements_collector: "application",
+            },
+          },
           requirements: { currently_due: [] },
           configuration: {
             recipient: {
@@ -467,11 +529,19 @@ describe("money movement adapters", () => {
     globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
       calls.push(String(input));
       expect(String(input)).toBe(
-        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements",
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements&include%5B2%5D=defaults",
       );
       return new Response(
         JSON.stringify({
           id: "acct_123",
+          dashboard: "none",
+          defaults: {
+            responsibilities: {
+              fees_collector: "application",
+              losses_collector: "application",
+              requirements_collector: "application",
+            },
+          },
           requirements: {
             currently_due: ["external_account"],
             eventually_due: ["individual.verification.document"],
@@ -522,6 +592,10 @@ describe("money movement adapters", () => {
         transferCapabilityStatus: "active",
         payoutCapabilityStatus: "pending",
         payoutDestinationStatus: "missing",
+        payoutAccountDashboard: "none",
+        lossesCollector: "application",
+        feesCollector: "application",
+        requirementsCollector: "application",
         missingRequirements: ["external_account", "individual.verification.document"],
       },
       occurredAt: "2026-04-12T13:20:00.000Z",

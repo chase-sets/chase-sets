@@ -21,6 +21,8 @@ export type PayoutReadinessStatus = "not-started" | "pending" | "ready" | "restr
 export type ProviderSetupStatus = "not-started" | "pending" | "complete";
 export type ProviderCapabilityStatus = "inactive" | "pending" | "active";
 export type ProviderPayoutDestinationStatus = "missing" | "pending" | "ready";
+export type ProviderPayoutAccountDashboard = "none" | "express" | "full" | "unknown";
+export type ProviderPayoutAccountResponsibility = "application" | "stripe" | "unknown";
 
 export type WalletSummary = Readonly<{
   accountId: AccountId;
@@ -78,6 +80,10 @@ export type PayoutReadinessSummary = Readonly<{
   transferCapabilityStatus: ProviderCapabilityStatus;
   payoutCapabilityStatus: ProviderCapabilityStatus;
   payoutDestinationStatus: ProviderPayoutDestinationStatus;
+  payoutAccountDashboard: ProviderPayoutAccountDashboard;
+  lossesCollector: ProviderPayoutAccountResponsibility;
+  feesCollector: ProviderPayoutAccountResponsibility;
+  requirementsCollector: ProviderPayoutAccountResponsibility;
   updatedAt: string;
 }>;
 
@@ -278,6 +284,30 @@ export function normalizeProviderPayoutDestinationStatus(value: string): Provide
       return "ready";
     default:
       throw new SettlementDomainError("Provider payout destination status is not supported.");
+  }
+}
+
+export function normalizeProviderPayoutAccountDashboard(value: string): ProviderPayoutAccountDashboard {
+  switch (value.trim()) {
+    case "none":
+      return "none";
+    case "express":
+      return "express";
+    case "full":
+      return "full";
+    default:
+      return "unknown";
+  }
+}
+
+export function normalizeProviderPayoutAccountResponsibility(value: string): ProviderPayoutAccountResponsibility {
+  switch (value.trim()) {
+    case "application":
+      return "application";
+    case "stripe":
+      return "stripe";
+    default:
+      return "unknown";
   }
 }
 

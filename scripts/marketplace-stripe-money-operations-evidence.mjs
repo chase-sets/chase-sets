@@ -17,6 +17,8 @@ export const REQUIRED_STRIPE_MONEY_OPERATION_PROOFS = [
   "refundProven",
   "disputeProven",
   "connectOnboardingProven",
+  "connectCustomAccountProofProven",
+  "connectLegacyMigrationReportReviewed",
   "payoutReadinessProven",
   "payoutFailureReversalProven",
   "reconciliationProven",
@@ -30,6 +32,8 @@ export const REQUIRED_STRIPE_MONEY_OPERATION_REFERENCES = [
   "refundReference",
   "disputeReference",
   "connectOnboardingReference",
+  "connectCustomAccountProofReference",
+  "connectLegacyMigrationReportReference",
   "payoutReadinessReference",
   "payoutFailureReversalReference",
   "reconciliationReference",
@@ -100,6 +104,9 @@ export function buildStripeMoneyOperationsEvidence(input) {
     connectReturnUrl: proof.connectReturnUrl,
     connectRefreshUrl: proof.connectRefreshUrl,
     connectConnectedAccountCount: proof.connectConnectedAccountCount,
+    connectCustomDashboardNoneAccountCount: proof.connectCustomDashboardNoneAccountCount,
+    connectLegacyHostedAccountCount: proof.connectLegacyHostedAccountCount,
+    connectLegacyPayoutReadyAccountCount: proof.connectLegacyPayoutReadyAccountCount,
     paymentProviderEventRowCount: proof.paymentProviderEventRowCount,
     connectProviderEventRowCount: proof.connectProviderEventRowCount,
     ...Object.fromEntries(REQUIRED_STRIPE_MONEY_OPERATION_IDENTIFIERS.map(({ key }) => [key, proof[key]])),
@@ -157,6 +164,18 @@ function normalizeStripeMoneyOperationsProof(proof) {
     connectConnectedAccountCount: requireNonNegativeInteger(
       proof.connectConnectedAccountCount,
       "Stripe connectConnectedAccountCount",
+    ),
+    connectCustomDashboardNoneAccountCount: requireNonNegativeInteger(
+      proof.connectCustomDashboardNoneAccountCount,
+      "Stripe connectCustomDashboardNoneAccountCount",
+    ),
+    connectLegacyHostedAccountCount: requireNonNegativeInteger(
+      proof.connectLegacyHostedAccountCount,
+      "Stripe connectLegacyHostedAccountCount",
+    ),
+    connectLegacyPayoutReadyAccountCount: requireNonNegativeInteger(
+      proof.connectLegacyPayoutReadyAccountCount,
+      "Stripe connectLegacyPayoutReadyAccountCount",
     ),
     paymentProviderEventRowCount: requireNonNegativeInteger(
       proof.paymentProviderEventRowCount,
@@ -253,6 +272,14 @@ function validateStripeMoneyOperationsProof(proof, checkedAt) {
   }
   if (proof.connectConnectedAccountCount <= 0) {
     errors.push("Stripe money operations proof must include at least one live connected account.");
+  }
+  if (proof.connectCustomDashboardNoneAccountCount <= 0) {
+    errors.push("Stripe money operations proof must include at least one live dashboard-none connected account.");
+  }
+  if (proof.connectLegacyPayoutReadyAccountCount > proof.connectLegacyHostedAccountCount) {
+    errors.push(
+      "Stripe money operations proof cannot report more payout-ready legacy accounts than total legacy hosted accounts.",
+    );
   }
   if (proof.paymentProviderEventRowCount < 5) {
     errors.push("Stripe money operations proof must include at least five Payments provider webhook event rows.");
