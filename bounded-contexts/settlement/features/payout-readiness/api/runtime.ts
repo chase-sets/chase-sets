@@ -13,6 +13,11 @@ import {
   SettlementDomainError,
   type PayoutReadinessStatus,
 } from "../../../support/runtime-support/common";
+import {
+  classifySettlementProviderError,
+  createNoopSettlementOperationsRecorder,
+  type SettlementOperationsRecorder,
+} from "../../../support/runtime-support/operations";
 import type { MoneyMovementGateway, ProviderPayoutReadiness } from "@chase-sets/money-movement";
 import {
   decidePayoutReadiness,
@@ -35,6 +40,7 @@ type PayoutReadinessRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   moneyMovementGateway: MoneyMovementGateway;
+  operationsRecorder?: SettlementOperationsRecorder;
 }>;
 
 export type PayoutReadinessServices = Readonly<{
@@ -132,6 +138,7 @@ function readinessStatus(readiness: ProviderPayoutReadiness): PayoutReadinessSta
 }
 
 export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): PayoutReadinessServices {
+  const operationsRecorder = deps.operationsRecorder ?? createNoopSettlementOperationsRecorder();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
       eventStore: deps.eventStore,
@@ -142,6 +149,30 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
     evolve: evolvePayoutReadiness,
     decide: decidePayoutReadiness,
   });
+
+  async function recordOperation(
+    event: Omit<Parameters<SettlementOperationsRecorder["record"]>[0], "occurredAt"> &
+      Partial<Pick<Parameters<SettlementOperationsRecorder["record"]>[0], "occurredAt">>,
+  ) {
+    await operationsRecorder.record({
+      ...event,
+      providerName: event.providerName ?? deps.moneyMovementGateway.providerName,
+      occurredAt: event.occurredAt ?? new Date().toISOString(),
+    });
+  }
+
+  function readinessOperationFields(readiness: ProviderPayoutReadiness) {
+    return {
+      providerReference: readiness.providerReference,
+      readinessStatus: readinessStatus(readiness),
+      onboardingStatus: readiness.onboardingStatus,
+      transferCapabilityStatus: readiness.transferCapabilityStatus,
+      payoutCapabilityStatus: readiness.payoutCapabilityStatus,
+      payoutDestinationStatus: readiness.payoutDestinationStatus,
+      payoutAccountDashboard: readiness.payoutAccountDashboard,
+      missingRequirementCount: readiness.missingRequirements.length,
+    };
+  }
 
   async function recordProviderReadiness(
     params: Readonly<{
@@ -198,214 +229,318 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
       return buildPayoutSetupProgress(await getPayoutReadiness(deps.db, accountId));
     },
     async createOnboardingSession(params, context) {
-      const existing = await getPayoutReadiness(deps.db, params.accountId);
-      const ensured = existing.provider_reference
-        ? await deps.moneyMovementGateway.refreshPayoutReadiness({
-            accountId: params.accountId,
-            providerReference: existing.provider_reference,
-          })
-        : await deps.moneyMovementGateway.ensurePayoutAccount({
-            accountId: params.accountId,
-            currencyCode: normalizeCurrencyCode("usd"),
-            contactEmail: params.contactEmail,
-            countryCode: "US",
-            idempotencyKey: `settlement:payout-account:${params.accountId}`,
-          });
+      try {
+        const existing = await getPayoutReadiness(deps.db, params.accountId);
+        const ensured = existing.provider_reference
+          ? await deps.moneyMovementGateway.refreshPayoutReadiness({
+              accountId: params.accountId,
+              providerReference: existing.provider_reference,
+            })
+          : await deps.moneyMovementGateway.ensurePayoutAccount({
+              accountId: params.accountId,
+              currencyCode: normalizeCurrencyCode("usd"),
+              contactEmail: params.contactEmail,
+              countryCode: "US",
+              idempotencyKey: `settlement:payout-account:${params.accountId}`,
+            });
 
-      await recordProviderReadiness(
-        {
+        await recordProviderReadiness(
+          {
+            accountId: params.accountId,
+            status: readinessStatus(ensured),
+            missingRequirements: ensured.missingRequirements,
+            providerReference: ensured.providerReference,
+            onboardingStatus: ensured.onboardingStatus,
+            transferCapabilityStatus: ensured.transferCapabilityStatus,
+            payoutCapabilityStatus: ensured.payoutCapabilityStatus,
+            payoutDestinationStatus: ensured.payoutDestinationStatus,
+            payoutAccountDashboard: ensured.payoutAccountDashboard,
+            lossesCollector: ensured.lossesCollector,
+            feesCollector: ensured.feesCollector,
+            requirementsCollector: ensured.requirementsCollector,
+          },
+          context,
+        );
+
+        const session = await deps.moneyMovementGateway.createOnboardingSession({
           accountId: params.accountId,
-          status: readinessStatus(ensured),
-          missingRequirements: ensured.missingRequirements,
           providerReference: ensured.providerReference,
-          onboardingStatus: ensured.onboardingStatus,
-          transferCapabilityStatus: ensured.transferCapabilityStatus,
-          payoutCapabilityStatus: ensured.payoutCapabilityStatus,
-          payoutDestinationStatus: ensured.payoutDestinationStatus,
-          payoutAccountDashboard: ensured.payoutAccountDashboard,
-          lossesCollector: ensured.lossesCollector,
-          feesCollector: ensured.feesCollector,
-          requirementsCollector: ensured.requirementsCollector,
-        },
-        context,
-      );
+          returnUrl: params.returnUrl,
+          refreshUrl: params.refreshUrl,
+          idempotencyKey: `settlement:payout-account:${params.accountId}:onboarding:${createId("setup")}`,
+        });
 
-      const session = await deps.moneyMovementGateway.createOnboardingSession({
-        accountId: params.accountId,
-        providerReference: ensured.providerReference,
-        returnUrl: params.returnUrl,
-        refreshUrl: params.refreshUrl,
-        idempotencyKey: `settlement:payout-account:${params.accountId}:onboarding:${createId("setup")}`,
-      });
+        await recordProviderReadiness(
+          {
+            accountId: params.accountId,
+            status: readinessStatus(session.readiness),
+            missingRequirements: session.readiness.missingRequirements,
+            providerReference: session.providerReference,
+            onboardingStatus: session.readiness.onboardingStatus,
+            transferCapabilityStatus: session.readiness.transferCapabilityStatus,
+            payoutCapabilityStatus: session.readiness.payoutCapabilityStatus,
+            payoutDestinationStatus: session.readiness.payoutDestinationStatus,
+            payoutAccountDashboard: session.readiness.payoutAccountDashboard,
+            lossesCollector: session.readiness.lossesCollector,
+            feesCollector: session.readiness.feesCollector,
+            requirementsCollector: session.readiness.requirementsCollector,
+          },
+          context,
+        );
 
-      await recordProviderReadiness(
-        {
+        await recordOperation({
+          kind: "payout-setup-session-created",
           accountId: params.accountId,
-          status: readinessStatus(session.readiness),
-          missingRequirements: session.readiness.missingRequirements,
-          providerReference: session.providerReference,
-          onboardingStatus: session.readiness.onboardingStatus,
-          transferCapabilityStatus: session.readiness.transferCapabilityStatus,
-          payoutCapabilityStatus: session.readiness.payoutCapabilityStatus,
-          payoutDestinationStatus: session.readiness.payoutDestinationStatus,
-          payoutAccountDashboard: session.readiness.payoutAccountDashboard,
-          lossesCollector: session.readiness.lossesCollector,
-          feesCollector: session.readiness.feesCollector,
-          requirementsCollector: session.readiness.requirementsCollector,
-        },
-        context,
-      );
+          setupSurface: "hosted-onboarding",
+          ...readinessOperationFields(session.readiness),
+        });
 
-      return {
-        url: session.url,
-        providerReference: session.providerReference,
-        expiresAt: session.expiresAt,
-      };
+        return {
+          url: session.url,
+          providerReference: session.providerReference,
+          expiresAt: session.expiresAt,
+        };
+      } catch (error) {
+        await recordOperation({
+          kind: "payout-setup-session-failed",
+          accountId: params.accountId,
+          setupSurface: "hosted-onboarding",
+          safeCategory: classifySettlementProviderError(error),
+        });
+        throw error;
+      }
     },
     async createAccountManagementSession(params, _context) {
-      const existing = await getPayoutReadiness(deps.db, params.accountId);
-      if (!existing.provider_reference) {
-        throw new SettlementDomainError("Payout setup must be started before managing payout account details.");
+      try {
+        const existing = await getPayoutReadiness(deps.db, params.accountId);
+        if (!existing.provider_reference) {
+          await recordOperation({
+            kind: "payout-account-management-session-failed",
+            accountId: params.accountId,
+            setupSurface: "hosted-account-management",
+            safeCategory: "missing_provider_account",
+          });
+          throw new SettlementDomainError("Payout setup must be started before managing payout account details.");
+        }
+
+        const session = await deps.moneyMovementGateway.createAccountManagementSession({
+          accountId: params.accountId,
+          providerReference: existing.provider_reference,
+          returnUrl: params.returnUrl,
+          idempotencyKey: `settlement:payout-account:${params.accountId}:manage`,
+        });
+
+        await recordOperation({
+          kind: "payout-account-management-session-created",
+          accountId: params.accountId,
+          setupSurface: "hosted-account-management",
+          providerReference: session.providerReference,
+        });
+
+        return {
+          url: session.url,
+          providerReference: session.providerReference,
+          expiresAt: session.expiresAt,
+        };
+      } catch (error) {
+        if (!(error instanceof SettlementDomainError)) {
+          await recordOperation({
+            kind: "payout-account-management-session-failed",
+            accountId: params.accountId,
+            setupSurface: "hosted-account-management",
+            safeCategory: classifySettlementProviderError(error),
+          });
+        }
+        throw error;
       }
-
-      const session = await deps.moneyMovementGateway.createAccountManagementSession({
-        accountId: params.accountId,
-        providerReference: existing.provider_reference,
-        returnUrl: params.returnUrl,
-        idempotencyKey: `settlement:payout-account:${params.accountId}:manage`,
-      });
-
-      return {
-        url: session.url,
-        providerReference: session.providerReference,
-        expiresAt: session.expiresAt,
-      };
     },
     async createPayoutSetupSession(params, context) {
-      const existing = await getPayoutReadiness(deps.db, params.accountId);
-      const ensured = existing.provider_reference
-        ? await deps.moneyMovementGateway.refreshPayoutReadiness({
-            accountId: params.accountId,
-            providerReference: existing.provider_reference,
-          })
-        : await deps.moneyMovementGateway.ensurePayoutAccount({
-            accountId: params.accountId,
-            currencyCode: normalizeCurrencyCode("usd"),
-            contactEmail: params.contactEmail,
-            countryCode: "US",
-            idempotencyKey: `settlement:payout-account:${params.accountId}`,
-          });
+      try {
+        const existing = await getPayoutReadiness(deps.db, params.accountId);
+        const ensured = existing.provider_reference
+          ? await deps.moneyMovementGateway.refreshPayoutReadiness({
+              accountId: params.accountId,
+              providerReference: existing.provider_reference,
+            })
+          : await deps.moneyMovementGateway.ensurePayoutAccount({
+              accountId: params.accountId,
+              currencyCode: normalizeCurrencyCode("usd"),
+              contactEmail: params.contactEmail,
+              countryCode: "US",
+              idempotencyKey: `settlement:payout-account:${params.accountId}`,
+            });
 
-      await recordProviderReadiness(
-        {
+        await recordProviderReadiness(
+          {
+            accountId: params.accountId,
+            status: readinessStatus(ensured),
+            missingRequirements: ensured.missingRequirements,
+            providerReference: ensured.providerReference,
+            onboardingStatus: ensured.onboardingStatus,
+            transferCapabilityStatus: ensured.transferCapabilityStatus,
+            payoutCapabilityStatus: ensured.payoutCapabilityStatus,
+            payoutDestinationStatus: ensured.payoutDestinationStatus,
+            payoutAccountDashboard: ensured.payoutAccountDashboard,
+            lossesCollector: ensured.lossesCollector,
+            feesCollector: ensured.feesCollector,
+            requirementsCollector: ensured.requirementsCollector,
+          },
+          context,
+        );
+
+        const session = await deps.moneyMovementGateway.createPayoutSetupSession({
           accountId: params.accountId,
-          status: readinessStatus(ensured),
-          missingRequirements: ensured.missingRequirements,
           providerReference: ensured.providerReference,
-          onboardingStatus: ensured.onboardingStatus,
-          transferCapabilityStatus: ensured.transferCapabilityStatus,
-          payoutCapabilityStatus: ensured.payoutCapabilityStatus,
-          payoutDestinationStatus: ensured.payoutDestinationStatus,
-          payoutAccountDashboard: ensured.payoutAccountDashboard,
-          lossesCollector: ensured.lossesCollector,
-          feesCollector: ensured.feesCollector,
-          requirementsCollector: ensured.requirementsCollector,
-        },
-        context,
-      );
+          idempotencyKey: `settlement:payout-account:${params.accountId}:embedded-setup:${createId("setup")}`,
+        });
 
-      const session = await deps.moneyMovementGateway.createPayoutSetupSession({
-        accountId: params.accountId,
-        providerReference: ensured.providerReference,
-        idempotencyKey: `settlement:payout-account:${params.accountId}:embedded-setup:${createId("setup")}`,
-      });
+        await recordProviderReadiness(
+          {
+            accountId: params.accountId,
+            status: readinessStatus(session.readiness),
+            missingRequirements: session.readiness.missingRequirements,
+            providerReference: session.providerReference,
+            onboardingStatus: session.readiness.onboardingStatus,
+            transferCapabilityStatus: session.readiness.transferCapabilityStatus,
+            payoutCapabilityStatus: session.readiness.payoutCapabilityStatus,
+            payoutDestinationStatus: session.readiness.payoutDestinationStatus,
+            payoutAccountDashboard: session.readiness.payoutAccountDashboard,
+            lossesCollector: session.readiness.lossesCollector,
+            feesCollector: session.readiness.feesCollector,
+            requirementsCollector: session.readiness.requirementsCollector,
+          },
+          context,
+        );
 
-      await recordProviderReadiness(
-        {
+        await recordOperation({
+          kind: "payout-setup-session-created",
           accountId: params.accountId,
-          status: readinessStatus(session.readiness),
-          missingRequirements: session.readiness.missingRequirements,
-          providerReference: session.providerReference,
-          onboardingStatus: session.readiness.onboardingStatus,
-          transferCapabilityStatus: session.readiness.transferCapabilityStatus,
-          payoutCapabilityStatus: session.readiness.payoutCapabilityStatus,
-          payoutDestinationStatus: session.readiness.payoutDestinationStatus,
-          payoutAccountDashboard: session.readiness.payoutAccountDashboard,
-          lossesCollector: session.readiness.lossesCollector,
-          feesCollector: session.readiness.feesCollector,
-          requirementsCollector: session.readiness.requirementsCollector,
-        },
-        context,
-      );
+          setupSurface: "embedded-payout-setup",
+          ...readinessOperationFields(session.readiness),
+        });
 
-      return {
-        clientSecret: session.clientSecret,
-        providerReference: session.providerReference,
-        expiresAt: session.expiresAt,
-        components: session.components,
-      };
+        return {
+          clientSecret: session.clientSecret,
+          providerReference: session.providerReference,
+          expiresAt: session.expiresAt,
+          components: session.components,
+        };
+      } catch (error) {
+        await recordOperation({
+          kind: "payout-setup-session-failed",
+          accountId: params.accountId,
+          setupSurface: "embedded-payout-setup",
+          safeCategory: classifySettlementProviderError(error),
+        });
+        throw error;
+      }
     },
     async createPayoutAccountManagementSession(params, _context) {
-      const existing = await getPayoutReadiness(deps.db, params.accountId);
-      if (!existing.provider_reference) {
-        throw new SettlementDomainError("Payout setup must be started before managing payout account details.");
+      try {
+        const existing = await getPayoutReadiness(deps.db, params.accountId);
+        if (!existing.provider_reference) {
+          await recordOperation({
+            kind: "payout-account-management-session-failed",
+            accountId: params.accountId,
+            setupSurface: "embedded-account-management",
+            safeCategory: "missing_provider_account",
+          });
+          throw new SettlementDomainError("Payout setup must be started before managing payout account details.");
+        }
+
+        const session = await deps.moneyMovementGateway.createPayoutAccountManagementSession({
+          accountId: params.accountId,
+          providerReference: existing.provider_reference,
+          idempotencyKey: `settlement:payout-account:${params.accountId}:embedded-manage`,
+        });
+
+        await recordOperation({
+          kind: "payout-account-management-session-created",
+          accountId: params.accountId,
+          setupSurface: "embedded-account-management",
+          providerReference: session.providerReference,
+        });
+
+        return {
+          clientSecret: session.clientSecret,
+          providerReference: session.providerReference,
+          expiresAt: session.expiresAt,
+          components: session.components,
+        };
+      } catch (error) {
+        if (!(error instanceof SettlementDomainError)) {
+          await recordOperation({
+            kind: "payout-account-management-session-failed",
+            accountId: params.accountId,
+            setupSurface: "embedded-account-management",
+            safeCategory: classifySettlementProviderError(error),
+          });
+        }
+        throw error;
       }
-
-      const session = await deps.moneyMovementGateway.createPayoutAccountManagementSession({
-        accountId: params.accountId,
-        providerReference: existing.provider_reference,
-        idempotencyKey: `settlement:payout-account:${params.accountId}:embedded-manage`,
-      });
-
-      return {
-        clientSecret: session.clientSecret,
-        providerReference: session.providerReference,
-        expiresAt: session.expiresAt,
-        components: session.components,
-      };
     },
     async refreshProviderReadiness(params, context) {
-      const existing = await getPayoutReadiness(deps.db, params.accountId);
-      const readiness = existing.provider_reference
-        ? await deps.moneyMovementGateway.refreshPayoutReadiness({
-            accountId: params.accountId,
-            providerReference: existing.provider_reference,
-          })
-        : await deps.moneyMovementGateway.ensurePayoutAccount({
-            accountId: params.accountId,
-            currencyCode: normalizeCurrencyCode("usd"),
-            contactEmail: params.contactEmail,
-            countryCode: "US",
-            idempotencyKey: `settlement:payout-account:${params.accountId}`,
-          });
+      try {
+        const existing = await getPayoutReadiness(deps.db, params.accountId);
+        const readiness = existing.provider_reference
+          ? await deps.moneyMovementGateway.refreshPayoutReadiness({
+              accountId: params.accountId,
+              providerReference: existing.provider_reference,
+            })
+          : await deps.moneyMovementGateway.ensurePayoutAccount({
+              accountId: params.accountId,
+              currencyCode: normalizeCurrencyCode("usd"),
+              contactEmail: params.contactEmail,
+              countryCode: "US",
+              idempotencyKey: `settlement:payout-account:${params.accountId}`,
+            });
 
-      await recordProviderReadiness(
-        {
+        await recordProviderReadiness(
+          {
+            accountId: params.accountId,
+            status: readinessStatus(readiness),
+            missingRequirements: readiness.missingRequirements,
+            providerReference: readiness.providerReference,
+            onboardingStatus: readiness.onboardingStatus,
+            transferCapabilityStatus: readiness.transferCapabilityStatus,
+            payoutCapabilityStatus: readiness.payoutCapabilityStatus,
+            payoutDestinationStatus: readiness.payoutDestinationStatus,
+            payoutAccountDashboard: readiness.payoutAccountDashboard,
+            lossesCollector: readiness.lossesCollector,
+            feesCollector: readiness.feesCollector,
+            requirementsCollector: readiness.requirementsCollector,
+          },
+          context,
+        );
+
+        await recordOperation({
+          kind: "payout-readiness-refresh-succeeded",
           accountId: params.accountId,
-          status: readinessStatus(readiness),
-          missingRequirements: readiness.missingRequirements,
-          providerReference: readiness.providerReference,
-          onboardingStatus: readiness.onboardingStatus,
-          transferCapabilityStatus: readiness.transferCapabilityStatus,
-          payoutCapabilityStatus: readiness.payoutCapabilityStatus,
-          payoutDestinationStatus: readiness.payoutDestinationStatus,
-          payoutAccountDashboard: readiness.payoutAccountDashboard,
-          lossesCollector: readiness.lossesCollector,
-          feesCollector: readiness.feesCollector,
-          requirementsCollector: readiness.requirementsCollector,
-        },
-        context,
-      );
+          ...readinessOperationFields(readiness),
+        });
 
-      return getPayoutReadiness(deps.db, params.accountId);
+        return getPayoutReadiness(deps.db, params.accountId);
+      } catch (error) {
+        await recordOperation({
+          kind: "payout-readiness-refresh-failed",
+          accountId: params.accountId,
+          safeCategory: classifySettlementProviderError(error),
+        });
+        throw error;
+      }
     },
     async recordProviderReadinessFromWebhook(params, context) {
       const existing = await getPayoutReadinessByProviderReference(deps.db, params.providerReference);
       if (!existing) {
+        await recordOperation({
+          kind: "payout-readiness-webhook-ignored",
+          providerReference: params.providerReference,
+          safeCategory: "missing_provider_account",
+        });
         return null;
       }
 
-      return recordProviderReadiness(
+      const result = await recordProviderReadiness(
         {
           accountId: existing.account_id as AccountId,
           status: readinessStatus(params.readiness),
@@ -423,6 +558,14 @@ export function createPayoutReadinessRuntime(deps: PayoutReadinessRuntimeDeps): 
         },
         context,
       );
+
+      await recordOperation({
+        kind: "payout-readiness-webhook-recorded",
+        accountId: existing.account_id,
+        ...readinessOperationFields(params.readiness),
+      });
+
+      return result;
     },
     recordProviderReadiness,
     projectors: [

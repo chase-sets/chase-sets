@@ -228,6 +228,7 @@ describe("canary evidence collector", () => {
         "route-error-rate",
         "route-latency-p95",
         "checkout-order-payment-errors",
+        "settlement-payout-errors",
       ]),
     );
     expect(signals.flatMap(validatePrometheusSignalConfig)).toEqual([]);

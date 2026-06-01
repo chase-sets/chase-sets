@@ -12,10 +12,7 @@ import { createPayoutRuntime } from "../../features/payouts/api/runtime";
 import { createPayoutReadinessRuntime } from "../../features/payout-readiness/api/runtime";
 import type { MoneyMovementGateway } from "@chase-sets/money-movement";
 import { createFakeMoneyMovementGateway } from "@chase-sets/money-movement-testing";
-import {
-  createNoopSettlementOperationsRecorder,
-  type SettlementOperationsRecorder,
-} from "../../features/payouts/api/operations";
+import { createNoopSettlementOperationsRecorder, type SettlementOperationsRecorder } from "./operations";
 
 export type SettlementHostPorts = Readonly<{
   moneyMovementGateway?: MoneyMovementGateway;
@@ -52,6 +49,7 @@ export function createSettlementServices(
     checkpointStore,
     db,
     moneyMovementGateway,
+    operationsRecorder,
   });
   const payouts = createPayoutRuntime({
     eventStore,

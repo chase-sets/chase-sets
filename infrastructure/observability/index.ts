@@ -93,6 +93,7 @@ const ucpSignedWriteRejectedCounter = meter.createCounter("chase_sets_ucp_signed
 const ucpSignatureVerificationFailedCounter = meter.createCounter("chase_sets_ucp_signature_verification_failed_total");
 const ucpIdempotencyCounter = meter.createCounter("chase_sets_ucp_idempotency_total");
 const publicPresenceWaitlistEventCounter = meter.createCounter("chase_sets_public_presence_waitlist_events_total");
+const settlementOperationCounter = meter.createCounter("chase_sets_settlement_operations_total");
 
 export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
   event: string;
@@ -527,6 +528,24 @@ export function recordUcpOperationCompleted(
     transport: event.transport,
     operation: event.operation,
     status: event.status,
+  });
+}
+
+export function recordSettlementOperationSignal(
+  event: Readonly<{
+    kind: string;
+    providerName?: string | null;
+    setupSurface?: string | null;
+    safeCategory?: string | null;
+    readinessStatus?: string | null;
+  }>,
+): void {
+  settlementOperationCounter.add(1, {
+    kind: event.kind,
+    provider: event.providerName ?? "unknown",
+    setup_surface: event.setupSurface ?? "none",
+    safe_category: event.safeCategory ?? "none",
+    readiness_status: event.readinessStatus ?? "unknown",
   });
 }
 

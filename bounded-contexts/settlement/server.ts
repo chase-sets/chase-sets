@@ -10,4 +10,5 @@ export type {
   MoneyMovementWebhookEvent,
   ProviderPayoutReadiness,
 } from "@chase-sets/money-movement";
+export { settlementOperationLogFields } from "./support/runtime-support/operations";
 export type { SettlementServices } from "./support/runtime-support/services";

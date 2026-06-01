@@ -59,10 +59,11 @@ export const REQUIRED_CANARY_SIGNALS = [
   {
     name: "settlement-payout-errors",
     owner: "settlement",
-    source: "settlement and payout readiness telemetry",
+    source: "settlement operation telemetry for payout setup, readiness, and provider reconciliation",
     maxIncrease: 0,
-    currentState: "needs-instrumentation",
-    detail: "No increase in payout setup, readiness, or provider reconciliation failures.",
+    currentState: "available-now",
+    detail:
+      "No increase in payout setup session failures, readiness refresh failures, readiness webhook ignores, setup-blocked payout requests, or provider reconciliation failures.",
   },
   {
     name: "fulfillment-postage-callback-errors",

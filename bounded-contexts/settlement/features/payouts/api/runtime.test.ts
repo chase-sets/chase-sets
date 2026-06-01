@@ -325,6 +325,7 @@ describe("settlement payout runtime", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
     });
+    const operationEvents: Record<string, unknown>[] = [];
     const payouts = createPayoutRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
@@ -332,6 +333,11 @@ describe("settlement payout runtime", () => {
       wallets,
       payoutReadiness: createPayoutReadiness("pending"),
       moneyMovementGateway: createFakeMoneyMovementGateway(),
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
     });
 
     await expect(
@@ -345,6 +351,14 @@ describe("settlement payout runtime", () => {
       ),
     ).rejects.toThrow("Payout setup must be complete before requesting payouts.");
     expect(readAllEvents()).toHaveLength(0);
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-request-blocked-by-setup",
+        accountId: "acc_seller",
+        amount: "12.50",
+        safeCategory: "setup_incomplete",
+      }),
+    );
   });
 
   it("keeps payout preview and requests blocked when embedded setup readiness is stale or requirements remain open", async () => {
@@ -379,6 +393,7 @@ describe("settlement payout runtime", () => {
       checkpointStore: createCheckpointStore(),
       db: db as never,
     });
+    const operationEvents: Record<string, unknown>[] = [];
     const payouts = createPayoutRuntime({
       eventStore,
       checkpointStore: createCheckpointStore(),
@@ -389,6 +404,11 @@ describe("settlement payout runtime", () => {
         missingRequirements: ["external_account"],
       }),
       moneyMovementGateway: createFakeMoneyMovementGateway(),
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
     });
 
     const preview = await payouts.previewPayoutRequest({
@@ -409,7 +429,86 @@ describe("settlement payout runtime", () => {
       ),
     ).rejects.toThrow("Payout setup status must be refreshed before requesting a payout.");
     expect(readAllEvents()).toHaveLength(0);
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-request-blocked-by-setup",
+        accountId: "acc_seller",
+        safeCategory: "setup_stale",
+        staleReadiness: true,
+        missingRequirementCount: 1,
+      }),
+    );
     vi.useRealTimers();
+  });
+
+  it("records payout request blocks when provider requirements remain open", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const db = {
+      query: async (sql: string) => {
+        if (sql.includes("FROM settlement_wallet_pages")) {
+          return {
+            rows: [
+              {
+                account_id: "acc_seller",
+                currency_code: "usd",
+                pending_balance_amount: "0.00",
+                available_balance_amount: "20.00",
+                total_credited_amount: "20.00",
+                total_debited_amount: "0.00",
+                opened_at: "2026-04-02T00:00:00.000Z",
+                updated_at: "2026-04-02T00:00:00.000Z",
+              },
+            ],
+            rowCount: 1,
+          };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const wallets = createWalletRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+    });
+    const operationEvents: Record<string, unknown>[] = [];
+    const payouts = createPayoutRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      wallets,
+      payoutReadiness: createPayoutReadiness("ready", {
+        updatedAt: new Date().toISOString(),
+        missingRequirements: ["external_account"],
+      }),
+      moneyMovementGateway: createFakeMoneyMovementGateway(),
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    await expect(
+      payouts.requestPayout(
+        {
+          accountId: "acc_seller" as never,
+          amount: "12.50",
+          destinationReference: "bank_123",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Payout setup requirements must be resolved before requesting a payout.");
+
+    expect(readAllEvents()).toHaveLength(0);
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-request-blocked-by-setup",
+        accountId: "acc_seller",
+        safeCategory: "requirements_open",
+        missingRequirementCount: 1,
+      }),
+    );
   });
 
   it("uses deterministic provider idempotency keys for transfer and payout submission", async () => {
