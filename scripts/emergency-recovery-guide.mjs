@@ -1,0 +1,141 @@
+#!/usr/bin/env node
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+export const EMERGENCY_RECOVERY_GUIDE_VERSION = "emergency-recovery-guide/v1";
+
+const modes = new Set(["rollback-readiness", "rollback", "revert", "fix-forward"]);
+
+export function parseEmergencyRecoveryGuideArgs(argv, env = process.env) {
+  return {
+    outPath: readOption(argv, "--out") ?? readEnv("EMERGENCY_RECOVERY_GUIDE_OUT", env),
+    mode: readOption(argv, "--mode") ?? readEnv("EMERGENCY_RECOVERY_MODE", env) ?? "rollback-readiness",
+    emergencyReference: readOption(argv, "--emergency-reference") ?? readEnv("EMERGENCY_RELEASE_REFERENCE", env),
+    targetCommit: readOption(argv, "--target-commit") ?? readEnv("RECOVERY_TARGET_COMMIT", env),
+    recoveryPullRequest: readOption(argv, "--recovery-pr") ?? readEnv("RECOVERY_PULL_REQUEST", env),
+    releaseTag: readOption(argv, "--release-tag") ?? readEnv("ROLLBACK_RELEASE_TAG", env),
+    imageRef: readOption(argv, "--image-ref") ?? readEnv("ROLLBACK_IMAGE_REF", env),
+    checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
+  };
+}
+
+export async function runEmergencyRecoveryGuide(options) {
+  const result = buildEmergencyRecoveryGuide(options);
+  if (options.outPath) {
+    await mkdir(dirname(options.outPath), { recursive: true });
+    await writeFile(options.outPath, `${JSON.stringify(result.record, null, 2)}\n`);
+  }
+  return result;
+}
+
+export function buildEmergencyRecoveryGuide(input) {
+  const blockers = [];
+  const mode = normalizeString(input.mode) ?? "rollback-readiness";
+
+  if (!modes.has(mode)) {
+    blockers.push("Emergency recovery mode must be rollback-readiness, rollback, revert, or fix-forward.");
+  }
+  if (!normalizeString(input.emergencyReference)) {
+    blockers.push("Emergency reference is required for every guided recovery path.");
+  }
+  if (["rollback-readiness", "rollback"].includes(mode) && !isCommitSha(input.targetCommit)) {
+    blockers.push("Rollback recovery requires a 40-character target commit.");
+  }
+  if (["rollback-readiness", "rollback"].includes(mode) && !normalizeString(input.releaseTag)) {
+    blockers.push("Rollback recovery requires the target production release tag.");
+  }
+  if (["rollback-readiness", "rollback"].includes(mode) && !normalizeString(input.imageRef)) {
+    blockers.push("Rollback recovery requires the target production image reference.");
+  }
+  if (["revert", "fix-forward"].includes(mode) && !normalizeString(input.recoveryPullRequest)) {
+    blockers.push("Revert and fix-forward recovery require a recovery pull request reference.");
+  }
+
+  const lockBypassAllowed = ["rollback", "revert", "fix-forward"].includes(mode) && blockers.length === 0;
+  const record = {
+    schemaVersion: EMERGENCY_RECOVERY_GUIDE_VERSION,
+    checkedAt: input.checkedAt,
+    mode,
+    emergencyReference: normalizeString(input.emergencyReference),
+    targetCommit: normalizeString(input.targetCommit),
+    recoveryPullRequest: normalizeString(input.recoveryPullRequest),
+    releaseTag: normalizeString(input.releaseTag),
+    imageRef: normalizeString(input.imageRef),
+    lockBypassAllowed,
+    nextActions: nextActions(mode, lockBypassAllowed),
+    productionDispatchInputs: lockBypassAllowed
+      ? {
+          emergency_release: true,
+          emergency_reference: normalizeString(input.emergencyReference),
+        }
+      : null,
+    blockers,
+    result: blockers.length === 0 ? "ready" : "blocked",
+  };
+
+  return {
+    record,
+    passesEmergencyRecoveryGuide: blockers.length === 0,
+  };
+}
+
+function nextActions(mode, lockBypassAllowed) {
+  if (mode === "rollback-readiness") {
+    return [
+      "Run Platform Rollback Readiness for the target commit, release tag, and image reference.",
+      "Use rollback, revert, or fix-forward mode only after readiness evidence exists.",
+    ];
+  }
+  if (!lockBypassAllowed) {
+    return ["Resolve blockers before bypassing the production release lock."];
+  }
+  if (mode === "rollback") {
+    return [
+      "Attach rollback-readiness evidence to the incident or recovery thread.",
+      "Dispatch Platform Production with emergency_release=true and the emergency reference.",
+    ];
+  }
+  return [
+    "Merge the recovery pull request through required checks.",
+    "Dispatch Platform Production with emergency_release=true and the emergency reference if the release lock remains active.",
+  ];
+}
+
+function normalizeString(value) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isCommitSha(value) {
+  return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
+}
+
+function readEnv(name, env) {
+  const value = env[name];
+  return value && value.trim() ? value.trim() : null;
+}
+
+function readOption(argv, name) {
+  const index = argv.indexOf(name);
+  if (index < 0) {
+    return null;
+  }
+  const value = argv[index + 1];
+  return value && !value.startsWith("--") ? value : null;
+}
+
+async function main(argv, env = process.env) {
+  try {
+    const result = await runEmergencyRecoveryGuide(parseEmergencyRecoveryGuideArgs(argv, env));
+    console.log(JSON.stringify(result.record, null, 2));
+    return result.passesEmergencyRecoveryGuide ? 0 : 1;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    return 2;
+  }
+}
+
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  process.exitCode = await main(process.argv.slice(2));
+}

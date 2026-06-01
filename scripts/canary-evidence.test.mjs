@@ -8,6 +8,7 @@ import {
   collectCanaryEvidence,
   collectPrometheusTelemetry,
   REQUIRED_CANARY_SIGNALS,
+  validatePrometheusSignalConfig,
 } from "./canary-evidence.mjs";
 
 const releaseCommit = "0123456789abcdef0123456789abcdef01234567";
@@ -105,6 +106,7 @@ describe("canary evidence collector", () => {
           signals: {
             "route-error-rate": {
               owner: "platform-runtime/route-owner",
+              source: "Prometheus route error rate by release cohort",
               baselineQuery: 'sum(rate(http_requests_total{status=~"5.."}[15m]))',
               canaryQuery: 'sum(rate(http_requests_total{status=~"5..",release="canary"}[15m]))',
               maxIncrease: 0.005,
@@ -144,7 +146,7 @@ describe("canary evidence collector", () => {
       name: "route-error-rate",
       baseline: 0.01,
       canary: 0.012,
-      source: 'Prometheus: sum(rate(http_requests_total{status=~"5..",release="canary"}[15m]))',
+      source: "Prometheus route error rate by release cohort",
       threshold: "<= baseline + 0.005",
     });
   });
@@ -158,6 +160,8 @@ describe("canary evidence collector", () => {
         signals: [
           {
             name: "route-latency-p95",
+            owner: "platform-runtime/route-owner",
+            source: "Prometheus route latency p95 by release cohort",
             baselineQuery: "baseline_latency",
             canaryQuery: "canary_latency",
             maxIncrease: 50,
@@ -186,5 +190,46 @@ describe("canary evidence collector", () => {
     });
     expect(result.analysis.passesCanaryAnalysisGate).toBe(false);
     expect(result.analysis.errors).toContain("Required canary signal route-error-rate did not pass: missing.");
+  });
+
+  it("validates Prometheus signal ownership and thresholds before querying", () => {
+    expect(
+      validatePrometheusSignalConfig({
+        name: "route-error-rate",
+        owner: "platform-runtime/route-owner",
+        source: "Prometheus route error rate by release cohort",
+        baselineQuery: "baseline",
+        canaryQuery: "canary",
+        maxIncrease: 0.005,
+      }),
+    ).toEqual([]);
+
+    expect(
+      validatePrometheusSignalConfig({
+        name: "route-error-rate",
+        baselineQuery: "baseline",
+        canaryQuery: "canary",
+      }),
+    ).toEqual(["owner is required.", "source is required.", "maxIncrease must be a non-negative number."]);
+  });
+
+  it("keeps the production Prometheus query file valid for required canary gates", async () => {
+    const queryConfig = JSON.parse(
+      await readFile(
+        "bounded-contexts/platform-operations/features/release-dashboard/read-model/canary-prometheus-queries.json",
+        "utf8",
+      ),
+    );
+    const signals = queryConfig.signals ?? [];
+
+    expect(signals.map((signal) => signal.name)).toEqual(
+      expect.arrayContaining([
+        "app-platform-deployment-phase",
+        "route-error-rate",
+        "route-latency-p95",
+        "checkout-order-payment-errors",
+      ]),
+    );
+    expect(signals.flatMap(validatePrometheusSignalConfig)).toEqual([]);
   });
 });

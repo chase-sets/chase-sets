@@ -1,0 +1,70 @@
+name: Platform Emergency Recovery
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Guided recovery path.
+        required: true
+        default: rollback-readiness
+        type: choice
+        options:
+          - rollback-readiness
+          - rollback
+          - revert
+          - fix-forward
+      emergency_reference:
+        description: Incident, revert, rollback, or fix-forward evidence reference.
+        required: true
+        type: string
+      target_commit:
+        description: Required for rollback-readiness and rollback.
+        required: false
+        type: string
+      recovery_pr:
+        description: Required for revert and fix-forward.
+        required: false
+        type: string
+      release_tag:
+        description: Required for rollback-readiness and rollback.
+        required: false
+        type: string
+      image_ref:
+        description: Required for rollback-readiness and rollback.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  guide:
+    name: Emergency Recovery Guide
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Generate emergency recovery summary
+        env:
+          EMERGENCY_RECOVERY_GUIDE_OUT: artifacts/release-health/emergency-recovery-guide.json
+          EMERGENCY_RECOVERY_MODE: ${{ inputs.mode }}
+          EMERGENCY_RELEASE_REFERENCE: ${{ inputs.emergency_reference }}
+          RECOVERY_TARGET_COMMIT: ${{ inputs.target_commit }}
+          RECOVERY_PULL_REQUEST: ${{ inputs.recovery_pr }}
+          ROLLBACK_RELEASE_TAG: ${{ inputs.release_tag }}
+          ROLLBACK_IMAGE_REF: ${{ inputs.image_ref }}
+        run: pnpm run emergency-recovery:guide
+
+      - name: Upload emergency recovery summary
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: emergency-recovery-guide
+          path: artifacts/release-health/emergency-recovery-guide.json
+          if-no-files-found: ignore
+          retention-days: 30

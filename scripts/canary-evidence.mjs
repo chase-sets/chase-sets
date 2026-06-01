@@ -153,8 +153,9 @@ export async function collectPrometheusTelemetry({ baseUrl, queryFile, fetchImpl
   const queryConfig = JSON.parse(await readFile(queryFile, "utf8"));
   const signals = [];
   for (const signal of readSignals(queryConfig)) {
-    if (!signal.name || !signal.baselineQuery || !signal.canaryQuery) {
-      continue;
+    const errors = validatePrometheusSignalConfig(signal);
+    if (errors.length > 0) {
+      throw new Error(`Invalid Prometheus canary signal ${signal.name ?? "unknown"}: ${errors.join(" ")}`);
     }
 
     const [baseline, canary] = await Promise.all([
@@ -186,6 +187,29 @@ export async function collectPrometheusTelemetry({ baseUrl, queryFile, fetchImpl
     });
   }
   return { signals };
+}
+
+export function validatePrometheusSignalConfig(signal) {
+  const errors = [];
+  if (!normalizeString(signal?.name)) {
+    errors.push("name is required.");
+  }
+  if (!normalizeString(signal?.owner)) {
+    errors.push("owner is required.");
+  }
+  if (!normalizeString(signal?.source)) {
+    errors.push("source is required.");
+  }
+  if (!normalizeString(signal?.baselineQuery)) {
+    errors.push("baselineQuery is required.");
+  }
+  if (!normalizeString(signal?.canaryQuery)) {
+    errors.push("canaryQuery is required.");
+  }
+  if (typeof signal?.maxIncrease !== "number" || !Number.isFinite(signal.maxIncrease) || signal.maxIncrease < 0) {
+    errors.push("maxIncrease must be a non-negative number.");
+  }
+  return errors;
 }
 
 export function buildCanaryEvidence(input) {

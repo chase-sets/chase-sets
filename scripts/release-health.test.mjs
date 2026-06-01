@@ -45,6 +45,9 @@ describe("release health summary", () => {
       recoveryReference: "",
       recoveryTargetCommit: "",
       rollbackReadinessResult: "skipped",
+      ciRetryCount: 1,
+      ciFlakyFailureCount: 1,
+      ciTopFlakyJobs: [{ name: "Platform PR", retryCount: 1, flakyFailureCount: 1 }],
     });
 
     expect(result.passesReleaseHealthGate).toBe(true);
@@ -88,6 +91,11 @@ describe("release health summary", () => {
       },
       releaseLock: { locked: false, bypassed: false, reference: null },
       recovery: { mode: "none", reference: null, targetCommit: null, rollbackReadinessResult: "skipped" },
+      ci: {
+        retryCount: 1,
+        flakyFailureCount: 1,
+        topFlakyJobs: [{ name: "Platform PR", retryCount: 1, flakyFailureCount: 1 }],
+      },
     });
   });
 
@@ -147,6 +155,44 @@ describe("release health summary", () => {
       mode: "fix-forward",
       reference: "FIX-FORWARD-PR-123",
       rollbackReadinessResult: "success",
+    });
+  });
+
+  it("records a staging release attempt before production starts", () => {
+    const result = buildReleaseHealthRecord({
+      releaseCommit: "b".repeat(40),
+      workflowRunId: "789",
+      workflowRunAttempt: "1",
+      checkedAt: "2026-05-31T12:00:00.000Z",
+      releaseMode: "normal",
+      queueBatchSize: 1,
+      deploymentRequired: true,
+      stagingResult: "skipped",
+      canaryResult: "skipped",
+      canarySkippedReason: "staging-not-deployed",
+      productionResult: "skipped",
+      mainToProductionDriftCommits: 2,
+      mainToProductionDriftSeconds: 900,
+      releaseLocked: false,
+      recoveryMode: "none",
+      rollbackReadinessResult: "unknown",
+      releaseAttemptResult: "skipped",
+      releaseAttemptPhase: "staging",
+      releaseAttemptReason: "staging-not-deployed",
+      releaseAttemptWorkflowUrl: "https://github.com/chase-sets/chase-sets/actions/runs/123/attempts/1",
+    });
+
+    expect(result.passesReleaseHealthGate).toBe(true);
+    expect(result.record).toMatchObject({
+      staging: { result: "skipped" },
+      canary: { result: "skipped", skippedReason: "staging-not-deployed" },
+      production: { result: "skipped" },
+      attempt: {
+        result: "skipped",
+        phase: "staging",
+        reason: "staging-not-deployed",
+        workflowUrl: "https://github.com/chase-sets/chase-sets/actions/runs/123/attempts/1",
+      },
     });
   });
 
@@ -255,6 +301,13 @@ describe("release health summary", () => {
       PRODUCTION_RESULT: "cancelled",
       PRODUCTION_STARTED_AT: "2026-05-31T11:21:00.000Z",
       PRODUCTION_COMPLETED_AT: "2026-05-31T11:24:00.000Z",
+      RELEASE_ATTEMPT_RESULT: "cancelled",
+      RELEASE_ATTEMPT_PHASE: "production",
+      RELEASE_ATTEMPT_REASON: "production-release",
+      RELEASE_ATTEMPT_WORKFLOW_URL: "https://github.com/chase-sets/chase-sets/actions/runs/456/attempts/3",
+      CI_RETRY_COUNT: "2",
+      CI_FLAKY_FAILURE_COUNT: "1",
+      CI_TOP_FLAKY_JOBS: '[{"name":"Platform PR","retryCount":2,"flakyFailureCount":1}]',
       MAIN_TO_PRODUCTION_DRIFT_COMMITS: "2",
       MAIN_TO_PRODUCTION_DRIFT_SECONDS: "900",
       PRODUCTION_RELEASE_LOCKED: "true",
@@ -290,6 +343,13 @@ describe("release health summary", () => {
       stagingCompletedAt: "2026-05-31T11:20:00.000Z",
       productionStartedAt: "2026-05-31T11:21:00.000Z",
       productionCompletedAt: "2026-05-31T11:24:00.000Z",
+      releaseAttemptResult: "cancelled",
+      releaseAttemptPhase: "production",
+      releaseAttemptReason: "production-release",
+      releaseAttemptWorkflowUrl: "https://github.com/chase-sets/chase-sets/actions/runs/456/attempts/3",
+      ciRetryCount: 2,
+      ciFlakyFailureCount: 1,
+      ciTopFlakyJobs: [{ name: "Platform PR", retryCount: 2, flakyFailureCount: 1 }],
       canarySkippedReason: "no-canary-required",
       canaryCohortSubjectType: "operator",
       canaryCohortSize: 3,

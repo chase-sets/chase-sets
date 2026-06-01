@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: platform-pr-${{ github.event.pull_request.number || github.sha }}
@@ -1111,4 +1112,48 @@ jobs:
           elif [ "$preview_result" != "skipped" ] && [ "$preview_result" != "success" ]; then
             echo "Preview deployment had an unexpected result on a non-PR event: ${preview_result}." >&2
             exit 1
+          fi
+
+  release-status:
+    name: PR Release Status
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: always() && github.event_name == 'pull_request'
+    needs:
+      - change-scope
+      - preview-deploy-smoke
+      - pr-required
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Write PR release status
+        env:
+          PR_RELEASE_STATUS_OUT: artifacts/pr-release-status.md
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_REQUIRED_RESULT: ${{ needs['pr-required'].result }}
+          DEPLOYMENT_REQUIRED: ${{ needs['change-scope'].outputs.deploy }}
+          PREVIEW_RESULT: ${{ needs['preview-deploy-smoke'].result }}
+          EXPOSURE_POSTURE_CHANGED: ${{ needs['change-scope'].outputs.exposure_posture_changed }}
+          EXPOSURE_POSTURE_CATEGORIES: ${{ needs['change-scope'].outputs.exposure_posture_categories }}
+        run: node ./scripts/pr-release-status.mjs
+
+      - name: Add status to job summary
+        if: always()
+        run: cat artifacts/pr-release-status.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Update PR release status comment
+        if: github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          comment_id="$(
+            gh api "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- chase-sets-pr-release-status -->"))) | .id' | tail -n 1
+          )"
+          if [ -n "$comment_id" ]; then
+            gh api --method PATCH "repos/${{ github.repository }}/issues/comments/${comment_id}" \
+              -f body="$(cat artifacts/pr-release-status.md)" >/dev/null
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" --body-file artifacts/pr-release-status.md
           fi

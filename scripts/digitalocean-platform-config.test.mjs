@@ -15,6 +15,7 @@ const environmentDnsVariables = readFileSync(
   "utf8",
 );
 const platformProductionWorkflow = readFileSync(resolve(".github/workflows/platform-production.yml"), "utf8");
+const platformPrWorkflow = readFileSync(resolve(".github/workflows/platform-pr.yml"), "utf8");
 const platformStagingResetWorkflow = readFileSync(resolve(".github/workflows/platform-staging-reset.yml"), "utf8");
 const platformRepresentativeWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-representative-commerce-state.yml"),
@@ -489,6 +490,16 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain(
       "STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}",
     );
+    expect(platformProductionWorkflow).toContain("record-staging-release-health:");
+    expect(platformProductionWorkflow).toContain("name: Record Staging Release Health");
+    expect(platformProductionWorkflow).toContain(
+      "if: always() && needs.resolve-release.outputs.deployment_required == 'true' && needs.deploy-staging.outputs.deployed != 'true'",
+    );
+    expect(platformProductionWorkflow).toContain("RELEASE_HEALTH_OUT: artifacts/release-health/staging-release.json");
+    expect(platformProductionWorkflow).toContain("- name: Resolve staging CI retry metadata");
+    expect(platformProductionWorkflow).toContain("STAGING_JOB_RESULT: ${{ needs.deploy-staging.result }}");
+    expect(platformProductionWorkflow).toContain('RELEASE_ATTEMPT_PHASE="staging"');
+    expect(platformProductionWorkflow).toContain("name: staging-release-health");
     expect(platformProductionWorkflow).toContain("- name: Stage 1 production canary");
     expect(platformProductionWorkflow.indexOf("- name: Stage 1 production canary")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence"),
@@ -501,6 +512,9 @@ describe("DigitalOcean platform configuration", () => {
       "CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}",
     );
     expect(platformProductionWorkflow).toContain("run: node ./scripts/canary-evidence.mjs");
+    expect(platformProductionWorkflow).toContain("- name: Resolve CI retry metadata");
+    expect(platformProductionWorkflow).toContain("node ./scripts/release-health-ci-metadata.mjs");
+    expect(platformProductionWorkflow).toContain("CI_RETRY_COUNT: ${{ steps.ci_metadata.outputs.ci_retry_count }}");
     expect(platformProductionWorkflow).toContain(
       "CANARY_RESULT: ${{ steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
     );
@@ -644,6 +658,18 @@ describe("DigitalOcean platform configuration", () => {
       "Production marketplace promotion requires NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
     );
     expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_MARKETPLACE="true"');
+  });
+
+  it("adds Shipit-like PR release status without replacing merge queue", () => {
+    expect(platformPrWorkflow).toContain("pull-requests: write");
+    expect(platformPrWorkflow).toContain("release-status:");
+    expect(platformPrWorkflow).toContain("name: PR Release Status");
+    expect(platformPrWorkflow).toContain("PR_REQUIRED_RESULT: ${{ needs['pr-required'].result }}");
+    expect(platformPrWorkflow).toContain("DEPLOYMENT_REQUIRED: ${{ needs['change-scope'].outputs.deploy }}");
+    expect(platformPrWorkflow).toContain("node ./scripts/pr-release-status.mjs");
+    expect(platformPrWorkflow).toContain('cat artifacts/pr-release-status.md >> "$GITHUB_STEP_SUMMARY"');
+    expect(platformPrWorkflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(platformPrWorkflow).toContain("gh pr comment");
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {

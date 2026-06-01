@@ -1,0 +1,91 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { describe, expect, it } from "vitest";
+import {
+  EMERGENCY_RECOVERY_GUIDE_VERSION,
+  buildEmergencyRecoveryGuide,
+  parseEmergencyRecoveryGuideArgs,
+  runEmergencyRecoveryGuide,
+} from "./emergency-recovery-guide.mjs";
+
+const targetCommit = "0123456789abcdef0123456789abcdef01234567";
+
+describe("emergency recovery guide", () => {
+  it("guides rollback readiness without allowing release-lock bypass", () => {
+    const result = buildEmergencyRecoveryGuide({
+      mode: "rollback-readiness",
+      emergencyReference: "INC-2026-06-01-001",
+      targetCommit,
+      releaseTag: "release-20260601120000-01234567",
+      imageRef: "registry.digitalocean.com/chase-sets/chase-sets-platform:release-20260601120000-01234567",
+      checkedAt: "2026-06-01T12:00:00.000Z",
+    });
+
+    expect(result.passesEmergencyRecoveryGuide).toBe(true);
+    expect(result.record).toMatchObject({
+      schemaVersion: EMERGENCY_RECOVERY_GUIDE_VERSION,
+      mode: "rollback-readiness",
+      lockBypassAllowed: false,
+      result: "ready",
+    });
+  });
+
+  it("allows lock bypass only for a validated recovery action", () => {
+    const result = buildEmergencyRecoveryGuide({
+      mode: "fix-forward",
+      emergencyReference: "INC-2026-06-01-001",
+      recoveryPullRequest: "https://github.com/chase-sets/chase-sets/pull/999",
+      checkedAt: "2026-06-01T12:00:00.000Z",
+    });
+
+    expect(result.passesEmergencyRecoveryGuide).toBe(true);
+    expect(result.record).toMatchObject({
+      lockBypassAllowed: true,
+      productionDispatchInputs: {
+        emergency_release: true,
+        emergency_reference: "INC-2026-06-01-001",
+      },
+    });
+  });
+
+  it("blocks recovery without an emergency reference", () => {
+    const result = buildEmergencyRecoveryGuide({
+      mode: "revert",
+      recoveryPullRequest: "PR-999",
+    });
+
+    expect(result.passesEmergencyRecoveryGuide).toBe(false);
+    expect(result.record.lockBypassAllowed).toBe(false);
+    expect(result.record.blockers).toContain("Emergency reference is required for every guided recovery path.");
+  });
+
+  it("writes a summary artifact", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-emergency-recovery-"));
+    const outFile = join(directory, "guide.json");
+    const result = await runEmergencyRecoveryGuide({
+      outPath: outFile,
+      mode: "fix-forward",
+      emergencyReference: "INC-2026-06-01-001",
+      recoveryPullRequest: "PR-999",
+      checkedAt: "2026-06-01T12:00:00.000Z",
+    });
+
+    expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(result.record);
+  });
+
+  it("parses CLI and environment defaults", () => {
+    expect(
+      parseEmergencyRecoveryGuideArgs(["--mode", "rollback"], {
+        EMERGENCY_RECOVERY_GUIDE_OUT: "artifacts/release-health/emergency-recovery-guide.json",
+        EMERGENCY_RELEASE_REFERENCE: "INC-1",
+        RECOVERY_TARGET_COMMIT: targetCommit,
+      }),
+    ).toMatchObject({
+      outPath: "artifacts/release-health/emergency-recovery-guide.json",
+      mode: "rollback",
+      emergencyReference: "INC-1",
+      targetCommit,
+    });
+  });
+});
