@@ -54,6 +54,11 @@ type StripeLoginLinkResponse = Readonly<{
   url?: string | null;
 }>;
 
+type StripeAccountSessionResponse = Readonly<{
+  client_secret?: string | null;
+  expires_at?: number | string | null;
+}>;
+
 type StripeBalanceResponse = Readonly<{
   available?: readonly Readonly<{ amount?: number; currency?: string }>[];
 }>;
@@ -238,7 +243,7 @@ function occurredAtFromEvent(event: StripeEventEnvelope) {
   return new Date((event.created ?? Math.floor(Date.now() / 1000)) * 1000).toISOString();
 }
 
-function expiresAtFromAccountLink(value: number | string | null | undefined) {
+function expiresAtFromStripeTimestamp(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === "") {
     return null;
   }
@@ -330,6 +335,35 @@ export function createStripeConnectMoneyMovementGateway(
     });
   }
 
+  async function createEmbeddedAccountSession(
+    providerReference: string,
+    component: "account_onboarding" | "account_management",
+    idempotencyKey: string,
+  ) {
+    const accountSession = await stripeRequest<StripeAccountSessionResponse>("/v1/account_sessions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: toFormBody({
+        account: providerReference,
+        [`components[${component}][enabled]`]: "true",
+        [`components[${component}][features][external_account_collection]`]: "true",
+        [`components[${component}][features][disable_stripe_user_authentication]`]: "false",
+      }),
+      idempotencyKey,
+    });
+
+    if (!accountSession.client_secret?.trim()) {
+      throw new Error("Stripe did not return an account session client secret.");
+    }
+
+    return {
+      clientSecret: accountSession.client_secret,
+      expiresAt: expiresAtFromStripeTimestamp(accountSession.expires_at),
+    };
+  }
+
   return {
     providerName: "stripe",
     async ensurePayoutAccount(input) {
@@ -363,7 +397,7 @@ export function createStripeConnectMoneyMovementGateway(
               fees_collector: "application",
             },
           },
-          dashboard: "express",
+          dashboard: "none",
         }),
         idempotencyKey: input.idempotencyKey,
       });
@@ -418,7 +452,7 @@ export function createStripeConnectMoneyMovementGateway(
       return {
         providerReference: input.providerReference,
         url: accountLink.url,
-        expiresAt: expiresAtFromAccountLink(accountLink.expires_at),
+        expiresAt: expiresAtFromStripeTimestamp(accountLink.expires_at),
         readiness,
       };
     },
@@ -448,13 +482,35 @@ export function createStripeConnectMoneyMovementGateway(
         expiresAt: null,
       };
     },
-    async createPayoutSetupSession() {
-      throw new Error("Stripe embedded payout setup sessions are implemented in the Stripe adapter migration.");
-    },
-    async createPayoutAccountManagementSession() {
-      throw new Error(
-        "Stripe embedded payout account management sessions are implemented in the Stripe adapter migration.",
+    async createPayoutSetupSession(input) {
+      const session = await createEmbeddedAccountSession(
+        input.providerReference,
+        "account_onboarding",
+        input.idempotencyKey,
       );
+      const readiness = mapAccountReadiness(await retrieveAccount(input.providerReference));
+
+      return {
+        providerReference: input.providerReference,
+        clientSecret: session.clientSecret,
+        expiresAt: session.expiresAt,
+        components: ["payout-setup"],
+        readiness,
+      };
+    },
+    async createPayoutAccountManagementSession(input) {
+      const session = await createEmbeddedAccountSession(
+        input.providerReference,
+        "account_management",
+        input.idempotencyKey,
+      );
+
+      return {
+        providerReference: input.providerReference,
+        clientSecret: session.clientSecret,
+        expiresAt: session.expiresAt,
+        components: ["payout-account-management"],
+      };
     },
     async refreshPayoutReadiness(input) {
       return mapAccountReadiness(await retrieveAccount(input.providerReference));

@@ -63,8 +63,9 @@ describe("money movement adapters", () => {
             losses_collector: "application",
           },
         },
-        dashboard: "express",
+        dashboard: "none",
       });
+      expect(JSON.parse(String(init?.body)).defaults.responsibilities).not.toHaveProperty("requirements_collector");
 
       return new Response(
         JSON.stringify({
@@ -106,6 +107,129 @@ describe("money movement adapters", () => {
       payoutDestinationStatus: "ready",
     });
     expect(calls).toEqual(["https://stripe.test/v2/core/accounts", "https://stripe.test/v1/balance_settings"]);
+  });
+
+  it("Stripe adapter creates embedded payout setup account sessions", async () => {
+    const calls: Array<{ input: string; init?: RequestInit }> = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ input: String(input), init });
+
+      if (String(input) === "https://stripe.test/v1/account_sessions") {
+        expect(init?.method).toBe("POST");
+        expect(init?.headers).toBeInstanceOf(Headers);
+        const headers = init?.headers as Headers;
+        expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+        expect(headers.get("Content-Type")).toBe("application/x-www-form-urlencoded");
+        expect(headers.get("Idempotency-Key")).toBe("embedded-setup-key");
+        const body = new URLSearchParams(String(init?.body));
+        expect(body.get("account")).toBe("acct_123");
+        expect(body.get("components[account_onboarding][enabled]")).toBe("true");
+        expect(body.get("components[account_onboarding][features][external_account_collection]")).toBe("true");
+        expect(body.get("components[account_onboarding][features][disable_stripe_user_authentication]")).toBe("false");
+        expect([...body.keys()].some((key) => key.startsWith("components[account_management]"))).toBe(false);
+
+        return new Response(
+          JSON.stringify({
+            client_secret: "acs_secret_setup",
+            expires_at: 1_777_000_000,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } },
+        );
+      }
+
+      expect(String(input)).toBe(
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements",
+      );
+      return new Response(
+        JSON.stringify({
+          id: "acct_123",
+          requirements: { currently_due: ["external_account"] },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: { status: "active" },
+                  payouts: { status: "pending" },
+                },
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.createPayoutSetupSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_123",
+        idempotencyKey: "embedded-setup-key",
+      }),
+    ).resolves.toMatchObject({
+      providerReference: "acct_123",
+      clientSecret: "acs_secret_setup",
+      expiresAt: "2026-04-24T03:06:40.000Z",
+      components: ["payout-setup"],
+      readiness: {
+        providerReference: "acct_123",
+        onboardingStatus: "pending",
+        transferCapabilityStatus: "active",
+        payoutCapabilityStatus: "pending",
+        payoutDestinationStatus: "missing",
+        missingRequirements: ["external_account"],
+      },
+    });
+    expect(calls).toHaveLength(2);
+  });
+
+  it("Stripe adapter creates embedded payout account management sessions", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toBe("https://stripe.test/v1/account_sessions");
+      expect(init?.method).toBe("POST");
+      expect(init?.headers).toBeInstanceOf(Headers);
+      const headers = init?.headers as Headers;
+      expect(headers.get("Stripe-Version")).toBe("2026-03-25.dahlia");
+      expect(headers.get("Idempotency-Key")).toBe("embedded-manage-key");
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("account")).toBe("acct_123");
+      expect(body.get("components[account_management][enabled]")).toBe("true");
+      expect(body.get("components[account_management][features][external_account_collection]")).toBe("true");
+      expect(body.get("components[account_management][features][disable_stripe_user_authentication]")).toBe("false");
+      expect([...body.keys()].some((key) => key.startsWith("components[account_onboarding]"))).toBe(false);
+
+      return new Response(
+        JSON.stringify({
+          client_secret: "acs_secret_manage",
+          expires_at: "2026-04-24T03:06:40.000Z",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.createPayoutAccountManagementSession({
+        accountId: "acc_seller" as never,
+        providerReference: "acct_123",
+        idempotencyKey: "embedded-manage-key",
+      }),
+    ).resolves.toEqual({
+      providerReference: "acct_123",
+      clientSecret: "acs_secret_manage",
+      expiresAt: "2026-04-24T03:06:40.000Z",
+      components: ["payout-account-management"],
+    });
   });
 
   it("Stripe adapter creates recipient onboarding account links with nested v2 parameters", async () => {
