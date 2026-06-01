@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { envReport, runEdgeCheck, runSellerFlow, validateStripeKeyModeForRun } from "./stripe-money-smoke-test.mjs";
+import {
+  envReport,
+  runEdgeCheck,
+  runSellerFlow,
+  validateStripeDeliveredWebhookProofForRun,
+  validateStripeKeyModeForRun,
+} from "./stripe-money-smoke-test.mjs";
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -154,8 +160,60 @@ describe("stripe money smoke test", () => {
       missing: [],
       readinessErrors: [],
       stripeKeyMode: "test",
+      smokeEnvironment: "unspecified",
       testModeKeysLikely: true,
       liveModeKeysLikely: false,
+      stripeDeliveredWebhookProof: {
+        required: false,
+        status: "not-provided",
+        paymentWebhookDeliveryEventId: null,
+        connectWebhookDeliveryEventId: null,
+        evidenceReference: null,
+      },
+    });
+  });
+
+  it("requires explicit Stripe-delivered webhook proof when staging demands complete provider delivery evidence", () => {
+    const stagingEnv = {
+      PLATFORM_API_BASE_URL: "https://marketplace.staging.chasesets.com",
+      STRIPE_SECRET_KEY: "sk_test_123",
+      STRIPE_PUBLISHABLE_KEY: "pk_test_123",
+      STRIPE_WEBHOOK_SECRET: "whsec_test",
+      STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect_test",
+      STRIPE_CONNECT_RETURN_URL: "https://marketplace.staging.chasesets.com/account/payouts",
+      STRIPE_CONNECT_REFRESH_URL: "https://marketplace.staging.chasesets.com/account/payouts/setup",
+      STRIPE_MONEY_SMOKE_ENVIRONMENT: "staging",
+      STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true",
+    };
+
+    expect(envReport(stagingEnv)).toMatchObject({
+      smokeEnvironment: "staging",
+      stripeDeliveredWebhookProof: {
+        required: true,
+        status: "missing-required-proof",
+      },
+      readinessErrors: [
+        "Set STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID, STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID, and STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE before running a smoke test that requires Stripe-delivered webhook proof.",
+      ],
+    });
+    expect(() => validateStripeDeliveredWebhookProofForRun(stagingEnv)).toThrow(/STRIPE_PAYMENT_WEBHOOK/);
+
+    expect(
+      envReport({
+        ...stagingEnv,
+        STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID: "evt_payment_delivery",
+        STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID: "evt_connect_delivery",
+        STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE: "STAGING-STRIPE-WEBHOOKS-2026-06-01",
+      }),
+    ).toMatchObject({
+      readinessErrors: [],
+      stripeDeliveredWebhookProof: {
+        required: true,
+        status: "provided",
+        paymentWebhookDeliveryEventId: "evt_payment_delivery",
+        connectWebhookDeliveryEventId: "evt_connect_delivery",
+        evidenceReference: "STAGING-STRIPE-WEBHOOKS-2026-06-01",
+      },
     });
   });
 
@@ -245,6 +303,21 @@ describe("stripe money smoke test", () => {
       unsignedMoneyMovementWebhookRejected: true,
       signedPaymentWebhookAccepted: false,
       signedMoneyMovementWebhookAccepted: false,
+      webhookChecks: {
+        signedProbe: {
+          unsignedPaymentWebhookRejected: true,
+          unsignedMoneyMovementWebhookRejected: true,
+          signedPaymentWebhookAccepted: false,
+          signedMoneyMovementWebhookAccepted: false,
+        },
+        stripeDelivered: {
+          required: false,
+          status: "not-provided",
+          paymentWebhookDeliveryEventId: null,
+          connectWebhookDeliveryEventId: null,
+          evidenceReference: null,
+        },
+      },
     });
 
     expect(calls.map((call) => new URL(call.url).pathname)).toContain("/api/payments/provider/webhooks");

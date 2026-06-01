@@ -780,6 +780,11 @@ jobs:
             exit 1
           fi
 
+          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then
+            echo "Preview deployments require Stripe test-mode keys. Use staging for complete Stripe-delivered webhook proof and production only for approved live proof." >&2
+            exit 1
+          fi
+
           if [ "${TF_VAR_notification_email_provider:-}" = "amazon-ses" ]; then
             ses_missing=()
             for name in \
@@ -1033,6 +1038,8 @@ jobs:
           STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_CONNECT_RETURN_URL: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts
           STRIPE_CONNECT_REFRESH_URL: https://marketplace.pr-${{ github.event.pull_request.number }}.preview.chasesets.com/account/payouts/setup
+          STRIPE_MONEY_SMOKE_ENVIRONMENT: preview
+          STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"
         run: |
           set -euo pipefail
           admin_domain="$(terraform output -raw admin_domain)"

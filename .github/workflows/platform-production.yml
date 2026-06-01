@@ -232,6 +232,9 @@ jobs:
           TF_VAR_stripe_connect_webhook_secret: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           TF_VAR_easypost_api_key: ${{ secrets.EASYPOST_API_KEY }}
           TF_VAR_easypost_webhook_secret: ${{ secrets.EASYPOST_WEBHOOK_SECRET || '' }}
+          STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID: ${{ vars.STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID || '' }}
+          STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID: ${{ vars.STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID || '' }}
+          STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE: ${{ vars.STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE || '' }}
           TF_VAR_notification_email_provider: ${{ vars.NOTIFICATION_EMAIL_PROVIDER || 'noop' }}
           TF_VAR_ses_aws_region: ${{ vars.SES_AWS_REGION || '' }}
           TF_VAR_ses_aws_access_key_id: ${{ secrets.SES_AWS_ACCESS_KEY_ID || '' }}
@@ -254,7 +257,10 @@ jobs:
             TF_VAR_stripe_publishable_key \
             TF_VAR_stripe_webhook_secret \
             TF_VAR_stripe_connect_webhook_secret \
-            TF_VAR_easypost_api_key
+            TF_VAR_easypost_api_key \
+            STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID \
+            STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID \
+            STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE
           do
             if [ -z "${!name:-}" ]; then
               missing+=("$name")
@@ -263,6 +269,11 @@ jobs:
 
           if [ "${#missing[@]}" -gt 0 ]; then
             printf 'Missing required staging configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          if [[ "${TF_VAR_stripe_secret_key}" != sk_test* || "${TF_VAR_stripe_publishable_key}" != pk_test* ]]; then
+            echo "Staging requires dedicated Stripe test-mode keys; production live-mode keys must not be used in the staging GitHub Environment." >&2
             exit 1
           fi
 
@@ -731,6 +742,11 @@ jobs:
           STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts
           STRIPE_CONNECT_REFRESH_URL: https://marketplace.staging.chasesets.com/account/payouts/setup
+          STRIPE_MONEY_SMOKE_ENVIRONMENT: staging
+          STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true"
+          STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID: ${{ vars.STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID || '' }}
+          STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID: ${{ vars.STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID || '' }}
+          STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE: ${{ vars.STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE || '' }}
           SMOKE_ORDER_IDS: ${{ vars.STAGING_SMOKE_ORDER_IDS || '' }}
           SMOKE_BALANCE_CREDIT_AMOUNT: ${{ vars.STAGING_SMOKE_BALANCE_CREDIT_AMOUNT || '' }}
           SMOKE_PAYMENT_METHOD_CATEGORY: ${{ vars.STAGING_SMOKE_PAYMENT_METHOD_CATEGORY || '' }}

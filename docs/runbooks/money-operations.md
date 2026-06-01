@@ -104,6 +104,34 @@ pnpm run settlement:payout-account-migration-report -- --database-url "$SETTLEME
 5. For payout-ready legacy accounts, keep hosted setup/account-management compatibility available until the support-approved migration path is complete.
 6. Store the report output in the external Stripe money operations evidence record; do not commit provider account ids tied to real accounts to the repository.
 
+## Shared Stripe Sandbox Environments
+
+Staging is the complete Stripe sandbox proof environment. PR previews and remote
+dev sessions are useful for API, browser, Connect setup-session, and synthetic
+webhook-signature checks, but they are not complete Stripe-delivered webhook
+proof unless their dynamic webhook endpoint lifecycle is automated.
+
+Staging Stripe webhook endpoints:
+
+- Payments: `https://marketplace.staging.chasesets.com/api/payments/provider/webhooks`
+- Connect money movement: `https://marketplace.staging.chasesets.com/api/settlement/provider/money-movement/webhooks`
+
+GitHub environment configuration:
+
+| Environment | Required Stripe secrets | Required Stripe variables | Webhook proof expectation |
+| --- | --- | --- | --- |
+| `preview` | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` using Stripe test-mode values | none | Signed webhook probes and seller-flow smoke only. No Stripe Dashboard endpoint is created for dynamic PR domains. |
+| `staging` | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` using a dedicated Stripe test-mode sandbox configuration | `STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID`, `STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID`, `STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE`; optional `STAGING_SMOKE_ORDER_IDS`, `STAGING_SMOKE_BALANCE_CREDIT_AMOUNT`, `STAGING_SMOKE_PAYMENT_METHOD_CATEGORY`, `STAGING_SMOKE_CREATE_PAYMENT`, `STAGING_SMOKE_PAYOUT_AMOUNT`, `STAGING_SMOKE_REQUEST_PAYOUT` | Required. The staging deploy refuses to pass without recorded Stripe-delivered Payments and Connect webhook evidence references. |
+| `production` | Stripe live-mode secrets only when production marketplace proof or public marketplace traffic is enabled | Production launch evidence and Stripe money operations approval variables | Live proof only under the production proof controls below. |
+
+For staging, create or confirm the two Stripe Dashboard test-mode webhook
+destinations above, trigger one representative Payments event and one Connect
+money-movement event, confirm the matching provider event rows in Chase Sets,
+then update the staging GitHub Environment variables with the redacted event ids
+and external evidence record reference. The smoke test records those references
+under `webhookChecks.stripeDelivered`; its `webhookChecks.signedProbe` object is
+only a local signature and routing probe.
+
 ## Stripe Money Smoke Test
 
 Use the executable smoke test before enabling Stripe money movement in a shared or production-like environment. It runs with Stripe test keys by default. Live-key runs are allowed only for approved production proof collection and require an explicit launch evidence reference.
@@ -117,6 +145,14 @@ Required environment:
 - `STRIPE_CONNECT_WEBHOOK_SECRET`
 - `STRIPE_CONNECT_RETURN_URL`
 - `STRIPE_CONNECT_REFRESH_URL`
+
+Optional shared-environment proof variables:
+
+- `STRIPE_MONEY_SMOKE_ENVIRONMENT`: `preview`, `staging`, `production-proof`, or another operator label printed in the smoke output.
+- `STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS=true`: requires recorded Stripe-delivered webhook proof before the smoke run proceeds.
+- `STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID`: redacted Stripe `evt_` id observed through the Payments provider webhook destination.
+- `STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID`: redacted Stripe `evt_` id observed through the Connect money-movement webhook destination.
+- `STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE`: external evidence record that ties the delivered event ids to the Stripe Dashboard destination configuration and Chase Sets provider event rows.
 
 For private production proof with live keys, `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL` must use the same origin as `PLATFORM_API_BASE_URL` because the private payout setup API rejects cross-origin hosted setup redirects before contacting Stripe. Use `operatorSetup.stripeMoneySmokeEnvironmentCommands` from `pnpm run marketplace:production-proof-readiness` for the private live smoke shell, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry for seller-flow authentication, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live smoke command. Keep the marketplace-domain Connect return and refresh URLs for final launch evidence.
 
@@ -158,6 +194,11 @@ pnpm run stripe:money-smoke -- --seller-flow
 ```
 
 For live-key proof, the `--check-env` output must show `"ok": true` and an empty `readinessErrors` array before running `--edge-check` or `--seller-flow`. The preflight reports readiness errors for mismatched Stripe key modes, missing live-proof references, missing `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`, non-production live API origins, and Connect return/refresh URLs that do not match the private proof API origin.
+
+The smoke JSON distinguishes webhook coverage:
+
+- `webhookChecks.signedProbe`: the script posted signed and unsigned probe payloads directly to Chase Sets endpoints. This proves route reachability and signature validation only.
+- `webhookChecks.stripeDelivered`: operator-supplied evidence that Stripe delivered real test-mode or live-mode events to the configured webhook destinations. Staging requires this proof; PR previews do not.
 
 For private production proof, create the pending-payment order ids before running the live-key payment smoke:
 

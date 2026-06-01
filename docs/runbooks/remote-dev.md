@@ -96,6 +96,13 @@ Forked PRs do not receive DigitalOcean credentials. Remote dev sessions remain
 manual operator-owned Droplets for branch-level HTTPS review or remote Codex
 work when a disposable VM is more useful than App Platform.
 
+PR previews use Stripe test-mode keys and run the Stripe money smoke with
+synthetic signed webhook probes plus authenticated payout setup checks. They do
+not create Stripe Dashboard webhook endpoints for each dynamic preview domain,
+so a passing PR preview is not Stripe-delivered webhook proof. Reserve complete
+provider-delivered webhook proof for staging unless endpoint create/delete
+automation is added to the preview lifecycle.
+
 ## URLs
 
 Each session gets:
@@ -138,6 +145,9 @@ Then configure Stripe test webhook endpoints:
 - `https://api.<slug>.<domain>/api/settlement/provider/money-movement/webhooks`
 
 Run the existing smoke checks with `PLATFORM_API_BASE_URL=https://api.<slug>.<domain>`.
+The smoke output separates signed probe results from Stripe-delivered webhook
+proof. In remote dev and PR previews, `stripeDelivered.status` should normally
+be `not-provided`.
 
 Live provider credentials should not be used in remote dev sessions.
 
