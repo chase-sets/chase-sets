@@ -147,10 +147,10 @@ describe("settlement payout setup routes", () => {
       last_checked_at: null,
       steps: [
         {
-          id: "hosted-onboarding",
-          label: "Hosted setup",
+          id: "payout-setup",
+          label: "Payout setup",
           status: "pending",
-          detail: "Continue the hosted setup flow.",
+          detail: "Continue the payout setup page.",
         },
       ],
     }));
@@ -161,7 +161,7 @@ describe("settlement payout setup routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       account_id: "acc_seller",
-      steps: [expect.objectContaining({ id: "hosted-onboarding" })],
+      steps: [expect.objectContaining({ id: "payout-setup" })],
     });
     expect(getPayoutSetupProgress).toHaveBeenCalledWith("acc_seller");
   });

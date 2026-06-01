@@ -127,12 +127,7 @@ export async function action({ request }: ActionFunctionArgs) {
       if (!actor.permissions.includes("payouts.setup")) {
         return { error: t("settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to.4") };
       }
-      const result = await settlementApi.createPayoutSetupOnboardingSession({
-        returnUrl: new URL("/account/payouts?setup=returned", request.url).toString(),
-        refreshUrl: new URL("/account/payouts?setup=refresh", request.url).toString(),
-      });
-
-      return redirect(result.url);
+      return redirect("/account/payouts/setup");
     }
 
     if (intent === "refresh-payout-setup") {
@@ -147,11 +142,7 @@ export async function action({ request }: ActionFunctionArgs) {
       if (!actor.permissions.includes("payouts.setup")) {
         return { error: t("settlement.routes.marketplace.accountPayouts.you.do.not.have.permission.to.6") };
       }
-      const result = await settlementApi.createPayoutAccountManagementSession({
-        returnUrl: new URL("/account/payouts?setup=returned", request.url).toString(),
-      });
-
-      return redirect(result.url);
+      return redirect("/account/payouts/setup?mode=manage");
     }
 
     return redirect("/account/payouts");
