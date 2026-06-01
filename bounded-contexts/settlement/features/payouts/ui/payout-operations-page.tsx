@@ -13,6 +13,7 @@ import {
   type Tone,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow, SettlementProviderIdempotencyKeyRow } from "../read-model/queries";
+import type { SettlementPayoutReadinessRow } from "../../payout-readiness/read-model/queries";
 
 function formatMoney(amount: string, currencyCode: string) {
   return `${amount} ${currencyCode.toUpperCase()}`;
@@ -47,15 +48,24 @@ function payoutConfirmationLabel(row: SettlementPayoutRow) {
     : t("settlement.features.payouts.ui.payoutOperationsPage.pending.confirmation");
 }
 
+function payoutReadinessIsStale(updatedAt: string | null) {
+  if (!updatedAt) {
+    return false;
+  }
+  return Date.now() - Date.parse(updatedAt) > 30 * 24 * 60 * 60 * 1000;
+}
+
 export function SettlementPayoutOperationsPage({
   payouts,
   idempotencyKeys = [],
+  payoutReadiness,
   runResult,
   currentFilter = "all",
   lastCheckedAt,
 }: {
   payouts: readonly SettlementPayoutRow[];
   idempotencyKeys?: readonly SettlementProviderIdempotencyKeyRow[];
+  payoutReadiness?: SettlementPayoutReadinessRow | null;
   runResult?: Readonly<{
     checked: number;
     reconciled: number;
@@ -82,6 +92,11 @@ export function SettlementPayoutOperationsPage({
     }
     return Date.now() - new Date(payout.last_reconciled_at).getTime() > 30 * 60 * 1000;
   }).length;
+  const payoutSetupBlocked = payoutReadiness
+    ? payoutReadiness.status !== "ready" || !payoutReadiness.provider_reference
+    : false;
+  const payoutSetupStale = payoutReadiness ? payoutReadinessIsStale(payoutReadiness.updated_at) : false;
+  const payoutSetupMissingRequirementCount = payoutReadiness?.missing_requirements.length ?? 0;
 
   return (
     <Page>
@@ -169,6 +184,24 @@ export function SettlementPayoutOperationsPage({
               value: staleCheckCount,
               detail: t("settlement.features.payouts.ui.payoutOperationsPage.provider.status.has.not.been.checked"),
             },
+            {
+              id: "payout-setup-blocked",
+              label: t("settlement.features.payouts.ui.payoutOperationsPage.payout.setup.blocked"),
+              value: payoutSetupBlocked ? 1 : 0,
+              detail: t("settlement.features.payouts.ui.payoutOperationsPage.account.cannot.request.payouts.until"),
+            },
+            {
+              id: "payout-setup-requirements",
+              label: t("settlement.features.payouts.ui.payoutOperationsPage.open.setup.requirements"),
+              value: payoutSetupMissingRequirementCount,
+              detail: t("settlement.features.payouts.ui.payoutOperationsPage.provider.requirement.groups.remain.open"),
+            },
+            {
+              id: "payout-setup-stale",
+              label: t("settlement.features.payouts.ui.payoutOperationsPage.stale.payout.setup.status"),
+              value: payoutSetupStale ? 1 : 0,
+              detail: t("settlement.features.payouts.ui.payoutOperationsPage.payout.setup.status.needs.refresh"),
+            },
           ]}
           getRowId={(row) => row.id}
           columns={[
@@ -189,6 +222,52 @@ export function SettlementPayoutOperationsPage({
             },
           ]}
         />
+        {payoutReadiness ? (
+          <DataTable
+            rows={[
+              {
+                id: "setup-status",
+                label: t("settlement.features.payouts.ui.payoutOperationsPage.setup.status"),
+                value: payoutReadiness.status,
+                detail: t("settlement.features.payouts.ui.payoutOperationsPage.current.payout.setup.status"),
+              },
+              {
+                id: "destination",
+                label: t("settlement.features.payouts.ui.payoutOperationsPage.payout.destination"),
+                value: payoutReadiness.payout_destination_status,
+                detail: t("settlement.features.payouts.ui.payoutOperationsPage.destination.status.from.provider"),
+              },
+              {
+                id: "last-updated",
+                label: t("settlement.features.payouts.ui.payoutOperationsPage.setup.last.updated"),
+                value: payoutReadiness.updated_at
+                  ? new Date(payoutReadiness.updated_at).toLocaleString()
+                  : t("settlement.features.payouts.ui.payoutOperationsPage.not.checked"),
+                detail: t("settlement.features.payouts.ui.payoutOperationsPage.provider.readiness.snapshot"),
+              },
+            ]}
+            getRowId={(row) => row.id}
+            columns={[
+              {
+                key: "label",
+                header: t("settlement.features.payouts.ui.payoutOperationsPage.signal"),
+                cell: (row) => row.label,
+              },
+              {
+                key: "value",
+                header: t("settlement.features.payouts.ui.payoutOperationsPage.status"),
+                cell: (row) => (
+                  <Badge tone={payoutSetupBlocked || payoutSetupStale ? "warning" : "success"}>{row.value}</Badge>
+                ),
+              },
+              {
+                key: "detail",
+                header: t("settlement.features.payouts.ui.payoutOperationsPage.meaning"),
+                cell: (row) => row.detail,
+              },
+            ]}
+          />
+        ) : null}
         <Stack direction="row" gap={2}>
           {filters.map(([value, label]) => (
             <LinkButton

@@ -136,7 +136,7 @@ Initial required signals:
 | Worker health and durable job backlog | Platform Operations / infrastructure runtime | Worker heartbeat and durable job backlog telemetry | Needs instrumentation | No new sustained backlog or runner failure. |
 | Projection lag and poison events | Owning bounded contexts / Platform Operations | Projection operation snapshots and poison-event telemetry | Available now | No new degraded projection group caused by the canary release. |
 | Checkout/order/payment errors | Checkout, Ordering, Payments | Checkout, order, payment, and provider-health telemetry | Needs instrumentation | No increase in command failures or provider-health failures. |
-| Settlement/payout errors | Settlement | Settlement and payout readiness telemetry | Needs instrumentation | No increase in payout setup, payout readiness, or provider reconciliation failures. |
+| Settlement/payout errors | Settlement | Settlement operation telemetry for payout setup, readiness, and provider reconciliation | Available now | No increase in payout setup session failures, payout readiness refresh failures, setup-blocked payout requests, or provider reconciliation failures. |
 | Fulfillment/postage callback errors | Fulfillment | Postage provider callback telemetry | Needs instrumentation | No new provider callback signature, parse, or reconciliation failures. |
 | Transactional email callback errors | Notifications | SES/SNS callback and outbox telemetry | Needs instrumentation | No new SES/SNS callback or outbox delivery failure spike. |
 | Database pool pressure | Infrastructure runtime | Database pool and migration telemetry | Needs instrumentation | No connection exhaustion, pool saturation, or bootstrap migration pressure. |
@@ -176,6 +176,7 @@ Canary ownership starts with this matrix:
 | `route-error-rate` | `platform-runtime/route-owner` | HTTP 5xx rate by route, host, and release cohort | Abort promotion and compare route-level errors against the stable cohort. |
 | `route-latency-p95` | `platform-runtime/route-owner` | HTTP latency histogram by route, host, and release cohort | Hold promotion until latency source and threshold are understood. |
 | `checkout-order-payment-errors` | `checkout/ordering/payments` | Checkout command, order, payment, and provider-health counters | Abort promotion and page the owning bounded context before exposing traffic. |
+| `settlement-payout-errors` | `settlement` | `chase_sets_settlement_operations_total` filtered to payout setup/session/readiness/reconciliation failure kinds | Abort promotion, inspect Payout Operations, and keep the release canary at the current cohort until setup and payout readiness are stable. |
 
 Signals whose `currentState` is `needs-instrumentation` must remain unset in production gating until telemetry is live. They can appear in dry-run canary evidence, but they must fail closed or stay optional; they must not silently pass.
 

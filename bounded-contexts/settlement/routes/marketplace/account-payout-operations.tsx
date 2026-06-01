@@ -6,6 +6,7 @@ import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
   type SettlementProviderIdempotencyKeyRow,
   type SettlementPayoutRow,
+  type SettlementPayoutReadinessRow,
   createSettlementRequestApiClient,
 } from "../../support/request-support/api-client";
 import { SettlementPayoutOperationsPage } from "../../features/payouts/ui/payout-operations-page";
@@ -28,12 +29,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const requestUrl = new URL(request.url);
   const filter = requestUrl.searchParams.get("filter") ?? "all";
   const query = filter === "all" ? "" : `filter=${encodeURIComponent(filter)}`;
-  const [payouts, idempotencyKeys] = await Promise.all([
+  const [payouts, idempotencyKeys, payoutReadiness] = await Promise.all([
     settlementApi.listPayoutsNeedingReconciliation(query),
     settlementApi.listPayoutProviderIdempotencyKeys("limit=10"),
+    settlementApi.getPayoutReadiness(),
   ]);
 
-  return { payouts, idempotencyKeys, filter };
+  return { payouts, idempotencyKeys, payoutReadiness, filter };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -65,6 +67,7 @@ export default function MarketplaceAccountPayoutOperationsRoute() {
     <SettlementPayoutOperationsPage
       payouts={(data.payouts.items ?? []) as SettlementPayoutRow[]}
       idempotencyKeys={(data.idempotencyKeys.items ?? []) as SettlementProviderIdempotencyKeyRow[]}
+      payoutReadiness={data.payoutReadiness as SettlementPayoutReadinessRow}
       runResult={actionData}
       currentFilter={data.filter}
       lastCheckedAt={actionData ? new Date().toISOString() : null}

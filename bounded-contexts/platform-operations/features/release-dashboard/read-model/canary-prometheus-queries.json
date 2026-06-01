@@ -40,6 +40,16 @@
       "canaryQuery": "sum(rate(chase_sets_checkout_payment_failures_total{environment=\"production\",release=\"canary\"}[15m]))",
       "maxIncrease": 0,
       "threshold": "canary checkout/payment failures must not exceed baseline"
+    },
+    {
+      "name": "settlement-payout-errors",
+      "owner": "settlement",
+      "source": "Prometheus settlement operation failures for payout setup, readiness, and provider reconciliation",
+      "currentState": "available-now",
+      "baselineQuery": "sum(rate(chase_sets_settlement_operations_total{environment=\"production\",release!=\"canary\",kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m]))",
+      "canaryQuery": "sum(rate(chase_sets_settlement_operations_total{environment=\"production\",release=\"canary\",kind=~\"payout-setup-session-failed|payout-account-management-session-failed|payout-readiness-refresh-failed|payout-readiness-webhook-ignored|payout-request-blocked-by-setup|payout-failed|money-movement-webhook-ignored\"}[15m]))",
+      "maxIncrease": 0,
+      "threshold": "canary settlement payout/setup failures must not exceed baseline"
     }
   ]
 }

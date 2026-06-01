@@ -105,6 +105,7 @@ describe("payout readiness runtime", () => {
 
   it("creates embedded payout setup sessions with provider-neutral components", async () => {
     const setupKeys: string[] = [];
+    const operationEvents: Record<string, unknown>[] = [];
     const db = {
       query: vi.fn(async () => ({ rows: [] })),
     };
@@ -154,6 +155,11 @@ describe("payout readiness runtime", () => {
       },
       db: db as never,
       moneyMovementGateway: moneyMovementGateway as never,
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
     });
 
     await expect(services.createPayoutSetupSession({ accountId: "acc_seller" as never }, context)).resolves.toEqual({
@@ -165,6 +171,70 @@ describe("payout readiness runtime", () => {
     expect(setupKeys).toHaveLength(1);
     expect(setupKeys[0]).toMatch(/^settlement:payout-account:acc_seller:embedded-setup:setup_/);
     expect(JSON.stringify(eventStore.appendToStream.mock.calls)).not.toContain("provider_session_secret");
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-setup-session-created",
+        accountId: "acc_seller",
+        setupSurface: "embedded-payout-setup",
+        providerReference: "acct_123",
+        readinessStatus: "pending",
+        missingRequirementCount: 1,
+      }),
+    );
+    expect(JSON.stringify(operationEvents)).not.toContain("provider_session_secret");
+  });
+
+  it("records setup session failures by safe category without leaking provider messages", async () => {
+    const operationEvents: Record<string, unknown>[] = [];
+    const db = {
+      query: vi.fn(async () => ({ rows: [] })),
+    };
+    const moneyMovementGateway = {
+      providerName: "stripe",
+      ensurePayoutAccount: vi.fn(),
+      refreshPayoutReadiness: vi.fn(),
+      createOnboardingSession: vi.fn(),
+      createAccountManagementSession: vi.fn(),
+      createPayoutSetupSession: vi.fn(),
+      createPayoutAccountManagementSession: vi.fn(),
+      retrievePlatformBalance: vi.fn(),
+      transferPlatformBalanceToConnectedAccount: vi.fn(),
+      createConnectedAccountPayout: vi.fn(),
+      retrieveConnectedAccountPayout: vi.fn(),
+      parseMoneyMovementWebhook: vi.fn(),
+    };
+    const error = new Error("provider payload included client_secret and tax id");
+    Object.assign(error, { statusCode: 429 });
+    moneyMovementGateway.ensurePayoutAccount.mockRejectedValueOnce(error);
+    const services = createPayoutReadinessRuntime({
+      eventStore: createEventStore() as never,
+      checkpointStore: {
+        loadCheckpoint: vi.fn(async () => ZERO_GLOBAL_POSITION),
+        saveCheckpoint: vi.fn(async () => {}),
+      },
+      db: db as never,
+      moneyMovementGateway: moneyMovementGateway as never,
+      operationsRecorder: {
+        record: (event) => {
+          operationEvents.push(event);
+        },
+      },
+    });
+
+    await expect(services.createPayoutSetupSession({ accountId: "acc_seller" as never }, context)).rejects.toThrow(
+      "provider payload",
+    );
+
+    expect(operationEvents).toContainEqual(
+      expect.objectContaining({
+        kind: "payout-setup-session-failed",
+        accountId: "acc_seller",
+        setupSurface: "embedded-payout-setup",
+        safeCategory: "provider_rate_limited",
+      }),
+    );
+    expect(JSON.stringify(operationEvents)).not.toContain("client_secret");
+    expect(JSON.stringify(operationEvents)).not.toContain("tax id");
   });
 
   it("records the same provider-neutral readiness shape from manual refresh and webhooks", async () => {

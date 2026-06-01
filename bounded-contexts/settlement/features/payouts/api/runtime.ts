@@ -897,13 +897,60 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       const currencyCode = normalizeCurrencyCode(wallet.currency_code);
       const amount = assertPayoutAmountWithinPolicy(params.amount, currencyCode);
       if (readiness.status !== "ready") {
+        await recordOperation({
+          kind: "payout-request-blocked-by-setup",
+          accountId: params.accountId,
+          amount,
+          currencyCode,
+          readinessStatus: readiness.status,
+          providerReference: readiness.provider_reference,
+          missingRequirementCount: readiness.missing_requirements.length,
+          staleReadiness: payoutReadinessIsStale(readiness.updated_at),
+          safeCategory: "setup_incomplete",
+        });
         throw new SettlementDomainError("Payout setup must be complete before requesting payouts.");
       }
       if (!readiness.provider_reference) {
+        await recordOperation({
+          kind: "payout-request-blocked-by-setup",
+          accountId: params.accountId,
+          amount,
+          currencyCode,
+          readinessStatus: readiness.status,
+          providerReference: readiness.provider_reference,
+          missingRequirementCount: readiness.missing_requirements.length,
+          staleReadiness: payoutReadinessIsStale(readiness.updated_at),
+          safeCategory: "missing_provider_account",
+        });
         throw new SettlementDomainError("Payout setup must include a provider account.");
       }
       if (payoutReadinessIsStale(readiness.updated_at)) {
+        await recordOperation({
+          kind: "payout-request-blocked-by-setup",
+          accountId: params.accountId,
+          amount,
+          currencyCode,
+          readinessStatus: readiness.status,
+          providerReference: readiness.provider_reference,
+          missingRequirementCount: readiness.missing_requirements.length,
+          staleReadiness: true,
+          safeCategory: "setup_stale",
+        });
         throw new SettlementDomainError("Payout setup status must be refreshed before requesting a payout.");
+      }
+      if (readiness.missing_requirements.length > 0) {
+        await recordOperation({
+          kind: "payout-request-blocked-by-setup",
+          accountId: params.accountId,
+          amount,
+          currencyCode,
+          readinessStatus: readiness.status,
+          providerReference: readiness.provider_reference,
+          missingRequirementCount: readiness.missing_requirements.length,
+          staleReadiness: false,
+          safeCategory: "requirements_open",
+        });
+        throw new SettlementDomainError("Payout setup requirements must be resolved before requesting a payout.");
       }
       const riskSummary = await getAccountPayoutRiskSummary(deps.db, params.accountId);
       if (riskSummary.failed_payout_count > 0) {

@@ -20,7 +20,7 @@ import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
 import type { PaymentsServices } from "@chase-sets/payments/server";
-import type { SettlementServices } from "@chase-sets/settlement/server";
+import { settlementOperationLogFields, type SettlementServices } from "@chase-sets/settlement/server";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
 import { createSettlementBalanceCreditResolver } from "@chase-sets/settlement/server";
 import {
@@ -47,7 +47,7 @@ import {
   type PlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
-import { getObservabilityRuntime } from "@chase-sets/observability";
+import { getObservabilityRuntime, recordSettlementOperationSignal } from "@chase-sets/observability";
 import { loadConfig, type PlatformWorkerCatalogAssetStorageConfig } from "./config";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
@@ -82,9 +82,16 @@ const moneyMovementGateway =
     : createFakeMoneyMovementGateway();
 const settlementOperationsRecorder = {
   record(event: Record<string, unknown>) {
+    recordSettlementOperationSignal({
+      kind: String(event.kind ?? "unknown"),
+      providerName: typeof event.providerName === "string" ? event.providerName : null,
+      setupSurface: typeof event.setupSurface === "string" ? event.setupSurface : null,
+      safeCategory: typeof event.safeCategory === "string" ? event.safeCategory : null,
+      readinessStatus: typeof event.readinessStatus === "string" ? event.readinessStatus : null,
+    });
     logger.info("Settlement operation recorded.", {
       type: "settlement.operation",
-      ...event,
+      ...settlementOperationLogFields(event),
     });
   },
 };

@@ -11,6 +11,7 @@ import { bootstrapPlatformControlPlane } from "@chase-sets/platform-runtime/cont
 import { representativeCommerceStateDataProfiles, seedApiHostIfEmpty } from "@chase-sets/platform-runtime/api";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { prepareRepresentativeCatalogUsageCandidates } from "@chase-sets/catalog/server";
+import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import {
   normalizeRepresentativeCandidateLimit,
   acceptRepresentativeOffers,
@@ -102,7 +103,7 @@ export async function runRepresentativeCommerceState(): Promise<void> {
             : createFakeMoneyMovementGateway(),
         operationsRecorder: {
           record(event: Record<string, unknown>) {
-            console.log("Settlement operation recorded.", JSON.stringify(event));
+            console.log("Settlement operation recorded.", JSON.stringify(settlementOperationLogFields(event)));
           },
         },
         postageLabelProvider:

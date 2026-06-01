@@ -356,11 +356,17 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.payoutOperationsPage.actions": "Actions",
   "settlement.features.payouts.ui.payoutOperationsPage.all": "All",
   "settlement.features.payouts.ui.payoutOperationsPage.amount": "Amount",
+  "settlement.features.payouts.ui.payoutOperationsPage.account.cannot.request.payouts.until":
+    "Account payouts stay blocked until setup is ready",
   "settlement.features.payouts.ui.payoutOperationsPage.back.to.payouts": "Back to payouts",
   "settlement.features.payouts.ui.payoutOperationsPage.checked": "Checked ",
   "settlement.features.payouts.ui.payoutOperationsPage.confirmed": "Confirmed",
   "settlement.features.payouts.ui.payoutOperationsPage.count": "Count",
   "settlement.features.payouts.ui.payoutOperationsPage.created": "Created",
+  "settlement.features.payouts.ui.payoutOperationsPage.current.payout.setup.status":
+    "Current setup state used by payout request checks",
+  "settlement.features.payouts.ui.payoutOperationsPage.destination.status.from.provider":
+    "Support-safe payout destination status from the provider",
   "settlement.features.payouts.ui.payoutOperationsPage.errors": "Errors: ",
   "settlement.features.payouts.ui.payoutOperationsPage.external.status": "External status",
   "settlement.features.payouts.ui.payoutOperationsPage.failed": "Failed",
@@ -386,16 +392,25 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.payoutOperationsPage.not.checked.in.this.session": "Not checked in this session",
   "settlement.features.payouts.ui.payoutOperationsPage.older.than.15.minutes": "Older than 15 minutes",
   "settlement.features.payouts.ui.payoutOperationsPage.open": "Open",
+  "settlement.features.payouts.ui.payoutOperationsPage.open.setup.requirements": "Open setup requirements",
   "settlement.features.payouts.ui.payoutOperationsPage.operation": "Operation",
   "settlement.features.payouts.ui.payoutOperationsPage.payout": "Payout",
   "settlement.features.payouts.ui.payoutOperationsPage.payout.confirmation": "Payout confirmation",
+  "settlement.features.payouts.ui.payoutOperationsPage.payout.destination": "Payout destination",
   "settlement.features.payouts.ui.payoutOperationsPage.payout.operations": "Payout Operations",
+  "settlement.features.payouts.ui.payoutOperationsPage.payout.setup.blocked": "Payout setup blocked",
+  "settlement.features.payouts.ui.payoutOperationsPage.payout.setup.status.needs.refresh":
+    "Ready setup older than 30 days should be refreshed before release promotion",
   "settlement.features.payouts.ui.payoutOperationsPage.pending": "Pending",
   "settlement.features.payouts.ui.payoutOperationsPage.pending.confirmation": "Pending confirmation",
   "settlement.features.payouts.ui.payoutOperationsPage.provider.payout": "Provider payout",
   "settlement.features.payouts.ui.payoutOperationsPage.provider.payout.reconciliation.is.clear":
     "Provider payout reconciliation is clear.",
+  "settlement.features.payouts.ui.payoutOperationsPage.provider.readiness.snapshot":
+    "Last support-safe provider readiness snapshot",
   "settlement.features.payouts.ui.payoutOperationsPage.provider.reference": "Provider reference",
+  "settlement.features.payouts.ui.payoutOperationsPage.provider.requirement.groups.remain.open":
+    "Provider requirement groups remain open",
   "settlement.features.payouts.ui.payoutOperationsPage.provider.reported.failure.or.internal.submission":
     "A payout needs review before it can continue",
   "settlement.features.payouts.ui.payoutOperationsPage.provider.status": "Provider status",
@@ -416,8 +431,11 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.payoutOperationsPage.review": "Review",
   "settlement.features.payouts.ui.payoutOperationsPage.run.reconciliation": "Run reconciliation",
   "settlement.features.payouts.ui.payoutOperationsPage.settlement": "Settlement",
+  "settlement.features.payouts.ui.payoutOperationsPage.setup.last.updated": "Setup last updated",
+  "settlement.features.payouts.ui.payoutOperationsPage.setup.status": "Setup status",
   "settlement.features.payouts.ui.payoutOperationsPage.signal": "Signal",
   "settlement.features.payouts.ui.payoutOperationsPage.skipped": "; skipped ",
+  "settlement.features.payouts.ui.payoutOperationsPage.stale.payout.setup.status": "Stale payout setup status",
   "settlement.features.payouts.ui.payoutOperationsPage.stale.reconciliation": "Stale reconciliation",
   "settlement.features.payouts.ui.payoutOperationsPage.status": "Status",
   "settlement.features.payouts.ui.payoutOperationsPage.transfer.or.payout.reference.has.not":

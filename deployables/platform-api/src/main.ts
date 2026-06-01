@@ -53,6 +53,7 @@ import {
   recordRealtimeSyncRequired,
   recordRealtimeWakeNotificationReceived,
   recordRealtimeWakeWaitEnded,
+  recordSettlementOperationSignal,
   recordUcpIdempotencyConflict,
   recordUcpIdempotencyReplayed,
   recordUcpOperationCompleted,
@@ -61,6 +62,7 @@ import {
 } from "@chase-sets/observability";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { buildPlatformApiApp, createPlatformApiHost } from "./app";
+import { settlementOperationLogFields } from "@chase-sets/settlement/server";
 import {
   loadConfig,
   type PlatformApiCatalogAssetStorageConfig,
@@ -98,9 +100,16 @@ const moneyMovementGateway =
     : createFakeMoneyMovementGateway();
 const settlementOperationsRecorder = {
   record(event: Record<string, unknown>) {
+    recordSettlementOperationSignal({
+      kind: String(event.kind ?? "unknown"),
+      providerName: typeof event.providerName === "string" ? event.providerName : null,
+      setupSurface: typeof event.setupSurface === "string" ? event.setupSurface : null,
+      safeCategory: typeof event.safeCategory === "string" ? event.safeCategory : null,
+      readinessStatus: typeof event.readinessStatus === "string" ? event.readinessStatus : null,
+    });
     logger.info("Settlement operation recorded.", {
       type: "settlement.operation",
-      ...event,
+      ...settlementOperationLogFields(event),
     });
   },
 };
