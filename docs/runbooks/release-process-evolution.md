@@ -30,7 +30,7 @@ Queue behavior:
 - Keep stale release behavior from the deployment workflow: if a queued automatic deployment starts after a newer `origin/main` exists, skip that stale deployment and let the newest release proceed.
 - Keep direct pushes disabled for normal work. Emergency release bypass must be explicit and audited.
 
-Target GitHub native merge queue settings for `main`:
+Active GitHub native merge queue settings for `main`:
 
 | Setting | Value |
 | --- | --- |
@@ -44,12 +44,13 @@ Target GitHub native merge queue settings for `main`:
 
 `.github/workflows/platform-pr.yml` must run on `pull_request`, `merge_group`, and `push` to `main` so `PR Required` is evaluated for both pull request heads and merge queue synthetic commits.
 
-Current repository evidence from May 31, 2026:
+Current repository evidence from June 1, 2026:
 
 - `main` has branch protection with strict required status checks, `PR Required`, required conversation resolution, required linear history, and admin enforcement.
 - Repository rulesets currently include `Protect production deployed marker` for `refs/heads/production`, blocking deletion and non-fast-forward updates.
-- `PR Required` now runs on `merge_group` events, so Chase Sets is workflow-ready for GitHub native merge queue.
-- Creating a `main` ruleset with `merge_queue` through the GitHub REST rulesets API returned HTTP 422 on May 31, 2026. Treat native merge queue as externally blocked for this personal-account repository until GitHub exposes the setting through repository rulesets or branch protection for this repo. Keep the target settings above as the first configuration to apply when it becomes available.
+- Repository ruleset `17097957`, `Require merge queue for main`, is active for `refs/heads/main` in `chase-sets/chase-sets`.
+- The active `main` ruleset requires `PR Required`, required linear history, no non-fast-forward updates, and GitHub native merge queue with the settings above.
+- `PR Required` runs on `merge_group` events, so Chase Sets validates merge queue synthetic commits before they land.
 - Repository auto-merge is currently disabled; leave it disabled unless merge queue policy deliberately adopts it.
 
 Emergency release behavior:
@@ -367,8 +368,8 @@ The readiness output is a `rollback-readiness/v1` artifact. A passing readiness 
 
 ## Current Deferred Work
 
-The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, release dashboard, canary-analysis gate, telemetry-backed canary evidence collector, release-health report generator, merge-queue-ready PR validation, and production release-health artifact emission with queue, staging, production, canary, and drift timing. The next implementation steps are:
+The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, release dashboard, canary-analysis gate, telemetry-backed canary evidence collector, release-health report generator, merge-queue-enabled PR validation, and production release-health artifact emission with queue, staging, production, canary, and drift timing. The next implementation steps are:
 
-- enable GitHub native merge queue for `main` when GitHub exposes the setting for this repository
-- persist PR review/ready timestamps from GitHub API once merge queue is enabled
+- persist PR ready-for-review and queue timestamps from GitHub API evidence
 - wire the canary evidence collector to production observability sources once telemetry data sources are ready
+- tune merge queue batch size only after at least 10 deployable release-health records meet the SLO posture in this runbook

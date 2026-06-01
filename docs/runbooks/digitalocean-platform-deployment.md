@@ -138,7 +138,7 @@ Preview and staging Terraform validation requires test-mode provider values:
 Deployment safety depends on GitHub repository settings as well as workflow code:
 
 - Protect `main` with required pull requests and a required `PR Required` status check from `.github/workflows/platform-pr.yml`.
-- Enable GitHub native merge queue for `main` using the [Release Process Evolution](./release-process-evolution.md) queue policy. Start with one deployable pull request per merge group until release-health metrics prove larger batches are safe.
+- Keep GitHub native merge queue enabled for `main` using the [Release Process Evolution](./release-process-evolution.md) queue policy. Start with one deployable pull request per merge group until release-health metrics prove larger batches are safe.
 - Protect or ruleset-match `production` so only the production workflow can move the deployed-release marker.
 - Restrict the `staging` GitHub Environment to deployments from `main`.
 - Restrict the `production` GitHub Environment to deployments from `main`.
@@ -151,7 +151,7 @@ On pushes to `main`, the same `PR Required` workflow validates the merge commit 
 
 Production promotion also evaluates `PRODUCTION_RELEASE_LOCKED` before production configuration validation or Terraform work. Set `PRODUCTION_RELEASE_LOCKED=true`, `PRODUCTION_RELEASE_LOCK_REASON`, and preferably `PRODUCTION_RELEASE_LOCK_REFERENCE` in the production GitHub Environment to pause normal promotion during an incident or maintenance window. A manual workflow dispatch may pass the lock only when `emergency_release=true` and `emergency_reference` points to the audited fix-forward, revert, incident, or rollback evidence record. See [Release Process Evolution](./release-process-evolution.md).
 
-As of May 31, 2026, repository evidence shows `main` protected by strict `PR Required`, required conversation resolution, linear history, and admin enforcement, and `production` protected by the `Protect production deployed marker` ruleset. Native merge queue is still an external GitHub repository setting to enable for `main`.
+As of June 1, 2026, repository evidence shows `main` protected by strict `PR Required`, required conversation resolution, linear history, admin enforcement, and active GitHub native merge queue ruleset `17097957`, `Require merge queue for main`. The `production` marker remains protected by the `Protect production deployed marker` ruleset.
 
 ## One-Time State Bootstrap
 
