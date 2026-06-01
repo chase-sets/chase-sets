@@ -19,7 +19,7 @@ on:
         default: "300000"
         type: string
       confirm:
-        description: Type "seed staging commerce" to generate representative staging usage.
+        description: Type "seed staging commerce" to generate representative staging usage, or "verify sandbox providers" to run Stripe/EasyPost sandbox evidence.
         required: true
         type: string
 
@@ -36,6 +36,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     environment: staging
+    if: inputs.confirm == 'seed staging commerce'
     env:
       TF_IN_AUTOMATION: "true"
       TF_INPUT: "false"
@@ -74,10 +75,7 @@ jobs:
       - name: Confirm representative refresh
         run: |
           set -euo pipefail
-          if [ "${{ inputs.confirm }}" != "seed staging commerce" ]; then
-            echo "Confirmation input must exactly equal 'seed staging commerce'." >&2
-            exit 1
-          fi
+          echo "Representative commerce refresh confirmed."
 
       - uses: actions/checkout@v6
         with:
@@ -190,3 +188,123 @@ jobs:
 
       - name: Run representative commerce state refresh
         run: pnpm --filter @chase-sets/app-platform-api run representative-commerce-state:production
+
+  verify-sandbox-provider-evidence:
+    name: Verify Sandbox Provider Evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    if: inputs.confirm == 'verify sandbox providers'
+    env:
+      NODE_ENV: production
+      PLATFORM_API_BASE_URL: https://marketplace.staging.chasesets.com
+      PLATFORM_AUTH_BASE_URL: https://marketplace.staging.chasesets.com
+      SMOKE_REGISTER_SELLER: "true"
+      SMOKE_SELLER_EMAIL: stripe-sandbox-evidence+${{ github.run_id }}-${{ github.run_attempt }}@chasesets.test
+      SMOKE_SELLER_PASSWORD: staging-stripe-${{ github.run_id }}-${{ github.run_attempt }}
+      SMOKE_SELLER_DISPLAY_NAME: Stripe Sandbox Evidence ${{ github.run_id }}-${{ github.run_attempt }}
+      STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+      STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
+      STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
+      STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}
+      STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts
+      STRIPE_CONNECT_REFRESH_URL: https://marketplace.staging.chasesets.com/account/payouts/setup
+      SMOKE_ORDER_IDS: ${{ vars.STAGING_SMOKE_ORDER_IDS || '' }}
+      SMOKE_BALANCE_CREDIT_AMOUNT: ${{ vars.STAGING_SMOKE_BALANCE_CREDIT_AMOUNT || '' }}
+      SMOKE_PAYMENT_METHOD_CATEGORY: ${{ vars.STAGING_SMOKE_PAYMENT_METHOD_CATEGORY || '' }}
+      SMOKE_CREATE_PAYMENT: ${{ vars.STAGING_SMOKE_CREATE_PAYMENT || '' }}
+      SMOKE_PAYOUT_AMOUNT: ${{ vars.STAGING_SMOKE_PAYOUT_AMOUNT || '' }}
+      SMOKE_REQUEST_PAYOUT: ${{ vars.STAGING_SMOKE_REQUEST_PAYOUT || '' }}
+      EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+      EASYPOST_MODE: test
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Confirm sandbox provider evidence
+        run: |
+          set -euo pipefail
+          if [ "${EASYPOST_API_KEY#EZTK}" = "$EASYPOST_API_KEY" ]; then
+            echo "Staging EASYPOST_API_KEY must be an EasyPost test key (EZTK...) for sandbox evidence." >&2
+            exit 1
+          fi
+
+      - name: Run Stripe staging sandbox money smoke
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/sandbox-provider-evidence
+          pnpm run stripe:money-smoke -- --edge-check --seller-flow \
+            | tee artifacts/sandbox-provider-evidence/stripe-staging-money-smoke.log
+
+      - name: Run EasyPost test label smoke
+        env:
+          EASYPOST_SANDBOX_EVIDENCE_PATH: artifacts/sandbox-provider-evidence/easypost-test-smoke.json
+        run: |
+          set -euo pipefail
+          pnpm --filter @chase-sets/easypost-postage test -- easypost-smoke.test.ts
+
+      - name: Write sandbox provider evidence summary
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const artifactDir = "artifacts/sandbox-provider-evidence";
+          const easyPost = JSON.parse(fs.readFileSync(path.join(artifactDir, "easypost-test-smoke.json"), "utf8"));
+          const evidence = {
+            schemaVersion: "sandbox-provider-evidence/v1",
+            label: "sandbox verified but not completed",
+            sandboxVerified: true,
+            productionCompleted: false,
+            checkedAt: new Date().toISOString(),
+            releaseCommit: process.env.GITHUB_SHA,
+            githubRunId: process.env.GITHUB_RUN_ID,
+            githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            stripe: {
+              environment: "staging",
+              mode: "test",
+              sandboxVerified: true,
+              productionCompleted: false,
+              evidenceLog: "stripe-staging-money-smoke.log",
+              checks: [
+                "payment-webhook-signature-edge",
+                "connect-money-movement-webhook-signature-edge",
+                "payment-and-settlement-provider-health",
+                "hosted-connect-onboarding-url",
+                "connect-refresh-url",
+                "payout-preview"
+              ]
+            },
+            easyPost,
+          };
+          fs.writeFileSync(
+            path.join(artifactDir, "sandbox-provider-evidence.json"),
+            `${JSON.stringify(evidence, null, 2)}\n`,
+          );
+          NODE
+
+      - name: Add sandbox provider evidence summary
+        run: |
+          set -euo pipefail
+          {
+            echo "### Sandbox provider evidence"
+            echo ""
+            echo "- Label: sandbox verified but not completed"
+            echo "- Stripe staging sandbox money smoke: passed"
+            echo "- EasyPost test label purchase and void/refund smoke: passed"
+            echo "- Production completion: false"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload sandbox provider evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: sandbox-provider-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/sandbox-provider-evidence
+          if-no-files-found: error
+          retention-days: 30
