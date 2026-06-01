@@ -181,7 +181,13 @@ export function SettlementPayoutListPage({
         <Card>
           <Stack gap={3}>
             {payoutReadiness ? (
-              <PayoutReadinessPanel payoutReadiness={payoutReadiness} showActions={canSetupPayouts} />
+              <PayoutReadinessPanel
+                payoutReadiness={payoutReadiness}
+                showActions={canSetupPayouts}
+                showSupportEscalation={
+                  payoutReadiness.status === "restricted" || payoutReadiness.missing_requirements.length > 0
+                }
+              />
             ) : null}
             <Stack gap={1}>
               <Text size="sm" tone="secondary">

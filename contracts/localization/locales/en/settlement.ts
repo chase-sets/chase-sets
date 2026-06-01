@@ -36,10 +36,18 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.readModel.schema.create.table.if.not.exists.settlement":
     "\nCREATE TABLE IF NOT EXISTS settlement_payout_readiness_pages (\n  account_id text PRIMARY KEY,\n  status text NOT NULL,\n  missing_requirements jsonb NOT NULL DEFAULT '[]'::jsonb,\n  provider_reference text NULL,\n  onboarding_status text NOT NULL DEFAULT 'not-started',\n  transfer_capability_status text NOT NULL DEFAULT 'inactive',\n  payout_capability_status text NOT NULL DEFAULT 'inactive',\n  payout_destination_status text NOT NULL DEFAULT 'missing',\n  updated_at timestamptz NOT NULL,\n  last_stream_version bigint NOT NULL DEFAULT 0\n);\n\nCREATE INDEX IF NOT EXISTS settlement_payout_readiness_pages_status_idx\n  ON settlement_payout_readiness_pages (status, updated_at DESC, account_id DESC);\n\nCREATE INDEX IF NOT EXISTS settlement_payout_readiness_pages_provider_reference_idx\n  ON settlement_payout_readiness_pages (provider_reference)\n  WHERE provider_reference IS NOT NULL;\n\nALTER TABLE settlement_payout_readiness_pages\n  ADD COLUMN IF NOT EXISTS onboarding_status text NOT NULL DEFAULT 'not-started';\n\nALTER TABLE settlement_payout_readiness_pages\n  ADD COLUMN IF NOT EXISTS transfer_capability_status text NOT NULL DEFAULT 'inactive';\n\nALTER TABLE settlement_payout_readiness_pages\n  ADD COLUMN IF NOT EXISTS payout_capability_status text NOT NULL DEFAULT 'inactive';\n\nALTER TABLE settlement_payout_readiness_pages\n  ADD COLUMN IF NOT EXISTS payout_destination_status text NOT NULL DEFAULT 'missing';\n",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.account.agreement": "Account agreement",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.a.payout.destination": "Add a payout destination",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.a.payout.destination.description":
+    "Open payout setup to add or confirm where eligible balances should be sent.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.a.payout.account.using.the":
     "Add a payout account using the Chase Sets setup page before requesting payouts.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.or.confirm.the.payout.destination":
+    "Add or confirm the payout destination before requesting payouts.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.business.profile": "Business profile",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.check.setup.status": "Check setup status",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.complete.requested.groups":
+    "Open payout setup to complete: {groups}. Chase Sets does not store identity, tax, document, or bank details.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.contact.support": "Contact support",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.continue.payout.setup": "Continue payout setup",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.continue.the.hosted.setup.flow.before":
     "Continue the Chase Sets setup page before requesting payouts.",
@@ -49,6 +57,8 @@ export const settlementEnglishTranslations = {
     "Finish setup to receive payouts",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.fix.payout.setup": "Fix payout setup",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.identity.details": "Identity details",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.identity.and.business.details":
+    "Identity and business details",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.in.progress": "In progress",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.in.review": "In review",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.last.checked": "Last checked: ",
@@ -72,9 +82,29 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready": "Ready",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready.2": "Ready",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready.3": "Ready",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.provider.review.in.progress":
+    "Provider review is in progress",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.provider.review.in.progress.description":
+    "No action is needed right now. Refresh setup status after the provider finishes review, or contact support if this state does not change.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirement.group.count":
+    "{count} detail(s) need attention.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirement.group.needs.attention":
     "{group} needs attention",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.account.identity.or.business":
+    "Review the requested account, identity, or business details in the secure setup form.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.and.accept.the.required.account":
+    "Review and accept the required account agreement in the secure setup form.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.the.remaining.verification.details":
+    "Review the remaining verification details in the secure setup form.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.set.up.payouts": "Set up payouts",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.can.continue": "Payout setup can continue",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.can.continue.description":
+    "Open the Chase Sets setup page to continue payout setup. If setup cannot load, retry from this page or contact support.",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.details.need.attention":
+    "Payout setup details need attention",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted": "Payout setup is restricted",
+  "settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted.description":
+    "Payouts cannot be requested until the provider restriction clears. Review payout setup in Chase Sets and contact support if the restriction remains.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.some.payout.details.need.to.be":
     "Some payout details need to be corrected before payouts can be requested.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.start.payout.setup": "Start payout setup",
@@ -83,6 +113,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention": "What needs attention",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.add.the.required.account.and":
     "Add the required account and payout destination details without leaving Chase Sets.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.account.agreement": "Account agreement",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.back.to.payouts": "Back to payouts",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.complete.payout.setup": "Complete payout setup",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser":
@@ -93,6 +124,9 @@ export const settlementEnglishTranslations = {
     "Secure payout setup loaded without an initializer.",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.current.status": "Current status",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.finish.payout.setup": "Finish payout setup",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.contact.support": "Contact support",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.identity.and.business.details":
+    "Identity and business details",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.keep.your.payout.destination":
     "Keep payout destination and verification details current so eligible balances can move on time.",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.loading.secure.setup": "Loading secure payout setup",
@@ -101,6 +135,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.ui.payoutSetupPage.in.progress": "In progress",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.needs.attention": "Needs attention",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.not.started": "Not started",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.account": "Payout account",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup": "Payout setup",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup.is.complete.and.available":
     "Payout setup is complete and eligible balances can be requested after settlement checks.",
@@ -116,6 +151,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.ui.payoutSetupPage.ready": "Ready",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.request.payout": "Request payout",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.requirement.count": "{count} provider details available",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.requirement.group.count": "{count} detail(s) need attention",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.retry": "Retry",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.review.or.update.the.details":
     "Review or update payout details in the secure embedded provider form.",
@@ -125,10 +161,15 @@ export const settlementEnglishTranslations = {
     "The secure payout setup session was missing its client secret.",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.settlement": "Settlement",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.could.not.load": "Setup could not load",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.load.failed.with.reason":
+    "{reason} The setup session may have expired or the provider may be temporarily unavailable. Retry from Chase Sets; contact support if it still cannot load.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.session.may.have.expired":
+    "The setup session may have expired or the provider may be temporarily unavailable. Retry from Chase Sets; contact support if it still cannot load.",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.status.checked": "Setup status checked",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.view": "Setup view",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.start.payout.setup": "Start payout setup",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.support.details": "Support details",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.verification.review": "Verification review",
   "settlement.features.payoutReadiness.ui.payoutSetupPage.you.can.request.payouts":
     "You can request payouts from eligible account balances.",
   "settlement.features.payouts.api.route.authentication.context.missing": "Authentication context missing.",
@@ -202,6 +243,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.payoutDetailPage.amount": "Amount: ",
   "settlement.features.payouts.ui.payoutDetailPage.back.to.payouts": "Back to payouts",
   "settlement.features.payouts.ui.payoutDetailPage.completed": "Completed: ",
+  "settlement.features.payouts.ui.payoutDetailPage.contact.support": "Contact support",
   "settlement.features.payouts.ui.payoutDetailPage.failed": "Failed: ",
   "settlement.features.payouts.ui.payoutDetailPage.internal.payout": "Internal payout: ",
   "settlement.features.payouts.ui.payoutDetailPage.is.being.sent.to.your.saved":
@@ -220,6 +262,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.payoutDetailPage.on.the.way": "On the way",
   "settlement.features.payouts.ui.payoutDetailPage.paid": "Paid",
   "settlement.features.payouts.ui.payoutDetailPage.paid.2": "Paid",
+  "settlement.features.payouts.ui.payoutDetailPage.payout.account.needs.review": "Payout account needs review",
   "settlement.features.payouts.ui.payoutDetailPage.payout.account.saved.payout.account":
     "Payout account: Saved payout account",
   "settlement.features.payouts.ui.payoutDetailPage.payout.requested": "Payout Requested",
@@ -239,6 +282,9 @@ export const settlementEnglishTranslations = {
   "settlement.features.payouts.ui.payoutDetailPage.requested": "Requested",
   "settlement.features.payouts.ui.payoutDetailPage.requested.2": "Requested: ",
   "settlement.features.payouts.ui.payoutDetailPage.requested.3": "Requested",
+  "settlement.features.payouts.ui.payoutDetailPage.review.payout.details": "Review payout details",
+  "settlement.features.payouts.ui.payoutDetailPage.review.payout.details.before.requesting":
+    "The payout did not reach the saved payout account. Review payout details in Chase Sets before requesting another payout, and contact support if the same details fail again.",
   "settlement.features.payouts.ui.payoutDetailPage.retry.policy": "Retry policy: ",
   "settlement.features.payouts.ui.payoutDetailPage.retry.reason": "Retry reason: ",
   "settlement.features.payouts.ui.payoutDetailPage.sent": "Sent: ",

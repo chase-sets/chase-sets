@@ -1,7 +1,9 @@
 import { t } from "@chase-sets/localization";
 import {
   Badge,
+  Banner,
   Button,
+  LinkButton,
   ProgressiveDisclosure,
   SpecificationList,
   Stack,
@@ -11,7 +13,11 @@ import {
   type Tone,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
-import { buildPayoutSetupProgress } from "../domain/setup-progress";
+import {
+  buildMissingRequirementGroups,
+  buildPayoutSetupProgress,
+  type MissingRequirementGroup,
+} from "../domain/setup-progress";
 
 function readinessTone(status: SettlementPayoutReadinessRow["status"]): Tone {
   switch (status) {
@@ -94,48 +100,6 @@ function setupStatusLabel(value: string) {
   }
 }
 
-function requirementLabel(value: string) {
-  return value.replaceAll("_", " ").replaceAll(".", " ");
-}
-
-function requirementGroup(value: string) {
-  const normalized = value.toLowerCase();
-  if (normalized.includes("external_account") || normalized.includes("bank") || normalized.includes("payout")) {
-    return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.account");
-  }
-  if (
-    normalized.includes("individual") ||
-    normalized.includes("representative") ||
-    normalized.includes("owner") ||
-    normalized.includes("person") ||
-    normalized.includes("identity")
-  ) {
-    return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.identity.details");
-  }
-  if (
-    normalized.includes("business") ||
-    normalized.includes("company") ||
-    normalized.includes("profile") ||
-    normalized.includes("mcc") ||
-    normalized.includes("url")
-  ) {
-    return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.business.profile");
-  }
-  if (normalized.includes("tos") || normalized.includes("terms")) {
-    return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.account.agreement");
-  }
-  return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.verification.review");
-}
-
-function groupedRequirements(requirements: readonly string[]) {
-  const groups = new Map<string, string[]>();
-  for (const requirement of requirements) {
-    const group = requirementGroup(requirement);
-    groups.set(group, [...(groups.get(group) ?? []), requirementLabel(requirement)]);
-  }
-  return [...groups.entries()];
-}
-
 function checkedAtLabel(value: string | null) {
   return value
     ? new Date(value).toLocaleString()
@@ -168,27 +132,120 @@ function progressLabel(status: string) {
   }
 }
 
+function localizedRequirementGroupLabel(group: MissingRequirementGroup) {
+  switch (group.id) {
+    case "payout-account":
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.account");
+    case "identity-and-business":
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.identity.and.business.details");
+    case "account-agreement":
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.account.agreement");
+    default:
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.verification.review");
+  }
+}
+
+function localizedRequirementGroupDetail(group: MissingRequirementGroup) {
+  switch (group.id) {
+    case "payout-account":
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.or.confirm.the.payout.destination");
+    case "identity-and-business":
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.account.identity.or.business");
+    case "account-agreement":
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.and.accept.the.required.account");
+    default:
+      return t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.review.the.remaining.verification.details");
+  }
+}
+
+function recoveryGuidance(
+  payoutReadiness: SettlementPayoutReadinessRow,
+  missingRequirementGroups: readonly MissingRequirementGroup[],
+) {
+  if (payoutReadiness.status === "ready") {
+    return null;
+  }
+
+  if (payoutReadiness.status === "restricted") {
+    return {
+      tone: "warning" as const,
+      title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted"),
+      description: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.is.restricted.description"),
+      supportEscalationRecommended: true,
+    };
+  }
+
+  if (missingRequirementGroups.length > 0) {
+    const groupLabels = missingRequirementGroups.map(localizedRequirementGroupLabel).join(", ");
+    return {
+      tone: "warning" as const,
+      title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.details.need.attention"),
+      description: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.complete.requested.groups", {
+        groups: groupLabels,
+      }),
+      supportEscalationRecommended: false,
+    };
+  }
+
+  if (payoutReadiness.payout_destination_status === "missing") {
+    return {
+      tone: "warning" as const,
+      title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.a.payout.destination"),
+      description: t(
+        "settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.a.payout.destination.description",
+      ),
+      supportEscalationRecommended: false,
+    };
+  }
+
+  if (
+    payoutReadiness.onboarding_status === "pending" ||
+    payoutReadiness.transfer_capability_status === "pending" ||
+    payoutReadiness.payout_capability_status === "pending" ||
+    payoutReadiness.payout_destination_status === "pending"
+  ) {
+    return {
+      tone: "info" as const,
+      title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.provider.review.in.progress"),
+      description: t(
+        "settlement.features.payoutReadiness.ui.payoutReadinessPanel.provider.review.in.progress.description",
+      ),
+      supportEscalationRecommended: false,
+    };
+  }
+
+  return {
+    tone: "info" as const,
+    title: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.can.continue"),
+    description: t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.setup.can.continue.description"),
+    supportEscalationRecommended: false,
+  };
+}
+
 export function PayoutReadinessPanel({
   payoutReadiness,
   readyDescription = t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.payout.setup.is.complete"),
   showActions = false,
+  showSupportEscalation = false,
 }: {
   payoutReadiness: SettlementPayoutReadinessRow;
   readyDescription?: string;
   showActions?: boolean;
+  showSupportEscalation?: boolean;
 }) {
   const hasProviderAccount = Boolean(payoutReadiness.provider_reference);
-  const missingRequirementGroups = groupedRequirements(payoutReadiness.missing_requirements);
+  const missingRequirementGroups = buildMissingRequirementGroups(payoutReadiness.missing_requirements);
   const progress = buildPayoutSetupProgress(payoutReadiness);
+  const recovery = recoveryGuidance(payoutReadiness, missingRequirementGroups);
   const canReceivePayouts = payoutReadiness.status === "ready";
-  const setupDetailSummary =
-    missingRequirementGroups.length > 0
-      ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirement.group.needs.attention", {
-          group: missingRequirementGroups[0]?.[0],
-        })
-      : canReceivePayouts
-        ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready")
-        : setupStatusLabel(payoutReadiness.onboarding_status);
+  const firstMissingRequirementGroup = missingRequirementGroups[0];
+  const setupDetailSummary = firstMissingRequirementGroup
+    ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirement.group.needs.attention", {
+        group: localizedRequirementGroupLabel(firstMissingRequirementGroup),
+      })
+    : canReceivePayouts
+      ? t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.ready")
+      : setupStatusLabel(payoutReadiness.onboarding_status);
 
   return (
     <Stack gap={4}>
@@ -207,6 +264,21 @@ export function PayoutReadinessPanel({
           {checkedAtLabel(payoutReadiness.updated_at)}
         </Text>
       </Stack>
+
+      {recovery ? (
+        <Banner
+          tone={recovery.tone}
+          title={recovery.title}
+          description={recovery.description}
+          actions={
+            showSupportEscalation || recovery.supportEscalationRecommended ? (
+              <LinkButton href="/account/support" tone="secondary" size="sm">
+                {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.contact.support")}
+              </LinkButton>
+            ) : null
+          }
+        />
+      ) : null}
 
       <Stack gap={3}>
         {progress.steps.map((step) => (
@@ -257,9 +329,13 @@ export function PayoutReadinessPanel({
               <Text size="sm" weight="semibold">
                 {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention")}
               </Text>
-              {missingRequirementGroups.map(([group, requirements]) => (
-                <Text key={group} size="sm" tone="secondary">
-                  {group}: {requirements.join(", ")}
+              {missingRequirementGroups.map((group) => (
+                <Text key={group.id} size="sm" tone="secondary">
+                  {localizedRequirementGroupLabel(group)}:{" "}
+                  {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.requirement.group.count", {
+                    count: String(group.count),
+                  })}{" "}
+                  {localizedRequirementGroupDetail(group)}
                 </Text>
               ))}
             </Stack>
