@@ -172,7 +172,9 @@
     "/api/settlement/payout-readiness": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout readiness.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/settlement/payout-setup/progress": { "get": { "tags": ["Payments and Settlement"], "summary": "Get payout setup progress.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/settlement/payout-setup/onboarding-session": { "post": { "tags": ["Payments and Settlement"], "summary": "Create payout onboarding session.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payout-setup/embedded-session": { "post": { "tags": ["Payments and Settlement"], "summary": "Create an embedded payout setup session.", "responses": { "201": { "$ref": "#/components/responses/PayoutEmbeddedSession" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
     "/api/settlement/payout-setup/account-management-session": { "post": { "tags": ["Payments and Settlement"], "summary": "Create payout account management session.", "responses": { "201": { "$ref": "#/components/responses/Ok" } } } },
+    "/api/settlement/payout-setup/account-management-embedded-session": { "post": { "tags": ["Payments and Settlement"], "summary": "Create an embedded payout account management session.", "responses": { "201": { "$ref": "#/components/responses/PayoutEmbeddedSession" }, "400": { "$ref": "#/components/responses/ValidationFailed" }, "401": { "$ref": "#/components/responses/AuthenticationRequired" }, "403": { "$ref": "#/components/responses/Forbidden" } } } },
     "/api/settlement/payout-setup/refresh": { "post": { "tags": ["Payments and Settlement"], "summary": "Refresh payout setup state.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
     "/api/settlement/payouts": { "get": { "tags": ["Payments and Settlement"], "summary": "List account payouts.", "responses": { "200": { "$ref": "#/components/responses/List" } } }, "post": { "tags": ["Payments and Settlement"], "summary": "Request payout.", "responses": { "201": { "$ref": "#/components/responses/Command" } } } },
     "/api/settlement/payouts/preview": { "post": { "tags": ["Payments and Settlement"], "summary": "Preview payout request.", "responses": { "200": { "$ref": "#/components/responses/Ok" } } } },
@@ -312,6 +314,20 @@
           "count": { "type": "integer" }
         }
       },
+      "PayoutEmbeddedSessionResponse": {
+        "type": "object",
+        "required": ["clientSecret", "providerReference", "expiresAt", "components"],
+        "properties": {
+          "clientSecret": { "type": "string", "description": "Short-lived provider Account Session client secret for embedded payout setup UI. Clients must not log or persist this value." },
+          "providerReference": { "type": "string", "description": "Connected payout account provider reference." },
+          "expiresAt": { "type": ["string", "null"], "format": "date-time" },
+          "components": {
+            "type": "array",
+            "items": { "type": "string", "enum": ["payout-setup", "payout-account-management"] },
+            "description": "Provider-neutral embedded session components enabled for this client secret."
+          }
+        }
+      },
       "FeeQuoteStaleError": {
         "type": "object",
         "required": ["error"],
@@ -334,6 +350,7 @@
       "ListingTermsPreview": { "description": "Seller-confirmed fee preview.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MarketplaceListingTermsPreview" } } } },
       "ListingFeeHistory": { "description": "Listing fee lock history.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeHistoryResponse" } } } },
       "ListingFeeLockReport": { "description": "Marketplace sales fee lock report.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ListingFeeLockReportResponse" } } } },
+      "PayoutEmbeddedSession": { "description": "Embedded payout setup or account management session. Client secrets are returned only to the authenticated caller and must not be stored.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PayoutEmbeddedSessionResponse" } } } },
       "Command": { "description": "Command accepted.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommandResponse" } } } },
       "AuthenticationRequired": { "description": "Authentication required.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "Forbidden": { "description": "Forbidden.", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
