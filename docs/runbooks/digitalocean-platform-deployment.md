@@ -100,6 +100,12 @@ Optional `preview`, `staging`, and `production` variables:
 
 - `PLATFORM_ALERT_EMAILS`: JSON list of alert recipients, for example `["ops@example.com"]`.
 
+Optional `production` variables for telemetry-backed canary analysis:
+
+- `CANARY_PROMETHEUS_URL`: production Prometheus base URL used by `pnpm run canary:evidence`.
+- `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file that maps required canary signals to baseline and canary PromQL.
+- `CANARY_OBSERVATION_WINDOW_SECONDS`: canary analysis window; defaults to `300`.
+
 Optional `staging` variable:
 
 - `GOOGLE_WORKSPACE_DKIM_TXT_VALUE`: the Google Admin Console-provided DKIM TXT value for `google._domainkey.staging.chasesets.com`. Leave unset until Google generates the key; MX and SPF remain managed without it.
