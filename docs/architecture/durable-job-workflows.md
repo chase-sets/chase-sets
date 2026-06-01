@@ -58,6 +58,8 @@ Same-job parallelism must have two budgets:
 
 Use fair claim ordering by fewest active claims per parent job, then oldest parent job and unit. Expired unit claims are eligible for reclaim. Deployment cancellation should release the live unit claim or let it expire without recording a business failure. Work-unit payloads are worker-private; operator status may expose counts, active/expired claims, lane identity, parent job id, and budget reason, but not private payloads.
 
+When a lane finds no claimable unit, the owning workflow should reconcile active parent jobs whose known work units are all terminal. The reconciliation must lock the parent, verify that no queued or running units remain, recompute the public progress/result from carried outcomes plus terminal unit outcomes, append the final status event atomically, and clear stale parent claim metadata. Stale requested totals from pre-work-unit migration or changing filter eligibility must not keep a parent job active after every resolvable unit has a terminal outcome; preserve any real mixed failures in the final result instead of hiding them.
+
 Projection operations are platform control-plane jobs rather than bounded-context jobs, but they follow the same durability contract: progress writes renew the claim to `now + ttl`, terminal writes require the live claim, operation state and event append commit together, SSE uses notification-backed waits, and event sequence numbers are reserved through the operation row instead of recomputing from event history. Long rebuild and retry operations must renew the operation claim while the inner projection-group lease is held, and the inner operation must abort when either claim is lost.
 
 ## API Shape

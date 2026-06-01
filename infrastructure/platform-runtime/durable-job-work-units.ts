@@ -132,6 +132,19 @@ export type DurableJobWorkUnitStore<TJobPayload, TJobProgress, TJobResult, TUnit
       }>
     >;
   }) => Promise<boolean>;
+  reconcileTerminalParent: (input: {
+    jobId: string;
+    parentProgress: TJobProgress;
+    parentResult?: TJobResult | null;
+    completeJob?: boolean;
+    resolveParentUpdate?: (queryable: PgQueryable) => Promise<
+      Readonly<{
+        parentProgress: TJobProgress;
+        parentResult?: TJobResult | null;
+        completeJob?: boolean;
+      }>
+    >;
+  }) => Promise<boolean>;
   listForJob: (jobId: string) => Promise<readonly DurableJobWorkUnitRecord<TUnitPayload, TUnitResult>[]>;
   summarize: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
 }>;
@@ -504,6 +517,62 @@ export function createPostgresDurableJobWorkUnitStore<
                progress = $2::jsonb,
                result = COALESCE($3::jsonb, result),
                error_message = CASE WHEN $4::boolean THEN NULL ELSE error_message END,
+               claimed_until = NULL,
+               completed_at = CASE WHEN $4::boolean THEN now() ELSE completed_at END,
+               updated_at = now()
+           WHERE job.job_id = $1
+           RETURNING ${prefixedJobColumns("job")}`,
+          [
+            input.jobId,
+            JSON.stringify(parentUpdate.parentProgress),
+            parentUpdate.parentResult === undefined ? null : JSON.stringify(parentUpdate.parentResult),
+            parentUpdate.completeJob === true,
+          ],
+        );
+        const row = result.rows[0];
+        if (!row) {
+          return null;
+        }
+
+        const job = mapPrefixedJobRow<TJobPayload, TJobProgress, TJobResult>(row);
+        await appendEvent(queryable, job);
+        return job;
+      });
+      return Boolean(parent);
+    },
+    reconcileTerminalParent: async (input) => {
+      const parent = await runDurableWorkUnitWrite(db, async (queryable) => {
+        const lockedJob = await queryable.query<Readonly<{ job_id: string }>>(
+          `SELECT job_id
+           FROM ${jobsTable}
+           WHERE job_id = $1
+             AND status IN ('queued', 'running')
+           FOR UPDATE`,
+          [input.jobId],
+        );
+        if (!lockedJob.rows[0]) {
+          return null;
+        }
+
+        const nonTerminal = await queryable.query<Readonly<{ count: number | string }>>(
+          `SELECT count(*)::integer AS count
+           FROM ${workUnitsTable}
+           WHERE job_id = $1
+             AND state NOT IN ('completed', 'failed', 'skipped')`,
+          [input.jobId],
+        );
+        if (Number(nonTerminal.rows[0]?.count ?? 0) > 0) {
+          return null;
+        }
+
+        const parentUpdate = input.resolveParentUpdate ? await input.resolveParentUpdate(queryable) : input;
+        const result = await queryable.query<PrefixedJobRow>(
+          `UPDATE ${jobsTable} AS job
+           SET status = CASE WHEN $4::boolean THEN 'completed' ELSE 'running' END,
+               progress = $2::jsonb,
+               result = COALESCE($3::jsonb, result),
+               error_message = CASE WHEN $4::boolean THEN NULL ELSE error_message END,
+               claim_owner_id = NULL,
                claimed_until = NULL,
                completed_at = CASE WHEN $4::boolean THEN now() ELSE completed_at END,
                updated_at = now()

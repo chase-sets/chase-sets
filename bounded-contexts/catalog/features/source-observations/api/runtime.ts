@@ -585,12 +585,15 @@ export function createSourceObservationRuntime(
         }
 
         if (!isPromotableObservationStatus(observation.status)) {
-          outcomes.push({
-            observationId,
-            status: "skipped",
-            catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
-            reason: `Source observation is ${observation.status}.`,
-          });
+          const recovered = await recoverAlreadyPromotedObservationOutcome(observationId);
+          outcomes.push(
+            recovered ?? {
+              observationId,
+              status: "skipped",
+              catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+              reason: `Source observation is ${observation.status}.`,
+            },
+          );
           continue;
         }
 
@@ -610,12 +613,15 @@ export function createSourceObservationRuntime(
         if (isDurableJobHandoffError(error)) {
           throw error;
         }
-        outcomes.push({
-          observationId,
-          status: "failed",
-          catalogItemId: null,
-          reason: error instanceof Error ? error.message : "Promotion failed.",
-        });
+        const recovered = await recoverAlreadyPromotedObservationOutcome(observationId);
+        outcomes.push(
+          recovered ?? {
+            observationId,
+            status: "failed",
+            catalogItemId: null,
+            reason: error instanceof Error ? error.message : "Promotion failed.",
+          },
+        );
       } finally {
         if (outcomes.length > outcomeCountBefore) {
           const outcome = outcomes[outcomes.length - 1];
@@ -629,6 +635,22 @@ export function createSourceObservationRuntime(
     await input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
 
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
+  }
+
+  async function recoverAlreadyPromotedObservationOutcome(
+    observationId: string,
+  ): Promise<BulkSourceObservationPromotionOutcome | null> {
+    const latestObservation = await getSourceObservationDetail(deps.db, observationId);
+    if (latestObservation?.status !== "promoted" || !latestObservation.promoted_catalog_item_id) {
+      return null;
+    }
+
+    return {
+      observationId,
+      status: "promoted",
+      catalogItemId: latestObservation.promoted_catalog_item_id as CatalogItemId,
+      reason: null,
+    };
   }
 
   async function reapplyObservationFromRow(input: {
@@ -930,7 +952,8 @@ export function createSourceObservationRuntime(
       laneName: input.laneName ?? null,
     });
     if (!claimResult.claim) {
-      return 0;
+      const reconciled = await reconcileTerminalBulkReviewJobs();
+      return reconciled > 0 ? reconciled : 0;
     }
     const claim = claimResult.claim;
     const claimed = toClaimedSourceObservationBulkJobFromWorkUnitClaim(claim);
@@ -1047,6 +1070,36 @@ export function createSourceObservationRuntime(
     }
   }
 
+  async function reconcileTerminalBulkReviewJobs(): Promise<number> {
+    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "reapply"] });
+    let reconciled = 0;
+    for (const rawJob of activeJobs) {
+      const summary = await bulkReviewWorkUnitStore.summarize({ jobId: rawJob.jobId });
+      if (summary.queued > 0 || summary.running > 0 || summary.expiredClaims > 0) {
+        continue;
+      }
+
+      const job = toSourceObservationBulkJob(rawJob);
+      const parentUpdate = await bulkReviewParentUpdateFromWorkUnits(deps.db, job);
+      if (!parentUpdate.completeJob) {
+        continue;
+      }
+
+      const completed = await bulkReviewWorkUnitStore.reconcileTerminalParent({
+        jobId: job.jobId,
+        parentProgress: parentUpdate.parentProgress,
+        parentResult: parentUpdate.parentResult,
+        completeJob: true,
+        resolveParentUpdate: (queryable) => bulkReviewParentUpdateFromWorkUnits(queryable, job),
+      });
+      if (completed) {
+        reconciled += 1;
+      }
+    }
+
+    return reconciled;
+  }
+
   async function listSourceObservationIdsForBulkAction(
     action: SourceObservationBulkJobAction,
     scope: SourceObservationFilterScope,
@@ -1058,7 +1111,7 @@ export function createSourceObservationRuntime(
 
   async function bulkReviewParentUpdateFromWorkUnits(
     queryable: PgQueryable,
-    job: ClaimedSourceObservationBulkJob,
+    job: SourceObservationBulkJob,
   ): Promise<
     Readonly<{
       parentProgress: BulkSourceObservationProgress;
@@ -1073,10 +1126,11 @@ export function createSourceObservationRuntime(
       .filter((unit) => unit.state === "completed" || unit.state === "failed" || unit.state === "skipped")
       .flatMap((unit) => (unit.result ? [unit.result] : []));
     const outcomes = [...carriedOutcomes, ...unitOutcomes];
-    const total = Math.max(job.progress.total, carriedOutcomes.length + units.length, outcomes.length);
     const allUnitsTerminal = units.every(
       (unit) => unit.state === "completed" || unit.state === "failed" || unit.state === "skipped",
     );
+    const resolvedTotal = Math.max(carriedOutcomes.length + units.length, outcomes.length);
+    const total = allUnitsTerminal ? resolvedTotal : Math.max(job.progress.total, resolvedTotal);
     const completeJob = outcomes.length >= total && allUnitsTerminal;
     const latestOutcome = outcomes[outcomes.length - 1] ?? null;
     const parentProgress = bulkProgress(
@@ -1858,12 +1912,28 @@ export function createSourceObservationRuntime(
       }
 
       if (!isPromotableObservationStatus(observation.status)) {
+        const recovered = await recoverAlreadyPromotedObservationOutcome(observationId);
+        if (recovered?.catalogItemId) {
+          return {
+            observationId,
+            catalogItemId: recovered.catalogItemId as CatalogItemId,
+          };
+        }
         throw new Error("Only observed or changed source observations can be promoted.");
       }
 
-      const result = await promoteObservationFromRow({ observation, context });
-
-      return result;
+      try {
+        return await promoteObservationFromRow({ observation, context });
+      } catch (error) {
+        const recovered = await recoverAlreadyPromotedObservationOutcome(observationId);
+        if (recovered?.catalogItemId) {
+          return {
+            observationId,
+            catalogItemId: recovered.catalogItemId as CatalogItemId,
+          };
+        }
+        throw error;
+      }
     },
     promoteObservations: promoteObservationIds,
     previewPromoteObservationScope: async ({ scope }) => previewSourceObservationPromotionScope(deps.db, scope),

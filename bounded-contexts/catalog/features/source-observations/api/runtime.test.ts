@@ -191,6 +191,7 @@ describe("source observation runtime", () => {
       },
     });
     const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+    const initialItemCommandCount = harness.itemCommands.length;
 
     await expect(
       services.promoteObservation({
@@ -275,6 +276,106 @@ describe("source observation runtime", () => {
       "SetCatalogItemProductAssetSets",
       "LinkExternalProductReference",
     ]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
+  it("treats a single promotion retry as successful when the observation was already promoted concurrently", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "changed",
+      promotedCatalogItemId: "cat_existing",
+      promotionCommandAlreadyApplied: { catalogItemId: "cat_existing" },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+    const initialItemCommandCount = harness.itemCommands.length;
+
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
+      }),
+    ).resolves.toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toContain("ReviseCatalogItemMetadata");
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
+  it("treats a single promotion retry as successful when the observation is already promoted before processing", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "promoted",
+      promotedCatalogItemId: "cat_existing",
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
+      }),
+    ).resolves.toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing",
+    });
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
+  it("treats a promotion retry as successful when the observation was already promoted concurrently", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "changed",
+      promotedCatalogItemId: "cat_existing",
+      promotionCommandAlreadyApplied: { catalogItemId: "cat_existing" },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservations({
+      observationIds: ["obs_changed"],
+      context,
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      promoted: 1,
+      skipped: 0,
+      failed: 0,
+      outcomes: [
+        {
+          observationId: "obs_changed",
+          status: "promoted",
+          catalogItemId: "cat_existing",
+          reason: null,
+        },
+      ],
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toContain("ReviseCatalogItemMetadata");
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
+  it("treats a bulk promotion retry as successful when the observation is already promoted before processing", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "promoted",
+      promotedCatalogItemId: "cat_existing",
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+    const result = await services.promoteObservations({
+      observationIds: ["obs_changed"],
+      context,
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      promoted: 1,
+      skipped: 0,
+      failed: 0,
+      outcomes: [
+        {
+          observationId: "obs_changed",
+          status: "promoted",
+          catalogItemId: "cat_existing",
+          reason: null,
+        },
+      ],
+    });
     expect(harness.appendedSourceEvents).toEqual([]);
   });
 
@@ -529,6 +630,45 @@ describe("source observation runtime", () => {
     });
     expect(harness.job.result?.outcomes).toHaveLength(2);
     expect(harness.appendedEvents).toHaveLength(2);
+  });
+
+  it("reconciles terminal bulk review jobs whose stale parent total is no longer reachable", async () => {
+    const harness = createBulkReviewJobHarness(2, {
+      status: "running",
+      progressTotal: 5,
+      carriedOutcomes: [
+        { observationId: "obs_carried_1", status: "rejected" },
+        { observationId: "obs_carried_2", status: "rejected" },
+      ],
+      terminalWorkUnits: true,
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    await expect(
+      services.processNextBulkReviewJob({
+        claimOwnerId: "worker-reconcile",
+        claimTtlMs: 120_000,
+      }),
+    ).resolves.toBe(1);
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.progress).toMatchObject({
+      phase: "completed",
+      completed: 4,
+      total: 4,
+    });
+    expect(harness.job.result).toMatchObject({
+      requested: 4,
+      rejected: 4,
+      skipped: 0,
+      failed: 0,
+    });
+    expect(harness.job.result?.outcomes).toHaveLength(4);
+    expect(harness.appendedEvents).toEqual([]);
   });
 
   it("reuses an active provider integration job with the same actor action and scope", async () => {
@@ -1083,6 +1223,7 @@ function createChangedObservationRefreshHarness(
     promotedCatalogItemId?: string | null;
     reusableCatalogItemId?: string | null;
     partialCatalogItemId?: string | null;
+    promotionCommandAlreadyApplied?: { catalogItemId: string };
   } = {},
 ) {
   const itemCommands: Array<{ streamId: string; command: { type: string } & Record<string, unknown> }> = [];
@@ -1114,6 +1255,7 @@ function createChangedObservationRefreshHarness(
   };
   const streamId = "catalog.source-observation-obs_changed";
   const observationStatus = input.status ?? "changed";
+  const promotionCommandAlreadyApplied = input.promotionCommandAlreadyApplied;
   const sourceEvents = [
     storedEvent(1, streamId, "catalog.source-observation.recorded", {
       ...observationRow,
@@ -1221,6 +1363,14 @@ function createChangedObservationRefreshHarness(
       appendToStream: async (input: {
         events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
       }) => {
+        if (
+          promotionCommandAlreadyApplied &&
+          input.events.some((event) => event.eventType === "catalog.source-observation.promoted")
+        ) {
+          observationRow.status = "promoted";
+          observationRow.promoted_catalog_item_id = promotionCommandAlreadyApplied.catalogItemId;
+          throw new Error("Only observed or changed source observations can be promoted.");
+        }
         appendedSourceEvents.push(...input.events);
         return input.events.map((event, index) => storedEvent(4 + index, streamId, event.eventType, event.payload));
       },
@@ -1270,7 +1420,15 @@ function createChangedObservationRefreshHarness(
   };
 }
 
-function createBulkReviewJobHarness(count: number) {
+function createBulkReviewJobHarness(
+  count: number,
+  options: {
+    status?: "queued" | "running" | "completed" | "failed";
+    progressTotal?: number;
+    carriedOutcomes?: ReadonlyArray<{ observationId: string; status: "rejected"; reason?: string | null }>;
+    terminalWorkUnits?: boolean;
+  } = {},
+) {
   const observationIds = Array.from({ length: count }, (_, index) => `obs_${index + 1}`);
   const observations = new Map(
     observationIds.map((observationId, index) => [
@@ -1309,15 +1467,23 @@ function createBulkReviewJobHarness(count: number) {
       reason: "Out of scope.",
     },
     event_context: context,
-    status: "queued",
+    status: options.status ?? "queued",
     progress: {
       phase: "queued",
       completed: 0,
-      total: 0,
+      total: options.progressTotal ?? 0,
       currentName: null,
       status: null,
     },
-    result: null as null | Record<string, unknown>,
+    result: options.carriedOutcomes
+      ? ({
+          requested: options.progressTotal ?? options.carriedOutcomes.length,
+          rejected: options.carriedOutcomes.length,
+          skipped: 0,
+          failed: 0,
+          outcomes: options.carriedOutcomes,
+        } as Record<string, unknown>)
+      : (null as null | Record<string, unknown>),
     error_message: null as string | null,
     claim_owner_id: null as string | null,
     claimed_until: null as string | null,
@@ -1345,6 +1511,29 @@ function createBulkReviewJobHarness(count: number) {
       completed_at: string | null;
     }
   >();
+  if (options.terminalWorkUnits) {
+    for (const observationId of observationIds) {
+      workUnits.set(observationId, {
+        unit_id: observationId,
+        unit_kind: job.job_kind,
+        state: "completed",
+        payload: { observationId },
+        result: {
+          observationId,
+          status: "rejected",
+          reason: null,
+        },
+        error_message: null,
+        claim_owner_id: null,
+        claim_token: null,
+        claimed_until: null,
+        attempt_count: 1,
+        created_at: "2026-05-20T00:00:00.000Z",
+        updated_at: "2026-05-20T00:00:00.000Z",
+        completed_at: "2026-05-20T00:00:00.000Z",
+      });
+    }
+  }
 
   const deps = {
     db: {
@@ -1395,6 +1584,29 @@ function createBulkReviewJobHarness(count: number) {
           job.status = "running";
           job.started_at ??= "2026-05-20T00:00:00.000Z";
           return { rowCount: 1, rows: [{ ...prefixedBulkJobRow(job), ...prefixedBulkWorkUnitRow(unit) }] as T[] };
+        }
+
+        if (
+          sql.includes("SELECT job_id") &&
+          sql.includes("FROM catalog_source_observation_bulk_review_jobs") &&
+          sql.includes("FOR UPDATE")
+        ) {
+          return ["queued", "running"].includes(job.status)
+            ? { rowCount: 1, rows: [{ job_id: job.job_id }] as T[] }
+            : { rowCount: 0, rows: [] as T[] };
+        }
+
+        if (sql.includes("state NOT IN ('completed', 'failed', 'skipped')")) {
+          return {
+            rowCount: 1,
+            rows: [
+              {
+                count: [...workUnits.values()].filter(
+                  (unit) => unit.state !== "completed" && unit.state !== "failed" && unit.state !== "skipped",
+                ).length,
+              },
+            ] as T[],
+          };
         }
 
         if (sql.includes("WITH terminal_unit")) {

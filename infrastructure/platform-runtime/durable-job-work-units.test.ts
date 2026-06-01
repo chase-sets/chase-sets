@@ -161,6 +161,67 @@ describe("durable job work units", () => {
     expect(snapshots[0]).toContain('"completed":1');
     expect(snapshots[0]).not.toContain("do-not-emit");
   });
+
+  it("reconciles a terminal parent without requiring a live work-unit claim", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const snapshots: string[] = [];
+    const store = createPostgresDurableJobWorkUnitStore<
+      { action: string },
+      { completed: number; total: number; phase: string },
+      { requested: number; outcomes: readonly unknown[] },
+      { observationId: string },
+      { observationId: string; status: string }
+    >(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          if (sql.includes("SELECT job_id") && sql.includes("FOR UPDATE")) {
+            return { rows: [{ job_id: "job_1" }], rowCount: 1 };
+          }
+          if (sql.includes("state NOT IN ('completed', 'failed', 'skipped')")) {
+            return { rows: [{ count: 0 }], rowCount: 1 };
+          }
+          if (sql.includes("UPDATE catalog_source_observation_bulk_review_jobs AS job")) {
+            return {
+              rows: [
+                prefixedJobRow({
+                  job_status: "completed",
+                  job_progress: JSON.parse(String(values[1])),
+                  job_result: JSON.parse(String(values[2])),
+                  job_completed_at: "2026-05-31T00:02:00.000Z",
+                }),
+              ],
+              rowCount: 1,
+            };
+          }
+          if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_job_events")) {
+            snapshots.push(String(values[1]));
+            return { rows: [{ sequence: 4 }], rowCount: 1 };
+          }
+          return { rows: [], rowCount: 1 };
+        },
+      },
+      {
+        jobsTable: "catalog_source_observation_bulk_review_jobs",
+        eventsTable: "catalog_source_observation_bulk_review_job_events",
+        workUnitsTable: "catalog_source_observation_bulk_review_work_units",
+      },
+      { workflowName: "catalog.source-observation-bulk-review" },
+    );
+
+    await expect(
+      store.reconcileTerminalParent({
+        jobId: "job_1",
+        parentProgress: { completed: 2, total: 2, phase: "completed" },
+        parentResult: { requested: 2, outcomes: [{ observationId: "obs_1" }, { observationId: "obs_2" }] },
+        completeJob: true,
+      }),
+    ).resolves.toBe(true);
+
+    expect(calls.some((call) => call.sql.includes("claim_token"))).toBe(false);
+    expect(snapshots[0]).toContain('"status":"completed"');
+    expect(snapshots[0]).toContain('"phase":"completed"');
+  });
 });
 
 function prefixedJobRow(overrides: Record<string, unknown> = {}) {
