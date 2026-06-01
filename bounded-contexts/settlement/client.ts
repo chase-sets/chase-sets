@@ -61,6 +61,13 @@ export type SettlementPayoutPreview = Readonly<{
   }>[];
 }>;
 
+export type SettlementPayoutEmbeddedSession = Readonly<{
+  clientSecret: string;
+  providerReference: string;
+  expiresAt: string | null;
+  components: readonly ("payout-setup" | "payout-account-management")[];
+}>;
+
 export class SettlementApiError extends Error {
   public constructor(
     public readonly status: number,
@@ -163,12 +170,28 @@ export function createSettlementApiClient({
         }),
       );
     },
+    async createPayoutSetupSession(body: Record<string, unknown> = {}): Promise<SettlementPayoutEmbeddedSession> {
+      return parseJsonResponse(
+        await client["payout-setup"]["embedded-session"].$post({
+          json: body,
+          header: headers,
+        }),
+      );
+    },
     async createPayoutAccountManagementSession(
       body: Record<string, unknown> = {},
     ): Promise<Readonly<{ url: string; providerReference: string; expiresAt: string | null }>> {
       return parseJsonResponse(
         await client["payout-setup"]["account-management-session"].$post({
           json: body,
+          header: headers,
+        }),
+      );
+    },
+    async createPayoutAccountManagementEmbeddedSession(): Promise<SettlementPayoutEmbeddedSession> {
+      return parseJsonResponse(
+        await client["payout-setup"]["account-management-embedded-session"].$post({
+          json: {},
           header: headers,
         }),
       );

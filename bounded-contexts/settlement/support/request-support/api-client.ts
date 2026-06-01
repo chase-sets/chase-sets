@@ -2,6 +2,7 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 export { createSettlementApiClient, settlementApi, SettlementApiError } from "../../client";
 export type {
   SettlementApiClientOptions,
+  SettlementPayoutEmbeddedSession,
   SettlementLedgerEntryRow,
   SettlementPayoutRow,
   SettlementPayoutPreview,

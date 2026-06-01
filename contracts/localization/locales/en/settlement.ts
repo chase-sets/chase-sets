@@ -14,11 +14,11 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.domain.setupProgress.add.or.confirm.the.payout.destination":
     "Add or confirm the payout destination.",
   "settlement.features.payoutReadiness.domain.setupProgress.continue.the.hosted.setup.flow":
-    "Continue the hosted setup flow.",
+    "Continue the payout setup page.",
   "settlement.features.payoutReadiness.domain.setupProgress.funds.can.move.from.the.platform":
     "Funds can move from the platform balance.",
-  "settlement.features.payoutReadiness.domain.setupProgress.hosted.setup": "Hosted setup",
-  "settlement.features.payoutReadiness.domain.setupProgress.hosted.setup.is.complete": "Hosted setup is complete.",
+  "settlement.features.payoutReadiness.domain.setupProgress.hosted.setup": "Payout setup",
+  "settlement.features.payoutReadiness.domain.setupProgress.hosted.setup.is.complete": "Payout setup is complete.",
   "settlement.features.payoutReadiness.domain.setupProgress.identity.and.business.details":
     "Identity and business details",
   "settlement.features.payoutReadiness.domain.setupProgress.payout.creation.is.enabled": "Payout creation is enabled.",
@@ -37,14 +37,14 @@ export const settlementEnglishTranslations = {
     "\nCREATE TABLE IF NOT EXISTS settlement_payout_readiness_pages (\n  account_id text PRIMARY KEY,\n  status text NOT NULL,\n  missing_requirements jsonb NOT NULL DEFAULT '[]'::jsonb,\n  provider_reference text NULL,\n  onboarding_status text NOT NULL DEFAULT 'not-started',\n  transfer_capability_status text NOT NULL DEFAULT 'inactive',\n  payout_capability_status text NOT NULL DEFAULT 'inactive',\n  payout_destination_status text NOT NULL DEFAULT 'missing',\n  updated_at timestamptz NOT NULL,\n  last_stream_version bigint NOT NULL DEFAULT 0\n);\n\nCREATE INDEX IF NOT EXISTS settlement_payout_readiness_pages_status_idx\n  ON settlement_payout_readiness_pages (status, updated_at DESC, account_id DESC);\n\nCREATE INDEX IF NOT EXISTS settlement_payout_readiness_pages_provider_reference_idx\n  ON settlement_payout_readiness_pages (provider_reference)\n  WHERE provider_reference IS NOT NULL;\n\nALTER TABLE settlement_payout_readiness_pages\n  ADD COLUMN IF NOT EXISTS onboarding_status text NOT NULL DEFAULT 'not-started';\n\nALTER TABLE settlement_payout_readiness_pages\n  ADD COLUMN IF NOT EXISTS transfer_capability_status text NOT NULL DEFAULT 'inactive';\n\nALTER TABLE settlement_payout_readiness_pages\n  ADD COLUMN IF NOT EXISTS payout_capability_status text NOT NULL DEFAULT 'inactive';\n\nALTER TABLE settlement_payout_readiness_pages\n  ADD COLUMN IF NOT EXISTS payout_destination_status text NOT NULL DEFAULT 'missing';\n",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.account.agreement": "Account agreement",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.add.a.payout.account.using.the":
-    "Add a payout account using the hosted setup flow before requesting payouts.",
+    "Add a payout account using the Chase Sets setup page before requesting payouts.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.business.profile": "Business profile",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.check.setup.status": "Check setup status",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.continue.payout.setup": "Continue payout setup",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.continue.the.hosted.setup.flow.before":
-    "Continue the hosted setup flow before requesting payouts.",
+    "Continue the Chase Sets setup page before requesting payouts.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.eligible.seller.balances":
-    "Eligible seller balances can move to the connected payout account after fulfillment and settlement checks are complete.",
+    "Eligible account balances can move to the connected payout account after fulfillment and settlement checks are complete.",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.finish.setup.to.receive.payouts":
     "Finish setup to receive payouts",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.fix.payout.setup": "Fix payout setup",
@@ -81,6 +81,56 @@ export const settlementEnglishTranslations = {
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.transfers": "Transfers: ",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.verification.review": "Verification review",
   "settlement.features.payoutReadiness.ui.payoutReadinessPanel.what.needs.attention": "What needs attention",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.add.the.required.account.and":
+    "Add the required account and payout destination details without leaving Chase Sets.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.back.to.payouts": "Back to payouts",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.complete.payout.setup": "Complete payout setup",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser":
+    "Secure payout setup can only load in the browser.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.connect.failed.to.load":
+    "Secure payout setup failed to load.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.connect.loaded.without.initializer":
+    "Secure payout setup loaded without an initializer.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.current.status": "Current status",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.finish.payout.setup": "Finish payout setup",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.keep.your.payout.destination":
+    "Keep payout destination and verification details current so eligible balances can move on time.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.loading.secure.setup": "Loading secure payout setup",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.manage.details": "Manage details",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.manage.payout.details": "Manage payout details",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.in.progress": "In progress",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.needs.attention": "Needs attention",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.not.started": "Not started",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup": "Payout setup",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup.is.complete.and.available":
+    "Payout setup is complete and eligible balances can be requested after settlement checks.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup.is.ready": "Payout setup is ready.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.payout.setup.needs.attention":
+    "Payout setup needs attention.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.payouts.are.ready": "Payouts are ready",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.provider.component.could.not.load":
+    "The secure provider component could not load.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.provider.setup.is.not.configured":
+    "Secure provider setup is not configured for this environment.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.refresh.setup.status": "Refresh setup status",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.ready": "Ready",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.request.payout": "Request payout",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.requirement.count": "{count} provider details available",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.retry": "Retry",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.review.or.update.the.details":
+    "Review or update payout details in the secure embedded provider form.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.session.could.not.be.created":
+    "A secure payout setup session could not be created.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.session.was.missing.secret":
+    "The secure payout setup session was missing its client secret.",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.settlement": "Settlement",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.could.not.load": "Setup could not load",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.status.checked": "Setup status checked",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.setup.view": "Setup view",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.start.payout.setup": "Start payout setup",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.support.details": "Support details",
+  "settlement.features.payoutReadiness.ui.payoutSetupPage.you.can.request.payouts":
+    "You can request payouts from eligible account balances.",
   "settlement.features.payouts.api.route.authentication.context.missing": "Authentication context missing.",
   "settlement.features.payouts.api.route.authentication.context.missing.2": "Authentication context missing.",
   "settlement.features.payouts.api.route.authentication.required": "Authentication required.",
@@ -361,8 +411,7 @@ export const settlementEnglishTranslations = {
     "Available funds can be requested on demand after setup is ready. Pending funds remain protected until settlement makes them available.",
   "settlement.features.wallets.ui.walletPage.available.now": "Available now",
   "settlement.features.wallets.ui.walletPage.balance": "Balance",
-  "settlement.features.wallets.ui.walletPage.create.the.hosted.payout.setup.session":
-    "Create the hosted payout setup session",
+  "settlement.features.wallets.ui.walletPage.create.the.hosted.payout.setup.session": "Open the payout setup page",
   "settlement.features.wallets.ui.walletPage.days.before.they.become.available": "days before they become available.",
   "settlement.features.wallets.ui.walletPage.destination.is.ready": "Destination is ready",
   "settlement.features.wallets.ui.walletPage.direction": "Direction",
@@ -392,7 +441,7 @@ export const settlementEnglishTranslations = {
   "settlement.features.wallets.ui.walletPage.posted": "Posted",
   "settlement.features.wallets.ui.walletPage.provider.account.created": "Provider account created",
   "settlement.features.wallets.ui.walletPage.sale.funds.are.held.for": "Sale funds are held for ",
-  "settlement.features.wallets.ui.walletPage.seller.setup.checklist": "Seller Setup Checklist",
+  "settlement.features.wallets.ui.walletPage.seller.setup.checklist": "Account Setup Checklist",
   "settlement.features.wallets.ui.walletPage.settlement": "Settlement",
   "settlement.features.wallets.ui.walletPage.setup.has.not.started": "Setup has not started",
   "settlement.features.wallets.ui.walletPage.setup.is.the.blocker": "Setup is the blocker",
@@ -405,6 +454,11 @@ export const settlementEnglishTranslations = {
   "settlement.routes.marketplace.accountMoneyHealth.money.health.marketplace": "Money Health | Marketplace",
   "settlement.routes.marketplace.accountPayout.payout.marketplace": "Payout | Marketplace",
   "settlement.routes.marketplace.accountPayout.payout.not.found": "Payout not found.",
+  "settlement.routes.marketplace.accountPayoutSetup.payout.setup.marketplace": "Payout Setup | Marketplace",
+  "settlement.routes.marketplace.accountPayoutSetup.payout.setup.status.could.not":
+    "Payout setup status could not be refreshed.",
+  "settlement.routes.marketplace.accountPayoutSetup.payout.setup.status.was.refreshed":
+    "Payout setup status was refreshed.",
   "settlement.routes.marketplace.accountPayoutOperations.payout.operations.marketplace":
     "Payout Operations | Marketplace",
   "settlement.routes.marketplace.accountPayouts.payout.setup.status.was.refreshed":

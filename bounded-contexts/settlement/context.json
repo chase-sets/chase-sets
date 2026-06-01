@@ -148,6 +148,13 @@
           "sourceContext": "settlement"
         },
         {
+          "routeId": "account-payout-setup",
+          "routePath": "account/payouts/setup",
+          "fileExport": "./routes/marketplace/account-payout-setup",
+          "routeType": "route",
+          "sourceContext": "settlement"
+        },
+        {
           "routeId": "account-payout",
           "routePath": "account/payouts/:payoutId",
           "fileExport": "./routes/marketplace/account-payout",

@@ -1,12 +1,7 @@
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
 
 export type PayoutSetupProgressStep = Readonly<{
-  id:
-    | "hosted-onboarding"
-    | "identity-and-business"
-    | "transfer-capability"
-    | "payout-capability"
-    | "payout-destination";
+  id: "payout-setup" | "identity-and-business" | "transfer-capability" | "payout-capability" | "payout-destination";
   label: string;
   status: "not-started" | "needs-attention" | "pending" | "ready";
   detail: string;
@@ -76,10 +71,10 @@ export function buildPayoutSetupProgress(readiness: SettlementPayoutReadinessRow
     last_checked_at: readiness.updated_at,
     steps: [
       {
-        id: "hosted-onboarding",
-        label: "Hosted setup",
+        id: "payout-setup",
+        label: "Payout setup",
         status: onboardingStatus,
-        detail: onboardingStatus === "ready" ? "Hosted setup is complete." : "Continue the hosted setup flow.",
+        detail: onboardingStatus === "ready" ? "Payout setup is complete." : "Continue the payout setup page.",
       },
       {
         id: "identity-and-business",
