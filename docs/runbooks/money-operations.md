@@ -1,6 +1,6 @@
 # Money Operations Runbook
 
-This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfers, provider webhooks, launch checks, and smoke tests. Settlement remains the wallet source of truth; Payments owns payment and refund state for purchasing accounts; Stripe owns payment method handling, hosted payout setup, external account collection, transfers, payouts, and provider risk controls.
+This runbook covers checkout, wallet, Stripe payments, Connect payouts, transfers, provider webhooks, launch checks, and smoke tests. Settlement remains the wallet source of truth; Payments owns payment and refund state for purchasing accounts; Stripe owns payment method handling, embedded payout setup components, external account collection, transfers, payouts, and provider risk controls.
 
 ## System Boundaries
 
@@ -64,9 +64,13 @@ When the dev stack includes `platform-api`, `pnpm run dev` starts the Dockerized
 
 ## Stripe Connect Notes
 
+- The target account experience is documented in [ADR 0006: Stripe Connect Custom Account Experience](../adr/0006-stripe-connect-custom-account-experience.md). Chase Sets is migrating from Express-dashboard hosted setup to embedded payout setup and payout account management.
+- Target connected accounts use Stripe Accounts v2 recipient configuration with no Stripe-hosted dashboard access. In Stripe terms, accounts should resolve to `dashboard: "none"`, `defaults.responsibilities.losses_collector: "application"`, `defaults.responsibilities.fees_collector: "application"`, and `defaults.responsibilities.requirements_collector: "application"`.
+- Payout setup and payout account management should be Chase Sets-hosted pages that create Stripe Account Sessions and render Connect embedded components. Account Session client secrets are response-only browser credentials and must not be persisted.
 - Configure platform API with `STRIPE_SECRET_KEY` and `STRIPE_CONNECT_WEBHOOK_SECRET` for Stripe Connect money movement; production startup fails without the separate Payments and Connect webhook secrets.
 - Optional onboarding URLs are `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL`; account payout routes can also pass request-specific return and refresh URLs when creating setup sessions.
-- Payout setup and account management use hosted provider sessions. Settlement never collects or stores payout destination account numbers, tax identity details, or hosted-dashboard credentials.
+- During the migration, hosted Account Links and Express login links may remain as compatibility paths for existing connected accounts. New account-facing product copy should use payout setup and payout account management rather than Express Dashboard terminology.
+- Settlement never collects or stores payout destination account numbers, tax identity details, verification documents, Account Session client secrets after response, webhook signatures, raw provider payloads, or hosted-dashboard credentials.
 - Stripe-connected accounts are configured for manual payout schedules by the Stripe adapter so marketplace payouts remain account-requested and settlement-triggered.
 - Public account payout APIs can start onboarding, open hosted account management, refresh readiness, and request payouts. Provider readiness cannot be manually overwritten through public account routes.
 - Payout requests use a preview/confirmation step, enforce USD-only amount policy, and keep payout destination details in hosted account management.

@@ -28,6 +28,44 @@ A **Balance** is the current computed financial position of an account derived f
 
 A **Payout** is the transfer of eligible marketplace funds to an account.
 
+## Connected Payout Account
+
+A **Connected Payout Account** is the provider account that can receive Chase Sets marketplace payout funds for an account.
+
+Notes:
+
+- Settlement owns the provider-neutral reference, readiness, and payout relationship.
+- Stripe owns the provider account, verification requirements, sensitive payout destination collection, and provider risk controls.
+- A Connected Payout Account does not change Wallet ownership; Settlement remains the source of truth for account balances and payout eligibility.
+
+## Payout Setup
+
+**Payout Setup** is the account workflow for creating or updating the Connected Payout Account information required before eligible funds can be paid out.
+
+Notes:
+
+- Chase Sets owns the authenticated account page, role authorization, support-safe status language, and recovery paths.
+- Stripe embedded components own sensitive requirement collection, verification UI, service-agreement presentation, and payout destination handling.
+- Settlement treats provider completion, webhooks, and readiness refreshes as inputs to provider-neutral Payout Setup status.
+
+## Payout Account Management
+
+**Payout Account Management** is the account workflow for maintaining Connected Payout Account requirements after initial setup, including provider-requested updates and payout destination changes.
+
+Notes:
+
+- Payout Account Management is separate from requesting a Payout.
+- Account operators manage provider requirements through Chase Sets-hosted account pages backed by Stripe embedded components.
+
+## Provider Requirement
+
+A **Provider Requirement** is a provider-issued requirement identifier that blocks or limits payout readiness until the account operator supplies the required information through provider-managed collection.
+
+Notes:
+
+- Settlement stores provider requirement identifiers only as readiness facts and support-safe troubleshooting signals.
+- Provider Requirement identifiers are not a substitute for storing sensitive identity, tax, bank, or verification document data.
+
 ## Payout Release Hold
 
 A **Payout Release Hold** is the Settlement-owned pending state that keeps sale proceeds and shipping allowances out of available balance until delivery, risk, support, and aging rules clear.
