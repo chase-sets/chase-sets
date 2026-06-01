@@ -1,4 +1,4 @@
 interface:
   display_name: "Bounded Context Delivery"
   short_description: "Deliver changes with bounded-context evidence"
-  default_prompt: "Use $bounded-context-delivery to plan this change in an embedded worktree, ask one blocking question at a time, keep the dated plan as a working artifact, capture the finished plan in PR details, create the implementation goal, and require PR/CI/merge/deployment verification plus generated plan removal and local cleanup before completion."
+  default_prompt: "Use $bounded-context-delivery to plan this change in a sibling worktree beside main, ask one blocking question at a time, keep the dated plan as a working artifact, capture the finished plan in PR details, create the implementation goal, and require PR/CI/merge/deployment verification plus generated plan removal and local cleanup before completion."

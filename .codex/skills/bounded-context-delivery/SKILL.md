@@ -9,7 +9,7 @@ Deliver changes from inside an isolated git worktree, using the repo's bounded c
 
 ## Workflow
 
-1. Fetch the latest `origin/main`, then create or reuse a dedicated worktree under `.codex/worktrees/<yyyymmdd>-<feature-slug>` and branch `codex/<feature-slug>` from that fetched `origin/main`.
+1. Fetch the latest `origin/main`, then create or reuse a dedicated sibling worktree under the project folder at `<yyyymmdd>-<feature-slug>` and branch `codex/<feature-slug>` from that fetched `origin/main`.
 2. Run all later reads, edits, plan updates, dependency setup, and verification commands from that worktree.
 3. Identify likely owning context(s), then read:
    - `bounded-contexts/README.md`
@@ -28,21 +28,21 @@ Deliver changes from inside an isolated git worktree, using the repo's bounded c
 
 ## Worktree Setup
 
-Use an embedded worktree so the chat can run commands inside the accessible repo workspace:
+Use a sibling worktree inside the shared project folder so the chat can run commands inside the accessible repo workspace. The main checkout lives at `main/`; create feature worktrees beside it:
 
 ```powershell
-git fetch origin main
-git worktree add .codex/worktrees/<yyyymmdd>-<feature-slug> -b codex/<feature-slug> origin/main
+git -C main fetch origin main
+git -C main worktree add ../<yyyymmdd>-<feature-slug> -b codex/<feature-slug> origin/main
 ```
 
 - Always branch from freshly fetched `origin/main`; do not branch from the current worktree `HEAD`.
 - If `origin/main` cannot be fetched or verified as current, pause and report the worktree setup blocker instead of creating a branch from stale local state.
-- Do not run `git switch`, `git checkout`, `git pull`, or other branch-changing commands in the base checkout to prepare for planning; the `git worktree add ... -b ... origin/main` command creates and checks out the branch inside the new worktree.
+- Do not run `git switch`, `git checkout`, `git pull`, or other branch-changing commands in the `main/` checkout to prepare for planning; the `git worktree add ... -b ... origin/main` command creates and checks out the branch inside the new worktree.
 - After worktree creation, treat the new worktree path as the active repository root. Run every later command with the worktree as `cwd` or `workdir`, including reads, edits, dependency setup, tests, commits, pushes, and PR work.
 - Reuse an existing branch or path only when it clearly belongs to this request.
-- Keep `.codex/worktrees/` gitignored; do not add `.gitignore` exceptions for generated worktrees.
+- Do not recreate `.codex/worktrees/`; generated worktrees belong beside `main/` in the project folder and remain outside the tracked checkout.
 - Install dependencies in the worktree before build, test, or dev commands: `pnpm run deps:install` or `node ./scripts/worktree-deps.mjs install`.
-- The default shared pnpm store for embedded worktrees is `.codex/worktrees/.chase-sets-pnpm-store`; set `CHASE_SETS_PNPM_STORE_DIR` only if the default fails.
+- The default shared pnpm store for `main/` and sibling worktrees is `../.chase-sets-pnpm-store` from each checkout; set `CHASE_SETS_PNPM_STORE_DIR` only if the default fails.
 - Run `pnpm run sandbox:doctor` after dependency setup. Use `docs/runbooks/local-worktree-sandboxes.md` for sandbox troubleshooting.
 - Never run `sandbox:clean:all`. Use current-worktree cleanup only when explicitly needed, such as `pnpm run dev:down` or `pnpm run sandbox:clean`.
 - Before marking the goal complete, delete only the resources created for that goal: stop the current worktree services, delete the current worktree's local container or sandbox with scoped cleanup, delete the generated `.codex/plans/<yyyymmdd>-<feature-slug>.md` plan after its final contents are captured in the PR details, remove the worktree, delete the remote PR branch if it exists, then delete the local branch after merge.
