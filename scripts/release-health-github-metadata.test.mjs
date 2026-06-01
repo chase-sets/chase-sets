@@ -25,8 +25,8 @@ describe("release health GitHub metadata", () => {
       ],
       timeline: [
         { event: "added_to_merge_queue", created_at: "2026-06-01T03:17:55Z" },
+        { event: "removed_from_merge_queue", created_at: "2026-06-01T03:18:44Z" },
         { event: "merged", created_at: "2026-06-01T03:18:45Z", commit_id: releaseCommit },
-        { event: "removed_from_merge_queue", created_at: "2026-06-01T03:18:45Z" },
       ],
       mergeGroupRuns: [{ created_at: "2026-06-01T03:18:13Z" }],
     });

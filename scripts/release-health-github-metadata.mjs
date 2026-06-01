@@ -26,10 +26,7 @@ export function buildReleaseHealthGithubMetadata(input) {
   const mergedEvent = firstTimelineEvent(timeline, "merged");
   const removedEvent = firstTimelineEvent(timeline, "removed_from_merge_queue");
   const queueMergedAt = normalizeIso(pull?.merged_at) ?? normalizeIso(mergedEvent?.created_at) ?? null;
-  const queueDequeuedAt =
-    removedEvent && (!queueMergedAt || Date.parse(removedEvent.created_at) < Date.parse(queueMergedAt))
-      ? normalizeIso(removedEvent.created_at)
-      : null;
+  const queueDequeuedAt = removedEvent && !queueMergedAt ? normalizeIso(removedEvent.created_at) : null;
 
   return {
     pullRequestNumber: pull?.number ?? null,
