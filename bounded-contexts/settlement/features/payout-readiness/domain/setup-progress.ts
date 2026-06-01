@@ -7,11 +7,25 @@ export type PayoutSetupProgressStep = Readonly<{
   detail: string;
 }>;
 
+export type MissingRequirementGroupId =
+  | "payout-account"
+  | "identity-and-business"
+  | "account-agreement"
+  | "verification-review";
+
+export type MissingRequirementGroup = Readonly<{
+  id: MissingRequirementGroupId;
+  label: string;
+  count: number;
+  detail: string;
+}>;
+
 export type PayoutSetupProgress = Readonly<{
   account_id: string;
   status: SettlementPayoutReadinessRow["status"];
   ready: boolean;
   last_checked_at: string | null;
+  missing_requirement_groups: readonly MissingRequirementGroup[];
   steps: readonly PayoutSetupProgressStep[];
 }>;
 
@@ -42,6 +56,83 @@ function hasRequirement(readiness: SettlementPayoutReadinessRow, patterns: reado
   });
 }
 
+function missingRequirementGroupId(requirement: string): MissingRequirementGroupId {
+  const normalized = requirement.toLowerCase();
+  if (normalized.includes("external_account") || normalized.includes("bank") || normalized.includes("payout")) {
+    return "payout-account";
+  }
+  if (
+    normalized.includes("individual") ||
+    normalized.includes("representative") ||
+    normalized.includes("owner") ||
+    normalized.includes("person") ||
+    normalized.includes("identity") ||
+    normalized.includes("business") ||
+    normalized.includes("company") ||
+    normalized.includes("profile") ||
+    normalized.includes("mcc") ||
+    normalized.includes("url")
+  ) {
+    return "identity-and-business";
+  }
+  if (normalized.includes("tos") || normalized.includes("terms")) {
+    return "account-agreement";
+  }
+  return "verification-review";
+}
+
+function groupLabel(id: MissingRequirementGroupId) {
+  switch (id) {
+    case "payout-account":
+      return "Payout account";
+    case "identity-and-business":
+      return "Identity and business details";
+    case "account-agreement":
+      return "Account agreement";
+    default:
+      return "Verification review";
+  }
+}
+
+function groupDetail(id: MissingRequirementGroupId) {
+  switch (id) {
+    case "payout-account":
+      return "Add or confirm the payout account before requesting payouts.";
+    case "identity-and-business":
+      return "Review the account, identity, or business details requested during setup.";
+    case "account-agreement":
+      return "Review and accept the required account terms.";
+    default:
+      return "Review the remaining verification details requested during setup.";
+  }
+}
+
+export function buildMissingRequirementGroups(requirements: readonly string[]): readonly MissingRequirementGroup[] {
+  const counts = new Map<MissingRequirementGroupId, number>();
+  const normalizedRequirements = [...new Set(requirements.map((requirement) => requirement.trim()).filter(Boolean))];
+
+  for (const requirement of normalizedRequirements) {
+    const id = missingRequirementGroupId(requirement);
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+
+  return (["payout-account", "identity-and-business", "account-agreement", "verification-review"] as const).flatMap(
+    (id) => {
+      const count = counts.get(id) ?? 0;
+      return count > 0
+        ? [
+            {
+              id,
+              label: groupLabel(id),
+              count,
+              detail: groupDetail(id),
+            },
+          ]
+        : [];
+    },
+  );
+}
+
 export function buildPayoutSetupProgress(readiness: SettlementPayoutReadinessRow): PayoutSetupProgress {
   const onboardingStatus =
     readiness.onboarding_status === "complete"
@@ -69,6 +160,7 @@ export function buildPayoutSetupProgress(readiness: SettlementPayoutReadinessRow
     status: readiness.status,
     ready: readiness.status === "ready",
     last_checked_at: readiness.updated_at,
+    missing_requirement_groups: buildMissingRequirementGroups(readiness.missing_requirements),
     steps: [
       {
         id: "payout-setup",

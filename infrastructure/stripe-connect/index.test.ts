@@ -188,6 +188,56 @@ describe("money movement adapters", () => {
     expect(calls).toHaveLength(2);
   });
 
+  it("Stripe adapter maps restricted capabilities to blocked provider-neutral readiness", async () => {
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === "https://stripe.test/v1/balance_settings") {
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      expect(String(input)).toBe("https://stripe.test/v2/core/accounts");
+      expect(init?.method).toBe("POST");
+      return new Response(
+        JSON.stringify({
+          id: "acct_restricted",
+          requirements: { currently_due: ["external_account"] },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: { status: "restricted" },
+                  payouts: { status: "restricted" },
+                },
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+
+    await expect(
+      adapter.ensurePayoutAccount({
+        accountId: "acc_seller" as never,
+        currencyCode: "usd",
+        idempotencyKey: "restricted-key",
+      }),
+    ).resolves.toMatchObject({
+      providerReference: "acct_restricted",
+      transferCapabilityStatus: "inactive",
+      payoutCapabilityStatus: "inactive",
+      payoutDestinationStatus: "missing",
+      missingRequirements: ["external_account"],
+    });
+  });
+
   it("Stripe adapter creates embedded payout account management sessions", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       expect(String(input)).toBe("https://stripe.test/v1/account_sessions");
@@ -408,6 +458,75 @@ describe("money movement adapters", () => {
       failureMessage: "The account is closed.",
       occurredAt: "2026-04-12T13:20:00.000Z",
     });
+  });
+
+  it("Stripe webhook parser retrieves full account readiness so webhooks match manual refresh shape", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-12T13:21:00.000Z"));
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      expect(String(input)).toBe(
+        "https://stripe.test/v2/core/accounts/acct_123?include%5B0%5D=configuration.recipient&include%5B1%5D=requirements",
+      );
+      return new Response(
+        JSON.stringify({
+          id: "acct_123",
+          requirements: {
+            currently_due: ["external_account"],
+            eventually_due: ["individual.verification.document"],
+          },
+          configuration: {
+            recipient: {
+              capabilities: {
+                stripe_balance: {
+                  stripe_transfers: { status: "active" },
+                  payouts: { status: "pending" },
+                },
+              },
+            },
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    }) as typeof fetch;
+    const adapter = createStripeConnectMoneyMovementGateway({
+      secretKey: "sk_test",
+      webhookSecret: "whsec_test",
+      apiBaseUrl: "https://stripe.test",
+    });
+    const rawBody = JSON.stringify({
+      id: "evt_account_requirements",
+      type: "v2.core.account[requirements].updated",
+      created: 1_776_000_000,
+      data: {
+        object: {
+          id: "acct_123",
+          requirements: { currently_due: ["external_account"] },
+        },
+      },
+    });
+
+    await expect(
+      adapter.parseMoneyMovementWebhook({
+        rawBody,
+        signatureHeader: stripeSignature(rawBody, "whsec_test"),
+      }),
+    ).resolves.toEqual({
+      kind: "payout-readiness-updated",
+      providerEventId: "evt_account_requirements",
+      providerReference: "acct_123",
+      readiness: {
+        providerReference: "acct_123",
+        onboardingStatus: "pending",
+        transferCapabilityStatus: "active",
+        payoutCapabilityStatus: "pending",
+        payoutDestinationStatus: "missing",
+        missingRequirements: ["external_account", "individual.verification.document"],
+      },
+      occurredAt: "2026-04-12T13:20:00.000Z",
+    });
+    expect(calls).toHaveLength(1);
   });
 
   it("Stripe webhook parser rejects stale signatures", async () => {

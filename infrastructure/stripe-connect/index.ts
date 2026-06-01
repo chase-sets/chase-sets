@@ -191,8 +191,13 @@ function statusToCapabilityStatus(status: string | null | undefined) {
     case "enabled":
       return "active";
     case "pending":
-    case "restricted":
       return "pending";
+    case "restricted":
+    case "disabled":
+    case "inactive":
+    case "rejected":
+    case "revoked":
+      return "inactive";
     default:
       return "inactive";
   }
@@ -647,11 +652,16 @@ export function createStripeConnectMoneyMovementGateway(
 
       if (event.type === "v2.core.account[requirements].updated" || event.type === "v2.core.account.updated") {
         const providerReference = String(object.id ?? "").trim();
+        if (!providerReference) {
+          return null;
+        }
+        const readiness = mapAccountReadiness(await retrieveAccount(providerReference));
+
         return {
           kind: "payout-readiness-updated",
           providerEventId: providerEventIdFromEvent(event, providerReference),
           providerReference,
-          readiness: mapAccountReadiness(object as StripeAccountResponse),
+          readiness,
           occurredAt,
         } satisfies MoneyMovementWebhookEvent;
       }

@@ -145,6 +145,14 @@ describe("settlement payout setup routes", () => {
       status: "pending",
       ready: false,
       last_checked_at: null,
+      missing_requirement_groups: [
+        {
+          id: "payout-account",
+          label: "Payout account",
+          count: 1,
+          detail: "Add or confirm the payout account before requesting payouts.",
+        },
+      ],
       steps: [
         {
           id: "payout-setup",
@@ -161,6 +169,7 @@ describe("settlement payout setup routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       account_id: "acc_seller",
+      missing_requirement_groups: [expect.objectContaining({ id: "payout-account", label: "Payout account" })],
       steps: [expect.objectContaining({ id: "payout-setup" })],
     });
     expect(getPayoutSetupProgress).toHaveBeenCalledWith("acc_seller");
