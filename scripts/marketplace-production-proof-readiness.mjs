@@ -283,7 +283,7 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
       "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
       "Use stripeMoneySmokeEnvironmentCommands for private production proof only after topology evidence passes and live Stripe secrets are loaded into the shell.",
-      "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only while the smoke command still checks legacy Connect return/refresh environment variables.",
+      "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only when manually exercising legacy hosted Account Link compatibility.",
     ],
   };
 }
@@ -460,7 +460,7 @@ function buildProviderCallbackSetup({ baseUrl, marketplaceUrl }) {
       legacyHostedCompatibility: {
         privateProofReturnUrl: `${normalizedBaseUrl}/api/settlement/payout-setup/progress`,
         privateProofRefreshUrl: `${normalizedBaseUrl}/api/settlement/payout-setup/progress`,
-        note: "Compatibility only for smoke commands that still validate legacy Connect return/refresh environment variables.",
+        note: "Compatibility only for manual hosted Account Link checks; embedded setup smoke does not require these values.",
       },
     },
   };

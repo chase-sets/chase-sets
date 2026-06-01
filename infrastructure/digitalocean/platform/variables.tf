@@ -457,46 +457,6 @@ variable "stripe_api_base_url" {
   default = ""
 }
 
-variable "stripe_connect_return_url" {
-  type    = string
-  default = ""
-
-  validation {
-    condition = (
-      (var.environment == "production" && !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled)) ||
-      var.stripe_connect_return_url == (
-        var.environment == "production" ?
-        format("https://marketplace.%s/account/payouts", var.root_domain) :
-        (var.environment == "preview" ?
-          format("https://marketplace.%s.preview.%s/account/payouts", var.preview_identifier, var.root_domain) :
-          format("https://marketplace.%s.%s/account/payouts", var.environment, var.root_domain)
-        )
-      )
-    )
-    error_message = "stripe_connect_return_url must match the marketplace domain whenever marketplace platform deployment is enabled."
-  }
-}
-
-variable "stripe_connect_refresh_url" {
-  type    = string
-  default = ""
-
-  validation {
-    condition = (
-      (var.environment == "production" && !(var.production_marketplace_public_enabled || var.production_marketplace_proof_enabled)) ||
-      var.stripe_connect_refresh_url == (
-        var.environment == "production" ?
-        format("https://marketplace.%s/account/payouts/setup", var.root_domain) :
-        (var.environment == "preview" ?
-          format("https://marketplace.%s.preview.%s/account/payouts/setup", var.preview_identifier, var.root_domain) :
-          format("https://marketplace.%s.%s/account/payouts/setup", var.environment, var.root_domain)
-        )
-      )
-    )
-    error_message = "stripe_connect_refresh_url must match the marketplace domain whenever marketplace platform deployment is enabled."
-  }
-}
-
 variable "easypost_api_key" {
   type      = string
   sensitive = true

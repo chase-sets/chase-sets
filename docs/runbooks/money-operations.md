@@ -143,18 +143,17 @@ Required environment:
 - `STRIPE_PUBLISHABLE_KEY` using a matching `pk_test` key, or a `pk_live` key only when `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`
 - `STRIPE_WEBHOOK_SECRET`
 - `STRIPE_CONNECT_WEBHOOK_SECRET`
-- `STRIPE_CONNECT_RETURN_URL`
-- `STRIPE_CONNECT_REFRESH_URL`
 
 Optional shared-environment proof variables:
 
 - `STRIPE_MONEY_SMOKE_ENVIRONMENT`: `preview`, `staging`, `production-proof`, or another operator label printed in the smoke output.
+- `STRIPE_CONNECT_RETURN_URL` and `STRIPE_CONNECT_REFRESH_URL`: legacy hosted Account Link compatibility only. Embedded setup smoke does not require them.
 - `STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS=true`: requires recorded Stripe-delivered webhook proof before the smoke run proceeds.
 - `STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID`: redacted Stripe `evt_` id observed through the Payments provider webhook destination.
 - `STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID`: redacted Stripe `evt_` id observed through the Connect money-movement webhook destination.
 - `STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE`: external evidence record that ties the delivered event ids to the Stripe Dashboard destination configuration and Chase Sets provider event rows.
 
-For private production proof with live keys, use `operatorSetup.stripeMoneySmokeEnvironmentCommands` from `pnpm run marketplace:production-proof-readiness` for the private live smoke shell, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry for seller-flow authentication, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live smoke command. If the current smoke command still checks legacy hosted Connect return/refresh variables, set `operatorSetup.stripeMoneySmokeLegacyHostedCompatibilityCommands` as compatibility inputs only; final launch evidence uses the embedded payout setup page and not Connect return/refresh URLs.
+For private production proof with live keys, use `operatorSetup.stripeMoneySmokeEnvironmentCommands` from `pnpm run marketplace:production-proof-readiness` for the private live smoke shell, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry for seller-flow authentication, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live smoke command. `operatorSetup.stripeMoneySmokeLegacyHostedCompatibilityCommands` is only for manually exercising legacy hosted Account Link compatibility; final launch evidence uses the embedded payout setup page and not Connect return/refresh URLs.
 
 For authenticated payout-flow checks, set one of:
 
@@ -171,7 +170,7 @@ when that account has payout permissions.
 
 Optional authenticated preview checks:
 
-- `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`: permits a live-key production proof run only when `PLATFORM_API_BASE_URL` is `https://chasesets.com` or `https://admin.chasesets.com`, `PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE` or `PRODUCTION_MARKETPLACE_PROOF_REFERENCE` is set, and the Connect return/refresh URLs are on the same origin as `PLATFORM_API_BASE_URL`.
+- `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`: permits a live-key production proof run only when `PLATFORM_API_BASE_URL` is `https://chasesets.com` or `https://admin.chasesets.com` and `PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE` or `PRODUCTION_MARKETPLACE_PROOF_REFERENCE` is set.
 - `SMOKE_REGISTER_SELLER=true`: legacy smoke variable name; registers a new owner account before checking payout flows.
 - `SMOKE_AUTH_READY_ATTEMPTS`: number of sign-in retries after disposable account registration. Defaults to `24`.
 - `SMOKE_AUTH_READY_RETRY_DELAY_MS`: delay between post-registration sign-in retries. Defaults to `5000`.
@@ -193,7 +192,7 @@ pnpm run stripe:money-smoke -- --edge-check
 pnpm run stripe:money-smoke -- --seller-flow
 ```
 
-For live-key proof, the `--check-env` output must show `"ok": true` and an empty `readinessErrors` array before running `--edge-check` or `--seller-flow`. The preflight reports readiness errors for mismatched Stripe key modes, missing live-proof references, missing `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`, non-production live API origins, and Connect return/refresh URLs that do not match the private proof API origin.
+For live-key proof, the `--check-env` output must show `"ok": true` and an empty `readinessErrors` array before running `--edge-check` or `--seller-flow`. The preflight reports readiness errors for mismatched Stripe key modes, missing live-proof references, missing `STRIPE_MONEY_SMOKE_ALLOW_LIVE=true`, and non-production live API origins.
 
 The smoke JSON distinguishes webhook coverage:
 

@@ -201,7 +201,7 @@ export type StripeGoLiveCheckReport = Readonly<{
   requiredWebhookEvents: readonly string[];
   paymentsConfigured: boolean;
   connectConfigured: boolean;
-  onboardingUrlsConfigured: boolean;
+  legacyHostedSetupUrlsConfigured: boolean;
   fakeFallbackAllowed: boolean;
   liveSecretKeyLikely: boolean;
 }>;
@@ -605,11 +605,6 @@ export function loadConfig(): PlatformApiConfig {
   if (productionLike && !easyPostApiKey) {
     throw new Error("EASYPOST_API_KEY is required for USPS postage label purchasing in production.");
   }
-  if (productionLike && (!stripeConnectReturnUrl || !stripeConnectRefreshUrl)) {
-    throw new Error(
-      "STRIPE_CONNECT_RETURN_URL and STRIPE_CONNECT_REFRESH_URL are required for hosted payout setup in production.",
-    );
-  }
   if (productionLike && !getOptionalEnv(PLATFORM_INTERNAL_AUTH_SECRET_ENV)) {
     throw new Error(
       `${PLATFORM_INTERNAL_AUTH_SECRET_ENV} is required for internal platform API capabilities in production.`,
@@ -669,8 +664,8 @@ export function loadConfig(): PlatformApiConfig {
           secretKey: stripeSecretKey,
           webhookSecret: resolvedStripeConnectWebhookSecret,
           apiBaseUrl: stripeApiBaseUrl,
-          onboardingReturnUrl: stripeConnectReturnUrl,
-          onboardingRefreshUrl: stripeConnectRefreshUrl,
+          ...(stripeConnectReturnUrl ? { onboardingReturnUrl: stripeConnectReturnUrl } : {}),
+          ...(stripeConnectRefreshUrl ? { onboardingRefreshUrl: stripeConnectRefreshUrl } : {}),
         }
       : {
           kind: "fake" as const,
@@ -705,7 +700,7 @@ export function loadConfig(): PlatformApiConfig {
         requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
         paymentsConfigured: true,
         connectConfigured: moneyMovement.kind === "stripe" && Boolean(resolvedStripeConnectWebhookSecret),
-        onboardingUrlsConfigured: Boolean(stripeConnectReturnUrl && stripeConnectRefreshUrl),
+        legacyHostedSetupUrlsConfigured: Boolean(stripeConnectReturnUrl && stripeConnectRefreshUrl),
         fakeFallbackAllowed: !productionLike,
         liveSecretKeyLikely: stripeSecretKey.startsWith("sk_live"),
       },
@@ -743,7 +738,7 @@ export function loadConfig(): PlatformApiConfig {
       requiredWebhookEvents: REQUIRED_STRIPE_WEBHOOK_EVENTS,
       paymentsConfigured: false,
       connectConfigured: moneyMovement.kind === "stripe",
-      onboardingUrlsConfigured: Boolean(stripeConnectReturnUrl && stripeConnectRefreshUrl),
+      legacyHostedSetupUrlsConfigured: Boolean(stripeConnectReturnUrl && stripeConnectRefreshUrl),
       fakeFallbackAllowed: !productionLike,
       liveSecretKeyLikely: Boolean(stripeSecretKey?.startsWith("sk_live")),
     },

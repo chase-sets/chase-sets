@@ -172,8 +172,6 @@ jobs:
       TF_VAR_environment: staging
       TF_VAR_platform_image_repository: chase-sets-platform
       TF_VAR_platform_image_tag: ${{ needs.resolve-release.outputs.release_commit }}
-      TF_VAR_stripe_connect_return_url: https://marketplace.staging.chasesets.com/account/payouts
-      TF_VAR_stripe_connect_refresh_url: https://marketplace.staging.chasesets.com/account/payouts/setup
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
       DIGITALOCEAN_CONTAINER_REGISTRY_FALLBACK: chase-sets
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
@@ -740,8 +738,6 @@ jobs:
           STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
           STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
-          STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts
-          STRIPE_CONNECT_REFRESH_URL: https://marketplace.staging.chasesets.com/account/payouts/setup
           STRIPE_MONEY_SMOKE_ENVIRONMENT: staging
           STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true"
           STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID: ${{ vars.STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID || '' }}
@@ -963,8 +959,6 @@ jobs:
       TF_VAR_production_transactional_email_reference: ${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE || '' }}
       TF_VAR_production_launch_supply_measurements_approved: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED == 'true' && 'true' || 'false' }}
       TF_VAR_production_launch_supply_measurements_reference: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE || '' }}
-      TF_VAR_stripe_connect_return_url: https://marketplace.chasesets.com/account/payouts
-      TF_VAR_stripe_connect_refresh_url: https://marketplace.chasesets.com/account/payouts/setup
       TF_VAR_alert_emails: ${{ vars.PLATFORM_ALERT_EMAILS || '[]' }}
       PLATFORM_IMAGE_REPOSITORY: chase-sets-platform
       APP_PLATFORM_DEPLOYMENT_TIMEOUT_SECONDS: "5400"

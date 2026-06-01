@@ -154,8 +154,6 @@ describe("stripe money smoke test", () => {
         "STRIPE_PUBLISHABLE_KEY",
         "STRIPE_WEBHOOK_SECRET",
         "STRIPE_CONNECT_WEBHOOK_SECRET",
-        "STRIPE_CONNECT_RETURN_URL",
-        "STRIPE_CONNECT_REFRESH_URL",
       ],
       readinessErrors: [
         "Missing required environment: PLATFORM_API_BASE_URL.",
@@ -163,8 +161,6 @@ describe("stripe money smoke test", () => {
         "Missing required environment: STRIPE_PUBLISHABLE_KEY.",
         "Missing required environment: STRIPE_WEBHOOK_SECRET.",
         "Missing required environment: STRIPE_CONNECT_WEBHOOK_SECRET.",
-        "Missing required environment: STRIPE_CONNECT_RETURN_URL.",
-        "Missing required environment: STRIPE_CONNECT_REFRESH_URL.",
       ],
       testModeKeysLikely: false,
     });
@@ -176,8 +172,6 @@ describe("stripe money smoke test", () => {
         STRIPE_PUBLISHABLE_KEY: "pk_test_123",
         STRIPE_WEBHOOK_SECRET: "whsec_test",
         STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect_test",
-        STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
-        STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
       }),
     ).toMatchObject({
       missing: [],
@@ -203,8 +197,6 @@ describe("stripe money smoke test", () => {
       STRIPE_PUBLISHABLE_KEY: "pk_test_123",
       STRIPE_WEBHOOK_SECRET: "whsec_test",
       STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect_test",
-      STRIPE_CONNECT_RETURN_URL: "https://marketplace.staging.chasesets.com/account/payouts",
-      STRIPE_CONNECT_REFRESH_URL: "https://marketplace.staging.chasesets.com/account/payouts/setup",
       STRIPE_MONEY_SMOKE_ENVIRONMENT: "staging",
       STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true",
     };
@@ -247,8 +239,6 @@ describe("stripe money smoke test", () => {
       STRIPE_PUBLISHABLE_KEY: "pk_live_123",
       STRIPE_WEBHOOK_SECRET: "whsec_live",
       STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect_live",
-      STRIPE_CONNECT_RETURN_URL: "https://marketplace.chasesets.com/account/payouts",
-      STRIPE_CONNECT_REFRESH_URL: "https://marketplace.chasesets.com/account/payouts/setup",
     };
 
     expect(envReport(liveEnv)).toMatchObject({
@@ -272,16 +262,17 @@ describe("stripe money smoke test", () => {
         STRIPE_MONEY_SMOKE_ALLOW_LIVE: "true",
         PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: "STRIPE-LIVE-PROOF-2026-05-30",
       }),
-    ).toThrow(/same origin as PLATFORM_API_BASE_URL/);
-    expect(() =>
-      validateStripeKeyModeForRun({
+    ).not.toThrow();
+    expect(
+      envReport({
         ...liveEnv,
         STRIPE_CONNECT_RETURN_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
         STRIPE_CONNECT_REFRESH_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
-        STRIPE_MONEY_SMOKE_ALLOW_LIVE: "true",
-        PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: "STRIPE-LIVE-PROOF-2026-05-30",
       }),
-    ).not.toThrow();
+    ).toMatchObject({
+      presentOptional: expect.arrayContaining(["STRIPE_CONNECT_RETURN_URL", "STRIPE_CONNECT_REFRESH_URL"]),
+      connectRedirectsMatchApiOrigin: true,
+    });
   });
 
   it("reports check-env readiness errors for live keys until all production proof safeguards are present", () => {
@@ -291,8 +282,6 @@ describe("stripe money smoke test", () => {
       STRIPE_PUBLISHABLE_KEY: "pk_live_123",
       STRIPE_WEBHOOK_SECRET: "whsec_live",
       STRIPE_CONNECT_WEBHOOK_SECRET: "whsec_connect_live",
-      STRIPE_CONNECT_RETURN_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
-      STRIPE_CONNECT_REFRESH_URL: "https://chasesets.com/api/settlement/payout-setup/progress",
       STRIPE_MONEY_SMOKE_ALLOW_LIVE: "true",
       PRODUCTION_MARKETPLACE_PROOF_REFERENCE: "PRODUCTION-PROOF-2026-05-30",
     };
@@ -302,7 +291,7 @@ describe("stripe money smoke test", () => {
       readinessErrors: [],
       stripeKeyMode: "live",
       liveModeAllowed: true,
-      connectRedirectsMatchApiOrigin: true,
+      connectRedirectsMatchApiOrigin: false,
     });
 
     expect(
@@ -380,8 +369,6 @@ describe("stripe money smoke test", () => {
       fetchImpl: createSmokeFetch(calls),
       env: {
         PLATFORM_API_AUTHORIZATION: "Bearer preview",
-        STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
-        STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
         SMOKE_ORDER_IDS: "ord_1,ord_2",
         SMOKE_BALANCE_CREDIT_AMOUNT: "10.00",
         SMOKE_CREATE_PAYMENT: "true",
@@ -454,8 +441,6 @@ describe("stripe money smoke test", () => {
         },
         env: {
           PLATFORM_API_AUTHORIZATION: "Bearer preview",
-          STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
-          STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
         },
       }),
     ).rejects.toThrow(/payout setup page/);
@@ -482,8 +467,6 @@ describe("stripe money smoke test", () => {
       },
       env: {
         PLATFORM_API_AUTHORIZATION: "Bearer preview",
-        STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
-        STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
         SMOKE_REQUEST_PAYOUT: "false",
       },
     });
@@ -510,8 +493,6 @@ describe("stripe money smoke test", () => {
         PLATFORM_AUTH_BASE_URL: "https://admin.preview.test",
         PLATFORM_ADMIN_EMAIL: "admin@example.test",
         PLATFORM_ADMIN_PASSWORD: "correct horse battery staple",
-        STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
-        STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
       },
     });
 
@@ -534,8 +515,6 @@ describe("stripe money smoke test", () => {
         SMOKE_REGISTER_SELLER: "true",
         SMOKE_SELLER_EMAIL: "stripe-smoke@example.test",
         SMOKE_SELLER_PASSWORD: "preview smoke password",
-        STRIPE_CONNECT_RETURN_URL: "https://marketplace.preview.test/account/payouts",
-        STRIPE_CONNECT_REFRESH_URL: "https://marketplace.preview.test/account/payouts/setup",
       },
     });
 

@@ -568,18 +568,6 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
-          key   = "STRIPE_CONNECT_RETURN_URL"
-          value = var.stripe_connect_return_url
-          scope = "RUN_TIME"
-        }
-
-        env {
-          key   = "STRIPE_CONNECT_REFRESH_URL"
-          value = var.stripe_connect_refresh_url
-          scope = "RUN_TIME"
-        }
-
-        env {
           key   = "EASYPOST_API_KEY"
           value = var.easypost_api_key
           type  = "SECRET"
@@ -1146,18 +1134,6 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "STRIPE_API_BASE_URL"
           value = var.stripe_api_base_url
-          scope = "RUN_TIME"
-        }
-
-        env {
-          key   = "STRIPE_CONNECT_RETURN_URL"
-          value = var.stripe_connect_return_url
-          scope = "RUN_TIME"
-        }
-
-        env {
-          key   = "STRIPE_CONNECT_REFRESH_URL"
-          value = var.stripe_connect_refresh_url
           scope = "RUN_TIME"
         }
 

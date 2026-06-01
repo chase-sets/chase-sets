@@ -52,8 +52,6 @@ jobs:
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
       STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}
-      STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts
-      STRIPE_CONNECT_REFRESH_URL: https://marketplace.staging.chasesets.com/account/payouts/setup
       EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
       EASYPOST_API_BASE_URL: ${{ vars.EASYPOST_API_BASE_URL || '' }}
       EASYPOST_MODE: ${{ vars.EASYPOST_MODE || 'test' }}
@@ -208,8 +206,6 @@ jobs:
       STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
       STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET || secrets.STRIPE_WEBHOOK_SECRET }}
       STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL || '' }}
-      STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts
-      STRIPE_CONNECT_REFRESH_URL: https://marketplace.staging.chasesets.com/account/payouts/setup
       SMOKE_ORDER_IDS: ${{ vars.STAGING_SMOKE_ORDER_IDS || '' }}
       SMOKE_BALANCE_CREDIT_AMOUNT: ${{ vars.STAGING_SMOKE_BALANCE_CREDIT_AMOUNT || '' }}
       SMOKE_PAYMENT_METHOD_CATEGORY: ${{ vars.STAGING_SMOKE_PAYMENT_METHOD_CATEGORY || '' }}
