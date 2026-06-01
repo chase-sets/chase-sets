@@ -779,9 +779,22 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).toContain(
       "STRIPE_CONNECT_RETURN_URL: https://marketplace.staging.chasesets.com/account/payouts",
     );
+    expect(stagingMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: staging");
+    expect(stagingMoneySmokeStep).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true"');
+    expect(stagingMoneySmokeStep).toContain("STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID");
+    expect(stagingMoneySmokeStep).toContain("STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID");
+    expect(stagingMoneySmokeStep).toContain("STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE");
     expect(stagingMoneySmokeStep).toContain("STAGING_SMOKE_ORDER_IDS");
     expect(stagingMoneySmokeStep).toContain('PLATFORM_API_BASE_URL="https://${marketplace_domain}"');
     expect(stagingMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
+
+    expect(platformProductionWorkflow).toContain("Staging requires dedicated Stripe test-mode keys");
+    expect(platformProductionWorkflow).toContain("STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID \\");
+    expect(platformProductionWorkflow).toContain("STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID \\");
+    expect(platformProductionWorkflow).toContain("STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE");
+    expect(platformPrWorkflow).toContain("Preview deployments require Stripe test-mode keys.");
+    expect(platformPrWorkflow).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: preview");
+    expect(platformPrWorkflow).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"');
 
     expect(platformProductionWorkflow.indexOf("- name: Staging marketplace critical flows")).toBeLessThan(
       markStagingDeployedIndex,

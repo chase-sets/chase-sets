@@ -250,22 +250,30 @@ export function envReport(env = process.env) {
     "SMOKE_PAYOUT_AMOUNT",
     "SMOKE_PAYMENT_METHOD_CATEGORY",
     "SMOKE_REQUEST_PAYOUT",
+    "STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID",
+    "STRIPE_MONEY_SMOKE_ENVIRONMENT",
+    "STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS",
     "STRIPE_MONEY_SMOKE_ALLOW_LIVE",
+    "STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID",
+    "STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE",
   ];
   const missing = required.filter((name) => !readEnv(name, env));
   const presentOptional = optional.filter((name) => Boolean(readEnv(name, env)));
   const stripeKeyMode = resolveStripeKeyMode(env);
   const readinessErrors = validateSmokeEnvironmentForReport(env, missing);
+  const stripeDeliveredWebhookProof = resolveStripeDeliveredWebhookProof(env);
 
   return {
     missing,
     readinessErrors,
     presentOptional,
     stripeKeyMode,
+    smokeEnvironment: readEnv("STRIPE_MONEY_SMOKE_ENVIRONMENT", env) ?? "unspecified",
     connectRedirectsMatchApiOrigin: connectRedirectsMatchApiOrigin(env),
     testModeKeysLikely: stripeKeyMode === "test",
     liveModeKeysLikely: stripeKeyMode === "live",
     liveModeAllowed: liveModeSmokeAllowed(env),
+    stripeDeliveredWebhookProof,
   };
 }
 
@@ -277,6 +285,11 @@ function validateSmokeEnvironmentForReport(env, missing) {
 
   try {
     validateStripeKeyModeForRun(env);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+  try {
+    validateStripeDeliveredWebhookProofForRun(env);
   } catch (error) {
     errors.push(error instanceof Error ? error.message : String(error));
   }
@@ -297,6 +310,41 @@ function resolveStripeKeyMode(env = process.env) {
 
 function liveModeSmokeAllowed(env = process.env) {
   return readEnv("STRIPE_MONEY_SMOKE_ALLOW_LIVE", env) === "true";
+}
+
+function requireStripeDeliveredWebhookProof(env = process.env) {
+  return readEnv("STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS", env) === "true";
+}
+
+function resolveStripeDeliveredWebhookProof(env = process.env) {
+  const paymentEventId = readEnv("STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID", env);
+  const connectEventId = readEnv("STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID", env);
+  const evidenceReference = readEnv("STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE", env);
+  const required = requireStripeDeliveredWebhookProof(env);
+  const complete = Boolean(paymentEventId && connectEventId && evidenceReference);
+
+  return {
+    required,
+    status: complete ? "provided" : required ? "missing-required-proof" : "not-provided",
+    paymentWebhookDeliveryEventId: paymentEventId,
+    connectWebhookDeliveryEventId: connectEventId,
+    evidenceReference,
+  };
+}
+
+export function validateStripeDeliveredWebhookProofForRun(env = process.env) {
+  if (!requireStripeDeliveredWebhookProof(env)) {
+    return;
+  }
+
+  const proof = resolveStripeDeliveredWebhookProof(env);
+  if (proof.status === "provided") {
+    return;
+  }
+
+  throw new Error(
+    "Set STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID, STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID, and STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE before running a smoke test that requires Stripe-delivered webhook proof.",
+  );
 }
 
 export function validateStripeKeyModeForRun(env = process.env) {
@@ -453,6 +501,15 @@ export async function runEdgeCheck(baseUrl, options = {}) {
     unsignedMoneyMovementWebhookRejected: true,
     signedPaymentWebhookAccepted,
     signedMoneyMovementWebhookAccepted,
+    webhookChecks: {
+      signedProbe: {
+        unsignedPaymentWebhookRejected: true,
+        unsignedMoneyMovementWebhookRejected: true,
+        signedPaymentWebhookAccepted,
+        signedMoneyMovementWebhookAccepted,
+      },
+      stripeDelivered: resolveStripeDeliveredWebhookProof(env),
+    },
   };
 }
 
@@ -720,9 +777,15 @@ export async function main(options = {}) {
 
   assert(report.missing.length === 0, `Missing required environment: ${report.missing.join(", ")}.`);
   validateStripeKeyModeForRun(env);
+  validateStripeDeliveredWebhookProofForRun(env);
 
   const baseUrl = stripTrailingSlash(readEnv("PLATFORM_API_BASE_URL", env));
   const result = {
+    smokeEnvironment: report.smokeEnvironment,
+    webhookProof: {
+      signedProbe: "executed-by-smoke-test-when-edge-check-runs",
+      stripeDelivered: report.stripeDeliveredWebhookProof,
+    },
     edge:
       runArgs.has("--edge-check") || runArgs.has("--seller-flow")
         ? await runEdgeCheck(baseUrl, { env, fetchImpl })
