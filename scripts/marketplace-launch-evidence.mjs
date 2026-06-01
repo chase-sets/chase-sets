@@ -12,8 +12,8 @@ const MAX_EVIDENCE_AGE_DAYS = 30;
 const PRODUCTION_STRIPE_WEBHOOK_HOSTS = new Set(["chasesets.com", "admin.chasesets.com", "marketplace.chasesets.com"]);
 const PRODUCTION_STRIPE_PAYMENT_WEBHOOK_PATH = "/api/payments/provider/webhooks";
 const PRODUCTION_STRIPE_CONNECT_WEBHOOK_PATH = "/api/settlement/provider/money-movement/webhooks";
-const PRODUCTION_STRIPE_CONNECT_RETURN_PATH = "/account/payouts";
-const PRODUCTION_STRIPE_CONNECT_REFRESH_PATH = "/account/payouts/setup";
+const PRODUCTION_STRIPE_CONNECT_PAYOUT_SETUP_PATH = "/account/payouts/setup";
+const CONNECT_PAYOUT_SETUP_EVIDENCE_KINDS = new Set(["screenshot", "redacted-run-output"]);
 const REQUIRED_STRIPE_API_VERSION = "2026-03-25.dahlia";
 const REQUIRED_STRIPE_MONEY_OPERATION_IDENTIFIERS = [
   { key: "livePaymentIntentId", prefix: "pi_" },
@@ -573,10 +573,18 @@ function validateStripeMoneyOperations(gate, now, errors) {
       "liveCheckoutProven",
       "refundProven",
       "disputeProven",
-      "connectOnboardingProven",
+      "connectDashboardNoneConfigured",
+      "connectEmbeddedSetupSessionCreated",
+      "connectPayoutSetupPageProven",
+      "connectFreshSetupSessionsProven",
+      "connectProviderReadinessRefreshProven",
+      "connectAccountWebhookRowsProven",
+      "connectNoSensitiveProviderDataStored",
       "connectCustomAccountProofProven",
       "connectLegacyMigrationReportReviewed",
       "payoutReadinessProven",
+      "payoutPreviewAndRequestProven",
+      "transferAndConnectedAccountPayoutProven",
       "payoutFailureReversalProven",
       "reconciliationProven",
       "platformBalanceFundingProven",
@@ -596,8 +604,13 @@ function validateStripeMoneyOperations(gate, now, errors) {
       "apiVersion",
       "paymentWebhookDestination",
       "connectWebhookDestination",
-      "connectReturnUrl",
-      "connectRefreshUrl",
+      "connectCustomAccountProofCompletedAt",
+      "connectPayoutSetupPageUrl",
+      "connectPayoutSetupPageEvidenceKind",
+      "connectDashboardAccess",
+      "connectControllerFeesPayer",
+      "connectControllerLossesCollector",
+      "connectControllerRequirementCollection",
       "proofCompletedAt",
       ...REQUIRED_STRIPE_MONEY_OPERATION_IDENTIFIERS.map(({ key }) => key),
       "paymentProviderEventQueryReference",
@@ -605,10 +618,17 @@ function validateStripeMoneyOperations(gate, now, errors) {
       "liveCheckoutReference",
       "refundReference",
       "disputeReference",
-      "connectOnboardingReference",
       "connectCustomAccountProofReference",
+      "connectEmbeddedSetupSessionReference",
+      "connectPayoutSetupPageReference",
+      "connectFreshSetupSessionsReference",
+      "connectProviderReadinessRefreshReference",
+      "connectAccountWebhookRowsReference",
+      "connectSensitiveDataReviewReference",
       "connectLegacyMigrationReportReference",
       "payoutReadinessReference",
+      "payoutPreviewAndRequestReference",
+      "transferAndConnectedAccountPayoutReference",
       "payoutFailureReversalReference",
       "reconciliationReference",
       "platformBalanceFundingReference",
@@ -627,10 +647,17 @@ function validateStripeMoneyOperations(gate, now, errors) {
       "liveCheckoutReference",
       "refundReference",
       "disputeReference",
-      "connectOnboardingReference",
       "connectCustomAccountProofReference",
+      "connectEmbeddedSetupSessionReference",
+      "connectPayoutSetupPageReference",
+      "connectFreshSetupSessionsReference",
+      "connectProviderReadinessRefreshReference",
+      "connectAccountWebhookRowsReference",
+      "connectSensitiveDataReviewReference",
       "connectLegacyMigrationReportReference",
       "payoutReadinessReference",
+      "payoutPreviewAndRequestReference",
+      "transferAndConnectedAccountPayoutReference",
       "payoutFailureReversalReference",
       "reconciliationReference",
       "platformBalanceFundingReference",
@@ -642,6 +669,13 @@ function validateStripeMoneyOperations(gate, now, errors) {
   validateStripeIdentifierFields("Stripe money operations", gate, REQUIRED_STRIPE_MONEY_OPERATION_IDENTIFIERS, errors);
   validateStripeEventIdFields("Stripe money operations", gate, REQUIRED_STRIPE_MONEY_OPERATION_EVENT_ID_GROUPS, errors);
   validateProofCompletedAt("Stripe money operations", gate.proofCompletedAt, now, errors);
+  validateCompletedAt(
+    "Stripe money operations",
+    "connectCustomAccountProofCompletedAt",
+    gate.connectCustomAccountProofCompletedAt,
+    now,
+    errors,
+  );
 
   if (isNonEmptyString(gate.environment) && gate.environment.trim().toLowerCase() !== "live") {
     errors.push("Stripe money operations environment must be live.");
@@ -659,6 +693,9 @@ function validateStripeMoneyOperations(gate, now, errors) {
     gate.connectCustomDashboardNoneAccountCount <= 0
   ) {
     errors.push("Stripe money operations must include at least one live dashboard-none connected account.");
+  }
+  if (!Number.isInteger(gate.connectEmbeddedSetupSessionCount) || gate.connectEmbeddedSetupSessionCount < 2) {
+    errors.push("Stripe money operations must include at least two fresh embedded setup sessions.");
   }
   if (!Number.isInteger(gate.connectLegacyHostedAccountCount) || gate.connectLegacyHostedAccountCount < 0) {
     errors.push("Stripe money operations must include a non-negative connectLegacyHostedAccountCount.");
@@ -681,6 +718,36 @@ function validateStripeMoneyOperations(gate, now, errors) {
   if (!Number.isInteger(gate.connectProviderEventRowCount) || gate.connectProviderEventRowCount < 2) {
     errors.push("Stripe money operations must include connectProviderEventRowCount of at least 2.");
   }
+  if (!Number.isInteger(gate.sensitiveProviderDataStoredCount) || gate.sensitiveProviderDataStoredCount !== 0) {
+    errors.push("Stripe money operations must not store raw sensitive provider data in Chase Sets.");
+  }
+
+  if (
+    isNonEmptyString(gate.connectPayoutSetupPageEvidenceKind) &&
+    !CONNECT_PAYOUT_SETUP_EVIDENCE_KINDS.has(gate.connectPayoutSetupPageEvidenceKind)
+  ) {
+    errors.push(
+      "Stripe money operations connectPayoutSetupPageEvidenceKind must be screenshot or redacted-run-output.",
+    );
+  }
+  if (isNonEmptyString(gate.connectDashboardAccess) && gate.connectDashboardAccess !== "none") {
+    errors.push("Stripe money operations connectDashboardAccess must be none for Custom accounts.");
+  }
+  if (isNonEmptyString(gate.connectControllerFeesPayer) && gate.connectControllerFeesPayer !== "application") {
+    errors.push("Stripe money operations connectControllerFeesPayer must be application.");
+  }
+  if (
+    isNonEmptyString(gate.connectControllerLossesCollector) &&
+    gate.connectControllerLossesCollector !== "application"
+  ) {
+    errors.push("Stripe money operations connectControllerLossesCollector must be application.");
+  }
+  if (
+    isNonEmptyString(gate.connectControllerRequirementCollection) &&
+    gate.connectControllerRequirementCollection !== "application"
+  ) {
+    errors.push("Stripe money operations connectControllerRequirementCollection must be application.");
+  }
 
   validateProductionStripeUrl(
     "Stripe money operations paymentWebhookDestination",
@@ -695,15 +762,9 @@ function validateStripeMoneyOperations(gate, now, errors) {
     errors,
   );
   validateProductionStripeUrl(
-    "Stripe money operations connectReturnUrl",
-    gate.connectReturnUrl,
-    PRODUCTION_STRIPE_CONNECT_RETURN_PATH,
-    errors,
-  );
-  validateProductionStripeUrl(
-    "Stripe money operations connectRefreshUrl",
-    gate.connectRefreshUrl,
-    PRODUCTION_STRIPE_CONNECT_REFRESH_PATH,
+    "Stripe money operations connectPayoutSetupPageUrl",
+    gate.connectPayoutSetupPageUrl,
+    PRODUCTION_STRIPE_CONNECT_PAYOUT_SETUP_PATH,
     errors,
   );
 }

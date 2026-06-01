@@ -18,12 +18,19 @@ function proof(overrides = {}) {
     apiVersion: "2026-03-25.dahlia",
     paymentWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
     connectWebhookDestination: "https://marketplace.chasesets.com/api/settlement/provider/money-movement/webhooks",
-    connectReturnUrl: "https://marketplace.chasesets.com/account/payouts",
-    connectRefreshUrl: "https://marketplace.chasesets.com/account/payouts/setup",
+    connectCustomAccountProofCompletedAt: "2026-05-30T12:25:00.000Z",
+    connectPayoutSetupPageUrl: "https://marketplace.chasesets.com/account/payouts/setup",
+    connectPayoutSetupPageEvidenceKind: "screenshot",
+    connectDashboardAccess: "none",
+    connectControllerFeesPayer: "application",
+    connectControllerLossesCollector: "application",
+    connectControllerRequirementCollection: "application",
     connectConnectedAccountCount: 1,
     connectCustomDashboardNoneAccountCount: 1,
+    connectEmbeddedSetupSessionCount: 2,
     connectLegacyHostedAccountCount: 0,
     connectLegacyPayoutReadyAccountCount: 0,
+    sensitiveProviderDataStoredCount: 0,
     paymentProviderEventRowCount: 5,
     connectProviderEventRowCount: 2,
     livePaymentIntentId: "pi_liveCheckout20260530",
@@ -46,10 +53,17 @@ function proof(overrides = {}) {
     liveCheckoutReference: "STRIPE-LIVE-CHECKOUT-2026-05-30",
     refundReference: "STRIPE-REFUND-2026-05-30",
     disputeReference: "STRIPE-DISPUTE-2026-05-30",
-    connectOnboardingReference: "STRIPE-CONNECT-ONBOARDING-2026-05-30",
     connectCustomAccountProofReference: "STRIPE-CONNECT-CUSTOM-ACCOUNT-2026-05-30",
+    connectEmbeddedSetupSessionReference: "STRIPE-CONNECT-EMBEDDED-SETUP-2026-05-30",
+    connectPayoutSetupPageReference: "STRIPE-CONNECT-PAYOUT-SETUP-PAGE-2026-05-30",
+    connectFreshSetupSessionsReference: "STRIPE-CONNECT-FRESH-SESSIONS-2026-05-30",
+    connectProviderReadinessRefreshReference: "STRIPE-CONNECT-READINESS-REFRESH-2026-05-30",
+    connectAccountWebhookRowsReference: "STRIPE-CONNECT-WEBHOOK-ROWS-2026-05-30",
+    connectSensitiveDataReviewReference: "STRIPE-CONNECT-SENSITIVE-DATA-REVIEW-2026-05-30",
     connectLegacyMigrationReportReference: "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
     payoutReadinessReference: "STRIPE-PAYOUT-READINESS-2026-05-30",
+    payoutPreviewAndRequestReference: "STRIPE-PAYOUT-PREVIEW-REQUEST-2026-05-30",
+    transferAndConnectedAccountPayoutReference: "STRIPE-TRANSFER-PAYOUT-2026-05-30",
     payoutFailureReversalReference: "STRIPE-PAYOUT-FAILURE-REVERSAL-2026-05-30",
     reconciliationReference: "STRIPE-RECONCILIATION-2026-05-30",
     platformBalanceFundingReference: "STRIPE-PLATFORM-BALANCE-2026-05-30",
@@ -60,10 +74,18 @@ function proof(overrides = {}) {
     liveCheckoutProven: true,
     refundProven: true,
     disputeProven: true,
-    connectOnboardingProven: true,
+    connectDashboardNoneConfigured: true,
+    connectEmbeddedSetupSessionCreated: true,
+    connectPayoutSetupPageProven: true,
+    connectFreshSetupSessionsProven: true,
+    connectProviderReadinessRefreshProven: true,
+    connectAccountWebhookRowsProven: true,
+    connectNoSensitiveProviderDataStored: true,
     connectCustomAccountProofProven: true,
     connectLegacyMigrationReportReviewed: true,
     payoutReadinessProven: true,
+    payoutPreviewAndRequestProven: true,
+    transferAndConnectedAccountPayoutProven: true,
     payoutFailureReversalProven: true,
     reconciliationProven: true,
     platformBalanceFundingProven: true,
@@ -98,12 +120,19 @@ describe("marketplace stripe money operations evidence", () => {
       apiVersion: "2026-03-25.dahlia",
       paymentWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
       connectWebhookDestination: "https://marketplace.chasesets.com/api/settlement/provider/money-movement/webhooks",
-      connectReturnUrl: "https://marketplace.chasesets.com/account/payouts",
-      connectRefreshUrl: "https://marketplace.chasesets.com/account/payouts/setup",
+      connectCustomAccountProofCompletedAt: "2026-05-30T12:25:00.000Z",
+      connectPayoutSetupPageUrl: "https://marketplace.chasesets.com/account/payouts/setup",
+      connectPayoutSetupPageEvidenceKind: "screenshot",
+      connectDashboardAccess: "none",
+      connectControllerFeesPayer: "application",
+      connectControllerLossesCollector: "application",
+      connectControllerRequirementCollection: "application",
       connectConnectedAccountCount: 1,
       connectCustomDashboardNoneAccountCount: 1,
+      connectEmbeddedSetupSessionCount: 2,
       connectLegacyHostedAccountCount: 0,
       connectLegacyPayoutReadyAccountCount: 0,
+      sensitiveProviderDataStoredCount: 0,
       paymentProviderEventRowCount: 5,
       connectProviderEventRowCount: 2,
       livePaymentIntentId: "pi_liveCheckout20260530",
@@ -126,10 +155,17 @@ describe("marketplace stripe money operations evidence", () => {
       liveCheckoutReference: "STRIPE-LIVE-CHECKOUT-2026-05-30",
       refundReference: "STRIPE-REFUND-2026-05-30",
       disputeReference: "STRIPE-DISPUTE-2026-05-30",
-      connectOnboardingReference: "STRIPE-CONNECT-ONBOARDING-2026-05-30",
       connectCustomAccountProofReference: "STRIPE-CONNECT-CUSTOM-ACCOUNT-2026-05-30",
+      connectEmbeddedSetupSessionReference: "STRIPE-CONNECT-EMBEDDED-SETUP-2026-05-30",
+      connectPayoutSetupPageReference: "STRIPE-CONNECT-PAYOUT-SETUP-PAGE-2026-05-30",
+      connectFreshSetupSessionsReference: "STRIPE-CONNECT-FRESH-SESSIONS-2026-05-30",
+      connectProviderReadinessRefreshReference: "STRIPE-CONNECT-READINESS-REFRESH-2026-05-30",
+      connectAccountWebhookRowsReference: "STRIPE-CONNECT-WEBHOOK-ROWS-2026-05-30",
+      connectSensitiveDataReviewReference: "STRIPE-CONNECT-SENSITIVE-DATA-REVIEW-2026-05-30",
       connectLegacyMigrationReportReference: "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
       payoutReadinessReference: "STRIPE-PAYOUT-READINESS-2026-05-30",
+      payoutPreviewAndRequestReference: "STRIPE-PAYOUT-PREVIEW-REQUEST-2026-05-30",
+      transferAndConnectedAccountPayoutReference: "STRIPE-TRANSFER-PAYOUT-2026-05-30",
       payoutFailureReversalReference: "STRIPE-PAYOUT-FAILURE-REVERSAL-2026-05-30",
       reconciliationReference: "STRIPE-RECONCILIATION-2026-05-30",
       platformBalanceFundingReference: "STRIPE-PLATFORM-BALANCE-2026-05-30",
@@ -140,10 +176,18 @@ describe("marketplace stripe money operations evidence", () => {
       liveCheckoutProven: true,
       refundProven: true,
       disputeProven: true,
-      connectOnboardingProven: true,
+      connectDashboardNoneConfigured: true,
+      connectEmbeddedSetupSessionCreated: true,
+      connectPayoutSetupPageProven: true,
+      connectFreshSetupSessionsProven: true,
+      connectProviderReadinessRefreshProven: true,
+      connectAccountWebhookRowsProven: true,
+      connectNoSensitiveProviderDataStored: true,
       connectCustomAccountProofProven: true,
       connectLegacyMigrationReportReviewed: true,
       payoutReadinessProven: true,
+      payoutPreviewAndRequestProven: true,
+      transferAndConnectedAccountPayoutProven: true,
       payoutFailureReversalProven: true,
       reconciliationProven: true,
       platformBalanceFundingProven: true,
@@ -188,8 +232,10 @@ describe("marketplace stripe money operations evidence", () => {
       input({
         proof: proof({
           connectCustomDashboardNoneAccountCount: 0,
+          connectEmbeddedSetupSessionCount: 1,
           connectLegacyHostedAccountCount: 1,
           connectLegacyPayoutReadyAccountCount: 2,
+          sensitiveProviderDataStoredCount: 1,
         }),
       }),
     );
@@ -200,6 +246,62 @@ describe("marketplace stripe money operations evidence", () => {
     );
     expect(evidence.errors).toContain(
       "Stripe money operations proof cannot report more payout-ready legacy accounts than total legacy hosted accounts.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must include at least two fresh embedded setup sessions.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must not store raw sensitive provider data in Chase Sets.",
+    );
+  });
+
+  it("fails when embedded Custom Connect setup proof is missing or stale", () => {
+    const evidence = buildStripeMoneyOperationsEvidence(
+      input({
+        proof: proof({
+          connectEmbeddedSetupSessionCreated: false,
+          connectPayoutSetupPageEvidenceKind: "hosted-dashboard",
+          connectCustomAccountProofCompletedAt: "2026-04-15T12:30:00.000Z",
+        }),
+      }),
+    );
+
+    expect(evidence.approved).toBe(false);
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must prove connectEmbeddedSetupSessionCreated=true.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must include connectPayoutSetupPageEvidenceKind of screenshot or redacted-run-output.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations connectCustomAccountProofCompletedAt cannot be older than 30 days.",
+    );
+  });
+
+  it("fails when Custom Connect account controller proof uses hosted dashboard posture", () => {
+    const evidence = buildStripeMoneyOperationsEvidence(
+      input({
+        proof: proof({
+          connectDashboardAccess: "express",
+          connectControllerFeesPayer: "account",
+          connectControllerLossesCollector: "stripe",
+          connectControllerRequirementCollection: "stripe",
+        }),
+      }),
+    );
+
+    expect(evidence.approved).toBe(false);
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must configure dashboard access as none for Custom accounts.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must configure Connect fees payer as application.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must configure Connect losses collector as application.",
+    );
+    expect(evidence.errors).toContain(
+      "Stripe money operations proof must configure Connect requirement collection as application.",
     );
   });
 
@@ -352,14 +454,13 @@ describe("marketplace stripe money operations evidence", () => {
     expect(checkedOnly.errors).toContain("Stripe money operations evidence checkedAt must be an ISO timestamp.");
   });
 
-  it("accepts private proof-mode Stripe callback hosts and Connect redirect hosts", () => {
+  it("accepts private proof-mode Stripe callback hosts and embedded setup page hosts", () => {
     const rootEvidence = buildStripeMoneyOperationsEvidence(
       input({
         proof: proof({
           paymentWebhookDestination: "https://chasesets.com/api/payments/provider/webhooks",
           connectWebhookDestination: "https://chasesets.com/api/settlement/provider/money-movement/webhooks",
-          connectReturnUrl: "https://chasesets.com/account/payouts",
-          connectRefreshUrl: "https://chasesets.com/account/payouts/setup",
+          connectPayoutSetupPageUrl: "https://chasesets.com/account/payouts/setup",
         }),
       }),
     );
@@ -368,8 +469,7 @@ describe("marketplace stripe money operations evidence", () => {
         proof: proof({
           paymentWebhookDestination: "https://admin.chasesets.com/api/payments/provider/webhooks",
           connectWebhookDestination: "https://admin.chasesets.com/api/settlement/provider/money-movement/webhooks",
-          connectReturnUrl: "https://admin.chasesets.com/account/payouts",
-          connectRefreshUrl: "https://admin.chasesets.com/account/payouts/setup",
+          connectPayoutSetupPageUrl: "https://admin.chasesets.com/account/payouts/setup",
         }),
       }),
     );
@@ -384,8 +484,7 @@ describe("marketplace stripe money operations evidence", () => {
         proof: proof({
           paymentWebhookDestination: "https://staging.chasesets.com/api/payments/provider/webhooks",
           connectWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
-          connectReturnUrl: "https://marketplace.chasesets.com/checkout",
-          connectRefreshUrl: "https://marketplace.chasesets.com/account/payouts",
+          connectPayoutSetupPageUrl: "https://marketplace.chasesets.com/checkout",
         }),
       }),
     );
@@ -398,10 +497,7 @@ describe("marketplace stripe money operations evidence", () => {
       "Stripe money operations proof must use the production Chase Sets Connect money-movement webhook destination.",
     );
     expect(evidence.errors).toContain(
-      "Stripe money operations proof must use a production Chase Sets Connect return URL.",
-    );
-    expect(evidence.errors).toContain(
-      "Stripe money operations proof must use a production Chase Sets Connect refresh URL.",
+      "Stripe money operations proof must use the production Chase Sets embedded payout setup page.",
     );
   });
 
@@ -410,10 +506,18 @@ describe("marketplace stripe money operations evidence", () => {
       "liveCheckoutProven",
       "refundProven",
       "disputeProven",
-      "connectOnboardingProven",
+      "connectDashboardNoneConfigured",
+      "connectEmbeddedSetupSessionCreated",
+      "connectPayoutSetupPageProven",
+      "connectFreshSetupSessionsProven",
+      "connectProviderReadinessRefreshProven",
+      "connectAccountWebhookRowsProven",
+      "connectNoSensitiveProviderDataStored",
       "connectCustomAccountProofProven",
       "connectLegacyMigrationReportReviewed",
       "payoutReadinessProven",
+      "payoutPreviewAndRequestProven",
+      "transferAndConnectedAccountPayoutProven",
       "payoutFailureReversalProven",
       "reconciliationProven",
       "platformBalanceFundingProven",
@@ -424,10 +528,17 @@ describe("marketplace stripe money operations evidence", () => {
       "liveCheckoutReference",
       "refundReference",
       "disputeReference",
-      "connectOnboardingReference",
       "connectCustomAccountProofReference",
+      "connectEmbeddedSetupSessionReference",
+      "connectPayoutSetupPageReference",
+      "connectFreshSetupSessionsReference",
+      "connectProviderReadinessRefreshReference",
+      "connectAccountWebhookRowsReference",
+      "connectSensitiveDataReviewReference",
       "connectLegacyMigrationReportReference",
       "payoutReadinessReference",
+      "payoutPreviewAndRequestReference",
+      "transferAndConnectedAccountPayoutReference",
       "payoutFailureReversalReference",
       "reconciliationReference",
       "platformBalanceFundingReference",

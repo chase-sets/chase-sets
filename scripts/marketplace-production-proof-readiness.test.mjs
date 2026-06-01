@@ -45,6 +45,7 @@ describe("marketplace production proof readiness", () => {
       resolvedEasyPostMode: "production",
       providerCallbackSetup: {
         productionProofBaseUrl: "https://chasesets.com",
+        productionMarketplaceBaseUrl: "https://marketplace.chasesets.com",
         dashboardDestinations: expect.arrayContaining([
           expect.objectContaining({
             provider: "stripe",
@@ -63,11 +64,16 @@ describe("marketplace production proof readiness", () => {
             destination: "https://chasesets.com/api/fulfillment/provider/postage/webhooks",
           }),
         ]),
-        stripeConnectOnboarding: {
-          privateProofReturnUrl: "https://chasesets.com/api/settlement/payout-setup/progress",
-          privateProofRefreshUrl: "https://chasesets.com/api/settlement/payout-setup/progress",
-          finalLaunchReturnUrl: "https://marketplace.chasesets.com/account/payouts",
-          finalLaunchRefreshUrl: "https://marketplace.chasesets.com/account/payouts/setup",
+        stripeConnectCustomSetup: {
+          finalLaunchSetupPageUrl: "https://marketplace.chasesets.com/account/payouts/setup",
+          launchEvidenceFields: expect.arrayContaining([
+            "gates.stripeMoneyOperations.connectPayoutSetupPageUrl",
+            "gates.stripeMoneyOperations.connectEmbeddedSetupSessionCount",
+          ]),
+          legacyHostedCompatibility: {
+            privateProofReturnUrl: "https://chasesets.com/api/settlement/payout-setup/progress",
+            privateProofRefreshUrl: "https://chasesets.com/api/settlement/payout-setup/progress",
+          },
         },
       },
       operatorSetup: {
@@ -75,10 +81,13 @@ describe("marketplace production proof readiness", () => {
         secretCommands: [],
         stripeMoneySmokeEnvironmentCommands: [
           '$env:PLATFORM_API_BASE_URL="https://chasesets.com"',
-          '$env:STRIPE_CONNECT_RETURN_URL="https://chasesets.com/api/settlement/payout-setup/progress"',
-          '$env:STRIPE_CONNECT_REFRESH_URL="https://chasesets.com/api/settlement/payout-setup/progress"',
+          '$env:MARKETPLACE_WEB_BASE_URL="https://marketplace.chasesets.com"',
           '$env:STRIPE_MONEY_SMOKE_ALLOW_LIVE="true"',
           '$env:PRODUCTION_MARKETPLACE_PROOF_REFERENCE="PRODUCTION-PROOF-2026-05-30"',
+        ],
+        stripeMoneySmokeLegacyHostedCompatibilityCommands: [
+          '$env:STRIPE_CONNECT_RETURN_URL="https://chasesets.com/api/settlement/payout-setup/progress"',
+          '$env:STRIPE_CONNECT_REFRESH_URL="https://chasesets.com/api/settlement/payout-setup/progress"',
         ],
         stripeMoneySmokeAuthenticationOptions: [
           {
@@ -224,6 +233,9 @@ describe("marketplace production proof readiness", () => {
     );
     expect(readiness.operatorSetup.notes).toContain(
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
+    );
+    expect(readiness.operatorSetup.notes).toContain(
+      "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only while the smoke command still checks legacy Connect return/refresh environment variables.",
     );
     expect(readiness.operatorSetup.notes).toContain(
       "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",

@@ -16,10 +16,18 @@ export const REQUIRED_STRIPE_MONEY_OPERATION_PROOFS = [
   "liveCheckoutProven",
   "refundProven",
   "disputeProven",
-  "connectOnboardingProven",
+  "connectDashboardNoneConfigured",
+  "connectEmbeddedSetupSessionCreated",
+  "connectPayoutSetupPageProven",
+  "connectFreshSetupSessionsProven",
+  "connectProviderReadinessRefreshProven",
+  "connectAccountWebhookRowsProven",
+  "connectNoSensitiveProviderDataStored",
   "connectCustomAccountProofProven",
   "connectLegacyMigrationReportReviewed",
   "payoutReadinessProven",
+  "payoutPreviewAndRequestProven",
+  "transferAndConnectedAccountPayoutProven",
   "payoutFailureReversalProven",
   "reconciliationProven",
   "platformBalanceFundingProven",
@@ -31,10 +39,17 @@ export const REQUIRED_STRIPE_MONEY_OPERATION_REFERENCES = [
   "liveCheckoutReference",
   "refundReference",
   "disputeReference",
-  "connectOnboardingReference",
   "connectCustomAccountProofReference",
+  "connectEmbeddedSetupSessionReference",
+  "connectPayoutSetupPageReference",
+  "connectFreshSetupSessionsReference",
+  "connectProviderReadinessRefreshReference",
+  "connectAccountWebhookRowsReference",
+  "connectSensitiveDataReviewReference",
   "connectLegacyMigrationReportReference",
   "payoutReadinessReference",
+  "payoutPreviewAndRequestReference",
+  "transferAndConnectedAccountPayoutReference",
   "payoutFailureReversalReference",
   "reconciliationReference",
   "platformBalanceFundingReference",
@@ -66,8 +81,8 @@ const PRODUCTION_STRIPE_WEBHOOK_HOSTS = new Set(["chasesets.com", "admin.chasese
 const PRODUCTION_STRIPE_PAYMENT_WEBHOOK_PATH = "/api/payments/provider/webhooks";
 const PRODUCTION_STRIPE_CONNECT_WEBHOOK_PATH = "/api/settlement/provider/money-movement/webhooks";
 
-const PRODUCTION_STRIPE_CONNECT_RETURN_PATH = "/account/payouts";
-const PRODUCTION_STRIPE_CONNECT_REFRESH_PATH = "/account/payouts/setup";
+const PRODUCTION_STRIPE_CONNECT_PAYOUT_SETUP_PATH = "/account/payouts/setup";
+const CONNECT_PAYOUT_SETUP_EVIDENCE_KINDS = new Set(["screenshot", "redacted-run-output"]);
 const STRIPE_ID_PLACEHOLDER_PATTERN = /(?:placeholder|example|sample|test|todo|tbd|none|null)/i;
 
 export function parseStripeMoneyOperationsEvidenceArgs(argv, env = process.env) {
@@ -101,12 +116,19 @@ export function buildStripeMoneyOperationsEvidence(input) {
     apiVersion: proof.apiVersion,
     paymentWebhookDestination: proof.paymentWebhookDestination,
     connectWebhookDestination: proof.connectWebhookDestination,
-    connectReturnUrl: proof.connectReturnUrl,
-    connectRefreshUrl: proof.connectRefreshUrl,
+    connectCustomAccountProofCompletedAt: proof.connectCustomAccountProofCompletedAt,
+    connectPayoutSetupPageUrl: proof.connectPayoutSetupPageUrl,
+    connectPayoutSetupPageEvidenceKind: proof.connectPayoutSetupPageEvidenceKind,
+    connectDashboardAccess: proof.connectDashboardAccess,
+    connectControllerFeesPayer: proof.connectControllerFeesPayer,
+    connectControllerLossesCollector: proof.connectControllerLossesCollector,
+    connectControllerRequirementCollection: proof.connectControllerRequirementCollection,
     connectConnectedAccountCount: proof.connectConnectedAccountCount,
     connectCustomDashboardNoneAccountCount: proof.connectCustomDashboardNoneAccountCount,
+    connectEmbeddedSetupSessionCount: proof.connectEmbeddedSetupSessionCount,
     connectLegacyHostedAccountCount: proof.connectLegacyHostedAccountCount,
     connectLegacyPayoutReadyAccountCount: proof.connectLegacyPayoutReadyAccountCount,
+    sensitiveProviderDataStoredCount: proof.sensitiveProviderDataStoredCount,
     paymentProviderEventRowCount: proof.paymentProviderEventRowCount,
     connectProviderEventRowCount: proof.connectProviderEventRowCount,
     ...Object.fromEntries(REQUIRED_STRIPE_MONEY_OPERATION_IDENTIFIERS.map(({ key }) => [key, proof[key]])),
@@ -159,8 +181,25 @@ function normalizeStripeMoneyOperationsProof(proof) {
     apiVersion: requireString(proof.apiVersion, "Stripe API version"),
     paymentWebhookDestination: requireString(proof.paymentWebhookDestination, "Stripe paymentWebhookDestination"),
     connectWebhookDestination: requireString(proof.connectWebhookDestination, "Stripe connectWebhookDestination"),
-    connectReturnUrl: requireString(proof.connectReturnUrl, "Stripe connectReturnUrl"),
-    connectRefreshUrl: requireString(proof.connectRefreshUrl, "Stripe connectRefreshUrl"),
+    connectCustomAccountProofCompletedAt: requireString(
+      proof.connectCustomAccountProofCompletedAt,
+      "Stripe connectCustomAccountProofCompletedAt",
+    ),
+    connectPayoutSetupPageUrl: requireString(proof.connectPayoutSetupPageUrl, "Stripe connectPayoutSetupPageUrl"),
+    connectPayoutSetupPageEvidenceKind: requireString(
+      proof.connectPayoutSetupPageEvidenceKind,
+      "Stripe connectPayoutSetupPageEvidenceKind",
+    ),
+    connectDashboardAccess: requireString(proof.connectDashboardAccess, "Stripe connectDashboardAccess"),
+    connectControllerFeesPayer: requireString(proof.connectControllerFeesPayer, "Stripe connectControllerFeesPayer"),
+    connectControllerLossesCollector: requireString(
+      proof.connectControllerLossesCollector,
+      "Stripe connectControllerLossesCollector",
+    ),
+    connectControllerRequirementCollection: requireString(
+      proof.connectControllerRequirementCollection,
+      "Stripe connectControllerRequirementCollection",
+    ),
     connectConnectedAccountCount: requireNonNegativeInteger(
       proof.connectConnectedAccountCount,
       "Stripe connectConnectedAccountCount",
@@ -169,6 +208,10 @@ function normalizeStripeMoneyOperationsProof(proof) {
       proof.connectCustomDashboardNoneAccountCount,
       "Stripe connectCustomDashboardNoneAccountCount",
     ),
+    connectEmbeddedSetupSessionCount: requireNonNegativeInteger(
+      proof.connectEmbeddedSetupSessionCount,
+      "Stripe connectEmbeddedSetupSessionCount",
+    ),
     connectLegacyHostedAccountCount: requireNonNegativeInteger(
       proof.connectLegacyHostedAccountCount,
       "Stripe connectLegacyHostedAccountCount",
@@ -176,6 +219,10 @@ function normalizeStripeMoneyOperationsProof(proof) {
     connectLegacyPayoutReadyAccountCount: requireNonNegativeInteger(
       proof.connectLegacyPayoutReadyAccountCount,
       "Stripe connectLegacyPayoutReadyAccountCount",
+    ),
+    sensitiveProviderDataStoredCount: requireNonNegativeInteger(
+      proof.sensitiveProviderDataStoredCount,
+      "Stripe sensitiveProviderDataStoredCount",
     ),
     paymentProviderEventRowCount: requireNonNegativeInteger(
       proof.paymentProviderEventRowCount,
@@ -249,6 +296,7 @@ function validateStripeMoneyOperationsProof(proof, checkedAt) {
     errors.push("Stripe money operations proof must use Stripe live mode.");
   }
   validateProofCompletedAt(proof.proofCompletedAt, checkedAt, errors);
+  validateCustomConnectProofCompletedAt(proof.connectCustomAccountProofCompletedAt, checkedAt, errors);
   validateReleaseCommit("Stripe money operations", proof.releaseCommit, errors);
   validateEvidenceReference("Stripe money operations proofReference", proof.proofReference, errors);
   if (proof.apiVersion !== "2026-03-25.dahlia") {
@@ -264,11 +312,25 @@ function validateStripeMoneyOperationsProof(proof, checkedAt) {
       "Stripe money operations proof must use the production Chase Sets Connect money-movement webhook destination.",
     );
   }
-  if (!isProductionStripeUrl(proof.connectReturnUrl, PRODUCTION_STRIPE_CONNECT_RETURN_PATH)) {
-    errors.push("Stripe money operations proof must use a production Chase Sets Connect return URL.");
+  if (!isProductionStripeUrl(proof.connectPayoutSetupPageUrl, PRODUCTION_STRIPE_CONNECT_PAYOUT_SETUP_PATH)) {
+    errors.push("Stripe money operations proof must use the production Chase Sets embedded payout setup page.");
   }
-  if (!isProductionStripeUrl(proof.connectRefreshUrl, PRODUCTION_STRIPE_CONNECT_REFRESH_PATH)) {
-    errors.push("Stripe money operations proof must use a production Chase Sets Connect refresh URL.");
+  if (!CONNECT_PAYOUT_SETUP_EVIDENCE_KINDS.has(proof.connectPayoutSetupPageEvidenceKind)) {
+    errors.push(
+      "Stripe money operations proof must include connectPayoutSetupPageEvidenceKind of screenshot or redacted-run-output.",
+    );
+  }
+  if (proof.connectDashboardAccess !== "none") {
+    errors.push("Stripe money operations proof must configure dashboard access as none for Custom accounts.");
+  }
+  if (proof.connectControllerFeesPayer !== "application") {
+    errors.push("Stripe money operations proof must configure Connect fees payer as application.");
+  }
+  if (proof.connectControllerLossesCollector !== "application") {
+    errors.push("Stripe money operations proof must configure Connect losses collector as application.");
+  }
+  if (proof.connectControllerRequirementCollection !== "application") {
+    errors.push("Stripe money operations proof must configure Connect requirement collection as application.");
   }
   if (proof.connectConnectedAccountCount <= 0) {
     errors.push("Stripe money operations proof must include at least one live connected account.");
@@ -276,10 +338,16 @@ function validateStripeMoneyOperationsProof(proof, checkedAt) {
   if (proof.connectCustomDashboardNoneAccountCount <= 0) {
     errors.push("Stripe money operations proof must include at least one live dashboard-none connected account.");
   }
+  if (proof.connectEmbeddedSetupSessionCount < 2) {
+    errors.push("Stripe money operations proof must include at least two fresh embedded setup sessions.");
+  }
   if (proof.connectLegacyPayoutReadyAccountCount > proof.connectLegacyHostedAccountCount) {
     errors.push(
       "Stripe money operations proof cannot report more payout-ready legacy accounts than total legacy hosted accounts.",
     );
+  }
+  if (proof.sensitiveProviderDataStoredCount !== 0) {
+    errors.push("Stripe money operations proof must not store raw sensitive provider data in Chase Sets.");
   }
   if (proof.paymentProviderEventRowCount < 5) {
     errors.push("Stripe money operations proof must include at least five Payments provider webhook event rows.");
@@ -358,6 +426,31 @@ function validateProofCompletedAt(value, checkedAt, errors) {
   if (ageDays > MAX_STRIPE_MONEY_PROOF_AGE_DAYS) {
     errors.push(
       `Stripe money operations proofCompletedAt cannot be older than ${MAX_STRIPE_MONEY_PROOF_AGE_DAYS} days.`,
+    );
+  }
+}
+
+function validateCustomConnectProofCompletedAt(value, checkedAt, errors) {
+  if (!isIsoTimestamp(value)) {
+    errors.push("Stripe money operations connectCustomAccountProofCompletedAt must be an ISO timestamp.");
+    return;
+  }
+
+  if (!isIsoTimestamp(checkedAt)) {
+    return;
+  }
+
+  const proofCompletedAt = new Date(value);
+  const evidenceCheckedAt = new Date(checkedAt);
+  if (proofCompletedAt.getTime() > evidenceCheckedAt.getTime() + 60_000) {
+    errors.push("Stripe money operations connectCustomAccountProofCompletedAt cannot be after checkedAt.");
+    return;
+  }
+
+  const ageDays = (evidenceCheckedAt.getTime() - proofCompletedAt.getTime()) / 86_400_000;
+  if (ageDays > MAX_STRIPE_MONEY_PROOF_AGE_DAYS) {
+    errors.push(
+      `Stripe money operations connectCustomAccountProofCompletedAt cannot be older than ${MAX_STRIPE_MONEY_PROOF_AGE_DAYS} days.`,
     );
   }
 }
