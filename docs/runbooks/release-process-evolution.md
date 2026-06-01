@@ -156,6 +156,14 @@ Generate canary evidence from telemetry snapshots with:
 pnpm run canary:evidence -- --release-commit <40-char-sha> --observation-window-seconds 300 --source-file .\artifacts\release-health\telemetry.json --out .\artifacts\release-health\canary-analysis.json
 ```
 
+Generate canary evidence from production Prometheus snapshots with:
+
+```powershell
+pnpm run canary:evidence -- --release-commit <40-char-sha> --observation-window-seconds 300 --prometheus-base-url https://<prometheus-host> --prometheus-query-file .\config\release\canary-prometheus-queries.json --out .\artifacts\release-health\canary-analysis.json
+```
+
+The production deployment workflow runs the same collector before advancing the `production` marker when `CANARY_PROMETHEUS_URL` and `CANARY_PROMETHEUS_QUERY_FILE` repository variables are configured. The query file maps canary signal names to `baselineQuery`, `canaryQuery`, `owner`, and `maxIncrease`. Keep the workflow variables unset until production telemetry sources exist for every required signal that should gate promotion.
+
 The collector writes `schemaVersion: "canary-analysis/v1"`, a concrete `releaseCommit`, an `observationWindowSeconds`, and a `signals` array. Each signal includes `name`, `owner`, `source`, `currentState`, and either `status: "pass"` or numeric `baseline`, `canary`, and `maxIncrease` values. Required signals fail closed when telemetry is missing or above threshold; optional signals set `required: false`. Unsupported sources must be recorded as `status: "missing"`, never as pass.
 
 ## Release Health Metrics
@@ -228,6 +236,8 @@ Track these measures from the records:
 - canary duration, abort rate, and promotion rate
 
 Use GitHub Actions summaries and artifacts first. Emit the same events to observability after production telemetry has stable cardinality limits.
+
+Production release-health metadata is resolved from GitHub API evidence. The production workflow records the pull request open time, ready-for-review time, last approval time, merge queue entry time, merge-group workflow start time, merge time, dequeue failure when present, and final merge SHA. If GitHub metadata is temporarily unavailable, the workflow writes deterministic fallbacks and leaves unknown fields empty rather than blocking production recovery.
 
 Build a Markdown dashboard from release-health artifacts with:
 
@@ -368,8 +378,7 @@ The readiness output is a `rollback-readiness/v1` artifact. A passing readiness 
 
 ## Current Deferred Work
 
-The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, release dashboard, canary-analysis gate, telemetry-backed canary evidence collector, release-health report generator, merge-queue-enabled PR validation, and production release-health artifact emission with queue, staging, production, canary, and drift timing. The next implementation steps are:
+The repository now contains the release-lock check, release-lock command generator, deterministic rollout evaluator, audited Platform Operations release-control policy API, the first Pricing rollout guard, operator release-controls console, release dashboard, canary-analysis gate, telemetry-backed canary evidence collector with optional Prometheus input, release-health report generator, merge-queue-enabled PR validation, and production release-health artifact emission with GitHub API-backed queue, staging, production, canary, and drift timing. The next implementation steps are:
 
-- persist PR ready-for-review and queue timestamps from GitHub API evidence
-- wire the canary evidence collector to production observability sources once telemetry data sources are ready
+- configure production Prometheus canary query files after every required signal has stable telemetry and an owner-approved threshold
 - tune merge queue batch size only after at least 10 deployable release-health records meet the SLO posture in this runbook

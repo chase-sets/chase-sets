@@ -3,7 +3,12 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
 import { evaluateCanaryAnalysis } from "./canary-analysis.mjs";
-import { buildCanaryEvidence, collectCanaryEvidence, REQUIRED_CANARY_SIGNALS } from "./canary-evidence.mjs";
+import {
+  buildCanaryEvidence,
+  collectCanaryEvidence,
+  collectPrometheusTelemetry,
+  REQUIRED_CANARY_SIGNALS,
+} from "./canary-evidence.mjs";
 
 const releaseCommit = "0123456789abcdef0123456789abcdef01234567";
 
@@ -88,5 +93,98 @@ describe("canary evidence collector", () => {
     expect(result.analysis.passesCanaryAnalysisGate).toBe(false);
     expect(result.analysis.errors).toContain("Required canary signal route-latency-p95 did not pass: fail.");
     expect(JSON.parse(await readFile(outFile, "utf8")).signals).toEqual(result.evidence.signals);
+  });
+
+  it("collects numeric production observability snapshots from Prometheus queries", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-canary-prometheus-"));
+    const queryFile = join(directory, "queries.json");
+    await writeFile(
+      queryFile,
+      `${JSON.stringify(
+        {
+          signals: {
+            "route-error-rate": {
+              owner: "platform-runtime/route-owner",
+              baselineQuery: 'sum(rate(http_requests_total{status=~"5.."}[15m]))',
+              canaryQuery: 'sum(rate(http_requests_total{status=~"5..",release="canary"}[15m]))',
+              maxIncrease: 0.005,
+            },
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    const seenQueries = [];
+
+    const telemetry = await collectPrometheusTelemetry({
+      baseUrl: "https://prometheus.example",
+      queryFile,
+      fetchImpl: async (url) => {
+        const query = url.searchParams.get("query");
+        seenQueries.push(query);
+        return {
+          ok: true,
+          json: async () => ({
+            status: "success",
+            data: {
+              resultType: "vector",
+              result: [{ value: [1_802_000_000, query?.includes('release="canary"') ? "0.012" : "0.01"] }],
+            },
+          }),
+        };
+      },
+    });
+
+    expect(seenQueries).toEqual([
+      'sum(rate(http_requests_total{status=~"5.."}[15m]))',
+      'sum(rate(http_requests_total{status=~"5..",release="canary"}[15m]))',
+    ]);
+    expect(telemetry.signals[0]).toMatchObject({
+      name: "route-error-rate",
+      baseline: 0.01,
+      canary: 0.012,
+      source: 'Prometheus: sum(rate(http_requests_total{status=~"5..",release="canary"}[15m]))',
+      threshold: "<= baseline + 0.005",
+    });
+  });
+
+  it("merges Prometheus telemetry into canary evidence and still fails missing required signals closed", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-canary-prometheus-merge-"));
+    const queryFile = join(directory, "queries.json");
+    await writeFile(
+      queryFile,
+      `${JSON.stringify({
+        signals: [
+          {
+            name: "route-latency-p95",
+            baselineQuery: "baseline_latency",
+            canaryQuery: "canary_latency",
+            maxIncrease: 50,
+          },
+        ],
+      })}\n`,
+    );
+
+    const result = await collectCanaryEvidence({
+      releaseCommit,
+      checkedAt: "2026-06-01T12:00:00.000Z",
+      observationWindowSeconds: 300,
+      sourceFiles: [],
+      prometheusBaseUrl: "https://prometheus.example",
+      prometheusQueryFile: queryFile,
+      fetchImpl: async () => ({
+        ok: true,
+        json: async () => ({ status: "success", data: { resultType: "scalar", result: [1_802_000_000, "25"] } }),
+      }),
+    });
+
+    expect(result.evidence.signals.find((signal) => signal.name === "route-latency-p95")).toMatchObject({
+      baseline: 25,
+      canary: 25,
+      currentState: "available-now",
+    });
+    expect(result.analysis.passesCanaryAnalysisGate).toBe(false);
+    expect(result.analysis.errors).toContain("Required canary signal route-error-rate did not pass: missing.");
   });
 });

@@ -1345,6 +1345,22 @@ jobs:
           echo "completed_at=${completed_at}" >> "$GITHUB_OUTPUT"
           echo "Stage 1 production canary verified ${#canary_urls[@]} synthetic/operator-safe endpoints."
 
+      - name: Collect production canary observability evidence
+        id: canary_evidence
+        if: |
+          always() &&
+          steps.latest_main.outputs.should_deploy != 'false' &&
+          steps.stage1_canary.outcome == 'success' &&
+          vars.CANARY_PROMETHEUS_URL != '' &&
+          vars.CANARY_PROMETHEUS_QUERY_FILE != ''
+        env:
+          CANARY_EVIDENCE_OUT: artifacts/release-health/canary-analysis.json
+          RELEASE_COMMIT: ${{ needs.resolve-release.outputs.release_commit }}
+          CANARY_OBSERVATION_WINDOW_SECONDS: ${{ vars.CANARY_OBSERVATION_WINDOW_SECONDS || '300' }}
+          CANARY_PROMETHEUS_URL: ${{ vars.CANARY_PROMETHEUS_URL || '' }}
+          CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}
+        run: node ./scripts/canary-evidence.mjs
+
       - name: Mark production release
         if: steps.latest_main.outputs.should_deploy != 'false'
         run: |
@@ -1386,26 +1402,24 @@ jobs:
           release_commit="${{ needs.resolve-release.outputs.release_commit }}"
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           committed_at="$(git show -s --format=%cI "$release_commit")"
-          queue_queued_at="${SOURCE_WORKFLOW_CREATED_AT:-}"
-          queue_merged_at="${committed_at}"
-          pr_opened_at=""
-          pr_ready_for_review_at=""
-          pr_approved_at=""
-          merge_sha="${release_commit}"
-
-          pr_number="$(gh api -H "Accept: application/vnd.github+json" "repos/${{ github.repository }}/commits/${release_commit}/pulls" --jq '.[0].number // ""' 2>/dev/null || true)"
-          if [ -n "$pr_number" ]; then
-            pr_opened_at="$(gh api "repos/${{ github.repository }}/pulls/${pr_number}" --jq '.created_at // ""' 2>/dev/null || true)"
-            pr_merged_at="$(gh api "repos/${{ github.repository }}/pulls/${pr_number}" --jq '.merged_at // ""' 2>/dev/null || true)"
-            pr_merge_sha="$(gh api "repos/${{ github.repository }}/pulls/${pr_number}" --jq '.merge_commit_sha // ""' 2>/dev/null || true)"
-            pr_approved_at="$(gh api "repos/${{ github.repository }}/pulls/${pr_number}/reviews" --jq '[.[] | select(.state == "APPROVED") | .submitted_at] | sort | last // ""' 2>/dev/null || true)"
-
-            if [ -n "$pr_merged_at" ]; then
-              queue_merged_at="$pr_merged_at"
-            fi
-            if [ -n "$pr_merge_sha" ]; then
-              merge_sha="$pr_merge_sha"
-            fi
+          if ! node ./scripts/release-health-github-metadata.mjs \
+            --repository "${{ github.repository }}" \
+            --release-commit "$release_commit" \
+            --source-workflow-created-at "${SOURCE_WORKFLOW_CREATED_AT:-}" \
+            --format github-output >> "$GITHUB_OUTPUT"; then
+            echo "GitHub release-health metadata was unavailable; writing deterministic fallbacks." >&2
+            {
+              echo "pr_number="
+              echo "pr_opened_at="
+              echo "pr_ready_for_review_at="
+              echo "pr_approved_at="
+              echo "queue_queued_at=${SOURCE_WORKFLOW_CREATED_AT:-}"
+              echo "queue_merge_group_started_at="
+              echo "queue_merged_at=${committed_at}"
+              echo "queue_dequeued_at="
+              echo "queue_failure_reason="
+              echo "merge_sha=${release_commit}"
+            } >> "$GITHUB_OUTPUT"
           fi
 
           git fetch origin production || true
@@ -1423,12 +1437,6 @@ jobs:
           {
             echo "completed_at=${completed_at}"
             echo "committed_at=${committed_at}"
-            echo "pr_opened_at=${pr_opened_at}"
-            echo "pr_ready_for_review_at=${pr_ready_for_review_at}"
-            echo "pr_approved_at=${pr_approved_at}"
-            echo "queue_queued_at=${queue_queued_at}"
-            echo "queue_merged_at=${queue_merged_at}"
-            echo "merge_sha=${merge_sha}"
             echo "drift_commits=${drift_commits}"
             echo "drift_seconds=${drift_seconds}"
           } >> "$GITHUB_OUTPUT"
@@ -1444,7 +1452,10 @@ jobs:
           PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}
           QUEUE_BATCH_SIZE: "1"
           QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}
+          QUEUE_MERGE_GROUP_STARTED_AT: ${{ steps.release_health_metadata.outputs.queue_merge_group_started_at }}
           QUEUE_MERGED_AT: ${{ steps.release_health_metadata.outputs.queue_merged_at }}
+          QUEUE_DEQUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_dequeued_at }}
+          QUEUE_FAILURE_REASON: ${{ steps.release_health_metadata.outputs.queue_failure_reason }}
           MERGE_SHA: ${{ steps.release_health_metadata.outputs.merge_sha }}
           RELEASE_COMMIT_COMMITTED_AT: ${{ steps.release_health_metadata.outputs.committed_at }}
           RELEASE_CATEGORY: ${{ github.event_name == 'workflow_dispatch' && inputs.emergency_release == true && 'emergency-recovery' || needs.resolve-release.outputs.exposure_posture_changed == 'true' && 'exposure-posture-change' || 'ordinary-deploy' }}
@@ -1453,13 +1464,13 @@ jobs:
           STAGING_RESULT: ${{ needs.deploy-staging.result }}
           STAGING_STARTED_AT: ${{ needs.deploy-staging.outputs.started_at }}
           STAGING_COMPLETED_AT: ${{ needs.deploy-staging.outputs.completed_at }}
-          CANARY_RESULT: ${{ steps.stage1_canary.outcome || 'skipped' }}
+          CANARY_RESULT: ${{ steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}
           CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}
           CANARY_COMPLETED_AT: ${{ steps.stage1_canary.outputs.completed_at }}
           CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
-          CANARY_PROMOTION_DECISION: ${{ steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
+          CANARY_PROMOTION_DECISION: ${{ steps.canary_evidence.outcome == 'failure' && 'abort' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
           PRODUCTION_RESULT: ${{ job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}
@@ -1476,6 +1487,8 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: production-release-health
-          path: artifacts/release-health/production-release.json
+          path: |
+            artifacts/release-health/production-release.json
+            artifacts/release-health/canary-analysis.json
           if-no-files-found: ignore
           retention-days: 30

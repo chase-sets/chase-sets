@@ -448,10 +448,10 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain("- name: Resolve release health metadata");
     expect(platformProductionWorkflow).toContain("SOURCE_WORKFLOW_CREATED_AT");
-    expect(platformProductionWorkflow).toContain('repos/${{ github.repository }}/commits/${release_commit}/pulls"');
-    expect(platformProductionWorkflow).toContain('echo "pr_opened_at=${pr_opened_at}"');
-    expect(platformProductionWorkflow).toContain('echo "pr_approved_at=${pr_approved_at}"');
-    expect(platformProductionWorkflow).toContain('echo "merge_sha=${merge_sha}"');
+    expect(platformProductionWorkflow).toContain("node ./scripts/release-health-github-metadata.mjs");
+    expect(platformProductionWorkflow).toContain('--release-commit "$release_commit"');
+    expect(platformProductionWorkflow).toContain('echo "queue_merge_group_started_at="');
+    expect(platformProductionWorkflow).toContain('echo "merge_sha=${release_commit}"');
     expect(platformProductionWorkflow).toContain('git rev-list --count "origin/production..${release_commit}"');
     expect(platformProductionWorkflow).toContain('echo "drift_commits=${drift_commits}"');
     expect(platformProductionWorkflow).toContain('echo "drift_seconds=${drift_seconds}"');
@@ -466,10 +466,19 @@ describe("DigitalOcean platform configuration", () => {
       "PR_OPENED_AT: ${{ steps.release_health_metadata.outputs.pr_opened_at }}",
     );
     expect(platformProductionWorkflow).toContain(
+      "PR_READY_FOR_REVIEW_AT: ${{ steps.release_health_metadata.outputs.pr_ready_for_review_at }}",
+    );
+    expect(platformProductionWorkflow).toContain(
       "PR_APPROVED_AT: ${{ steps.release_health_metadata.outputs.pr_approved_at }}",
     );
     expect(platformProductionWorkflow).toContain(
       "QUEUE_QUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_queued_at }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "QUEUE_MERGE_GROUP_STARTED_AT: ${{ steps.release_health_metadata.outputs.queue_merge_group_started_at }}",
+    );
+    expect(platformProductionWorkflow).toContain(
+      "QUEUE_DEQUEUED_AT: ${{ steps.release_health_metadata.outputs.queue_dequeued_at }}",
     );
     expect(platformProductionWorkflow).toContain("MERGE_SHA: ${{ steps.release_health_metadata.outputs.merge_sha }}");
     expect(platformProductionWorkflow).toContain(
@@ -482,12 +491,22 @@ describe("DigitalOcean platform configuration", () => {
     );
     expect(platformProductionWorkflow).toContain("- name: Stage 1 production canary");
     expect(platformProductionWorkflow.indexOf("- name: Stage 1 production canary")).toBeLessThan(
+      platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence"),
+    );
+    expect(platformProductionWorkflow.indexOf("- name: Collect production canary observability evidence")).toBeLessThan(
       platformProductionWorkflow.indexOf("- name: Mark production release"),
     );
-    expect(platformProductionWorkflow).toContain("CANARY_RESULT: ${{ steps.stage1_canary.outcome || 'skipped' }}");
+    expect(platformProductionWorkflow).toContain("CANARY_PROMETHEUS_URL: ${{ vars.CANARY_PROMETHEUS_URL || '' }}");
+    expect(platformProductionWorkflow).toContain(
+      "CANARY_PROMETHEUS_QUERY_FILE: ${{ vars.CANARY_PROMETHEUS_QUERY_FILE || '' }}",
+    );
+    expect(platformProductionWorkflow).toContain("run: node ./scripts/canary-evidence.mjs");
+    expect(platformProductionWorkflow).toContain(
+      "CANARY_RESULT: ${{ steps.canary_evidence.outcome == 'failure' && 'failure' || steps.stage1_canary.outcome || 'skipped' }}",
+    );
     expect(platformProductionWorkflow).toContain("CANARY_STARTED_AT: ${{ steps.stage1_canary.outputs.started_at }}");
     expect(platformProductionWorkflow).toContain(
-      "CANARY_PROMOTION_DECISION: ${{ steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
+      "CANARY_PROMOTION_DECISION: ${{ steps.canary_evidence.outcome == 'failure' && 'abort' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}",
     );
     expect(platformProductionWorkflow).toContain("PRODUCTION_RESULT: ${{ job.status }}");
     expect(platformProductionWorkflow).toContain(
@@ -502,6 +521,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformProductionWorkflow).toContain("run: node ./scripts/release-health.mjs");
     expect(platformProductionWorkflow).toContain("- name: Upload release health summary");
     expect(platformProductionWorkflow).toContain("name: production-release-health");
+    expect(platformProductionWorkflow).toContain("artifacts/release-health/canary-analysis.json");
     expect(platformProductionWorkflow).toContain("retention-days: 30");
     expect(platformProductionWorkflow).toContain(
       "TF_VAR_production_marketplace_launch_evidence_reference: ${{ vars.PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE || '' }}",

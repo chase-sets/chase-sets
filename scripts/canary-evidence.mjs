@@ -106,12 +106,29 @@ export function parseCanaryEvidenceArgs(argv, env = process.env) {
       readOption(argv, "--observation-window-seconds") ?? readEnv("CANARY_OBSERVATION_WINDOW_SECONDS", env) ?? "300",
     ),
     sourceFiles: readRepeatedOptions(argv, "--source-file"),
+    prometheusBaseUrl:
+      readOption(argv, "--prometheus-base-url") ??
+      readEnv("CANARY_PROMETHEUS_URL", env) ??
+      readEnv("PROMETHEUS_URL", env),
+    prometheusQueryFile: readOption(argv, "--prometheus-query-file") ?? readEnv("CANARY_PROMETHEUS_QUERY_FILE", env),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),
   };
 }
 
 export async function collectCanaryEvidence(options) {
-  const telemetry = mergeTelemetrySources(await Promise.all(options.sourceFiles.map(readTelemetrySource)));
+  const telemetrySources = await Promise.all([
+    ...options.sourceFiles.map(readTelemetrySource),
+    ...(options.prometheusBaseUrl && options.prometheusQueryFile
+      ? [
+          collectPrometheusTelemetry({
+            baseUrl: options.prometheusBaseUrl,
+            queryFile: options.prometheusQueryFile,
+            fetchImpl: options.fetchImpl ?? globalThis.fetch,
+          }),
+        ]
+      : []),
+  ]);
+  const telemetry = mergeTelemetrySources(telemetrySources);
   const evidence = buildCanaryEvidence({
     releaseCommit: options.releaseCommit,
     observationWindowSeconds: options.observationWindowSeconds,
@@ -126,6 +143,49 @@ export async function collectCanaryEvidence(options) {
   }
 
   return { evidence, analysis };
+}
+
+export async function collectPrometheusTelemetry({ baseUrl, queryFile, fetchImpl = globalThis.fetch }) {
+  if (typeof fetchImpl !== "function") {
+    throw new Error("A fetch implementation is required for Prometheus canary evidence.");
+  }
+
+  const queryConfig = JSON.parse(await readFile(queryFile, "utf8"));
+  const signals = [];
+  for (const signal of readSignals(queryConfig)) {
+    if (!signal.name || !signal.baselineQuery || !signal.canaryQuery) {
+      continue;
+    }
+
+    const [baseline, canary] = await Promise.all([
+      queryPrometheus({ baseUrl, query: signal.baselineQuery, fetchImpl }),
+      queryPrometheus({ baseUrl, query: signal.canaryQuery, fetchImpl }),
+    ]);
+
+    const source = normalizeString(signal.source) ?? `Prometheus: ${signal.canaryQuery}`;
+    signals.push({
+      name: signal.name,
+      owner: signal.owner,
+      required: signal.required,
+      source,
+      currentState: signal.currentState ?? "available-now",
+      baseline,
+      canary,
+      maxIncrease: signal.maxIncrease,
+      threshold:
+        typeof signal.threshold === "string"
+          ? signal.threshold
+          : typeof signal.maxIncrease === "number"
+            ? `<= baseline + ${signal.maxIncrease}`
+            : undefined,
+      status: baseline === null || canary === null ? "missing" : undefined,
+      detail:
+        baseline === null || canary === null
+          ? `Prometheus returned no numeric result for ${signal.name}.`
+          : signal.detail,
+    });
+  }
+  return { signals };
 }
 
 export function buildCanaryEvidence(input) {
@@ -173,6 +233,43 @@ function buildSignalEvidence(signal, telemetry) {
 
 async function readTelemetrySource(filePath) {
   return JSON.parse(await readFile(filePath, "utf8"));
+}
+
+async function queryPrometheus({ baseUrl, query, fetchImpl }) {
+  const url = new URL("/api/v1/query", baseUrl);
+  url.searchParams.set("query", query);
+  const response = await fetchImpl(url);
+  if (!response.ok) {
+    throw new Error(`Prometheus query failed: ${response.status}`);
+  }
+  const body = await response.json();
+  return readPrometheusNumber(body);
+}
+
+function readPrometheusNumber(body) {
+  if (body?.status !== "success") {
+    return null;
+  }
+  const resultType = body?.data?.resultType;
+  const result = body?.data?.result;
+  if (resultType === "scalar" && Array.isArray(result)) {
+    return toNumber(result[1]);
+  }
+  if (Array.isArray(result) && result.length > 0) {
+    const first = result[0];
+    if (Array.isArray(first?.value)) {
+      return toNumber(first.value[1]);
+    }
+    if (Array.isArray(first?.values) && first.values.length > 0) {
+      return toNumber(first.values.at(-1)?.[1]);
+    }
+  }
+  return null;
+}
+
+function toNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function mergeTelemetrySources(sources) {
