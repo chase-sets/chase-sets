@@ -115,12 +115,19 @@ function validPacket(overrides = {}) {
         apiVersion: "2026-03-25.dahlia",
         paymentWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
         connectWebhookDestination: "https://marketplace.chasesets.com/api/settlement/provider/money-movement/webhooks",
-        connectReturnUrl: "https://marketplace.chasesets.com/account/payouts",
-        connectRefreshUrl: "https://marketplace.chasesets.com/account/payouts/setup",
+        connectCustomAccountProofCompletedAt: "2026-05-30T10:20:00.000Z",
+        connectPayoutSetupPageUrl: "https://marketplace.chasesets.com/account/payouts/setup",
+        connectPayoutSetupPageEvidenceKind: "screenshot",
+        connectDashboardAccess: "none",
+        connectControllerFeesPayer: "application",
+        connectControllerLossesCollector: "application",
+        connectControllerRequirementCollection: "application",
         connectConnectedAccountCount: 1,
         connectCustomDashboardNoneAccountCount: 1,
+        connectEmbeddedSetupSessionCount: 2,
         connectLegacyHostedAccountCount: 0,
         connectLegacyPayoutReadyAccountCount: 0,
+        sensitiveProviderDataStoredCount: 0,
         paymentProviderEventRowCount: 5,
         connectProviderEventRowCount: 2,
         livePaymentIntentId: "pi_liveCheckout20260530",
@@ -143,10 +150,17 @@ function validPacket(overrides = {}) {
         liveCheckoutReference: "STRIPE-LIVE-CHECKOUT-2026-05-30",
         refundReference: "STRIPE-REFUND-2026-05-30",
         disputeReference: "STRIPE-DISPUTE-2026-05-30",
-        connectOnboardingReference: "STRIPE-CONNECT-ONBOARDING-2026-05-30",
         connectCustomAccountProofReference: "STRIPE-CONNECT-CUSTOM-ACCOUNT-2026-05-30",
+        connectEmbeddedSetupSessionReference: "STRIPE-CONNECT-EMBEDDED-SETUP-2026-05-30",
+        connectPayoutSetupPageReference: "STRIPE-CONNECT-PAYOUT-SETUP-PAGE-2026-05-30",
+        connectFreshSetupSessionsReference: "STRIPE-CONNECT-FRESH-SESSIONS-2026-05-30",
+        connectProviderReadinessRefreshReference: "STRIPE-CONNECT-READINESS-REFRESH-2026-05-30",
+        connectAccountWebhookRowsReference: "STRIPE-CONNECT-WEBHOOK-ROWS-2026-05-30",
+        connectSensitiveDataReviewReference: "STRIPE-CONNECT-SENSITIVE-DATA-REVIEW-2026-05-30",
         connectLegacyMigrationReportReference: "STRIPE-CONNECT-MIGRATION-REPORT-2026-05-30",
         payoutReadinessReference: "STRIPE-PAYOUT-READINESS-2026-05-30",
+        payoutPreviewAndRequestReference: "STRIPE-PAYOUT-PREVIEW-REQUEST-2026-05-30",
+        transferAndConnectedAccountPayoutReference: "STRIPE-TRANSFER-PAYOUT-2026-05-30",
         payoutFailureReversalReference: "STRIPE-PAYOUT-FAILURE-REVERSAL-2026-05-30",
         reconciliationReference: "STRIPE-RECONCILIATION-2026-05-30",
         platformBalanceFundingReference: "STRIPE-PLATFORM-BALANCE-2026-05-30",
@@ -157,10 +171,18 @@ function validPacket(overrides = {}) {
         liveCheckoutProven: true,
         refundProven: true,
         disputeProven: true,
-        connectOnboardingProven: true,
+        connectDashboardNoneConfigured: true,
+        connectEmbeddedSetupSessionCreated: true,
+        connectPayoutSetupPageProven: true,
+        connectFreshSetupSessionsProven: true,
+        connectProviderReadinessRefreshProven: true,
+        connectAccountWebhookRowsProven: true,
+        connectNoSensitiveProviderDataStored: true,
         connectCustomAccountProofProven: true,
         connectLegacyMigrationReportReviewed: true,
         payoutReadinessProven: true,
+        payoutPreviewAndRequestProven: true,
+        transferAndConnectedAccountPayoutProven: true,
         payoutFailureReversalProven: true,
         reconciliationProven: true,
         platformBalanceFundingProven: true,
@@ -1119,8 +1141,9 @@ describe("marketplace launch evidence verifier", () => {
     expect(result.errors).toContain("Stripe money operations must include at least one live connected account.");
     expect(result.errors).toContain("Stripe money operations must include paymentWebhookDestination.");
     expect(result.errors).toContain("Stripe money operations must include connectWebhookDestination.");
-    expect(result.errors).toContain("Stripe money operations must include connectReturnUrl.");
-    expect(result.errors).toContain("Stripe money operations must include connectRefreshUrl.");
+    expect(result.errors).toContain("Stripe money operations must include connectCustomAccountProofCompletedAt.");
+    expect(result.errors).toContain("Stripe money operations must include connectPayoutSetupPageUrl.");
+    expect(result.errors).toContain("Stripe money operations must include connectPayoutSetupPageEvidenceKind.");
     expect(result.errors).toContain("Stripe money operations must include proofCompletedAt.");
     expect(result.errors).toContain("Stripe money operations must include livePaymentIntentId.");
     expect(result.errors).toContain("Stripe money operations must include payoutFailurePayoutId.");
@@ -1218,8 +1241,7 @@ describe("marketplace launch evidence verifier", () => {
             ...validPacket().gates.stripeMoneyOperations,
             paymentWebhookDestination: "https://staging.chasesets.com/api/payments/provider/webhooks",
             connectWebhookDestination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
-            connectReturnUrl: "https://marketplace.chasesets.com/checkout",
-            connectRefreshUrl: "not-a-url",
+            connectPayoutSetupPageUrl: "https://marketplace.chasesets.com/checkout",
           },
         },
       }),
@@ -1234,9 +1256,49 @@ describe("marketplace launch evidence verifier", () => {
       "Stripe money operations connectWebhookDestination must use /api/settlement/provider/money-movement/webhooks on a production Chase Sets host.",
     );
     expect(result.errors).toContain(
-      "Stripe money operations connectReturnUrl must use /account/payouts on a production Chase Sets host.",
+      "Stripe money operations connectPayoutSetupPageUrl must use /account/payouts/setup on a production Chase Sets host.",
     );
-    expect(result.errors).toContain("Stripe money operations connectRefreshUrl must be an absolute HTTPS URL.");
+  });
+
+  it("fails when Custom Connect embedded setup proof is missing, stale, or hosted-dashboard shaped", () => {
+    const result = validateMarketplaceLaunchEvidence(
+      validPacket({
+        gates: {
+          stripeMoneyOperations: {
+            ...validPacket().gates.stripeMoneyOperations,
+            connectEmbeddedSetupSessionCreated: false,
+            connectPayoutSetupPageEvidenceKind: "hosted-dashboard",
+            connectEmbeddedSetupSessionCount: 1,
+            connectCustomAccountProofCompletedAt: "2026-04-15T10:20:00.000Z",
+            connectDashboardAccess: "express",
+            connectControllerFeesPayer: "account",
+            connectControllerLossesCollector: "stripe",
+            connectControllerRequirementCollection: "stripe",
+            sensitiveProviderDataStoredCount: 1,
+          },
+        },
+      }),
+      { now },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.errors).toContain("Stripe money operations must have connectEmbeddedSetupSessionCreated=true.");
+    expect(result.errors).toContain(
+      "Stripe money operations connectPayoutSetupPageEvidenceKind must be screenshot or redacted-run-output.",
+    );
+    expect(result.errors).toContain(
+      "Stripe money operations connectCustomAccountProofCompletedAt cannot be older than 30 days.",
+    );
+    expect(result.errors).toContain("Stripe money operations must include at least two fresh embedded setup sessions.");
+    expect(result.errors).toContain("Stripe money operations connectDashboardAccess must be none for Custom accounts.");
+    expect(result.errors).toContain("Stripe money operations connectControllerFeesPayer must be application.");
+    expect(result.errors).toContain("Stripe money operations connectControllerLossesCollector must be application.");
+    expect(result.errors).toContain(
+      "Stripe money operations connectControllerRequirementCollection must be application.",
+    );
+    expect(result.errors).toContain(
+      "Stripe money operations must not store raw sensitive provider data in Chase Sets.",
+    );
   });
 
   it("fails when Stripe proof is not live mode or uses the wrong API version", () => {

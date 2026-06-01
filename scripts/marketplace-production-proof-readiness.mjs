@@ -243,10 +243,13 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
     secretCommands: missingSecrets.map((name) => `gh secret set ${name} --env production`),
     stripeMoneySmokeEnvironmentCommands: [
       `$env:PLATFORM_API_BASE_URL="${providerCallbackSetup.productionProofBaseUrl}"`,
-      `$env:STRIPE_CONNECT_RETURN_URL="${providerCallbackSetup.stripeConnectOnboarding.privateProofReturnUrl}"`,
-      `$env:STRIPE_CONNECT_REFRESH_URL="${providerCallbackSetup.stripeConnectOnboarding.privateProofRefreshUrl}"`,
+      `$env:MARKETPLACE_WEB_BASE_URL="${providerCallbackSetup.productionMarketplaceBaseUrl}"`,
       '$env:STRIPE_MONEY_SMOKE_ALLOW_LIVE="true"',
       `$env:PRODUCTION_MARKETPLACE_PROOF_REFERENCE="${suggestedProofReference}"`,
+    ],
+    stripeMoneySmokeLegacyHostedCompatibilityCommands: [
+      `$env:STRIPE_CONNECT_RETURN_URL="${providerCallbackSetup.stripeConnectCustomSetup.legacyHostedCompatibility.privateProofReturnUrl}"`,
+      `$env:STRIPE_CONNECT_REFRESH_URL="${providerCallbackSetup.stripeConnectCustomSetup.legacyHostedCompatibility.privateProofRefreshUrl}"`,
     ],
     stripeMoneySmokeAuthenticationOptions: [
       {
@@ -280,6 +283,7 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
       "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
       "Use stripeMoneySmokeEnvironmentCommands for private production proof only after topology evidence passes and live Stripe secrets are loaded into the shell.",
+      "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only while the smoke command still checks legacy Connect return/refresh environment variables.",
     ],
   };
 }
@@ -415,6 +419,7 @@ function buildProviderCallbackSetup({ baseUrl, marketplaceUrl }) {
   const normalizedMarketplaceUrl = normalizeUrlOrigin(marketplaceUrl);
   return {
     productionProofBaseUrl: normalizedBaseUrl,
+    productionMarketplaceBaseUrl: normalizedMarketplaceUrl,
     dashboardDestinations: [
       {
         provider: "stripe",
@@ -441,17 +446,22 @@ function buildProviderCallbackSetup({ baseUrl, marketplaceUrl }) {
         launchEvidenceField: "gates.fulfillmentPostage.webhookDestination",
       },
     ],
-    stripeConnectOnboarding: {
-      privateProofReturnUrl: `${normalizedBaseUrl}/api/settlement/payout-setup/progress`,
-      privateProofRefreshUrl: `${normalizedBaseUrl}/api/settlement/payout-setup/progress`,
-      finalLaunchReturnUrl: `${normalizedMarketplaceUrl}/account/payouts`,
-      finalLaunchRefreshUrl: `${normalizedMarketplaceUrl}/account/payouts/setup`,
+    stripeConnectCustomSetup: {
+      finalLaunchSetupPageUrl: `${normalizedMarketplaceUrl}/account/payouts/setup`,
       launchEvidenceFields: [
-        "gates.stripeMoneyOperations.connectReturnUrl",
-        "gates.stripeMoneyOperations.connectRefreshUrl",
+        "gates.stripeMoneyOperations.connectPayoutSetupPageUrl",
+        "gates.stripeMoneyOperations.connectPayoutSetupPageEvidenceKind",
+        "gates.stripeMoneyOperations.connectEmbeddedSetupSessionCount",
+        "gates.stripeMoneyOperations.connectDashboardAccess",
+        "gates.stripeMoneyOperations.connectControllerRequirementCollection",
       ],
       privateProofNote:
-        "Use the private proof URLs for live smoke tests against the proof API origin. Final launch evidence still requires the marketplace-domain seller return pages.",
+        "Use the embedded payout setup page for live seller setup proof. Do not approve production with hosted Connect onboarding or Express dashboard proof.",
+      legacyHostedCompatibility: {
+        privateProofReturnUrl: `${normalizedBaseUrl}/api/settlement/payout-setup/progress`,
+        privateProofRefreshUrl: `${normalizedBaseUrl}/api/settlement/payout-setup/progress`,
+        note: "Compatibility only for smoke commands that still validate legacy Connect return/refresh environment variables.",
+      },
     },
   };
 }
