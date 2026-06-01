@@ -88,6 +88,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0003: Environment Bootstrap And Scenario Data](./adr/0003-environment-bootstrap-and-scenario-data.md)
 - [ADR 0004: Consumer-Owned Projection Subscriptions](./adr/0004-consumer-owned-projection-subscriptions.md)
 - [ADR 0005: Representative Staging Commerce State](./adr/0005-representative-staging-commerce-state.md)
+- [ADR 0006: Stripe Connect Custom Account Experience](./adr/0006-stripe-connect-custom-account-experience.md)
 
 ## Maintenance
 

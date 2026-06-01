@@ -11,6 +11,8 @@ Settlement owns internal financial truth for marketplace balances and payouts.
 - Fee postings
 - Rebate postings
 - Payout eligibility
+- Payout setup readiness
+- Connected payout account references
 - Payout batches
 - Statements and settlement summaries
 - Financial reconciliation against Payments
@@ -57,7 +59,7 @@ Settlement terminology is defined in [GLOSSARY.md](./GLOSSARY.md).
 
 ## Operations
 
-Stripe Connect configuration, payout smoke tests, reconciliation, and incident workflows live in [Money Operations](../../docs/runbooks/money-operations.md).
+Stripe Connect configuration, embedded payout setup target state, payout smoke tests, reconciliation, and incident workflows live in [Money Operations](../../docs/runbooks/money-operations.md). The cross-context responsibility decision lives in [ADR 0006: Stripe Connect Custom Account Experience](../../docs/adr/0006-stripe-connect-custom-account-experience.md).
 
 ## Open Extraction Candidates
 
