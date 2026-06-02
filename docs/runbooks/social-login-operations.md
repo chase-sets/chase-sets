@@ -28,12 +28,25 @@ Use non-production provider apps or documented safe provider test credentials fo
 
 ## Callback URLs
 
-Use the Platform API origin for provider callbacks:
+Use the exact same public origin that starts the provider journey for callbacks. The platform routes `/api/auth/social/*`
+same-origin from marketplace and admin hosts; do not use an imagined separate Platform API host for browser Social
+Login callbacks.
 
-- Google: `https://<platform-api-origin>/api/auth/social/google/callback`
-- Facebook: `https://<platform-api-origin>/api/auth/social/facebook/callback`
+Production Google OAuth authorized redirect URIs:
 
-Admin Google Workspace SSO uses the same Google callback URL as marketplace Google Social Login.
+- Marketplace Google Social Login: `https://marketplace.chasesets.com/api/auth/social/google/callback`
+- Admin Google Workspace SSO: `https://admin.chasesets.com/api/auth/social/google/callback`
+- Production root, only if a Google journey is started from `chasesets.com`: `https://chasesets.com/api/auth/social/google/callback`
+
+Production Facebook authorized redirect URI:
+
+- Marketplace Facebook Social Login: `https://marketplace.chasesets.com/api/auth/social/facebook/callback`
+
+Staging callback examples:
+
+- Marketplace Google: `https://marketplace.staging.chasesets.com/api/auth/social/google/callback`
+- Marketplace Facebook: `https://marketplace.staging.chasesets.com/api/auth/social/facebook/callback`
+- Admin Google Workspace SSO: `https://admin.staging.chasesets.com/api/auth/social/google/callback`
 
 Local sandbox callback examples:
 

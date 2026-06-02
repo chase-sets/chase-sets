@@ -64,6 +64,14 @@ describe("marketplace production launch readiness", () => {
       },
       operatorSetup: {
         secretCommands: [],
+        googleSocialLoginOAuthSetup: {
+          provider: "google",
+          authorizedRedirectUris: [
+            "https://marketplace.chasesets.com/api/auth/social/google/callback",
+            "https://admin.chasesets.com/api/auth/social/google/callback",
+            "https://chasesets.com/api/auth/social/google/callback",
+          ],
+        },
       },
     });
   });
@@ -121,6 +129,9 @@ describe("marketplace production launch readiness", () => {
         "gh secret set STRIPE_CONNECT_WEBHOOK_SECRET --env production",
         "gh secret set EASYPOST_WEBHOOK_SECRET --env production",
       ]),
+    );
+    expect(readiness.operatorSetup.notes).toContain(
+      "Complete googleSocialLoginOAuthSetup before smoke-testing production marketplace Google sign-in or admin Google Workspace SSO.",
     );
   });
 
