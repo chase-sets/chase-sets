@@ -102,6 +102,34 @@ The product search body used by the app filters by `productLineName` and
 `setName`, sorts by `product-sorting-name`, and pages with `from` and `size`.
 The app caps search page size at `24`.
 
+## Response Shape Audit
+
+The automation app's TypeScript response types describe the app workflow, not a
+complete Catalog DTO contract. Catalog keeps sanitized representative fixtures
+and field-ownership decisions in:
+
+- `bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-response-fixtures.ts`
+- `bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-response-contract.ts`
+
+Those fixtures cover product lines, catalog set names, product search, and
+product detail/SKU hydration. Future import mapping must expand DTOs from those
+fixtures before new provider fields affect observation identity, merge
+confidence, external references, or promotion.
+
+Response fields are classified as Catalog truth, Catalog merge evidence,
+external reference evidence, Pricing signal, Inventory signal, operations
+diagnostic, or excluded data. Only Catalog truth, merge evidence, and external
+reference evidence may affect Catalog Source Observation hashes. Price, listing,
+seller, seller quantity, and sales fields remain source-payload evidence or
+handoff signals and must not become Catalog truth.
+
+Product detail currently proves SKU, condition, variant/printing, and language.
+`productConditionId` appears in listing/search evidence, not in product-detail
+SKU evidence. Catalog can create `tcgplayer:sku:<id>` Product references from
+product-detail SKUs when selected options are valid, but must only map
+`productConditionId` after a fixture-backed endpoint proves the value is
+available in that flow.
+
 ## Pricing Provider Endpoints
 
 These endpoints are not Catalog truth. They belong to a Pricing-owned Price
