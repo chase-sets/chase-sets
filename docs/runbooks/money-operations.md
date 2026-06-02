@@ -121,7 +121,7 @@ GitHub environment configuration:
 | Environment | Required Stripe secrets | Required Stripe variables | Webhook proof expectation |
 | --- | --- | --- | --- |
 | `preview` | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` using Stripe test-mode values | none | Signed webhook probes and seller-flow smoke only. No Stripe Dashboard endpoint is created for dynamic PR domains. |
-| `staging` | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` using a dedicated Stripe test-mode sandbox configuration | `STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE`; optional `STAGING_SMOKE_ORDER_IDS`, `STAGING_SMOKE_BALANCE_CREDIT_AMOUNT`, `STAGING_SMOKE_PAYMENT_METHOD_CATEGORY`, `STAGING_SMOKE_CREATE_PAYMENT`, `STAGING_SMOKE_PAYOUT_AMOUNT`, `STAGING_SMOKE_REQUEST_PAYOUT` | Required. The staging deploy refuses to pass without a recorded private evidence reference for Stripe-delivered Payments and Connect webhook proof. |
+| `staging` | `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_CONNECT_WEBHOOK_SECRET` using a dedicated Stripe test-mode sandbox configuration | Optional `STAGING_SMOKE_ORDER_IDS`, `STAGING_SMOKE_BALANCE_CREDIT_AMOUNT`, `STAGING_SMOKE_PAYMENT_METHOD_CATEGORY`, `STAGING_SMOKE_CREATE_PAYMENT`, `STAGING_SMOKE_PAYOUT_AMOUNT`, `STAGING_SMOKE_REQUEST_PAYOUT` | The staging deploy validates runtime Stripe configuration and seller-flow smoke only. Stripe Dashboard-delivered webhook proof is launch evidence, not deploy configuration. |
 | `production` | Stripe live-mode secrets only when production marketplace proof or public marketplace traffic is enabled | Production launch evidence and Stripe money operations approval variables | Live proof only under the production proof controls below. |
 
 For staging, create or confirm the two Stripe Dashboard test-mode webhook
@@ -129,11 +129,13 @@ destinations above, trigger one representative Payments event and one Connect
 money-movement event, confirm the matching provider event rows in Chase Sets,
 then store the Stripe `evt_...` ids, destination configuration, provider row
 query output, checked-at timestamp, operator, and commit/run reference in the
-private evidence store. Update the staging GitHub Environment with only
-`STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE`, pointing at that private
-record. Do not store raw Stripe event ids as GitHub Environment variables; they
-are evidence facts, not deploy configuration. The smoke test records the
-reference under `webhookChecks.stripeDelivered`; its
+private evidence store and reference that record from the staging sandbox smoke
+or launch evidence packet. Do not store raw Stripe event ids or one-time webhook
+delivery references as GitHub Environment variables; they are evidence facts,
+not deploy configuration. For a private evidence-only smoke run, set
+`STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS=true` and pass the record through
+the ephemeral `STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE` process environment.
+The smoke test records the reference under `webhookChecks.stripeDelivered`; its
 `webhookChecks.signedProbe` object is only a local signature and routing probe.
 
 ## Stripe Money Smoke Test
@@ -255,7 +257,7 @@ Use staging with Stripe test-mode keys as the complete sandbox proof environment
 | User loses `payouts.setup` permission mid-flow | Setup APIs reject the action and no new Account Session is issued for the unauthorized actor. | Authz failure output from the setup route/API. |
 | Existing Express-dashboard account uses old provider reference | Existing payout-ready account keeps compatibility access; no automatic replacement or dashboard/responsibility mutation occurs. | Legacy hosted-dashboard migration report and readiness refresh output. |
 | Stripe outage during setup/session creation | Setup/session creation returns a user-safe recovery path; webhooks and readiness refresh remain safe to retry after recovery. | Provider outage drill notes plus setup failure telemetry category. |
-| PR preview passes but staging webhook delivery fails | Production approval remains blocked until staging Stripe-delivered webhook proof is restored. | Failed staging smoke output and follow-up passing webhook delivery record. |
+| PR preview passes but staging webhook delivery proof fails | Production approval remains blocked until staging Stripe-delivered webhook proof is restored in the private evidence workspace. | Failed evidence-only smoke output or provider/dashboard observation, plus a follow-up passing webhook delivery record. |
 
 Treat any P0-P2 finding from this pass as a release blocker. Fix the behavior, rerun the relevant focused test or smoke path, and update the hardening evidence record before setting `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED=true`.
 
