@@ -182,6 +182,90 @@ describe("source observation runtime", () => {
     );
   });
 
+  it("promotes observed observations by refreshing an existing Catalog Item linked to the same TCGplayer Product ID", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      reusableExternalCatalogItemIds: ["cat_existing_tcgplayer_product"],
+      normalized: {
+        ...pokemonObservation({
+          expansionName: "Prismatic Evolutions",
+          seriesName: "Scarlet & Violet",
+        }),
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+      },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing_tcgplayer_product",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+      "LinkExternalCatalogItemReference",
+    ]);
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        streamId: "catalog.item-cat_existing_tcgplayer_product",
+        command: expect.objectContaining({
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:610001",
+        }),
+      }),
+    );
+  });
+
+  it("blocks promotion when external Catalog Item references match multiple Catalog Items", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      reusableExternalCatalogItemIds: ["cat_existing_a", "cat_existing_b"],
+      normalized: {
+        ...pokemonObservation({
+          expansionName: "Prismatic Evolutions",
+          seriesName: "Scarlet & Violet",
+        }),
+        externalCatalogItemReferences: [
+          { providerKey: "tcgplayer", externalKey: "product:610001" },
+          { providerKey: "cardmarket", externalKey: "product:700001" },
+        ],
+      },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
+      }),
+    ).rejects.toThrow("Multiple Catalog Items match this Source Observation's external catalog item references.");
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
   it("fails image-backed promotion before writing partial Catalog Item commands when asset storage is unavailable", async () => {
     const harness = createChangedObservationRefreshHarness({
       status: "observed",
@@ -1557,6 +1641,7 @@ function createChangedObservationRefreshHarness(
     status?: string;
     promotedCatalogItemId?: string | null;
     reusableCatalogItemId?: string | null;
+    reusableExternalCatalogItemIds?: readonly string[];
     partialCatalogItemId?: string | null;
     promotionCommandAlreadyApplied?: { catalogItemId: string };
   } = {},
@@ -1646,6 +1731,15 @@ function createChangedObservationRefreshHarness(
           return {
             rowCount: row ? 1 : 0,
             rows: (row ? [row] : []) as T[],
+          };
+        }
+
+        if (sql.includes("FROM catalog_external_catalog_item_references")) {
+          return {
+            rowCount: input.reusableExternalCatalogItemIds?.length ?? 0,
+            rows: (input.reusableExternalCatalogItemIds ?? []).map((catalogItemId) => ({
+              catalog_item_id: catalogItemId,
+            })) as T[],
           };
         }
 

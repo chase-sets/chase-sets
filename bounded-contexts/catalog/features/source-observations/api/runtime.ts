@@ -531,9 +531,16 @@ export function createSourceObservationRuntime(
       );
     }
 
+    const externalReferenceCatalogItemId = existingCatalogItemId
+      ? null
+      : await findReusableCatalogItemIdForExternalCatalogItemReferences({
+          deps,
+          references: normalized.externalCatalogItemReferences ?? [],
+        });
     const sourceReferenceExternalKey = formatSourceReferenceExternalKey(input.observation);
     const referencedCatalogItemId =
       existingCatalogItemId ??
+      externalReferenceCatalogItemId ??
       (await findReusableCatalogItemIdForSourceReference({
         deps,
         providerKey: input.observation.provider_key,
@@ -2857,6 +2864,35 @@ async function findReusableCatalogItemIdForSourceReference(input: {
   );
 
   return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
+}
+
+async function findReusableCatalogItemIdForExternalCatalogItemReferences(input: {
+  deps: CatalogRuntimeDeps;
+  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][];
+}): Promise<CatalogItemId | null> {
+  const references = uniqueExternalCatalogItemReferences(input.references);
+  if (references.length === 0) {
+    return null;
+  }
+
+  const values = references.flatMap((reference) => [reference.providerKey, reference.externalKey]);
+  const referencePredicates = references.map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`).join(", ");
+  const result = await input.deps.db.query<{ catalog_item_id: string }>(
+    `SELECT DISTINCT reference.catalog_item_id
+     FROM catalog_external_catalog_item_references AS reference
+     JOIN catalog_items AS item
+       ON item.catalog_item_id = reference.catalog_item_id
+     WHERE (reference.provider_key, reference.external_key) IN (${referencePredicates})
+       AND item.status NOT IN ('archived', 'removed')
+     ORDER BY reference.catalog_item_id ASC`,
+    values,
+  );
+  const catalogItemIds = [...new Set(result.rows.map((row) => row.catalog_item_id))];
+  if (catalogItemIds.length > 1) {
+    throw new Error("Multiple Catalog Items match this Source Observation's external catalog item references.");
+  }
+
+  return (catalogItemIds[0] as CatalogItemId | undefined) ?? null;
 }
 
 async function findPartiallyPromotedCatalogItemIdForObservation(input: {
