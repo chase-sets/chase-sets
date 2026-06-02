@@ -177,7 +177,13 @@ describe("payout setup page", () => {
     expect(container!.querySelector("[data-testid='stripe-connect-embedded-component']")).toBeNull();
   });
 
-  it("initializes the supported Connect loader only when the embedded component mounts", () => {
+  it("initializes the supported Connect loader only after creating an embedded session", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        clientSecret: "acs_test_secret",
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
     const connectElement = document.createElement("stripe-connect-account-onboarding");
     Object.assign(connectElement, {
       setOnLoaderStart: vi.fn(),
@@ -188,7 +194,7 @@ describe("payout setup page", () => {
     mockLoadConnectAndInitialize.mockReturnValue({ create });
     root = createRoot(container!);
 
-    act(() => {
+    await act(async () => {
       root!.render(
         <StripeConnectEmbeddedComponent mode="setup" publishableKey="pk_test_123" onProviderExit={vi.fn()} />,
       );
@@ -204,7 +210,22 @@ describe("payout setup page", () => {
     );
     expect(create).toHaveBeenCalledWith("account-onboarding");
     expect(container!.querySelector("stripe-connect-account-onboarding")).toBe(connectElement);
+    const fetchClientSecret = mockLoadConnectAndInitialize.mock.calls[0][0].fetchClientSecret;
+
+    await expect(fetchClientSecret()).resolves.toBe("acs_test_secret");
+    await expect(fetchClientSecret()).resolves.toBe("acs_test_secret");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/settlement/payout-setup/embedded-session",
+      expect.objectContaining({
+        method: "POST",
+        credentials: "include",
+        body: "{}",
+      }),
+    );
+    expect(fetch).toHaveBeenCalledTimes(2);
     expect(container!.textContent).not.toContain("cs_test_secret");
+    expect(container!.textContent).not.toContain("acs_test_secret");
   });
 
   it("requests a fresh embedded session whenever Connect asks for a client secret", async () => {
@@ -249,30 +270,18 @@ describe("payout setup page", () => {
       ),
     );
     vi.stubGlobal("fetch", fetch);
-    const connectElement = document.createElement("stripe-connect-account-onboarding");
-    Object.assign(connectElement, {
-      setOnLoaderStart: vi.fn(),
-      setOnLoadError: vi.fn(),
-      setOnExit: vi.fn(),
-    });
-    const create = vi.fn(() => connectElement);
-    mockLoadConnectAndInitialize.mockReturnValue({ create });
     root = createRoot(container!);
 
     await act(async () => {
       root!.render(<StripeConnectEmbeddedComponent mode="setup" publishableKey="pk_test_123" />);
     });
 
-    const fetchClientSecret = mockLoadConnectAndInitialize.mock.calls[0][0].fetchClientSecret;
-
-    await act(async () => {
-      await expect(fetchClientSecret()).rejects.toThrow("Live Connect setup is not enabled for this Stripe account.");
-    });
-
     expect(container!.textContent).toContain("Setup could not load");
     expect(container!.textContent).toContain("Live Connect setup is not enabled for this Stripe account.");
     expect(container!.textContent).toContain("Retry");
     expect(container!.textContent).toContain("Contact support");
+    expect(mockLoadConnectAndInitialize).not.toHaveBeenCalled();
+    expect(container!.querySelector("stripe-connect-account-onboarding")).toBeNull();
     expect(container!.innerHTML).not.toContain("client_secret");
   });
 

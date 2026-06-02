@@ -34,14 +34,16 @@ type StripeConnectElement = HTMLElement & {
   setOnLoaderStart?: (callback: () => void) => void;
 };
 
+type FetchClientSecret = () => Promise<string>;
+
 export function loadStripeConnectComponent({
   mode,
   publishableKey,
-  onFetchClientSecretError,
+  fetchClientSecret,
 }: {
   mode: PayoutSetupMode;
   publishableKey: string;
-  onFetchClientSecretError?: (error: unknown) => void;
+  fetchClientSecret?: FetchClientSecret;
 }) {
   if (typeof window === "undefined") {
     throw new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser"));
@@ -49,14 +51,7 @@ export function loadStripeConnectComponent({
 
   return loadConnectAndInitialize({
     publishableKey,
-    fetchClientSecret: async () => {
-      try {
-        return await fetchEmbeddedClientSecret(mode);
-      } catch (error) {
-        onFetchClientSecretError?.(error);
-        throw error;
-      }
-    },
+    fetchClientSecret: fetchClientSecret ?? (() => fetchEmbeddedClientSecret(mode)),
     locale: "en-US",
     appearance: {
       overlays: "dialog",
@@ -106,9 +101,9 @@ function componentName(mode: PayoutSetupMode): StripeConnectComponentName {
 function createStripeConnectElement(
   mode: PayoutSetupMode,
   publishableKey: string,
-  onFetchClientSecretError?: (error: unknown) => void,
+  fetchClientSecret?: FetchClientSecret,
 ): ConnectHTMLElementRecord[StripeConnectComponentName] {
-  return loadStripeConnectComponent({ mode, publishableKey, onFetchClientSecretError }).create(componentName(mode));
+  return loadStripeConnectComponent({ mode, publishableKey, fetchClientSecret }).create(componentName(mode));
 }
 
 function providerPanelTitle(mode: PayoutSetupMode) {
@@ -206,15 +201,20 @@ export function StripeConnectEmbeddedComponent({
     setErrorMessage(null);
 
     const mount = async () => {
-      const component = createStripeConnectElement(mode, publishableKey, (error) => {
-        if (!cancelled) {
-          setStatus("error");
-          setErrorMessage(error instanceof Error ? error.message : String(error));
-        }
-      }) as StripeConnectElement;
+      const clientSecret = await fetchEmbeddedClientSecret(mode);
+      let preflightClientSecretAvailable = true;
       if (cancelled || !containerRef.current) {
         return;
       }
+
+      const component = createStripeConnectElement(mode, publishableKey, async () => {
+        if (preflightClientSecretAvailable) {
+          preflightClientSecretAvailable = false;
+          return clientSecret;
+        }
+
+        return fetchEmbeddedClientSecret(mode);
+      }) as StripeConnectElement;
 
       component.setOnLoaderStart?.(() => {
         if (!cancelled) {
