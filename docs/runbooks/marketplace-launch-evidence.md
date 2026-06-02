@@ -75,7 +75,7 @@ Create these records before enabling the production marketplace switch:
 - `07 Support Operations`: account issue opening, admin queue review, overdue or urgent review, evidence/response/resolution/close/cancel endpoints, refund-producing resolution visibility, settlement hold coordination, and support notifications.
 - `08 Public Presence`: launch-mode copy review for home, terms, privacy, refunds and returns, order protection, sales fee, FAQ, contact, and confirmation that no uncertified UCP/AP2/headless-checkout claims are live.
 
-Use the Google Drive document URL or stable record identifier as each gate `reference`. The redacted packet may be kept locally under `secure/` while working; `secure/` is ignored because it can contain sensitive evidence summaries even when screenshots are excluded.
+Use the Google Drive document URL or stable record identifier as each gate `reference`. Staging sandbox proof, provider webhook delivery ids, provider-row queries, screenshots, and other one-time launch facts belong in this private workspace and in redacted packet inputs, not in GitHub Environment variables. The redacted packet may be kept locally under `secure/` while working; `secure/` is ignored because it can contain sensitive evidence summaries even when screenshots are excluded.
 
 Build the Marketplace Promotion and UCP/AP2 Marketing gates from the final launch review record:
 

@@ -783,8 +783,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_RETURN_URL");
     expect(stagingMoneySmokeStep).not.toContain("STRIPE_CONNECT_REFRESH_URL");
     expect(stagingMoneySmokeStep).toContain("STRIPE_MONEY_SMOKE_ENVIRONMENT: staging");
-    expect(stagingMoneySmokeStep).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "true"');
-    expect(stagingMoneySmokeStep).toContain("STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE");
+    expect(stagingMoneySmokeStep).toContain('STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS: "false"');
+    expect(stagingMoneySmokeStep).not.toContain("STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE");
     expect(stagingMoneySmokeStep).not.toContain("STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID");
     expect(stagingMoneySmokeStep).not.toContain("STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID");
     expect(stagingMoneySmokeStep).toContain("STAGING_SMOKE_ORDER_IDS");
@@ -792,7 +792,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingMoneySmokeStep).toContain("pnpm run stripe:money-smoke -- --edge-check --seller-flow");
 
     expect(platformProductionWorkflow).toContain("Staging requires dedicated Stripe test-mode keys");
-    expect(platformProductionWorkflow).toContain("STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE");
+    expect(platformProductionWorkflow).not.toContain("STAGING_STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE");
     expect(platformProductionWorkflow).not.toContain("STAGING_STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID");
     expect(platformProductionWorkflow).not.toContain("STAGING_STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID");
     expect(platformPrWorkflow).toContain("Preview deployments require Stripe test-mode keys.");
