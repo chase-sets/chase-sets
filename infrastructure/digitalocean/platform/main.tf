@@ -403,6 +403,13 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "STRIPE_PUBLISHABLE_KEY"
+          value = var.stripe_publishable_key
+          type  = "SECRET"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "CHASE_SETS_MARKETPLACE_INDEXING"
           value = local.is_production && local.marketplace_public_enabled ? "true" : "false"
           scope = "RUN_TIME"
