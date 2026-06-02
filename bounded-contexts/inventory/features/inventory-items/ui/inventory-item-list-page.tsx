@@ -5,6 +5,7 @@ import {
   Badge,
   Card,
   DataTable,
+  Grid,
   Inset,
   LinkButton,
   Page,
@@ -167,27 +168,65 @@ export function InventoryItemListPage({
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item")}>
         <Card>
           <form method="post">
-            <Stack gap={3}>
+            <Grid columns={{ base: 1, lg: 2 }} gap={5}>
               <input type="hidden" name="intent" value="create-item" />
-              <TextInput
-                label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id")}
-                name="catalogItemId"
-                required
-                placeholder={t(
-                  "inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item",
-                )}
-                value={catalogItemId}
-                onChange={(event) => setCatalogItemId(event.target.value)}
-                description={t("inventory.features.inventoryItems.ui.inventoryItemListPage.enter.a.catalog.item.id.to")}
-              />
-              <input type="hidden" name="selectedOptions" value={serializedVersionSelection} />
-              {catalogLookupPending ? (
-                <Text size="sm" tone="secondary">
-                  {t("inventory.features.inventoryItems.ui.inventoryItemListPage.loading.catalog.item")}
-                </Text>
-              ) : null}
-              {catalogItem ? (
-                <Inset>
+              <Stack gap={3}>
+                <TextInput
+                  label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id")}
+                  name="catalogItemId"
+                  required
+                  placeholder={t(
+                    "inventory.features.inventoryItems.ui.inventoryItemListPage.search.or.paste.catalog.item",
+                  )}
+                  value={catalogItemId}
+                  onChange={(event) => setCatalogItemId(event.target.value)}
+                  description={t(
+                    "inventory.features.inventoryItems.ui.inventoryItemListPage.enter.a.catalog.item.id.to",
+                  )}
+                />
+                <input type="hidden" name="selectedOptions" value={serializedVersionSelection} />
+                {catalogLookupPending ? (
+                  <Text size="sm" tone="secondary">
+                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.loading.catalog.item")}
+                  </Text>
+                ) : null}
+                {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
+                <NativeSelect
+                  label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
+                  name="storageLocationId"
+                  required
+                  defaultValue=""
+                  placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.location")}
+                  items={locations.map((location) => ({
+                    value: location.storage_location_id,
+                    label: location.name,
+                  }))}
+                />
+                <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                  <NumberInput
+                    label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.total.quantity")}
+                    name="totalQuantity"
+                    required
+                    min="1"
+                  />
+                  <TextInput
+                    label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost")}
+                    name="acquisitionCostAmount"
+                    placeholder="4.25"
+                    inputMode="decimal"
+                  />
+                </Grid>
+                <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "center" }} gap={2}>
+                  <Button type="submit">
+                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item.2")}
+                  </Button>
+                  <LinkButton href="/account/inventory/locations" tone="ghost">
+                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.need.a.location.first")}
+                  </LinkButton>
+                </Stack>
+              </Stack>
+              <Inset>
+                {catalogItem ? (
                   <Stack gap={2}>
                     <Text weight="semibold">{catalogItem.title}</Text>
                     {catalogItem.subtitle ? (
@@ -231,39 +270,13 @@ export function InventoryItemListPage({
                       </Text>
                     )}
                   </Stack>
-                </Inset>
-              ) : null}
-              {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
-              <NativeSelect
-                label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.storage.location")}
-                name="storageLocationId"
-                required
-                defaultValue=""
-                placeholder={t("inventory.features.inventoryItems.ui.inventoryItemListPage.select.a.location")}
-                items={locations.map((location) => ({
-                  value: location.storage_location_id,
-                  label: location.name,
-                }))}
-              />
-              <NumberInput
-                label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.total.quantity")}
-                name="totalQuantity"
-                required
-                min="1"
-              />
-              <TextInput
-                label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.acquisition.cost")}
-                name="acquisitionCostAmount"
-                placeholder="4.25"
-                inputMode="decimal"
-              />
-              <Button type="submit">
-                {t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item.2")}
-              </Button>
-              <LinkButton href="/account/inventory/locations" tone="ghost">
-                {t("inventory.features.inventoryItems.ui.inventoryItemListPage.need.a.location.first")}
-              </LinkButton>
-            </Stack>
+                ) : (
+                  <Text tone="secondary">
+                    {t("inventory.features.inventoryItems.ui.inventoryItemListPage.enter.a.catalog.item.id.to")}
+                  </Text>
+                )}
+              </Inset>
+            </Grid>
           </form>
         </Card>
       </PageSection>

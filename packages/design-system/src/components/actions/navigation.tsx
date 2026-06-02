@@ -156,6 +156,7 @@ function renderBottomNavigationItem(
   active: boolean,
   groupId?: string,
   onSelect?: (key: string) => void,
+  activeKey?: string,
 ) {
   const content = (
     <>
@@ -170,21 +171,48 @@ function renderBottomNavigationItem(
           </span>
         ) : null}
       </span>
-      <span className="text-xs">{item.label}</span>
+      <span className="max-w-full text-center text-[0.72rem] leading-tight [overflow-wrap:anywhere]">{item.label}</span>
       {item.badge ? <span className="sr-only">{` ${item.badge}`}</span> : null}
     </>
   );
 
   const className = cx(
-    "focus-ring relative inline-flex w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-tokenMd px-3 py-3 text-sm font-medium transition",
+    "focus-ring relative inline-flex w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-tokenMd px-1 py-3 text-sm font-medium transition",
     active ? "bg-surface-2 text-accent shadow-tokenSm" : "text-secondary hover:bg-surface-2 hover:text-foreground",
   );
+
+  if (item.children?.length) {
+    return (
+      <details key={item.key} className="group relative min-w-0">
+        <summary className={cx(className, "cursor-pointer list-none [&::-webkit-details-marker]:hidden")}>
+          {active && groupId ? renderActivePill(groupId) : null}
+          <span className="relative z-10 inline-flex w-full min-w-0 flex-col items-center justify-center gap-1">
+            {content}
+          </span>
+        </summary>
+        <div className="modern-surface absolute bottom-[calc(100%+0.5rem)] right-0 z-dropdown w-[min(16rem,calc(100vw-1.5rem))] rounded-tokenLg border border-muted p-2 shadow-overlay">
+          {item.children.map((child) =>
+            renderNavigationItem(
+              child,
+              isNavigationItemActive(child, activeKey),
+              "vertical",
+              undefined,
+              onSelect,
+              activeKey,
+            ),
+          )}
+        </div>
+      </details>
+    );
+  }
 
   if (item.href) {
     return (
       <a key={item.key} href={item.href} className={className}>
         {active && groupId ? renderActivePill(groupId) : null}
-        <span className="relative z-10 inline-flex flex-col items-center justify-center gap-1">{content}</span>
+        <span className="relative z-10 inline-flex w-full min-w-0 flex-col items-center justify-center gap-1">
+          {content}
+        </span>
       </a>
     );
   }
@@ -192,7 +220,9 @@ function renderBottomNavigationItem(
   return (
     <button key={item.key} type="button" className={className} onClick={() => onSelect?.(item.key)}>
       {active && groupId ? renderActivePill(groupId) : null}
-      <span className="relative z-10 inline-flex flex-col items-center justify-center gap-1">{content}</span>
+      <span className="relative z-10 inline-flex w-full min-w-0 flex-col items-center justify-center gap-1">
+        {content}
+      </span>
     </button>
   );
 }
@@ -422,7 +452,7 @@ export function BottomNav({ items, activeKey, onSelect, width = "full", ...rest 
       <LayoutGroup id={groupId}>
         <div className={cx("mx-auto grid w-full gap-2", gridColumnsClass, layoutWidthClasses[width])}>
           {visibleItems.map((item) =>
-            renderBottomNavigationItem(item, isNavigationItemActive(item, activeKey), groupId, onSelect),
+            renderBottomNavigationItem(item, isNavigationItemActive(item, activeKey), groupId, onSelect, activeKey),
           )}
         </div>
       </LayoutGroup>

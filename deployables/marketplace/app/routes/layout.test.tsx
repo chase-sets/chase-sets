@@ -108,7 +108,7 @@ describe("marketplace route layout", () => {
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
       "Buy Cart",
-      "Notifications",
+      "Alerts",
       "Sell",
       "Wallet",
     ]);
@@ -177,7 +177,7 @@ describe("marketplace route layout", () => {
       "Browse",
       "Buy Cart",
       "Purchases",
-      "Notifications",
+      "Alerts",
       "Account",
     ]);
   });
@@ -197,7 +197,7 @@ describe("marketplace route layout", () => {
     expect(resolveMarketplaceNavItems("bottom-nav", actor).map((item) => item.label)).toEqual([
       "Browse",
       "Buy Cart",
-      "Notifications",
+      "Alerts",
       "Wallet",
       "Account",
     ]);

@@ -8,7 +8,9 @@ import {
   Card,
   DataTable,
   FileDropzone,
+  Grid,
   Inline,
+  Inset,
   LinkButton,
   MarketplaceDashboardPanel,
   MarketplaceNotice,
@@ -370,30 +372,28 @@ export function MarketplaceListingListPage({
 
       <PageSection title={t("marketplace.features.listings.ui.listingListPage.seller.listing.availability")}>
         <Card>
-          <Stack gap={3}>
-            <Inline align="center">
-              <Stack gap={1}>
-                <Inline align="center">
-                  <Badge tone={availabilityTone(listingAvailability.status)}>
-                    {listingAvailability.status === "available"
-                      ? t("marketplace.features.listings.ui.listingListPage.listings.available")
-                      : t("marketplace.features.listings.ui.listingListPage.listings.unavailable")}
-                  </Badge>
-                  <Text weight="semibold">
-                    {t("marketplace.features.listings.ui.listingListPage.account.wide.listing.control")}
-                  </Text>
-                </Inline>
-                <Text tone="secondary">
+          <Grid columns={{ base: 1, lg: 2 }} gap={5}>
+            <Stack gap={3}>
+              <Inline align="center">
+                <Badge tone={availabilityTone(listingAvailability.status)}>
                   {listingAvailability.status === "available"
-                    ? t("marketplace.features.listings.ui.listingListPage.availability.available.description")
-                    : t("marketplace.features.listings.ui.listingListPage.availability.unavailable.description", {
-                        reason: availabilityReasonLabel(listingAvailability.disabled_reason_category),
-                        date:
-                          listingAvailability.available_again_on ??
-                          t("marketplace.features.listings.ui.listingListPage.no.return.date"),
-                      })}
+                    ? t("marketplace.features.listings.ui.listingListPage.listings.available")
+                    : t("marketplace.features.listings.ui.listingListPage.listings.unavailable")}
+                </Badge>
+                <Text weight="semibold">
+                  {t("marketplace.features.listings.ui.listingListPage.account.wide.listing.control")}
                 </Text>
-              </Stack>
+              </Inline>
+              <Text tone="secondary">
+                {listingAvailability.status === "available"
+                  ? t("marketplace.features.listings.ui.listingListPage.availability.available.description")
+                  : t("marketplace.features.listings.ui.listingListPage.availability.unavailable.description", {
+                      reason: availabilityReasonLabel(listingAvailability.disabled_reason_category),
+                      date:
+                        listingAvailability.available_again_on ??
+                        t("marketplace.features.listings.ui.listingListPage.no.return.date"),
+                    })}
+              </Text>
               {listingAvailability.status === "unavailable" ? (
                 <form method="post">
                   <Button type="submit" name="intent" value="enable-listing-availability">
@@ -401,11 +401,11 @@ export function MarketplaceListingListPage({
                   </Button>
                 </form>
               ) : null}
-            </Inline>
+            </Stack>
             {listingAvailability.status === "available" ? (
               <form method="post">
                 <Stack gap={3}>
-                  <Inline>
+                  <Grid columns={{ base: 1, md: 2 }} gap={3}>
                     <NativeSelect
                       label={t("marketplace.features.listings.ui.listingListPage.reason")}
                       name="reasonCategory"
@@ -426,7 +426,7 @@ export function MarketplaceListingListPage({
                       name="availableAgainOn"
                       type="date"
                     />
-                  </Inline>
+                  </Grid>
                   <Inline>
                     <Button type="submit" name="intent" value="disable-listing-availability" tone="secondary">
                       {t("marketplace.features.listings.ui.listingListPage.turn.off.listings")}
@@ -435,7 +435,7 @@ export function MarketplaceListingListPage({
                 </Stack>
               </form>
             ) : null}
-          </Stack>
+          </Grid>
         </Card>
       </PageSection>
 
@@ -482,110 +482,122 @@ export function MarketplaceListingListPage({
                   }
                 />
               ) : null}
-              <TextInput
-                label={t("marketplace.features.listings.ui.listingListPage.catalog.item.id")}
-                name="catalogItemId"
-                placeholder={t("marketplace.features.listings.ui.listingListPage.search.or.paste.catalog.item")}
-                value={catalogItemId}
-                onChange={(event) => setCatalogItemId(event.target.value)}
-              />
               <input type="hidden" name="selectedOptions" value={serializedSelectedOptions} />
-              {catalogLookupPending ? (
-                <Text size="sm" tone="secondary">
-                  {t("marketplace.features.listings.ui.listingListPage.loading.catalog.item")}
-                </Text>
-              ) : null}
-              {catalogItem?.product_schema ? (
-                <Stack gap={2}>
-                  <Text weight="semibold">{catalogItem.title}</Text>
-                  {getOrderedDimensions(catalogItem.product_schema).map((dimension) => (
-                    <NativeSelect
-                      key={dimension.dimensionId}
-                      label={dimension.dimensionName}
-                      name={`selectedOptions:${dimension.dimensionId}`}
-                      value={selectedOptions[dimension.dimensionId] ?? ""}
-                      onChange={(event) =>
-                        setSelectedOptions((current) =>
-                          normalizeSelections(catalogItem.product_schema!, {
-                            ...current,
-                            [dimension.dimensionId]: event.target.value,
-                          }),
-                        )
-                      }
-                      items={dimension.allowedOptions.map((option) => ({
-                        value: option.optionId,
-                        label: optionLabel(option),
-                      }))}
-                    />
-                  ))}
-                </Stack>
-              ) : catalogItem ? (
-                <Text size="sm" tone="secondary">
-                  {catalogItem.title}
-                </Text>
-              ) : null}
-              {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
-              <TextInput
-                label={t("marketplace.features.listings.ui.listingListPage.price")}
-                name="priceAmount"
-                placeholder="24.99"
-                inputMode="decimal"
-                defaultValue={createForm?.priceAmount ?? ""}
-                required
-              />
-              <NumberInput
-                label={t("marketplace.features.listings.ui.listingListPage.quantity.cap")}
-                name="quantityCap"
-                min="1"
-                defaultValue={createForm?.quantityCap ?? "1"}
-                required
-              />
-              <Text size="sm" tone="secondary">
-                {t("marketplace.features.listings.ui.listingListPage.quantity.cap.exposure.copy")}
-              </Text>
-              <FileDropzone
-                label={t("marketplace.features.listings.ui.listingListPage.listing.photos")}
-                description={t("marketplace.features.listings.ui.listingListPage.listing.photos.description")}
-                name="listingPhotos"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                dropLabel={t("marketplace.features.listings.ui.listingListPage.drop.listing.photos")}
-                browseLabel={t("marketplace.features.listings.ui.listingListPage.choose.photos")}
-              />
-              {!hasListingStockLocation ? (
+              <Grid columns={{ base: 1, lg: 2 }} gap={5}>
                 <Stack gap={3}>
-                  <Text weight="semibold">{t("marketplace.features.listings.ui.listingListPage.ship.from")}</Text>
                   <TextInput
-                    label={t("marketplace.features.listings.ui.listingListPage.ship.from.name")}
-                    name="shipFromName"
+                    label={t("marketplace.features.listings.ui.listingListPage.catalog.item.id")}
+                    name="catalogItemId"
+                    placeholder={t("marketplace.features.listings.ui.listingListPage.search.or.paste.catalog.item")}
+                    value={catalogItemId}
+                    onChange={(event) => setCatalogItemId(event.target.value)}
                   />
-                  <TextInput
-                    label={t("marketplace.features.listings.ui.listingListPage.ship.from.line1")}
-                    name="shipFromLine1"
-                  />
-                  <Inline>
+                  {catalogLookupPending ? (
+                    <Text size="sm" tone="secondary">
+                      {t("marketplace.features.listings.ui.listingListPage.loading.catalog.item")}
+                    </Text>
+                  ) : null}
+                  {catalogLookupError ? <Text size="sm">{catalogLookupError}</Text> : null}
+                  <Grid columns={{ base: 1, md: 2 }} gap={3}>
                     <TextInput
-                      label={t("marketplace.features.listings.ui.listingListPage.ship.from.city")}
-                      name="shipFromCity"
+                      label={t("marketplace.features.listings.ui.listingListPage.price")}
+                      name="priceAmount"
+                      placeholder="24.99"
+                      inputMode="decimal"
+                      defaultValue={createForm?.priceAmount ?? ""}
+                      required
                     />
-                    <TextInput
-                      label={t("marketplace.features.listings.ui.listingListPage.ship.from.state")}
-                      name="shipFromState"
+                    <NumberInput
+                      label={t("marketplace.features.listings.ui.listingListPage.quantity.cap")}
+                      name="quantityCap"
+                      min="1"
+                      defaultValue={createForm?.quantityCap ?? "1"}
+                      required
                     />
-                  </Inline>
-                  <Inline>
-                    <TextInput
-                      label={t("marketplace.features.listings.ui.listingListPage.ship.from.postal.code")}
-                      name="shipFromPostalCode"
-                    />
-                    <TextInput
-                      label={t("marketplace.features.listings.ui.listingListPage.ship.from.country")}
-                      name="shipFromCountry"
-                      defaultValue="US"
-                    />
-                  </Inline>
+                  </Grid>
+                  <Text size="sm" tone="secondary">
+                    {t("marketplace.features.listings.ui.listingListPage.quantity.cap.exposure.copy")}
+                  </Text>
+                  {!hasListingStockLocation ? (
+                    <Stack gap={3}>
+                      <Text weight="semibold">{t("marketplace.features.listings.ui.listingListPage.ship.from")}</Text>
+                      <TextInput
+                        label={t("marketplace.features.listings.ui.listingListPage.ship.from.name")}
+                        name="shipFromName"
+                      />
+                      <TextInput
+                        label={t("marketplace.features.listings.ui.listingListPage.ship.from.line1")}
+                        name="shipFromLine1"
+                      />
+                      <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                        <TextInput
+                          label={t("marketplace.features.listings.ui.listingListPage.ship.from.city")}
+                          name="shipFromCity"
+                        />
+                        <TextInput
+                          label={t("marketplace.features.listings.ui.listingListPage.ship.from.state")}
+                          name="shipFromState"
+                        />
+                        <TextInput
+                          label={t("marketplace.features.listings.ui.listingListPage.ship.from.postal.code")}
+                          name="shipFromPostalCode"
+                        />
+                        <TextInput
+                          label={t("marketplace.features.listings.ui.listingListPage.ship.from.country")}
+                          name="shipFromCountry"
+                          defaultValue="US"
+                        />
+                      </Grid>
+                    </Stack>
+                  ) : null}
                 </Stack>
-              ) : null}
+                <Stack gap={3}>
+                  <Inset>
+                    {catalogItem?.product_schema ? (
+                      <Stack gap={2}>
+                        <Text weight="semibold">{catalogItem.title}</Text>
+                        {getOrderedDimensions(catalogItem.product_schema).map((dimension) => (
+                          <NativeSelect
+                            key={dimension.dimensionId}
+                            label={dimension.dimensionName}
+                            name={`selectedOptions:${dimension.dimensionId}`}
+                            value={selectedOptions[dimension.dimensionId] ?? ""}
+                            onChange={(event) =>
+                              setSelectedOptions((current) =>
+                                normalizeSelections(catalogItem.product_schema!, {
+                                  ...current,
+                                  [dimension.dimensionId]: event.target.value,
+                                }),
+                              )
+                            }
+                            items={dimension.allowedOptions.map((option) => ({
+                              value: option.optionId,
+                              label: optionLabel(option),
+                            }))}
+                          />
+                        ))}
+                      </Stack>
+                    ) : catalogItem ? (
+                      <Text size="sm" tone="secondary">
+                        {catalogItem.title}
+                      </Text>
+                    ) : (
+                      <Text tone="secondary">
+                        {t("marketplace.features.listings.ui.listingListPage.search.or.paste.catalog.item")}
+                      </Text>
+                    )}
+                  </Inset>
+                  <FileDropzone
+                    label={t("marketplace.features.listings.ui.listingListPage.listing.photos")}
+                    description={t("marketplace.features.listings.ui.listingListPage.listing.photos.description")}
+                    name="listingPhotos"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    dropLabel={t("marketplace.features.listings.ui.listingListPage.drop.listing.photos")}
+                    browseLabel={t("marketplace.features.listings.ui.listingListPage.choose.photos")}
+                  />
+                </Stack>
+              </Grid>
               <Accordion
                 items={[
                   {
@@ -648,7 +660,7 @@ export function MarketplaceListingListPage({
                   },
                 ]}
               />
-              <Inline>
+              <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "center" }} gap={2}>
                 <Button type="submit" name="intent" value="create-and-publish-listing">
                   {t("marketplace.features.listings.ui.listingListPage.create.and.publish")}
                 </Button>
@@ -658,7 +670,7 @@ export function MarketplaceListingListPage({
                 <Button type="submit" name="intent" value="create-listing" tone="ghost">
                   {t("marketplace.features.listings.ui.listingListPage.save.as.draft")}
                 </Button>
-              </Inline>
+              </Stack>
             </Stack>
           </form>
         </Card>

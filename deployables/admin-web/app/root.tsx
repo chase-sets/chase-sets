@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
 import { useEffect, type ReactNode } from "react";
+import { ChaseRoot, EmptyState, LinkButton, Page } from "@chase-sets/design-system";
 import type { LoaderFunctionArgs } from "react-router";
 import {
   isRouteErrorResponse,
@@ -75,31 +76,46 @@ export default function App() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
+  const location = useLocation();
+  const status = isRouteErrorResponse(error) ? error.status : null;
+  const responseDetail =
+    isRouteErrorResponse(error) && error.data
+      ? typeof error.data === "string"
+        ? error.data
+        : JSON.stringify(error.data)
+      : null;
   const message = isRouteErrorResponse(error)
-    ? error.statusText
+    ? [error.status, error.statusText || responseDetail].filter(Boolean).join(" ")
     : error instanceof Error
       ? error.message
       : t("adminWeb.app.root.unknown.error");
+  const title = status === 404 ? t("adminWeb.app.root.not.found.title") : t("adminWeb.app.root.admin.error.2");
+  const retryHref = `${location.pathname}${location.search}${location.hash}` || "/";
 
   return (
-    <html lang="en">
-      <head>
-        <meta charSet="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="theme-color" content="#1f6f68" />
-        <title>{t("adminWeb.app.root.admin.error")}</title>
-        <link rel="manifest" href="/manifest.webmanifest" />
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
-        <link rel="alternate icon" href="/favicon.ico" sizes="any" />
-        <Links />
-      </head>
-      <body>
-        <main>
-          <h1>{t("adminWeb.app.root.admin.error.2")}</h1>
-          <p>{message}</p>
-        </main>
-        <Scripts />
-      </body>
-    </html>
+    <ChaseRoot colorMode="system">
+      <main id="main-content">
+        <Page width="content">
+          <EmptyState
+            title={title}
+            description={t("adminWeb.app.root.admin.error.description")}
+            actions={
+              <>
+                <LinkButton href="/catalog" tone="primary">
+                  {t("adminWeb.app.root.go.to.catalog")}
+                </LinkButton>
+                <LinkButton href={retryHref} tone="secondary">
+                  {t("adminWeb.app.root.retry")}
+                </LinkButton>
+              </>
+            }
+          />
+          <details>
+            <summary>{t("adminWeb.app.root.technical.detail")}</summary>
+            <p>{message}</p>
+          </details>
+        </Page>
+      </main>
+    </ChaseRoot>
   );
 }

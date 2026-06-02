@@ -100,11 +100,32 @@ export function createAccountSupportRequestRoutes(services: SupportRequestServic
     }
 
     const result = await services.listSupportOperationsQueue({
-      accountId: access.actor.accountId,
       limit: Number(c.req.query("limit") ?? 50),
       offset: Number(c.req.query("offset") ?? 0),
     });
     return c.json({ items: result.items, total: result.total, count: result.items.length });
+  });
+
+  app.get("/ops/:id", async (c) => {
+    const access = requireSupportAccess(c, "support.manage");
+    if (access.response) {
+      return access.response;
+    }
+
+    const supportRequest = await services.getSupportOperationsRequest(c.req.param("id"));
+    if (!supportRequest) {
+      return c.json(
+        {
+          error: {
+            code: "not_found",
+            message: t("support.features.support_requests.api.route.support_request.not.found"),
+          },
+        },
+        404,
+      );
+    }
+
+    return c.json(supportRequest);
   });
 
   app.post("/ops/escalate-overdue", async (c) => {

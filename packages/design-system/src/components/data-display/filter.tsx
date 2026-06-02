@@ -1,4 +1,4 @@
-import { Children, createContext, useContext, useState, type HTMLAttributes, type ReactNode } from "react";
+import { Children, createContext, useContext, useId, useState, type HTMLAttributes, type ReactNode } from "react";
 import { motion } from "motion/react";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
@@ -237,7 +237,7 @@ export interface BulkActionBarProps extends Omit<HTMLAttributes<HTMLDivElement>,
 }
 
 type BulkActionSurfaceRegistration = {
-  count: number;
+  ids: Set<string>;
 };
 
 const BulkActionSurfaceContext = createContext<BulkActionSurfaceRegistration | null>(null);
@@ -247,7 +247,7 @@ export interface BulkActionSurfaceProps {
 }
 
 export function BulkActionSurface({ children }: BulkActionSurfaceProps) {
-  const registration: BulkActionSurfaceRegistration = { count: 0 };
+  const registration: BulkActionSurfaceRegistration = { ids: new Set() };
 
   return <BulkActionSurfaceContext.Provider value={registration}>{children}</BulkActionSurfaceContext.Provider>;
 }
@@ -366,14 +366,15 @@ export function BulkActionPanel({
 
 function useBulkActionSurfaceRegistration() {
   const registration = useContext(BulkActionSurfaceContext);
+  const id = useId();
 
   if (!registration) {
     return;
   }
 
-  registration.count += 1;
+  registration.ids.add(id);
 
-  if (registration.count > 1) {
+  if (registration.ids.size > 1) {
     throw new Error(
       "BulkActionSurface can render only one BulkActionBar. Combine actions into one bar and move advanced choices into BulkActionPanel or overflowActions.",
     );

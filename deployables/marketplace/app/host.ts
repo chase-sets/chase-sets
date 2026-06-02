@@ -13,7 +13,9 @@ export function resolveMarketplaceNavItems(
   actor?: Readonly<{ permissions?: readonly string[] }> | null,
   options: Readonly<{ cartCount?: number }> = {},
 ): NavigationItem[] {
-  const items = resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, actor).map(toTraderNavItem);
+  const items = resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, actor).map((item) =>
+    toTraderNavItem(item, slot),
+  );
   const cartCount = options.cartCount ?? 0;
 
   if (!actor || slot === "bottom-nav") {
@@ -35,7 +37,7 @@ export function resolveMarketplaceAccountMenuItems(
 
   return orderAccountChildNav(
     resolveWebHostNavItems(webContextRegistry, "marketplace-web", "top-nav", actor)
-      .map(toTraderNavItem)
+      .map((item) => toTraderNavItem(item, "top-nav"))
       .filter((item) => accountChildKeys.has(item.key) && Boolean(item.href)),
   ).flatMap((item) =>
     item.href
@@ -123,11 +125,13 @@ const traderNavOverrides: Record<string, Partial<NavigationItem>> = {
   },
 };
 
-function toTraderNavItem(item: NavigationItem): NavigationItem {
+function toTraderNavItem(item: NavigationItem, slot: "top-nav" | "bottom-nav"): NavigationItem {
   const override = traderNavOverrides[item.key];
   const placement = topNavUtilityKeys.has(item.key) ? "utility" : item.placement;
+  const resolvedOverride =
+    item.key === "notifications" && slot === "bottom-nav" ? { ...override, label: item.label } : override;
 
-  return override ? { ...item, placement, ...override } : { ...item, placement };
+  return resolvedOverride ? { ...item, placement, ...resolvedOverride } : { ...item, placement };
 }
 
 function formatCartBadge(count: number) {

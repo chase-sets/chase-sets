@@ -9,6 +9,12 @@ describe("admin web host context registry", () => {
         routePath: "operations/support-requests",
       }),
     );
+    expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
+      expect.objectContaining({
+        routeId: "support-operations-detail",
+        routePath: "operations/support-requests/:id",
+      }),
+    );
 
     expect(
       resolveAdminWebNavItems(
