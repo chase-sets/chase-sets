@@ -23,14 +23,6 @@ CREATE INDEX IF NOT EXISTS settlement_payout_readiness_pages_provider_reference_
   ON settlement_payout_readiness_pages (provider_reference)
   WHERE provider_reference IS NOT NULL;
 
-CREATE INDEX IF NOT EXISTS settlement_payout_readiness_pages_provider_posture_idx
-  ON settlement_payout_readiness_pages (
-    payout_account_dashboard,
-    requirements_collector,
-    provider_reference
-  )
-  WHERE provider_reference IS NOT NULL;
-
 ALTER TABLE settlement_payout_readiness_pages
   ADD COLUMN IF NOT EXISTS onboarding_status text NOT NULL DEFAULT 'not-started';
 
