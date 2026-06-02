@@ -40,6 +40,8 @@ The EasyPost adapter creates shipments from sender and recipient addresses plus 
 
 USPS label refunds are modeled as label void requests. A voided label moves the shipment back to awaiting a label while preserving provider refund metadata on the shipment read model.
 
+EasyPost can complete USPS refunds asynchronously after the void request. EasyPost's [shipping refund](https://docs.easypost.com/docs/shipments/shipping-refund) and [event](https://docs.easypost.com/docs/events) docs describe USPS refund processing as delayed and `refund.successful` as the Event created when a non-instantaneous refund completes. Fulfillment launch proof therefore needs both the synchronous void result and the later EasyPost refund lifecycle callback. The EasyPost adapter normalizes `refund.*` webhook events, including `refund.successful`, into `refund-status` rows in `fulfillment_postage_provider_events`; the launch gate is not satisfied by `label_refund_status` alone.
+
 ## Operational Checks
 
 Before enabling a real postage provider in a shared environment:
@@ -84,5 +86,34 @@ pnpm run marketplace:fulfillment-postage-evidence -- --proof .\secure\fulfillmen
 The command fails unless the proof record is production, uses EasyPost production mode, points at the HTTPS `/api/fulfillment/provider/postage/webhooks` destination on a production Chase Sets host, includes the controlled parcel shipment id, EasyPost `shp_` shipment id, EasyPost `pl_` label id, EasyPost `trk_` tracker id, tracking identifier, delivery-exception evidence kind, label void/refund provider object reference, Letter Mailpiece shipment id, at least four `fulfillment_postage_provider_events` `evt_` ids matched to shipments, at least three `tracking-status` `evt_` ids, one `refund-status` `evt_` id, and proves every required parcel label, void/refund, tracking, delivery exception, and Letter Mailpiece rehearsal.
 
 Delivery exception evidence can use `deliveryExceptionEvidenceKind: "provider-event"` with a concrete EasyPost `deliveryExceptionProviderEventId`, or `deliveryExceptionEvidenceKind: "fulfillment-rehearsal"` with a concrete `deliveryExceptionRehearsalShipmentId` from the authenticated Fulfillment exception workflow. This exception-path choice does not replace the EasyPost production provider-event requirements for tracking and refund status rows.
+
+### Refund Status Provider Event Evidence
+
+When the controlled parcel label has already been voided, do not purchase another production label just to satisfy the missing `refund-status` row. First use the existing controlled shipment, EasyPost shipment id, label id, tracking code, and refund/provider object reference from the void response.
+
+1. In the EasyPost production dashboard or API, find the refund associated with the controlled EasyPost shipment or tracking code.
+2. If the refund is still submitted, wait for EasyPost to complete it. EasyPost documents USPS refund processing as at least 15 days and carrier-dependent processing as no greater than 30 days before `refund_status` moves to `refunded`.
+3. When an EasyPost Event with description `refund.successful` is available, redeliver or replay that Event to `https://chasesets.com/api/fulfillment/provider/postage/webhooks` using the configured production webhook destination.
+4. Confirm Fulfillment recorded the provider lifecycle fact before updating the launch proof record:
+
+```sql
+SELECT provider_event_id,
+       event_kind,
+       shipment_id,
+       tracking_identifier,
+       provider_object_reference,
+       status,
+       received_at
+FROM fulfillment_postage_provider_events
+WHERE event_kind = 'refund-status'
+  AND (
+    shipment_id = '<controlledParcelShipmentId>'
+    OR tracking_identifier = '<trackingIdentifier>'
+    OR provider_object_reference = '<refundOrProviderObjectReference>'
+  )
+ORDER BY received_at DESC;
+```
+
+Attach the redacted EasyPost Event id and query output to the proof record fields that back `providerEventQueryReference`, `labelVoidRefundReference`, and the `refund-status` provider event id. Only buy and void another low-risk production label if the existing refund is confirmed never to emit the required EasyPost Event and Fulfillment approval is explicit.
 
 The proof record must include concrete private evidence references for the EasyPost account, webhook destination, provider event query, parcel label purchase, label void/refund, tracking event, delivery exception, and Letter Mailpiece rehearsal. Do not use a single generic approval document as a substitute for these workflow-specific references.
