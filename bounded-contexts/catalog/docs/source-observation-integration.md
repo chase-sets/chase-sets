@@ -57,6 +57,13 @@ TCGdex marketplace identifiers are mapping evidence, not pricing truth. When TCG
 
 The profile marks these extracted marketplace IDs as Catalog Item-level references. Product-level SKU references are linked separately through Catalog Item Product references, where the selected Product options are known. This distinction lets Inventory imports resolve a TCGplayer Product ID to the card print and a TCGplayer SKU to the exact sellable Product without requiring sellers to pick products row by row.
 
+The direct TCGplayer integration uses the automation-app client contract in
+[TCGplayer Automation Client Contract](./tcgplayer-automation-client-contract.md).
+It imports provider product and SKU evidence as Source Observations. It must not
+use official TCGplayer API documentation as the provider contract for this
+workstream, and it must not store price, latest sale, listing, order, message,
+or seller inventory facts as Catalog truth.
+
 ## Promotion
 
 Promotion creates a draft Catalog Item for the observed Pokemon card print variant unless the same provider, language, and external key already resolve to an existing Catalog Item that is not archived or removed. Existing source-linked Catalog Items are refreshed in place so repeated promotion cannot create duplicates. Promotion assigns the Pokemon card blueprint, sets card identity fields, assigns the Singles category for newly created drafts, records TCGdex source mapping, generates and attaches the Catalog Item-owned Product Asset Set when provider imagery exists, and keeps Chase Sets-owned image URLs as a migration compatibility projection.
