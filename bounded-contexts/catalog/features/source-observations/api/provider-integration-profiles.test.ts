@@ -13,6 +13,14 @@ describe("catalog provider integration profiles", () => {
     expect(profile).toMatchObject({
       providerKey: "tcgplayer",
       status: "planned",
+      capabilities: ["provider-option-query", "external-reference-extraction"],
+      supportedScopes: ["product-line/category", "set-name", "product", "sku"],
+      optionQueries: [
+        { queryKind: "product-lines", displayName: "Product Line", scope: "product-line/category", parentScope: null },
+        { queryKind: "set-names", displayName: "Set Name", scope: "set-name", parentScope: "product-line/category" },
+        { queryKind: "products", displayName: "Product", scope: "product", parentScope: "set-name" },
+        { queryKind: "skus", displayName: "SKU", scope: "sku", parentScope: "product" },
+      ],
       connector: {
         kind: "tcgplayer-automation-client",
         sourceRepository: {
@@ -77,6 +85,62 @@ describe("catalog provider integration profiles", () => {
         }),
       ]),
     );
+  });
+
+  it("distinguishes Product ID Catalog Item references from SKU Product references", () => {
+    expect(tcgplayerAutomationClientProviderProfile.externalReferenceExtractionRules).toMatchObject({
+      referenceTarget: "mixed",
+      rules: [
+        expect.objectContaining({
+          providerKey: "tcgplayer",
+          target: "catalog-item-reference",
+          externalKeyPrefix: "product:",
+          valueKeys: expect.arrayContaining(["productId"]),
+        }),
+        expect.objectContaining({
+          providerKey: "tcgplayer",
+          target: "product-reference",
+          externalKeyPrefix: "sku:",
+          valueKeys: expect.arrayContaining(["skuId"]),
+        }),
+      ],
+    });
+  });
+
+  it("maps TCGplayer SKU selected options to review evidence when provider values are unknown", () => {
+    expect(tcgplayerAutomationClientProviderProfile.selectedOptionMapping).toMatchObject({
+      source: "tcgplayer-sku-condition-variant-language",
+      dimensions: {
+        condition: {
+          sourceKey: "condition",
+          dimensionKey: "condition",
+          unknownPolicy: "review-evidence",
+        },
+        variant: {
+          sourceKey: "variant",
+          dimensionKey: "printing",
+          unknownPolicy: "review-evidence",
+        },
+        language: {
+          sourceKey: "language",
+          dimensionKey: "language",
+          unknownPolicy: "review-evidence",
+        },
+        sealedForm: {
+          sourceKey: "sealed",
+          dimensionKey: "product-form",
+          sealedOptionKey: "unopened",
+          unsealedOptionKey: "single",
+          unknownPolicy: "review-evidence",
+        },
+      },
+      productReferenceRule: {
+        providerKey: "tcgplayer",
+        externalKeyPrefix: "sku:",
+        requiredSourceKeys: ["sku", "condition", "variant", "language"],
+        missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+      },
+    });
   });
 
   it("lists active and planned providers through the same provider catalog", () => {

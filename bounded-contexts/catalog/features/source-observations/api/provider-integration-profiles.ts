@@ -6,7 +6,15 @@ export type CatalogProviderCapability =
   | "catalog-item-promotion"
   | "external-reference-extraction";
 
-export type CatalogProviderScope = "language" | "series" | "expansion" | "product/card";
+export type CatalogProviderScope =
+  | "language"
+  | "series"
+  | "expansion"
+  | "product/card"
+  | "product-line/category"
+  | "set-name"
+  | "product"
+  | "sku";
 
 export type CatalogProviderOptionQuery = Readonly<{
   queryKind: string;
@@ -97,6 +105,40 @@ export type CatalogProviderReferenceRecordRule = Readonly<{
   providerAttributeKey: string;
 }>;
 
+export type CatalogProviderSelectedOptionMapping = Readonly<{
+  source: "tcgplayer-sku-condition-variant-language";
+  dimensions: Readonly<{
+    condition: Readonly<{
+      sourceKey: "condition";
+      dimensionKey: "condition";
+      unknownPolicy: "review-evidence";
+    }>;
+    variant: Readonly<{
+      sourceKey: "variant";
+      dimensionKey: "printing";
+      unknownPolicy: "review-evidence";
+    }>;
+    language: Readonly<{
+      sourceKey: "language";
+      dimensionKey: "language";
+      unknownPolicy: "review-evidence";
+    }>;
+    sealedForm: Readonly<{
+      sourceKey: "sealed";
+      dimensionKey: "product-form";
+      sealedOptionKey: "unopened";
+      unsealedOptionKey: "single";
+      unknownPolicy: "review-evidence";
+    }>;
+  }>;
+  productReferenceRule: Readonly<{
+    providerKey: "tcgplayer";
+    externalKeyPrefix: "sku:";
+    requiredSourceKeys: readonly ("sku" | "condition" | "variant" | "language")[];
+    missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence";
+  }>;
+}>;
+
 export type CatalogProviderIntegrationProfile = Readonly<{
   providerKey: string;
   displayName: string;
@@ -129,6 +171,7 @@ export type CatalogProviderIntegrationProfile = Readonly<{
     providerReferenceIdPrefix: string;
     providerAttributes: readonly CatalogProviderReferenceRecordRule[];
   }>;
+  selectedOptionMapping?: CatalogProviderSelectedOptionMapping;
   externalReferenceExtractionRules: Readonly<{
     referenceTarget: "catalog-item-reference" | "product-reference" | "mixed";
     rules: readonly CatalogProviderExternalReferenceRule[];
@@ -329,10 +372,15 @@ export const tcgplayerAutomationClientProviderProfile = {
   providerKey: "tcgplayer",
   displayName: "TCGplayer",
   status: "planned",
-  capabilities: ["external-reference-extraction"],
-  supportedScopes: ["series", "expansion", "product/card"],
+  capabilities: ["provider-option-query", "external-reference-extraction"],
+  supportedScopes: ["product-line/category", "set-name", "product", "sku"],
   languageOptions: ["en"],
-  optionQueries: [],
+  optionQueries: [
+    { queryKind: "product-lines", displayName: "Product Line", scope: "product-line/category", parentScope: null },
+    { queryKind: "set-names", displayName: "Set Name", scope: "set-name", parentScope: "product-line/category" },
+    { queryKind: "products", displayName: "Product", scope: "product", parentScope: "set-name" },
+    { queryKind: "skus", displayName: "SKU", scope: "sku", parentScope: "product" },
+  ],
   connector: {
     kind: "tcgplayer-automation-client",
     sourceRepository: {
@@ -388,8 +436,41 @@ export const tcgplayerAutomationClientProviderProfile = {
       { typeKey: "expansion", providerAttributeKey: "tcgplayer-set-name" },
     ],
   },
+  selectedOptionMapping: {
+    source: "tcgplayer-sku-condition-variant-language",
+    dimensions: {
+      condition: {
+        sourceKey: "condition",
+        dimensionKey: "condition",
+        unknownPolicy: "review-evidence",
+      },
+      variant: {
+        sourceKey: "variant",
+        dimensionKey: "printing",
+        unknownPolicy: "review-evidence",
+      },
+      language: {
+        sourceKey: "language",
+        dimensionKey: "language",
+        unknownPolicy: "review-evidence",
+      },
+      sealedForm: {
+        sourceKey: "sealed",
+        dimensionKey: "product-form",
+        sealedOptionKey: "unopened",
+        unsealedOptionKey: "single",
+        unknownPolicy: "review-evidence",
+      },
+    },
+    productReferenceRule: {
+      providerKey: "tcgplayer",
+      externalKeyPrefix: "sku:",
+      requiredSourceKeys: ["sku", "condition", "variant", "language"],
+      missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+    },
+  },
   externalReferenceExtractionRules: {
-    referenceTarget: "catalog-item-reference",
+    referenceTarget: "mixed",
     rules: [
       {
         providerKey: "tcgplayer",
