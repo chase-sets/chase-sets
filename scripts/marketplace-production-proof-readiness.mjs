@@ -243,7 +243,7 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
     secretCommands: missingSecrets.map((name) => `gh secret set ${name} --env production`),
     stripeMoneySmokeEnvironmentCommands: [
       `$env:PLATFORM_API_BASE_URL="${providerCallbackSetup.productionProofBaseUrl}"`,
-      `$env:MARKETPLACE_WEB_BASE_URL="${providerCallbackSetup.productionMarketplaceBaseUrl}"`,
+      `$env:MARKETPLACE_WEB_BASE_URL="${providerCallbackSetup.stripeConnectCustomSetup.privateProofSetupPageOrigin}"`,
       '$env:STRIPE_MONEY_SMOKE_ALLOW_LIVE="true"',
       `$env:PRODUCTION_MARKETPLACE_PROOF_REFERENCE="${suggestedProofReference}"`,
     ],
@@ -283,6 +283,7 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
       "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
       "Use stripeMoneySmokeEnvironmentCommands for private production proof only after topology evidence passes and live Stripe secrets are loaded into the shell.",
+      "During proof mode, MARKETPLACE_WEB_BASE_URL uses the production proof origin because marketplace.chasesets.com remains undeployed until public promotion.",
       "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only when manually exercising legacy hosted Account Link compatibility.",
     ],
   };
@@ -448,6 +449,8 @@ function buildProviderCallbackSetup({ baseUrl, marketplaceUrl }) {
     ],
     stripeConnectCustomSetup: {
       finalLaunchSetupPageUrl: `${normalizedMarketplaceUrl}/account/payouts/setup`,
+      privateProofSetupPageOrigin: normalizedBaseUrl,
+      privateProofSetupPageUrl: `${normalizedBaseUrl}/account/payouts/setup`,
       launchEvidenceFields: [
         "gates.stripeMoneyOperations.connectPayoutSetupPageUrl",
         "gates.stripeMoneyOperations.connectPayoutSetupPageEvidenceKind",

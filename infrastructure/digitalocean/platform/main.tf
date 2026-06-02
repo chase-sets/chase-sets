@@ -366,7 +366,7 @@ resource "digitalocean_app" "platform" {
     }
 
     dynamic "service" {
-      for_each = local.marketplace_public_enabled ? [1] : []
+      for_each = local.marketplace_web_enabled ? [1] : []
       content {
         name               = "marketplace"
         run_command        = "pnpm --filter @chase-sets/app-marketplace-web run start"
@@ -404,7 +404,7 @@ resource "digitalocean_app" "platform" {
 
         env {
           key   = "CHASE_SETS_MARKETPLACE_INDEXING"
-          value = local.is_production ? "true" : "false"
+          value = local.is_production && local.marketplace_public_enabled ? "true" : "false"
           scope = "RUN_TIME"
         }
 
@@ -1714,6 +1714,24 @@ resource "digitalocean_app" "platform" {
           }
           component {
             name                 = "platform-api"
+            preserve_path_prefix = true
+          }
+        }
+      }
+
+      dynamic "rule" {
+        for_each = local.proof_web_ingress_routes
+        content {
+          match {
+            authority {
+              exact = rule.value.authority
+            }
+            path {
+              prefix = rule.value.path_prefix
+            }
+          }
+          component {
+            name                 = "marketplace"
             preserve_path_prefix = true
           }
         }

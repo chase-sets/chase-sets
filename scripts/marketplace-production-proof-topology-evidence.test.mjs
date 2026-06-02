@@ -1,12 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
   PRIVATE_PROOF_API_PATHS,
+  PRIVATE_PROOF_WEB_PATHS,
   PROVIDER_CALLBACK_PATHS,
   PRODUCTION_PROOF_TOPOLOGY_EVIDENCE_VERSION,
   buildProductionProofTopologyEvidence,
   collectProductionProofTopologyEvidence,
   parseProductionProofTopologyArgs,
 } from "./marketplace-production-proof-topology-evidence.mjs";
+
+function passingPrivateProofWebRoutes(baseUrl) {
+  return PRIVATE_PROOF_WEB_PATHS.map((check) => ({
+    ...check,
+    url: `${baseUrl}${check.path}`,
+    responseUrl: `${baseUrl}${check.path}`,
+    status: 302,
+    ok: false,
+    contentType: "text/html",
+    location: "/sign-in?returnTo=%2Faccount%2Fpayouts%2Fsetup",
+    reachable: true,
+  }));
+}
 
 describe("marketplace production proof topology evidence", () => {
   it("passes when proof mode is enabled, public launch is closed, health, callbacks, and private APIs are routed", async () => {
@@ -20,11 +34,21 @@ describe("marketplace production proof topology evidence", () => {
         productionMarketplacePublicEnabled: "false",
       },
       async (url) => ({
-        status: url.pathname === "/api/health/ready" ? 200 : PROVIDER_CALLBACK_PATHS.includes(url.pathname) ? 400 : 401,
+        status:
+          url.pathname === "/api/health/ready"
+            ? 200
+            : PROVIDER_CALLBACK_PATHS.includes(url.pathname)
+              ? 400
+              : url.pathname === "/account/payouts/setup"
+                ? 302
+                : 401,
         ok: url.pathname === "/api/health/ready",
         url: url.toString(),
         redirected: false,
-        headers: new Headers({ "content-type": "application/json" }),
+        headers: new Headers({
+          "content-type": url.pathname === "/account/payouts/setup" ? "text/html" : "application/json",
+          location: url.pathname === "/account/payouts/setup" ? "/sign-in?returnTo=%2Faccount%2Fpayouts%2Fsetup" : "",
+        }),
       }),
     );
 
@@ -32,6 +56,9 @@ describe("marketplace production proof topology evidence", () => {
     expect(evidence.providerCallbacks.map((row) => row.path)).toEqual(PROVIDER_CALLBACK_PATHS);
     expect(evidence.privateProofApis.map((row) => ({ method: row.method, path: row.path }))).toEqual(
       PRIVATE_PROOF_API_PATHS,
+    );
+    expect(evidence.privateProofWebRoutes.map((row) => ({ method: row.method, path: row.path }))).toEqual(
+      PRIVATE_PROOF_WEB_PATHS,
     );
     expect(evidence.passesProductionProofTopologyGate).toBe(true);
     expect(evidence.errors).toEqual([]);
@@ -70,6 +97,7 @@ describe("marketplace production proof topology evidence", () => {
         contentType: "application/json",
         reachable: true,
       })),
+      privateProofWebRoutes: passingPrivateProofWebRoutes("https://chasesets.com"),
     });
 
     expect(evidence.passesProductionProofTopologyGate).toBe(false);
@@ -120,6 +148,7 @@ describe("marketplace production proof topology evidence", () => {
         contentType: "application/json",
         reachable: true,
       })),
+      privateProofWebRoutes: passingPrivateProofWebRoutes("https://chasesets.com"),
     });
 
     expect(evidence.passesProductionProofTopologyGate).toBe(false);
@@ -164,6 +193,7 @@ describe("marketplace production proof topology evidence", () => {
         contentType: "application/json",
         reachable: true,
       })),
+      privateProofWebRoutes: passingPrivateProofWebRoutes("https://chasesets.com"),
     });
 
     const shortReference = buildProductionProofTopologyEvidence({
@@ -214,6 +244,7 @@ describe("marketplace production proof topology evidence", () => {
         contentType: "application/json",
         reachable: false,
       })),
+      privateProofWebRoutes: passingPrivateProofWebRoutes("https://chasesets.com"),
     });
 
     expect(evidence.passesProductionProofTopologyGate).toBe(false);
@@ -320,6 +351,7 @@ describe("marketplace production proof topology evidence", () => {
         contentType: "text/html",
         reachable: true,
       })),
+      privateProofWebRoutes: passingPrivateProofWebRoutes("https://chasesets.com"),
     });
 
     expect(evidence.passesProductionProofTopologyGate).toBe(false);
@@ -328,6 +360,107 @@ describe("marketplace production proof topology evidence", () => {
     );
     expect(evidence.errors).toContain(
       "Production proof topology private API GET /api/settlement/provider-health must return a JSON API response.",
+    );
+  });
+
+  it("fails when the private proof web route still returns 404", () => {
+    const evidence = buildProductionProofTopologyEvidence({
+      baseUrl: "https://chasesets.com",
+      reference: "PRODUCTION-PROOF-2026-05-30",
+      operator: "ops@chasesets.com",
+      checkedAt: "2026-05-30T12:00:00.000Z",
+      productionMarketplaceProofEnabled: "true",
+      productionMarketplacePublicEnabled: "false",
+      health: {
+        url: "https://chasesets.com/api/health/ready",
+        responseUrl: "https://chasesets.com/api/health/ready",
+        status: 200,
+        ok: true,
+        contentType: "application/json",
+      },
+      providerCallbacks: PROVIDER_CALLBACK_PATHS.map((path) => ({
+        path,
+        url: `https://chasesets.com${path}`,
+        responseUrl: `https://chasesets.com${path}`,
+        status: 400,
+        ok: false,
+        contentType: "application/json",
+        reachable: true,
+      })),
+      privateProofApis: PRIVATE_PROOF_API_PATHS.map((check) => ({
+        ...check,
+        url: `https://chasesets.com${check.path}`,
+        responseUrl: `https://chasesets.com${check.path}`,
+        status: 401,
+        ok: false,
+        contentType: "application/json",
+        reachable: true,
+      })),
+      privateProofWebRoutes: PRIVATE_PROOF_WEB_PATHS.map((check) => ({
+        ...check,
+        url: `https://chasesets.com${check.path}`,
+        responseUrl: `https://chasesets.com${check.path}`,
+        status: 404,
+        ok: false,
+        contentType: "text/html",
+        reachable: false,
+      })),
+    });
+
+    expect(evidence.passesProductionProofTopologyGate).toBe(false);
+    expect(evidence.errors).toContain(
+      "Production proof topology private web route GET /account/payouts/setup must not return 404.",
+    );
+  });
+
+  it("fails when the private proof web route redirects away from same-origin sign-in", () => {
+    const evidence = buildProductionProofTopologyEvidence({
+      baseUrl: "https://chasesets.com",
+      reference: "PRODUCTION-PROOF-2026-05-30",
+      operator: "ops@chasesets.com",
+      checkedAt: "2026-05-30T12:00:00.000Z",
+      productionMarketplaceProofEnabled: "true",
+      productionMarketplacePublicEnabled: "false",
+      health: {
+        url: "https://chasesets.com/api/health/ready",
+        responseUrl: "https://chasesets.com/api/health/ready",
+        status: 200,
+        ok: true,
+        contentType: "application/json",
+      },
+      providerCallbacks: PROVIDER_CALLBACK_PATHS.map((path) => ({
+        path,
+        url: `https://chasesets.com${path}`,
+        responseUrl: `https://chasesets.com${path}`,
+        status: 400,
+        ok: false,
+        contentType: "application/json",
+        reachable: true,
+      })),
+      privateProofApis: PRIVATE_PROOF_API_PATHS.map((check) => ({
+        ...check,
+        url: `https://chasesets.com${check.path}`,
+        responseUrl: `https://chasesets.com${check.path}`,
+        status: 401,
+        ok: false,
+        contentType: "application/json",
+        reachable: true,
+      })),
+      privateProofWebRoutes: PRIVATE_PROOF_WEB_PATHS.map((check) => ({
+        ...check,
+        url: `https://chasesets.com${check.path}`,
+        responseUrl: `https://chasesets.com${check.path}`,
+        status: 302,
+        ok: false,
+        contentType: "text/html",
+        location: "https://admin.chasesets.com/",
+        reachable: true,
+      })),
+    });
+
+    expect(evidence.passesProductionProofTopologyGate).toBe(false);
+    expect(evidence.errors).toContain(
+      "Production proof topology private web route GET /account/payouts/setup may only redirect unauthenticated users to the same-origin /sign-in route.",
     );
   });
 
@@ -365,6 +498,7 @@ describe("marketplace production proof topology evidence", () => {
         contentType: "application/json",
         reachable: true,
       })),
+      privateProofWebRoutes: passingPrivateProofWebRoutes("https://chasesets.com"),
     });
 
     expect(evidence.passesProductionProofTopologyGate).toBe(false);
@@ -409,6 +543,7 @@ describe("marketplace production proof topology evidence", () => {
         contentType: "application/json",
         reachable: true,
       })),
+      privateProofWebRoutes: passingPrivateProofWebRoutes("https://staging.chasesets.com"),
     });
 
     expect(evidence.passesProductionProofTopologyGate).toBe(false);

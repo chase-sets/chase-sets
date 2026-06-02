@@ -66,6 +66,8 @@ describe("marketplace production proof readiness", () => {
         ]),
         stripeConnectCustomSetup: {
           finalLaunchSetupPageUrl: "https://marketplace.chasesets.com/account/payouts/setup",
+          privateProofSetupPageOrigin: "https://chasesets.com",
+          privateProofSetupPageUrl: "https://chasesets.com/account/payouts/setup",
           launchEvidenceFields: expect.arrayContaining([
             "gates.stripeMoneyOperations.connectPayoutSetupPageUrl",
             "gates.stripeMoneyOperations.connectEmbeddedSetupSessionCount",
@@ -81,7 +83,7 @@ describe("marketplace production proof readiness", () => {
         secretCommands: [],
         stripeMoneySmokeEnvironmentCommands: [
           '$env:PLATFORM_API_BASE_URL="https://chasesets.com"',
-          '$env:MARKETPLACE_WEB_BASE_URL="https://marketplace.chasesets.com"',
+          '$env:MARKETPLACE_WEB_BASE_URL="https://chasesets.com"',
           '$env:STRIPE_MONEY_SMOKE_ALLOW_LIVE="true"',
           '$env:PRODUCTION_MARKETPLACE_PROOF_REFERENCE="PRODUCTION-PROOF-2026-05-30"',
         ],

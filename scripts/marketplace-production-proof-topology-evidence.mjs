@@ -16,6 +16,7 @@ export const PROVIDER_CALLBACK_PATHS = [
 
 export const PROVIDER_CALLBACK_EXPECTED_STATUSES = [200, 400];
 export const PRIVATE_PROOF_API_EXPECTED_STATUSES = [401];
+export const PRIVATE_PROOF_WEB_EXPECTED_STATUSES = [200, 302, 303, 403];
 
 export const PRIVATE_PROOF_API_PATHS = [
   { method: "GET", path: "/api/marketplace/account/sales/shipments" },
@@ -56,6 +57,8 @@ export const PRIVATE_PROOF_API_PATHS = [
   { method: "GET", path: "/api/settlement/wallet" },
 ];
 
+export const PRIVATE_PROOF_WEB_PATHS = [{ method: "GET", path: "/account/payouts/setup" }];
+
 export function parseProductionProofTopologyArgs(argv, env = process.env) {
   return {
     baseUrl: readOption(argv, "--base-url") ?? readEnv("PRODUCTION_PROOF_BASE_URL", env) ?? "https://chasesets.com",
@@ -74,6 +77,7 @@ export async function collectProductionProofTopologyEvidence(options, fetchImpl 
   const health = await fetchStatus(fetchImpl, new URL("/api/health/ready", baseUrl), { method: "GET" });
   const providerCallbacks = [];
   const privateProofApis = [];
+  const privateProofWebRoutes = [];
 
   for (const path of PROVIDER_CALLBACK_PATHS) {
     providerCallbacks.push(
@@ -102,12 +106,26 @@ export async function collectProductionProofTopologyEvidence(options, fetchImpl 
     );
   }
 
+  for (const check of PRIVATE_PROOF_WEB_PATHS) {
+    privateProofWebRoutes.push(
+      await fetchStatus(fetchImpl, new URL(check.path, baseUrl), {
+        method: check.method,
+      }).then((status) => ({
+        method: check.method,
+        path: check.path,
+        ...status,
+        reachable: status.status !== 404 && status.status < 500,
+      })),
+    );
+  }
+
   return buildProductionProofTopologyEvidence({
     ...options,
     baseUrl,
     health,
     providerCallbacks,
     privateProofApis,
+    privateProofWebRoutes,
   });
 }
 
@@ -128,6 +146,7 @@ export function buildProductionProofTopologyEvidence(input) {
     health: input.health,
     providerCallbacks: input.providerCallbacks,
     privateProofApis: input.privateProofApis,
+    privateProofWebRoutes: input.privateProofWebRoutes,
     passesProductionProofTopologyGate: errors.length === 0,
     errors,
   };
@@ -205,6 +224,35 @@ export function validateProductionProofTopologyEvidence(input) {
     );
   }
 
+  for (const check of PRIVATE_PROOF_WEB_PATHS) {
+    const proofWebRoute = input.privateProofWebRoutes?.find(
+      (row) => row.path === check.path && row.method === check.method,
+    );
+    if (!proofWebRoute) {
+      errors.push(`Production proof topology must check ${check.method} ${check.path}.`);
+      continue;
+    }
+    if (proofWebRoute.status === 404) {
+      errors.push(`Production proof topology private web route ${check.method} ${check.path} must not return 404.`);
+    }
+    if (proofWebRoute.status >= 500) {
+      errors.push(
+        `Production proof topology private web route ${check.method} ${check.path} must not return a 5xx response.`,
+      );
+    }
+    if (proofWebRoute.error) {
+      errors.push(
+        `Production proof topology private web route ${check.method} ${check.path} failed: ${proofWebRoute.error}`,
+      );
+    }
+    validateWebProbeResponse(
+      `Production proof topology private web route ${check.method} ${check.path}`,
+      proofWebRoute,
+      PRIVATE_PROOF_WEB_EXPECTED_STATUSES,
+      errors,
+    );
+  }
+
   return errors;
 }
 
@@ -233,6 +281,7 @@ async function fetchStatus(fetchImpl, url, options) {
       status: response.status,
       ok: response.ok,
       contentType: response.headers?.get?.("content-type") ?? null,
+      location: response.headers?.get?.("location") ?? null,
       redirected: response.redirected === true,
     };
   } catch (error) {
@@ -295,6 +344,45 @@ function validateApiProbeResponse(label, probe, expectedStatuses, errors) {
   }
 }
 
+function validateWebProbeResponse(label, probe, expectedStatuses, errors) {
+  if (!expectedStatuses.includes(probe.status)) {
+    errors.push(`${label} must return one of ${expectedStatuses.join(", ")}; received ${probe.status}.`);
+  }
+
+  if (probe.responseUrl && probe.url && normalizeResponseUrl(probe.responseUrl) !== normalizeResponseUrl(probe.url)) {
+    errors.push(`${label} must respond from the requested URL without following a fallback route.`);
+  }
+
+  if (isRedirectStatus(probe.status)) {
+    validateSignInRedirect(label, probe, errors);
+    return;
+  }
+
+  if (probe.status === 200 && !isHtmlContentType(probe.contentType)) {
+    errors.push(`${label} must return an HTML web response when it does not redirect to sign-in.`);
+  }
+}
+
+function validateSignInRedirect(label, probe, errors) {
+  if (!probe.location) {
+    errors.push(`${label} redirect must include a Location header.`);
+    return;
+  }
+
+  let redirectUrl;
+  try {
+    redirectUrl = new URL(probe.location, probe.url);
+  } catch {
+    errors.push(`${label} redirect Location must be a valid URL.`);
+    return;
+  }
+
+  const requestUrl = new URL(probe.url);
+  if (redirectUrl.origin !== requestUrl.origin || redirectUrl.pathname !== "/sign-in") {
+    errors.push(`${label} may only redirect unauthenticated users to the same-origin /sign-in route.`);
+  }
+}
+
 function normalizeResponseUrl(value) {
   const url = new URL(value);
   url.hash = "";
@@ -307,6 +395,10 @@ function isRedirectStatus(status) {
 
 function isJsonContentType(value) {
   return typeof value === "string" && /\bapplication\/(?:[^;]+\+)?json\b/i.test(value);
+}
+
+function isHtmlContentType(value) {
+  return typeof value === "string" && /\btext\/html\b/i.test(value);
 }
 
 function isIsoTimestamp(value) {
