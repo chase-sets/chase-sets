@@ -38,6 +38,17 @@ function workflowStep(source, stepName) {
   return next === -1 ? source.slice(start) : source.slice(start, next);
 }
 
+function terraformServiceBlock(source, serviceName) {
+  const start = source.indexOf(`name               = "${serviceName}"`);
+  expect(start).not.toBe(-1);
+
+  const nextService = source.indexOf("\n    service", start + 1);
+  const nextDynamicService = source.indexOf('\n    dynamic "service"', start + 1);
+  const candidates = [nextService, nextDynamicService].filter((index) => index !== -1);
+  const end = candidates.length > 0 ? Math.min(...candidates) : source.length;
+  return source.slice(start, end);
+}
+
 function terraformStringList(source, localName) {
   const match = new RegExp(`${localName} = \\[([\\s\\S]*?)\\n  \\]`).exec(source);
   expect(match).not.toBeNull();
@@ -361,6 +372,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformMain).toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED"');
     expect(platformMain).toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_PERMISSION"');
     expect(platformMain).toContain('value = "security.manage"');
+    const marketplaceService = terraformServiceBlock(platformMain, "marketplace");
+    expect(marketplaceService).toContain('key   = "STRIPE_PUBLISHABLE_KEY"');
+    expect(marketplaceService).toContain("value = var.stripe_publishable_key");
+    expect(marketplaceService).toContain('type  = "SECRET"');
     expect(platformLocals).toContain("context_names = local.marketplace_platform_enabled");
     expect(platformMain).toContain('check "production_marketplace_proof"');
     expect(platformMain).toContain(
