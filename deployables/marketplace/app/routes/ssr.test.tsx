@@ -307,7 +307,7 @@ describe("marketplace SSR routes", () => {
 
   it("serves marketplace static endpoints", async () => {
     vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "true");
-    const robots = robotsLoader({
+    const robots = await robotsLoader({
       request: new Request("https://marketplace.example/robots.txt"),
       params: {},
       context: undefined,
@@ -326,7 +326,7 @@ describe("marketplace SSR routes", () => {
 
     expect(body).toContain("<svg");
     expect(body).toContain("logoGradient");
-    const devtools = chromeDevtoolsLoader({
+    const devtools = await chromeDevtoolsLoader({
       request: new Request("https://marketplace.example/.well-known/appspecific/com.chrome.devtools.json"),
       params: {},
       context: undefined,
@@ -394,7 +394,7 @@ describe("marketplace SSR routes", () => {
   it("can noindex marketplace staging through environment configuration", async () => {
     vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "false");
 
-    const robots = robotsLoader({
+    const robots = await robotsLoader({
       request: new Request("https://marketplace.staging.chasesets.com/robots.txt"),
       params: {},
       context: undefined,
@@ -402,6 +402,48 @@ describe("marketplace SSR routes", () => {
 
     expect(robots.headers.get("Content-Type")).toContain("text/plain");
     await expect(robots.text()).resolves.toContain("Disallow: /");
+  });
+
+  it("does not expose resource routes before production proof access is authenticated", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED", "true");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(new Response(JSON.stringify({ error: "Authentication required." }), { status: 401 })),
+      ),
+    );
+
+    for (const loadResource of [
+      () =>
+        robotsLoader({
+          request: new Request("https://marketplace.chasesets.com/robots.txt"),
+          params: {},
+          context: undefined,
+        } as never),
+      () =>
+        sitemapLoader({
+          request: new Request("https://marketplace.chasesets.com/sitemap.xml"),
+          params: {},
+          context: undefined,
+        } as never),
+      () =>
+        chromeDevtoolsLoader({
+          request: new Request("https://marketplace.chasesets.com/.well-known/appspecific/com.chrome.devtools.json"),
+          params: {},
+          context: undefined,
+        } as never),
+    ]) {
+      let thrown: unknown;
+      try {
+        await loadResource();
+      } catch (error) {
+        thrown = error;
+      }
+
+      expect(thrown).toBeInstanceOf(Response);
+      expect((thrown as Response).status).toBe(302);
+      expect((thrown as Response).headers.get("Location")).toMatch(/^\/sign-in\?returnTo=/);
+    }
   });
 
   it("returns sign-in route SEO metadata", () => {
