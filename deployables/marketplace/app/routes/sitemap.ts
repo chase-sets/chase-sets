@@ -1,5 +1,6 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { createDiscoveryRequestApiClient } from "@chase-sets/discovery/server";
+import { requireMarketplaceProofAccess } from "../proof-access.server";
 
 const STABLE_PUBLIC_PATHS = ["/", "/search"];
 
@@ -8,6 +9,8 @@ function escapeXml(value: string) {
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
+  await requireMarketplaceProofAccess(request);
+
   const { origin } = new URL(request.url);
   const api = createDiscoveryRequestApiClient(request);
   const dynamicUrls = await api
