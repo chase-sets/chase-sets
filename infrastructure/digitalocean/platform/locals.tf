@@ -25,6 +25,14 @@ locals {
   marketplace_public_enabled = (
     local.is_non_production || var.production_marketplace_public_enabled
   )
+  production_proof_web_enabled = (
+    local.is_production &&
+    var.production_marketplace_proof_enabled &&
+    !var.production_marketplace_public_enabled
+  )
+  marketplace_web_enabled = (
+    local.marketplace_public_enabled || local.production_proof_web_enabled
+  )
   environment_slug    = var.environment == "preview" ? var.preview_identifier : var.environment
   environment_zone    = "${var.environment}.${var.root_domain}"
   database_name_token = replace(local.environment_slug, "-", "_")
@@ -261,6 +269,20 @@ locals {
   )) : []
   proof_api_ingress_routes = {
     for route in setproduct(local.proof_api_route_domains, local.proof_api_route_prefixes) :
+    "${route[0]}:${route[1]}" => {
+      authority   = route[0]
+      path_prefix = route[1]
+    }
+  }
+  proof_web_route_prefixes = [
+    "/account/payouts/setup",
+  ]
+  proof_web_route_domains = local.production_proof_web_enabled ? distinct(concat(
+    local.public_domains,
+    [local.admin_domain],
+  )) : []
+  proof_web_ingress_routes = {
+    for route in setproduct(local.proof_web_route_domains, local.proof_web_route_prefixes) :
     "${route[0]}:${route[1]}" => {
       authority   = route[0]
       path_prefix = route[1]
