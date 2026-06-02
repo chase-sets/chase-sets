@@ -53,6 +53,7 @@ describe("money movement adapters", () => {
               capabilities: {
                 stripe_balance: {
                   stripe_transfers: { requested: true },
+                  payouts: { requested: true },
                 },
               },
             },
