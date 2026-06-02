@@ -58,6 +58,24 @@ The final launch-copy pass must review and replace future-only language across a
 | FAQ | `/faq` | Answers whether Chase Sets is live by pointing to production promotion. | Replace availability answers with the approved live marketplace posture and avoid unsupported scale, demand, or uptime claims. |
 | Contact | `/contact` | Support contact for prelaunch questions. | Confirm support contact, response ownership, and transaction support paths match the Support operations rehearsal. |
 
+Each required public page must have a reviewed launch-mode replacement for every visible phrase that contains one of these future-only signals:
+
+- `prelaunch`
+- `early access`
+- `waitlist`
+- `Request early access`
+- `public checkout remains gated`
+- `public marketplace checkout opens only after production promotion`
+- `marketplace checkout opens only after production promotion`
+- `production promotion approval`
+- `production promotion`
+- `opens only after`
+- `gated`
+- `no live marketplace transactions`
+- `no buying, listing, or payment required`
+
+The replacement review must preserve the concrete seller-economics proof that remains true at launch. Keep the beta seller fee lock, separate seller processing-fee posture, and visible buyer-fee/total clarity when those gates are approved; replace only the future-only availability language around them.
+
 Do not add a browse, checkout, listing, payout, delivery, refund, transaction-volume, or launch-date claim unless the target deployable route is promoted and the matching launch evidence gate is green. If public web remains a product/policy surface while marketplace commerce lives on a separate host, launch copy must name that relationship plainly instead of implying local browse routes exist on `chasesets.com`.
 
 Do not invent testimonials, waitlist counts, partnerships, founder bios, launch dates, transaction volume, or community proof.
