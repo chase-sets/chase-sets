@@ -19,6 +19,19 @@ function csvEnv(name, env = process.env) {
     .filter(Boolean);
 }
 
+function positiveIntegerEnv(name, fallback, env = process.env) {
+  const raw = readEnv(name, env);
+  if (!raw) {
+    return fallback;
+  }
+  const value = Number.parseInt(raw, 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function authHeaders(env = process.env) {
   const headers = new Headers();
   const authorization = readEnv("PLATFORM_API_AUTHORIZATION", env);
@@ -247,6 +260,8 @@ export function envReport(env = process.env) {
     "SMOKE_CREATE_PAYMENT",
     "SMOKE_ORDER_IDS",
     "SMOKE_PAYOUT_AMOUNT",
+    "SMOKE_PAYOUT_READINESS_ATTEMPTS",
+    "SMOKE_PAYOUT_READINESS_RETRY_DELAY_MS",
     "SMOKE_PAYMENT_METHOD_CATEGORY",
     "SMOKE_REQUEST_PAYOUT",
     "STRIPE_CONNECT_RETURN_URL",
@@ -569,28 +584,27 @@ function summarizeReadinessRefresh(body) {
   };
 }
 
-function summarizeEmbeddedDashboardNone(embeddedSetupSession, readinessRefresh) {
-  assert(
-    readinessRefresh.providerReference === embeddedSetupSession.providerReference,
-    `Expected payout setup refresh providerReference ${readinessRefresh.providerReference ?? "null"} to match embedded Account Session providerReference ${embeddedSetupSession.providerReference}.`,
-  );
-  assert(
-    readinessRefresh.payoutAccountDashboard === "none",
-    `Expected embedded payout setup account dashboard posture to be none, got ${readinessRefresh.payoutAccountDashboard ?? "null"}.`,
-  );
-  assert(
-    readinessRefresh.lossesCollector === "application",
-    `Expected embedded payout setup losses collector to be application, got ${readinessRefresh.lossesCollector ?? "null"}.`,
-  );
-  assert(
-    readinessRefresh.feesCollector === "application",
-    `Expected embedded payout setup fees collector to be application, got ${readinessRefresh.feesCollector ?? "null"}.`,
-  );
-  assert(
-    readinessRefresh.requirementsCollector === "application",
-    `Expected embedded payout setup requirements collector to be application, got ${readinessRefresh.requirementsCollector ?? "null"}.`,
-  );
+function embeddedDashboardNoneFailure(embeddedSetupSession, readinessRefresh) {
+  if (readinessRefresh.providerReference !== embeddedSetupSession.providerReference) {
+    return `Expected payout setup refresh providerReference ${readinessRefresh.providerReference ?? "null"} to match embedded Account Session providerReference ${embeddedSetupSession.providerReference}.`;
+  }
+  if (readinessRefresh.payoutAccountDashboard !== "none") {
+    return `Expected embedded payout setup account dashboard posture to be none, got ${readinessRefresh.payoutAccountDashboard ?? "null"}.`;
+  }
+  if (readinessRefresh.lossesCollector !== "application") {
+    return `Expected embedded payout setup losses collector to be application, got ${readinessRefresh.lossesCollector ?? "null"}.`;
+  }
+  if (readinessRefresh.feesCollector !== "application") {
+    return `Expected embedded payout setup fees collector to be application, got ${readinessRefresh.feesCollector ?? "null"}.`;
+  }
+  if (readinessRefresh.requirementsCollector !== "application") {
+    return `Expected embedded payout setup requirements collector to be application, got ${readinessRefresh.requirementsCollector ?? "null"}.`;
+  }
 
+  return null;
+}
+
+function embeddedDashboardNoneSummary(embeddedSetupSession, readinessRefresh) {
   return {
     status: "verified",
     providerReference: embeddedSetupSession.providerReference,
@@ -601,6 +615,41 @@ function summarizeEmbeddedDashboardNone(embeddedSetupSession, readinessRefresh) 
     feesCollector: readinessRefresh.feesCollector,
     requirementsCollector: readinessRefresh.requirementsCollector,
   };
+}
+
+async function refreshPayoutSetupUntilEmbeddedDashboardNone(baseUrl, options) {
+  const attempts = positiveIntegerEnv("SMOKE_PAYOUT_READINESS_ATTEMPTS", 12, options.env);
+  const retryDelayMs = positiveIntegerEnv("SMOKE_PAYOUT_READINESS_RETRY_DELAY_MS", 5000, options.env);
+  let lastReadinessRefresh = null;
+  let lastFailure = null;
+
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const refresh = await requestJson(
+      `${baseUrl}/api/settlement/payout-setup/refresh`,
+      {
+        method: "POST",
+        headers: options.headers,
+        body: JSON.stringify({
+          contactEmail: readEnv("SMOKE_SELLER_EMAIL", options.env),
+        }),
+      },
+      options.fetchImpl,
+    );
+    assert(refresh.response.status === 200, statusFailureMessage("payout setup refresh", refresh, "200"));
+    lastReadinessRefresh = summarizeReadinessRefresh(refresh.body);
+    lastFailure = embeddedDashboardNoneFailure(options.embeddedSetupSession, lastReadinessRefresh);
+    if (!lastFailure) {
+      return {
+        readinessRefresh: lastReadinessRefresh,
+        embeddedDashboardNone: embeddedDashboardNoneSummary(options.embeddedSetupSession, lastReadinessRefresh),
+      };
+    }
+    if (attempt < attempts) {
+      await delay(retryDelayMs);
+    }
+  }
+
+  throw new Error(lastFailure ?? "Expected payout setup refresh to prove embedded dashboard-none posture.");
 }
 
 function summarizePayoutPreview(result) {
@@ -740,20 +789,12 @@ export async function runSellerFlow(baseUrl, options = {}) {
   );
   const embeddedSetupSession = summarizeEmbeddedSetupSession(embeddedSetup.body);
 
-  const refresh = await requestJson(
-    `${baseUrl}/api/settlement/payout-setup/refresh`,
-    {
-      method: "POST",
-      headers: setupHeaders,
-      body: JSON.stringify({
-        contactEmail: readEnv("SMOKE_SELLER_EMAIL", env),
-      }),
-    },
+  const { readinessRefresh, embeddedDashboardNone } = await refreshPayoutSetupUntilEmbeddedDashboardNone(baseUrl, {
+    env,
     fetchImpl,
-  );
-  assert(refresh.response.status === 200, statusFailureMessage("payout setup refresh", refresh, "200"));
-  const readinessRefresh = summarizeReadinessRefresh(refresh.body);
-  const embeddedDashboardNone = summarizeEmbeddedDashboardNone(embeddedSetupSession, readinessRefresh);
+    headers: setupHeaders,
+    embeddedSetupSession,
+  });
 
   const previewHeaders = new Headers(headers);
   previewHeaders.set("Content-Type", "application/json");

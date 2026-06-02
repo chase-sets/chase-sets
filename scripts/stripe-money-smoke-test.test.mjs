@@ -466,6 +466,7 @@ describe("stripe money smoke test", () => {
         },
         env: {
           PLATFORM_API_AUTHORIZATION: "Bearer preview",
+          SMOKE_PAYOUT_READINESS_ATTEMPTS: "1",
         },
       }),
     ).rejects.toThrow(/dashboard posture to be none, got express/);
@@ -493,6 +494,7 @@ describe("stripe money smoke test", () => {
         },
         env: {
           PLATFORM_API_AUTHORIZATION: "Bearer preview",
+          SMOKE_PAYOUT_READINESS_ATTEMPTS: "1",
         },
       }),
     ).rejects.toThrow(/to match embedded Account Session providerReference acct_embedded_smoke/);
@@ -520,9 +522,54 @@ describe("stripe money smoke test", () => {
         },
         env: {
           PLATFORM_API_AUTHORIZATION: "Bearer preview",
+          SMOKE_PAYOUT_READINESS_ATTEMPTS: "1",
         },
       }),
     ).rejects.toThrow(/requirements collector to be application, got stripe/);
+  });
+
+  it("retries payout setup refresh until embedded dashboard-none readiness is projected", async () => {
+    const calls = [];
+    let refreshAttempts = 0;
+    const result = await runSellerFlow("https://api.preview.test", {
+      fetchImpl: async (url, init) => {
+        const path = new URL(String(url)).pathname;
+        if (path === "/api/settlement/payout-setup/refresh") {
+          refreshAttempts += 1;
+          if (refreshAttempts === 1) {
+            return jsonResponse({
+              account_id: "acc_smoke_seller",
+              status: "not-started",
+              provider_reference: null,
+              payout_account_dashboard: "unknown",
+              losses_collector: "unknown",
+              fees_collector: "unknown",
+              requirements_collector: "unknown",
+              requirements: [],
+            });
+          }
+        }
+        return createSmokeFetch(calls)(url, init);
+      },
+      env: {
+        PLATFORM_API_AUTHORIZATION: "Bearer preview",
+        SMOKE_PAYOUT_READINESS_ATTEMPTS: "2",
+        SMOKE_PAYOUT_READINESS_RETRY_DELAY_MS: "1",
+      },
+    });
+
+    expect(refreshAttempts).toBe(2);
+    expect(calls.filter((call) => new URL(call.url).pathname === "/api/settlement/payout-setup/refresh")).toHaveLength(
+      1,
+    );
+    expect(result.embeddedDashboardNone).toMatchObject({
+      status: "verified",
+      providerReference: "acct_embedded_smoke",
+      payoutAccountDashboard: "none",
+      lossesCollector: "application",
+      feesCollector: "application",
+      requirementsCollector: "application",
+    });
   });
 
   it("fails seller flow when the payout setup page route does not load", async () => {

@@ -191,6 +191,8 @@ Optional authenticated preview checks:
 - `SMOKE_SELLER_EMAIL`: legacy smoke variable name for the preview account email used for sign-in or registration.
 - `SMOKE_SELLER_PASSWORD`: legacy smoke variable name for the preview account password used for sign-in or registration.
 - `SMOKE_SELLER_ACCOUNT_ID`: legacy smoke variable name for the account to select when the user has multiple memberships.
+- `SMOKE_PAYOUT_READINESS_ATTEMPTS`: number of payout setup readiness refresh attempts after embedded Account Session creation. Defaults to `12`.
+- `SMOKE_PAYOUT_READINESS_RETRY_DELAY_MS`: delay between payout setup readiness refresh attempts. Defaults to `5000`.
 - `SMOKE_ORDER_IDS`: comma-separated pending-payment order ids to probe checkout payment status.
 - `SMOKE_BALANCE_CREDIT_AMOUNT`: wallet credit amount to apply in checkout status and optional payment creation.
 - `SMOKE_PAYMENT_METHOD_CATEGORY`: `card`, `bank-account`, or `platform-credit`.
