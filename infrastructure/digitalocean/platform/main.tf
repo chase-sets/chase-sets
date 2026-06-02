@@ -408,6 +408,18 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
 
+        env {
+          key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED"
+          value = local.production_proof_web_enabled ? "true" : "false"
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_PERMISSION"
+          value = "security.manage"
+          scope = "RUN_TIME"
+        }
+
         health_check {
           http_path = "/health/ready"
         }

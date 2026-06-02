@@ -342,6 +342,7 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("local.is_non_production || var.production_marketplace_public_enabled");
     expect(platformLocals).toContain("production_proof_web_enabled = (");
     expect(platformLocals).toContain("marketplace_web_enabled = (");
+    expect(platformLocals).toContain("marketplace_domains = local.marketplace_web_enabled");
     expect(platformLocals).toContain('local.is_production ? "marketplace.${var.root_domain}"');
     expect(platformLocals).toContain("provider_webhook_ingress_routes = {");
     expect(platformLocals).toContain('"/api/payments/provider/webhooks"');
@@ -357,6 +358,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain('"/api/settlement/payout-setup"');
     expect(platformLocals).toContain("proof_web_ingress_routes = {");
     expect(platformLocals).toContain('"/account/payouts/setup"');
+    expect(platformMain).toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED"');
+    expect(platformMain).toContain('key   = "CHASE_SETS_MARKETPLACE_PROOF_ACCESS_PERMISSION"');
+    expect(platformMain).toContain('value = "security.manage"');
     expect(platformLocals).toContain("context_names = local.marketplace_platform_enabled");
     expect(platformMain).toContain('check "production_marketplace_proof"');
     expect(platformMain).toContain(

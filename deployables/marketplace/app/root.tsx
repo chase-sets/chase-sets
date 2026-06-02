@@ -14,13 +14,55 @@ import {
   useRouteError,
 } from "react-router";
 import { buildCanonicalUrl, shouldIndexMarketplace } from "./seo";
-import { resolveMarketplaceActor } from "./auth.server";
+import { requireMarketplaceActor, resolveMarketplaceActor } from "./auth.server";
 import { registerMarketplaceServiceWorker } from "./pwa/register-service-worker";
 import { ChaseRoot, Container, LinkButton, MarketplaceEmptyState, Page, Stack } from "@chase-sets/design-system";
 import { createCheckoutRequestApiClient, readAnonymousCartId } from "@chase-sets/checkout/server";
 import { createIdentityRequestApiClient, type CurrentActorDisplay } from "@chase-sets/identity/server";
 
 type MarketplaceRootActor = Awaited<ReturnType<typeof resolveMarketplaceActor>>;
+
+const PROOF_ACCESS_DEFAULT_PERMISSION = "security.manage";
+const PROOF_ACCESS_PUBLIC_PATH_PREFIXES = [
+  "/account/select",
+  "/assets/",
+  "/fake-cdn/",
+  "/favicon.ico",
+  "/favicon.svg",
+  "/health/ready",
+  "/icons/",
+  "/manifest.webmanifest",
+  "/service-worker.js",
+  "/sign-in",
+  "/sign-out",
+] as const;
+
+function isEnabled(value: string | undefined) {
+  return value?.trim().toLowerCase() === "true";
+}
+
+function proofAccessPermission() {
+  return process.env.CHASE_SETS_MARKETPLACE_PROOF_ACCESS_PERMISSION?.trim() || PROOF_ACCESS_DEFAULT_PERMISSION;
+}
+
+function shouldBypassProofAccessGate(pathname: string) {
+  return PROOF_ACCESS_PUBLIC_PATH_PREFIXES.some((prefix) =>
+    prefix.endsWith("/") ? pathname.startsWith(prefix) : pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
+async function requireProofAccessActor(request: Request) {
+  if (!isEnabled(process.env.CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED)) {
+    return null;
+  }
+
+  const pathname = new URL(request.url).pathname;
+  if (shouldBypassProofAccessGate(pathname)) {
+    return null;
+  }
+
+  return requireMarketplaceActor(request, proofAccessPermission());
+}
 
 async function resolveCartCount(request: Request, actor: MarketplaceRootActor) {
   try {
@@ -57,7 +99,8 @@ async function resolveCurrentActorDisplay(request: Request, actor: MarketplaceRo
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
-  const actor = await resolveMarketplaceActor(request);
+  const proofAccessActor = await requireProofAccessActor(request);
+  const actor = proofAccessActor ?? (await resolveMarketplaceActor(request));
 
   return {
     actor,

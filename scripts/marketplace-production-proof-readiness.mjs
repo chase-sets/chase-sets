@@ -56,7 +56,10 @@ export function parseProductionProofReadinessArgs(argv, env = process.env) {
     variablesPath: readOption(argv, "--variables") ?? readEnv("GITHUB_ENVIRONMENT_VARIABLES_JSON", env),
     secretsPath: readOption(argv, "--secrets") ?? readEnv("GITHUB_ENVIRONMENT_SECRETS_JSON", env),
     environmentName: readOption(argv, "--environment") ?? readEnv("GITHUB_ENVIRONMENT_NAME", env) ?? "production",
-    baseUrl: readOption(argv, "--base-url") ?? readEnv("PRODUCTION_PROOF_BASE_URL", env) ?? "https://chasesets.com",
+    baseUrl:
+      readOption(argv, "--base-url") ??
+      readEnv("PRODUCTION_PROOF_BASE_URL", env) ??
+      "https://marketplace.chasesets.com",
     marketplaceUrl:
       readOption(argv, "--marketplace-url") ??
       readEnv("PRODUCTION_MARKETPLACE_URL", env) ??
@@ -77,7 +80,7 @@ export function buildProductionProofReadiness(input) {
   const variables = normalizeNameValueRows(input.variables);
   const secretNames = new Set(normalizeNameRows(input.secrets));
   const providerCallbackSetup = buildProviderCallbackSetup({
-    baseUrl: input.baseUrl ?? "https://chasesets.com",
+    baseUrl: input.baseUrl ?? "https://marketplace.chasesets.com",
     marketplaceUrl: input.marketplaceUrl ?? "https://marketplace.chasesets.com",
   });
   const errors = [];
@@ -283,7 +286,7 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
       "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
       "Use stripeMoneySmokeEnvironmentCommands for private production proof only after topology evidence passes and live Stripe secrets are loaded into the shell.",
-      "During proof mode, MARKETPLACE_WEB_BASE_URL uses the production proof origin because marketplace.chasesets.com remains undeployed until public promotion.",
+      "During proof mode, MARKETPLACE_WEB_BASE_URL uses marketplace.chasesets.com while chasesets.com remains the public landing host.",
       "Run stripeMoneySmokeLegacyHostedCompatibilityCommands only when manually exercising legacy hosted Account Link compatibility.",
     ],
   };
