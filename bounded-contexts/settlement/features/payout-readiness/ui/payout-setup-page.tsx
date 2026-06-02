@@ -37,9 +37,11 @@ type StripeConnectElement = HTMLElement & {
 export function loadStripeConnectComponent({
   mode,
   publishableKey,
+  onFetchClientSecretError,
 }: {
   mode: PayoutSetupMode;
   publishableKey: string;
+  onFetchClientSecretError?: (error: unknown) => void;
 }) {
   if (typeof window === "undefined") {
     throw new Error(t("settlement.features.payoutReadiness.ui.payoutSetupPage.connect.can.only.load.in.browser"));
@@ -47,7 +49,14 @@ export function loadStripeConnectComponent({
 
   return loadConnectAndInitialize({
     publishableKey,
-    fetchClientSecret: () => fetchEmbeddedClientSecret(mode),
+    fetchClientSecret: async () => {
+      try {
+        return await fetchEmbeddedClientSecret(mode);
+      } catch (error) {
+        onFetchClientSecretError?.(error);
+        throw error;
+      }
+    },
     locale: "en-US",
     appearance: {
       overlays: "dialog",
@@ -97,8 +106,9 @@ function componentName(mode: PayoutSetupMode): StripeConnectComponentName {
 function createStripeConnectElement(
   mode: PayoutSetupMode,
   publishableKey: string,
+  onFetchClientSecretError?: (error: unknown) => void,
 ): ConnectHTMLElementRecord[StripeConnectComponentName] {
-  return loadStripeConnectComponent({ mode, publishableKey }).create(componentName(mode));
+  return loadStripeConnectComponent({ mode, publishableKey, onFetchClientSecretError }).create(componentName(mode));
 }
 
 function providerPanelTitle(mode: PayoutSetupMode) {
@@ -196,7 +206,12 @@ export function StripeConnectEmbeddedComponent({
     setErrorMessage(null);
 
     const mount = async () => {
-      const component = createStripeConnectElement(mode, publishableKey) as StripeConnectElement;
+      const component = createStripeConnectElement(mode, publishableKey, (error) => {
+        if (!cancelled) {
+          setStatus("error");
+          setErrorMessage(error instanceof Error ? error.message : String(error));
+        }
+      }) as StripeConnectElement;
       if (cancelled || !containerRef.current) {
         return;
       }
