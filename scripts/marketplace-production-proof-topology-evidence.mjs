@@ -5,7 +5,11 @@ import { validateEvidenceReference } from "./marketplace-evidence-references.mjs
 
 export const PRODUCTION_PROOF_TOPOLOGY_EVIDENCE_VERSION = "marketplace-production-proof-topology-evidence/v1";
 
-export const PRODUCTION_PROOF_TOPOLOGY_ALLOWED_ORIGINS = ["https://chasesets.com", "https://admin.chasesets.com"];
+export const PRODUCTION_PROOF_TOPOLOGY_ALLOWED_ORIGINS = [
+  "https://chasesets.com",
+  "https://admin.chasesets.com",
+  "https://marketplace.chasesets.com",
+];
 
 export const PROVIDER_CALLBACK_PATHS = [
   "/api/payments/provider/webhooks",
@@ -61,7 +65,10 @@ export const PRIVATE_PROOF_WEB_PATHS = [{ method: "GET", path: "/account/payouts
 
 export function parseProductionProofTopologyArgs(argv, env = process.env) {
   return {
-    baseUrl: readOption(argv, "--base-url") ?? readEnv("PRODUCTION_PROOF_BASE_URL", env) ?? "https://chasesets.com",
+    baseUrl:
+      readOption(argv, "--base-url") ??
+      readEnv("PRODUCTION_PROOF_BASE_URL", env) ??
+      "https://marketplace.chasesets.com",
     reference: readOption(argv, "--reference") ?? readEnv("PRODUCTION_MARKETPLACE_PROOF_REFERENCE", env),
     operator: readOption(argv, "--operator") ?? readEnv("PRODUCTION_PROOF_OPERATOR", env),
     checkedAt: readOption(argv, "--checked-at") ?? new Date().toISOString(),

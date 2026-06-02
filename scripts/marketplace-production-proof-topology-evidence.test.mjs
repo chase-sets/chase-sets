@@ -310,7 +310,7 @@ describe("marketplace production proof topology evidence", () => {
         PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: "false",
       }),
     ).toMatchObject({
-      baseUrl: "https://chasesets.com",
+      baseUrl: "https://marketplace.chasesets.com",
       reference: "PROOF-ENV",
       operator: "ops@chasesets.com",
       productionMarketplaceProofEnabled: "true",
@@ -549,7 +549,7 @@ describe("marketplace production proof topology evidence", () => {
     expect(evidence.passesProductionProofTopologyGate).toBe(false);
     expect(evidence.errors).toContain("Production proof topology checkedAt must be an ISO timestamp.");
     expect(evidence.errors).toContain(
-      "Production proof topology baseUrl must be one of https://chasesets.com, https://admin.chasesets.com.",
+      "Production proof topology baseUrl must be one of https://chasesets.com, https://admin.chasesets.com, https://marketplace.chasesets.com.",
     );
     expect(evidence.errors).toContain("Production proof topology baseUrl must not include a path, query, or fragment.");
   });

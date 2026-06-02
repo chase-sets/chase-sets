@@ -44,37 +44,37 @@ describe("marketplace production proof readiness", () => {
       missingSecrets: [],
       resolvedEasyPostMode: "production",
       providerCallbackSetup: {
-        productionProofBaseUrl: "https://chasesets.com",
+        productionProofBaseUrl: "https://marketplace.chasesets.com",
         productionMarketplaceBaseUrl: "https://marketplace.chasesets.com",
         dashboardDestinations: expect.arrayContaining([
           expect.objectContaining({
             provider: "stripe",
-            destination: "https://chasesets.com/api/payments/provider/webhooks",
+            destination: "https://marketplace.chasesets.com/api/payments/provider/webhooks",
           }),
           expect.objectContaining({
             provider: "stripe-connect",
-            destination: "https://chasesets.com/api/settlement/provider/money-movement/webhooks",
+            destination: "https://marketplace.chasesets.com/api/settlement/provider/money-movement/webhooks",
           }),
           expect.objectContaining({
             provider: "amazon-ses-sns",
-            destination: "https://chasesets.com/api/notifications/provider/email/webhooks",
+            destination: "https://marketplace.chasesets.com/api/notifications/provider/email/webhooks",
           }),
           expect.objectContaining({
             provider: "easypost",
-            destination: "https://chasesets.com/api/fulfillment/provider/postage/webhooks",
+            destination: "https://marketplace.chasesets.com/api/fulfillment/provider/postage/webhooks",
           }),
         ]),
         stripeConnectCustomSetup: {
           finalLaunchSetupPageUrl: "https://marketplace.chasesets.com/account/payouts/setup",
-          privateProofSetupPageOrigin: "https://chasesets.com",
-          privateProofSetupPageUrl: "https://chasesets.com/account/payouts/setup",
+          privateProofSetupPageOrigin: "https://marketplace.chasesets.com",
+          privateProofSetupPageUrl: "https://marketplace.chasesets.com/account/payouts/setup",
           launchEvidenceFields: expect.arrayContaining([
             "gates.stripeMoneyOperations.connectPayoutSetupPageUrl",
             "gates.stripeMoneyOperations.connectEmbeddedSetupSessionCount",
           ]),
           legacyHostedCompatibility: {
-            privateProofReturnUrl: "https://chasesets.com/api/settlement/payout-setup/progress",
-            privateProofRefreshUrl: "https://chasesets.com/api/settlement/payout-setup/progress",
+            privateProofReturnUrl: "https://marketplace.chasesets.com/api/settlement/payout-setup/progress",
+            privateProofRefreshUrl: "https://marketplace.chasesets.com/api/settlement/payout-setup/progress",
           },
         },
       },
@@ -82,14 +82,14 @@ describe("marketplace production proof readiness", () => {
         variableCommands: [],
         secretCommands: [],
         stripeMoneySmokeEnvironmentCommands: [
-          '$env:PLATFORM_API_BASE_URL="https://chasesets.com"',
-          '$env:MARKETPLACE_WEB_BASE_URL="https://chasesets.com"',
+          '$env:PLATFORM_API_BASE_URL="https://marketplace.chasesets.com"',
+          '$env:MARKETPLACE_WEB_BASE_URL="https://marketplace.chasesets.com"',
           '$env:STRIPE_MONEY_SMOKE_ALLOW_LIVE="true"',
           '$env:PRODUCTION_MARKETPLACE_PROOF_REFERENCE="PRODUCTION-PROOF-2026-05-30"',
         ],
         stripeMoneySmokeLegacyHostedCompatibilityCommands: [
-          '$env:STRIPE_CONNECT_RETURN_URL="https://chasesets.com/api/settlement/payout-setup/progress"',
-          '$env:STRIPE_CONNECT_REFRESH_URL="https://chasesets.com/api/settlement/payout-setup/progress"',
+          '$env:STRIPE_CONNECT_RETURN_URL="https://marketplace.chasesets.com/api/settlement/payout-setup/progress"',
+          '$env:STRIPE_CONNECT_REFRESH_URL="https://marketplace.chasesets.com/api/settlement/payout-setup/progress"',
         ],
         stripeMoneySmokeAuthenticationOptions: [
           {
@@ -103,7 +103,7 @@ describe("marketplace production proof readiness", () => {
           {
             kind: "password sign-in",
             commands: [
-              '$env:PLATFORM_AUTH_BASE_URL="https://chasesets.com"',
+              '$env:PLATFORM_AUTH_BASE_URL="https://marketplace.chasesets.com"',
               '$env:SMOKE_SELLER_EMAIL="<production-proof-seller-email>"',
               '$env:SMOKE_SELLER_PASSWORD="<production-proof-seller-password>"',
             ],
@@ -112,11 +112,11 @@ describe("marketplace production proof readiness", () => {
         sesSnsEventDestinationSetup: {
           configurationSetName: "transactional-production",
           topicName: "chasesets-transactional-production-events",
-          destination: "https://chasesets.com/api/notifications/provider/email/webhooks",
+          destination: "https://marketplace.chasesets.com/api/notifications/provider/email/webhooks",
           requiredSesEventTypes: ["SEND", "REJECT", "BOUNCE", "COMPLAINT", "DELIVERY"],
           commands: expect.arrayContaining([
             "aws sns create-topic --name chasesets-transactional-production-events",
-            'aws sns subscribe --topic-arn <sns-topic-arn> --protocol https --notification-endpoint "https://chasesets.com/api/notifications/provider/email/webhooks"',
+            'aws sns subscribe --topic-arn <sns-topic-arn> --protocol https --notification-endpoint "https://marketplace.chasesets.com/api/notifications/provider/email/webhooks"',
             "aws sesv2 get-configuration-set-event-destinations --configuration-set-name transactional-production",
           ]),
           evidenceFields: expect.arrayContaining([
@@ -125,7 +125,7 @@ describe("marketplace production proof readiness", () => {
           ]),
         },
         easyPostWebhookSetup: {
-          destination: "https://chasesets.com/api/fulfillment/provider/postage/webhooks",
+          destination: "https://marketplace.chasesets.com/api/fulfillment/provider/postage/webhooks",
           secretName: "EASYPOST_WEBHOOK_SECRET",
           requiredEventKinds: ["provider-event", "tracking-status", "refund-status"],
           evidenceFields: expect.arrayContaining([
@@ -136,12 +136,12 @@ describe("marketplace production proof readiness", () => {
         fulfillmentPostageProofApiSetup: {
           purpose:
             "Drive operator-controlled seller shipment label purchase, void/refund, and exception proof while public marketplace promotion remains closed.",
-          baseUrl: "https://chasesets.com",
+          baseUrl: "https://marketplace.chasesets.com",
           routedApiPrefixes: ["/api/marketplace/account/sales/shipments"],
           requiredTopologyChecks: expect.arrayContaining([
-            "https://chasesets.com/api/marketplace/account/sales/shipments",
-            "https://chasesets.com/api/marketplace/account/sales/shipments/topology-proof-shipment/label/purchase",
-            "https://chasesets.com/api/marketplace/account/sales/shipments/topology-proof-shipment/label/void",
+            "https://marketplace.chasesets.com/api/marketplace/account/sales/shipments",
+            "https://marketplace.chasesets.com/api/marketplace/account/sales/shipments/topology-proof-shipment/label/purchase",
+            "https://marketplace.chasesets.com/api/marketplace/account/sales/shipments/topology-proof-shipment/label/void",
           ]),
           evidenceFields: expect.arrayContaining([
             "gates.fulfillmentPostage.controlledParcelShipmentId",
@@ -151,7 +151,7 @@ describe("marketplace production proof readiness", () => {
         launchSupplyProofApiSetup: {
           purpose:
             "Create operator-controlled launch supply listings while public marketplace promotion remains closed.",
-          baseUrl: "https://chasesets.com",
+          baseUrl: "https://marketplace.chasesets.com",
           routedApiPrefixes: [
             "/api/inventory/items/listing-stock/ensure",
             "/api/inventory/storage-locations",
@@ -160,8 +160,8 @@ describe("marketplace production proof readiness", () => {
             "/api/marketplace/account/listings",
           ],
           requiredTopologyChecks: expect.arrayContaining([
-            "https://chasesets.com/api/inventory/items/listing-stock/ensure",
-            "https://chasesets.com/api/marketplace/account/listings",
+            "https://marketplace.chasesets.com/api/inventory/items/listing-stock/ensure",
+            "https://marketplace.chasesets.com/api/marketplace/account/listings",
           ]),
           evidenceFields: expect.arrayContaining([
             "gates.launchSupplyMeasurements.activeLaunchListingCount",
@@ -226,7 +226,7 @@ describe("marketplace production proof readiness", () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: "password sign-in",
-          commands: expect.arrayContaining(['$env:PLATFORM_AUTH_BASE_URL="https://chasesets.com"']),
+          commands: expect.arrayContaining(['$env:PLATFORM_AUTH_BASE_URL="https://marketplace.chasesets.com"']),
         }),
       ]),
     );
@@ -336,6 +336,7 @@ describe("marketplace production proof readiness", () => {
       variablesPath: "env-vars.json",
       secretsPath: "env-secrets.json",
       environmentName: "production",
+      baseUrl: "https://marketplace.chasesets.com",
     });
   });
 

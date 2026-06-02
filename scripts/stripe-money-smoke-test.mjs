@@ -369,14 +369,19 @@ export function validateStripeKeyModeForRun(env = process.env) {
 
   const baseUrl = readEnv("PLATFORM_API_BASE_URL", env);
   if (!baseUrl || !isProductionChaseSetsUrl(baseUrl)) {
-    throw new Error("Stripe live-key smoke tests must target https://chasesets.com or https://admin.chasesets.com.");
+    throw new Error(
+      "Stripe live-key smoke tests must target https://chasesets.com, https://admin.chasesets.com, or https://marketplace.chasesets.com.",
+    );
   }
 }
 
 function isProductionChaseSetsUrl(value) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && ["chasesets.com", "admin.chasesets.com"].includes(url.hostname);
+    return (
+      url.protocol === "https:" &&
+      ["chasesets.com", "admin.chasesets.com", "marketplace.chasesets.com"].includes(url.hostname)
+    );
   } catch {
     return false;
   }

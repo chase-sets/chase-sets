@@ -15,6 +15,8 @@ Production uses the clean customer-facing namespace. Do not add a `production` l
 
 Dash-based non-production names such as `landing-staging.chasesets.com`, `marketplace-staging.chasesets.com`, and `admin-staging.chasesets.com` are legacy names. Keep them only as redirects or compatibility inputs during migration.
 
+Before public launch, production proof mode may attach `marketplace.chasesets.com` while `chasesets.com` still serves the landing site. In that posture, `marketplace.chasesets.com` is an operator proof host gated by marketplace sign-in and the configured proof access permission; it is not public marketplace promotion. Public launch changes the `chasesets.com` routing posture only after launch evidence gates pass.
+
 ## Environment Boundaries
 
 Non-production environments carry the environment label directly under `chasesets.com`.

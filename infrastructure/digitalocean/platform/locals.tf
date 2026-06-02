@@ -49,7 +49,7 @@ locals {
     "landing-${var.environment}.${var.root_domain}",
   ] : []
 
-  marketplace_domains = local.marketplace_public_enabled ? [
+  marketplace_domains = local.marketplace_web_enabled ? [
     local.is_production ? "marketplace.${var.root_domain}" : local.is_staging ? "marketplace.${var.environment}.${var.root_domain}" : "marketplace.${local.environment_slug}.preview.${var.root_domain}",
   ] : []
 

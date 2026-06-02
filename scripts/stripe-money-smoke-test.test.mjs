@@ -277,7 +277,7 @@ describe("stripe money smoke test", () => {
 
   it("reports check-env readiness errors for live keys until all production proof safeguards are present", () => {
     const liveReadyEnv = {
-      PLATFORM_API_BASE_URL: "https://chasesets.com",
+      PLATFORM_API_BASE_URL: "https://marketplace.chasesets.com",
       STRIPE_SECRET_KEY: "sk_live_123",
       STRIPE_PUBLISHABLE_KEY: "pk_live_123",
       STRIPE_WEBHOOK_SECRET: "whsec_live",
