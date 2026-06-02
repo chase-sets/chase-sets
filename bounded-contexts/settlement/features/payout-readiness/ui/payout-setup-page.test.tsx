@@ -237,6 +237,45 @@ describe("payout setup page", () => {
     expect(console.error).not.toHaveBeenCalled();
   });
 
+  it("surfaces embedded setup session creation failures from the API", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json(
+        {
+          error: {
+            message: "Live Connect setup is not enabled for this Stripe account.",
+          },
+        },
+        { status: 400 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const connectElement = document.createElement("stripe-connect-account-onboarding");
+    Object.assign(connectElement, {
+      setOnLoaderStart: vi.fn(),
+      setOnLoadError: vi.fn(),
+      setOnExit: vi.fn(),
+    });
+    const create = vi.fn(() => connectElement);
+    mockLoadConnectAndInitialize.mockReturnValue({ create });
+    root = createRoot(container!);
+
+    await act(async () => {
+      root!.render(<StripeConnectEmbeddedComponent mode="setup" publishableKey="pk_test_123" />);
+    });
+
+    const fetchClientSecret = mockLoadConnectAndInitialize.mock.calls[0][0].fetchClientSecret;
+
+    await act(async () => {
+      await expect(fetchClientSecret()).rejects.toThrow("Live Connect setup is not enabled for this Stripe account.");
+    });
+
+    expect(container!.textContent).toContain("Setup could not load");
+    expect(container!.textContent).toContain("Live Connect setup is not enabled for this Stripe account.");
+    expect(container!.textContent).toContain("Retry");
+    expect(container!.textContent).toContain("Contact support");
+    expect(container!.innerHTML).not.toContain("client_secret");
+  });
+
   it("keeps embedded client secrets transient when fetching setup sessions", async () => {
     const fetch = vi.fn(async () =>
       Response.json({
