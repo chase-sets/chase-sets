@@ -561,7 +561,45 @@ function summarizeReadinessRefresh(body) {
     providerReference: typeof readiness.provider_reference === "string" ? readiness.provider_reference : null,
     payoutAccountDashboard:
       typeof readiness.payout_account_dashboard === "string" ? readiness.payout_account_dashboard : null,
+    lossesCollector: typeof readiness.losses_collector === "string" ? readiness.losses_collector : null,
+    feesCollector: typeof readiness.fees_collector === "string" ? readiness.fees_collector : null,
+    requirementsCollector:
+      typeof readiness.requirements_collector === "string" ? readiness.requirements_collector : null,
     requirementsCount: Array.isArray(readiness.requirements) ? readiness.requirements.length : null,
+  };
+}
+
+function summarizeEmbeddedDashboardNone(embeddedSetupSession, readinessRefresh) {
+  assert(
+    readinessRefresh.providerReference === embeddedSetupSession.providerReference,
+    `Expected payout setup refresh providerReference ${readinessRefresh.providerReference ?? "null"} to match embedded Account Session providerReference ${embeddedSetupSession.providerReference}.`,
+  );
+  assert(
+    readinessRefresh.payoutAccountDashboard === "none",
+    `Expected embedded payout setup account dashboard posture to be none, got ${readinessRefresh.payoutAccountDashboard ?? "null"}.`,
+  );
+  assert(
+    readinessRefresh.lossesCollector === "application",
+    `Expected embedded payout setup losses collector to be application, got ${readinessRefresh.lossesCollector ?? "null"}.`,
+  );
+  assert(
+    readinessRefresh.feesCollector === "application",
+    `Expected embedded payout setup fees collector to be application, got ${readinessRefresh.feesCollector ?? "null"}.`,
+  );
+  assert(
+    readinessRefresh.requirementsCollector === "application",
+    `Expected embedded payout setup requirements collector to be application, got ${readinessRefresh.requirementsCollector ?? "null"}.`,
+  );
+
+  return {
+    status: "verified",
+    providerReference: embeddedSetupSession.providerReference,
+    accountSessionCreated: embeddedSetupSession.status === "created",
+    component: "payout-setup",
+    payoutAccountDashboard: readinessRefresh.payoutAccountDashboard,
+    lossesCollector: readinessRefresh.lossesCollector,
+    feesCollector: readinessRefresh.feesCollector,
+    requirementsCollector: readinessRefresh.requirementsCollector,
   };
 }
 
@@ -715,6 +753,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
   );
   assert(refresh.response.status === 200, statusFailureMessage("payout setup refresh", refresh, "200"));
   const readinessRefresh = summarizeReadinessRefresh(refresh.body);
+  const embeddedDashboardNone = summarizeEmbeddedDashboardNone(embeddedSetupSession, readinessRefresh);
 
   const previewHeaders = new Headers(headers);
   previewHeaders.set("Content-Type", "application/json");
@@ -748,6 +787,7 @@ export async function runSellerFlow(baseUrl, options = {}) {
     setupPage,
     embeddedSetupSession,
     readinessRefresh,
+    embeddedDashboardNone,
     refresh: readinessRefresh.status,
     payoutPreviewStatus: preview.response.status,
     payoutPreviewCanRequest: payoutPreview.canRequest,

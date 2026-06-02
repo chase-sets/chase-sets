@@ -159,6 +159,16 @@ Optional shared-environment proof variables:
 
 For private production proof with live keys, use `operatorSetup.stripeMoneySmokeEnvironmentCommands` from `pnpm run marketplace:production-proof-readiness` for the private live smoke shell, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry for seller-flow authentication, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live smoke command. `operatorSetup.stripeMoneySmokeLegacyHostedCompatibilityCommands` is only for manually exercising legacy hosted Account Link compatibility; final launch evidence uses the embedded payout setup page and not Connect return/refresh URLs.
 
+The authenticated seller-flow smoke creates an embedded payout setup Account
+Session and then refreshes provider-neutral payout readiness. The smoke fails
+unless the refreshed readiness matches the Account Session provider reference,
+reports `payout_account_dashboard: "none"`, and reports
+`losses_collector`, `fees_collector`, and `requirements_collector` as
+`application`. Passing output includes `sellerFlow.embeddedDashboardNone` as
+the sandbox proof summary for embedded dashboard-none setup over
+Express-dashboard setup. The smoke still redacts Account Session client secrets
+and reports only `clientSecretPresent: true`.
+
 For authenticated payout-flow checks, set one of:
 
 - `PLATFORM_API_AUTHORIZATION`
