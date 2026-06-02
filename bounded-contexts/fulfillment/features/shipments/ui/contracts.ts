@@ -1,4 +1,5 @@
 import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
+import type { PackagePlan } from "@chase-sets/product-measures";
 
 export interface FulfillmentLabelAddressOverrideAudit {
   recorded_at: string;
@@ -21,6 +22,7 @@ export interface FulfillmentShipmentListItem {
   shipping_option: string;
   shipping_destination_snapshot: AddressSnapshot;
   shipping_origin_snapshot: AddressSnapshot | null;
+  shipping_plan_snapshot: PackagePlan | null;
   shipping_method: string | null;
   carrier_name: string | null;
   label_reference: string | null;

@@ -121,6 +121,29 @@ const parcelShippingPlan: PackagePlan = {
   ],
 };
 
+const letterShippingPlan: PackagePlan = {
+  packagePlanVersion: "measured-package-plan-v1",
+  packageCount: 1,
+  missingProductIds: [],
+  letterEligibility: {
+    eligible: true,
+    reasons: [],
+  },
+  packages: [
+    {
+      packageId: "pkg_1",
+      mailpieceClass: "letter",
+      lengthInches: 9.5,
+      widthInches: 4.125,
+      heightInches: 0.012,
+      weightOunces: 0.47,
+      billableWeightOunces: 0.47,
+      serviceLevel: "letter",
+      productMeasureVersions: ["test-measure-v1"],
+    },
+  ],
+};
+
 describe("fulfillment shipment runtime", () => {
   it("creates a shipment from a ready local order source", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
@@ -334,12 +357,13 @@ describe("fulfillment shipment runtime", () => {
           street1: "2 Market St",
           postalCode: "60601",
         }),
-        package: {
+        package: expect.objectContaining({
+          mailpieceClass: "parcel",
           lengthInches: 8,
           widthInches: 6,
           heightInches: 2,
           weightOunces: 5.25,
-        },
+        }),
       }),
     );
     const providerOperationCall = db.query.mock.calls.find(([sql]) =>
@@ -357,6 +381,143 @@ describe("fulfillment shipment runtime", () => {
       postageProviderName: "sandbox-usps",
       postageProviderMode: "test",
     });
+  });
+
+  it("purchases Letter Mail postage from the committed package plan weight", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(async () => ({
+        providerName: "sandbox-usps",
+        providerMode: "test" as const,
+        providerShipmentId: "sandbox_letter_shipment_1",
+        providerLabelId: "sandbox_letter_label_1",
+        providerRateId: "sandbox_letter_rate_1",
+        carrierName: "USPS",
+        serviceLevel: "First",
+        labelReference: "sandbox_letter_label_1",
+        labelDocumentUrl: "https://sandbox.test/letter-label.pdf",
+        trackingIdentifier: "940000000000000001",
+        postageAmountCents: 73,
+        postageCurrency: "USD",
+        purchasedAt: "2026-04-02T00:10:00.000Z",
+      })),
+      voidLabel: vi.fn(),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                shipment_id: "shp_letter_1",
+                order_id: "ord_1",
+                seller_account_id: "acc_seller",
+                status: "awaiting-label",
+                package_status: "packed",
+                shipping_destination_snapshot: shippingDestinationSnapshot,
+                shipping_origin_snapshot: shippingOriginSnapshot,
+                shipping_plan_snapshot: letterShippingPlan,
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_letter_1",
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_letter_1" as never,
+        orderId: "ord_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        shippingPlanSnapshot: letterShippingPlan,
+        lines: [
+          {
+            lineId: "spl_1" as never,
+            orderLineId: "oli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-04-02T00:00:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_letter_1",
+      command: {
+        type: "StartShipmentPacking",
+        startedAt: "2026-04-02T00:03:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_letter_1",
+      command: {
+        type: "ConfirmShipmentPackingLine",
+        lineId: "spl_1" as never,
+        confirmedAt: "2026-04-02T00:04:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_letter_1",
+      command: {
+        type: "PrepareShipmentPackage",
+        packageCount: 1,
+        preparedAt: "2026-04-02T00:05:00.000Z",
+      },
+      context,
+    });
+
+    await services.purchaseUspsLabel(
+      {
+        shipmentId: "shp_letter_1",
+        sellerAccountId: "acc_seller",
+        serviceLevel: "First",
+      },
+      context,
+    );
+
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledWith(
+      expect.objectContaining({
+        serviceLevel: "First",
+        labelSize: "7x3",
+        package: {
+          mailpieceClass: "letter",
+          lengthInches: 9.5,
+          widthInches: 4.125,
+          heightInches: 0.25,
+          weightOunces: 0.47,
+        },
+      }),
+    );
   });
 
   it("rejects label address overrides without an override reason", async () => {

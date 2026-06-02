@@ -38,6 +38,25 @@ const slip: FulfillmentPackingSlip = {
     phone: null,
     email: null,
   },
+  shipping_plan_snapshot: {
+    packagePlanVersion: "measured-package-plan-v1",
+    packageCount: 1,
+    packages: [
+      {
+        packageId: "pkg_1",
+        mailpieceClass: "parcel",
+        lengthInches: 7,
+        widthInches: 5,
+        heightInches: 1,
+        weightOunces: 4,
+        billableWeightOunces: 4,
+        serviceLevel: "standard-parcel",
+        productMeasureVersions: ["pokemon-raw-single:v1"],
+      },
+    ],
+    letterEligibility: { eligible: false, reasons: ["parcel-required"] },
+    missingProductIds: [],
+  },
   shipping_method: null,
   carrier_name: null,
   label_reference: null,
@@ -125,6 +144,45 @@ describe("fulfillment packing slip UI", () => {
     expect(markup).toContain("/account/sales/shipments/shp_1/packing");
     expect(markup).toContain("/account/sales/shipments/packing-slips");
     expect(markup).toContain("shipmentIds=shp_1");
+  });
+
+  it("shows Letter Mail postage purchase for eligible letter mailpieces", () => {
+    const letterShipment: FulfillmentPackingSlip = {
+      ...slip,
+      status: "awaiting-label",
+      package_status: "packed",
+      package_count: 1,
+      shipping_plan_snapshot: {
+        packagePlanVersion: "measured-package-plan-v1",
+        packageCount: 1,
+        packages: [
+          {
+            packageId: "pkg_letter_1",
+            mailpieceClass: "letter",
+            lengthInches: 9.5,
+            widthInches: 4.125,
+            heightInches: 0.012,
+            weightOunces: 0.47,
+            billableWeightOunces: 1,
+            serviceLevel: "letter",
+            productMeasureVersions: ["pokemon-raw-single:v1"],
+          },
+        ],
+        letterEligibility: { eligible: true, reasons: [] },
+        missingProductIds: [],
+      },
+    };
+    const markup = renderToString(
+      <FulfillmentShipmentDetailPage role="seller" backHref="/account/sales/shipments" shipment={letterShipment} />,
+    );
+
+    expect(markup).toContain("Letter Mailpiece");
+    expect(markup).toContain("USPS Letter Mail postage");
+    expect(markup).toContain("Print packing slip");
+    expect(markup).toContain("Purchase Letter Mail label");
+    expect(markup).toContain('value="First"');
+    expect(markup).not.toContain("Purchase USPS label");
+    expect(markup).not.toContain("Length (in)");
   });
 
   it("renders selected batch controls on seller shipment lists", () => {

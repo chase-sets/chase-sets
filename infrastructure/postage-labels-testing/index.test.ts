@@ -26,6 +26,7 @@ describe("sandbox postage label adapter", () => {
         country: "US",
       },
       package: {
+        mailpieceClass: "letter",
         lengthInches: 7,
         widthInches: 5,
         heightInches: 1,
