@@ -77,6 +77,24 @@ Create these records before enabling the production marketplace switch:
 
 Use the Google Drive document URL or stable record identifier as each gate `reference`. Staging sandbox proof, provider webhook delivery ids, provider-row queries, screenshots, and other one-time launch facts belong in this private workspace and in redacted packet inputs, not in GitHub Environment variables. The redacted packet may be kept locally under `secure/` while working; `secure/` is ignored because it can contain sensitive evidence summaries even when screenshots are excluded.
 
+## Remaining Launch Closure Sequence
+
+Use this sequence while #570, #571, #572, #596, and #597 remain open. It orders the remaining work by evidence dependency; do not skip ahead by setting GitHub Environment approval variables from partial proof.
+
+1. Keep proof mode enabled and public marketplace disabled until the final packet passes: `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true`, `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`.
+2. Resolve the Stripe Connect blocker in #570: Stripe must enable Accounts v2 for livemode merchant `acct_1OStceEUIXxGiR9y` or provide the supported path for dashboard-none embedded account/session creation.
+3. After Stripe enables the target path, rerun the authenticated production seller payout setup on `https://marketplace.chasesets.com/account/payouts/setup` and capture dashboard-none/application-controller evidence for the same release commit.
+4. Complete the live Stripe money operations record for #596: live checkout, refund, dispute, embedded setup sessions, payout readiness, payout preview/request, transfer plus connected-account payout, payout failure reversal, reconciliation, platform balance funding, webhook replay, provider-row queries, Radar/risk posture, sensitive-data review, legacy hosted-dashboard migration report, release hardening, staging sandbox smoke reference, and rollback rehearsal.
+5. Run `pnpm run marketplace:stripe-money-operations-evidence -- --proof .\secure\stripe-money-operations-<date>.json --reference <STRIPE-MONEY-reference>` and keep `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED` unset until it passes.
+6. Complete the EasyPost/Fulfillment blocker in #571: locate or wait for the EasyPost `refund.successful` Event for the existing controlled voided label, redeliver or replay it to `/api/fulfillment/provider/postage/webhooks`, and confirm Fulfillment records at least one matched `refund-status` row.
+7. Collect the remaining controlled-shipment postage rows for #571: at least four matched provider events, at least three `tracking-status` rows, at least one `refund-status` row, parcel label purchase, label void/refund, delivery exception evidence, and Letter Mailpiece handling without a parcel-label purchase.
+8. Run `pnpm run marketplace:fulfillment-postage-evidence -- --proof .\secure\fulfillment-postage-<date>.json --reference <FULFILLMENT-POSTAGE-reference>` and keep `PRODUCTION_FULFILLMENT_POSTAGE_APPROVED` unset until it passes.
+9. Convert Public Presence from prelaunch copy to approved launch-mode copy for #597 only after Stripe money operations and Fulfillment postage can pass. Preserve approved seller-economics claims; remove future-only availability language and keep uncertified UCP/AP2/headless-checkout claims absent.
+10. Run `pnpm run marketplace:public-presence-copy-audit -- --base-url https://chasesets.com --mode launch`, then build Marketplace Promotion evidence from the final launch review record.
+11. Assemble the redacted Marketplace Launch Evidence packet for #572 from the passing gate outputs with a single release commit. The packet must include Stripe Money Operations, Fulfillment Postage, Marketplace Promotion/Public Presence, Checkout Fee, Support, Transactional Email, Launch Supply, Tax Readiness, and UCP/AP2 Marketing gates.
+12. Run `pnpm run marketplace:launch-evidence -- --file .\secure\redacted-marketplace-launch-evidence.json`, then generate production GitHub Environment commands with `pnpm run marketplace:production-env-commands -- --file .\secure\redacted-marketplace-launch-evidence.json`.
+13. Apply only the packet-derived production variables, turn proof mode off, turn public mode on, rerun `pnpm run marketplace:production-launch-readiness`, and deploy promotion only after the final readiness preflight passes.
+
 Build the Marketplace Promotion and UCP/AP2 Marketing gates from the final launch review record:
 
 ```powershell
