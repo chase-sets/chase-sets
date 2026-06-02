@@ -428,6 +428,9 @@ export function createStripeConnectMoneyMovementGateway(
                   stripe_transfers: {
                     requested: true,
                   },
+                  payouts: {
+                    requested: true,
+                  },
                 },
               },
             },
