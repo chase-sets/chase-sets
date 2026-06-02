@@ -131,6 +131,9 @@ function createSmokeFetch(calls) {
         status: "ready",
         provider_reference: "acct_embedded_smoke",
         payout_account_dashboard: "none",
+        losses_collector: "application",
+        fees_collector: "application",
+        requirements_collector: "application",
         requirements: [],
       });
     }
@@ -402,7 +405,20 @@ describe("stripe money smoke test", () => {
         readinessStatus: "ready",
         providerReference: "acct_embedded_smoke",
         payoutAccountDashboard: "none",
+        lossesCollector: "application",
+        feesCollector: "application",
+        requirementsCollector: "application",
         requirementsCount: 0,
+      },
+      embeddedDashboardNone: {
+        status: "verified",
+        providerReference: "acct_embedded_smoke",
+        accountSessionCreated: true,
+        component: "payout-setup",
+        payoutAccountDashboard: "none",
+        lossesCollector: "application",
+        feesCollector: "application",
+        requirementsCollector: "application",
       },
       payoutPreview: {
         status: "available",
@@ -426,6 +442,87 @@ describe("stripe money smoke test", () => {
       "/api/settlement/payout-setup/onboarding-session",
     );
     expect(JSON.stringify(result)).not.toContain("acs_embedded_smoke_secret");
+  });
+
+  it("fails seller flow when embedded setup refresh reports Express dashboard posture", async () => {
+    const calls = [];
+    await expect(
+      runSellerFlow("https://api.preview.test", {
+        fetchImpl: async (url, init) => {
+          const path = new URL(String(url)).pathname;
+          if (path === "/api/settlement/payout-setup/refresh") {
+            return jsonResponse({
+              account_id: "acc_smoke_seller",
+              status: "pending",
+              provider_reference: "acct_embedded_smoke",
+              payout_account_dashboard: "express",
+              losses_collector: "application",
+              fees_collector: "application",
+              requirements_collector: "stripe",
+              requirements: ["external_account"],
+            });
+          }
+          return createSmokeFetch(calls)(url, init);
+        },
+        env: {
+          PLATFORM_API_AUTHORIZATION: "Bearer preview",
+        },
+      }),
+    ).rejects.toThrow(/dashboard posture to be none, got express/);
+  });
+
+  it("fails seller flow when embedded setup refresh does not match the Account Session provider reference", async () => {
+    const calls = [];
+    await expect(
+      runSellerFlow("https://api.preview.test", {
+        fetchImpl: async (url, init) => {
+          const path = new URL(String(url)).pathname;
+          if (path === "/api/settlement/payout-setup/refresh") {
+            return jsonResponse({
+              account_id: "acc_smoke_seller",
+              status: "ready",
+              provider_reference: "acct_stale_readiness",
+              payout_account_dashboard: "none",
+              losses_collector: "application",
+              fees_collector: "application",
+              requirements_collector: "application",
+              requirements: [],
+            });
+          }
+          return createSmokeFetch(calls)(url, init);
+        },
+        env: {
+          PLATFORM_API_AUTHORIZATION: "Bearer preview",
+        },
+      }),
+    ).rejects.toThrow(/to match embedded Account Session providerReference acct_embedded_smoke/);
+  });
+
+  it("fails seller flow when embedded setup refresh reports Stripe-owned requirements collection", async () => {
+    const calls = [];
+    await expect(
+      runSellerFlow("https://api.preview.test", {
+        fetchImpl: async (url, init) => {
+          const path = new URL(String(url)).pathname;
+          if (path === "/api/settlement/payout-setup/refresh") {
+            return jsonResponse({
+              account_id: "acc_smoke_seller",
+              status: "pending",
+              provider_reference: "acct_embedded_smoke",
+              payout_account_dashboard: "none",
+              losses_collector: "application",
+              fees_collector: "application",
+              requirements_collector: "stripe",
+              requirements: ["external_account"],
+            });
+          }
+          return createSmokeFetch(calls)(url, init);
+        },
+        env: {
+          PLATFORM_API_AUTHORIZATION: "Bearer preview",
+        },
+      }),
+    ).rejects.toThrow(/requirements collector to be application, got stripe/);
   });
 
   it("fails seller flow when the payout setup page route does not load", async () => {
