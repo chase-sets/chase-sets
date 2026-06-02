@@ -44,11 +44,13 @@ function normalizeAddress(address: PostageAddress) {
 }
 
 function normalizePackage(pkg: PostagePackage) {
+  const predefinedPackage = pkg.mailpieceClass === "letter" ? "Letter" : pkg.mailpieceClass === "flat" ? "Flat" : null;
   return {
     length: ensurePositiveNumber(pkg.lengthInches, "Package length"),
     width: ensurePositiveNumber(pkg.widthInches, "Package width"),
     height: ensurePositiveNumber(pkg.heightInches, "Package height"),
     weight: ensurePositiveNumber(pkg.weightOunces, "Package weight"),
+    ...(predefinedPackage ? { predefined_package: predefinedPackage } : {}),
   };
 }
 
@@ -159,6 +161,7 @@ export function createEasyPostPostageLabelProvider(
             parcel: normalizePackage(request.package),
             options: {
               label_format: "PDF",
+              ...(request.labelSize ? { label_size: request.labelSize } : {}),
             },
           },
         }),

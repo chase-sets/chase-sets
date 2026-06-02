@@ -26,6 +26,11 @@ function canRaiseException(status: string) {
   return status !== "delivered" && status !== "returned";
 }
 
+function isLetterMailpiece(shipment: FulfillmentShipmentDetail) {
+  const packages = shipment.shipping_plan_snapshot?.packages ?? [];
+  return packages.length > 0 && packages.every((candidate) => candidate.mailpieceClass === "letter");
+}
+
 const uspsServiceLevels = [
   {
     value: "USPS_GROUND_ADVANTAGE",
@@ -130,6 +135,7 @@ export function FulfillmentShipmentDetailPage({
   const senderSnapshot = shipment.shipping_origin_snapshot;
   const packingSlipHref = `/account/sales/shipments/packing-slips?shipmentIds=${encodeURIComponent(shipment.shipment_id)}&format=letter`;
   const packingFlowHref = `/account/sales/shipments/${shipment.shipment_id}/packing`;
+  const letterMailpiece = isLetterMailpiece(shipment);
 
   return (
     <Page>
@@ -347,7 +353,27 @@ export function FulfillmentShipmentDetailPage({
       {role === "seller" ? (
         <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.actions")}>
           <Stack gap={3}>
-            {shipment.status === "awaiting-label" ? (
+            {shipment.status === "awaiting-label" && letterMailpiece ? (
+              <Card>
+                <form method="post">
+                  <Stack gap={3}>
+                    <MarketplaceNotice
+                      tone="info"
+                      title={t("fulfillment.features.shipments.ui.shipmentDetailPage.letter.mailpiece")}
+                      description={t(
+                        "fulfillment.features.shipments.ui.shipmentDetailPage.letter.mailpiece.description",
+                      )}
+                    />
+                    <input type="hidden" name="serviceLevel" value="First" />
+                    <Button type="submit" name="intent" value="purchase-label">
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.purchase.letter.mail.label")}
+                    </Button>
+                  </Stack>
+                </form>
+              </Card>
+            ) : null}
+
+            {shipment.status === "awaiting-label" && !letterMailpiece ? (
               <Card>
                 <form method="post">
                   <Stack gap={3}>

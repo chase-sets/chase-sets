@@ -35,10 +35,18 @@ const sampleRequest = {
 };
 
 describe("EasyPost postage adapter", () => {
-  it("creates a shipment, buys a USPS rate, and maps label metadata", async () => {
-    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+  it("creates a parcel shipment, buys a USPS rate, and maps label metadata", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith("/shipments")) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.shipment.parcel).toMatchObject({
+          length: 7,
+          width: 5,
+          height: 1,
+          weight: 4,
+        });
+        expect(body.shipment.parcel).not.toHaveProperty("predefined_package");
         return Response.json({
           id: "shp_provider_1",
           mode: "test",
@@ -87,6 +95,79 @@ describe("EasyPost postage adapter", () => {
       carrierName: "USPS",
       trackingIdentifier: "940000000000000000",
       postageAmountCents: 499,
+    });
+  });
+
+  it("passes Letter Mail package and label-size intent to EasyPost", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/shipments")) {
+        const body = JSON.parse(String(init?.body));
+        expect(body.shipment.parcel).toMatchObject({
+          predefined_package: "Letter",
+          length: 9.5,
+          width: 4.125,
+          height: 0.25,
+          weight: 0.47,
+        });
+        expect(body.shipment.options).toMatchObject({
+          label_format: "PDF",
+          label_size: "7x3",
+        });
+        return Response.json({
+          id: "shp_provider_letter_1",
+          mode: "test",
+          rates: [
+            {
+              id: "rate_letter_1",
+              carrier: "USPS",
+              service: "First",
+              rate: "0.73",
+              currency: "USD",
+            },
+          ],
+        });
+      }
+
+      return Response.json({
+        id: "shp_provider_letter_1",
+        mode: "test",
+        selected_rate: {
+          id: "rate_letter_1",
+          carrier: "USPS",
+          service: "First",
+          rate: "0.73",
+          currency: "USD",
+        },
+        postage_label: {
+          id: "pl_letter_1",
+          label_pdf_url: "https://labels.easypost.test/pl_letter_1.pdf",
+        },
+        tracking_code: "940000000000000001",
+      });
+    });
+    const provider = createEasyPostPostageLabelProvider({
+      apiKey: "EZTK_test",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    const label = await provider.purchaseUspsLabel({
+      ...sampleRequest,
+      serviceLevel: "First",
+      labelSize: "7x3",
+      package: {
+        mailpieceClass: "letter",
+        lengthInches: 9.5,
+        widthInches: 4.125,
+        heightInches: 0.25,
+        weightOunces: 0.47,
+      },
+    });
+
+    expect(label).toMatchObject({
+      serviceLevel: "First",
+      postageAmountCents: 73,
+      providerLabelId: "pl_letter_1",
     });
   });
 

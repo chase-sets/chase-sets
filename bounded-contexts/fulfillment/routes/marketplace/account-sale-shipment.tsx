@@ -26,6 +26,26 @@ function addressBody(formData: FormData, prefix: string) {
   };
 }
 
+function hasAddressInput(formData: FormData, prefix: string) {
+  return ["Name", "Company", "Street1", "Street2", "City", "State", "PostalCode", "Country", "Phone", "Email"].some(
+    (field) => formData.has(`${prefix}${field}`),
+  );
+}
+
+function packageBody(formData: FormData) {
+  const fields = ["packageLengthInches", "packageWidthInches", "packageHeightInches", "packageWeightOunces"];
+  if (!fields.some((field) => formData.has(field))) {
+    return {};
+  }
+
+  return {
+    packageLengthInches: Number(formValue(formData, "packageLengthInches") || 7),
+    packageWidthInches: Number(formValue(formData, "packageWidthInches") || 5),
+    packageHeightInches: Number(formValue(formData, "packageHeightInches") || 1),
+    packageWeightOunces: Number(formValue(formData, "packageWeightOunces") || 4),
+  };
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({
     request,
@@ -65,13 +85,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (intent === "purchase-label") {
       await api.purchaseUspsLabel(shipmentId, {
         serviceLevel: formValue(formData, "serviceLevel"),
-        ...addressBody(formData, "sender"),
-        ...addressBody(formData, "recipient"),
+        ...(hasAddressInput(formData, "sender") ? addressBody(formData, "sender") : {}),
+        ...(hasAddressInput(formData, "recipient") ? addressBody(formData, "recipient") : {}),
         overrideReason: formValue(formData, "overrideReason"),
-        packageLengthInches: Number(formValue(formData, "packageLengthInches") || 7),
-        packageWidthInches: Number(formValue(formData, "packageWidthInches") || 5),
-        packageHeightInches: Number(formValue(formData, "packageHeightInches") || 1),
-        packageWeightOunces: Number(formValue(formData, "packageWeightOunces") || 4),
+        ...packageBody(formData),
       });
     }
     if (intent === "void-label") {

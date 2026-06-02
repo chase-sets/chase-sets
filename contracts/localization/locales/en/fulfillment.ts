@@ -165,6 +165,9 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.shipmentDetailPage.exceptions": "Exceptions",
   "fulfillment.features.shipments.ui.shipmentDetailPage.height.in": "Height (in)",
   "fulfillment.features.shipments.ui.shipmentDetailPage.label.status": "Label status: ",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.letter.mailpiece": "Letter Mailpiece",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.letter.mailpiece.description":
+    "This shipment is planned as a Letter Mailpiece. Chase Sets will buy USPS Letter Mail postage from the committed Package Plan.",
   "fulfillment.features.shipments.ui.shipmentDetailPage.length.in": "Length (in)",
   "fulfillment.features.shipments.ui.shipmentDetailPage.lines": "Lines",
   "fulfillment.features.shipments.ui.shipmentDetailPage.mark.delivered": "Mark delivered",
@@ -186,6 +189,7 @@ export const fulfillmentEnglishTranslations = {
   "fulfillment.features.shipments.ui.shipmentDetailPage.package.state": "Package state: ",
   "fulfillment.features.shipments.ui.shipmentDetailPage.postage": "Postage: ",
   "fulfillment.features.shipments.ui.shipmentDetailPage.postage.provider": "Postage provider: ",
+  "fulfillment.features.shipments.ui.shipmentDetailPage.purchase.letter.mail.label": "Purchase Letter Mail label",
   "fulfillment.features.shipments.ui.shipmentDetailPage.purchase.usps.label": "Purchase USPS label",
   "fulfillment.features.shipments.ui.shipmentDetailPage.quantity": "Quantity: ",
   "fulfillment.features.shipments.ui.shipmentDetailPage.raise.exception": "Raise exception",

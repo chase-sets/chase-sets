@@ -14,6 +14,7 @@ export type PostageAddress = Readonly<{
 }>;
 
 export type PostagePackage = Readonly<{
+  mailpieceClass?: "letter" | "flat" | "parcel";
   lengthInches: number;
   widthInches: number;
   heightInches: number;
@@ -24,6 +25,7 @@ export type PurchaseUspsLabelRequest = Readonly<{
   shipmentId: string;
   orderId: string;
   serviceLevel: string;
+  labelSize?: "4x6" | "6x4" | "7x3" | null;
   sender: PostageAddress;
   recipient: PostageAddress;
   package: PostagePackage;

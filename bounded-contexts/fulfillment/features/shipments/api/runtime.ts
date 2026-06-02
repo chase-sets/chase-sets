@@ -530,14 +530,28 @@ function postagePackageFromShippingPlan(plan: PackagePlan | null): PostagePackag
     throw new FulfillmentDomainError("Shipment does not have a package plan for label purchase.");
   }
   if (selectedPackage.mailpieceClass === "letter") {
-    throw new FulfillmentDomainError("Letter mailpieces do not use USPS parcel label purchase.");
+    return {
+      mailpieceClass: "letter",
+      lengthInches: 9.5,
+      widthInches: 4.125,
+      heightInches: 0.25,
+      weightOunces: selectedPackage.weightOunces,
+    };
   }
   return {
+    mailpieceClass: selectedPackage.mailpieceClass,
     lengthInches: selectedPackage.lengthInches,
     widthInches: selectedPackage.widthInches,
     heightInches: selectedPackage.heightInches,
     weightOunces: selectedPackage.weightOunces,
   };
+}
+
+function postageLabelSizeFromPackage(pkg: PostagePackage) {
+  if (pkg.mailpieceClass === "letter") {
+    return "7x3" as const;
+  }
+  return null;
 }
 
 export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices {
@@ -817,6 +831,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           shipmentId: params.shipmentId,
           orderId: shipment.order_id,
           serviceLevel: params.serviceLevel,
+          labelSize: postageLabelSizeFromPackage(labelPackage),
           sender,
           recipient,
           package: labelPackage,
@@ -831,6 +846,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           shipmentId: params.shipmentId,
           orderId: shipment.order_id,
           serviceLevel: params.serviceLevel,
+          labelSize: postageLabelSizeFromPackage(labelPackage),
           sender,
           recipient,
           package: labelPackage,
