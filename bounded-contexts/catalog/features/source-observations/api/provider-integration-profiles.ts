@@ -372,7 +372,7 @@ export const tcgplayerAutomationClientProviderProfile = {
   providerKey: "tcgplayer",
   displayName: "TCGplayer",
   status: "planned",
-  capabilities: ["provider-option-query", "external-reference-extraction"],
+  capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
   supportedScopes: ["product-line/category", "set-name", "product", "sku"],
   languageOptions: ["en"],
   optionQueries: [

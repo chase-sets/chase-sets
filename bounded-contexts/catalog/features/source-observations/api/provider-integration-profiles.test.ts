@@ -13,7 +13,7 @@ describe("catalog provider integration profiles", () => {
     expect(profile).toMatchObject({
       providerKey: "tcgplayer",
       status: "planned",
-      capabilities: ["provider-option-query", "external-reference-extraction"],
+      capabilities: ["provider-option-query", "source-observation-import", "external-reference-extraction"],
       supportedScopes: ["product-line/category", "set-name", "product", "sku"],
       optionQueries: [
         { queryKind: "product-lines", displayName: "Product Line", scope: "product-line/category", parentScope: null },

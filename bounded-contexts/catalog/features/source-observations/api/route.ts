@@ -391,8 +391,11 @@ function parseIntegrationJobScope(input: unknown) {
   return {
     provider: stringField(record.provider) ?? stringField(record.source),
     language: stringField(record.language) ?? stringField(record.languageCode),
-    seriesId: stringField(record.seriesId),
-    setId: stringField(record.expansionId) ?? stringField(record.setId),
+    seriesId: stringField(record.seriesId) ?? stringField(record.productLineId) ?? stringField(record.categoryId),
+    setId: stringField(record.expansionId) ?? stringField(record.setId) ?? stringField(record.setName),
+    productLineId: stringField(record.productLineId) ?? stringField(record.categoryId) ?? stringField(record.seriesId),
+    setName: stringField(record.setName) ?? stringField(record.cleanSetName) ?? stringField(record.setId),
+    productId: stringField(record.productId) ?? stringField(record.tcgplayerProductId),
   };
 }
 

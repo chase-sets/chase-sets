@@ -72,6 +72,11 @@ import {
   type TcgdexSetImportResult,
 } from "./tcgdex-client";
 import {
+  toTcgplayerAutomationSourceObservation,
+  type TcgplayerAutomationCatalogClient,
+  type TcgplayerAutomationProductDetail,
+} from "./tcgplayer-automation-catalog-client";
+import {
   getCatalogProviderIntegrationProfile,
   listCatalogProviderIntegrationProfiles,
   tcgdexPokemonTcgProviderProfile,
@@ -126,6 +131,10 @@ export type BulkSourceObservationProgress = Readonly<{
 
 type SourceObservationProgressHandler = (progress: BulkSourceObservationProgress) => void | Promise<void>;
 type DurableSideEffectRunner = <T>(work: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+type SourceObservationRecordInput = Omit<
+  Extract<SourceObservationCommand, { type: "RecordSourceObservation" }>,
+  "type"
+>;
 
 export type SourceObservationBulkJobAction = "promote" | "reject" | "reapply";
 
@@ -183,6 +192,9 @@ export type SourceObservationIntegrationJobScope = Readonly<{
   language?: string;
   seriesId?: string;
   setId?: string;
+  productLineId?: string;
+  setName?: string;
+  productId?: string;
 }>;
 
 type SourceObservationIntegrationJobPayload = Readonly<{
@@ -192,6 +204,21 @@ type SourceObservationIntegrationJobPayload = Readonly<{
 
 type SourceObservationIntegrationWorkUnitPayload = Readonly<{
   observationId: string;
+}>;
+
+type TcgplayerIntegrationImportTarget = Readonly<{
+  targetId: string;
+  name: string;
+  productLineId?: number;
+  productLineName?: string;
+  setName?: string;
+  productId?: number;
+}>;
+
+type TcgplayerProductImportProgress = Readonly<{
+  currentName: string | null;
+  completed: number;
+  total: number;
 }>;
 
 export type SourceObservationIntegrationJobOutcome = Readonly<{
@@ -249,6 +276,11 @@ export type SourceObservationServices = Readonly<{
     beforeRecordObservation?: () => Promise<void>;
     runRecordObservation?: DurableSideEffectRunner;
   }) => Promise<TcgdexSetImportResult>;
+  importTcgplayerScope: (input: {
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+  }) => Promise<SourceObservationIntegrationJobResult>;
   listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
   listTcgdexSeries: (input: { languageCode: string }) => Promise<readonly TcgdexSeriesOption[]>;
   listTcgdexExpansions: (input: {
@@ -468,10 +500,7 @@ export function createSourceObservationRuntime(
     },
   );
 
-  async function recordObservation(
-    observation: Awaited<ReturnType<typeof fetchTcgdexSetObservations>>[number],
-    context: EventStoreContext,
-  ) {
+  async function recordObservation(observation: SourceObservationRecordInput, context: EventStoreContext) {
     await commandHandler({
       streamId: sourceObservationStreamId(observation.observationId),
       command: {
@@ -1585,6 +1614,16 @@ export function createSourceObservationRuntime(
     const scope = normalizeIntegrationJobScope(input.job.scope);
     const providerProfile = requireCatalogImportProfile(scope.provider);
 
+    if (providerProfile.providerKey === "tcgplayer") {
+      return processTcgplayerIntegrationImportJobTurn({
+        job: input.job,
+        scope,
+        providerProfile,
+        claimTtlMs: input.claimTtlMs,
+        context: input.context,
+      });
+    }
+
     const languageCode = scope.language || "en";
     const expansions = scope.setId
       ? [
@@ -1769,6 +1808,14 @@ export function createSourceObservationRuntime(
     const scope = normalizeIntegrationJobScope(input.scope);
     const providerProfile = requireCatalogImportProfile(scope.provider);
 
+    if (providerProfile.providerKey === "tcgplayer") {
+      return processTcgplayerIntegrationImportJob({
+        scope,
+        context: input.context,
+        onProgress: input.onProgress,
+      });
+    }
+
     const languageCode = scope.language || "en";
     const expansions = scope.setId
       ? [
@@ -1877,6 +1924,315 @@ export function createSourceObservationRuntime(
     }
   }
 
+  async function processTcgplayerIntegrationImportJobTurn(input: {
+    job: ClaimedSourceObservationIntegrationJob;
+    scope: SourceObservationIntegrationJobScope;
+    providerProfile: CatalogProviderIntegrationProfile;
+    claimTtlMs: number;
+    context: SourceObservationJobRunContext;
+  }): Promise<
+    Readonly<{
+      complete: boolean;
+      progress: BulkSourceObservationProgress;
+      result: SourceObservationIntegrationJobResult;
+    }>
+  > {
+    throwIfJobRunCancelled(input.context);
+    const targets = await resolveTcgplayerImportTargets(input.scope);
+    throwIfJobRunCancelled(input.context);
+    const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(targets.length, []);
+    const completedTargetIds = new Set(previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean));
+    const nextTarget = targets.find((target) => !completedTargetIds.has(target.targetId));
+
+    if (!nextTarget) {
+      const result = summarizeIntegrationJobOutcomes(targets.length, previousResult.outcomes);
+      return {
+        complete: true,
+        progress: bulkProgress(result.requested, result.requested, null, null, "completed"),
+        result,
+      };
+    }
+
+    const jobContext = createDurableJobExecutionContext(integrationJobStore, {
+      jobId: input.job.jobId,
+      claimOwnerId: input.job.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      signal: input.context.signal,
+      throwIfLeaseLost: input.context.throwIfLeaseLost,
+      cancelledMessage: "Source Observation job run was cancelled.",
+      claimLostMessage: "Source Observation job claim was lost before the status update completed.",
+    });
+    const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
+      minRenewIntervalMs: Math.max(1_000, Math.floor(input.claimTtlMs / 3)),
+      completed: (progress) => progress.completed,
+      isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+    });
+    const recordRenewIntervalMs = Math.max(1_000, Math.floor(input.claimTtlMs / 3));
+    let lastRecordRenewedAt = 0;
+
+    await progressCheckpoint.flush(bulkProgress(previousResult.outcomes.length, targets.length, nextTarget.name));
+
+    const outcome = await importTcgplayerIntegrationTarget({
+      target: nextTarget,
+      providerProfile: input.providerProfile,
+      context: input.job.eventContext,
+      beforeRecordObservation: async () => {
+        throwIfJobRunCancelled(input.context);
+        const now = Date.now();
+        if (lastRecordRenewedAt === 0 || now - lastRecordRenewedAt >= recordRenewIntervalMs) {
+          await jobContext.renew();
+          lastRecordRenewedAt = Date.now();
+        }
+      },
+      runRecordObservation: createSourceObservationSideEffectRunner(jobContext),
+      onProgress: async (targetProgress) => {
+        throwIfJobRunCancelled(input.context);
+        await progressCheckpoint.checkpoint(
+          bulkProgress(
+            previousResult.outcomes.length,
+            targets.length,
+            targetProgress.currentName ?? nextTarget.name,
+            null,
+            "processing",
+          ),
+        );
+      },
+    });
+    const result = summarizeIntegrationJobOutcomes(targets.length, [...previousResult.outcomes, outcome]);
+
+    return {
+      complete: result.outcomes.length >= result.requested,
+      progress: bulkProgress(result.outcomes.length, result.requested, nextTarget.name, outcome.status),
+      result,
+    };
+  }
+
+  async function processTcgplayerIntegrationImportJob(input: {
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+  }): Promise<SourceObservationIntegrationJobResult> {
+    const scope = normalizeIntegrationJobScope(input.scope);
+    const providerProfile = requireCatalogImportProfile(scope.provider);
+    if (providerProfile.providerKey !== "tcgplayer") {
+      throw new Error(`Provider '${providerProfile.providerKey}' is not supported by the TCGplayer import worker.`);
+    }
+    const targets = await resolveTcgplayerImportTargets(scope);
+    const outcomes: SourceObservationIntegrationJobOutcome[] = [];
+    await input.onProgress?.(bulkProgress(0, targets.length));
+
+    for (const target of targets) {
+      const outcome = await importTcgplayerIntegrationTarget({
+        target,
+        providerProfile,
+        context: input.context,
+        onProgress: (targetProgress) =>
+          input.onProgress?.(
+            bulkProgress(
+              outcomes.length,
+              targets.length,
+              targetProgress.currentName ?? target.name,
+              null,
+              "processing",
+            ),
+          ),
+      });
+      outcomes.push(outcome);
+      await input.onProgress?.(bulkProgress(outcomes.length, targets.length, target.name, outcome.status));
+    }
+
+    await input.onProgress?.(bulkProgress(targets.length, targets.length, null, null, "completed"));
+
+    return summarizeIntegrationJobOutcomes(targets.length, outcomes);
+  }
+
+  async function resolveTcgplayerImportTargets(
+    scope: SourceObservationIntegrationJobScope,
+  ): Promise<readonly TcgplayerIntegrationImportTarget[]> {
+    const productId = parsePositiveInteger(scope.productId);
+    if (productId !== null) {
+      return [
+        {
+          targetId: `product:${productId}`,
+          name: `Product ${productId}`,
+          productId,
+        },
+      ];
+    }
+
+    const productLineId = parsePositiveInteger(scope.productLineId ?? scope.seriesId);
+    if (productLineId === null) {
+      throw new Error("TCGplayer import requires productLineId/categoryId or productId.");
+    }
+
+    const client = requireTcgplayerAutomationCatalogClient();
+    const productLines = await client.listProductLines();
+    const productLine = productLines.find((item) => item.productLineId === productLineId);
+    if (!productLine) {
+      throw new Error(`TCGplayer product line '${productLineId}' was not found.`);
+    }
+
+    const setName = scope.setName?.trim() || scope.setId?.trim() || undefined;
+    if (setName) {
+      return [
+        {
+          targetId: `set:${productLineId}:${setName}`,
+          name: setName,
+          productLineId,
+          productLineName: productLine.productLineName,
+          setName,
+        },
+      ];
+    }
+
+    const response = await client.listCatalogSetNames({ categoryId: productLineId });
+    return response.results
+      .filter((setNameOption) => setNameOption.active)
+      .map((setNameOption) => ({
+        targetId: `set:${productLineId}:${setNameOption.cleanSetName}`,
+        name: setNameOption.cleanSetName,
+        productLineId,
+        productLineName: productLine.productLineName,
+        setName: setNameOption.cleanSetName,
+      }));
+  }
+
+  async function importTcgplayerIntegrationTarget(input: {
+    target: TcgplayerIntegrationImportTarget;
+    providerProfile: CatalogProviderIntegrationProfile;
+    context: EventStoreContext;
+    onProgress?: (progress: TcgplayerProductImportProgress) => void | Promise<void>;
+    beforeRecordObservation?: () => Promise<void>;
+    runRecordObservation?: DurableSideEffectRunner;
+  }): Promise<SourceObservationIntegrationJobOutcome> {
+    try {
+      const { details, failureReason } = await fetchTcgplayerTargetProductDetails(input.target, input.onProgress);
+      if (details.length === 0) {
+        return {
+          providerKey: input.providerProfile.providerKey,
+          languageCode: "en",
+          expansionId: input.target.targetId,
+          status: failureReason ? "failed" : "skipped",
+          observed: 0,
+          reapplied: 0,
+          reason: failureReason ?? `No TCGplayer products found for ${input.target.name}.`,
+        };
+      }
+
+      let observed = 0;
+      const observedAt = new Date().toISOString();
+      for (const detail of details) {
+        await input.beforeRecordObservation?.();
+        const observation = toTcgplayerAutomationSourceObservation({ detail, observedAt });
+        const writeObservation = () => recordObservation(observation, input.context);
+        if (input.runRecordObservation) {
+          await input.runRecordObservation(writeObservation);
+        } else {
+          await writeObservation();
+        }
+        observed += 1;
+      }
+
+      return {
+        providerKey: input.providerProfile.providerKey,
+        languageCode: "en",
+        expansionId: input.target.targetId,
+        status: failureReason ? "failed" : "imported",
+        observed,
+        reapplied: 0,
+        reason: failureReason,
+      };
+    } catch (error) {
+      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
+        throw error;
+      }
+
+      return {
+        providerKey: input.providerProfile.providerKey,
+        languageCode: "en",
+        expansionId: input.target.targetId,
+        status: "failed",
+        observed: 0,
+        reapplied: 0,
+        reason: error instanceof Error ? error.message : "TCGplayer import failed.",
+      };
+    }
+  }
+
+  async function fetchTcgplayerTargetProductDetails(
+    target: TcgplayerIntegrationImportTarget,
+    onProgress?: (progress: TcgplayerProductImportProgress) => void | Promise<void>,
+  ): Promise<
+    Readonly<{
+      details: readonly TcgplayerAutomationProductDetail[];
+      failureReason: string | null;
+    }>
+  > {
+    const client = requireTcgplayerAutomationCatalogClient();
+    if (target.productId !== undefined) {
+      await onProgress?.({ currentName: target.name, completed: 0, total: 1 });
+      const detail = await client.getProductDetail({ productId: target.productId });
+      await onProgress?.({ currentName: detail.productName, completed: 1, total: 1 });
+      return { details: [detail], failureReason: null };
+    }
+
+    if (!target.productLineName || !target.setName) {
+      throw new Error("TCGplayer set import requires a product line name and set name.");
+    }
+
+    const products = await client.listAllProducts({
+      size: 24,
+      filters: {
+        term: {
+          productLineName: [target.productLineName],
+          setName: [target.setName],
+        },
+      },
+      sort: {
+        field: "product-sorting-name",
+        order: "asc",
+      },
+    });
+    const details: TcgplayerAutomationProductDetail[] = [];
+    const failures: string[] = [];
+    await onProgress?.({ currentName: target.name, completed: 0, total: products.length });
+
+    for (const product of products) {
+      try {
+        const detail = await client.getProductDetail({ productId: product.productId });
+        details.push(detail);
+        await onProgress?.({ currentName: detail.productName, completed: details.length, total: products.length });
+      } catch (error) {
+        if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
+          throw error;
+        }
+        failures.push(error instanceof Error ? error.message : `Product ${product.productId} failed.`);
+        await onProgress?.({ currentName: product.productName, completed: details.length, total: products.length });
+      }
+    }
+
+    if (failures.length > 0) {
+      const failureText = failures.length === 1 ? failures[0] : `${failures.length} product details failed.`;
+      return {
+        details,
+        failureReason:
+          details.length > 0
+            ? `Imported ${details.length} TCGplayer product details before ${failureText}`
+            : failureText,
+      };
+    }
+
+    return { details, failureReason: null };
+  }
+
+  function requireTcgplayerAutomationCatalogClient(): TcgplayerAutomationCatalogClient {
+    if (!deps.tcgplayerAutomationCatalogClient) {
+      throw new Error("TCGplayer automation Catalog client is required for TCGplayer imports.");
+    }
+
+    return deps.tcgplayerAutomationCatalogClient;
+  }
+
   async function processIntegrationReapplyJob(input: {
     scope: SourceObservationIntegrationJobScope;
     context: EventStoreContext;
@@ -1911,6 +2267,7 @@ export function createSourceObservationRuntime(
   return {
     commandHandler,
     importTcgdexSet: importTcgdexSetScope,
+    importTcgplayerScope: processTcgplayerIntegrationImportJob,
     listTcgdexLanguages: async () => listTcgdexLanguageOptions(),
     listTcgdexSeries: async ({ languageCode }) => fetchTcgdexSeriesOptions({ languageCode }),
     listTcgdexExpansions: async ({ languageCode, seriesId }) => fetchTcgdexExpansionOptions({ languageCode, seriesId }),
@@ -3209,7 +3566,19 @@ function normalizeIntegrationJobScope(
     language: scope.language?.trim() || undefined,
     seriesId: scope.seriesId?.trim() || undefined,
     setId: scope.setId?.trim() || undefined,
+    productLineId: scope.productLineId?.trim() || undefined,
+    setName: scope.setName?.trim() || undefined,
+    productId: scope.productId?.trim() || undefined,
   };
+}
+
+function parsePositiveInteger(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function integrationScopeToObservationScope(scope: SourceObservationIntegrationJobScope): SourceObservationFilterScope {

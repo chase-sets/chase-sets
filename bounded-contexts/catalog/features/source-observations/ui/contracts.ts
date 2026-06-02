@@ -143,6 +143,9 @@ export interface SourceObservationIntegrationJobScope {
   language?: string;
   seriesId?: string;
   setId?: string;
+  productLineId?: string;
+  setName?: string;
+  productId?: string;
 }
 
 export interface SourceObservationIntegrationJobOutcome {
