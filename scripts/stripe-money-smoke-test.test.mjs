@@ -190,7 +190,7 @@ describe("stripe money smoke test", () => {
     });
   });
 
-  it("requires explicit Stripe-delivered webhook proof when staging demands complete provider delivery evidence", () => {
+  it("requires an explicit Stripe-delivered webhook evidence reference when staging demands provider delivery proof", () => {
     const stagingEnv = {
       PLATFORM_API_BASE_URL: "https://marketplace.staging.chasesets.com",
       STRIPE_SECRET_KEY: "sk_test_123",
@@ -208,16 +208,16 @@ describe("stripe money smoke test", () => {
         status: "missing-required-proof",
       },
       readinessErrors: [
-        "Set STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID, STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID, and STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE before running a smoke test that requires Stripe-delivered webhook proof.",
+        "Set STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE before running a smoke test that requires Stripe-delivered webhook proof. Raw Stripe evt_ identifiers belong in the private evidence record, not GitHub Environment configuration.",
       ],
     });
-    expect(() => validateStripeDeliveredWebhookProofForRun(stagingEnv)).toThrow(/STRIPE_PAYMENT_WEBHOOK/);
+    expect(() => validateStripeDeliveredWebhookProofForRun(stagingEnv)).toThrow(
+      /STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE/,
+    );
 
     expect(
       envReport({
         ...stagingEnv,
-        STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID: "evt_payment_delivery",
-        STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID: "evt_connect_delivery",
         STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE: "STAGING-STRIPE-WEBHOOKS-2026-06-01",
       }),
     ).toMatchObject({
@@ -225,8 +225,8 @@ describe("stripe money smoke test", () => {
       stripeDeliveredWebhookProof: {
         required: true,
         status: "provided",
-        paymentWebhookDeliveryEventId: "evt_payment_delivery",
-        connectWebhookDeliveryEventId: "evt_connect_delivery",
+        paymentWebhookDeliveryEventId: null,
+        connectWebhookDeliveryEventId: null,
         evidenceReference: "STAGING-STRIPE-WEBHOOKS-2026-06-01",
       },
     });
