@@ -201,7 +201,40 @@ export interface AdminShellProps {
   width?: LayoutWidth;
 }
 
+function compactAdminMobileNavItems(navItems: NavigationItem[], activeKey?: string): NavigationItem[] {
+  if (navItems.length <= 4) {
+    return navItems;
+  }
+
+  const primaryLimit = 3;
+  const activeItem = navItems.find((item) => isAdminNavigationItemActive(item, activeKey));
+  const primaryItems = navItems.slice(0, primaryLimit);
+  const activeItemIsPrimary = activeItem ? primaryItems.some((item) => item.key === activeItem.key) : true;
+  const visibleItems =
+    activeItem && !activeItemIsPrimary ? [...navItems.slice(0, primaryLimit - 1), activeItem] : primaryItems;
+  const visibleKeys = new Set(visibleItems.map((item) => item.key));
+  const overflowItems = navItems.filter((item) => !visibleKeys.has(item.key));
+
+  return [
+    ...visibleItems,
+    {
+      key: "admin-more",
+      label: "More",
+      icon: "menu",
+      children: overflowItems,
+    },
+  ];
+}
+
+function isAdminNavigationItemActive(item: NavigationItem, activeKey?: string): boolean {
+  return (
+    item.key === activeKey || Boolean(item.children?.some((child) => isAdminNavigationItemActive(child, activeKey)))
+  );
+}
+
 export function AdminShell({ brand, navItems, activeKey, actions, children, width = "full" }: AdminShellProps) {
+  const mobileNavItems = compactAdminMobileNavItems(navItems, activeKey);
+
   return (
     <div className="min-h-screen bg-background">
       <SkipLink />
@@ -227,7 +260,7 @@ export function AdminShell({ brand, navItems, activeKey, actions, children, widt
         </div>
         <div className="space-y-6">{children}</div>
       </main>
-      <BottomNav items={navItems} activeKey={activeKey} width={width} />
+      <BottomNav items={mobileNavItems} activeKey={activeKey} width={width} />
     </div>
   );
 }

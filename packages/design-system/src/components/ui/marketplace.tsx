@@ -647,17 +647,17 @@ export function ListingCard({
   const productMediaSlotClassName =
     imageSlot === "compact-product"
       ? isSearchResultLayout
-        ? "max-w-[7.25rem] sm:max-w-[7.75rem] md:max-w-[10.25rem] justify-self-center"
-        : "max-w-[10rem] justify-self-center"
+        ? "w-full max-w-[7.25rem] justify-self-center sm:max-w-[7.75rem] md:max-w-[10.25rem]"
+        : "w-full max-w-[10rem] justify-self-center"
       : undefined;
   const mediaContainerClassName = isSearchResultLayout
     ? "relative grid min-h-40 place-items-center py-3 pl-3 pr-1 sm:min-h-40 md:min-h-[14rem] md:py-4 md:pl-4 md:pr-1"
     : "relative grid min-h-44 place-items-center sm:min-h-36 sm:items-start sm:justify-items-center";
   const mediaImageClassName = isSearchResultLayout
-    ? "relative z-10 h-auto max-h-40 min-h-0 md:max-h-[12.5rem]"
+    ? "relative z-10 aspect-[2.5/3.5] h-auto max-h-40 min-h-0 md:max-h-[12.5rem]"
     : "relative max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
   const fallbackPreviewImageClassName = isSearchResultLayout
-    ? "absolute z-0 h-auto max-h-40 min-h-0 -translate-x-2 -translate-y-2 opacity-75 md:max-h-[12.5rem]"
+    ? "absolute z-0 aspect-[2.5/3.5] h-auto max-h-40 min-h-0 -translate-x-2 -translate-y-2 opacity-75 md:max-h-[12.5rem]"
     : "absolute inset-0 max-h-72 min-h-44 sm:h-auto sm:max-h-80 sm:min-h-0";
   const contentClassName = isSearchResultLayout
     ? "gap-2.5 py-3 pl-1 pr-3 md:gap-2.5 md:py-4 md:pl-1 md:pr-4"

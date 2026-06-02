@@ -66,6 +66,8 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportOperationsPage.priority": "Priority",
   "support.features.supportRequests.ui.supportOperationsPage.next.deadline": "Next deadline",
   "support.features.supportRequests.ui.supportOperationsPage.checklist": "Checklist",
+  "support.features.supportRequests.ui.supportOperationsPage.action": "Action",
+  "support.features.supportRequests.ui.supportOperationsPage.open": "Open",
   "support.features.supportRequests.ui.supportOperationsPage.unavailable": "Support operations API unavailable",
   "support.features.supportRequests.ui.supportOperationsPage.escalation.result":
     "Escalated {escalated} overdue requests; skipped {skipped}.",
@@ -74,8 +76,15 @@ export const supportEnglishTranslations = {
     "Queue membership is Support-owned: urgent requests, seller or support deadlines at or past now, and requests ready for support review.",
   "support.features.supportRequests.ui.supportOperationsPage.queue.count": "Showing {count} of {total}",
   "support.features.supportRequests.ui.supportOperationsPage.escalate.overdue": "Escalate overdue",
+  "support.features.supportRequests.ui.supportOperationsPage.back": "Back to queue",
+  "support.features.supportRequests.ui.supportOperationsPage.detail.title": "Support request",
+  "support.features.supportRequests.ui.supportOperationsPage.detail.description":
+    "Review {id}, including the structured order issue, account participants, deadlines, and required support evidence.",
+  "support.features.supportRequests.ui.supportOperationsPage.detail.summary": "Summary",
+  "support.features.supportRequests.ui.supportOperationsPage.detail.requirement": "Requirement",
   "support.routes.admin.operationsQueue.request.failed": "Support operations request failed.",
   "support.routes.admin.operationsQueue.meta.title": "Support operations | Admin",
+  "support.routes.admin.operationsRequestDetail.meta.title": "Support request {id} | Admin",
   "support.routes.marketplace.accountSupport.open.failed": "Could not open support request.",
   "support.routes.marketplace.accountSupport.support.marketplace": "Support | Marketplace",
 } as const;

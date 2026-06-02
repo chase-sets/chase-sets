@@ -91,6 +91,14 @@
           "routeType": "route",
           "sourceContext": "support",
           "placement": "root"
+        },
+        {
+          "routeId": "support-operations-detail",
+          "routePath": "support-requests/:id",
+          "fileExport": "./routes/admin/operations-request-detail",
+          "routeType": "route",
+          "sourceContext": "support",
+          "placement": "root"
         }
       ]
     }

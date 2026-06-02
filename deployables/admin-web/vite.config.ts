@@ -56,6 +56,14 @@ export default defineConfig({
         target: platformApiTarget,
         changeOrigin: true,
       },
+      "/api/experience": {
+        target: platformApiTarget,
+        changeOrigin: true,
+      },
+      "/api/marketplace": {
+        target: platformApiTarget,
+        changeOrigin: true,
+      },
       "/api/platform": {
         target: platformApiTarget,
         changeOrigin: true,

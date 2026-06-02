@@ -18,7 +18,7 @@ import {
   type AuthMethod,
   toSessionStreamId,
 } from "../../features/sessions/domain/auth-flow";
-import { AUTH_BOOTSTRAP_TENANT_ID } from "../auth-support/constants";
+import { AUTH_BOOTSTRAP_TENANT_ID, AUTH_ROLE_PERMISSIONS } from "../auth-support/constants";
 import {
   getAuthIdentityInvitation,
   getAuthIdentityUser,
@@ -353,6 +353,11 @@ export async function revokeSession(
   };
 }
 
+function resolveRolePermissions(roleKey: string, storedPermissions: readonly string[]) {
+  const presetPermissions = AUTH_ROLE_PERMISSIONS[roleKey as keyof typeof AUTH_ROLE_PERMISSIONS] ?? [];
+  return Array.from(new Set([...storedPermissions, ...presetPermissions]));
+}
+
 export async function resolveActorFromSessionId(
   services: AuthServices,
   sessionId: string,
@@ -375,6 +380,6 @@ export async function resolveActorFromSessionId(
     accountId: session.account_id,
     membershipId: membership.membership_id,
     roleKey: membership.role_key,
-    permissions: membership.role_permissions as readonly string[],
+    permissions: resolveRolePermissions(membership.role_key, membership.role_permissions),
   };
 }

@@ -207,6 +207,19 @@ export async function getAccountSupportRequest(
   return result.rows[0] ?? null;
 }
 
+export async function getSupportOperationsRequest(
+  db: PgQueryable,
+  supportRequestId: string,
+): Promise<SupportRequestDetailRow | null> {
+  const result = await db.query<SupportRequestDetailRow>(
+    `${detailSelect}
+     WHERE support_request_id = $1`,
+    [supportRequestId],
+  );
+
+  return result.rows[0] ?? null;
+}
+
 export async function findOpenSupportRequestForOrderAndFlow(
   db: PgQueryable,
   params: Readonly<{ orderId: string; flowType: string }>,

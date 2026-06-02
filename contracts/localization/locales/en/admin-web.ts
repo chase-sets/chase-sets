@@ -1,6 +1,12 @@
 export const adminWebEnglishTranslations = {
   "adminWeb.app.root.admin.error": "Admin Error",
   "adminWeb.app.root.admin.error.2": "Admin Error",
+  "adminWeb.app.root.admin.error.description":
+    "The admin surface could not finish loading. Retry the page or return to a stable admin section.",
+  "adminWeb.app.root.go.to.catalog": "Go to Catalog",
+  "adminWeb.app.root.not.found.title": "Admin page not found",
+  "adminWeb.app.root.retry": "Retry",
+  "adminWeb.app.root.technical.detail": "Technical detail",
   "adminWeb.app.root.unknown.error": "Unknown error",
   "adminWeb.app.routes.manifest.description":
     "Manage Chase Sets catalog, identity, commercial terms, waitlist, and platform feedback workflows.",

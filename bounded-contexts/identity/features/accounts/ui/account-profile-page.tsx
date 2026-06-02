@@ -58,9 +58,9 @@ export function AccountProfilePage({
         title={<AccountNameWithBadges name={account.display_name} badges={account.badges} />}
         description={t("identity.features.accounts.ui.accountProfilePage.profile.and.commercial.ownership.details.for")}
         actions={
-          <Stack direction="row" gap={2}>
+          <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
             <form method="post">
-              <Stack direction="row" align="end" gap={2}>
+              <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
                 <input type="hidden" name="intent" value="update-profile" readOnly />
                 <TextInput
                   name="name"

@@ -40,6 +40,7 @@ import { buildSupportRequestProjectionHandlers } from "../read-model/projection"
 import {
   findOpenSupportRequestForOrderAndFlow,
   getAccountSupportRequest,
+  getSupportOperationsRequest,
   listSupportOperationsQueue,
   listBuyerSupportRequests,
   listSellerSupportRequests,
@@ -137,6 +138,7 @@ export type SupportRequestServices = Readonly<{
     supportRequestId: string,
     accountId: string,
   ) => ReturnType<typeof getAccountSupportRequest>;
+  getSupportOperationsRequest: (supportRequestId: string) => ReturnType<typeof getSupportOperationsRequest>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
 
@@ -377,6 +379,7 @@ export function createSupportRequestRuntime(deps: SupportRequestRuntimeDeps): Su
     listSellerSupportRequests: (params) => listSellerSupportRequests(deps.db, params),
     getAccountSupportRequest: (supportRequestId, accountId) =>
       getAccountSupportRequest(deps.db, supportRequestId, accountId),
+    getSupportOperationsRequest: (supportRequestId) => getSupportOperationsRequest(deps.db, supportRequestId),
     projectors: [
       createProjectionHandlerSet({
         projectionName: "support-request-projection",

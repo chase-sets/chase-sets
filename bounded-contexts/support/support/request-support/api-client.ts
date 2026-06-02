@@ -66,6 +66,12 @@ export function createSupportRequestApiClient(options: SupportRequestApiClientOp
           headers: resolveHeaders(options.headers),
         }),
       ),
+    getSupportOperationsRequest: async (supportRequestId: string) =>
+      parseJsonResponse<SupportRequestDetail>(
+        await clientFetch(`${baseUrl}/support-requests/ops/${supportRequestId}`, {
+          headers: resolveHeaders(options.headers),
+        }),
+      ),
     openSupportRequest: async (
       body: Readonly<{
         orderId: string;

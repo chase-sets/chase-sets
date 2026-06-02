@@ -16,8 +16,9 @@ import {
   UiTableHead,
   UiTableHeader,
   UiTableRow,
+  LinkButton,
 } from "@chase-sets/design-system";
-import type { SupportRequestListItem } from "./contracts";
+import type { SupportRequestDetail, SupportRequestListItem } from "./contracts";
 
 type SupportOperationsPageProps = Readonly<{
   queue: Readonly<{ items: readonly SupportRequestListItem[]; total: number; count: number }>;
@@ -81,6 +82,7 @@ function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly Supp
           <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.priority")}</UiTableHead>
           <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.next.deadline")}</UiTableHead>
           <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.checklist")}</UiTableHead>
+          <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.action")}</UiTableHead>
         </UiTableRow>
       </UiTableHeader>
       <UiTableBody>
@@ -107,10 +109,100 @@ function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly Supp
             </UiTableCell>
             <UiTableCell>{formatDateTime(nextDeadline(request))}</UiTableCell>
             <UiTableCell>{checklistSummary(request)}</UiTableCell>
+            <UiTableCell>
+              <LinkButton
+                href={`/operations/support-requests/${request.support_request_id}`}
+                size="sm"
+                tone="secondary"
+              >
+                {t("support.features.supportRequests.ui.supportOperationsPage.open")}
+              </LinkButton>
+            </UiTableCell>
           </UiTableRow>
         ))}
       </UiTableBody>
     </UiTable>
+  );
+}
+
+function detailRows(request: SupportRequestDetail) {
+  return [
+    [t("support.features.supportRequests.ui.supportOperationsPage.issue"), request.flow_type],
+    [t("support.features.supportRequests.ui.supportOperationsPage.order"), request.order_id],
+    [t("support.features.supportRequests.ui.supportOperationsPage.status"), request.status],
+    [t("support.features.supportRequests.ui.supportOperationsPage.priority"), request.priority],
+    [
+      t("support.features.supportRequests.ui.supportOperationsPage.next.deadline"),
+      formatDateTime(nextDeadline(request)),
+    ],
+  ] as const;
+}
+
+export function SupportOperationsDetailPage({ request }: Readonly<{ request: SupportRequestDetail }>) {
+  return (
+    <UiPage>
+      <UiPageHeader
+        title={t("support.features.supportRequests.ui.supportOperationsPage.detail.title")}
+        description={t("support.features.supportRequests.ui.supportOperationsPage.detail.description", {
+          id: request.support_request_id,
+        })}
+        actions={
+          <LinkButton href="/operations/support-requests" tone="secondary">
+            {t("support.features.supportRequests.ui.supportOperationsPage.back")}
+          </LinkButton>
+        }
+      />
+
+      <UiPageSection title={t("support.features.supportRequests.ui.supportOperationsPage.detail.summary")}>
+        <UiSurface>
+          <UiStack>
+            {detailRows(request).map(([label, value]) => (
+              <UiInline
+                key={label}
+                className="flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <span className="text-sm font-semibold">{label}</span>
+                <span className="max-w-full break-words text-left text-sm text-[var(--muted-foreground)] [overflow-wrap:anywhere] sm:text-right">
+                  {value}
+                </span>
+              </UiInline>
+            ))}
+          </UiStack>
+        </UiSurface>
+      </UiPageSection>
+
+      <UiPageSection title={t("support.features.supportRequests.ui.supportOperationsPage.accounts")}>
+        <UiSurface>
+          <UiStack>
+            <span className="break-words [overflow-wrap:anywhere]">{request.buyer_account_id}</span>
+            <span className="break-words [overflow-wrap:anywhere]">{request.seller_account_id}</span>
+          </UiStack>
+        </UiSurface>
+      </UiPageSection>
+
+      <UiPageSection title={t("support.features.supportRequests.ui.supportOperationsPage.checklist")}>
+        <UiTable>
+          <UiTableHeader>
+            <UiTableRow>
+              <UiTableHead>
+                {t("support.features.supportRequests.ui.supportOperationsPage.detail.requirement")}
+              </UiTableHead>
+              <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.status")}</UiTableHead>
+            </UiTableRow>
+          </UiTableHeader>
+          <UiTableBody>
+            {request.checklist.map((item) => (
+              <UiTableRow key={item.key}>
+                <UiTableCell className="break-words [overflow-wrap:anywhere]">{item.label}</UiTableCell>
+                <UiTableCell className="break-words [overflow-wrap:anywhere]">
+                  {item.satisfiedAt ?? t("support.features.supportRequests.ui.supportOperationsPage.not.applicable")}
+                </UiTableCell>
+              </UiTableRow>
+            ))}
+          </UiTableBody>
+        </UiTable>
+      </UiPageSection>
+    </UiPage>
   );
 }
 
