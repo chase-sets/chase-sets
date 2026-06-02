@@ -249,13 +249,11 @@ export function envReport(env = process.env) {
     "SMOKE_PAYOUT_AMOUNT",
     "SMOKE_PAYMENT_METHOD_CATEGORY",
     "SMOKE_REQUEST_PAYOUT",
-    "STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID",
     "STRIPE_CONNECT_RETURN_URL",
     "STRIPE_CONNECT_REFRESH_URL",
     "STRIPE_MONEY_SMOKE_ENVIRONMENT",
     "STRIPE_MONEY_SMOKE_REQUIRE_DELIVERED_WEBHOOKS",
     "STRIPE_MONEY_SMOKE_ALLOW_LIVE",
-    "STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID",
     "STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE",
   ];
   const missing = required.filter((name) => !readEnv(name, env));
@@ -318,17 +316,15 @@ function requireStripeDeliveredWebhookProof(env = process.env) {
 }
 
 function resolveStripeDeliveredWebhookProof(env = process.env) {
-  const paymentEventId = readEnv("STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID", env);
-  const connectEventId = readEnv("STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID", env);
   const evidenceReference = readEnv("STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE", env);
   const required = requireStripeDeliveredWebhookProof(env);
-  const complete = Boolean(paymentEventId && connectEventId && evidenceReference);
+  const complete = Boolean(evidenceReference);
 
   return {
     required,
     status: complete ? "provided" : required ? "missing-required-proof" : "not-provided",
-    paymentWebhookDeliveryEventId: paymentEventId,
-    connectWebhookDeliveryEventId: connectEventId,
+    paymentWebhookDeliveryEventId: null,
+    connectWebhookDeliveryEventId: null,
     evidenceReference,
   };
 }
@@ -344,7 +340,7 @@ export function validateStripeDeliveredWebhookProofForRun(env = process.env) {
   }
 
   throw new Error(
-    "Set STRIPE_PAYMENT_WEBHOOK_DELIVERY_EVENT_ID, STRIPE_CONNECT_WEBHOOK_DELIVERY_EVENT_ID, and STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE before running a smoke test that requires Stripe-delivered webhook proof.",
+    "Set STRIPE_WEBHOOK_DELIVERY_EVIDENCE_REFERENCE before running a smoke test that requires Stripe-delivered webhook proof. Raw Stripe evt_ identifiers belong in the private evidence record, not GitHub Environment configuration.",
   );
 }
 
