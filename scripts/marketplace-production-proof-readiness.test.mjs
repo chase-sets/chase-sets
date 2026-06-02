@@ -133,6 +133,16 @@ describe("marketplace production proof readiness", () => {
             "gates.fulfillmentPostage.providerEventQueryReference",
           ]),
         },
+        googleSocialLoginOAuthSetup: {
+          provider: "google",
+          authorizedRedirectUris: [
+            "https://marketplace.chasesets.com/api/auth/social/google/callback",
+            "https://admin.chasesets.com/api/auth/social/google/callback",
+          ],
+          checklist: expect.arrayContaining([
+            "Open the Google Cloud OAuth client used by GOOGLE_SOCIAL_LOGIN_CLIENT_ID.",
+          ]),
+        },
         fulfillmentPostageProofApiSetup: {
           purpose:
             "Drive operator-controlled seller shipment label purchase, void/refund, and exception proof while public marketplace promotion remains closed.",
@@ -232,6 +242,9 @@ describe("marketplace production proof readiness", () => {
     );
     expect(readiness.operatorSetup.notes).toContain(
       "Complete sesSnsEventDestinationSetup and easyPostWebhookSetup before collecting Transactional Email and Fulfillment Postage proof records.",
+    );
+    expect(readiness.operatorSetup.notes).toContain(
+      "Complete googleSocialLoginOAuthSetup before smoke-testing marketplace Google sign-in or admin Google Workspace SSO.",
     );
     expect(readiness.operatorSetup.notes).toContain(
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",

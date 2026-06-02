@@ -157,9 +157,15 @@ function buildOperatorSetup({ missingSecrets }) {
     environmentCommand:
       "pnpm run marketplace:production-env-commands -- --file <redacted-marketplace-launch-evidence.json>",
     secretCommands: missingSecrets.map((name) => `gh secret set ${name} --env production`),
+    googleSocialLoginOAuthSetup: buildGoogleSocialLoginOAuthSetup({
+      marketplaceUrl: "https://marketplace.chasesets.com",
+      adminUrl: "https://admin.chasesets.com",
+      publicUrl: "https://chasesets.com",
+    }),
     notes: [
       "Generate launch variables from the passing Marketplace Launch Evidence packet; do not hand-set approval booleans.",
       "Run secret commands interactively or pipe values from a private password manager; never commit secret values.",
+      "Complete googleSocialLoginOAuthSetup before smoke-testing production marketplace Google sign-in or admin Google Workspace SSO.",
       "Run this readiness command again after setting variables and secret names, before triggering production promotion.",
     ],
   };
@@ -225,6 +231,31 @@ function csvValues(value) {
     .split(",")
     .map((entry) => entry.trim().toLowerCase())
     .filter(Boolean);
+}
+
+function buildGoogleSocialLoginOAuthSetup({ marketplaceUrl, adminUrl, publicUrl }) {
+  return {
+    provider: "google",
+    purpose: "Authorized redirect URIs for Auth-owned Google Social Login and admin Google Workspace SSO.",
+    authorizedRedirectUris: [
+      `${normalizeUrlOrigin(marketplaceUrl)}/api/auth/social/google/callback`,
+      `${normalizeUrlOrigin(adminUrl)}/api/auth/social/google/callback`,
+      `${normalizeUrlOrigin(publicUrl)}/api/auth/social/google/callback`,
+    ],
+    checklist: [
+      "Open the Google Cloud OAuth client used by GOOGLE_SOCIAL_LOGIN_CLIENT_ID.",
+      "Add every authorizedRedirectUris entry exactly as listed, including scheme, host, path, and trailing path spelling.",
+      "Save the OAuth client, then restart the Social Login smoke from the same production host.",
+    ],
+  };
+}
+
+function normalizeUrlOrigin(value) {
+  const url = new URL(value);
+  url.pathname = "/";
+  url.search = "";
+  url.hash = "";
+  return url.toString().replace(/\/$/, "");
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

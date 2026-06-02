@@ -274,6 +274,10 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
     ],
     sesSnsEventDestinationSetup,
     easyPostWebhookSetup,
+    googleSocialLoginOAuthSetup: buildGoogleSocialLoginOAuthSetup({
+      marketplaceUrl: providerCallbackSetup.productionMarketplaceBaseUrl,
+      adminUrl: "https://admin.chasesets.com",
+    }),
     fulfillmentPostageProofApiSetup,
     launchSupplyProofApiSetup,
     stripeMoneySmokeCheckCommand: "pnpm run stripe:money-smoke -- --check-env",
@@ -282,6 +286,7 @@ function buildOperatorSetup({ checkedAt, missingVariables, missingSecrets, proof
       "Run secret commands interactively or pipe values from a private password manager; never commit secret values.",
       "Set PRODUCTION_MARKETPLACE_PROOF_REFERENCE to the private proof evidence record if the suggested date-based reference is not the final record id.",
       "Complete sesSnsEventDestinationSetup and easyPostWebhookSetup before collecting Transactional Email and Fulfillment Postage proof records.",
+      "Complete googleSocialLoginOAuthSetup before smoke-testing marketplace Google sign-in or admin Google Workspace SSO.",
       "Use fulfillmentPostageProofApiSetup only with operator-controlled proof orders; it opens authenticated seller shipment APIs, not public fulfillment surfaces.",
       "Use launchSupplyProofApiSetup only with operator-controlled proof seller accounts; it opens authenticated Inventory and Marketplace listing APIs, not public browse or marketplace web.",
       "Choose one stripeMoneySmokeAuthenticationOptions entry before running the seller-flow smoke command; the live proof command needs an authenticated account.",
@@ -469,6 +474,22 @@ function buildProviderCallbackSetup({ baseUrl, marketplaceUrl }) {
         note: "Compatibility only for manual hosted Account Link checks; embedded setup smoke does not require these values.",
       },
     },
+  };
+}
+
+function buildGoogleSocialLoginOAuthSetup({ marketplaceUrl, adminUrl }) {
+  return {
+    provider: "google",
+    purpose: "Authorized redirect URIs for Auth-owned Google Social Login and admin Google Workspace SSO.",
+    authorizedRedirectUris: [
+      `${normalizeUrlOrigin(marketplaceUrl)}/api/auth/social/google/callback`,
+      `${normalizeUrlOrigin(adminUrl)}/api/auth/social/google/callback`,
+    ],
+    checklist: [
+      "Open the Google Cloud OAuth client used by GOOGLE_SOCIAL_LOGIN_CLIENT_ID.",
+      "Add every authorizedRedirectUris entry exactly as listed, including scheme, host, path, and trailing path spelling.",
+      "Save the OAuth client, then restart the Social Login smoke from the same production host.",
+    ],
   };
 }
 

@@ -182,6 +182,47 @@ async function expectSocialLoginProviders(marketplaceOrigin) {
   }
 }
 
+async function expectSocialLoginStartRedirect({ origin, providerName, providerHost }) {
+  const input = `${origin}/api/auth/social/${providerName}/start?returnTo=%2Faccount`;
+  const response = await fetchWithRetry(
+    `marketplace ${providerName} Social Login start`,
+    input,
+    { redirect: "manual" },
+    (candidate) => candidate.status === 302,
+  );
+  const location = response.headers.get("location");
+  if (!location) {
+    throw new Error(`Marketplace ${providerName} Social Login start did not include a Location header.`);
+  }
+
+  const redirect = new URL(location, input);
+  if (redirect.host !== providerHost) {
+    throw new Error(
+      `Marketplace ${providerName} Social Login redirected to '${redirect.host}' instead of '${providerHost}'.`,
+    );
+  }
+
+  const expectedRedirectUri = `${origin}/api/auth/social/${providerName}/callback`;
+  if (redirect.searchParams.get("redirect_uri") !== expectedRedirectUri) {
+    throw new Error(
+      `Marketplace ${providerName} Social Login did not use the marketplace callback URI '${expectedRedirectUri}'.`,
+    );
+  }
+}
+
+async function expectMarketplaceSocialLoginStarts(marketplaceOrigin) {
+  await expectSocialLoginStartRedirect({
+    origin: marketplaceOrigin,
+    providerName: "google",
+    providerHost: "accounts.google.com",
+  });
+  await expectSocialLoginStartRedirect({
+    origin: marketplaceOrigin,
+    providerName: "facebook",
+    providerHost: "www.facebook.com",
+  });
+}
+
 async function expectAdminGoogleWorkspaceSsoStart(adminOrigin) {
   const input = `${adminOrigin}/api/auth/social/google/start?journey=catalog-admin&returnTo=%2Fcatalog`;
   const response = await fetchWithRetry(
@@ -307,6 +348,7 @@ async function main() {
     await expectMarketplaceSurface("marketplace", marketplaceUrl);
     if (requireSocialLogin) {
       await expectSocialLoginProviders(marketplaceUrl);
+      await expectMarketplaceSocialLoginStarts(marketplaceUrl);
       await expectTextContains("marketplace sign-in social login controls", `${marketplaceUrl}/sign-in`, [
         "Continue with Google",
         "Continue with Facebook",
