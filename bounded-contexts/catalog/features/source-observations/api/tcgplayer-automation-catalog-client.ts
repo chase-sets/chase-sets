@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
-import type { SourceObservationProviderProductNormalized } from "../domain/domain";
+import type {
+  SourceObservationExternalProductReference,
+  SourceObservationProviderProductNormalized,
+  SourceObservationSelectedOptionReference,
+} from "../domain/domain";
 import type {
   TcgplayerAutomationDomainHttpClient,
   TcgplayerAutomationHttpClients,
@@ -124,6 +128,24 @@ export type TcgplayerAutomationSourceObservationInput = Readonly<{
   sourcePayload: JsonValue;
 }>;
 
+export type TcgplayerProductReferenceDimensionKey = "condition" | "printing" | "language" | "product-form";
+
+export type TcgplayerProductReferenceSchema = Readonly<{
+  dimensions: readonly TcgplayerProductReferenceDimension[];
+}>;
+
+export type TcgplayerProductReferenceDimension = Readonly<{
+  dimensionKey: TcgplayerProductReferenceDimensionKey;
+  dimensionId: string;
+  required?: boolean;
+  options: readonly TcgplayerProductReferenceOption[];
+}>;
+
+export type TcgplayerProductReferenceOption = Readonly<{
+  optionId: string;
+  aliases: readonly string[];
+}>;
+
 export type TcgplayerAutomationCatalogClient = Readonly<{
   listProductLines: () => Promise<readonly TcgplayerAutomationProductLine[]>;
   listCatalogSetNames: (input: { categoryId: number }) => Promise<TcgplayerAutomationCatalogSetNamesResponse>;
@@ -150,9 +172,15 @@ export function toTcgplayerAutomationSourceObservation(input: {
   detail: TcgplayerAutomationProductDetail;
   observedAt: string;
   sourceUrl?: string;
+  productReferenceSchema?: TcgplayerProductReferenceSchema | null;
 }): TcgplayerAutomationSourceObservationInput {
   const languageCode = "en";
   const externalKey = `product:${input.detail.productId}`;
+  const skuReferences = input.detail.skus.map((sku) => ({
+    providerKey: "tcgplayer",
+    externalKey: `sku:${sku.sku}`,
+    reviewEvidence: skuReviewEvidence(input.detail, sku),
+  }));
   const normalized: SourceObservationProviderProductNormalized = {
     kind: "provider-product",
     languageCode,
@@ -170,20 +198,14 @@ export function toTcgplayerAutomationSourceObservation(input: {
       languageCode,
     },
     externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey }],
-    externalProductReferences: input.detail.skus.map((sku) => ({
-      providerKey: "tcgplayer",
-      externalKey: `sku:${sku.sku}`,
-      selectedOptions: skuSelectedOptions(input.detail, sku),
-    })),
+    externalProductReferences: input.productReferenceSchema
+      ? mapTcgplayerSkuExternalProductReferences(input.detail, input.productReferenceSchema)
+      : [],
     providerProductId: String(input.detail.productId),
     providerProductName: input.detail.productName,
     productLineName: input.detail.productLineName,
     productCategoryName: input.detail.productTypeName,
-    skuReferences: input.detail.skus.map((sku) => ({
-      providerKey: "tcgplayer",
-      externalKey: `sku:${sku.sku}`,
-      selectedOptions: skuSelectedOptions(input.detail, sku),
-    })),
+    skuReferences,
   };
 
   return {
@@ -198,6 +220,25 @@ export function toTcgplayerAutomationSourceObservation(input: {
     normalized,
     sourcePayload: input.detail as JsonValue,
   };
+}
+
+export function mapTcgplayerSkuExternalProductReferences(
+  detail: TcgplayerAutomationProductDetail,
+  schema: TcgplayerProductReferenceSchema,
+): readonly SourceObservationExternalProductReference[] {
+  return detail.skus.flatMap((sku) => {
+    const selectedOptions = resolveTcgplayerSkuSelectedOptions(detail, sku, schema);
+    return selectedOptions
+      ? [
+          {
+            providerKey: "tcgplayer",
+            externalKey: `sku:${sku.sku}`,
+            selectedOptions,
+            reviewEvidence: skuReviewEvidence(detail, sku),
+          },
+        ]
+      : [];
+  });
 }
 
 export function tcgplayerCatalogHashMaterial(detail: TcgplayerAutomationProductDetail): JsonObject {
@@ -255,13 +296,74 @@ async function listAllTcgplayerAutomationProducts(
   return products;
 }
 
-function skuSelectedOptions(detail: TcgplayerAutomationProductDetail, sku: TcgplayerAutomationProductSku): JsonObject {
+function resolveTcgplayerSkuSelectedOptions(
+  detail: TcgplayerAutomationProductDetail,
+  sku: TcgplayerAutomationProductSku,
+  schema: TcgplayerProductReferenceSchema,
+): readonly SourceObservationSelectedOptionReference[] | null {
+  const selectedOptions: SourceObservationSelectedOptionReference[] = [];
+
+  for (const dimension of schema.dimensions) {
+    const providerValue = providerValueForDimension(detail, sku, dimension.dimensionKey);
+    if (!providerValue) {
+      if (dimension.required) {
+        return null;
+      }
+      continue;
+    }
+
+    const option = dimension.options.find((candidate) =>
+      candidate.aliases.some((alias) => normalizeProviderOption(alias) === normalizeProviderOption(providerValue)),
+    );
+    if (!option) {
+      return null;
+    }
+    selectedOptions.push({
+      dimensionId: dimension.dimensionId,
+      optionId: option.optionId,
+    });
+  }
+
+  return selectedOptions.length > 0
+    ? selectedOptions.sort((left, right) =>
+        left.dimensionId === right.dimensionId
+          ? left.optionId.localeCompare(right.optionId)
+          : left.dimensionId.localeCompare(right.dimensionId),
+      )
+    : null;
+}
+
+function providerValueForDimension(
+  detail: TcgplayerAutomationProductDetail,
+  sku: TcgplayerAutomationProductSku,
+  dimensionKey: TcgplayerProductReferenceDimensionKey,
+): string | null {
+  switch (dimensionKey) {
+    case "condition":
+      return sku.condition;
+    case "printing":
+      return sku.variant;
+    case "language":
+      return sku.language;
+    case "product-form":
+      return detail.sealed ? "unopened" : "single";
+  }
+}
+
+function skuReviewEvidence(detail: TcgplayerAutomationProductDetail, sku: TcgplayerAutomationProductSku): JsonObject {
   return {
     condition: sku.condition,
     printing: sku.variant,
     language: sku.language,
     productForm: detail.sealed ? "unopened" : "single",
   };
+}
+
+function normalizeProviderOption(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
 }
 
 function normalizeTcgName(value: string): string {

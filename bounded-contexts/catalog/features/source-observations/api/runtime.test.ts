@@ -852,10 +852,17 @@ describe("source observation runtime", () => {
             collectorNumber: "131",
           }),
           externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
-          externalProductReferences: [
+          externalProductReferences: [],
+          skuReferences: [
             expect.objectContaining({
               providerKey: "tcgplayer",
               externalKey: "sku:987654",
+              reviewEvidence: expect.objectContaining({
+                condition: "Near Mint",
+                printing: "Normal",
+                language: "English",
+                productForm: "single",
+              }),
             }),
           ],
         }),

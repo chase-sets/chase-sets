@@ -13,7 +13,13 @@ export type SourceObservationExternalCatalogItemReference = Readonly<{
 export type SourceObservationExternalProductReference = Readonly<{
   providerKey: string;
   externalKey: string;
-  selectedOptions?: JsonObject;
+  selectedOptions?: readonly SourceObservationSelectedOptionReference[];
+  reviewEvidence?: JsonObject;
+}>;
+
+export type SourceObservationSelectedOptionReference = Readonly<{
+  dimensionId: string;
+  optionId: string;
 }>;
 
 export type SourceObservationMergeIdentity = Readonly<{

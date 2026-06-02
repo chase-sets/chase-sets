@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
+import { catalogSeedIds } from "../../../support/seed-support/ids";
 import {
   createTcgplayerAutomationCatalogClient,
+  mapTcgplayerSkuExternalProductReferences,
   tcgplayerCatalogHashMaterial,
   toTcgplayerAutomationSourceObservation,
   type TcgplayerAutomationProductDetail,
   type TcgplayerAutomationProductSearchResponse,
+  type TcgplayerProductReferenceSchema,
 } from "./tcgplayer-automation-catalog-client";
 import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures";
 
@@ -84,11 +87,12 @@ describe("TCGplayer automation Catalog client", () => {
         productLineName: "Pokemon",
         productCategoryName: "Cards",
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+        externalProductReferences: [],
         skuReferences: [
           {
             providerKey: "tcgplayer",
             externalKey: "sku:7001001",
-            selectedOptions: {
+            reviewEvidence: {
               condition: "Near Mint",
               printing: "Holofoil",
               language: "English",
@@ -98,10 +102,93 @@ describe("TCGplayer automation Catalog client", () => {
           {
             providerKey: "tcgplayer",
             externalKey: "sku:7001002",
+            reviewEvidence: {
+              condition: "Lightly Played",
+              printing: "Holofoil",
+              language: "English",
+              productForm: "single",
+            },
           },
         ],
       },
     });
+    expect(observation.normalized.externalCatalogItemReferences).not.toContainEqual(
+      expect.objectContaining({ externalKey: "sku:7001001" }),
+    );
+    expect(observation.normalized.externalProductReferences).not.toContainEqual(
+      expect.objectContaining({ externalKey: "product:610001" }),
+    );
+  });
+
+  it("maps only SKU references whose selected options validate against the Product schema", () => {
+    const references = mapTcgplayerSkuExternalProductReferences(
+      tcgplayerAutomationResponseFixtures.productDetail,
+      rawPokemonSingleProductReferenceSchema(),
+    );
+
+    expect(references).toEqual([
+      {
+        providerKey: "tcgplayer",
+        externalKey: "sku:7001001",
+        selectedOptions: [
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+          },
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+          },
+        ],
+        reviewEvidence: {
+          condition: "Near Mint",
+          printing: "Holofoil",
+          language: "English",
+          productForm: "single",
+        },
+      },
+    ]);
+  });
+
+  it("blocks SKU Product references when a schema dimension has unknown provider evidence", () => {
+    const references = mapTcgplayerSkuExternalProductReferences(tcgplayerAutomationResponseFixtures.productDetail, {
+      dimensions: [
+        ...rawPokemonSingleProductReferenceSchema().dimensions,
+        {
+          dimensionKey: "printing",
+          dimensionId: "dim_printing",
+          required: true,
+          options: [{ optionId: "opt_reverse_holo", aliases: ["Reverse Holofoil"] }],
+        },
+      ],
+    });
+
+    expect(references).toEqual([]);
+  });
+
+  it("can include validated SKU Product references in a Source Observation when a schema is supplied", () => {
+    const observation = toTcgplayerAutomationSourceObservation({
+      detail: tcgplayerAutomationResponseFixtures.productDetail,
+      observedAt: "2026-06-02T00:00:00.000Z",
+      productReferenceSchema: rawPokemonSingleProductReferenceSchema(),
+    });
+
+    expect(observation.normalized.externalProductReferences).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        externalKey: "sku:7001001",
+        selectedOptions: [
+          {
+            dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+            optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint,
+          },
+          {
+            dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+            optionId: catalogSeedIds.dimensions.form.optionIds.raw,
+          },
+        ],
+      }),
+    ]);
   });
 
   it("excludes price and listing fields from the Catalog observation hash material", () => {
@@ -143,6 +230,33 @@ function searchResponse(input: { totalResults: number; productId: number }): Tcg
         ],
         totalResults: input.totalResults,
         resultId: `result-${input.productId}`,
+      },
+    ],
+  };
+}
+
+function rawPokemonSingleProductReferenceSchema(): TcgplayerProductReferenceSchema {
+  return {
+    dimensions: [
+      {
+        dimensionKey: "condition",
+        dimensionId: catalogSeedIds.dimensions.condition.dimensionId,
+        required: true,
+        options: [
+          { optionId: catalogSeedIds.dimensions.condition.optionIds.pristine, aliases: ["Pristine"] },
+          { optionId: catalogSeedIds.dimensions.condition.optionIds.mint, aliases: ["Mint"] },
+          { optionId: catalogSeedIds.dimensions.condition.optionIds.nearMint, aliases: ["Near Mint", "Near-Mint"] },
+          { optionId: catalogSeedIds.dimensions.condition.optionIds.excellent, aliases: ["Excellent"] },
+          { optionId: catalogSeedIds.dimensions.condition.optionIds.good, aliases: ["Good"] },
+          { optionId: catalogSeedIds.dimensions.condition.optionIds.poor, aliases: ["Poor"] },
+          { optionId: catalogSeedIds.dimensions.condition.optionIds.damaged, aliases: ["Damaged"] },
+        ],
+      },
+      {
+        dimensionKey: "product-form",
+        dimensionId: catalogSeedIds.dimensions.form.dimensionId,
+        required: true,
+        options: [{ optionId: catalogSeedIds.dimensions.form.optionIds.raw, aliases: ["single", "raw"] }],
       },
     ],
   };

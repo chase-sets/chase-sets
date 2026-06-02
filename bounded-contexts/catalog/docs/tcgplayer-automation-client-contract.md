@@ -200,7 +200,7 @@ condition, variant/printing, and language. Listing APIs also expose
 provider identity when it represents the sellable condition/variant/language.
 
 TCGplayer SKU IDs map to External Product References only when selected options
-are known and valid:
+resolve to active Catalog Product schema options:
 
 ```json
 {
@@ -214,8 +214,10 @@ are known and valid:
 }
 ```
 
-Unknown conditions, variants, or languages remain review evidence. They must not
-create invalid Product references.
+Unknown conditions, variants, languages, sealed forms, or values for dimensions
+that are not currently part of the Product schema remain review evidence on the
+Source Observation SKU reference. They must not create invalid Product
+references.
 
 ## Ownership Mapping
 

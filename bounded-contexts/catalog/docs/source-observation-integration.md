@@ -62,7 +62,9 @@ The direct TCGplayer integration uses the automation-app client contract in
 It imports provider product and SKU evidence as Source Observations. It must not
 use official TCGplayer API documentation as the provider contract for this
 workstream, and it must not store price, latest sale, listing, order, message,
-or seller inventory facts as Catalog truth.
+or seller inventory facts as Catalog truth. TCGplayer SKU evidence remains review
+evidence until a SKU's selected options validate against the active Catalog
+Product schema; only then may `sku:<id>` become an External Product Reference.
 
 ## Promotion
 
