@@ -37,9 +37,11 @@ import {
   decideSourceObservation,
   evolveSourceObservation,
   initialSourceObservationState,
+  isPokemonCardSourceObservationNormalized,
   type SourceObservationCommand,
   type SourceObservationEvent,
   type SourceObservationNormalized,
+  type SourceObservationPokemonCardNormalized,
   type SourceObservationState,
 } from "../domain/domain";
 import { buildSourceObservationProjectionHandlers } from "../read-model/projection";
@@ -484,7 +486,11 @@ export function createSourceObservationRuntime(
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
-    requirePromotionAssetPorts({ deps, normalized: input.observation.normalized });
+    const normalized = requirePokemonCardPromotionObservation(
+      input.observation.normalized,
+      input.observation.provider_key,
+    );
+    requirePromotionAssetPorts({ deps, normalized });
 
     const existingCatalogItemId =
       input.observation.status === "changed" || input.observation.status === "promoted"
@@ -509,7 +515,7 @@ export function createSourceObservationRuntime(
         ? null
         : await findPartiallyPromotedCatalogItemIdForObservation({
             deps,
-            normalized: input.observation.normalized,
+            normalized,
           });
     const reusableCatalogItemId = referencedCatalogItemId ?? partiallyPromotedCatalogItemId;
     const catalogItemId = reusableCatalogItemId ?? (createId("cat") as CatalogItemId);
@@ -520,7 +526,7 @@ export function createSourceObservationRuntime(
         referenceData,
         deps,
         catalogItemId: reusableCatalogItemId,
-        normalized: input.observation.normalized,
+        normalized,
         providerKey: input.observation.provider_key,
         externalKey: input.observation.external_key,
         context: input.context,
@@ -531,7 +537,7 @@ export function createSourceObservationRuntime(
         referenceData,
         deps,
         catalogItemId,
-        normalized: input.observation.normalized,
+        normalized,
         providerKey: input.observation.provider_key,
         externalKey: input.observation.external_key,
         context: input.context,
@@ -657,7 +663,11 @@ export function createSourceObservationRuntime(
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
-    requirePromotionAssetPorts({ deps, normalized: input.observation.normalized });
+    const normalized = requirePokemonCardPromotionObservation(
+      input.observation.normalized,
+      input.observation.provider_key,
+    );
+    requirePromotionAssetPorts({ deps, normalized });
 
     if (input.observation.status !== "promoted") {
       throw new Error("Only promoted source observations can be reapplied.");
@@ -673,7 +683,7 @@ export function createSourceObservationRuntime(
       referenceData,
       deps,
       catalogItemId,
-      normalized: input.observation.normalized,
+      normalized,
       providerKey: input.observation.provider_key,
       externalKey: input.observation.external_key,
       context: input.context,
@@ -2054,6 +2064,8 @@ async function listProviderIntegrationOptions(input: {
       metadata: {
         providerKey: profile.providerKey,
         supportedScopes: profile.supportedScopes.join(","),
+        status: profile.status,
+        connectorKind: profile.connector.kind,
       },
     }));
   }
@@ -2061,6 +2073,12 @@ async function listProviderIntegrationOptions(input: {
   const profile = getCatalogProviderIntegrationProfile(providerKey);
   if (!profile) {
     throw new Error(`Unsupported Catalog integration provider: ${providerKey}.`);
+  }
+
+  if (profile.status !== "active" || profile.connector.kind !== "tcgdex-json") {
+    throw new Error(
+      `Catalog integration provider '${profile.providerKey}' is ${profile.status} and does not yet support runtime option queries.`,
+    );
   }
 
   if (queryKind === "languages" || queryKind === "language") {
@@ -2157,7 +2175,7 @@ async function createCatalogDraftFromObservation(input: {
   referenceData: ReferenceDataServices;
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
   providerKey: string;
   externalKey: string;
   context: EventStoreContext;
@@ -2275,7 +2293,7 @@ async function refreshCatalogItemFromObservation(input: {
   referenceData: ReferenceDataServices;
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
   providerKey: string;
   externalKey: string;
   context: EventStoreContext;
@@ -2372,7 +2390,7 @@ async function refreshCatalogItemFromObservation(input: {
 async function linkExternalCatalogItemReferencesFromObservation(
   items: CatalogItemServices,
   streamId: string,
-  normalized: SourceObservationNormalized,
+  normalized: SourceObservationPokemonCardNormalized,
   context: EventStoreContext,
 ) {
   for (const reference of uniqueExternalCatalogItemReferences(normalized.externalCatalogItemReferences ?? [])) {
@@ -2390,7 +2408,7 @@ async function linkExternalCatalogItemReferencesFromObservation(
 
 async function formatPokemonCardPromotionMetadata(input: {
   deps: CatalogRuntimeDeps;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
   expansionReferenceId: ReferenceRecordId;
 }): Promise<{ title: string; subtitle: string }> {
   void input.deps;
@@ -2401,7 +2419,7 @@ async function formatPokemonCardPromotionMetadata(input: {
   };
 }
 
-function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string[] {
+function pokemonCatalogItemTags(normalized: SourceObservationPokemonCardNormalized): string[] {
   return [
     "pokemon",
     tcgdexPokemonTcgProviderProfile.providerKey,
@@ -2413,7 +2431,7 @@ function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string
 }
 
 function uniqueExternalCatalogItemReferences(
-  references: readonly NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][],
+  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][],
 ) {
   const seen = new Set<string>();
   return references
@@ -2436,7 +2454,10 @@ function isPromotableObservationStatus(status: string): boolean {
   return status === "observed" || status === "changed" || status === "promoted";
 }
 
-function requirePromotionAssetPorts(input: { deps: CatalogRuntimeDeps; normalized: SourceObservationNormalized }) {
+function requirePromotionAssetPorts(input: {
+  deps: CatalogRuntimeDeps;
+  normalized: SourceObservationPokemonCardNormalized;
+}) {
   if (input.normalized.imageBaseUrl) {
     requireCatalogAssetStorage(input.deps.assetStorage);
   }
@@ -2446,6 +2467,19 @@ function formatSourceReferenceExternalKey(
   observation: Pick<SourceObservationDetailRow, "normalized" | "external_key">,
 ) {
   return `${observation.normalized.languageCode}:${observation.external_key}`;
+}
+
+function requirePokemonCardPromotionObservation(
+  normalized: SourceObservationNormalized,
+  providerKey: string,
+): SourceObservationPokemonCardNormalized {
+  if (!isPokemonCardSourceObservationNormalized(normalized)) {
+    throw new Error(
+      `Catalog promotion for provider '${providerKey}' requires a Pokemon card source observation. Normalized kind '${normalized.kind}' is not yet promotable.`,
+    );
+  }
+
+  return normalized;
 }
 
 async function findReusableCatalogItemIdForSourceReference(input: {
@@ -2470,7 +2504,7 @@ async function findReusableCatalogItemIdForSourceReference(input: {
 
 async function findPartiallyPromotedCatalogItemIdForObservation(input: {
   deps: CatalogRuntimeDeps;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
 }): Promise<CatalogItemId | null> {
   const profile = await loadPokemonTcgPromotionProfile(input.deps);
   const reusableTags = [
@@ -2546,7 +2580,7 @@ async function setFieldValue(
 export async function ensurePokemonReferenceHierarchy(input: {
   deps: CatalogRuntimeDeps;
   referenceData: ReferenceDataServices;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
   context: EventStoreContext;
 }): Promise<ReferenceRecordId> {
   await ensureReferenceType(input, {

@@ -5,7 +5,7 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
-import type { SourceObservationNormalized } from "../domain/domain";
+import type { SourceObservationNormalized, SourceObservationPokemonCardNormalized } from "../domain/domain";
 import { createSourceObservationRuntime, ensurePokemonReferenceHierarchy } from "./runtime";
 
 const context: EventStoreContext = {
@@ -755,6 +755,57 @@ describe("source observation runtime", () => {
     ]);
   });
 
+  it("lists active and planned provider connector options for Catalog integration discovery", async () => {
+    const services = createSourceObservationRuntime(
+      { db: {} } as CatalogRuntimeDeps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const providers = await services.listIntegrationOptions({
+      providerKey: "tcgdex",
+      queryKind: "providers",
+    });
+
+    expect(providers).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgdex",
+        value: "tcgdex",
+        label: "TCGdex",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "tcgdex-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        value: "tcgplayer",
+        label: "TCGplayer",
+        metadata: expect.objectContaining({
+          status: "planned",
+          connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
+    ]);
+  });
+
+  it("does not run option queries against planned provider connectors before their adapter is installed", async () => {
+    const services = createSourceObservationRuntime(
+      { db: {} } as CatalogRuntimeDeps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    await expect(
+      services.listIntegrationOptions({
+        providerKey: "tcgplayer",
+        queryKind: "languages",
+      }),
+    ).rejects.toThrow(
+      "Catalog integration provider 'tcgplayer' is planned and does not yet support runtime option queries.",
+    );
+  });
+
   it("hands off provider integration imports when the durable claim is lost before recording observations", async () => {
     const harness = createIntegrationJobClaimHandoffHarness();
     const originalFetch = globalThis.fetch;
@@ -825,7 +876,7 @@ function pokemonObservation(input: {
   cardVariantLabel?: string;
   cardVariantSourceKey?: string | null;
   parallelSet?: boolean;
-}): SourceObservationNormalized {
+}): SourceObservationPokemonCardNormalized {
   return {
     kind: "pokemon-card",
     tcg: "pokemon",
@@ -1217,7 +1268,7 @@ function createReferencePreloadHarness() {
 
 function createChangedObservationRefreshHarness(
   input: {
-    normalized?: SourceObservationNormalized;
+    normalized?: SourceObservationPokemonCardNormalized;
     expansionAttributes?: Readonly<Record<string, JsonValue>>;
     status?: string;
     promotedCatalogItemId?: string | null;

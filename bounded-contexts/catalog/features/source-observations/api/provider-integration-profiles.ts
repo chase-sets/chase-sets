@@ -15,7 +15,7 @@ export type CatalogProviderOptionQuery = Readonly<{
   parentScope: CatalogProviderScope | null;
 }>;
 
-export type CatalogProviderConnectorProfile = Readonly<{
+export type TcgdexJsonConnectorProfile = Readonly<{
   kind: "tcgdex-json";
   baseUrl: string;
   highQualityAssetVariant: string;
@@ -27,6 +27,50 @@ export type CatalogProviderConnectorProfile = Readonly<{
     productDetail: string;
   }>;
 }>;
+
+export type TcgplayerAutomationClientConnectorProfile = Readonly<{
+  kind: "tcgplayer-automation-client";
+  sourceRepository: Readonly<{
+    owner: "todd-skelton";
+    name: "tcgplayer-automation-app";
+    commit: string;
+  }>;
+  sourceContractDocument: string;
+  authentication: Readonly<{
+    scheme: "tcgplayer-production-cookie";
+    cookieName: "TCGAuthTicket_Production";
+    userAgentRequired: true;
+  }>;
+  domains: Readonly<{
+    search: "mp-search-api.tcgplayer.com";
+    marketplaceApi: "mpapi.tcgplayer.com";
+    infiniteApi: "infinite-api.tcgplayer.com";
+    marketplaceGateway: "mpgateway.tcgplayer.com";
+  }>;
+  retryStatusCodes: readonly number[];
+  throttling: Readonly<{
+    strategy: "domain-adaptive";
+    controls: readonly ("request-delay" | "cooldown" | "max-concurrency" | "learned-min-delay")[];
+  }>;
+  catalogFlow: Readonly<{
+    productLineScope: "product-lines";
+    setScope: "catalog-set-names-by-product-line";
+    productScope: "product-search-by-set";
+    detailScope: "product-detail-with-skus";
+    detectsProductSetReclassification: true;
+  }>;
+  externalReferencePolicy: Readonly<{
+    catalogItemReferencePrefix: "product:";
+    productReferencePrefix: "sku:";
+    productConditionIdSource: "sku-product-condition-id";
+  }>;
+  catalogBoundary: Readonly<{
+    acceptedEvidence: readonly ("product-id" | "sku-id" | "product-condition-id" | "set-name" | "product-line")[];
+    excludedEvidence: readonly ("listing-price" | "sales-history" | "order" | "message" | "seller-inventory")[];
+  }>;
+}>;
+
+export type CatalogProviderConnectorProfile = TcgdexJsonConnectorProfile | TcgplayerAutomationClientConnectorProfile;
 
 export type CatalogProviderVariantRule = Readonly<{
   variantKey: string;
@@ -56,6 +100,7 @@ export type CatalogProviderReferenceRecordRule = Readonly<{
 export type CatalogProviderIntegrationProfile = Readonly<{
   providerKey: string;
   displayName: string;
+  status: "active" | "planned";
   capabilities: readonly CatalogProviderCapability[];
   supportedScopes: readonly CatalogProviderScope[];
   languageOptions: readonly string[];
@@ -85,7 +130,7 @@ export type CatalogProviderIntegrationProfile = Readonly<{
     providerAttributes: readonly CatalogProviderReferenceRecordRule[];
   }>;
   externalReferenceExtractionRules: Readonly<{
-    referenceTarget: "catalog-item-reference";
+    referenceTarget: "catalog-item-reference" | "product-reference" | "mixed";
     rules: readonly CatalogProviderExternalReferenceRule[];
   }>;
   ambiguityRules: Readonly<{
@@ -97,6 +142,7 @@ export type CatalogProviderIntegrationProfile = Readonly<{
 export const tcgdexPokemonTcgProviderProfile = {
   providerKey: "tcgdex",
   displayName: "TCGdex",
+  status: "active",
   capabilities: [
     "provider-option-query",
     "source-observation-import",
@@ -216,7 +262,7 @@ export const tcgdexPokemonTcgProviderProfile = {
     ],
   },
   externalReferenceExtractionRules: {
-    referenceTarget: "catalog-item-reference",
+    referenceTarget: "mixed",
     rules: [
       {
         providerKey: "tcgplayer",
@@ -279,8 +325,103 @@ export const tcgdexPokemonTcgProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+export const tcgplayerAutomationClientProviderProfile = {
+  providerKey: "tcgplayer",
+  displayName: "TCGplayer",
+  status: "planned",
+  capabilities: ["external-reference-extraction"],
+  supportedScopes: ["series", "expansion", "product/card"],
+  languageOptions: ["en"],
+  optionQueries: [],
+  connector: {
+    kind: "tcgplayer-automation-client",
+    sourceRepository: {
+      owner: "todd-skelton",
+      name: "tcgplayer-automation-app",
+      commit: "bf42aa8",
+    },
+    sourceContractDocument: "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
+    authentication: {
+      scheme: "tcgplayer-production-cookie",
+      cookieName: "TCGAuthTicket_Production",
+      userAgentRequired: true,
+    },
+    domains: {
+      search: "mp-search-api.tcgplayer.com",
+      marketplaceApi: "mpapi.tcgplayer.com",
+      infiniteApi: "infinite-api.tcgplayer.com",
+      marketplaceGateway: "mpgateway.tcgplayer.com",
+    },
+    retryStatusCodes: [403, 429, 502, 503, 504],
+    throttling: {
+      strategy: "domain-adaptive",
+      controls: ["request-delay", "cooldown", "max-concurrency", "learned-min-delay"],
+    },
+    catalogFlow: {
+      productLineScope: "product-lines",
+      setScope: "catalog-set-names-by-product-line",
+      productScope: "product-search-by-set",
+      detailScope: "product-detail-with-skus",
+      detectsProductSetReclassification: true,
+    },
+    externalReferencePolicy: {
+      catalogItemReferencePrefix: "product:",
+      productReferencePrefix: "sku:",
+      productConditionIdSource: "sku-product-condition-id",
+    },
+    catalogBoundary: {
+      acceptedEvidence: ["product-id", "sku-id", "product-condition-id", "set-name", "product-line"],
+      excludedEvidence: ["listing-price", "sales-history", "order", "message", "seller-inventory"],
+    },
+  },
+  normalizedObservationMapping: {
+    kind: "pokemon-card",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified TCGplayer Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: tcgdexPokemonTcgProviderProfile.catalogFieldMapping,
+  referenceHierarchyMapping: {
+    providerReferenceIdPrefix: "ref_tcgplayer",
+    providerAttributes: [
+      { typeKey: "series", providerAttributeKey: "tcgplayer-product-line-id" },
+      { typeKey: "expansion", providerAttributeKey: "tcgplayer-set-name" },
+    ],
+  },
+  externalReferenceExtractionRules: {
+    referenceTarget: "catalog-item-reference",
+    rules: [
+      {
+        providerKey: "tcgplayer",
+        target: "catalog-item-reference",
+        externalKeyPrefix: "product:",
+        containerKeys: ["product", "products", "details"],
+        valueKeys: ["productId", "productID", "tcgplayerProductId"],
+        recordIdKeys: ["productId", "productID", "id"],
+        pricingRootKeys: [],
+        pricingScope: "card",
+      },
+      {
+        providerKey: "tcgplayer",
+        target: "product-reference",
+        externalKeyPrefix: "sku:",
+        containerKeys: ["skus", "sku", "conditions"],
+        valueKeys: ["skuId", "skuID", "tcgplayerSkuId"],
+        recordIdKeys: ["skuId", "skuID", "id"],
+        pricingRootKeys: [],
+        pricingScope: "by-variant",
+      },
+    ],
+  },
+  ambiguityRules: {
+    repeatedMarketplaceReference: "skip-reference",
+    missingVariantSpecificReference: "leave-unmapped",
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 export const catalogProviderIntegrationProfiles = [
   tcgdexPokemonTcgProviderProfile,
+  tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
 export function listCatalogProviderIntegrationProfiles(): readonly CatalogProviderIntegrationProfile[] {
