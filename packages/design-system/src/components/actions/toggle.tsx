@@ -49,7 +49,7 @@ export function Toggle({
         )
       }
     >
-      {icon ? <Icon name={icon} size="sm" tone={pressed ? "inverse" : "secondary"} /> : null}
+      {icon ? <Icon name={icon} size="sm" tone="inherit" /> : null}
       {children ? <span>{children}</span> : null}
     </TogglePrimitive>
   );
@@ -113,7 +113,7 @@ export function ToggleGroup({
             )
           }
         >
-          {item.icon ? <Icon name={item.icon} size="sm" tone={item.disabled ? "secondary" : "accent"} /> : null}
+          {item.icon ? <Icon name={item.icon} size="sm" tone="inherit" /> : null}
           <span>{item.label}</span>
         </TogglePrimitive>
       ))}
