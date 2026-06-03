@@ -11,6 +11,8 @@ import {
   catalogProviderRequiredFixtureFlows,
   validateCatalogProviderExecutableMappingContract,
 } from "./provider-integration-mapping-contract";
+import type { CatalogProviderSourceObservationMappingContract } from "./provider-source-observation-normalizer";
+import { tcgdexPokemonCardSourceObservationMappingContract } from "./tcgdex-executable-mapping-contract";
 
 export type CatalogProviderCapability =
   | "provider-option-query"
@@ -1166,29 +1168,15 @@ export const catalogProviderIntegrationProfileVersions = [
   {
     providerKey: "tcgdex",
     profileKey: "pokemon-tcg",
-    profileVersion: "2026.06.02",
+    profileVersion: "2026.06.03",
     lifecycle: "active",
     active: true,
     profile: tcgdexPokemonTcgProviderProfile,
-    sourceContract: {
-      owner: "chase-sets/catalog",
-      repository: "chase-sets/chase-sets",
-      commit: "0bde010",
-      documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
-      fixtureSetVersion: "transitional-static-profile-v1",
-    },
-    fixtures: {
-      fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
-      coveredFlows: catalogProviderRequiredFixtureFlows,
-      liveProviderCallsAllowed: false,
-    },
-    compatibilityMode: "transitional-static-profile",
-    retirementPlan: {
-      trackingIssue: 621,
-      removeAfter: "executable-mapping-contract-activated",
-      diagnosticText:
-        "Retire the static TCGdex profile wrapper after the executable mapping contract drives normalization, reference extraction, and promotion planning.",
-    },
+    sourceContract: tcgdexPokemonCardSourceObservationMappingContract.sourceContract,
+    fixtures: tcgdexPokemonCardSourceObservationMappingContract.fixtures,
+    compatibilityMode: "executable-mapping-contract",
+    retirementPlan: null,
+    executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract,
   },
   {
     providerKey: "tcgplayer",
@@ -1271,6 +1259,30 @@ export function getActiveCatalogProviderIntegrationProfileVersion(
         version.lifecycle === "active",
     ) ?? null
   );
+}
+
+export function getActiveCatalogProviderSourceObservationMappingContract(
+  providerKey: string,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): CatalogProviderSourceObservationMappingContract | null {
+  const contract = getActiveCatalogProviderIntegrationProfileVersion(providerKey, versions)?.executableMappingContract;
+  if (!contract?.sourceObservation) {
+    return null;
+  }
+
+  return contract as CatalogProviderSourceObservationMappingContract;
+}
+
+export function requireActiveCatalogProviderSourceObservationMappingContract(
+  providerKey: string,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): CatalogProviderSourceObservationMappingContract {
+  const contract = getActiveCatalogProviderSourceObservationMappingContract(providerKey, versions);
+  if (!contract) {
+    throw new Error(`Catalog provider '${providerKey}' does not have an active Source Observation mapping contract.`);
+  }
+
+  return contract;
 }
 
 export function validateCatalogProviderIntegrationProfileVersion(

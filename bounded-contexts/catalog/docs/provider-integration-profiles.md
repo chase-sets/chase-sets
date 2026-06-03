@@ -15,7 +15,7 @@ Executable mapping semantics are documented in [Provider Integration Mapping Con
 Catalog persists provider integration profiles in `catalog_provider_integration_profile_versions`.
 Each row carries the provider key, profile key, profile version, lifecycle, active flag, profile JSON, source contract metadata, fixture contract metadata, compatibility mode, optional executable mapping contract, and optional retirement plan.
 
-The current TCGdex and TCGplayer profiles are seeded through this versioned data path during Catalog bootstrap. They remain available through transitional static compatibility exports only so existing Source Observation runtime code can keep working while the generic mapping interpreter lands. Transitional static profiles must carry fixture coverage and a retirement issue.
+The current TCGdex and TCGplayer profiles are seeded through this versioned data path during Catalog bootstrap. TCGdex is active as an executable mapping profile version; TCGplayer remains available through a transitional static compatibility record while its automation-client mapping is completed. Transitional static profiles must carry fixture coverage and a retirement issue.
 
 Profile lifecycle values are:
 
@@ -47,7 +47,9 @@ Expansion Reference Records may carry `printed-card-count` when the number print
 
 TCGdex imports still write Source Observations. Promotion remains a Catalog review action. Staging and production do not auto-import provider content during bootstrap.
 
-The TCGdex connector must stay transport-only: it fetches TCGdex JSON from profile-defined endpoints. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
+The active TCGdex profile version carries an executable mapping contract for Source Observation IDs, external keys, normalized Pokemon card facts, source hash material, merge identity, external reference evidence, duplicate-prevention evidence, reference hierarchy evidence, and promotion command-plan intent. The TCGdex connector must stay transport-only: it fetches TCGdex JSON from profile-defined endpoints and assembles the reviewed runtime context consumed by that contract. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
+
+TCGdex variant expansion, marketplace reference extraction, Pokemon Reference Record hierarchy provisioning, and Pokemon Catalog Item promotion planning still use reviewed named runtime helpers where generic profile interpretation cannot yet express the behavior safely. Those helpers are transitional compatibility points referenced by the executable mapping contract and provider profile data; they must remain deterministic, fixture-backed, and free of live provider calls.
 
 Provider option queries are profile-driven. The TCGdex profile declares language,
 Series, and Expansion query aliases, parent value policy, named transport
