@@ -30,10 +30,44 @@ export type CatalogProviderScope =
 
 export type CatalogProviderOptionQuery = Readonly<{
   queryKind: string;
+  aliases?: readonly string[];
   displayName: string;
   scope: CatalogProviderScope;
   parentScope: CatalogProviderScope | null;
+  operation: CatalogProviderOptionQueryOperation;
+  parentValue?: Readonly<{
+    required: boolean;
+    valueKind: "language-code" | "series-id" | "product-line-id";
+    diagnosticText: string;
+  }>;
+  output: CatalogProviderOptionQueryOutputMapping;
 }>;
+
+export type CatalogProviderOptionQueryOperation =
+  | "catalog-provider-profiles"
+  | "tcgdex-list-languages"
+  | "tcgdex-list-series"
+  | "tcgdex-list-expansions"
+  | "tcgplayer-list-product-lines"
+  | "tcgplayer-list-set-names"
+  | "tcgplayer-list-products"
+  | "tcgplayer-list-skus"
+  | "scrydex-list-sets";
+
+export type CatalogProviderOptionQueryOutputMapping = Readonly<{
+  valuePath: string;
+  labelPath: string;
+  description?: CatalogProviderOptionQueryDescriptionMapping;
+  parentValuePath?: string;
+  imageUrlPath?: string;
+  imageUrlCoalescePaths?: readonly string[];
+  metadataPaths: Readonly<Record<string, string>>;
+}>;
+
+export type CatalogProviderOptionQueryDescriptionMapping =
+  | Readonly<{ kind: "path"; path: string }>
+  | Readonly<{ kind: "tcgdex-expansion-card-count" }>
+  | Readonly<{ kind: "tcgplayer-set-name" }>;
 
 export type TcgdexJsonConnectorProfile = Readonly<{
   kind: "tcgdex-json";
@@ -397,9 +431,72 @@ export const tcgdexPokemonTcgProviderProfile = {
     "zh-cn",
   ],
   optionQueries: [
-    { queryKind: "languages", displayName: "Language", scope: "language", parentScope: null },
-    { queryKind: "series", displayName: "Series", scope: "series", parentScope: "language" },
-    { queryKind: "expansions", displayName: "Expansion", scope: "expansion", parentScope: "series" },
+    {
+      queryKind: "languages",
+      aliases: ["language"],
+      displayName: "Language",
+      scope: "language",
+      parentScope: null,
+      operation: "tcgdex-list-languages",
+      output: {
+        valuePath: "languageCode",
+        labelPath: "languageCode",
+        metadataPaths: { languageCode: "languageCode" },
+      },
+    },
+    {
+      queryKind: "series",
+      displayName: "Series",
+      scope: "series",
+      parentScope: "language",
+      operation: "tcgdex-list-series",
+      parentValue: {
+        required: false,
+        valueKind: "language-code",
+        diagnosticText: "TCGdex series option queries use the selected language.",
+      },
+      output: {
+        valuePath: "seriesId",
+        labelPath: "name",
+        parentValuePath: "$languageCode",
+        imageUrlPath: "logoUrl",
+        metadataPaths: {
+          languageCode: "$languageCode",
+          seriesId: "seriesId",
+          logoUrl: "logoUrl",
+        },
+      },
+    },
+    {
+      queryKind: "expansions",
+      aliases: ["expansion"],
+      displayName: "Expansion",
+      scope: "expansion",
+      parentScope: "series",
+      operation: "tcgdex-list-expansions",
+      parentValue: {
+        required: false,
+        valueKind: "series-id",
+        diagnosticText: "TCGdex expansion option queries may use a Series parent value.",
+      },
+      output: {
+        valuePath: "expansionId",
+        labelPath: "name",
+        description: { kind: "tcgdex-expansion-card-count" },
+        parentValuePath: "seriesId",
+        imageUrlCoalescePaths: ["symbolUrl", "logoUrl"],
+        metadataPaths: {
+          languageCode: "$languageCode",
+          expansionId: "expansionId",
+          seriesId: "seriesId",
+          seriesName: "seriesName",
+          logoUrl: "logoUrl",
+          symbolUrl: "symbolUrl",
+          cardCount: "cardCount",
+          officialCardCount: "officialCardCount",
+        },
+      },
+    },
   ],
   connector: {
     kind: "tcgdex-json",
@@ -717,10 +814,89 @@ export const tcgplayerAutomationClientProviderProfile = {
   supportedScopes: ["product-line/category", "set-name", "product", "sku"],
   languageOptions: ["en"],
   optionQueries: [
-    { queryKind: "product-lines", displayName: "Product Line", scope: "product-line/category", parentScope: null },
-    { queryKind: "set-names", displayName: "Set Name", scope: "set-name", parentScope: "product-line/category" },
-    { queryKind: "products", displayName: "Product", scope: "product", parentScope: "set-name" },
-    { queryKind: "skus", displayName: "SKU", scope: "sku", parentScope: "product" },
+    {
+      queryKind: "product-lines",
+      aliases: ["product-line", "categories"],
+      displayName: "Product Line",
+      scope: "product-line/category",
+      parentScope: null,
+      operation: "tcgplayer-list-product-lines",
+      output: {
+        valuePath: "productLineId",
+        labelPath: "productLineName",
+        description: { kind: "path", path: "productLineUrlName" },
+        metadataPaths: {
+          productLineId: "productLineId",
+          productLineName: "productLineName",
+          productLineUrlName: "productLineUrlName",
+          isDirect: "isDirect",
+        },
+      },
+    },
+    {
+      queryKind: "set-names",
+      aliases: ["set-name", "sets"],
+      displayName: "Set Name",
+      scope: "set-name",
+      parentScope: "product-line/category",
+      operation: "tcgplayer-list-set-names",
+      parentValue: {
+        required: true,
+        valueKind: "product-line-id",
+        diagnosticText: "TCGplayer set-name option queries require a productLineId/categoryId parent value.",
+      },
+      output: {
+        valuePath: "cleanSetName",
+        labelPath: "name",
+        description: { kind: "tcgplayer-set-name" },
+        parentValuePath: "$parentValue",
+        metadataPaths: {
+          productLineId: "$parentValueNumber",
+          setNameId: "setNameId",
+          categoryId: "categoryId",
+          cleanSetName: "cleanSetName",
+          urlName: "urlName",
+          abbreviation: "abbreviation",
+          releaseDate: "releaseDate",
+          isSupplemental: "isSupplemental",
+          active: "active",
+        },
+      },
+    },
+    {
+      queryKind: "products",
+      displayName: "Product",
+      scope: "product",
+      parentScope: "set-name",
+      operation: "tcgplayer-list-products",
+      parentValue: {
+        required: true,
+        valueKind: "series-id",
+        diagnosticText: "TCGplayer product option queries require a set-name parent value.",
+      },
+      output: {
+        valuePath: "productId",
+        labelPath: "productName",
+        metadataPaths: { productId: "productId", productName: "productName" },
+      },
+    },
+    {
+      queryKind: "skus",
+      displayName: "SKU",
+      scope: "sku",
+      parentScope: "product",
+      operation: "tcgplayer-list-skus",
+      parentValue: {
+        required: true,
+        valueKind: "series-id",
+        diagnosticText: "TCGplayer SKU option queries require a Product parent value.",
+      },
+      output: {
+        valuePath: "sku",
+        labelPath: "sku",
+        metadataPaths: { sku: "sku" },
+      },
+    },
   ],
   connector: {
     kind: "tcgplayer-automation-client",

@@ -49,6 +49,11 @@ TCGdex imports still write Source Observations. Promotion remains a Catalog revi
 
 The TCGdex connector must stay transport-only: it fetches TCGdex JSON from profile-defined endpoints. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
 
+Provider option queries are profile-driven. The TCGdex profile declares language,
+Series, and Expansion query aliases, parent value policy, named transport
+operations, and option DTO output selectors. Runtime supplies the named TCGdex
+transport operations; profile data decides which operation and mapping are used.
+
 Reference hierarchy provisioning is profile-driven. The TCGdex profile declares
 Reference Types for Manufacturer, Product Line, Series, and Expansion, static
 root Reference Records for The Pokemon Company International and Pokemon TCG,
@@ -83,6 +88,12 @@ map TCGplayer Product IDs to Catalog Item-level external references and
 TCGplayer SKUs/productConditionIds to Product-level external references only
 when condition, variant/printing, and language can be mapped to valid selected
 Options.
+
+TCGplayer option queries use the same profile-driven resolver. Product line and
+set-name queries declare legacy aliases such as `categories` and `sets`,
+required parent values, named automation-client operations, and constrained
+output selectors. Product and SKU query definitions are represented in profile
+data for future runtime transports.
 
 TCGplayer SKU selected Options are profile-driven: each mapped dimension defines
 the provider evidence path, requiredness, unknown-value policy, provider aliases,
