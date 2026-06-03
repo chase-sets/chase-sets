@@ -74,8 +74,10 @@ export function SegmentedControl({ items, value, fullWidth = false, onValueChang
               onKeyDown={(event) => handleKeyDown(event, index)}
             >
               {active ? renderActivePill(groupId, "accent") : null}
-              {item.icon ? <Icon name={item.icon} size="sm" /> : null}
-              <span className="relative z-10 min-w-0">{item.label}</span>
+              <span className="relative z-10 inline-flex min-w-0 items-center gap-2">
+                {item.icon ? <Icon name={item.icon} size="sm" tone="inherit" /> : null}
+                <span className="min-w-0">{item.label}</span>
+              </span>
             </button>
           );
         })}

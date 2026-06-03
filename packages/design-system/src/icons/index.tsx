@@ -134,6 +134,7 @@ export type IconName =
 
 type IconSize = "sm" | "md" | "lg";
 type IconTone =
+  | "inherit"
   | "primary"
   | "secondary"
   | "tertiary"
@@ -219,6 +220,7 @@ const sizeClasses: Record<IconSize, string> = {
 };
 
 const toneClasses: Record<IconTone, string> = {
+  inherit: "text-current",
   primary: "text-foreground",
   secondary: "text-secondary",
   tertiary: "text-tertiary",

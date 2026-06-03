@@ -443,6 +443,70 @@ describe("design system", () => {
     expect(onValueChange).toHaveBeenCalledWith(["list"]);
   });
 
+  it("keeps icon-bearing segmented controls above the active pill with inherited state color", () => {
+    render(
+      <ChaseRoot>
+        <SegmentedControl
+          aria-label="Choose intent"
+          items={[
+            { value: "sell", label: "Sell", icon: "store" },
+            { value: "buy", label: "Buy", icon: "cart" },
+            { value: "both", label: "Both", icon: "users" },
+          ]}
+          value="sell"
+        />
+      </ChaseRoot>,
+    );
+
+    const selected = screen.getByRole("tab", { name: "Sell" });
+    const inactive = screen.getByRole("tab", { name: "Buy" });
+    const foreground = selected.querySelector("span.relative.z-10");
+    const icon = selected.querySelector("svg")?.parentElement;
+    const inactiveIcon = inactive.querySelector("svg")?.parentElement;
+
+    expect(selected.getAttribute("aria-selected")).toBe("true");
+    expect(selected.className).toContain("text-accent");
+    expect(inactive.getAttribute("aria-selected")).toBe("false");
+    expect(inactive.className).toContain("text-secondary");
+    expect(foreground?.className).toContain("inline-flex");
+    expect(icon?.className).toContain("text-current");
+    expect(inactiveIcon?.className).toContain("text-current");
+    expect(foreground?.contains(icon ?? null)).toBe(true);
+  });
+
+  it("lets toggle group icons inherit pressed and unpressed state color", () => {
+    render(
+      <ChaseRoot>
+        <ToggleGroup
+          label="View mode"
+          defaultValue={["list"]}
+          items={[
+            { value: "grid", label: "Grid", icon: "grid" },
+            { value: "list", label: "List", icon: "cart" },
+            { value: "locked", label: "Locked", icon: "lock", disabled: true },
+          ]}
+        />
+      </ChaseRoot>,
+    );
+
+    const inactive = screen.getByRole("button", { name: "Grid" });
+    const active = screen.getByRole("button", { name: "List" });
+    const disabled = screen.getByRole("button", { name: "Locked" });
+    const inactiveIcon = inactive.querySelector("svg")?.parentElement;
+    const activeIcon = active.querySelector("svg")?.parentElement;
+    const disabledIcon = disabled.querySelector("svg")?.parentElement;
+
+    expect(inactive.className).toContain("text-secondary");
+    expect(active.className).toContain("text-accent");
+    expect(disabled.className).toContain("opacity-50");
+    expect(inactiveIcon?.className).toContain("text-current");
+    expect(activeIcon?.className).toContain("text-current");
+    expect(disabledIcon?.className).toContain("text-current");
+    expect(inactiveIcon?.className).not.toContain("text-accent");
+    expect(activeIcon?.className).not.toContain("text-accent");
+    expect(disabledIcon?.className).not.toContain("text-accent");
+  });
+
   it("renders toolbar and navigation menu wrappers", async () => {
     const user = userEvent.setup();
 
