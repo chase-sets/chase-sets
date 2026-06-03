@@ -1,6 +1,6 @@
 ---
 name: bounded-context-delivery
-description: Deliver Chase Sets product, domain, documentation, infrastructure, operational workflow, or skill-maintenance changes through bounded-context planning, isolated worktree execution, PR/CI/merge/deployment verification, and final local cleanup. Use when the user asks to plan or implement a change with repo evidence, one blocking question at a time, recommended answers, finished plans captured in PR details, goal creation, and no product/runtime edits during planning.
+description: Deliver Chase Sets product, domain, documentation, infrastructure, operational workflow, or skill-maintenance changes through bounded-context planning, isolated worktree execution, PR/CI/GitHub merge queue/deployment verification, and final local cleanup. Use when the user asks to plan or implement a change with repo evidence, one blocking question at a time, recommended answers, checklist implementation plans captured in PR details, goal creation, and no product/runtime edits during planning.
 ---
 
 # Bounded Context Delivery
@@ -9,8 +9,8 @@ Deliver changes from inside an isolated git worktree, using the repo's bounded c
 
 ## Workflow
 
-1. Fetch the latest `origin/main`, then create or reuse a dedicated sibling worktree under the project folder at `<yyyymmdd>-<feature-slug>` and branch `codex/<feature-slug>` from that fetched `origin/main`.
-2. Run all later reads, edits, plan updates, dependency setup, and verification commands from that worktree.
+1. Set up the worktree from fresh `origin/main` using the Worktree Setup commands.
+2. Treat the new worktree as the active repository root for all reads, edits, dependency setup, verification, commits, pushes, and PR work.
 3. Identify likely owning context(s), then read:
    - `bounded-contexts/README.md`
    - `bounded-contexts/<context>/README.md`
@@ -18,13 +18,14 @@ Deliver changes from inside an isolated git worktree, using the repo's bounded c
    - `bounded-contexts/<context>/context.json`
    - `docs/architecture/bounded-context-structure.md` when structure matters
 4. Search code and tests for relevant terms, events, routes, IDs, projections, UI labels, and integrations before asking questions.
-5. Create or update `.codex/plans/<yyyymmdd>-<feature-slug>.md` using the local current date.
+5. Create or update `.codex/plans/<yyyymmdd>-<feature-slug>.md` using the Plan File requirements.
 6. Resolve decisions in dependency order: ownership, language, invariants, events, read models, APIs, UI, operations.
 7. Ask exactly one blocking question at a time. Include the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use `request_user_input` when available.
 8. Update the plan after each answer, repo finding, contradiction, recommendation, and doc change.
-9. When planning is complete, create a goal that references the worktree path, branch, plan path, implementation scope, verification, durable doc promotion, PR details containing the finished plan, CI, merge, deployment checks, generated plan deletion, local container deletion, worktree deletion, remote PR branch deletion, and local branch deletion.
-10. Before PR readiness, run a release hardening loop: review the complete feature, including behavior outside the diffs and upstream/downstream impacts, for user value, correctness, simplicity, maintainability, reliability, security, performance, and cost; fix every P0-P2 finding; rerun targeted verification; repeat until no P0-P2 findings remain. Document any remaining P3+ items as accepted follow-up with rationale.
-11. Treat submitting the PR, waiting for CI to pass, merging the PR, confirming staging and production deployments are green, and completing local cleanup as required goal work, not follow-up or optional release tasks.
+9. When planning is complete, create a goal that references the worktree path, branch, plan path, implementation checklist, verification, durable doc promotion, PR details containing the finished plan, CI, GitHub merge queue, merge, deployment checks, generated plan deletion, local container deletion, worktree deletion, remote PR branch deletion, local branch deletion, and `main/` refresh.
+10. Implement the checklist in the worktree, update checklist status as work completes, and keep edits scoped to the approved implementation.
+11. Before PR readiness, run a release hardening loop: review the complete feature, including behavior outside the diffs and upstream/downstream impacts, for user value, correctness, simplicity, maintainability, reliability, security, performance, and cost; fix every P0-P2 finding; rerun targeted verification; repeat until no P0-P2 findings remain. Document any remaining P3+ items as accepted follow-up with rationale.
+12. Open a ready PR with the finished plan in the PR body/details, wait for required review and checks, enqueue the PR in the GitHub merge queue, wait for the queue to merge it, verify staging and production deployments, then complete Cleanup.
 
 ## Worktree Setup
 
@@ -45,12 +46,10 @@ git -C main worktree add ../<yyyymmdd>-<feature-slug> -b codex/<feature-slug> or
 - Install dependencies in the worktree before build, test, or dev commands: `pnpm run deps:install` or `node ./scripts/worktree-deps.mjs install`.
 - The default shared pnpm store for `main/` and sibling worktrees is `../.chase-sets-pnpm-store` from each checkout; set `CHASE_SETS_PNPM_STORE_DIR` only if the default fails.
 - Run `pnpm run sandbox:doctor` after dependency setup. Use `docs/runbooks/local-worktree-sandboxes.md` for sandbox troubleshooting.
-- Never run `sandbox:clean:all`. Use current-worktree cleanup only when explicitly needed, such as `pnpm run dev:down` or `pnpm run sandbox:clean`.
-- Before marking the goal complete, delete only the resources created for that goal: stop the current worktree services, delete the current worktree's local container or sandbox with scoped cleanup, delete the generated `.codex/plans/<yyyymmdd>-<feature-slug>.md` plan after its final contents are captured in the PR details, remove the worktree, delete the remote PR branch if it exists, then delete the local branch after merge.
 
 ## Plan File
 
-Use only useful sections from this template:
+Create the plan at `.codex/plans/<yyyymmdd>-<feature-slug>.md` using the local current date. Use this template and keep the implementation plan as a checklist:
 
 ```markdown
 # <Feature>
@@ -61,18 +60,25 @@ Use only useful sections from this template:
 ## Resolved Decisions
 ## Open Questions
 ## Implementation Checklist
+- [ ] <verifiable implementation, documentation, or verification step>
 ## Documentation To Promote
 ## Goal Completion Criteria
 ```
 
-The `Worktree` section must list path, branch, sandbox id, dependency setup status, pnpm store path, and setup blockers. Treat the plan as a generated working artifact: do not commit it, and do not promote it as durable documentation. Before submitting the PR, copy the finished plan into the PR body/details so the decisions and completion criteria are preserved in PR history. Durable docs created from the plan remain repository artifacts and must be committed normally.
+- `Worktree` must list path, branch, sandbox id, dependency setup status, pnpm store path, and setup blockers.
+- `Implementation Checklist` must contain concrete checkbox items using `- [ ]` and must be updated to `- [x]` as each item is completed.
+- Checklist items must be verifiable and include implementation, docs, and test/verification work when they apply.
+- Treat the plan as a generated working artifact: do not commit it, and do not promote it as durable documentation.
+- Before submitting the PR, copy the finished plan into the PR body/details so decisions and completion criteria are preserved in PR history. Durable docs created from the plan remain repository artifacts and must be committed normally.
 
 The `Goal Completion Criteria` section must always include:
 
 - PR submitted for the completed implementation or scoped non-product change, with the finished plan included in the PR body/details.
+- Implementation Checklist completed.
 - Release hardening loop completed with no unresolved P0-P2 findings; any remaining P3+ items documented as accepted follow-up with rationale.
-- CI passing on the PR before merge.
-- PR merged after required review and passing checks.
+- CI passing on the PR before merge queue entry.
+- PR entered into the GitHub merge queue after required review and passing checks.
+- PR merged through the GitHub merge queue.
 - Staging deployment verified green after merge.
 - Production deployment verified green after promotion or rollout.
 - Local container or sandbox created for the worktree deleted with scoped cleanup.
@@ -80,8 +86,30 @@ The `Goal Completion Criteria` section must always include:
 - Worktree deleted after the generated plan file is deleted and the PR is merged.
 - Remote PR branch deleted after merge when one exists.
 - Local branch deleted after the worktree is removed and the PR is merged.
+- `main/` fetched and reset to the latest `origin/main` after local cleanup.
 
-Do not mark the goal complete until all ten criteria are satisfied or the user explicitly redefines the goal.
+Do not mark the goal complete until all criteria are satisfied or the user explicitly redefines the goal.
+
+## GitHub Merge Queue
+
+This repo uses GitHub merge queue for `main`. After the PR has required review and passing checks, enqueue it and wait for the queued merge to complete. If `gh pr merge` routes through auto-merge and GitHub rejects it because repository auto-merge is disabled, enqueue with the GraphQL `enqueuePullRequest` mutation.
+
+## Cleanup
+
+After the PR is merged through the queue:
+
+- Stop current worktree services.
+- Delete the current worktree's local container or sandbox with scoped cleanup, such as `pnpm run dev:down` or `pnpm run sandbox:clean`; never run `sandbox:clean:all`.
+- Delete the generated `.codex/plans/<yyyymmdd>-<feature-slug>.md` plan after its final contents are captured in the PR details.
+- Remove the worktree.
+- Delete the remote PR branch when one exists.
+- Delete the local branch after the worktree is removed.
+- Refresh `main/`:
+
+```powershell
+git -C main fetch origin main
+git -C main reset --hard origin/main
+```
 
 ## Rules
 
