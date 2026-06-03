@@ -9,10 +9,12 @@ import type {
   CatalogProviderMappingEvidenceUse,
   CatalogProviderMappingValueExpression,
 } from "./provider-integration-mapping-contract";
+import { tcgplayerAutomationClientProviderProfile } from "./provider-integration-profiles";
 import {
   requireCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
+import { extractCatalogProviderExternalReferences } from "./provider-external-reference-extractor";
 import type {
   TcgplayerAutomationDomainHttpClient,
   TcgplayerAutomationHttpClients,
@@ -197,6 +199,10 @@ export function toTcgplayerAutomationSourceObservation(input: {
     externalKey: `sku:${sku.sku}`,
     reviewEvidence: skuReviewEvidence(input.detail, sku),
   }));
+  const externalReferences = extractTcgplayerAutomationExternalReferences(
+    input.detail,
+    input.productReferenceSchema ?? null,
+  );
   const normalized = requireCatalogProviderSourceObservation({
     contract: tcgplayerProviderProductSourceObservationMapping,
     observedAt: input.observedAt,
@@ -220,10 +226,8 @@ export function toTcgplayerAutomationSourceObservation(input: {
         productForm: tcgplayerProductForm(input.detail),
         barcode: tcgplayerProductBarcode(input.detail),
       },
-      externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey }],
-      externalProductReferences: input.productReferenceSchema
-        ? mapTcgplayerSkuExternalProductReferences(input.detail, input.productReferenceSchema)
-        : [],
+      externalCatalogItemReferences: externalReferences.externalCatalogItemReferences,
+      externalProductReferences: externalReferences.externalProductReferences,
       skuReferences,
     },
   });
@@ -388,18 +392,28 @@ export function mapTcgplayerSkuExternalProductReferences(
   detail: TcgplayerAutomationProductDetail,
   schema: TcgplayerProductReferenceSchema,
 ): readonly SourceObservationExternalProductReference[] {
-  return detail.skus.flatMap((sku) => {
-    const selectedOptions = resolveTcgplayerSkuSelectedOptions(detail, sku, schema);
-    return selectedOptions
-      ? [
-          {
-            providerKey: "tcgplayer",
-            externalKey: `sku:${sku.sku}`,
-            selectedOptions,
-            reviewEvidence: skuReviewEvidence(detail, sku),
-          },
-        ]
-      : [];
+  return extractTcgplayerAutomationExternalReferences(detail, schema).externalProductReferences;
+}
+
+function extractTcgplayerAutomationExternalReferences(
+  detail: TcgplayerAutomationProductDetail,
+  schema: TcgplayerProductReferenceSchema | null,
+) {
+  const skus = detail.skus.map((sku) => {
+    const selectedOptions = schema ? resolveTcgplayerSkuSelectedOptions(detail, sku, schema) : null;
+    return {
+      ...sku,
+      selectedOptions: selectedOptions ?? undefined,
+      reviewEvidence: skuReviewEvidence(detail, sku),
+    };
+  });
+
+  return extractCatalogProviderExternalReferences({
+    rules: tcgplayerAutomationClientProviderProfile.externalReferenceExtractionRules.rules,
+    payload: {
+      ...detail,
+      skus,
+    },
   });
 }
 

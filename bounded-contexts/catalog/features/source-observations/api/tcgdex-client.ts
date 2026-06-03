@@ -16,6 +16,10 @@ import {
   requireCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
+import {
+  dropRepeatedCatalogItemReferencesAcrossVariants,
+  extractCatalogProviderExternalReferences,
+} from "./provider-external-reference-extractor";
 
 const TCGDEX_PROFILE = tcgdexPokemonTcgProviderProfile;
 const PROVIDER_KEY = TCGDEX_PROFILE.providerKey;
@@ -608,161 +612,32 @@ function marketplaceCatalogItemReferencesByVariantKey(
   >();
 
   for (const variant of cardVariants) {
-    referencesByVariant.set(
-      variant.key,
-      uniqueExternalReferences([
-        ...marketplaceReferencesFromVariantDetails(card.variants_detailed, variant),
-        ...marketplaceReferencesFromPricing(card.pricing, variant),
-      ]),
+    const variantScope = variantRuleByVariantKey(variant.key) ?? {
+      variantKey: variant.key,
+      sourceKeys: variant.sourceKey ? [variant.sourceKey] : [],
+      pricingKeys: [variant.key],
+    };
+    const payloads = [
+      card,
+      ...(card.variants_detailed ?? []).filter((detail) => variantDetailMatches(detail, variant)),
+    ];
+    const resultReferences = payloads.flatMap(
+      (payload) =>
+        extractCatalogProviderExternalReferences({
+          rules: marketplaceReferenceRules().filter((rule) => rule.target === "catalog-item-reference"),
+          payload: toJsonValue(payload),
+          variant: variantScope,
+        }).externalCatalogItemReferences,
     );
+    referencesByVariant.set(variant.key, uniqueExternalCatalogItemReferences(resultReferences));
   }
 
-  const occurrences = new Map<string, number>();
-  for (const references of referencesByVariant.values()) {
-    for (const reference of uniqueExternalReferences(references)) {
-      const key = externalReferenceIdentity(reference);
-      occurrences.set(key, (occurrences.get(key) ?? 0) + 1);
-    }
-  }
-
-  return new Map(
-    Array.from(referencesByVariant.entries()).map(([variantKey, references]) => [
-      variantKey,
-      references.filter((reference) => occurrences.get(externalReferenceIdentity(reference)) === 1),
-    ]),
-  );
-}
-
-function marketplaceReferencesFromVariantDetails(
-  variantDetails: readonly JsonRecord[] | undefined,
-  variant: PokemonCardVariant,
-): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
-  return (variantDetails ?? [])
-    .filter((detail) => variantDetailMatches(detail, variant))
-    .flatMap(marketplaceReferencesFromRecord);
+  return new Map(dropRepeatedCatalogItemReferencesAcrossVariants(referencesByVariant));
 }
 
 function variantDetailMatches(detail: JsonRecord, variant: PokemonCardVariant): boolean {
   const sourceKey = stringField(detail, ["type", "variant", "variantType", "key", "name"]);
   return sourceKey ? normalizeVariantKey(sourceKey) === variant.key : false;
-}
-
-function marketplaceReferencesFromPricing(
-  pricing: JsonRecord | undefined,
-  variant: PokemonCardVariant,
-): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
-  if (!pricing) {
-    return [];
-  }
-
-  return marketplaceReferenceRules().flatMap((rule) => {
-    const providerPricing = recordField(pricing, rule.pricingRootKeys);
-    if (!providerPricing) {
-      return [];
-    }
-
-    if (rule.pricingScope === "card") {
-      return providerReferencesFromValue(rule, providerPricing);
-    }
-
-    const variantPricing = recordField(providerPricing, pricingKeysForVariant(rule, variant));
-    return providerReferencesFromValue(rule, variantPricing);
-  });
-}
-
-function marketplaceReferencesFromRecord(
-  record: JsonRecord,
-): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
-  return uniqueExternalReferences(
-    marketplaceReferenceRules().flatMap((rule) => {
-      const containers = [record, ...rule.containerKeys.map((key) => recordField(record, [key]))].filter(
-        (value): value is JsonRecord => Boolean(value),
-      );
-
-      return containers.flatMap((container) =>
-        providerReferencesFromValue(rule, valueField(container, rule.valueKeys)),
-      );
-    }),
-  );
-}
-
-function providerReferencesFromValue(
-  rule: CatalogProviderExternalReferenceRule,
-  value: unknown,
-): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
-  if (Array.isArray(value)) {
-    return value.flatMap((entry) => providerReferencesFromValue(rule, entry));
-  }
-
-  if (isRecord(value)) {
-    return providerReferenceIdsFromRecord(rule, value)
-      .map((id) => toMarketplaceReference(rule, id))
-      .filter(
-        (
-          reference,
-        ): reference is NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number] =>
-          Boolean(reference),
-      );
-  }
-
-  return cleanMarketplaceId(value)
-    .map((id) => toMarketplaceReference(rule, id))
-    .filter(
-      (
-        reference,
-      ): reference is NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number] =>
-        Boolean(reference),
-    );
-}
-
-function providerReferenceIdsFromRecord(rule: CatalogProviderExternalReferenceRule, record: JsonRecord): string[] {
-  return rule.recordIdKeys.flatMap((key) => cleanMarketplaceId(record[key]));
-}
-
-function toMarketplaceReference(
-  rule: CatalogProviderExternalReferenceRule,
-  id: string,
-): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number] | null {
-  const normalizedId = id.trim().toLowerCase();
-  if (!normalizedId) {
-    return null;
-  }
-
-  return {
-    providerKey: rule.providerKey,
-    externalKey: normalizedId.startsWith(rule.externalKeyPrefix)
-      ? normalizedId
-      : `${rule.externalKeyPrefix}${normalizedId}`,
-  };
-}
-
-function cleanMarketplaceId(value: unknown): string[] {
-  if (typeof value === "string" || typeof value === "number") {
-    const cleaned = String(value).trim();
-    return cleaned ? [cleaned] : [];
-  }
-
-  return [];
-}
-
-function uniqueExternalReferences(
-  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][],
-): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
-  const seen = new Set<string>();
-  return references.filter((reference) => {
-    const key = externalReferenceIdentity(reference);
-    if (seen.has(key)) {
-      return false;
-    }
-    seen.add(key);
-    return true;
-  });
-}
-
-function externalReferenceIdentity(
-  reference: NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number],
-): string {
-  return `${reference.providerKey.trim().toLowerCase()}:${reference.externalKey.trim().toLowerCase()}`;
 }
 
 function valueField(record: JsonRecord, keys: readonly string[]): unknown {
@@ -780,13 +655,18 @@ function stringField(record: JsonRecord, keys: readonly string[]): string | null
   return typeof value === "string" || typeof value === "number" ? String(value) : null;
 }
 
-function recordField(record: JsonRecord, keys: readonly string[]): JsonRecord | null {
-  const value = valueField(record, keys);
-  return isRecord(value) ? value : null;
-}
-
-function isRecord(value: unknown): value is JsonRecord {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+function uniqueExternalCatalogItemReferences(
+  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][],
+): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
+  const seen = new Set<string>();
+  return references.filter((reference) => {
+    const key = `${reference.providerKey.trim().toLowerCase()}:${reference.externalKey.trim().toLowerCase()}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
 }
 
 function normalizeVariants(variants: Readonly<Record<string, boolean>> | undefined): JsonObject {
@@ -883,19 +763,6 @@ function variantLabel(sourceKey: string): string {
 
 function marketplaceReferenceRules(): readonly CatalogProviderExternalReferenceRule[] {
   return TCGDEX_PROFILE.externalReferenceExtractionRules.rules;
-}
-
-function pricingKeysForVariant(
-  rule: CatalogProviderExternalReferenceRule,
-  variant: PokemonCardVariant,
-): readonly string[] {
-  const variantRule = variantRuleByVariantKey(variant.key);
-  return [
-    ...(variantRule?.pricingKeys ?? []),
-    ...(variant.sourceKey ? [variant.sourceKey] : []),
-    variant.key,
-    ...rule.valueKeys,
-  ];
 }
 
 function variantRules(): readonly CatalogProviderVariantRule[] {
