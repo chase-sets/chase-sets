@@ -16,6 +16,7 @@ import type { FieldIds } from "../../features/fields/api/seed";
 import { seedProductMeasures } from "../../features/product-measures/api/seed";
 import { seedReferenceData } from "../../features/reference-data/api/seed";
 import type { PokemonReferenceIds } from "../../features/reference-data/api/seed";
+import { seedCatalogProviderIntegrationProfileVersions } from "../../features/source-observations/api/provider-integration-profile-store";
 import { catalogSeedIds } from "../seed-support/ids";
 import type { BlueprintId, CategoryId, ComponentId, DimensionId, FieldId, OptionId } from "../../ids";
 
@@ -32,7 +33,7 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
   console.log("Starting Pokemon TCG catalog integration profile seed...\n");
 
   const authoring = shouldSeedIntegrationProfile
-    ? await seedTcgdexCatalogIntegrationProfile(pool)
+    ? await seedCatalogIntegrationProfile(pool)
     : staticTcgdexCatalogIntegrationIds();
 
   if (shouldSeedScenarioData) {
@@ -46,6 +47,11 @@ export async function seedCatalogDatabase(pool: PgTransactionalPool, _services?:
   }
 
   console.log("\nCatalog seed reconciliation complete!");
+}
+
+async function seedCatalogIntegrationProfile(pool: PgTransactionalPool): Promise<TcgdexCatalogIntegrationIds> {
+  await seedCatalogProviderIntegrationProfileVersions(pool);
+  return seedTcgdexCatalogIntegrationProfile(pool);
 }
 
 export async function seedTcgdexCatalogIntegrationProfile(

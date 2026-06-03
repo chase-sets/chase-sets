@@ -32,6 +32,37 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
     )
   );
 
+CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
+  provider_key text NOT NULL,
+  profile_key text NOT NULL,
+  profile_version text NOT NULL,
+  lifecycle text NOT NULL,
+  active boolean NOT NULL DEFAULT false,
+  profile_json jsonb NOT NULL,
+  source_contract_json jsonb NOT NULL,
+  fixture_contract_json jsonb NOT NULL,
+  compatibility_mode text NOT NULL,
+  retirement_plan_json jsonb NULL,
+  executable_mapping_contract_json jsonb NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  activated_at timestamptz NULL,
+  deprecated_at timestamptz NULL,
+  retired_at timestamptz NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider_key, profile_key, profile_version),
+  CONSTRAINT catalog_provider_profile_lifecycle_check
+    CHECK (lifecycle IN ('draft', 'test', 'active', 'deprecated', 'retired')),
+  CONSTRAINT catalog_provider_profile_compatibility_mode_check
+    CHECK (compatibility_mode IN ('executable-mapping-contract', 'transitional-static-profile'))
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_active_idx
+  ON catalog_provider_integration_profile_versions (provider_key)
+  WHERE active = true AND lifecycle = 'active';
+
+CREATE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_provider_idx
+  ON catalog_provider_integration_profile_versions (provider_key, profile_version DESC);
+
 CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limits (
   domain_key text PRIMARY KEY,
   request_delay_ms integer NOT NULL,
