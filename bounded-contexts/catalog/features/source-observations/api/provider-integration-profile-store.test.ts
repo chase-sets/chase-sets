@@ -40,6 +40,25 @@ describe("catalog provider integration profile version store", () => {
     });
   });
 
+  it("deprecates an existing active provider version before seeding a new active version", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    await store.seedProfileVersions([legacyActiveTcgdexVersion()]);
+
+    await seedCatalogProviderIntegrationProfileVersions(db);
+
+    expect(
+      (await store.listProfileVersions("tcgdex")).map((version) => [
+        version.profileVersion,
+        version.lifecycle,
+        version.active,
+      ]),
+    ).toEqual([
+      ["2026.06.03", "active", true],
+      ["2026.06.02", "deprecated", false],
+    ]);
+  });
+
   it("activates a persisted version and deprecates the previous active version", async () => {
     const db = new InMemoryProfileVersionDb();
     const store = createCatalogProviderIntegrationProfileVersionStore(db);
@@ -101,12 +120,59 @@ function tcgdexVersion(
   };
 }
 
+function legacyActiveTcgdexVersion(): CatalogProviderIntegrationProfileVersionRecord {
+  const base = catalogProviderIntegrationProfileVersions[0];
+  return {
+    ...base,
+    profileVersion: "2026.06.02",
+    lifecycle: "active",
+    active: true,
+    sourceContract: {
+      ...base.sourceContract,
+      fixtureSetVersion: "transitional-static-profile-v1",
+    },
+    compatibilityMode: "transitional-static-profile",
+    retirementPlan: {
+      trackingIssue: 621,
+      removeAfter: "executable-mapping-contract-activated",
+      diagnosticText:
+        "Retire the static TCGdex profile wrapper after the executable mapping contract drives normalization, reference extraction, and promotion planning.",
+    },
+    executableMappingContract: undefined,
+  };
+}
+
 class InMemoryProfileVersionDb {
   readonly statements: string[] = [];
   private rows = new Map<string, PersistedProfileVersionRow>();
 
   async query<T>(sql: string, params: readonly unknown[] = []): QueryResult<T> {
     this.statements.push(sql);
+
+    if (
+      sql.includes("UPDATE catalog_provider_integration_profile_versions") &&
+      sql.includes("profile_version <> $2") &&
+      sql.includes("active = true") &&
+      sql.includes("lifecycle = 'active'")
+    ) {
+      const providerKey = String(params[0]);
+      const profileVersion = String(params[1]);
+      for (const [key, row] of this.rows) {
+        if (
+          row.provider_key === providerKey &&
+          row.profile_version !== profileVersion &&
+          row.active &&
+          row.lifecycle === "active"
+        ) {
+          this.rows.set(key, {
+            ...row,
+            active: false,
+            lifecycle: "deprecated",
+          });
+        }
+      }
+      return { rows: [] as T[] };
+    }
 
     if (sql.includes("INSERT INTO catalog_provider_integration_profile_versions")) {
       const row = rowFromInsertParams(params);

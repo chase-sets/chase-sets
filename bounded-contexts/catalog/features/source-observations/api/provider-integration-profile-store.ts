@@ -84,6 +84,10 @@ async function upsertProfileVersion(
   db: PgQueryable,
   version: CatalogProviderIntegrationProfileVersionRecord,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  if (version.active && version.lifecycle === "active") {
+    await deactivateOtherActiveProfileVersions(db, version);
+  }
+
   const result = await db.query<CatalogProviderIntegrationProfileVersionRow>(
     `INSERT INTO catalog_provider_integration_profile_versions (
        provider_key,
@@ -128,6 +132,24 @@ async function upsertProfileVersion(
   );
 
   return rowToProfileVersion(result.rows[0] ?? rowFromVersion(version));
+}
+
+async function deactivateOtherActiveProfileVersions(
+  db: PgQueryable,
+  version: Pick<CatalogProviderIntegrationProfileVersionRecord, "providerKey" | "profileVersion">,
+): Promise<void> {
+  await db.query(
+    `UPDATE catalog_provider_integration_profile_versions
+     SET active = false,
+         lifecycle = 'deprecated',
+         deprecated_at = COALESCE(deprecated_at, now()),
+         updated_at = now()
+     WHERE provider_key = $1
+       AND profile_version <> $2
+       AND active = true
+       AND lifecycle = 'active'`,
+    [version.providerKey, version.profileVersion],
+  );
 }
 
 async function listProfileVersions(
