@@ -59,6 +59,14 @@ Some behavior remains a named reviewed runtime function until a generic interpre
 
 Profiles may reference those functions by a stable function key. They may not execute arbitrary code or carry dynamic scripts.
 
+The selector and transform interpreter lives at:
+
+`bounded-contexts/catalog/features/source-observations/api/provider-mapping-interpreter.ts`
+
+The interpreter evaluates provider payload evidence only. It returns evidence values with owner, use, and redaction metadata; it does not automatically make output Catalog truth. It supports nested paths, constants, coalescing, object selectors, array mapping, string transforms, coercion, lookup tables, and explicitly registered named selectors/transforms. Missing required fields, unregistered named functions, lookup misses, empty arrays, and type coercion failures return diagnostics that identify the config path and redaction category without including raw provider values.
+
+Profile activation and import preparation should validate executable expressions against fixture payloads before import jobs run. Invalid configs fail at validation time, not halfway through a live provider import.
+
 ## Lifecycle
 
 - `draft`: authored but not eligible for import jobs.
