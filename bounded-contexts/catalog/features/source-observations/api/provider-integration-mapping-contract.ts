@@ -220,9 +220,12 @@ export type CatalogProviderPromotionCommandContract = Readonly<{
   commandName:
     | "CreateCatalogItem"
     | "RefreshCatalogItem"
+    | "ReviseCatalogItemMetadata"
     | "AssignBlueprintToCatalogItem"
+    | "AssignCatalogItemToCategory"
     | "SetCatalogItemFieldValue"
     | "SetCatalogItemTags"
+    | "SetCatalogItemImageUrls"
     | "SetCatalogItemProductAssetSets"
     | "LinkExternalCatalogItemReference"
     | "LinkExternalProductReference";

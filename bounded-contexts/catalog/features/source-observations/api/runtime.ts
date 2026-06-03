@@ -29,8 +29,8 @@ import { withCatalogAdminRealtimeInvalidation } from "../../../support/projectio
 import { catalogSeedIds } from "../../../support/seed-support/ids";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId, ReferenceTypeId } from "../../../ids";
 import type { LocalizedTextMap } from "../../../support/runtime-support/common";
-import { productAssetSetCompatibilityImageUrls } from "../../../support/runtime-support/product-assets";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
+import type { CatalogItemCommand } from "../../catalog-items/domain/domain";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRelationship } from "../../reference-data/domain/domain";
 import {
@@ -82,6 +82,10 @@ import {
   tcgdexPokemonTcgProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
+import {
+  planCatalogProviderPromotionCommands,
+  type CatalogProviderPromotionCommandPlanResult,
+} from "./provider-promotion-command-planner";
 import { provisionCatalogProviderReferenceHierarchy } from "./provider-reference-hierarchy-provisioner";
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
@@ -2658,60 +2662,6 @@ async function createCatalogDraftFromObservation(input: {
     normalized: input.normalized,
     expansionReferenceId,
   });
-
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "CreateCatalogItem",
-      itemId: input.catalogItemId,
-      languageCode: input.normalized.languageCode,
-      title: localizedText(metadata.title),
-      subtitle: localizedText(metadata.subtitle),
-      description: localizedText(input.normalized.imageDisclaimer ?? ""),
-    },
-    context: input.context,
-  });
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "AssignBlueprintToCatalogItem",
-      blueprintId: profile.blueprintId,
-    },
-    context: input.context,
-  });
-  await setFieldValue(input, profile.fieldIds.cardNumber, input.normalized.cardNumber);
-  await setFieldValue(input, profile.fieldIds.cardName, localizedJsonText(input.normalized.name));
-  await setFieldValue(input, profile.fieldIds.expansion, { referenceId: expansionReferenceId });
-  await setFieldValue(input, profile.fieldIds.cardVariant, input.normalized.cardVariantLabel);
-
-  if (input.normalized.rarity) {
-    await setFieldValue(input, profile.fieldIds.rarity, input.normalized.rarity);
-  }
-
-  if (input.normalized.illustrator) {
-    await setFieldValue(input, profile.fieldIds.cardIllustrator, input.normalized.illustrator);
-  }
-
-  if (input.normalized.releaseYear !== null) {
-    await setFieldValue(input, profile.fieldIds.releaseYear, input.normalized.releaseYear);
-  }
-
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "AssignCatalogItemToCategory",
-      categoryId: profile.singlesCategoryId,
-    },
-    context: input.context,
-  });
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "SetCatalogItemTags",
-      tags: pokemonCatalogItemTags(input.normalized),
-    },
-    context: input.context,
-  });
   const productAssetSet = input.normalized.imageBaseUrl
     ? await normalizeTcgdexImageAsset({
         imageBaseUrl: input.normalized.imageBaseUrl,
@@ -2721,36 +2671,30 @@ async function createCatalogDraftFromObservation(input: {
         assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
       })
     : null;
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "SetCatalogItemImageUrls",
-      imageUrls: productAssetSet
-        ? productAssetSetCompatibilityImageUrls(productAssetSet)
-        : [...input.normalized.imageUrls],
+  const plan = planCatalogProviderPromotionCommands({
+    profile: tcgdexPokemonTcgProviderProfile,
+    providerKey: input.providerKey,
+    externalKey: input.externalKey,
+    mode: "create",
+    catalogItemId: input.catalogItemId,
+    normalized: input.normalized,
+    catalog: {
+      blueprintId: profile.blueprintId,
+      categoryId: profile.singlesCategoryId,
+      fieldIds: profile.fieldIds,
     },
+    expansionReferenceId,
+    metadata,
+    productAssetSet,
+    preflight: { status: "ready" },
+  });
+
+  await executeCatalogItemPromotionCommandPlan({
+    items: input.items,
+    streamId,
+    plan,
     context: input.context,
   });
-  if (productAssetSet) {
-    await input.items.commandHandler({
-      streamId,
-      command: {
-        type: "SetCatalogItemProductAssetSets",
-        productAssetSets: [productAssetSet],
-      },
-      context: input.context,
-    });
-  }
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "LinkExternalProductReference",
-      providerKey: input.providerKey,
-      externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
-    },
-    context: input.context,
-  });
-  await linkExternalCatalogItemReferencesFromObservation(input.items, streamId, input.normalized, input.context);
 }
 
 async function refreshCatalogItemFromObservation(input: {
@@ -2776,43 +2720,6 @@ async function refreshCatalogItemFromObservation(input: {
     normalized: input.normalized,
     expansionReferenceId,
   });
-
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "ReviseCatalogItemMetadata",
-      languageCode: input.normalized.languageCode,
-      title: localizedText(metadata.title),
-      subtitle: localizedText(metadata.subtitle),
-      description: localizedText(input.normalized.imageDisclaimer ?? ""),
-    },
-    context: input.context,
-  });
-  await setFieldValue(input, profile.fieldIds.cardNumber, input.normalized.cardNumber);
-  await setFieldValue(input, profile.fieldIds.cardName, localizedJsonText(input.normalized.name));
-  await setFieldValue(input, profile.fieldIds.expansion, { referenceId: expansionReferenceId });
-  await setFieldValue(input, profile.fieldIds.cardVariant, input.normalized.cardVariantLabel);
-
-  if (input.normalized.rarity) {
-    await setFieldValue(input, profile.fieldIds.rarity, input.normalized.rarity);
-  }
-
-  if (input.normalized.illustrator) {
-    await setFieldValue(input, profile.fieldIds.cardIllustrator, input.normalized.illustrator);
-  }
-
-  if (input.normalized.releaseYear !== null) {
-    await setFieldValue(input, profile.fieldIds.releaseYear, input.normalized.releaseYear);
-  }
-
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "SetCatalogItemTags",
-      tags: pokemonCatalogItemTags(input.normalized),
-    },
-    context: input.context,
-  });
   const productAssetSet = input.normalized.imageBaseUrl
     ? await normalizeTcgdexImageAsset({
         imageBaseUrl: input.normalized.imageBaseUrl,
@@ -2822,53 +2729,63 @@ async function refreshCatalogItemFromObservation(input: {
         assetStorage: requireCatalogAssetStorage(input.deps.assetStorage),
       })
     : null;
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "SetCatalogItemImageUrls",
-      imageUrls: productAssetSet
-        ? productAssetSetCompatibilityImageUrls(productAssetSet)
-        : [...input.normalized.imageUrls],
+  const plan = planCatalogProviderPromotionCommands({
+    profile: tcgdexPokemonTcgProviderProfile,
+    providerKey: input.providerKey,
+    externalKey: input.externalKey,
+    mode: "refresh",
+    catalogItemId: input.catalogItemId,
+    normalized: input.normalized,
+    catalog: {
+      blueprintId: profile.blueprintId,
+      categoryId: profile.singlesCategoryId,
+      fieldIds: profile.fieldIds,
     },
+    expansionReferenceId,
+    metadata,
+    productAssetSet,
+    preflight: { status: "ready" },
+  });
+
+  await executeCatalogItemPromotionCommandPlan({
+    items: input.items,
+    streamId,
+    plan,
     context: input.context,
   });
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "SetCatalogItemProductAssetSets",
-      productAssetSets: productAssetSet ? [productAssetSet] : [],
-    },
-    context: input.context,
-  });
-  await input.items.commandHandler({
-    streamId,
-    command: {
-      type: "LinkExternalProductReference",
-      providerKey: input.providerKey,
-      externalKey: `${input.normalized.languageCode}:${input.externalKey}`,
-    },
-    context: input.context,
-  });
-  await linkExternalCatalogItemReferencesFromObservation(input.items, streamId, input.normalized, input.context);
 }
 
-async function linkExternalCatalogItemReferencesFromObservation(
-  items: CatalogItemServices,
-  streamId: string,
-  normalized: SourceObservationPokemonCardNormalized,
-  context: EventStoreContext,
-) {
-  for (const reference of uniqueExternalCatalogItemReferences(normalized.externalCatalogItemReferences ?? [])) {
-    await items.commandHandler({
-      streamId,
-      command: {
-        type: "LinkExternalCatalogItemReference",
-        providerKey: reference.providerKey,
-        externalKey: reference.externalKey,
-      },
-      context,
+async function executeCatalogItemPromotionCommandPlan(input: {
+  items: CatalogItemServices;
+  streamId: string;
+  plan: CatalogProviderPromotionCommandPlanResult;
+  context: EventStoreContext;
+}) {
+  if (input.plan.status === "blocked") {
+    throw new Error(input.plan.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "));
+  }
+
+  for (const command of input.plan.plan.commands) {
+    await executeCatalogItemPromotionCommand({
+      items: input.items,
+      streamId: input.streamId,
+      command,
+      context: input.context,
     });
   }
+}
+
+async function executeCatalogItemPromotionCommand(input: {
+  items: CatalogItemServices;
+  streamId: string;
+  command: CatalogItemCommand;
+  context: EventStoreContext;
+}) {
+  await input.items.commandHandler({
+    streamId: input.streamId,
+    command: input.command,
+    context: input.context,
+  });
 }
 
 async function formatPokemonCardPromotionMetadata(input: {
@@ -2882,17 +2799,6 @@ async function formatPokemonCardPromotionMetadata(input: {
     title: input.normalized.name,
     subtitle: "",
   };
-}
-
-function pokemonCatalogItemTags(normalized: SourceObservationPokemonCardNormalized): string[] {
-  return [
-    "pokemon",
-    tcgdexPokemonTcgProviderProfile.providerKey,
-    `expansion:${normalized.expansionId}`,
-    `category:${normalized.category.toLowerCase()}`,
-    `variant:${normalized.cardVariantKey}`,
-    ...(normalized.imageDisclaimer ? ["image-note:variant-reference"] : []),
-  ];
 }
 
 function uniqueExternalCatalogItemReferences(
@@ -3093,26 +2999,6 @@ function requireCatalogAssetStorage(assetStorage: CatalogRuntimeDeps["assetStora
 
 function catalogItemAssetObjectBaseKey(catalogItemId: CatalogItemId): string {
   return `catalog/items/${catalogItemId}/product-image`;
-}
-
-async function setFieldValue(
-  input: {
-    items: CatalogItemServices;
-    catalogItemId: CatalogItemId;
-    context: EventStoreContext;
-  },
-  fieldId: FieldId,
-  value: JsonValue,
-) {
-  await input.items.commandHandler({
-    streamId: `catalog.item-${input.catalogItemId}`,
-    command: {
-      type: "SetCatalogItemFieldValue",
-      fieldId,
-      value,
-    },
-    context: input.context,
-  });
 }
 
 export async function ensurePokemonReferenceHierarchy(input: {
