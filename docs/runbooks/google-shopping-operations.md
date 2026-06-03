@@ -29,9 +29,11 @@ Platform Worker reads these environment variables:
 | `GOOGLE_MERCHANT_TARGET_COUNTRY` | Yes | ISO country code, such as `US`. |
 | `GOOGLE_MERCHANT_CONTENT_LANGUAGE` | Yes | Language code, such as `en`. |
 | `GOOGLE_MERCHANT_FEED_LABEL` | Yes | Feed label aligned with Merchant Center setup. |
-| `GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME` | Yes | Secret reference name only; never inline JSON. |
+| `GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME` | Yes | Secret reference name only; never inline JSON. The worker reads the service-account JSON from the environment variable named by this value. |
 
 Startup fails when sync is enabled without complete required config.
+
+Live sync uses a Google service-account JSON private key to exchange a signed JWT for an OAuth access token with the Merchant API content scope. The service account must be granted access to the Merchant Center account outside the repo. Dry-run sync does not request a token.
 
 ## Feed Row Evidence
 
@@ -80,6 +82,38 @@ Dry-run mode returns the intended method, redacted URL, body, and update mask wi
 Transient provider responses are retried with backoff for HTTP 408, 409, 425, 429, and 5xx responses. Validation, policy, authentication, authorization, and not-found responses are surfaced as permanent provider failures for the durable sync job to record and expose to operators.
 
 The client redacts Authorization headers, access tokens, credential secret names, Merchant account ids, and API data-source ids from request summaries, error details, and logger payloads. Do not paste raw Google request URLs, OAuth tokens, service account JSON, private keys, or unredacted provider errors into runbooks, issue comments, or sync state.
+
+## Full Feed Sync
+
+Operators with `security.manage` can enqueue a durable full sync through the Discovery API:
+
+```http
+POST /google-shopping/sync-jobs
+Content-Type: application/json
+
+{ "mode": "dry-run", "batchSize": 100 }
+```
+
+Use `mode: "dry-run"` first. Dry-run walks the same deterministic row scan and prepares Merchant API requests, but it does not update row submission metadata. Use `mode: "live"` only after launch evidence gates pass, `GOOGLE_MERCHANT_SYNC_ENABLED=true`, `GOOGLE_MERCHANT_DRY_RUN=false`, and the service-account secret is bound.
+
+The job scans `discovery_google_shopping_feed_rows` by `row_id ASC` pages. It submits eligible rows when `payload_hash` differs from `last_submitted_payload_hash`, skips unchanged eligible rows, deletes rows that were previously submitted and are now tombstoned or excluded, and counts never-submitted excluded rows without calling Google.
+
+Status is available at:
+
+```http
+GET /google-shopping/sync-jobs/{jobId}
+GET /google-shopping/sync-jobs/{jobId}/events
+```
+
+Progress and final results include:
+
+- `submitted`: eligible changed rows inserted or updated in Merchant Center, or prepared in dry-run.
+- `skipped`: eligible rows whose payload hash already matches the last live submission.
+- `deleted`: tombstoned or newly ineligible rows withdrawn from Merchant Center, or prepared for withdrawal in dry-run.
+- `failed`: rows with local payload defects or provider failures. Failed rows do not stop unrelated rows.
+- `excluded`: rows not eligible for Google Shopping and not previously submitted.
+
+In live mode, row sync metadata records the last attempted time, sync status, submitted hash/time, delete time, provider operation, provider request id when available, a redacted provider response summary, and redacted failure code/message. Live jobs fail fast if the worker is still globally configured with `GOOGLE_MERCHANT_DRY_RUN=true`.
 
 ## Incident Response
 

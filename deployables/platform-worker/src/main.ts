@@ -19,6 +19,7 @@ import { createStripeConnectMoneyMovementGateway } from "@chase-sets/stripe-conn
 import { createEasyPostPostageLabelProvider } from "@chase-sets/easypost-postage";
 import { createSandboxPostageLabelProvider } from "@chase-sets/postage-labels-testing";
 import { createFilesystemObjectStorage, createS3ObjectStorage, type ObjectStorage } from "@chase-sets/object-storage";
+import type { GoogleShoppingSyncMode } from "@chase-sets/discovery/server";
 import type { PaymentsServices } from "@chase-sets/payments/server";
 import { settlementOperationLogFields, type SettlementServices } from "@chase-sets/settlement/server";
 import { createCommercialTermsResolver } from "@chase-sets/commercial-terms/server";
@@ -48,9 +49,15 @@ import {
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import { getObservabilityRuntime, recordSettlementOperationSignal } from "@chase-sets/observability";
-import { loadConfig, type PlatformWorkerCatalogAssetStorageConfig } from "./config";
+import {
+  loadConfig,
+  type PlatformWorkerCatalogAssetStorageConfig,
+  type PlatformWorkerGoogleMerchantConfig,
+} from "./config";
 import { closePlatformWorkerPools, createPlatformWorkerPools } from "./database-pools";
 import { platformEmailTemplateRenderer } from "./email-template-renderer";
+import { createGoogleMerchantServiceAccountAccessTokenProvider } from "./google-merchant-auth";
+import { createGoogleMerchantApiClient } from "./google-merchant-client";
 import { workerContextRegistry } from "./generated/worker-context-registry";
 
 const observability = getObservabilityRuntime();
@@ -134,6 +141,7 @@ const projectionRunners = collectWorkerRunners(runtime, {
 const bulkJobRunners = [
   ...createCatalogBulkJobRunners(runtime.services, config),
   ...createInventoryJobRunners(runtime.services, config),
+  ...createGoogleShoppingJobRunners(runtime.services, config),
   ...createPricingJobRunners(runtime.services, config),
   ...createSettlementJobRunners(runtime.services, config),
 ];
@@ -584,6 +592,13 @@ function createDurableJobRetentionTask(services: Readonly<Record<string, unknown
         };
       }
     | undefined;
+  const discovery = services.discovery as
+    | {
+        googleShoppingSync?: {
+          pruneFullSyncJobRetention?: (input?: { completedBefore?: Date; limit?: number }) => Promise<number>;
+        };
+      }
+    | undefined;
 
   const completedBefore = () => new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   const stagedInputCreatedBefore = () => new Date(Date.now() - 24 * 60 * 60 * 1000);
@@ -621,6 +636,11 @@ function createDurableJobRetentionTask(services: Readonly<Record<string, unknown
         completedBefore: completedBefore(),
         limit: 500,
       }),
+    );
+  }
+  if (discovery?.googleShoppingSync?.pruneFullSyncJobRetention) {
+    tasks.push(() =>
+      discovery.googleShoppingSync!.pruneFullSyncJobRetention!({ completedBefore: completedBefore(), limit: 500 }),
     );
   }
 
@@ -821,6 +841,45 @@ function createInventoryJobRunners(
   });
 }
 
+function createGoogleShoppingJobRunners(
+  services: Readonly<Record<string, unknown>>,
+  input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs" | "googleMerchant">,
+): readonly WorkerRunner[] {
+  const discovery = services.discovery as
+    | {
+        googleShoppingSync?: {
+          processNextFullSyncJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            merchantClientForMode: (mode: GoogleShoppingSyncMode) => ReturnType<typeof createGoogleMerchantApiClient>;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
+        };
+      }
+    | undefined;
+  const processNextFullSyncJob = discovery?.googleShoppingSync?.processNextFullSyncJob;
+
+  if (!processNextFullSyncJob) {
+    return [];
+  }
+
+  return createDurableJobLaneRunners({
+    workflowName: "discovery.google-shopping-full-sync-jobs",
+    laneCount: 1,
+    runLane: async (lane) => ({
+      processed: await processNextFullSyncJob({
+        claimOwnerId: `${input.workerId}:${lane.laneName}`,
+        claimTtlMs: input.leaseTtlMs * 4,
+        merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
+        signal: lane.runnerContext?.signal,
+        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+      }),
+      lastGlobalPosition: "0" as never,
+    }),
+  });
+}
+
 function createPricingJobRunners(
   services: Readonly<Record<string, unknown>>,
   input: Pick<
@@ -975,6 +1034,28 @@ function createCatalogAssetStorage(storageConfig: PlatformWorkerCatalogAssetStor
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
     : createFilesystemObjectStorage(storageConfig);
+}
+
+function createGoogleShoppingMerchantClient(config: PlatformWorkerGoogleMerchantConfig, mode: GoogleShoppingSyncMode) {
+  if (mode === "live" && config.syncEnabled && config.dryRun) {
+    throw new Error("Google Shopping live sync requested while GOOGLE_MERCHANT_DRY_RUN=true.");
+  }
+
+  const clientConfig = config.syncEnabled && mode === "dry-run" ? { ...config, dryRun: true } : config;
+  const accessTokenProvider =
+    clientConfig.syncEnabled && !clientConfig.dryRun
+      ? createGoogleMerchantServiceAccountAccessTokenProvider({
+          credentialSecretName: clientConfig.credentialSecretName,
+        })
+      : async () => {
+          throw new Error("Google Merchant credentials are not required in dry-run mode.");
+        };
+
+  return createGoogleMerchantApiClient({
+    config: clientConfig,
+    accessTokenProvider,
+    logger,
+  });
 }
 
 function createTransactionalEmailDispatchRunners(
