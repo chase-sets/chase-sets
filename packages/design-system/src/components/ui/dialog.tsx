@@ -1,8 +1,7 @@
 import type { ReactElement, ReactNode } from "react";
-import { X } from "lucide-react";
 import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { cn } from "../../lib/utils";
-import { Button } from "./button";
+import { IconButton } from "../actions";
 
 export interface DialogProps {
   open?: boolean;
@@ -47,13 +46,9 @@ export function Dialog({
           </div>
           <div className="min-h-0 overflow-y-auto">{children}</div>
           {footer ? <div className="flex flex-wrap justify-end gap-2">{footer}</div> : null}
-          <DialogPrimitive.Close
-            render={
-              <Button size="icon" variant="ghost" aria-label={closeLabel} className="absolute right-3 top-3">
-                <X className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            }
-          />
+          <div className="absolute right-3 top-3">
+            <DialogPrimitive.Close render={<IconButton label={closeLabel} icon="close" tone="ghost" />} />
+          </div>
         </DialogPrimitive.Popup>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

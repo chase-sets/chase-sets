@@ -3,6 +3,7 @@ import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { controlIconButtonSizeClasses } from "../control-sizing";
 import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
 
@@ -94,11 +95,14 @@ export function Combobox({
             aria-describedby={error || description ? fieldHintId(inputId) : undefined}
             aria-invalid={!!error || undefined}
             disabled={disabled}
-            className="min-w-0 flex-1 bg-transparent px-4 py-2.5 outline-none"
+            className="min-w-0 flex-1 self-stretch bg-transparent px-[var(--control-md-px)] py-[var(--control-md-py)] outline-none"
           />
           <ComboboxPrimitive.Trigger
             disabled={disabled}
-            className="focus-ring mr-2 inline-flex h-8 w-8 items-center justify-center rounded-tokenSm disabled:cursor-not-allowed disabled:opacity-50"
+            className={cx(
+              "focus-ring mr-[var(--control-compound-inset)] inline-flex items-center justify-center rounded-tokenSm disabled:cursor-not-allowed disabled:opacity-50",
+              controlIconButtonSizeClasses.md,
+            )}
           >
             <Icon name="chevronDown" size="sm" tone="secondary" />
           </ComboboxPrimitive.Trigger>

@@ -10,6 +10,7 @@ import {
 import { MotionConfig } from "motion/react";
 import { resolveChaseMotion, type ChaseMotionSettings, type ReducedMotionSetting } from "../motion/config";
 import { cx } from "../utils/cx";
+import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../components/control-sizing";
 import { resolveThemeOverrideStyle, type ColorMode, type DensityMode, type ThemeOverrides } from "./tokens";
 
 interface PortalContextValue {
@@ -178,7 +179,12 @@ export function ColorModeToggle({
     <button
       type="button"
       onClick={cycle}
-      className="focus-ring inline-flex touch-target items-center gap-2 rounded-tokenMd border border-muted bg-elevated px-3 py-2 text-sm font-medium text-secondary shadow-tokenSm transition hover:text-foreground"
+      className={cx(
+        "focus-ring inline-flex items-center gap-2 rounded-tokenMd border border-muted bg-elevated font-medium text-secondary shadow-tokenSm transition hover:text-foreground",
+        controlHeightClasses.md,
+        controlPaddingClasses.md,
+        controlTextClasses.md,
+      )}
     >
       {labels[value]}
     </button>

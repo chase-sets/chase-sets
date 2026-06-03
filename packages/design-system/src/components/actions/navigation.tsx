@@ -6,6 +6,7 @@ import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
 import { layoutWidthClasses, type LayoutWidth } from "../../primitives/layout";
 import { cx } from "../../utils/cx";
+import { controlSquareSizeClasses } from "../control-sizing";
 import { renderActivePill } from "./shared";
 
 export interface NavigationItem {
@@ -286,7 +287,10 @@ function TopNavActionsMenu({ actions, label }: { actions: ReactNode; label: stri
     <details ref={detailsRef} className="relative md:hidden" onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary
         aria-label={label}
-        className="focus-ring flex h-11 w-11 cursor-pointer list-none items-center justify-center rounded-tokenMd border border-muted bg-surface text-foreground shadow-tokenSm transition hover:border-accent hover:bg-surface-2 [&::-webkit-details-marker]:hidden"
+        className={cx(
+          "focus-ring flex cursor-pointer list-none items-center justify-center rounded-tokenMd border border-muted bg-surface text-foreground shadow-tokenSm transition hover:border-accent hover:bg-surface-2 [&::-webkit-details-marker]:hidden",
+          controlSquareSizeClasses.md,
+        )}
       >
         <Icon name="menu" size="sm" tone="secondary" />
         <span className="sr-only">{label}</span>

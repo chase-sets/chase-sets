@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { Heart, Star } from "lucide-react";
+import { Star } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { IconButton } from "../actions";
 import { Badge } from "./badge";
-import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
 import { Progress } from "./progress";
 import { Table, TableBody, TableCell, TableRow } from "./table";
@@ -102,11 +102,7 @@ export function ProductCard({
             {price ? <div className="text-2xl font-bold text-[var(--primary)]">{price}</div> : null}
             {meta ? <div className="text-sm text-[var(--muted-foreground)]">{meta}</div> : null}
           </div>
-          {actions ?? (
-            <Button size="icon" variant="ghost" aria-label={`Save ${title}`}>
-              <Heart className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          )}
+          {actions ?? <IconButton label={`Save ${title}`} icon="heart" tone="ghost" />}
         </div>
       </CardContent>
     </Card>

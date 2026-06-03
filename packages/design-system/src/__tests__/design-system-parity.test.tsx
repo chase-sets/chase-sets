@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   Button,
   CopyButton,
+  IconButton,
   NavigationMenu,
   SegmentedControl,
   Tabs,
@@ -41,6 +42,7 @@ import {
   Select,
   Switch,
   TagInput,
+  TextInput,
 } from "../components/forms";
 import { Reveal, Stagger, ViewTransition } from "../motion/primitives";
 import { ChaseSetsLogo, chaseSetsLogoSvg } from "../brand/chase-sets-logo";
@@ -315,6 +317,57 @@ describe("design system", () => {
     await user.click(option);
 
     expect(onValueChange).toHaveBeenCalledWith("nm");
+  });
+
+  it("uses shared control sizing for comparable controls", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <div>
+          <TextInput label="Name" />
+          <SearchInput label="Search" />
+          <PasswordInput label="Password" />
+          <NativeSelect label="Native select" items={[{ value: "one", label: "One" }]} />
+          <Select label="Select" items={[{ value: "one", label: "One" }]} />
+          <Combobox label="Combobox" items={[{ value: "one", label: "One" }]} />
+          <Autocomplete label="Autocomplete" items={[{ value: "one", label: "One" }]} />
+          <NumberField label="Number" />
+          <TagInput label="Tags" values={[]} />
+          <Button>Action</Button>
+          <IconButton label="Icon action" icon="check" />
+          <SegmentedControl
+            value="table"
+            items={[
+              { value: "table", label: "Table" },
+              { value: "cards", label: "Cards" },
+            ]}
+          />
+        </div>
+      </ChaseRoot>,
+    );
+
+    expect(markup).toContain("min-h-[var(--control-md-height)]");
+    expect(markup).toContain("px-[var(--control-md-px)]");
+    expect(markup).toContain("py-[var(--control-md-py)]");
+    expect(markup).toContain("h-[var(--control-md-icon-size)]");
+    expect(markup).toContain("min-w-[var(--control-md-height)]");
+    expect(markup).not.toContain("touch-target");
+    expect(markup).not.toContain("px-4 py-2.5");
+  });
+
+  it("uses density-aware control variables in compact mode", () => {
+    const markup = renderToString(
+      <ChaseRoot density="compact">
+        <div>
+          <TextInput label="Name" />
+          <Select label="Select" items={[{ value: "one", label: "One" }]} />
+          <Button>Action</Button>
+        </div>
+      </ChaseRoot>,
+    );
+
+    expect(markup).toContain('data-density="compact"');
+    expect(markup).toContain("min-h-[var(--control-md-height)]");
+    expect(markup).toContain("px-[var(--control-md-px)]");
   });
 
   it("closes dialogs with Escape and backdrop interaction", async () => {

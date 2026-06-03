@@ -3,6 +3,7 @@ import { BottomSheet, Menu, type MenuGroup, type MenuItem } from "../feedback";
 import { Icon } from "../../icons";
 import { useMediaQuery } from "../../hooks";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
 
 export interface ResponsiveActionMenuProps {
   trigger: ReactNode;
@@ -20,7 +21,10 @@ function flattenItems(items?: MenuItem[], groups?: MenuGroup[]) {
 
 function actionItemClassName(destructive?: boolean, disabled?: boolean) {
   return cx(
-    "focus-ring flex min-h-11 w-full min-w-0 items-start gap-3 rounded-tokenMd px-3 py-2 text-left text-sm transition",
+    "focus-ring flex w-full min-w-0 items-start gap-3 rounded-tokenMd text-left transition",
+    controlHeightClasses.md,
+    controlPaddingClasses.md,
+    controlTextClasses.md,
     disabled && "cursor-not-allowed opacity-50",
     destructive ? "text-danger" : "text-foreground",
   );

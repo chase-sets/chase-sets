@@ -3,6 +3,7 @@ import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { Button, IconButton } from "../actions/button";
 import { CopyButton } from "../actions/copy-button";
+import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
 import { Progress } from "../ui/progress";
 
 export interface WorkstationLayoutProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -270,7 +271,8 @@ export function QuantityChecklistControl({
     <div {...rest} className="grid gap-2 justify-items-end">
       <div
         className={cx(
-          "inline-flex min-h-11 items-center gap-2 rounded-tokenMd border border-muted bg-background p-1",
+          "inline-flex items-center gap-2 rounded-tokenMd border border-muted bg-background p-1",
+          controlHeightClasses.md,
           isComplete && "border-success",
         )}
       >
@@ -346,7 +348,12 @@ export function TaskScanInput({
               disabled={disabled}
               placeholder={placeholder}
               onChange={(event) => onValueChange(event.currentTarget.value)}
-              className="h-11 w-full rounded-tokenMd border border-border bg-background px-3 pl-10 text-sm text-foreground outline-none transition-shadow placeholder:text-tertiary focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-60"
+              className={cx(
+                "w-full rounded-tokenMd border border-border bg-background pl-10 text-foreground outline-none transition-shadow placeholder:text-tertiary focus-visible:shadow-[0_0_0_2px_var(--ring),0_0_0_5px_color-mix(in_srgb,var(--ring)_18%,transparent)] disabled:cursor-not-allowed disabled:opacity-60",
+                controlHeightClasses.md,
+                controlPaddingClasses.md,
+                controlTextClasses.md,
+              )}
             />
           </span>
         </label>

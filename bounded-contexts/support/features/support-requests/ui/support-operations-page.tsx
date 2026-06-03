@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
 import { Form } from "react-router";
 import {
+  Button,
   UiBadge,
-  UiButton,
   UiEmptyState,
   UiInline,
   UiPage,
@@ -258,9 +258,9 @@ export function SupportOperationsPage({
             </span>
             <Form method="post">
               <input type="hidden" name="intent" value="escalate-overdue" />
-              <UiButton type="submit" disabled={Boolean(unavailableMessage)}>
+              <Button type="submit" disabled={Boolean(unavailableMessage)}>
                 {t("support.features.supportRequests.ui.supportOperationsPage.escalate.overdue")}
-              </UiButton>
+              </Button>
             </Form>
           </UiInline>
         </UiSurface>

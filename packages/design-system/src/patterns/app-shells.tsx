@@ -12,6 +12,7 @@ import {
   type PageStepperItem,
 } from "../components/actions";
 import { SearchInput, Switch } from "../components/forms";
+import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../components/control-sizing";
 import { useChaseMotion } from "../theme/provider";
 import { useMediaQuery } from "../hooks";
 import { SkipLink, layoutWidthClasses, type LayoutWidth, type SidebarWidth } from "../primitives/layout";
@@ -1000,7 +1001,10 @@ export function MarketplaceFacetChoiceGroup({
       aria-pressed={selected}
       onClick={() => onSelect(id)}
       className={cx(
-        "focus-ring flex min-h-11 w-full items-center justify-between gap-3 rounded-tokenMd border px-3 py-2 text-left text-sm font-semibold transition",
+        "focus-ring flex w-full items-center justify-between gap-3 rounded-tokenMd border text-left font-semibold transition",
+        controlHeightClasses.md,
+        controlPaddingClasses.md,
+        controlTextClasses.md,
         selected
           ? "border-accent bg-accent text-inverse shadow-tokenSm"
           : "border-muted bg-surface text-foreground hover:border-accent hover:bg-elevated",

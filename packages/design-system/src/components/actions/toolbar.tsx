@@ -2,6 +2,7 @@ import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from "react
 import { Toolbar as ToolbarPrimitive } from "@base-ui/react/toolbar";
 import { Icon, type IconName } from "../../icons";
 import { cx } from "../../utils/cx";
+import { compactControlHeightClasses, compactControlPaddingClasses, controlTextClasses } from "../control-sizing";
 
 export interface ToolbarProps {
   children?: ReactNode;
@@ -33,7 +34,12 @@ export function ToolbarButton({ children, icon, type = "button", ...rest }: Tool
     <ToolbarPrimitive.Button
       {...rest}
       type={type}
-      className="focus-ring inline-flex min-h-8 items-center justify-center gap-2 rounded-tokenMd px-2.5 text-sm font-semibold text-secondary transition hover:bg-elevated hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+      className={cx(
+        "focus-ring inline-flex items-center justify-center gap-2 rounded-tokenMd font-semibold text-secondary transition hover:bg-elevated hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50",
+        compactControlHeightClasses.md,
+        compactControlPaddingClasses.md,
+        controlTextClasses.md,
+      )}
     >
       {icon ? <Icon name={icon} size="sm" tone="secondary" /> : null}
       {children ? <span>{children}</span> : null}
@@ -47,7 +53,12 @@ export function ToolbarInput(props: ToolbarInputProps) {
   return (
     <ToolbarPrimitive.Input
       {...props}
-      className="focus-ring min-h-8 w-44 rounded-tokenMd border border-muted bg-elevated px-3 text-sm text-foreground placeholder:text-secondary"
+      className={cx(
+        "focus-ring w-44 rounded-tokenMd border border-muted bg-elevated text-foreground placeholder:text-secondary",
+        compactControlHeightClasses.md,
+        compactControlPaddingClasses.md,
+        controlTextClasses.md,
+      )}
     />
   );
 }

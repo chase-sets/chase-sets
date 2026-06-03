@@ -2,6 +2,7 @@ import { useId } from "react";
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import { compoundControlInsetClass, controlIconButtonSizeClasses } from "../control-sizing";
 import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface NumberFieldProps extends BaseInputProps {
@@ -65,12 +66,16 @@ export function NumberField({
           className={cx(
             controlClass,
             !!error && controlErrorClass,
-            "grid grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-1 p-1",
+            "grid grid-cols-[var(--control-md-icon-size)_minmax(0,1fr)_var(--control-md-icon-size)] items-center gap-1",
+            compoundControlInsetClass,
           )}
         >
           <NumberFieldPrimitive.Decrement
             aria-label={decrementLabel}
-            className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-tokenSm text-secondary hover:bg-background"
+            className={cx(
+              "focus-ring inline-flex items-center justify-center rounded-tokenSm text-secondary hover:bg-background",
+              controlIconButtonSizeClasses.md,
+            )}
           >
             <Icon name="minus" size="sm" />
           </NumberFieldPrimitive.Decrement>
@@ -78,11 +83,14 @@ export function NumberField({
             placeholder={placeholder}
             aria-describedby={error || description ? fieldHintId(inputId) : undefined}
             aria-invalid={!!error || undefined}
-            className="min-w-0 bg-transparent px-2 py-1.5 text-center outline-none"
+            className="min-w-0 bg-transparent px-2 py-[var(--control-sm-py)] text-center outline-none"
           />
           <NumberFieldPrimitive.Increment
             aria-label={incrementLabel}
-            className="focus-ring inline-flex h-8 w-8 items-center justify-center rounded-tokenSm text-secondary hover:bg-background"
+            className={cx(
+              "focus-ring inline-flex items-center justify-center rounded-tokenSm text-secondary hover:bg-background",
+              controlIconButtonSizeClasses.md,
+            )}
           >
             <Icon name="plus" size="sm" />
           </NumberFieldPrimitive.Increment>
