@@ -1,3 +1,5 @@
+import { durableJobSchemaSql } from "@chase-sets/platform-runtime/durable-job-store";
+
 export const discoveryGoogleShoppingSchemaSql = `CREATE TABLE IF NOT EXISTS discovery_google_shopping_feed_rows (
   row_id text PRIMARY KEY,
   listing_id text NOT NULL,
@@ -23,6 +25,12 @@ export const discoveryGoogleShoppingSchemaSql = `CREATE TABLE IF NOT EXISTS disc
   last_submitted_payload_hash text NULL,
   last_submitted_at timestamptz NULL,
   last_accepted_at timestamptz NULL,
+  last_sync_attempted_at timestamptz NULL,
+  last_sync_error_code text NULL,
+  last_sync_error_message text NULL,
+  last_provider_request_id text NULL,
+  last_provider_operation text NULL,
+  last_provider_response jsonb NULL,
   diagnostic_status text NULL,
   diagnostic_issues jsonb NOT NULL DEFAULT '[]'::jsonb,
   last_diagnostic_at timestamptz NULL,
@@ -49,6 +57,12 @@ ALTER TABLE discovery_google_shopping_feed_rows
   ADD COLUMN IF NOT EXISTS last_submitted_payload_hash text NULL,
   ADD COLUMN IF NOT EXISTS last_submitted_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS last_accepted_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS last_sync_attempted_at timestamptz NULL,
+  ADD COLUMN IF NOT EXISTS last_sync_error_code text NULL,
+  ADD COLUMN IF NOT EXISTS last_sync_error_message text NULL,
+  ADD COLUMN IF NOT EXISTS last_provider_request_id text NULL,
+  ADD COLUMN IF NOT EXISTS last_provider_operation text NULL,
+  ADD COLUMN IF NOT EXISTS last_provider_response jsonb NULL,
   ADD COLUMN IF NOT EXISTS diagnostic_status text NULL,
   ADD COLUMN IF NOT EXISTS diagnostic_issues jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS last_diagnostic_at timestamptz NULL,
@@ -86,4 +100,17 @@ CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_stale_refresh_idx
 
 CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_tombstone_idx
   ON discovery_google_shopping_feed_rows (tombstone_status, updated_at)
-  WHERE tombstone_status <> 'live';`;
+  WHERE tombstone_status <> 'live';
+
+CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_full_sync_scan_idx
+  ON discovery_google_shopping_feed_rows (row_id ASC);
+
+CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_sync_error_idx
+  ON discovery_google_shopping_feed_rows (last_sync_attempted_at DESC)
+  WHERE sync_status = 'failed';
+
+${durableJobSchemaSql({
+  jobsTable: "discovery_google_shopping_sync_jobs",
+  eventsTable: "discovery_google_shopping_sync_job_events",
+  notifyChannel: "discovery_google_shopping_sync_job_events",
+})}`;

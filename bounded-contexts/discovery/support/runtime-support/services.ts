@@ -9,6 +9,7 @@ import type { NotificationOutbox } from "@chase-sets/notifications";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createDiscoveryCategoryRuntime, type DiscoveryCategoryServices } from "../../features/categories/api/runtime";
 import { createProductAlertRuntime, type ProductAlertServices } from "../../features/product-alerts/api/runtime";
+import { createGoogleShoppingSyncRuntime, type GoogleShoppingSyncServices } from "../google-shopping-support/sync-job";
 import { createDiscoveryItemRuntime, type DiscoveryItemsServices } from "../item-support/runtime";
 
 export type DiscoveryHostPorts = Readonly<{
@@ -18,6 +19,7 @@ export type DiscoveryHostPorts = Readonly<{
 export type DiscoveryServices = Readonly<{
   categories: DiscoveryCategoryServices;
   items: DiscoveryItemsServices;
+  googleShoppingSync: GoogleShoppingSyncServices;
   productAlerts: ProductAlertServices;
   notificationOutbox: NotificationOutbox;
   projectors: readonly ProjectionHandlerSet[];
@@ -33,11 +35,13 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
   const notificationOutbox = ports.notificationOutbox ?? createPostgresNotificationOutbox({ db });
   const categories = createDiscoveryCategoryRuntime(deps);
   const items = createDiscoveryItemRuntime(deps);
+  const googleShoppingSync = createGoogleShoppingSyncRuntime({ db });
   const productAlerts = createProductAlertRuntime(deps);
 
   return {
     categories,
     items,
+    googleShoppingSync,
     productAlerts,
     notificationOutbox,
     projectors: [...items.projectors, ...categories.projectors, ...productAlerts.projectors],
