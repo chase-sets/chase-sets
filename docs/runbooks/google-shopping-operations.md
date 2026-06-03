@@ -64,6 +64,23 @@ Use staging/proof in this order:
 6. Enable non-production writes only when Google account policy and data-source setup are ready.
 7. Keep production writes blocked until launch evidence gates pass.
 
+## Merchant API Client Behavior
+
+Platform Worker submits Google Shopping rows through the Merchant API v1 client. The client uses the validated worker config for the Merchant account id, API data source id, target country, content language, feed label, and dry-run setting.
+
+The client supports:
+
+- full `productInputs:insert` submissions for eligible feed rows;
+- focused `productInputs.patch` updates for price and availability changes;
+- `productInputs.delete` withdrawals for tombstoned rows;
+- processed `products.get` reads for destination status and item-level issue correlation.
+
+Dry-run mode returns the intended method, redacted URL, body, and update mask without requesting credentials or calling Google. Keep dry-run enabled until the feed evidence and account approval checks above are complete.
+
+Transient provider responses are retried with backoff for HTTP 408, 409, 425, 429, and 5xx responses. Validation, policy, authentication, authorization, and not-found responses are surfaced as permanent provider failures for the durable sync job to record and expose to operators.
+
+The client redacts Authorization headers, access tokens, credential secret names, Merchant account ids, and API data-source ids from request summaries, error details, and logger payloads. Do not paste raw Google request URLs, OAuth tokens, service account JSON, private keys, or unredacted provider errors into runbooks, issue comments, or sync state.
+
 ## Incident Response
 
 If Google disapproves rows or reports seller-level issues:
