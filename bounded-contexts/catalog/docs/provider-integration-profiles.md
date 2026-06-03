@@ -15,7 +15,7 @@ Executable mapping semantics are documented in [Provider Integration Mapping Con
 Catalog persists provider integration profiles in `catalog_provider_integration_profile_versions`.
 Each row carries the provider key, profile key, profile version, lifecycle, active flag, profile JSON, source contract metadata, fixture contract metadata, compatibility mode, optional executable mapping contract, and optional retirement plan.
 
-The current TCGdex and TCGplayer profiles are seeded through this versioned data path during Catalog bootstrap. TCGdex is active as an executable mapping profile version; TCGplayer remains available through a transitional static compatibility record while its automation-client mapping is completed. Transitional static profiles must carry fixture coverage and a retirement issue.
+The current TCGdex and TCGplayer profiles are seeded through this versioned data path during Catalog bootstrap. TCGdex is active as an executable mapping profile version. TCGplayer is fixture-backed as an executable `test` profile version while its automation-client import workflows remain planned. Transitional static profiles must carry fixture coverage and a retirement issue.
 
 Profile lifecycle values are:
 
@@ -84,12 +84,16 @@ That contract, not the official TCGplayer API docs, is the source of truth for
 provider domains, cookie auth, throttling, endpoint paths, and response concepts
 in this workstream.
 
-The TCGplayer profile should model product lines, set names, product search,
-product details, category filters, and SKUs from the automation app. It should
-map TCGplayer Product IDs to Catalog Item-level external references and
-TCGplayer SKUs/productConditionIds to Product-level external references only
-when condition, variant/printing, and language can be mapped to valid selected
-Options.
+The TCGplayer profile models product lines, set names, product search, product
+details, category filters, and SKUs from the automation app. Its executable
+provider-product mapping contract covers Source Observation IDs, Product ID
+external keys, normalized provider-product facts, hash material, merge identity,
+Product ID Catalog Item references, SKU Product reference evidence, selected
+Option review evidence, product form, barcode/GTIN evidence, duplicate-prevention
+evidence, and Reference Record hierarchy evidence. It maps TCGplayer Product IDs
+to Catalog Item-level external references and TCGplayer SKUs/productConditionIds
+to Product-level external references only when condition, variant/printing, and
+language can be mapped to valid selected Options.
 
 TCGplayer option queries use the same profile-driven resolver. Product line and
 set-name queries declare legacy aliases such as `categories` and `sets`,
@@ -106,11 +110,18 @@ Unknown, inactive, or missing selected-option evidence remains review evidence.
 The TCGplayer profile can represent product-line and set-name Reference Record
 evidence through the same hierarchy rules, including `tcgplayer-product-line-id`
 and `tcgplayer-set-name` attributes. The connector remains planned until the
-broader TCGplayer mapping migration is complete. TCGplayer provider-product
-Source Observations remain non-promotable until the active profile declares
-Catalog Item promotion capability and a valid promotion command plan. Its
-duplicate-prevention mapping still records review-only identity evidence such as
-sealed product form, barcode/GTIN values, and future bridge provider references.
+broader TCGplayer import workflow is enabled. TCGplayer provider-product Source
+Observations remain non-promotable until an active profile declares Catalog Item
+promotion capability and a valid promotion command plan. Its duplicate-prevention
+mapping still records review-only identity evidence such as sealed product form,
+barcode/GTIN values, and future bridge provider references.
+
+The automation client remains transport-owned code for cookie authentication,
+domain-specific HTTP clients, throttling, pagination, endpoint DTOs, and response
+shape audit fixtures. Runtime DTO adaptation may still assemble deterministic
+product-form, barcode, source hash, and selected-option context before invoking
+the profile contract; those helpers are not allowed to import price, listing,
+seller, inventory, order, or message facts into Catalog truth or hash material.
 
 ## Future Integrations
 
