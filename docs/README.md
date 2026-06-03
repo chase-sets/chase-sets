@@ -23,6 +23,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Email Delivery Completion Task List](./architecture/email-delivery-task-list.md): implementation checklist covering follow-up findings.
 - [UCP Agent Commerce](./architecture/ucp-agent-commerce.md): Universal Commerce Protocol facade, REST/MCP surfaces, and bounded-context ownership.
 - [ADR 0007: Google Shopping Merchant Center Integration](./adr/0007-google-shopping-merchant-center-integration.md): Merchant account posture, feed ownership, export projection, and launch exclusions.
+- [Discovery Google Shopping Feed Mapping](../bounded-contexts/discovery/docs/google-shopping-feed-mapping.md): product, offer, image, condition, shipping, returns, and eligibility mapping for Google Shopping rows.
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
 - [Marketplace OpenAPI](./api/marketplace.openapi.json): machine-readable API contract.
 - [UCP OpenAPI](./api/ucp.openapi.json): UCP REST transport contract.
@@ -70,6 +71,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Item Imagery](../bounded-contexts/catalog/docs/catalog-item-imagery.md)
 - [Notifications](../bounded-contexts/notifications/README.md)
 - [Discovery Dynamic Search Filters](../bounded-contexts/discovery/docs/dynamic-search-filters.md)
+- [Discovery Google Shopping Feed Mapping](../bounded-contexts/discovery/docs/google-shopping-feed-mapping.md)
 - [Discovery Product Alerts](../bounded-contexts/discovery/docs/product-alerts.md)
 - [Ordering Self-Service Purchase Cancellation](../bounded-contexts/ordering/docs/self-service-purchase-cancellation.md)
 - [Fulfillment Purchase Cancellation Cutoff](../bounded-contexts/fulfillment/docs/purchase-cancellation-cutoff.md)
