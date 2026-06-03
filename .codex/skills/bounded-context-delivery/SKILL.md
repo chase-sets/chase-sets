@@ -35,6 +35,7 @@ git -C main fetch origin main
 git -C main worktree add ../<yyyymmdd>-<feature-slug> -b codex/<feature-slug> origin/main
 ```
 
+- Treat the project folder as the checkout container: `main/` is the primary checkout with the common Git directory at `main/.git`, and each dated sibling worktree has its own `.git` indirection file.
 - Always branch from freshly fetched `origin/main`; do not branch from the current worktree `HEAD`.
 - If `origin/main` cannot be fetched or verified as current, pause and report the worktree setup blocker instead of creating a branch from stale local state.
 - Do not run `git switch`, `git checkout`, `git pull`, or other branch-changing commands in the `main/` checkout to prepare for planning; the `git worktree add ... -b ... origin/main` command creates and checks out the branch inside the new worktree.
