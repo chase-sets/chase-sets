@@ -372,6 +372,20 @@ describe("SourceObservationListPage", () => {
     expect(mockRevalidate).toHaveBeenCalled();
   });
 
+  it("shows TCGplayer product and merge evidence in review rows", () => {
+    render(
+      <SourceObservationListPage
+        data={{ items: [providerProductObservation()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgplayer" }}
+      />,
+    );
+
+    expect(screen.getAllByText("610001").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("2").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Pokemon").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("1 external reference(s)").length).toBeGreaterThan(0);
+  });
+
   it("resumes progress for an active bulk review job after page refresh", async () => {
     const refreshActiveJobs = vi.fn();
     let resolveWatch: (value: {
@@ -603,6 +617,69 @@ function sourceObservation(input: { observation_id: string; status: string; name
     status_reason: null,
     promoted_catalog_item_id: input.status === "promoted" ? "cat_existing" : null,
     promoted_at: input.status === "promoted" ? "2026-05-16T00:01:00.000Z" : null,
+    updated_at: "2026-05-16T00:00:00.000Z",
+  };
+}
+
+function providerProductObservation(): SourceObservationListItem {
+  return {
+    observation_id: "tcgplayer_en_product_610001",
+    provider_key: "tcgplayer",
+    external_key: "product:610001",
+    source_url: "https://mp-search-api.tcgplayer.com/v2/product/610001/details",
+    language_code: "en",
+    source_record_hash: "hash_tcgplayer_610001",
+    source_updated_at: null,
+    observed_at: "2026-05-16T00:00:00.000Z",
+    normalized: {
+      kind: "provider-product",
+      languageCode: "en",
+      name: "Eevee ex",
+      setName: "Prismatic Evolutions",
+      expansionName: "Prismatic Evolutions",
+      cardNumber: "131",
+      imageUrls: [],
+      mergeIdentity: {
+        tcg: "pokemon",
+        productLineName: "Pokemon",
+        setName: "Prismatic Evolutions",
+        printedProductName: "Eevee ex",
+        collectorNumber: "131",
+        languageCode: "en",
+      },
+      externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+      externalProductReferences: [],
+      providerProductId: "610001",
+      providerProductName: "Eevee ex",
+      productLineName: "Pokemon",
+      productCategoryName: "Cards",
+      skuReferences: [
+        {
+          providerKey: "tcgplayer",
+          externalKey: "sku:987654",
+          reviewEvidence: {
+            condition: "Near Mint",
+            printing: "Normal",
+            language: "English",
+            productForm: "single",
+          },
+        },
+        {
+          providerKey: "tcgplayer",
+          externalKey: "sku:987655",
+          reviewEvidence: {
+            condition: "Near Mint",
+            printing: "Holofoil",
+            language: "English",
+            productForm: "single",
+          },
+        },
+      ],
+    },
+    status: "observed",
+    status_reason: null,
+    promoted_catalog_item_id: null,
+    promoted_at: null,
     updated_at: "2026-05-16T00:00:00.000Z",
   };
 }

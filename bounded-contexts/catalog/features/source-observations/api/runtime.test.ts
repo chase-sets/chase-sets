@@ -1003,9 +1003,53 @@ describe("source observation runtime", () => {
         providerKey: "tcgplayer",
         queryKind: "languages",
       }),
-    ).rejects.toThrow(
-      "Catalog integration provider 'tcgplayer' is planned and does not yet support runtime option queries.",
+    ).rejects.toThrow("Unsupported Catalog integration query 'languages' for provider 'tcgplayer'.");
+  });
+
+  it("lists TCGplayer product-line and set-name options through the automation client", async () => {
+    const harness = createTcgplayerImportHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
     );
+
+    const productLines = await services.listIntegrationOptions({
+      providerKey: "tcgplayer",
+      queryKind: "product-lines",
+    });
+    const setNames = await services.listIntegrationOptions({
+      providerKey: "tcgplayer",
+      queryKind: "set-names",
+      parentValue: "3",
+    });
+
+    expect(productLines).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        queryKind: "product-lines",
+        value: "3",
+        label: "Pokemon",
+        metadata: expect.objectContaining({
+          productLineId: 3,
+          productLineUrlName: "pokemon",
+        }),
+      }),
+    ]);
+    expect(setNames).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        queryKind: "set-names",
+        value: "Prismatic Evolutions",
+        label: "Prismatic Evolutions",
+        parentValue: "3",
+        metadata: expect.objectContaining({
+          productLineId: 3,
+          setNameId: 7001,
+          cleanSetName: "Prismatic Evolutions",
+        }),
+      }),
+    ]);
   });
 
   it("imports TCGplayer set scopes as provider-product source observations", async () => {

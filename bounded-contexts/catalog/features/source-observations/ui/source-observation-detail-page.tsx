@@ -4,6 +4,7 @@ import { Button, Inline, KeyValueList, Stack, TextInput } from "@chase-sets/desi
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { promoteSourceObservation, rejectSourceObservation, useSourceObservation } from "./use-source-observations";
+import type { SourceObservationDetail } from "./contracts";
 
 export function SourceObservationDetailPage({
   id,
@@ -105,6 +106,7 @@ export function SourceObservationDetailPage({
                 key: t("catalog.features.sourceObservations.ui.detail.promoted.catalog.item"),
                 value: data.promoted_catalog_item_id ?? "—",
               },
+              ...providerProductDetailItems(data),
             ]}
           />
           {data.status === "observed" && (
@@ -118,4 +120,33 @@ export function SourceObservationDetailPage({
       )}
     </EntityDetailPage>
   );
+}
+
+function providerProductDetailItems(data: SourceObservationDetail) {
+  if (data.normalized.kind !== "provider-product") {
+    return [];
+  }
+
+  return [
+    {
+      key: t("catalog.features.sourceObservations.ui.detail.product.id"),
+      value: data.normalized.providerProductId,
+    },
+    {
+      key: t("catalog.features.sourceObservations.ui.detail.product.line"),
+      value: data.normalized.productLineName ?? "—",
+    },
+    {
+      key: t("catalog.features.sourceObservations.ui.detail.product.category"),
+      value: data.normalized.productCategoryName ?? "—",
+    },
+    {
+      key: t("catalog.features.sourceObservations.ui.detail.sku.count"),
+      value: String(data.normalized.skuReferences.length),
+    },
+    {
+      key: t("catalog.features.sourceObservations.ui.detail.sku.evidence"),
+      value: data.normalized.skuReferences.map((reference) => reference.externalKey).join(", ") || "—",
+    },
+  ];
 }

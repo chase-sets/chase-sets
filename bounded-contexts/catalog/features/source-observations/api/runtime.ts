@@ -2286,7 +2286,7 @@ export function createSourceObservationRuntime(
     listTcgdexLanguages: async () => listTcgdexLanguageOptions(),
     listTcgdexSeries: async ({ languageCode }) => fetchTcgdexSeriesOptions({ languageCode }),
     listTcgdexExpansions: async ({ languageCode, seriesId }) => fetchTcgdexExpansionOptions({ languageCode, seriesId }),
-    listIntegrationOptions: listProviderIntegrationOptions,
+    listIntegrationOptions: (input) => listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient),
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -2413,12 +2413,15 @@ export function createSourceObservationRuntime(
   };
 }
 
-async function listProviderIntegrationOptions(input: {
-  providerKey: string;
-  queryKind: string;
-  languageCode?: string | null;
-  parentValue?: string | null;
-}): Promise<readonly SourceObservationIntegrationOption[]> {
+async function listProviderIntegrationOptions(
+  input: {
+    providerKey: string;
+    queryKind: string;
+    languageCode?: string | null;
+    parentValue?: string | null;
+  },
+  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient,
+): Promise<readonly SourceObservationIntegrationOption[]> {
   const providerKey = normalizeIntegrationKey(input.providerKey || tcgdexPokemonTcgProviderProfile.providerKey);
   const queryKind = normalizeIntegrationKey(input.queryKind);
   const languageCode = normalizeIntegrationKey(input.languageCode || "en");
@@ -2445,6 +2448,15 @@ async function listProviderIntegrationOptions(input: {
   const profile = getCatalogProviderIntegrationProfile(providerKey);
   if (!profile) {
     throw new Error(`Unsupported Catalog integration provider: ${providerKey}.`);
+  }
+
+  if (profile.connector.kind === "tcgplayer-automation-client") {
+    return listTcgplayerIntegrationOptions({
+      providerKey: profile.providerKey,
+      queryKind,
+      parentValue,
+      client: tcgplayerAutomationCatalogClient,
+    });
   }
 
   if (profile.status !== "active" || profile.connector.kind !== "tcgdex-json") {
@@ -2515,6 +2527,86 @@ async function listProviderIntegrationOptions(input: {
       .map((query) => query.queryKind)
       .join(", ")}.`,
   );
+}
+
+async function listTcgplayerIntegrationOptions(input: {
+  providerKey: string;
+  queryKind: string;
+  parentValue: string | null;
+  client?: TcgplayerAutomationCatalogClient;
+}): Promise<readonly SourceObservationIntegrationOption[]> {
+  if (input.queryKind === "product-lines" || input.queryKind === "product-line" || input.queryKind === "categories") {
+    const client = requireTcgplayerAutomationCatalogClientForOptions(input.client);
+    const productLines = await client.listProductLines();
+    return productLines.map((item) => ({
+      providerKey: input.providerKey,
+      queryKind: "product-lines",
+      value: String(item.productLineId),
+      label: item.productLineName,
+      description: item.productLineUrlName || null,
+      parentValue: null,
+      imageUrl: null,
+      metadata: {
+        productLineId: item.productLineId,
+        productLineName: item.productLineName,
+        productLineUrlName: item.productLineUrlName,
+        isDirect: item.isDirect,
+      },
+    }));
+  }
+
+  if (input.queryKind === "set-names" || input.queryKind === "set-name" || input.queryKind === "sets") {
+    const client = requireTcgplayerAutomationCatalogClientForOptions(input.client);
+    const productLineId = parsePositiveInteger(input.parentValue);
+    if (productLineId === null) {
+      throw new Error("TCGplayer set-name option queries require a productLineId/categoryId parent value.");
+    }
+
+    const response = await client.listCatalogSetNames({ categoryId: productLineId });
+    return response.results
+      .filter((item) => item.active)
+      .map((item) => ({
+        providerKey: input.providerKey,
+        queryKind: "set-names",
+        value: item.cleanSetName,
+        label: item.name,
+        description: formatTcgplayerSetNameDescription(item.abbreviation, item.releaseDate),
+        parentValue: String(productLineId),
+        imageUrl: null,
+        metadata: {
+          productLineId,
+          setNameId: item.setNameId,
+          categoryId: item.categoryId,
+          cleanSetName: item.cleanSetName,
+          urlName: item.urlName,
+          abbreviation: item.abbreviation ?? null,
+          releaseDate: item.releaseDate ?? null,
+          isSupplemental: item.isSupplemental,
+          active: item.active,
+        },
+      }));
+  }
+
+  const profile = getCatalogProviderIntegrationProfile(input.providerKey);
+  throw new Error(
+    `Unsupported Catalog integration query '${input.queryKind}' for provider '${input.providerKey}'. Supported queries: ${
+      profile?.optionQueries.map((query) => query.queryKind).join(", ") ?? "product-lines, set-names"
+    }.`,
+  );
+}
+
+function requireTcgplayerAutomationCatalogClientForOptions(
+  client: TcgplayerAutomationCatalogClient | undefined,
+): TcgplayerAutomationCatalogClient {
+  if (!client) {
+    throw new Error("TCGplayer automation catalog client is required before TCGplayer runtime option queries can run.");
+  }
+
+  return client;
+}
+
+function formatTcgplayerSetNameDescription(abbreviation: string | undefined, releaseDate: string | undefined) {
+  return [abbreviation, releaseDate].filter(Boolean).join(" - ") || null;
 }
 
 function formatExpansionOptionDescription(item: TcgdexExpansionOption): string | null {
