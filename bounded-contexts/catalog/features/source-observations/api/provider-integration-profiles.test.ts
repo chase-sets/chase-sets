@@ -4,6 +4,7 @@ import {
   catalogProviderIntegrationProfileVersions,
   getActiveCatalogProviderIntegrationProfileVersion,
   getActiveCatalogProviderSourceObservationMappingContract,
+  getCatalogProviderSourceObservationMappingContract,
   getCatalogProviderIntegrationProfile,
   getCatalogProviderIntegrationProfileVersion,
   listCatalogProviderIntegrationProfiles,
@@ -236,7 +237,7 @@ describe("catalog provider integration profiles", () => {
 
     expect(versions.map((version) => [version.providerKey, version.profileVersion, version.lifecycle])).toEqual([
       ["tcgdex", "2026.06.03", "active"],
-      ["tcgplayer", "2026.06.02", "test"],
+      ["tcgplayer", "2026.06.03", "test"],
     ]);
     expect(getActiveCatalogProviderIntegrationProfileVersion("TCGDEX")).toMatchObject({
       providerKey: "tcgdex",
@@ -265,20 +266,33 @@ describe("catalog provider integration profiles", () => {
     expect(getCatalogProviderIntegrationProfileVersion("tcgplayer")).toMatchObject({
       providerKey: "tcgplayer",
       profileKey: "pokemon-tcg-automation-client",
+      profileVersion: "2026.06.03",
       active: false,
+      compatibilityMode: "executable-mapping-contract",
       sourceContract: {
         repository: "todd-skelton/tcgplayer-automation-app",
         commit: "bf42aa8",
         fixtureSetVersion: "automation-client-contract-v1",
       },
-      retirementPlan: {
-        trackingIssue: 621,
+      retirementPlan: null,
+      executableMappingContract: expect.objectContaining({
+        providerKey: "tcgplayer",
+        profileKey: "pokemon-tcg-automation-client",
+        profileVersion: "2026.06.03",
+        lifecycle: "test",
+        sourceObservation: expect.any(Object),
+      }),
+    });
+    expect(getCatalogProviderSourceObservationMappingContract("TCGPLAYER")).toMatchObject({
+      providerKey: "tcgplayer",
+      sourceObservation: {
+        observationId: expect.any(Object),
       },
     });
   });
 
   it("validates transitional static profile versions by requiring fixture coverage and a retirement path", () => {
-    const [, tcgplayerVersion] = catalogProviderIntegrationProfileVersions;
+    const tcgplayerVersion = transitionalStaticVersion();
 
     expect(validateCatalogProviderIntegrationProfileVersion(tcgplayerVersion)).toEqual([]);
     expect(
@@ -366,6 +380,22 @@ function executableVersion(
     compatibilityMode: "executable-mapping-contract",
     retirementPlan: null,
     executableMappingContract: contract,
+  };
+}
+
+function transitionalStaticVersion(): CatalogProviderIntegrationProfileVersionRecord {
+  const [, tcgplayerVersion] = catalogProviderIntegrationProfileVersions;
+  return {
+    ...tcgplayerVersion,
+    profileVersion: "2026.06.02",
+    compatibilityMode: "transitional-static-profile",
+    retirementPlan: {
+      trackingIssue: 621,
+      removeAfter: "executable-mapping-contract-activated",
+      diagnosticText:
+        "Retire the static TCGplayer automation profile wrapper after the executable mapping contract covers product lines, set names, product details, SKUs, selected Options, and external references.",
+    },
+    executableMappingContract: undefined,
   };
 }
 

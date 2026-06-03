@@ -12,6 +12,7 @@ import {
   validateCatalogProviderExecutableMappingContract,
 } from "./provider-integration-mapping-contract";
 import type { CatalogProviderSourceObservationMappingContract } from "./provider-source-observation-normalizer";
+import { tcgplayerProviderProductSourceObservationMappingContract } from "./tcgplayer-executable-mapping-contract";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "./tcgdex-executable-mapping-contract";
 
 export type CatalogProviderCapability =
@@ -1181,29 +1182,15 @@ export const catalogProviderIntegrationProfileVersions = [
   {
     providerKey: "tcgplayer",
     profileKey: "pokemon-tcg-automation-client",
-    profileVersion: "2026.06.02",
+    profileVersion: "2026.06.03",
     lifecycle: "test",
     active: false,
     profile: tcgplayerAutomationClientProviderProfile,
-    sourceContract: {
-      owner: "todd-skelton",
-      repository: "todd-skelton/tcgplayer-automation-app",
-      commit: "bf42aa8",
-      documentPath: "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
-      fixtureSetVersion: "automation-client-contract-v1",
-    },
-    fixtures: {
-      fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-automation",
-      coveredFlows: catalogProviderRequiredFixtureFlows,
-      liveProviderCallsAllowed: false,
-    },
-    compatibilityMode: "transitional-static-profile",
-    retirementPlan: {
-      trackingIssue: 621,
-      removeAfter: "executable-mapping-contract-activated",
-      diagnosticText:
-        "Retire the static TCGplayer automation profile wrapper after the executable mapping contract covers product lines, set names, product details, SKUs, selected Options, and external references.",
-    },
+    sourceContract: tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
+    fixtures: tcgplayerProviderProductSourceObservationMappingContract.fixtures,
+    compatibilityMode: "executable-mapping-contract",
+    retirementPlan: null,
+    executableMappingContract: tcgplayerProviderProductSourceObservationMappingContract,
   },
 ] as const satisfies readonly CatalogProviderIntegrationProfileVersionRecord[];
 
@@ -1280,6 +1267,36 @@ export function requireActiveCatalogProviderSourceObservationMappingContract(
   const contract = getActiveCatalogProviderSourceObservationMappingContract(providerKey, versions);
   if (!contract) {
     throw new Error(`Catalog provider '${providerKey}' does not have an active Source Observation mapping contract.`);
+  }
+
+  return contract;
+}
+
+export function getCatalogProviderSourceObservationMappingContract(
+  providerKey: string,
+  profileVersion?: string | null,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): CatalogProviderSourceObservationMappingContract | null {
+  const contract = getCatalogProviderIntegrationProfileVersion(
+    providerKey,
+    profileVersion,
+    versions,
+  )?.executableMappingContract;
+  if (!contract?.sourceObservation) {
+    return null;
+  }
+
+  return contract as CatalogProviderSourceObservationMappingContract;
+}
+
+export function requireCatalogProviderSourceObservationMappingContract(
+  providerKey: string,
+  profileVersion?: string | null,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): CatalogProviderSourceObservationMappingContract {
+  const contract = getCatalogProviderSourceObservationMappingContract(providerKey, profileVersion, versions);
+  if (!contract) {
+    throw new Error(`Catalog provider '${providerKey}' does not have a Source Observation mapping contract.`);
   }
 
   return contract;
