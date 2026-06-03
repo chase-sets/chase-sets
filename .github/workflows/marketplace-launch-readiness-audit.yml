@@ -1,0 +1,324 @@
+name: Marketplace Launch Readiness Audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment_name:
+        description: GitHub Environment to inspect.
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+      public_copy_base_url:
+        description: Public Presence base URL to audit.
+        required: true
+        default: https://www.chasesets.com
+        type: string
+      public_copy_mode:
+        description: Public Presence copy posture to audit.
+        required: true
+        default: prelaunch
+        type: choice
+        options:
+          - prelaunch
+          - launch
+          - both
+      include_proof_readiness:
+        description: Run private production proof readiness.
+        required: true
+        default: true
+        type: boolean
+      include_launch_readiness:
+        description: Run final production launch readiness.
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-launch-readiness-audit-${{ inputs.environment_name }}
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    name: Launch Readiness Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: ${{ inputs.environment_name }}
+    env:
+      AUDIT_ENVIRONMENT_NAME: ${{ inputs.environment_name }}
+      PUBLIC_COPY_BASE_URL: ${{ inputs.public_copy_base_url }}
+      PUBLIC_COPY_MODE: ${{ inputs.public_copy_mode }}
+      INCLUDE_PROOF_READINESS: ${{ inputs.include_proof_readiness }}
+      INCLUDE_LAUNCH_READINESS: ${{ inputs.include_launch_readiness }}
+      ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS: ${{ vars.ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS }}
+      PRODUCTION_MARKETPLACE_PUBLIC_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PUBLIC_ENABLED }}
+      PRODUCTION_MARKETPLACE_PROOF_ENABLED: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED }}
+      PRODUCTION_MARKETPLACE_PROOF_REFERENCE: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE }}
+      PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE: ${{ vars.PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE }}
+      PRODUCTION_MARKETPLACE_PROMOTION_APPROVED: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_APPROVED }}
+      PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE: ${{ vars.PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE }}
+      PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED }}
+      PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE: ${{ vars.PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE }}
+      PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED }}
+      PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE: ${{ vars.PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE }}
+      PRODUCTION_SUPPORT_OPERATIONS_APPROVED: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_APPROVED }}
+      PRODUCTION_SUPPORT_OPERATIONS_REFERENCE: ${{ vars.PRODUCTION_SUPPORT_OPERATIONS_REFERENCE }}
+      PRODUCTION_FULFILLMENT_POSTAGE_APPROVED: ${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_APPROVED }}
+      PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE: ${{ vars.PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE }}
+      PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED: ${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED }}
+      PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE: ${{ vars.PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE }}
+      PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED }}
+      PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE: ${{ vars.PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE }}
+      PRODUCTION_TAX_READINESS_APPROVED: ${{ vars.PRODUCTION_TAX_READINESS_APPROVED }}
+      PRODUCTION_TAX_READINESS_REFERENCE: ${{ vars.PRODUCTION_TAX_READINESS_REFERENCE }}
+      TAX_PROVIDER_BACKED_QUOTES_REQUIRED: ${{ vars.TAX_PROVIDER_BACKED_QUOTES_REQUIRED }}
+      EASYPOST_MODE: ${{ vars.EASYPOST_MODE }}
+      NOTIFICATION_EMAIL_PROVIDER: ${{ vars.NOTIFICATION_EMAIL_PROVIDER }}
+      SES_AWS_REGION: ${{ vars.SES_AWS_REGION }}
+      SES_CONFIGURATION_SET_NAME: ${{ vars.SES_CONFIGURATION_SET_NAME }}
+      SES_FROM_EMAIL: ${{ vars.SES_FROM_EMAIL }}
+      STRIPE_API_BASE_URL: ${{ vars.STRIPE_API_BASE_URL }}
+      EASYPOST_API_BASE_URL: ${{ vars.EASYPOST_API_BASE_URL }}
+      HAS_STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY != '' && 'present' || '' }}
+      HAS_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY != '' && 'present' || '' }}
+      HAS_STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET != '' && 'present' || '' }}
+      HAS_STRIPE_CONNECT_WEBHOOK_SECRET: ${{ secrets.STRIPE_CONNECT_WEBHOOK_SECRET != '' && 'present' || '' }}
+      HAS_EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY != '' && 'present' || '' }}
+      HAS_EASYPOST_WEBHOOK_SECRET: ${{ secrets.EASYPOST_WEBHOOK_SECRET != '' && 'present' || '' }}
+      HAS_SES_AWS_ACCESS_KEY_ID: ${{ secrets.SES_AWS_ACCESS_KEY_ID != '' && 'present' || '' }}
+      HAS_SES_AWS_SECRET_ACCESS_KEY: ${{ secrets.SES_AWS_SECRET_ACCESS_KEY != '' && 'present' || '' }}
+      HAS_SES_SOURCE_ARN: ${{ secrets.SES_SOURCE_ARN != '' && 'present' || '' }}
+      HAS_CHASE_SETS_DISCORD_INVITE_URL: ${{ secrets.CHASE_SETS_DISCORD_INVITE_URL != '' && 'present' || '' }}
+      HAS_DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN != '' && 'present' || '' }}
+      HAS_SPACES_ACCESS_ID: ${{ secrets.SPACES_ACCESS_ID != '' && 'present' || '' }}
+      HAS_SPACES_SECRET_KEY: ${{ secrets.SPACES_SECRET_KEY != '' && 'present' || '' }}
+      HAS_PLATFORM_INTERNAL_AUTH_SECRET: ${{ secrets.PLATFORM_INTERNAL_AUTH_SECRET != '' && 'present' || '' }}
+      HAS_PLATFORM_ADMIN_EMAIL: ${{ secrets.PLATFORM_ADMIN_EMAIL != '' && 'present' || '' }}
+      HAS_PLATFORM_ADMIN_PASSWORD: ${{ secrets.PLATFORM_ADMIN_PASSWORD != '' && 'present' || '' }}
+      HAS_GOOGLE_SOCIAL_LOGIN_CLIENT_ID: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_ID != '' && 'present' || '' }}
+      HAS_GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET: ${{ secrets.GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET != '' && 'present' || '' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Build GitHub Environment metadata snapshots
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/marketplace-launch-readiness-audit
+          node <<'NODE'
+          const fs = require("node:fs");
+          const artifactDir = "artifacts/marketplace-launch-readiness-audit";
+          const variableNames = [
+            "ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS",
+            "PRODUCTION_MARKETPLACE_PUBLIC_ENABLED",
+            "PRODUCTION_MARKETPLACE_PROOF_ENABLED",
+            "PRODUCTION_MARKETPLACE_PROOF_REFERENCE",
+            "PRODUCTION_MARKETPLACE_LAUNCH_EVIDENCE_REFERENCE",
+            "PRODUCTION_MARKETPLACE_PROMOTION_APPROVED",
+            "PRODUCTION_MARKETPLACE_PROMOTION_REFERENCE",
+            "PRODUCTION_MARKETPLACE_CHECKOUT_FEE_APPROVED",
+            "PRODUCTION_MARKETPLACE_CHECKOUT_FEE_REFERENCE",
+            "PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED",
+            "PRODUCTION_STRIPE_MONEY_OPERATIONS_REFERENCE",
+            "PRODUCTION_SUPPORT_OPERATIONS_APPROVED",
+            "PRODUCTION_SUPPORT_OPERATIONS_REFERENCE",
+            "PRODUCTION_FULFILLMENT_POSTAGE_APPROVED",
+            "PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE",
+            "PRODUCTION_TRANSACTIONAL_EMAIL_APPROVED",
+            "PRODUCTION_TRANSACTIONAL_EMAIL_REFERENCE",
+            "PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_APPROVED",
+            "PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE",
+            "PRODUCTION_TAX_READINESS_APPROVED",
+            "PRODUCTION_TAX_READINESS_REFERENCE",
+            "TAX_PROVIDER_BACKED_QUOTES_REQUIRED",
+            "EASYPOST_MODE",
+            "NOTIFICATION_EMAIL_PROVIDER",
+            "SES_AWS_REGION",
+            "SES_CONFIGURATION_SET_NAME",
+            "SES_FROM_EMAIL",
+            "STRIPE_API_BASE_URL",
+            "EASYPOST_API_BASE_URL",
+          ];
+          const secretNames = [
+            "STRIPE_SECRET_KEY",
+            "STRIPE_PUBLISHABLE_KEY",
+            "STRIPE_WEBHOOK_SECRET",
+            "STRIPE_CONNECT_WEBHOOK_SECRET",
+            "EASYPOST_API_KEY",
+            "EASYPOST_WEBHOOK_SECRET",
+            "SES_AWS_ACCESS_KEY_ID",
+            "SES_AWS_SECRET_ACCESS_KEY",
+            "SES_SOURCE_ARN",
+            "CHASE_SETS_DISCORD_INVITE_URL",
+            "DIGITALOCEAN_ACCESS_TOKEN",
+            "SPACES_ACCESS_ID",
+            "SPACES_SECRET_KEY",
+            "PLATFORM_INTERNAL_AUTH_SECRET",
+            "PLATFORM_ADMIN_EMAIL",
+            "PLATFORM_ADMIN_PASSWORD",
+            "GOOGLE_SOCIAL_LOGIN_CLIENT_ID",
+            "GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET",
+          ];
+          const variables = variableNames.map((name) => ({
+            name,
+            value: process.env[name] ?? "",
+          }));
+          const secrets = secretNames
+            .filter((name) => process.env[`HAS_${name}`] === "present")
+            .map((name) => ({ name }));
+          fs.writeFileSync(`${artifactDir}/github-environment-variables.json`, `${JSON.stringify(variables, null, 2)}\n`);
+          fs.writeFileSync(`${artifactDir}/github-environment-secrets.json`, `${JSON.stringify(secrets, null, 2)}\n`);
+          NODE
+
+      - name: Run production proof readiness
+        if: inputs.include_proof_readiness == true
+        run: |
+          set -euo pipefail
+          artifact_dir="artifacts/marketplace-launch-readiness-audit"
+          exit_code=0
+          pnpm run marketplace:production-proof-readiness -- \
+            --variables "$artifact_dir/github-environment-variables.json" \
+            --secrets "$artifact_dir/github-environment-secrets.json" \
+            --environment "$AUDIT_ENVIRONMENT_NAME" \
+            > "$artifact_dir/production-proof-readiness.json" || exit_code=$?
+          echo "$exit_code" > "$artifact_dir/production-proof-readiness.exit-code"
+          if [ "$exit_code" -gt 1 ]; then
+            exit "$exit_code"
+          fi
+
+      - name: Run production launch readiness
+        if: inputs.include_launch_readiness == true
+        run: |
+          set -euo pipefail
+          artifact_dir="artifacts/marketplace-launch-readiness-audit"
+          exit_code=0
+          pnpm run marketplace:production-launch-readiness -- \
+            --variables "$artifact_dir/github-environment-variables.json" \
+            --secrets "$artifact_dir/github-environment-secrets.json" \
+            --environment "$AUDIT_ENVIRONMENT_NAME" \
+            > "$artifact_dir/production-launch-readiness.json" || exit_code=$?
+          echo "$exit_code" > "$artifact_dir/production-launch-readiness.exit-code"
+          if [ "$exit_code" -gt 1 ]; then
+            exit "$exit_code"
+          fi
+
+      - name: Run Public Presence copy audit
+        run: |
+          set -euo pipefail
+          artifact_dir="artifacts/marketplace-launch-readiness-audit"
+          run_audit() {
+            local mode="$1"
+            local exit_code=0
+            pnpm run marketplace:public-presence-copy-audit -- \
+              --base-url "$PUBLIC_COPY_BASE_URL" \
+              --mode "$mode" \
+              > "$artifact_dir/public-presence-copy-audit-${mode}.json" || exit_code=$?
+            echo "$exit_code" > "$artifact_dir/public-presence-copy-audit-${mode}.exit-code"
+            if [ "$exit_code" -gt 1 ]; then
+              exit "$exit_code"
+            fi
+          }
+          case "$PUBLIC_COPY_MODE" in
+            prelaunch) run_audit prelaunch ;;
+            launch) run_audit launch ;;
+            both)
+              run_audit prelaunch
+              run_audit launch
+              ;;
+            *)
+              echo "Unsupported public copy mode '$PUBLIC_COPY_MODE'." >&2
+              exit 2
+              ;;
+          esac
+
+      - name: Summarize launch readiness audit
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require("node:fs");
+          const path = require("node:path");
+          const artifactDir = "artifacts/marketplace-launch-readiness-audit";
+          const readJson = (name) => {
+            const file = path.join(artifactDir, name);
+            return fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
+          };
+          const readExitCode = (name) => {
+            const file = path.join(artifactDir, name);
+            return fs.existsSync(file) ? Number(fs.readFileSync(file, "utf8").trim()) : null;
+          };
+          const copyAudits = {};
+          for (const mode of ["prelaunch", "launch"]) {
+            const audit = readJson(`public-presence-copy-audit-${mode}.json`);
+            if (audit) {
+              copyAudits[mode] = {
+                exitCode: readExitCode(`public-presence-copy-audit-${mode}.exit-code`),
+                passes: audit.passesPublicPresenceCopyAudit,
+                requiredPageCount: audit.requiredPageCount,
+                futureOnlyLaunchCopyRemoved: audit.futureOnlyLaunchCopyRemoved,
+                uncertifiedClaimsAbsent: audit.uncertifiedClaimsAbsent,
+                errors: audit.errors ?? [],
+              };
+            }
+          }
+          const proof = readJson("production-proof-readiness.json");
+          const launch = readJson("production-launch-readiness.json");
+          const summary = {
+            schemaVersion: "marketplace-launch-readiness-audit/v1",
+            environmentName: process.env.AUDIT_ENVIRONMENT_NAME,
+            checkedAt: new Date().toISOString(),
+            releaseCommit: process.env.GITHUB_SHA,
+            githubRunId: process.env.GITHUB_RUN_ID,
+            githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            proofReadiness: proof
+              ? {
+                  exitCode: readExitCode("production-proof-readiness.exit-code"),
+                  passes: proof.passesProductionProofReadinessGate,
+                  missingVariables: proof.missingVariables ?? [],
+                  missingSecrets: proof.missingSecrets ?? [],
+                  errors: proof.errors ?? [],
+                }
+              : null,
+            launchReadiness: launch
+              ? {
+                  exitCode: readExitCode("production-launch-readiness.exit-code"),
+                  passes: launch.passesProductionLaunchReadinessGate,
+                  missingVariables: launch.missingVariables ?? [],
+                  missingSecrets: launch.missingSecrets ?? [],
+                  errors: launch.errors ?? [],
+                }
+              : null,
+            publicPresenceCopyAudits: copyAudits,
+          };
+          fs.writeFileSync(path.join(artifactDir, "marketplace-launch-readiness-audit-summary.json"), `${JSON.stringify(summary, null, 2)}\n`);
+          const lines = [
+            "### Marketplace launch readiness audit",
+            "",
+            `- Environment: ${summary.environmentName}`,
+            `- Release commit: ${summary.releaseCommit}`,
+          ];
+          if (summary.proofReadiness) {
+            lines.push(`- Proof readiness passed: ${summary.proofReadiness.passes}`);
+          }
+          if (summary.launchReadiness) {
+            lines.push(`- Launch readiness passed: ${summary.launchReadiness.passes}`);
+          }
+          for (const [mode, audit] of Object.entries(copyAudits)) {
+            lines.push(`- Public copy ${mode} audit passed: ${audit.passes}`);
+          }
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Upload launch readiness audit
+        uses: actions/upload-artifact@v7
+        with:
+          name: marketplace-launch-readiness-audit-${{ inputs.environment_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/marketplace-launch-readiness-audit
+          if-no-files-found: error
+          retention-days: 30
