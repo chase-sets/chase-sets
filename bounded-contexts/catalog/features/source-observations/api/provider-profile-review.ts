@@ -12,9 +12,13 @@ import type {
 import { evaluateCatalogProviderMappingExpression } from "./provider-mapping-interpreter";
 import type { CatalogProviderMappingInterpreterDiagnostic } from "./provider-mapping-interpreter";
 import {
+  catalogProviderSourceMappingFingerprint,
   normalizeCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
+
+type SourceObservationProfileVersionRecord = CatalogProviderIntegrationProfileVersionRecord &
+  Readonly<{ executableMappingContract: CatalogProviderSourceObservationMappingContract }>;
 
 export type CatalogProviderProfileReviewDiagnostic = Readonly<{
   code: string;
@@ -188,6 +192,7 @@ export async function activateCatalogProviderProfileVersionForReview(input: {
   providerKey: string;
   profileVersion: string;
 }): Promise<CatalogProviderProfileVersionReview> {
+  await assertMigrationEvidenceForActivation(input);
   const activated = await input.store.activateProfileVersion(input.providerKey, input.profileVersion);
   return toProfileVersionReview(activated);
 }
@@ -301,6 +306,49 @@ function isSourceObservationContract(
   return Boolean(contract?.sourceObservation);
 }
 
+function isSourceObservationProfileVersion(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): version is SourceObservationProfileVersionRecord {
+  return isSourceObservationContract(version.executableMappingContract);
+}
+
+async function assertMigrationEvidenceForActivation(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  providerKey: string;
+  profileVersion: string;
+}) {
+  const versions = await input.store.listProfileVersions();
+  const target = versions
+    .filter(isSourceObservationProfileVersion)
+    .find((version) => version.providerKey === input.providerKey && version.profileVersion === input.profileVersion);
+  const active = versions
+    .filter(isSourceObservationProfileVersion)
+    .find((version) => version.providerKey === input.providerKey && version.active && version.lifecycle === "active");
+
+  if (!target || !active || target.profileVersion === active.profileVersion) {
+    return;
+  }
+
+  const targetFingerprint = catalogProviderSourceMappingFingerprint(target.executableMappingContract);
+  const activeFingerprint = catalogProviderSourceMappingFingerprint(active.executableMappingContract);
+  if (targetFingerprint === activeFingerprint || hasMigrationEvidence(target)) {
+    return;
+  }
+
+  throw new Error(
+    `Activating ${target.providerKey}@${target.profileVersion} changes Source Observation mapping fingerprint and requires explicit migration evidence before activation.`,
+  );
+}
+
+function hasMigrationEvidence(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
+  const evidence = (version as { migrationEvidence?: unknown }).migrationEvidence;
+  if (!isJsonObject(evidence)) {
+    return false;
+  }
+
+  return typeof evidence.evidenceText === "string" && evidence.evidenceText.trim().length > 0;
+}
+
 function redactJson(value: JsonValue, redaction: string = "none"): JsonValue {
   if (redaction !== "none") {
     return `[redacted:${redaction}]`;
@@ -323,6 +371,6 @@ function shouldRedactKey(key: string): boolean {
   return /cookie|auth|secret|token|password|seller|listing|price|inventory/i.test(key);
 }
 
-function isJsonObject(value: JsonValue): value is JsonObject {
+function isJsonObject(value: unknown): value is JsonObject {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -18,6 +18,7 @@ describe("planCatalogProviderPromotionCommands", () => {
   it("plans the TCGdex Pokemon card create command sequence from profile catalog mapping", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: tcgdexPokemonTcgProviderProfile,
+      ...profileIdentity(),
       providerKey: "tcgdex",
       externalKey: "swsh1-001",
       mode: "create",
@@ -92,6 +93,7 @@ describe("planCatalogProviderPromotionCommands", () => {
   it("plans refresh without blueprint or category assignment and clears missing asset sets", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: tcgdexPokemonTcgProviderProfile,
+      ...profileIdentity(),
       providerKey: "tcgdex",
       externalKey: "swsh1-001",
       mode: "refresh",
@@ -128,6 +130,7 @@ describe("planCatalogProviderPromotionCommands", () => {
   it("omits optional Pokemon card field commands when normalized values are absent", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: tcgdexPokemonTcgProviderProfile,
+      ...profileIdentity(),
       providerKey: "tcgdex",
       externalKey: "swsh1-001",
       mode: "create",
@@ -152,6 +155,8 @@ describe("planCatalogProviderPromotionCommands", () => {
   it("blocks provider-product observations until the profile declares a valid promotion plan", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: tcgplayerAutomationClientProviderProfile,
+      profileKey: "pokemon-tcg-automation-client",
+      profileVersion: "2026.06.03",
       providerKey: "tcgplayer",
       externalKey: "product:12345",
       mode: "create",
@@ -176,6 +181,7 @@ describe("planCatalogProviderPromotionCommands", () => {
   it("blocks ambiguous duplicate candidates before returning executable commands", () => {
     const result = planCatalogProviderPromotionCommands({
       profile: tcgdexPokemonTcgProviderProfile,
+      ...profileIdentity(),
       providerKey: "tcgdex",
       externalKey: "swsh1-001",
       mode: "refresh",
@@ -206,6 +212,13 @@ describe("planCatalogProviderPromotionCommands", () => {
     });
   });
 });
+
+function profileIdentity() {
+  return {
+    profileKey: "pokemon-tcg",
+    profileVersion: "2026.06.03",
+  };
+}
 
 function catalogMapping(): CatalogProviderPromotionResolvedCatalogMapping {
   return {

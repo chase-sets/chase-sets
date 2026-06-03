@@ -60,12 +60,18 @@ describe("Source Observation projections", () => {
       "hash",
       null,
       "2026-05-28T14:04:00.000Z",
+      "legacy",
+      "legacy",
+      "legacy",
       JSON.stringify(normalized),
       JSON.stringify({ id: "base1-43" }),
       "promoted",
       null,
       "cat_1",
       "2026-05-28T14:00:00.000Z",
+      null,
+      null,
+      null,
       "2026-05-28T14:05:00.000Z",
     ]);
     expect(query.mock.calls[0]?.[0]).toContain("ON CONFLICT (observation_id) DO UPDATE");
@@ -85,7 +91,7 @@ describe("Source Observation projections", () => {
     expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO catalog_source_observations");
     expect(query.mock.calls[0]?.[0]).toContain("ON CONFLICT (observation_id) DO UPDATE");
     expect(query.mock.calls[0]?.[0]).not.toContain("promoted_catalog_item_id = EXCLUDED.promoted_catalog_item_id");
-    expect(query.mock.calls[0]?.[1]?.[10]).toBe("changed");
+    expect(query.mock.calls[0]?.[1]?.[13]).toBe("changed");
   });
 });
 

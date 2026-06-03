@@ -2,6 +2,7 @@ import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type {
   SourceObservationExternalProductReference,
   SourceObservationProviderProductNormalized,
+  SourceObservationSourceProfileEvidence,
 } from "../domain/domain";
 import {
   requireCatalogProviderSourceObservationMappingContract,
@@ -131,18 +132,19 @@ export type TcgplayerAutomationProductSku = Readonly<{
   language: string;
 }>;
 
-export type TcgplayerAutomationSourceObservationInput = Readonly<{
-  observationId: string;
-  providerKey: "tcgplayer";
-  externalKey: string;
-  sourceUrl: string;
-  languageCode: string;
-  sourceRecordHash: string;
-  sourceUpdatedAt: string | null;
-  observedAt: string;
-  normalized: SourceObservationProviderProductNormalized;
-  sourcePayload: JsonValue;
-}>;
+export type TcgplayerAutomationSourceObservationInput = SourceObservationSourceProfileEvidence &
+  Readonly<{
+    observationId: string;
+    providerKey: "tcgplayer";
+    externalKey: string;
+    sourceUrl: string;
+    languageCode: string;
+    sourceRecordHash: string;
+    sourceUpdatedAt: string | null;
+    observedAt: string;
+    normalized: SourceObservationProviderProductNormalized;
+    sourcePayload: JsonValue;
+  }>;
 
 export type TcgplayerProductReferenceSchema = CatalogProviderProductReferenceSchema;
 

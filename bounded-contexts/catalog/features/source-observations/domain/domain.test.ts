@@ -50,6 +50,9 @@ describe("source observation domain", () => {
     sourceRecordHash: "hash",
     sourceUpdatedAt: null,
     observedAt: "2026-05-15T00:00:00.000Z",
+    sourceProfileKey: "pokemon-tcg",
+    sourceProfileVersion: "2026.06.03",
+    sourceMappingFingerprint: "mapping-fingerprint",
     normalized,
     sourcePayload: { id: "swsh3-136" },
   } as const;
@@ -71,6 +74,9 @@ describe("source observation domain", () => {
       type: "PromoteSourceObservation",
       catalogItemId: "cat_1",
       promotedAt: "2026-05-15T00:01:00.000Z",
+      promotionProfileKey: "pokemon-tcg",
+      promotionProfileVersion: "2026.06.03",
+      promotionPlanFingerprint: "plan-fingerprint",
     });
 
     expect(evolveSourceObservation(state, promoted[0])).toMatchObject({
@@ -112,6 +118,9 @@ describe("source observation domain", () => {
       type: "PromoteSourceObservation",
       catalogItemId: "cat_1",
       promotedAt: "2026-05-15T00:01:00.000Z",
+      promotionProfileKey: "pokemon-tcg",
+      promotionProfileVersion: "2026.06.03",
+      promotionPlanFingerprint: "plan-fingerprint",
     })[0];
     const promoted = evolveSourceObservation(observed, promotedEvent);
 
@@ -172,6 +181,9 @@ describe("source observation domain", () => {
         type: "PromoteSourceObservation",
         catalogItemId: "cat_1",
         promotedAt: "2026-05-15T00:01:00.000Z",
+        promotionProfileKey: "pokemon-tcg",
+        promotionProfileVersion: "2026.06.03",
+        promotionPlanFingerprint: "plan-fingerprint",
       }),
     ).toThrow("Only observed or changed source observations can be promoted.");
   });
@@ -183,6 +195,9 @@ describe("source observation domain", () => {
       type: "PromoteSourceObservation",
       catalogItemId: "cat_1",
       promotedAt: "2026-05-15T00:01:00.000Z",
+      promotionProfileKey: "pokemon-tcg",
+      promotionProfileVersion: "2026.06.03",
+      promotionPlanFingerprint: "plan-fingerprint",
     })[0];
     const promoted = evolveSourceObservation(observed, promotedEvent);
 
@@ -205,6 +220,9 @@ describe("source observation domain", () => {
       type: "PromoteSourceObservation",
       catalogItemId: "cat_1",
       promotedAt: "2026-05-15T00:10:00.000Z",
+      promotionProfileKey: "pokemon-tcg",
+      promotionProfileVersion: "2026.06.03",
+      promotionPlanFingerprint: "plan-fingerprint-2",
     })[0];
 
     expect(evolveSourceObservation(changed, refreshedPromotion)).toMatchObject({

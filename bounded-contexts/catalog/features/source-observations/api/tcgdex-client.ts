@@ -1,5 +1,5 @@
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
-import type { SourceObservationPokemonCardNormalized } from "../domain/domain";
+import type { SourceObservationPokemonCardNormalized, SourceObservationSourceProfileEvidence } from "../domain/domain";
 import type { CatalogAssetStorage } from "./asset-storage";
 import { normalizeProductAssetSet, type CatalogImageProcessor } from "./product-asset-normalization";
 import {
@@ -104,18 +104,19 @@ export type TcgdexCard = Readonly<{
   pricing?: JsonRecord;
 }>;
 
-export type TcgdexObservationInput = Readonly<{
-  observationId: string;
-  providerKey: typeof PROVIDER_KEY;
-  externalKey: string;
-  sourceUrl: string;
-  languageCode: string;
-  sourceRecordHash: string;
-  sourceUpdatedAt: string | null;
-  observedAt: string;
-  normalized: SourceObservationPokemonCardNormalized;
-  sourcePayload: JsonValue;
-}>;
+export type TcgdexObservationInput = SourceObservationSourceProfileEvidence &
+  Readonly<{
+    observationId: string;
+    providerKey: typeof PROVIDER_KEY;
+    externalKey: string;
+    sourceUrl: string;
+    languageCode: string;
+    sourceRecordHash: string;
+    sourceUpdatedAt: string | null;
+    observedAt: string;
+    normalized: SourceObservationPokemonCardNormalized;
+    sourcePayload: JsonValue;
+  }>;
 
 type PokemonCardVariant = Readonly<{
   key: string;

@@ -10,20 +10,39 @@ export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS cat
   source_record_hash text NOT NULL,
   source_updated_at timestamptz NULL,
   observed_at timestamptz NOT NULL,
+  source_profile_key text NOT NULL DEFAULT 'legacy',
+  source_profile_version text NOT NULL DEFAULT 'legacy',
+  source_mapping_fingerprint text NOT NULL DEFAULT 'legacy',
   normalized jsonb NOT NULL,
   source_payload jsonb NOT NULL,
   status text NOT NULL DEFAULT 'observed',
   status_reason text NULL,
   promoted_catalog_item_id text NULL,
   promoted_at timestamptz NULL,
+  promotion_profile_key text NULL,
+  promotion_profile_version text NULL,
+  promotion_plan_fingerprint text NULL,
   updated_at timestamptz NOT NULL DEFAULT now(),
   UNIQUE (provider_key, language_code, external_key)
 );
+
+ALTER TABLE catalog_source_observations
+  ADD COLUMN IF NOT EXISTS source_profile_key text NOT NULL DEFAULT 'legacy',
+  ADD COLUMN IF NOT EXISTS source_profile_version text NOT NULL DEFAULT 'legacy',
+  ADD COLUMN IF NOT EXISTS source_mapping_fingerprint text NOT NULL DEFAULT 'legacy',
+  ADD COLUMN IF NOT EXISTS promotion_profile_key text NULL,
+  ADD COLUMN IF NOT EXISTS promotion_profile_version text NULL,
+  ADD COLUMN IF NOT EXISTS promotion_plan_fingerprint text NULL;
 
 CREATE INDEX IF NOT EXISTS catalog_source_observations_provider_idx
   ON catalog_source_observations (provider_key, language_code);
 CREATE INDEX IF NOT EXISTS catalog_source_observations_status_idx
   ON catalog_source_observations (status);
+CREATE INDEX IF NOT EXISTS catalog_source_observations_source_profile_idx
+  ON catalog_source_observations (provider_key, source_profile_version);
+CREATE INDEX IF NOT EXISTS catalog_source_observations_promotion_profile_idx
+  ON catalog_source_observations (provider_key, promotion_profile_version)
+  WHERE promotion_profile_version IS NOT NULL;
 CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
   ON catalog_source_observations USING gin (
     to_tsvector(

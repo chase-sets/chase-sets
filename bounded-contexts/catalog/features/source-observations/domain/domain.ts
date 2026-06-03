@@ -5,6 +5,18 @@ import { assert, assertNever } from "../../../support/runtime-support/common";
 
 export type SourceObservationStatus = "observed" | "changed" | "promoted" | "rejected";
 
+export type SourceObservationSourceProfileEvidence = Readonly<{
+  sourceProfileKey: string;
+  sourceProfileVersion: string;
+  sourceMappingFingerprint: string;
+}>;
+
+export type SourceObservationPromotionProfileEvidence = Readonly<{
+  promotionProfileKey: string;
+  promotionProfileVersion: string;
+  promotionPlanFingerprint: string;
+}>;
+
 export type SourceObservationExternalCatalogItemReference = Readonly<{
   providerKey: string;
   externalKey: string;
@@ -111,12 +123,18 @@ export type SourceObservationState = Readonly<{
   sourceRecordHash: string;
   sourceUpdatedAt: string | null;
   observedAt: string | null;
+  sourceProfileKey: string;
+  sourceProfileVersion: string;
+  sourceMappingFingerprint: string;
   normalized: SourceObservationNormalized | null;
   sourcePayload: JsonValue;
   status: SourceObservationStatus;
   statusReason: string | null;
   promotedCatalogItemId: string | null;
   promotedAt: string | null;
+  promotionProfileKey: string | null;
+  promotionProfileVersion: string | null;
+  promotionPlanFingerprint: string | null;
 }>;
 
 export const initialSourceObservationState: SourceObservationState = {
@@ -128,12 +146,18 @@ export const initialSourceObservationState: SourceObservationState = {
   sourceRecordHash: "",
   sourceUpdatedAt: null,
   observedAt: null,
+  sourceProfileKey: "legacy",
+  sourceProfileVersion: "legacy",
+  sourceMappingFingerprint: "legacy",
   normalized: null,
   sourcePayload: null,
   status: "observed",
   statusReason: null,
   promotedCatalogItemId: null,
   promotedAt: null,
+  promotionProfileKey: null,
+  promotionProfileVersion: null,
+  promotionPlanFingerprint: null,
 };
 
 export type RecordSourceObservationCommand = Readonly<{
@@ -146,6 +170,9 @@ export type RecordSourceObservationCommand = Readonly<{
   sourceRecordHash: string;
   sourceUpdatedAt?: string | null;
   observedAt: string;
+  sourceProfileKey: string;
+  sourceProfileVersion: string;
+  sourceMappingFingerprint: string;
   normalized: SourceObservationNormalized;
   sourcePayload: JsonValue;
 }>;
@@ -154,6 +181,17 @@ export type PromoteSourceObservationCommand = Readonly<{
   type: "PromoteSourceObservation";
   catalogItemId: string;
   promotedAt: string;
+  promotionProfileKey: string;
+  promotionProfileVersion: string;
+  promotionPlanFingerprint: string;
+}>;
+
+export type RecordSourceObservationPromotionPlanCommand = Readonly<{
+  type: "RecordSourceObservationPromotionPlan";
+  catalogItemId: string;
+  promotionProfileKey: string;
+  promotionProfileVersion: string;
+  promotionPlanFingerprint: string;
 }>;
 
 export type RejectSourceObservationCommand = Readonly<{
@@ -164,6 +202,7 @@ export type RejectSourceObservationCommand = Readonly<{
 export type SourceObservationCommand =
   | RecordSourceObservationCommand
   | PromoteSourceObservationCommand
+  | RecordSourceObservationPromotionPlanCommand
   | RejectSourceObservationCommand;
 
 type SourceObservationRecordEventData = JsonObject &
@@ -188,6 +227,9 @@ export type SourceObservationRefreshedEvent = DomainEvent<
       statusReason: string | null;
       promotedCatalogItemId: string | null;
       promotedAt: string | null;
+      promotionProfileKey: string | null;
+      promotionProfileVersion: string | null;
+      promotionPlanFingerprint: string | null;
     }>
 >;
 
@@ -196,6 +238,19 @@ export type SourceObservationPromotedEvent = DomainEvent<
   Readonly<{
     catalogItemId: string;
     promotedAt: string;
+    promotionProfileKey: string;
+    promotionProfileVersion: string;
+    promotionPlanFingerprint: string;
+  }>
+>;
+
+export type SourceObservationPromotionPlanRecordedEvent = DomainEvent<
+  "catalog.source-observation.promotion-plan-recorded",
+  Readonly<{
+    catalogItemId: string;
+    promotionProfileKey: string;
+    promotionProfileVersion: string;
+    promotionPlanFingerprint: string;
   }>
 >;
 
@@ -211,6 +266,7 @@ export type SourceObservationEvent =
   | SourceObservationChangedEvent
   | SourceObservationRefreshedEvent
   | SourceObservationPromotedEvent
+  | SourceObservationPromotionPlanRecordedEvent
   | SourceObservationRejectedEvent;
 
 export const decideSourceObservation: AggregateDecider<
@@ -224,11 +280,20 @@ export const decideSourceObservation: AggregateDecider<
       assert(command.providerKey.trim().length > 0, "Source observations require a provider.");
       assert(command.externalKey.trim().length > 0, "Source observations require an external key.");
       assert(command.sourceRecordHash.trim().length > 0, "Source observations require a source hash.");
+      assert(command.sourceProfileKey.trim().length > 0, "Source observations require a source profile key.");
+      assert(command.sourceProfileVersion.trim().length > 0, "Source observations require a source profile version.");
+      assert(
+        command.sourceMappingFingerprint.trim().length > 0,
+        "Source observations require a source mapping fingerprint.",
+      );
 
       if (state.id !== null) {
         if (
           state.sourceRecordHash === command.sourceRecordHash &&
-          state.sourceUpdatedAt === (command.sourceUpdatedAt ?? null)
+          state.sourceUpdatedAt === (command.sourceUpdatedAt ?? null) &&
+          state.sourceProfileKey === normalizeKey(command.sourceProfileKey) &&
+          state.sourceProfileVersion === command.sourceProfileVersion.trim() &&
+          state.sourceMappingFingerprint === command.sourceMappingFingerprint.trim()
         ) {
           return [
             {
@@ -239,6 +304,9 @@ export const decideSourceObservation: AggregateDecider<
                 statusReason: state.statusReason,
                 promotedCatalogItemId: state.promotedCatalogItemId,
                 promotedAt: state.promotedAt,
+                promotionProfileKey: state.promotionProfileKey,
+                promotionProfileVersion: state.promotionProfileVersion,
+                promotionPlanFingerprint: state.promotionPlanFingerprint,
               },
             },
           ];
@@ -268,6 +336,9 @@ export const decideSourceObservation: AggregateDecider<
     case "PromoteSourceObservation":
       requirePromotable(state);
       assert(command.catalogItemId.trim().length > 0, "Promotion requires a catalog item.");
+      assert(command.promotionProfileKey.trim().length > 0, "Promotion requires a profile key.");
+      assert(command.promotionProfileVersion.trim().length > 0, "Promotion requires a profile version.");
+      assert(command.promotionPlanFingerprint.trim().length > 0, "Promotion requires a plan fingerprint.");
 
       return [
         {
@@ -275,6 +346,27 @@ export const decideSourceObservation: AggregateDecider<
           data: {
             catalogItemId: command.catalogItemId.trim(),
             promotedAt: command.promotedAt,
+            promotionProfileKey: normalizeKey(command.promotionProfileKey),
+            promotionProfileVersion: command.promotionProfileVersion.trim(),
+            promotionPlanFingerprint: command.promotionPlanFingerprint.trim(),
+          },
+        },
+      ];
+    case "RecordSourceObservationPromotionPlan":
+      assert(state.id !== null, "Source observation must be recorded first.");
+      assert(command.catalogItemId.trim().length > 0, "Promotion plan requires a catalog item.");
+      assert(command.promotionProfileKey.trim().length > 0, "Promotion plan requires a profile key.");
+      assert(command.promotionProfileVersion.trim().length > 0, "Promotion plan requires a profile version.");
+      assert(command.promotionPlanFingerprint.trim().length > 0, "Promotion plan requires a fingerprint.");
+
+      return [
+        {
+          type: "catalog.source-observation.promotion-plan-recorded",
+          data: {
+            catalogItemId: command.catalogItemId.trim(),
+            promotionProfileKey: normalizeKey(command.promotionProfileKey),
+            promotionProfileVersion: command.promotionProfileVersion.trim(),
+            promotionPlanFingerprint: command.promotionPlanFingerprint.trim(),
           },
         },
       ];
@@ -311,6 +403,9 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
         sourceRecordHash: event.data.sourceRecordHash,
         sourceUpdatedAt: event.data.sourceUpdatedAt,
         observedAt: event.data.observedAt,
+        sourceProfileKey: sourceProfileKeyFromEvent(event.data),
+        sourceProfileVersion: sourceProfileVersionFromEvent(event.data),
+        sourceMappingFingerprint: sourceMappingFingerprintFromEvent(event.data),
         normalized: event.data.normalized,
         sourcePayload: event.data.sourcePayload,
         status: "observed",
@@ -327,6 +422,9 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
         sourceRecordHash: event.data.sourceRecordHash,
         sourceUpdatedAt: event.data.sourceUpdatedAt,
         observedAt: event.data.observedAt,
+        sourceProfileKey: sourceProfileKeyFromEvent(event.data),
+        sourceProfileVersion: sourceProfileVersionFromEvent(event.data),
+        sourceMappingFingerprint: sourceMappingFingerprintFromEvent(event.data),
         normalized: event.data.normalized,
         sourcePayload: event.data.sourcePayload,
         status: "changed",
@@ -343,12 +441,18 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
         sourceRecordHash: event.data.sourceRecordHash,
         sourceUpdatedAt: event.data.sourceUpdatedAt,
         observedAt: event.data.observedAt,
+        sourceProfileKey: sourceProfileKeyFromEvent(event.data),
+        sourceProfileVersion: sourceProfileVersionFromEvent(event.data),
+        sourceMappingFingerprint: sourceMappingFingerprintFromEvent(event.data),
         normalized: event.data.normalized,
         sourcePayload: event.data.sourcePayload,
         status: event.data.status,
         statusReason: event.data.statusReason,
         promotedCatalogItemId: event.data.promotedCatalogItemId,
         promotedAt: event.data.promotedAt,
+        promotionProfileKey: event.data.promotionProfileKey,
+        promotionProfileVersion: event.data.promotionProfileVersion,
+        promotionPlanFingerprint: event.data.promotionPlanFingerprint,
       };
     case "catalog.source-observation.promoted":
       return {
@@ -356,6 +460,17 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
         status: "promoted",
         promotedCatalogItemId: event.data.catalogItemId,
         promotedAt: event.data.promotedAt,
+        promotionProfileKey: promotionProfileKeyFromEvent(event.data),
+        promotionProfileVersion: promotionProfileVersionFromEvent(event.data),
+        promotionPlanFingerprint: promotionPlanFingerprintFromEvent(event.data),
+      };
+    case "catalog.source-observation.promotion-plan-recorded":
+      return {
+        ...state,
+        promotedCatalogItemId: event.data.catalogItemId,
+        promotionProfileKey: event.data.promotionProfileKey,
+        promotionProfileVersion: event.data.promotionProfileVersion,
+        promotionPlanFingerprint: event.data.promotionPlanFingerprint,
       };
     case "catalog.source-observation.rejected":
       return {
@@ -391,9 +506,36 @@ function recordEventData(command: RecordSourceObservationCommand): SourceObserva
     sourceRecordHash: command.sourceRecordHash,
     sourceUpdatedAt: command.sourceUpdatedAt ?? null,
     observedAt: command.observedAt,
+    sourceProfileKey: normalizeKey(command.sourceProfileKey),
+    sourceProfileVersion: command.sourceProfileVersion.trim(),
+    sourceMappingFingerprint: command.sourceMappingFingerprint.trim(),
     normalized: command.normalized,
     sourcePayload: command.sourcePayload,
   };
+}
+
+function sourceProfileKeyFromEvent(data: { sourceProfileKey?: string }): string {
+  return data.sourceProfileKey?.trim().toLowerCase() || "legacy";
+}
+
+function sourceProfileVersionFromEvent(data: { sourceProfileVersion?: string }): string {
+  return data.sourceProfileVersion?.trim() || "legacy";
+}
+
+function sourceMappingFingerprintFromEvent(data: { sourceMappingFingerprint?: string }): string {
+  return data.sourceMappingFingerprint?.trim() || "legacy";
+}
+
+function promotionProfileKeyFromEvent(data: { promotionProfileKey?: string }): string {
+  return data.promotionProfileKey?.trim().toLowerCase() || "legacy";
+}
+
+function promotionProfileVersionFromEvent(data: { promotionProfileVersion?: string }): string {
+  return data.promotionProfileVersion?.trim() || "legacy";
+}
+
+function promotionPlanFingerprintFromEvent(data: { promotionPlanFingerprint?: string }): string {
+  return data.promotionPlanFingerprint?.trim() || "legacy";
 }
 
 function normalizeKey(value: string): string {

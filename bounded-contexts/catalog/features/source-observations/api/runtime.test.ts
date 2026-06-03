@@ -615,7 +615,17 @@ describe("source observation runtime", () => {
         command: expect.objectContaining({ type: "CreateCatalogItem" }),
       }),
     );
-    expect(harness.appendedSourceEvents).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([
+      expect.objectContaining({
+        eventType: "catalog.source-observation.promotion-plan-recorded",
+        payload: expect.objectContaining({
+          catalogItemId: "cat_existing",
+          promotionProfileKey: "pokemon-tcg",
+          promotionProfileVersion: "2026.06.03",
+          promotionPlanFingerprint: expect.any(String),
+        }),
+      }),
+    ]);
   });
 
   it("links TCGplayer product ids as Catalog Item references during promotion", async () => {

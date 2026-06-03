@@ -26,6 +26,9 @@ export type CatalogProviderSourceObservationInput = Readonly<{
   sourceRecordHash: string;
   sourceUpdatedAt: string | null;
   observedAt: string;
+  sourceProfileKey: string;
+  sourceProfileVersion: string;
+  sourceMappingFingerprint: string;
   normalized: SourceObservationNormalized;
   sourcePayload: JsonValue;
 }>;
@@ -112,6 +115,9 @@ export function normalizeCatalogProviderSourceObservation(input: {
       sourceRecordHash: hashJson(hashMaterial.length === 1 ? hashMaterial[0] : hashMaterial),
       sourceUpdatedAt,
       observedAt: input.observedAt,
+      sourceProfileKey: input.contract.profileKey,
+      sourceProfileVersion: input.contract.profileVersion,
+      sourceMappingFingerprint: catalogProviderSourceMappingFingerprint(input.contract),
       normalized,
       sourcePayload,
     },
@@ -191,4 +197,18 @@ function asOptionalString(
 
 function hashJson(value: JsonValue): string {
   return createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+export function catalogProviderSourceMappingFingerprint(
+  contract: CatalogProviderSourceObservationMappingContract,
+): string {
+  return hashJson({
+    providerKey: contract.providerKey,
+    profileKey: contract.profileKey,
+    profileVersion: contract.profileVersion,
+    sourceObservation: contract.sourceObservation,
+    normalizedObservation: contract.normalizedObservation,
+    externalReferences: contract.externalReferences,
+    duplicatePrevention: contract.duplicatePrevention,
+  });
 }

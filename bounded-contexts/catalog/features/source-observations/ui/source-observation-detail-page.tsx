@@ -75,12 +75,31 @@ export function SourceObservationDetailPage({
               { key: t("catalog.features.sourceObservations.ui.detail.provider"), value: data.provider_key },
               { key: t("catalog.features.sourceObservations.ui.detail.external.key"), value: data.external_key },
               { key: t("catalog.features.sourceObservations.ui.detail.language"), value: data.language_code },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.source.profile"),
+                value: `${data.source_profile_key}@${data.source_profile_version}`,
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.source.mapping.fingerprint"),
+                value: data.source_mapping_fingerprint,
+              },
               ...pokemonCardDetailItems(data),
               { key: t("catalog.features.sourceObservations.ui.detail.hash"), value: data.source_record_hash },
               { key: t("catalog.features.sourceObservations.ui.detail.source.url"), value: data.source_url },
               {
                 key: t("catalog.features.sourceObservations.ui.detail.promoted.catalog.item"),
                 value: data.promoted_catalog_item_id ?? "—",
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.promotion.profile"),
+                value:
+                  data.promotion_profile_key && data.promotion_profile_version
+                    ? `${data.promotion_profile_key}@${data.promotion_profile_version}`
+                    : "—",
+              },
+              {
+                key: t("catalog.features.sourceObservations.ui.detail.promotion.plan.fingerprint"),
+                value: data.promotion_plan_fingerprint ?? "—",
               },
               ...providerProductDetailItems(data),
             ]}

@@ -42,6 +42,7 @@ import {
   type SourceObservationEvent,
   type SourceObservationNormalized,
   type SourceObservationPokemonCardNormalized,
+  type SourceObservationPromotionProfileEvidence,
   type SourceObservationState,
 } from "../domain/domain";
 import { buildSourceObservationProjectionHandlers } from "../read-model/projection";
@@ -78,6 +79,7 @@ import {
 } from "./tcgplayer-automation-catalog-client";
 import {
   getCatalogProviderIntegrationProfile,
+  getActiveCatalogProviderIntegrationProfileVersion,
   listCatalogProviderIntegrationProfiles,
   tcgdexPokemonTcgProviderProfile,
   type CatalogProviderIntegrationProfile,
@@ -561,29 +563,27 @@ export function createSourceObservationRuntime(
       (duplicatePreventionResult?.status === "matched" ? duplicatePreventionResult.catalogItemId : null);
     const catalogItemId = reusableCatalogItemId ?? (createId("cat") as CatalogItemId);
 
-    if (reusableCatalogItemId) {
-      await refreshCatalogItemFromObservation({
-        items,
-        referenceData,
-        deps,
-        catalogItemId: reusableCatalogItemId,
-        normalized,
-        providerKey: input.observation.provider_key,
-        externalKey: input.observation.external_key,
-        context: input.context,
-      });
-    } else {
-      await createCatalogDraftFromObservation({
-        items,
-        referenceData,
-        deps,
-        catalogItemId,
-        normalized,
-        providerKey: input.observation.provider_key,
-        externalKey: input.observation.external_key,
-        context: input.context,
-      });
-    }
+    const promotionEvidence = reusableCatalogItemId
+      ? await refreshCatalogItemFromObservation({
+          items,
+          referenceData,
+          deps,
+          catalogItemId: reusableCatalogItemId,
+          normalized,
+          providerKey: input.observation.provider_key,
+          externalKey: input.observation.external_key,
+          context: input.context,
+        })
+      : await createCatalogDraftFromObservation({
+          items,
+          referenceData,
+          deps,
+          catalogItemId,
+          normalized,
+          providerKey: input.observation.provider_key,
+          externalKey: input.observation.external_key,
+          context: input.context,
+        });
 
     if (input.observation.status !== "promoted") {
       const promotedAt = new Date().toISOString();
@@ -593,6 +593,7 @@ export function createSourceObservationRuntime(
           type: "PromoteSourceObservation",
           catalogItemId,
           promotedAt,
+          ...promotionEvidence,
         },
         context: input.context,
       });
@@ -719,7 +720,7 @@ export function createSourceObservationRuntime(
       throw new Error("Promoted source observation is missing its Catalog Item.");
     }
 
-    await refreshCatalogItemFromObservation({
+    const promotionEvidence = await refreshCatalogItemFromObservation({
       items,
       referenceData,
       deps,
@@ -727,6 +728,15 @@ export function createSourceObservationRuntime(
       normalized,
       providerKey: input.observation.provider_key,
       externalKey: input.observation.external_key,
+      context: input.context,
+    });
+    await commandHandler({
+      streamId: sourceObservationStreamId(input.observation.observation_id),
+      command: {
+        type: "RecordSourceObservationPromotionPlan",
+        catalogItemId,
+        ...promotionEvidence,
+      },
       context: input.context,
     });
 
@@ -2476,9 +2486,10 @@ async function createCatalogDraftFromObservation(input: {
   providerKey: string;
   externalKey: string;
   context: EventStoreContext;
-}) {
+}): Promise<SourceObservationPromotionProfileEvidence> {
   const streamId = `catalog.item-${input.catalogItemId}`;
   const profile = await loadPokemonTcgPromotionProfile(input.deps);
+  const profileVersion = requireActivePromotionProfileVersion();
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
@@ -2501,6 +2512,8 @@ async function createCatalogDraftFromObservation(input: {
     : null;
   const plan = planCatalogProviderPromotionCommands({
     profile: tcgdexPokemonTcgProviderProfile,
+    profileKey: profileVersion.profileKey,
+    profileVersion: profileVersion.profileVersion,
     providerKey: input.providerKey,
     externalKey: input.externalKey,
     mode: "create",
@@ -2523,6 +2536,8 @@ async function createCatalogDraftFromObservation(input: {
     plan,
     context: input.context,
   });
+
+  return promotionEvidenceFromPlan(plan);
 }
 
 async function refreshCatalogItemFromObservation(input: {
@@ -2534,9 +2549,10 @@ async function refreshCatalogItemFromObservation(input: {
   providerKey: string;
   externalKey: string;
   context: EventStoreContext;
-}) {
+}): Promise<SourceObservationPromotionProfileEvidence> {
   const streamId = `catalog.item-${input.catalogItemId}`;
   const profile = await loadPokemonTcgPromotionProfile(input.deps);
+  const profileVersion = requireActivePromotionProfileVersion();
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
@@ -2559,6 +2575,8 @@ async function refreshCatalogItemFromObservation(input: {
     : null;
   const plan = planCatalogProviderPromotionCommands({
     profile: tcgdexPokemonTcgProviderProfile,
+    profileKey: profileVersion.profileKey,
+    profileVersion: profileVersion.profileVersion,
     providerKey: input.providerKey,
     externalKey: input.externalKey,
     mode: "refresh",
@@ -2581,6 +2599,30 @@ async function refreshCatalogItemFromObservation(input: {
     plan,
     context: input.context,
   });
+
+  return promotionEvidenceFromPlan(plan);
+}
+
+function requireActivePromotionProfileVersion() {
+  const version = getActiveCatalogProviderIntegrationProfileVersion(tcgdexPokemonTcgProviderProfile.providerKey);
+  if (!version) {
+    throw new Error(`Catalog provider '${tcgdexPokemonTcgProviderProfile.providerKey}' has no active profile version.`);
+  }
+  return version;
+}
+
+function promotionEvidenceFromPlan(
+  plan: CatalogProviderPromotionCommandPlanResult,
+): SourceObservationPromotionProfileEvidence {
+  if (plan.status === "blocked") {
+    throw new Error(plan.diagnostics.map((diagnostic) => diagnostic.diagnosticText).join(" "));
+  }
+
+  return {
+    promotionProfileKey: plan.plan.profileKey,
+    promotionProfileVersion: plan.plan.profileVersion,
+    promotionPlanFingerprint: plan.plan.planFingerprint,
+  };
 }
 
 async function executeCatalogItemPromotionCommandPlan(input: {
