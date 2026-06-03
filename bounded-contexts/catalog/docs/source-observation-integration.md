@@ -57,6 +57,12 @@ TCGdex marketplace identifiers are mapping evidence, not pricing truth. When TCG
 
 The profile marks these extracted marketplace IDs as Catalog Item-level references. Product-level SKU references are linked separately through Catalog Item Product references, where the selected Product options are known. This distinction lets Inventory imports resolve a TCGplayer Product ID to the card print and a TCGplayer SKU to the exact sellable Product without requiring sellers to pick products row by row.
 
+Promotion checks exact external Catalog Item references first, then existing
+Source Observation links, then deterministic Pokemon card evidence: language,
+product line, expansion/set, card number, normalized name, and variant. A single
+match refreshes the existing Catalog Item; multiple matches block promotion for
+review so an import cannot create another plausible duplicate.
+
 The direct TCGplayer integration uses the automation-app client contract in
 [TCGplayer Automation Client Contract](./tcgplayer-automation-client-contract.md).
 It imports provider product and SKU evidence as Source Observations. It must not

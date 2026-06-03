@@ -238,6 +238,48 @@ describe("source observation runtime", () => {
     );
   });
 
+  it("promotes future provider observations through the same TCGplayer Product ID reference", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "scryfall",
+      status: "observed",
+      promotedCatalogItemId: null,
+      reusableExternalCatalogItemIds: ["cat_existing_scryfall_tcgplayer"],
+      normalized: {
+        ...pokemonObservation({
+          expansionName: "Prismatic Evolutions",
+          seriesName: "Scarlet & Violet",
+        }),
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+      },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing_scryfall_tcgplayer",
+    });
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        streamId: "catalog.item-cat_existing_scryfall_tcgplayer",
+        command: expect.objectContaining({
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:610001",
+        }),
+      }),
+    );
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+  });
+
   it("blocks promotion when external Catalog Item references match multiple Catalog Items", async () => {
     const harness = createChangedObservationRefreshHarness({
       status: "observed",
@@ -262,6 +304,78 @@ describe("source observation runtime", () => {
         context,
       }),
     ).rejects.toThrow("Multiple Catalog Items match this Source Observation's external catalog item references.");
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
+  it("promotes observed observations by refreshing one deterministic Catalog Item match", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      deterministicCatalogItemIds: ["cat_existing_deterministic"],
+      normalized: pokemonObservation({
+        expansionName: "Prismatic Evolutions",
+        seriesName: "Scarlet & Violet",
+        cardNumber: "131",
+        name: "Eevee ex",
+        cardVariantLabel: "Standard Set Foil",
+        cardVariantKey: "holofoil",
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing_deterministic",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+  });
+
+  it("blocks promotion when deterministic card evidence matches multiple Catalog Items", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      deterministicCatalogItemIds: ["cat_existing_a", "cat_existing_b"],
+      normalized: pokemonObservation({
+        expansionName: "Prismatic Evolutions",
+        seriesName: "Scarlet & Violet",
+        cardNumber: "131",
+        name: "Eevee ex",
+        cardVariantLabel: "Standard Set Foil",
+        cardVariantKey: "holofoil",
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
+      }),
+    ).rejects.toThrow("Multiple Catalog Items match this Source Observation's deterministic card evidence.");
     expect(harness.itemCommands).toEqual([]);
     expect(harness.appendedSourceEvents).toEqual([]);
   });
@@ -1637,11 +1751,13 @@ function createReferencePreloadHarness() {
 function createChangedObservationRefreshHarness(
   input: {
     normalized?: SourceObservationPokemonCardNormalized;
+    providerKey?: string;
     expansionAttributes?: Readonly<Record<string, JsonValue>>;
     status?: string;
     promotedCatalogItemId?: string | null;
     reusableCatalogItemId?: string | null;
     reusableExternalCatalogItemIds?: readonly string[];
+    deterministicCatalogItemIds?: readonly string[];
     partialCatalogItemId?: string | null;
     promotionCommandAlreadyApplied?: { catalogItemId: string };
   } = {},
@@ -1658,7 +1774,7 @@ function createChangedObservationRefreshHarness(
     });
   const observationRow = {
     observation_id: "obs_changed",
-    provider_key: "tcgdex",
+    provider_key: input.providerKey ?? "tcgdex",
     external_key: "me02.5-136:reverse-holo",
     source_url: "https://api.tcgdex.net/v2/en/cards/me02.5-136",
     language_code: "en",
@@ -1723,6 +1839,15 @@ function createChangedObservationRefreshHarness(
           return {
             rowCount: 1,
             rows: [observationRow] as T[],
+          };
+        }
+
+        if (sql.includes("FROM catalog_items AS item") && sql.includes("item.status NOT IN")) {
+          return {
+            rowCount: input.deterministicCatalogItemIds?.length ?? 0,
+            rows: (input.deterministicCatalogItemIds ?? []).map((catalogItemId) => ({
+              catalog_item_id: catalogItemId,
+            })) as T[],
           };
         }
 

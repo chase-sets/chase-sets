@@ -538,7 +538,7 @@ export function createSourceObservationRuntime(
           references: normalized.externalCatalogItemReferences ?? [],
         });
     const sourceReferenceExternalKey = formatSourceReferenceExternalKey(input.observation);
-    const referencedCatalogItemId =
+    const sourceReferencedCatalogItemId =
       existingCatalogItemId ??
       externalReferenceCatalogItemId ??
       (await findReusableCatalogItemIdForSourceReference({
@@ -546,14 +546,22 @@ export function createSourceObservationRuntime(
         providerKey: input.observation.provider_key,
         externalKey: sourceReferenceExternalKey,
       }));
+    const deterministicCatalogItemId =
+      sourceReferencedCatalogItemId || existingCatalogItemId
+        ? null
+        : await findReusableCatalogItemIdForDeterministicPokemonCardEvidence({
+            deps,
+            normalized,
+          });
     const partiallyPromotedCatalogItemId =
-      referencedCatalogItemId || existingCatalogItemId
+      sourceReferencedCatalogItemId || deterministicCatalogItemId || existingCatalogItemId
         ? null
         : await findPartiallyPromotedCatalogItemIdForObservation({
             deps,
             normalized,
           });
-    const reusableCatalogItemId = referencedCatalogItemId ?? partiallyPromotedCatalogItemId;
+    const reusableCatalogItemId =
+      sourceReferencedCatalogItemId ?? deterministicCatalogItemId ?? partiallyPromotedCatalogItemId;
     const catalogItemId = reusableCatalogItemId ?? (createId("cat") as CatalogItemId);
 
     if (reusableCatalogItemId) {
@@ -2934,6 +2942,50 @@ async function findPartiallyPromotedCatalogItemIdForObservation(input: {
   return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
 }
 
+async function findReusableCatalogItemIdForDeterministicPokemonCardEvidence(input: {
+  deps: CatalogRuntimeDeps;
+  normalized: SourceObservationPokemonCardNormalized;
+}): Promise<CatalogItemId | null> {
+  const profile = await loadPokemonTcgPromotionProfile(input.deps);
+  const expansionReferenceId = await findReferenceRecordByTypeAndKey(
+    input.deps,
+    "expansion",
+    normalizeReferenceKey(input.normalized.expansionName),
+  );
+  if (!expansionReferenceId) {
+    return null;
+  }
+
+  const cardNumberField = [{ fieldId: profile.fieldIds.cardNumber, value: input.normalized.cardNumber }];
+  const cardNameField = [{ fieldId: profile.fieldIds.cardName, value: localizedJsonText(input.normalized.name) }];
+  const cardVariantField = [{ fieldId: profile.fieldIds.cardVariant, value: input.normalized.cardVariantLabel }];
+  const expansionField = [{ fieldId: profile.fieldIds.expansion, value: { referenceId: expansionReferenceId } }];
+  const result = await input.deps.db.query<{ catalog_item_id: string }>(
+    `SELECT item.catalog_item_id
+     FROM catalog_items AS item
+     WHERE item.status NOT IN ('archived', 'removed')
+       AND item.language_code = $1
+       AND item.field_values @> $2::jsonb
+       AND item.field_values @> $3::jsonb
+       AND item.field_values @> $4::jsonb
+       AND item.field_values @> $5::jsonb
+     ORDER BY item.updated_at DESC, item.catalog_item_id ASC`,
+    [
+      input.normalized.languageCode,
+      JSON.stringify(cardNumberField),
+      JSON.stringify(cardNameField),
+      JSON.stringify(cardVariantField),
+      JSON.stringify(expansionField),
+    ],
+  );
+  const catalogItemIds = [...new Set(result.rows.map((row) => row.catalog_item_id))];
+  if (catalogItemIds.length > 1) {
+    throw new Error("Multiple Catalog Items match this Source Observation's deterministic card evidence.");
+  }
+
+  return (catalogItemIds[0] as CatalogItemId | undefined) ?? null;
+}
+
 function capitalize(value: string): string {
   return value.length === 0 ? value : value[0].toUpperCase() + value.slice(1);
 }
@@ -3266,6 +3318,23 @@ async function findReferenceRecordByProviderAttribute(
        AND attributes ->> $2 = $3
      LIMIT 1`,
     [def.typeKey, providerAttributeKey, providerAttributeValue],
+  );
+
+  return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
+}
+
+async function findReferenceRecordByTypeAndKey(
+  deps: CatalogRuntimeDeps,
+  typeKey: string,
+  key: string,
+): Promise<ReferenceRecordId | null> {
+  const existing = await deps.db.query<{ reference_record_id: string }>(
+    `SELECT reference_record_id
+     FROM catalog_reference_records
+     WHERE type_key = $1
+       AND key = $2
+     LIMIT 1`,
+    [typeKey, key],
   );
 
   return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
