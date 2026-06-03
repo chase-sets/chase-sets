@@ -582,6 +582,9 @@ function sourceObservation(input: { observation_id: string; status: string; name
     source_record_hash: `hash_${input.observation_id}`,
     source_updated_at: null,
     observed_at: "2026-05-16T00:00:00.000Z",
+    source_profile_key: "pokemon-tcg",
+    source_profile_version: "2026.06.03",
+    source_mapping_fingerprint: "source-mapping-fingerprint",
     normalized: {
       kind: "pokemon-card",
       tcg: "pokemon",
@@ -617,6 +620,9 @@ function sourceObservation(input: { observation_id: string; status: string; name
     status_reason: null,
     promoted_catalog_item_id: input.status === "promoted" ? "cat_existing" : null,
     promoted_at: input.status === "promoted" ? "2026-05-16T00:01:00.000Z" : null,
+    promotion_profile_key: input.status === "promoted" ? "pokemon-tcg" : null,
+    promotion_profile_version: input.status === "promoted" ? "2026.06.03" : null,
+    promotion_plan_fingerprint: input.status === "promoted" ? "promotion-plan-fingerprint" : null,
     updated_at: "2026-05-16T00:00:00.000Z",
   };
 }
@@ -631,6 +637,9 @@ function providerProductObservation(): SourceObservationListItem {
     source_record_hash: "hash_tcgplayer_610001",
     source_updated_at: null,
     observed_at: "2026-05-16T00:00:00.000Z",
+    source_profile_key: "pokemon-tcg-automation-client",
+    source_profile_version: "2026.06.03",
+    source_mapping_fingerprint: "source-mapping-fingerprint",
     normalized: {
       kind: "provider-product",
       languageCode: "en",
@@ -680,6 +689,9 @@ function providerProductObservation(): SourceObservationListItem {
     status_reason: null,
     promoted_catalog_item_id: null,
     promoted_at: null,
+    promotion_profile_key: null,
+    promotion_profile_version: null,
+    promotion_plan_fingerprint: null,
     updated_at: "2026-05-16T00:00:00.000Z",
   };
 }

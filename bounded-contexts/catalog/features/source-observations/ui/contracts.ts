@@ -10,11 +10,17 @@ export interface SourceObservationListItem {
   source_record_hash: string;
   source_updated_at: string | null;
   observed_at: string;
+  source_profile_key: string;
+  source_profile_version: string;
+  source_mapping_fingerprint: string;
   normalized: SourceObservationNormalized;
   status: string;
   status_reason: string | null;
   promoted_catalog_item_id: string | null;
   promoted_at: string | null;
+  promotion_profile_key: string | null;
+  promotion_profile_version: string | null;
+  promotion_plan_fingerprint: string | null;
   updated_at: string;
 }
 

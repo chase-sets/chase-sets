@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { JsonObject } from "@chase-sets/primitives/json";
 import type { CatalogItemCommand } from "../../catalog-items/domain/domain";
 import type { CatalogItemId, BlueprintId, CategoryId, FieldId, ReferenceRecordId } from "../../../ids";
@@ -47,9 +48,12 @@ export type CatalogProviderPromotionCommandPlanDiagnostic = Readonly<{
 export type CatalogProviderPromotionCommandPlan = Readonly<{
   planKind: "catalog-item-promotion";
   providerKey: string;
+  profileKey: string;
+  profileVersion: string;
   mappingKind: CatalogProviderIntegrationProfile["normalizedObservationMapping"]["kind"];
   mode: CatalogProviderPromotionMode;
   catalogItemId: CatalogItemId;
+  planFingerprint: string;
   requiresReview: true;
   commands: readonly CatalogItemCommand[];
   review: Readonly<{
@@ -76,6 +80,8 @@ type CatalogProviderPromotionPreflightBlocked = Extract<CatalogProviderPromotion
 
 export function planCatalogProviderPromotionCommands(input: {
   profile: CatalogProviderIntegrationProfile;
+  profileKey: string;
+  profileVersion: string;
   providerKey: string;
   externalKey: string;
   mode: CatalogProviderPromotionMode;
@@ -101,15 +107,26 @@ export function planCatalogProviderPromotionCommands(input: {
     ...input,
     normalized,
   });
+  const planFingerprint = catalogProviderPromotionPlanFingerprint({
+    providerKey: input.providerKey,
+    profileKey: input.profileKey,
+    profileVersion: input.profileVersion,
+    mode: input.mode,
+    mappingKind: input.profile.normalizedObservationMapping.kind,
+    commands,
+  });
 
   return {
     status: "planned",
     plan: {
       planKind: "catalog-item-promotion",
       providerKey: input.providerKey,
+      profileKey: input.profileKey,
+      profileVersion: input.profileVersion,
       mappingKind: input.profile.normalizedObservationMapping.kind,
       mode: input.mode,
       catalogItemId: input.catalogItemId,
+      planFingerprint,
       requiresReview: true,
       commands,
       review: {
@@ -360,4 +377,26 @@ function localizedJsonText(value: string): JsonObject {
       en: value,
     },
   };
+}
+
+export function catalogProviderPromotionPlanFingerprint(input: {
+  providerKey: string;
+  profileKey: string;
+  profileVersion: string;
+  mappingKind: string;
+  mode: CatalogProviderPromotionMode;
+  commands: readonly CatalogItemCommand[];
+}): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        providerKey: input.providerKey,
+        profileKey: input.profileKey,
+        profileVersion: input.profileVersion,
+        mappingKind: input.mappingKind,
+        mode: input.mode,
+        commands: input.commands,
+      }),
+    )
+    .digest("hex");
 }
