@@ -10,6 +10,25 @@ Provider integration profiles are not fake data. They are the authoring structur
 
 Executable mapping semantics are documented in [Provider Integration Mapping Contract](./provider-integration-mapping-contract.md). That contract is the migration target for profile versions, selectors, transforms, normalized Source Observation output, hash material, merge identity, external references, selected Options, Reference Record hierarchy, duplicate-prevention rules, and Catalog aggregate promotion command plans. Provider transport adapters should fetch provider payloads only; Catalog-owned profile data decides how those payloads become Catalog review facts.
 
+## Versioned Data Path
+
+Catalog persists provider integration profiles in `catalog_provider_integration_profile_versions`.
+Each row carries the provider key, profile key, profile version, lifecycle, active flag, profile JSON, source contract metadata, fixture contract metadata, compatibility mode, optional executable mapping contract, and optional retirement plan.
+
+The current TCGdex and TCGplayer profiles are seeded through this versioned data path during Catalog bootstrap. They remain available through transitional static compatibility exports only so existing Source Observation runtime code can keep working while the generic mapping interpreter lands. Transitional static profiles must carry fixture coverage and a retirement issue.
+
+Profile lifecycle values are:
+
+- `draft`: authored but not selectable for normal imports.
+- `test`: fixture-backed and available for dry-run or explicit non-production validation.
+- `active`: the default profile version for new imports.
+- `deprecated`: still readable for replay and rollback, but not selected for new imports.
+- `retired`: retained only for historical observations that still reference it.
+
+Activating a profile version validates fixture coverage, profile identity, and the executable mapping contract when one is present. Transitional static fixtures are allowed only with an explicit retirement path. New executable profile versions should not rely on static mapping code once their mapping contract can express the required normalization, external reference extraction, selected Option resolution, Reference Record hierarchy, duplicate-prevention policy, and promotion command plan.
+
+Rollback means activating a prior validated profile version and deprecating the currently active version. It does not edit or delete historical profile rows. Source Observations should continue to record the profile version that produced their normalized data so replay can use the same version by default and operator-initiated reapply can explicitly choose the current active version.
+
 ## TCGdex Pokemon TCG Profile
 
 The TCGdex Pokemon TCG profile is seeded in Catalog config and installs the Pokemon card and sealed-product structure used by TCGdex Source Observations:

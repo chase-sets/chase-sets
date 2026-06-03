@@ -11,6 +11,7 @@ import { createDisplayTemplateRuntime } from "../../features/display-templates/a
 import { createFieldRuntime } from "../../features/fields/api/runtime";
 import { createProductMeasureRuntime } from "../../features/product-measures/api/runtime";
 import { createReferenceDataRuntime } from "../../features/reference-data/api/runtime";
+import { createCatalogProviderIntegrationProfileVersionStore } from "../../features/source-observations/api/provider-integration-profile-store";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
@@ -29,6 +30,7 @@ export type CatalogServices = Readonly<{
   categories: ReturnType<typeof createCategoryRuntime>;
   items: ReturnType<typeof createCatalogItemRuntime>;
   productMeasures: ReturnType<typeof createProductMeasureRuntime>;
+  providerIntegrationProfiles: ReturnType<typeof createCatalogProviderIntegrationProfileVersionStore>;
   sourceObservations: ReturnType<typeof createSourceObservationRuntime>;
   authoringBulkJobs: ReturnType<typeof createCatalogAuthoringBulkJobServices>;
   projectors: readonly ProjectionHandlerSet[];
@@ -56,6 +58,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
   const categories = createCategoryRuntime(deps);
   const items = createCatalogItemRuntime(deps);
   const productMeasures = createProductMeasureRuntime(deps);
+  const providerIntegrationProfiles = createCatalogProviderIntegrationProfileVersionStore(db);
   const sourceObservations = createSourceObservationRuntime(deps, items, referenceData);
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
 
@@ -69,6 +72,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
     categories,
     items,
     productMeasures,
+    providerIntegrationProfiles,
     sourceObservations,
     authoringBulkJobs,
     projectors: [

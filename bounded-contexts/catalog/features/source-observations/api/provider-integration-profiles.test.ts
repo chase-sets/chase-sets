@@ -1,9 +1,25 @@
 import { describe, expect, it } from "vitest";
 import {
+  activateCatalogProviderIntegrationProfileVersion,
+  catalogProviderIntegrationProfileVersions,
+  getActiveCatalogProviderIntegrationProfileVersion,
   getCatalogProviderIntegrationProfile,
+  getCatalogProviderIntegrationProfileVersion,
   listCatalogProviderIntegrationProfiles,
+  listCatalogProviderIntegrationProfileVersions,
+  rollbackCatalogProviderIntegrationProfileVersion,
+  validateCatalogProviderIntegrationProfileVersion,
+  tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
+  type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
+import {
+  catalogProviderRequiredFixtureFlows,
+  type CatalogProviderExecutableMappingContract,
+  type CatalogProviderMappingEvidenceOwner,
+  type CatalogProviderMappingEvidenceUse,
+  type CatalogProviderMappingValueExpression,
+} from "./provider-integration-mapping-contract";
 
 describe("catalog provider integration profiles", () => {
   it("registers TCGplayer as a planned automation-client connector sourced from the automation app", () => {
@@ -149,4 +165,244 @@ describe("catalog provider integration profiles", () => {
       ["tcgplayer", "planned"],
     ]);
   });
+
+  it("wraps current profiles as versioned Catalog-owned seed data with source contract metadata", () => {
+    const versions = listCatalogProviderIntegrationProfileVersions();
+
+    expect(versions.map((version) => [version.providerKey, version.profileVersion, version.lifecycle])).toEqual([
+      ["tcgdex", "2026.06.02", "active"],
+      ["tcgplayer", "2026.06.02", "test"],
+    ]);
+    expect(getActiveCatalogProviderIntegrationProfileVersion("TCGDEX")).toMatchObject({
+      providerKey: "tcgdex",
+      profileKey: "pokemon-tcg",
+      active: true,
+      sourceContract: {
+        repository: "chase-sets/chase-sets",
+        fixtureSetVersion: "transitional-static-profile-v1",
+      },
+      retirementPlan: {
+        trackingIssue: 621,
+      },
+    });
+    expect(getCatalogProviderIntegrationProfileVersion("tcgplayer")).toMatchObject({
+      providerKey: "tcgplayer",
+      profileKey: "pokemon-tcg-automation-client",
+      active: false,
+      sourceContract: {
+        repository: "todd-skelton/tcgplayer-automation-app",
+        commit: "bf42aa8",
+        fixtureSetVersion: "automation-client-contract-v1",
+      },
+      retirementPlan: {
+        trackingIssue: 621,
+      },
+    });
+  });
+
+  it("validates transitional static profile versions by requiring fixture coverage and a retirement path", () => {
+    const [tcgdexVersion] = catalogProviderIntegrationProfileVersions;
+
+    expect(validateCatalogProviderIntegrationProfileVersion(tcgdexVersion)).toEqual([]);
+    expect(
+      validateCatalogProviderIntegrationProfileVersion({
+        ...tcgdexVersion,
+        fixtures: { ...tcgdexVersion.fixtures, coveredFlows: ["normal"] },
+        retirementPlan: null,
+      }),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: "missing-profile-fixture-flow" }),
+        expect.objectContaining({ code: "missing-retirement-plan" }),
+      ]),
+    );
+  });
+
+  it("activates a validated executable profile version and deprecates the prior active version", () => {
+    const versions = [
+      catalogProviderIntegrationProfileVersions[0],
+      executableVersion("2026.06.03", "test"),
+    ] as const satisfies readonly CatalogProviderIntegrationProfileVersionRecord[];
+
+    const activated = activateCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.03", versions);
+
+    expect(activated.map((version) => [version.profileVersion, version.lifecycle, version.active])).toEqual([
+      ["2026.06.02", "deprecated", false],
+      ["2026.06.03", "active", true],
+    ]);
+  });
+
+  it("rolls back to a prior validated profile version without mutating history", () => {
+    const activeNewVersion = executableVersion("2026.06.03", "active");
+    const priorVersion = {
+      ...executableVersion("2026.06.02", "deprecated"),
+      active: false,
+    };
+
+    const rolledBack = rollbackCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.02", [
+      priorVersion,
+      activeNewVersion,
+    ]);
+
+    expect(rolledBack.map((version) => [version.profileVersion, version.lifecycle, version.active])).toEqual([
+      ["2026.06.02", "active", true],
+      ["2026.06.03", "deprecated", false],
+    ]);
+  });
+
+  it("blocks activation when executable mapping fixtures are incomplete", () => {
+    const invalidVersion = {
+      ...executableVersion("2026.06.03", "test"),
+      executableMappingContract: {
+        ...mappingContract("2026.06.03", "test"),
+        fixtures: {
+          fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
+          coveredFlows: ["normal"],
+          liveProviderCallsAllowed: false,
+        },
+      },
+    } satisfies CatalogProviderIntegrationProfileVersionRecord;
+
+    expect(() =>
+      activateCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.03", [
+        catalogProviderIntegrationProfileVersions[0],
+        invalidVersion,
+      ]),
+    ).toThrow(/partial flow/);
+  });
 });
+
+function executableVersion(
+  profileVersion: string,
+  lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
+): CatalogProviderIntegrationProfileVersionRecord {
+  const contract = mappingContract(profileVersion, lifecycle);
+  return {
+    providerKey: "tcgdex",
+    profileKey: "pokemon-tcg",
+    profileVersion,
+    lifecycle,
+    active: lifecycle === "active",
+    profile: tcgdexPokemonTcgProviderProfile,
+    sourceContract: contract.sourceContract,
+    fixtures: contract.fixtures,
+    compatibilityMode: "executable-mapping-contract",
+    retirementPlan: null,
+    executableMappingContract: contract,
+  };
+}
+
+function mappingContract(
+  profileVersion: string,
+  lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
+): CatalogProviderExecutableMappingContract {
+  return {
+    providerKey: "tcgdex",
+    profileKey: "pokemon-tcg",
+    displayName: "TCGdex Pokemon TCG",
+    profileVersion,
+    lifecycle,
+    sourceContract: {
+      owner: "chase-sets/catalog",
+      repository: "chase-sets/chase-sets",
+      commit: "0bde010",
+      documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+      fixtureSetVersion: "tcgdex-pokemon-v1",
+    },
+    connector: {
+      kind: "tcgdex-json",
+      transportOwns: ["domains", "endpoint-paths", "raw-provider-parse"],
+      mappingOwns: [
+        "normalized-observation",
+        "hash-material",
+        "merge-identity",
+        "external-reference",
+        "reference-hierarchy",
+        "promotion-command",
+      ],
+    },
+    fixtures: {
+      fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
+      coveredFlows: catalogProviderRequiredFixtureFlows,
+      liveProviderCallsAllowed: false,
+    },
+    normalizedObservation: {
+      outputKind: "pokemon-card",
+      languageCode: expr("language", "catalog-truth", ["normalized-observation", "hash-material"]),
+      fields: {
+        cardName: expr("name", "catalog-truth", ["normalized-observation", "hash-material", "promotion-command"]),
+        cardNumber: expr("localId", "catalog-truth", ["normalized-observation", "hash-material", "merge-identity"]),
+      },
+      hashMaterial: [
+        expr("id", "external-reference", ["hash-material"]),
+        expr("name", "catalog-truth", ["hash-material"]),
+      ],
+      mergeIdentity: [
+        expr("set.id", "external-reference", ["merge-identity"]),
+        expr("localId", "catalog-truth", ["merge-identity"]),
+      ],
+    },
+    externalReferences: [
+      {
+        target: "catalog-item-reference",
+        providerKey: "tcgplayer",
+        externalKeyPrefix: "product:",
+        source: expr("ids.tcgplayer", "external-reference", ["external-reference"]),
+        ambiguityPolicy: "skip-reference",
+      },
+    ],
+    referenceHierarchy: [
+      {
+        targetTypeKey: "expansion",
+        providerAttributeKey: "tcgdex-set-id",
+        referenceRecordKey: expr("set.id", "external-reference", ["reference-hierarchy"]),
+      },
+    ],
+    duplicatePrevention: {
+      exactExternalCatalogItemReferencesFirst: true,
+      mergeCandidateEvidence: [
+        expr("set.id", "external-reference", ["merge-identity"]),
+        expr("localId", "catalog-truth", ["merge-identity"]),
+      ],
+      ambiguousCandidatePolicy: "block-promotion",
+      replayPolicy: "same-profile-version",
+    },
+    promotionCommandPlan: {
+      planKind: "catalog-item-promotion",
+      requiresReview: true,
+      commands: [
+        {
+          commandName: "CreateCatalogItem",
+          inputs: {
+            title: expr("name", "catalog-truth", ["promotion-command"]),
+          },
+        },
+      ],
+    },
+    nonGoals: [
+      "no-live-provider-calls-in-mapping-tests",
+      "no-pricing-facts-as-catalog-truth",
+      "no-inventory-facts-as-global-catalog-truth",
+      "no-provider-secrets-in-events-logs-or-fixtures",
+      "no-provider-transport-branches-in-mapping-interpreter",
+    ],
+  };
+}
+
+function expr(
+  path: string,
+  owner: CatalogProviderMappingEvidenceOwner,
+  uses: readonly CatalogProviderMappingEvidenceUse[],
+): CatalogProviderMappingValueExpression {
+  return {
+    selector: {
+      kind: "path",
+      path,
+      required: true,
+      nullPolicy: "diagnostic",
+    },
+    owner,
+    uses,
+    redaction: "none",
+  };
+}

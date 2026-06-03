@@ -1,4 +1,15 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type {
+  CatalogProviderExecutableMappingContract,
+  CatalogProviderMappingContractDiagnostic,
+  CatalogProviderMappingSourceContract,
+  CatalogProviderProfileFixtureContract,
+  CatalogProviderProfileLifecycle,
+} from "./provider-integration-mapping-contract";
+import {
+  catalogProviderRequiredFixtureFlows,
+  validateCatalogProviderExecutableMappingContract,
+} from "./provider-integration-mapping-contract";
 
 export type CatalogProviderCapability =
   | "provider-option-query"
@@ -180,6 +191,44 @@ export type CatalogProviderIntegrationProfile = Readonly<{
     repeatedMarketplaceReference: "skip-reference";
     missingVariantSpecificReference: "leave-unmapped";
   }>;
+}>;
+
+export type CatalogProviderIntegrationProfileCompatibilityMode =
+  | "executable-mapping-contract"
+  | "transitional-static-profile";
+
+export type CatalogProviderIntegrationProfileRetirementPlan = Readonly<{
+  trackingIssue: number;
+  removeAfter: "executable-mapping-contract-activated";
+  diagnosticText: string;
+}>;
+
+export type CatalogProviderIntegrationProfileVersionRecord = Readonly<{
+  providerKey: string;
+  profileKey: string;
+  profileVersion: string;
+  lifecycle: CatalogProviderProfileLifecycle;
+  active: boolean;
+  profile: CatalogProviderIntegrationProfile;
+  sourceContract: CatalogProviderMappingSourceContract;
+  fixtures: CatalogProviderProfileFixtureContract;
+  compatibilityMode: CatalogProviderIntegrationProfileCompatibilityMode;
+  retirementPlan: CatalogProviderIntegrationProfileRetirementPlan | null;
+  executableMappingContract?: CatalogProviderExecutableMappingContract;
+}>;
+
+export type CatalogProviderIntegrationProfileVersionDiagnostic = Readonly<{
+  code:
+    | "provider-key-mismatch"
+    | "missing-profile-version"
+    | "missing-profile-fixture-flow"
+    | "missing-retirement-plan"
+    | "missing-executable-mapping-contract"
+    | "mapping-contract-mismatch"
+    | "mapping-contract-diagnostic";
+  path: string;
+  diagnosticText: string;
+  mappingDiagnostic?: CatalogProviderMappingContractDiagnostic;
 }>;
 
 export const tcgdexPokemonTcgProviderProfile = {
@@ -505,15 +554,268 @@ export const catalogProviderIntegrationProfiles = [
   tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
+export const catalogProviderIntegrationProfileVersions = [
+  {
+    providerKey: "tcgdex",
+    profileKey: "pokemon-tcg",
+    profileVersion: "2026.06.02",
+    lifecycle: "active",
+    active: true,
+    profile: tcgdexPokemonTcgProviderProfile,
+    sourceContract: {
+      owner: "chase-sets/catalog",
+      repository: "chase-sets/chase-sets",
+      commit: "0bde010",
+      documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+      fixtureSetVersion: "transitional-static-profile-v1",
+    },
+    fixtures: {
+      fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
+      coveredFlows: catalogProviderRequiredFixtureFlows,
+      liveProviderCallsAllowed: false,
+    },
+    compatibilityMode: "transitional-static-profile",
+    retirementPlan: {
+      trackingIssue: 621,
+      removeAfter: "executable-mapping-contract-activated",
+      diagnosticText:
+        "Retire the static TCGdex profile wrapper after the executable mapping contract drives normalization, reference extraction, and promotion planning.",
+    },
+  },
+  {
+    providerKey: "tcgplayer",
+    profileKey: "pokemon-tcg-automation-client",
+    profileVersion: "2026.06.02",
+    lifecycle: "test",
+    active: false,
+    profile: tcgplayerAutomationClientProviderProfile,
+    sourceContract: {
+      owner: "todd-skelton",
+      repository: "todd-skelton/tcgplayer-automation-app",
+      commit: "bf42aa8",
+      documentPath: "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
+      fixtureSetVersion: "automation-client-contract-v1",
+    },
+    fixtures: {
+      fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-automation",
+      coveredFlows: catalogProviderRequiredFixtureFlows,
+      liveProviderCallsAllowed: false,
+    },
+    compatibilityMode: "transitional-static-profile",
+    retirementPlan: {
+      trackingIssue: 621,
+      removeAfter: "executable-mapping-contract-activated",
+      diagnosticText:
+        "Retire the static TCGplayer automation profile wrapper after the executable mapping contract covers product lines, set names, product details, SKUs, selected Options, and external references.",
+    },
+  },
+] as const satisfies readonly CatalogProviderIntegrationProfileVersionRecord[];
+
 export function listCatalogProviderIntegrationProfiles(): readonly CatalogProviderIntegrationProfile[] {
-  return catalogProviderIntegrationProfiles;
+  return listCatalogProviderIntegrationProfileVersions().map((version) => version.profile);
 }
 
 export function getCatalogProviderIntegrationProfile(providerKey: string): CatalogProviderIntegrationProfile | null {
-  const normalized = providerKey.trim().toLowerCase();
-  return catalogProviderIntegrationProfiles.find((profile) => profile.providerKey === normalized) ?? null;
+  return getCatalogProviderIntegrationProfileVersion(providerKey)?.profile ?? null;
+}
+
+export function listCatalogProviderIntegrationProfileVersions(
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): readonly CatalogProviderIntegrationProfileVersionRecord[] {
+  return [...versions].sort((left, right) =>
+    left.providerKey === right.providerKey
+      ? right.profileVersion.localeCompare(left.profileVersion)
+      : left.providerKey.localeCompare(right.providerKey),
+  );
+}
+
+export function getCatalogProviderIntegrationProfileVersion(
+  providerKey: string,
+  profileVersion?: string | null,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): CatalogProviderIntegrationProfileVersionRecord | null {
+  const normalizedProviderKey = normalizeProviderKey(providerKey);
+  const normalizedVersion = profileVersion?.trim() ?? "";
+  const candidates = versions.filter((version) => normalizeProviderKey(version.providerKey) === normalizedProviderKey);
+
+  if (normalizedVersion.length > 0) {
+    return candidates.find((version) => version.profileVersion === normalizedVersion) ?? null;
+  }
+
+  return (
+    candidates.find((version) => version.active) ??
+    candidates.find((version) => version.lifecycle === "test") ??
+    candidates.find((version) => version.lifecycle === "draft") ??
+    null
+  );
+}
+
+export function getActiveCatalogProviderIntegrationProfileVersion(
+  providerKey: string,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): CatalogProviderIntegrationProfileVersionRecord | null {
+  const normalizedProviderKey = normalizeProviderKey(providerKey);
+  return (
+    versions.find(
+      (version) =>
+        normalizeProviderKey(version.providerKey) === normalizedProviderKey &&
+        version.active &&
+        version.lifecycle === "active",
+    ) ?? null
+  );
+}
+
+export function validateCatalogProviderIntegrationProfileVersion(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): readonly CatalogProviderIntegrationProfileVersionDiagnostic[] {
+  const diagnostics: CatalogProviderIntegrationProfileVersionDiagnostic[] = [];
+
+  if (normalizeProviderKey(version.providerKey) !== normalizeProviderKey(version.profile.providerKey)) {
+    diagnostics.push({
+      code: "provider-key-mismatch",
+      path: "profile.providerKey",
+      diagnosticText: "The profile payload provider key must match the version record provider key.",
+    });
+  }
+
+  if (version.profileVersion.trim().length === 0) {
+    diagnostics.push({
+      code: "missing-profile-version",
+      path: "profileVersion",
+      diagnosticText: "Provider profile versions must carry a version for replay and rollback.",
+    });
+  }
+
+  for (const flow of catalogProviderRequiredFixtureFlows) {
+    if (!version.fixtures.coveredFlows.includes(flow)) {
+      diagnostics.push({
+        code: "missing-profile-fixture-flow",
+        path: "fixtures.coveredFlows",
+        diagnosticText: `Provider profile fixtures must cover the ${flow} flow before activation.`,
+      });
+    }
+  }
+
+  if (version.compatibilityMode === "transitional-static-profile") {
+    if (!version.retirementPlan) {
+      diagnostics.push({
+        code: "missing-retirement-plan",
+        path: "retirementPlan",
+        diagnosticText: "Transitional static provider profiles must carry an explicit retirement path.",
+      });
+    }
+    return diagnostics;
+  }
+
+  if (!version.executableMappingContract) {
+    diagnostics.push({
+      code: "missing-executable-mapping-contract",
+      path: "executableMappingContract",
+      diagnosticText: "Executable profile versions must carry a mapping contract before activation.",
+    });
+    return diagnostics;
+  }
+
+  if (
+    normalizeProviderKey(version.executableMappingContract.providerKey) !== normalizeProviderKey(version.providerKey) ||
+    version.executableMappingContract.profileKey !== version.profileKey ||
+    version.executableMappingContract.profileVersion !== version.profileVersion ||
+    version.executableMappingContract.lifecycle !== version.lifecycle
+  ) {
+    diagnostics.push({
+      code: "mapping-contract-mismatch",
+      path: "executableMappingContract",
+      diagnosticText: "The executable mapping contract identity must match the profile version record.",
+    });
+  }
+
+  for (const mappingDiagnostic of validateCatalogProviderExecutableMappingContract(version.executableMappingContract)) {
+    diagnostics.push({
+      code: "mapping-contract-diagnostic",
+      path: `executableMappingContract.${mappingDiagnostic.path}`,
+      diagnosticText: mappingDiagnostic.diagnosticText,
+      mappingDiagnostic,
+    });
+  }
+
+  return diagnostics;
+}
+
+export function activateCatalogProviderIntegrationProfileVersion(
+  providerKey: string,
+  profileVersion: string,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+): readonly CatalogProviderIntegrationProfileVersionRecord[] {
+  const normalizedProviderKey = normalizeProviderKey(providerKey);
+  const target = getCatalogProviderIntegrationProfileVersion(providerKey, profileVersion, versions);
+  if (!target) {
+    throw new Error(`Catalog provider profile version ${normalizedProviderKey}@${profileVersion} was not found.`);
+  }
+
+  const diagnostics = validateCatalogProviderIntegrationProfileVersion({
+    ...target,
+    lifecycle: "active",
+    active: true,
+    executableMappingContract: target.executableMappingContract
+      ? {
+          ...target.executableMappingContract,
+          lifecycle: "active",
+        }
+      : undefined,
+  });
+  if (diagnostics.length > 0) {
+    throw new Error(
+      `Catalog provider profile version ${normalizedProviderKey}@${profileVersion} failed activation validation: ${diagnostics
+        .map((diagnostic) => diagnostic.diagnosticText)
+        .join(" ")}`,
+    );
+  }
+
+  return versions.map((version) => {
+    if (normalizeProviderKey(version.providerKey) !== normalizedProviderKey) {
+      return version;
+    }
+    if (version.profileVersion === profileVersion) {
+      return {
+        ...version,
+        lifecycle: "active",
+        active: true,
+        executableMappingContract: version.executableMappingContract
+          ? {
+              ...version.executableMappingContract,
+              lifecycle: "active",
+            }
+          : undefined,
+      };
+    }
+    return version.active
+      ? {
+          ...version,
+          lifecycle: "deprecated",
+          active: false,
+          executableMappingContract: version.executableMappingContract
+            ? {
+                ...version.executableMappingContract,
+                lifecycle: "deprecated",
+              }
+            : undefined,
+        }
+      : version;
+  });
+}
+
+export function rollbackCatalogProviderIntegrationProfileVersion(
+  providerKey: string,
+  rollbackToProfileVersion: string,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+): readonly CatalogProviderIntegrationProfileVersionRecord[] {
+  return activateCatalogProviderIntegrationProfileVersion(providerKey, rollbackToProfileVersion, versions);
 }
 
 export function metadataObject(entries: Readonly<Record<string, JsonValue>>): Readonly<Record<string, JsonValue>> {
   return entries;
+}
+
+function normalizeProviderKey(providerKey: string): string {
+  return providerKey.trim().toLowerCase();
 }
