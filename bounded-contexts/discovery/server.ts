@@ -1,4 +1,5 @@
 export { createDiscoveryRequestApiClient } from "./support/request-support/api-client";
+export type { GoogleShoppingPayloadInput } from "./support/google-shopping-support/export-row";
 export { createDiscoveryUcpHandlers } from "./support/ucp-support/catalog";
 export {
   discoveryRealtimeManifest,
