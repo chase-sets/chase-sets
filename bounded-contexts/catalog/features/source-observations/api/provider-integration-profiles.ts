@@ -195,6 +195,92 @@ export type CatalogProviderSelectedOptionValueMapping = Readonly<{
   value: string;
 }>;
 
+export type CatalogProviderDuplicatePreventionMapping = Readonly<{
+  ambiguousCandidatePolicy: "block-promotion" | "review-only";
+  replayPolicy: "same-profile-version" | "operator-reapply-active-version";
+  rules: readonly CatalogProviderDuplicatePreventionIdentityRule[];
+}>;
+
+export type CatalogProviderDuplicatePreventionIdentityRule =
+  | CatalogProviderExactExternalCatalogItemReferenceRule
+  | CatalogProviderSourceObservationLinkRule
+  | CatalogProviderDeterministicPokemonCardFieldMatchRule
+  | CatalogProviderPartialDraftPokemonCardMatchRule
+  | CatalogProviderSealedProductMatchRule
+  | CatalogProviderBarcodeGtinMatchRule
+  | CatalogProviderBridgeProviderMatchRule;
+
+export type CatalogProviderExactExternalCatalogItemReferenceRule = Readonly<{
+  ruleKey: string;
+  matchKind: "exact-external-catalog-item-reference";
+  sourcePath: "externalCatalogItemReferences";
+}>;
+
+export type CatalogProviderSourceObservationLinkRule = Readonly<{
+  ruleKey: string;
+  matchKind: "source-observation-link";
+  providerKeySource: "observation-provider";
+  externalKey: "language-prefixed-observation-external-key";
+}>;
+
+export type CatalogProviderDeterministicPokemonCardFieldMatchRule = Readonly<{
+  ruleKey: string;
+  matchKind: "deterministic-pokemon-card-field-match";
+  normalizedKind: "pokemon-card";
+  referenceRecord: Readonly<{
+    typeKey: "expansion";
+    keyPath: "expansionName";
+    targetFieldKey: "expansion";
+  }>;
+  fieldMatches: readonly CatalogProviderDuplicatePreventionFieldMatch[];
+}>;
+
+export type CatalogProviderPartialDraftPokemonCardMatchRule = Readonly<{
+  ruleKey: string;
+  matchKind: "partial-draft-pokemon-card-field-match";
+  normalizedKind: "pokemon-card";
+  requireDraftStatus: true;
+  requireNoExternalProductReference: true;
+  requiredTags: readonly CatalogProviderDuplicatePreventionTagRule[];
+  fieldMatches: readonly CatalogProviderDuplicatePreventionFieldMatch[];
+}>;
+
+export type CatalogProviderSealedProductMatchRule = Readonly<{
+  ruleKey: string;
+  matchKind: "sealed-product-match";
+  normalizedKind: "provider-product";
+  productFormPath: "mergeIdentity.productForm";
+  sealedValues: readonly string[];
+  fieldMatches: readonly CatalogProviderDuplicatePreventionFieldMatch[];
+}>;
+
+export type CatalogProviderBarcodeGtinMatchRule = Readonly<{
+  ruleKey: string;
+  matchKind: "barcode-gtin-match";
+  barcodePaths: readonly ("barcode" | "mergeIdentity.barcode")[];
+  candidatePolicy: "review-only";
+}>;
+
+export type CatalogProviderBridgeProviderMatchRule = Readonly<{
+  ruleKey: string;
+  matchKind: "future-provider-bridge-match";
+  bridgeReferenceProviderKeys: readonly string[];
+  candidatePolicy: "review-only";
+}>;
+
+export type CatalogProviderDuplicatePreventionFieldMatch = Readonly<{
+  fieldKey: keyof CatalogProviderIntegrationProfile["catalogFieldMapping"]["fieldKeys"];
+  valuePath: string;
+  valueTransform?: "localized-text";
+}>;
+
+export type CatalogProviderDuplicatePreventionTagRule = Readonly<{
+  kind: "static" | "profile-provider-key" | "template";
+  value?: string;
+  template?: string;
+  values?: Readonly<Record<string, string>>;
+}>;
+
 export type CatalogProviderIntegrationProfile = Readonly<{
   providerKey: string;
   displayName: string;
@@ -235,6 +321,7 @@ export type CatalogProviderIntegrationProfile = Readonly<{
     referenceTarget: "catalog-item-reference" | "product-reference" | "mixed";
     rules: readonly CatalogProviderExternalReferenceRule[];
   }>;
+  duplicatePreventionMapping: CatalogProviderDuplicatePreventionMapping;
   ambiguityRules: Readonly<{
     repeatedMarketplaceReference: "skip-reference";
     missingVariantSpecificReference: "leave-unmapped";
@@ -567,6 +654,55 @@ export const tcgdexPokemonTcgProviderProfile = {
       },
     ],
   },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "exact-external-catalog-item-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "pokemon-card-deterministic-fields",
+        matchKind: "deterministic-pokemon-card-field-match",
+        normalizedKind: "pokemon-card",
+        referenceRecord: {
+          typeKey: "expansion",
+          keyPath: "expansionName",
+          targetFieldKey: "expansion",
+        },
+        fieldMatches: [
+          { fieldKey: "cardNumber", valuePath: "cardNumber" },
+          { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
+          { fieldKey: "cardVariant", valuePath: "cardVariantLabel" },
+        ],
+      },
+      {
+        ruleKey: "pokemon-card-partial-draft-retry",
+        matchKind: "partial-draft-pokemon-card-field-match",
+        normalizedKind: "pokemon-card",
+        requireDraftStatus: true,
+        requireNoExternalProductReference: true,
+        requiredTags: [
+          { kind: "profile-provider-key" },
+          { kind: "template", template: "expansion:{expansionId}", values: { expansionId: "expansionId" } },
+          { kind: "template", template: "variant:{cardVariantKey}", values: { cardVariantKey: "cardVariantKey" } },
+        ],
+        fieldMatches: [
+          { fieldKey: "cardNumber", valuePath: "cardNumber" },
+          { fieldKey: "cardName", valuePath: "name", valueTransform: "localized-text" },
+          { fieldKey: "cardVariant", valuePath: "cardVariantLabel" },
+        ],
+      },
+    ],
+  },
   ambiguityRules: {
     repeatedMarketplaceReference: "skip-reference",
     missingVariantSpecificReference: "leave-unmapped",
@@ -799,6 +935,43 @@ export const tcgplayerAutomationClientProviderProfile = {
         recordIdKeys: ["sku", "skuId", "skuID", "id"],
         pricingRootKeys: [],
         pricingScope: "by-variant",
+      },
+    ],
+  },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "exact-external-catalog-item-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "sealed-product-deterministic-fields",
+        matchKind: "sealed-product-match",
+        normalizedKind: "provider-product",
+        productFormPath: "mergeIdentity.productForm",
+        sealedValues: ["sealed", "unopened"],
+        fieldMatches: [],
+      },
+      {
+        ruleKey: "barcode-gtin-review",
+        matchKind: "barcode-gtin-match",
+        barcodePaths: ["barcode", "mergeIdentity.barcode"],
+        candidatePolicy: "review-only",
+      },
+      {
+        ruleKey: "future-provider-bridge-review",
+        matchKind: "future-provider-bridge-match",
+        bridgeReferenceProviderKeys: ["tcgplayer", "cardmarket"],
+        candidatePolicy: "review-only",
       },
     ],
   },

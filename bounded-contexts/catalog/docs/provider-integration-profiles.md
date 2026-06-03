@@ -64,6 +64,11 @@ blueprint assignment, category assignment, field values, tags, image URL and
 Product Asset Set commands, source Product references, and external Catalog Item
 references.
 
+Duplicate prevention is profile-driven and ordered. The TCGdex profile first
+checks exact external Catalog Item references such as TCGplayer Product IDs,
+then source observation links, deterministic Pokemon card fields, and finally a
+partial-draft retry rule. Ambiguous reusable matches block automatic promotion.
+
 ## TCGplayer Automation Client Profile
 
 The TCGplayer integration uses the client contract documented in
@@ -90,7 +95,9 @@ evidence through the same hierarchy rules, including `tcgplayer-product-line-id`
 and `tcgplayer-set-name` attributes. The connector remains planned until the
 broader TCGplayer mapping migration is complete. TCGplayer provider-product
 Source Observations remain non-promotable until the active profile declares
-Catalog Item promotion capability and a valid promotion command plan.
+Catalog Item promotion capability and a valid promotion command plan. Its
+duplicate-prevention mapping still records review-only identity evidence such as
+sealed product form, barcode/GTIN values, and future bridge provider references.
 
 ## Future Integrations
 

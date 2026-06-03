@@ -123,6 +123,27 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
+  it("declares ordered duplicate-prevention identity rules in provider profiles", () => {
+    expect(tcgdexPokemonTcgProviderProfile.duplicatePreventionMapping).toMatchObject({
+      ambiguousCandidatePolicy: "block-promotion",
+      rules: [
+        expect.objectContaining({ ruleKey: "exact-external-catalog-item-reference" }),
+        expect.objectContaining({ ruleKey: "source-observation-link" }),
+        expect.objectContaining({ ruleKey: "pokemon-card-deterministic-fields" }),
+        expect.objectContaining({ ruleKey: "pokemon-card-partial-draft-retry" }),
+      ],
+    });
+
+    expect(tcgplayerAutomationClientProviderProfile.duplicatePreventionMapping.rules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ruleKey: "exact-external-catalog-item-reference" }),
+        expect.objectContaining({ ruleKey: "sealed-product-deterministic-fields" }),
+        expect.objectContaining({ ruleKey: "barcode-gtin-review" }),
+        expect.objectContaining({ ruleKey: "future-provider-bridge-review" }),
+      ]),
+    );
+  });
+
   it("models reference hierarchy provisioning as provider profile data", () => {
     expect(tcgdexPokemonTcgProviderProfile.referenceHierarchyMapping).toMatchObject({
       providerReferenceIdPrefix: "ref_tcgdex",
@@ -406,6 +427,14 @@ function mappingContract(
       mergeCandidateEvidence: [
         expr("set.id", "external-reference", ["merge-identity"]),
         expr("localId", "catalog-truth", ["merge-identity"]),
+      ],
+      identityRules: [
+        {
+          ruleKey: "exact-external-catalog-item-reference",
+          ruleKind: "exact-external-catalog-item-reference",
+          evidence: [expr("ids.tcgplayer", "external-reference", ["merge-identity"])],
+          candidatePolicy: "reuse",
+        },
       ],
       ambiguousCandidatePolicy: "block-promotion",
       replayPolicy: "same-profile-version",

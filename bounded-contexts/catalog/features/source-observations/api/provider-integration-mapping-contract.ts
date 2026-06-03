@@ -206,8 +206,22 @@ export type CatalogProviderReferenceHierarchyContract = Readonly<{
 export type CatalogProviderDuplicatePreventionContract = Readonly<{
   exactExternalCatalogItemReferencesFirst: boolean;
   mergeCandidateEvidence: readonly CatalogProviderMappingValueExpression[];
+  identityRules: readonly CatalogProviderDuplicatePreventionIdentityRuleContract[];
   ambiguousCandidatePolicy: "block-promotion" | "review-only";
   replayPolicy: "same-profile-version" | "operator-reapply-active-version";
+}>;
+
+export type CatalogProviderDuplicatePreventionIdentityRuleContract = Readonly<{
+  ruleKey: string;
+  ruleKind:
+    | "exact-external-catalog-item-reference"
+    | "source-observation-link"
+    | "deterministic-field-match"
+    | "sealed-product-match"
+    | "barcode-gtin-match"
+    | "future-provider-bridge-match";
+  evidence: readonly CatalogProviderMappingValueExpression[];
+  candidatePolicy: "reuse" | "review-only";
 }>;
 
 export type CatalogProviderPromotionCommandPlanContract = Readonly<{
@@ -331,6 +345,15 @@ export function validateCatalogProviderExecutableMappingContract(
   );
   contract.duplicatePrevention.mergeCandidateEvidence.forEach((expression, index) =>
     validateExpression(`duplicatePrevention.mergeCandidateEvidence.${index}`, expression, diagnostics),
+  );
+  contract.duplicatePrevention.identityRules.forEach((rule, ruleIndex) =>
+    rule.evidence.forEach((expression, evidenceIndex) =>
+      validateExpression(
+        `duplicatePrevention.identityRules.${ruleIndex}.evidence.${evidenceIndex}`,
+        expression,
+        diagnostics,
+      ),
+    ),
   );
   contract.promotionCommandPlan.commands.forEach((command, commandIndex) => {
     for (const [inputKey, expression] of Object.entries(command.inputs)) {
