@@ -7,6 +7,7 @@
   "slices": ["categories", "item-detail", "product-alerts", "search"],
   "allowedSupportDirectories": [
     "client-support",
+    "google-shopping-support",
     "item-support",
     "market-support",
     "realtime-support",
@@ -420,6 +421,15 @@
       "justification": "client-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "discovery workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules."
+    },
+    "google-shopping-support": {
+      "classification": "support",
+      "purpose": "Provide Discovery-owned Google Shopping export projection schema, row identity, eligibility, and payload hashing contracts.",
+      "allowedWhen": "Allowed for public-discovery export behavior that projects Catalog and Marketplace facts into Google-facing rows without changing source ownership.",
+      "expectedConsumers": ["market-support", "platform-worker Merchant sync jobs", "operator diagnostics"],
+      "justification": "Google Shopping rows are a provider-facing public discovery export and need stable contracts shared by projection, sync, and diagnostics slices.",
+      "createdFor": "Discovery Google Shopping Merchant Center integration milestone.",
+      "sunsetWhen": "Remove when Google Shopping export support is retired or moved into a dedicated provider integration context by ADR."
     },
     "item-support": {
       "classification": "support",
