@@ -107,6 +107,7 @@ function isCheckedSourceFile(file) {
   const normalized = file.replaceAll("\\", "/");
   if (normalized.includes("/.react-router/")) return false;
   if (normalized.includes(".test.")) return false;
+  if (normalized.includes(".test-data.")) return false;
   if (normalized.startsWith("contracts/localization/")) return false;
   if (normalized.includes("/features/") && normalized.includes("/domain/")) return false;
   if (normalized.includes("/features/") && normalized.includes("/read-model/")) return false;
