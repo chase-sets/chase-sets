@@ -1,0 +1,217 @@
+name: Marketplace Provider Proof Status
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment_name:
+        description: Environment to inspect.
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      release_ref:
+        description: Ref containing the provider proof status script. Defaults to main.
+        required: false
+        default: main
+        type: string
+      confirm:
+        description: Type "run provider proof status" to run the read-only provider row report.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-provider-proof-status-${{ inputs.environment_name }}
+  cancel-in-progress: false
+
+jobs:
+  provider-proof-status:
+    name: Provider Proof Status
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: ${{ inputs.environment_name }}
+    if: inputs.confirm == 'run provider proof status'
+    env:
+      NODE_ENV: production
+      DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment_name }}
+      TF_IN_AUTOMATION: "true"
+      TF_INPUT: "false"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release commit
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          release_ref="${{ inputs.release_ref }}"
+          git fetch origin "${release_ref}" || true
+          if git rev-parse --verify --quiet "${release_ref}^{commit}" >/dev/null; then
+            release_commit="$(git rev-parse "${release_ref}^{commit}")"
+          elif git rev-parse --verify --quiet "origin/${release_ref}^{commit}" >/dev/null; then
+            release_commit="$(git rev-parse "origin/${release_ref}^{commit}")"
+          else
+            echo "Release ref '${release_ref}' does not resolve to a commit." >&2
+            exit 1
+          fi
+
+          git merge-base --is-ancestor "$release_commit" origin/main
+          git checkout --detach "$release_commit"
+          echo "release_commit=$release_commit" >> "$GITHUB_ENV"
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_wrapper: false
+        env:
+          NODE_OPTIONS: --no-deprecation
+
+      - name: Terraform init platform state
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          TARGET_ENVIRONMENT: ${{ inputs.environment_name }}
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY TARGET_ENVIRONMENT; do
+            if [ -z "${!name:-}" ]; then
+              missing+=("$name")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing required provider proof status configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+
+          case "$TARGET_ENVIRONMENT" in
+            staging) state_key="landing/staging.tfstate" ;;
+            production) state_key="landing/production.tfstate" ;;
+            *)
+              echo "Unsupported environment '${TARGET_ENVIRONMENT}'." >&2
+              exit 1
+              ;;
+          esac
+
+          terraform init \
+            -backend-config=bucket=chase-sets-terraform-state \
+            -backend-config=key="$state_key" \
+            -backend-config=region=us-east-1 \
+            -backend-config='endpoints={s3="https://nyc3.digitaloceanspaces.com"}' \
+            -backend-config=skip_credentials_validation=true \
+            -backend-config=skip_metadata_api_check=true \
+            -backend-config=skip_region_validation=true \
+            -backend-config=skip_requesting_account_id=true \
+            -backend-config=use_path_style=true \
+            -backend-config=use_lockfile=true
+
+      - name: Export provider proof database URLs
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+        run: |
+          set -euo pipefail
+          state_path="${RUNNER_TEMP}/platform-${DEPLOYMENT_ENVIRONMENT}.tfstate.json"
+          terraform state pull > "$state_path"
+          TERRAFORM_STATE_PATH="$state_path" node <<'NODE'
+          const fs = require("node:fs");
+          const state = JSON.parse(fs.readFileSync(process.env.TERRAFORM_STATE_PATH, "utf8"));
+          const resources = Array.isArray(state.resources) ? state.resources : [];
+          const cluster = resources.find((resource) =>
+            resource.type === "digitalocean_database_cluster" && resource.name === "postgres"
+          );
+          const databases = resources.find((resource) =>
+            resource.type === "digitalocean_database_db" && resource.name === "contexts"
+          );
+          const users = resources.find((resource) =>
+            resource.type === "digitalocean_database_user" && resource.name === "contexts"
+          );
+          const clusterAttrs = cluster?.instances?.[0]?.attributes ?? {};
+          if (!clusterAttrs.host || !clusterAttrs.port) {
+            throw new Error("Terraform state does not contain a usable DigitalOcean database cluster.");
+          }
+
+          const databaseByContext = new Map(
+            (databases?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const userByContext = new Map(
+            (users?.instances ?? []).map((instance) => [instance.index_key, instance.attributes ?? {}])
+          );
+          const requiredContexts = ["payments", "settlement", "fulfillment"];
+          const lines = [];
+          for (const contextName of requiredContexts) {
+            const database = databaseByContext.get(contextName);
+            const user = userByContext.get(contextName);
+            if (!database?.name || !user?.name || !user?.password) {
+              throw new Error(`Terraform state is missing database/user data for '${contextName}'.`);
+            }
+
+            const url = `postgresql://${encodeURIComponent(user.name)}:${encodeURIComponent(user.password)}` +
+              `@${clusterAttrs.host}:${clusterAttrs.port}/${encodeURIComponent(database.name)}?sslmode=require`;
+            const envName = `DATABASE_URL_${contextName.toUpperCase().replaceAll("-", "_")}`;
+            console.log(`::add-mask::${url}`);
+            lines.push(`${envName}=${url}`);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_ENV, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Run provider proof status report
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/provider-proof-status
+          pnpm run marketplace:provider-proof-status -- \
+            --environment "$DEPLOYMENT_ENVIRONMENT" \
+            > artifacts/provider-proof-status/provider-proof-status.json
+
+      - name: Summarize provider proof status
+        run: |
+          set -euo pipefail
+          REPORT_PATH="artifacts/provider-proof-status/provider-proof-status.json" node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, "utf8"));
+          const lines = [
+            "### Marketplace provider proof status",
+            "",
+            `- Environment: ${report.environment}`,
+            `- Checked at: ${report.checkedAt}`,
+            `- Release commit: ${process.env.release_commit}`,
+            `- Payments provider webhook rows: ${report.stripeMoney.paymentProviderEventRowCount}`,
+            `- Settlement money-movement webhook rows: ${report.stripeMoney.connectProviderEventRowCount}`,
+            `- Dashboard-none/application readiness rows: ${report.stripeMoney.dashboardNoneApplicationReadinessCount}`,
+            `- Settlement payout rows: ${report.stripeMoney.settlementPayoutRowCount}`,
+            `- Settlement provider-operation rows: ${report.stripeMoney.settlementProviderOperationRowCount}`,
+            `- Fulfillment provider-event rows: ${report.fulfillmentPostage.providerEventRowCount}`,
+            `- Fulfillment tracking-status rows: ${report.fulfillmentPostage.trackingStatusProviderEventRowCount}`,
+            `- Fulfillment refund-status rows: ${report.fulfillmentPostage.refundStatusProviderEventRowCount}`,
+            `- Fulfillment label purchase operations: ${report.fulfillmentPostage.purchaseLabelOperationCount}`,
+            `- Fulfillment label void operations: ${report.fulfillmentPostage.voidLabelOperationCount}`,
+            `- Stripe row thresholds could pass: ${report.gateStatus.stripeMoneyOperationsCouldPassProviderRowThresholds}`,
+            `- Fulfillment row thresholds could pass: ${report.gateStatus.fulfillmentPostageCouldPassProviderRowThresholds}`,
+          ];
+          if (report.gateStatus.remainingProviderRowGaps.length > 0) {
+            lines.push("", "Remaining provider row gaps:");
+            for (const gap of report.gateStatus.remainingProviderRowGaps) {
+              lines.push(`- ${gap}`);
+            }
+          }
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Upload provider proof status report
+        uses: actions/upload-artifact@v7
+        with:
+          name: provider-proof-status-${{ inputs.environment_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/provider-proof-status/provider-proof-status.json
+          if-no-files-found: error
+          retention-days: 30
