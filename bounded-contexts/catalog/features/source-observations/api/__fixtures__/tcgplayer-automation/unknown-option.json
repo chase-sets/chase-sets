@@ -1,0 +1,55 @@
+{
+  "observationId": "tcgplayer_product_493958_unknown_option",
+  "externalKey": "493958-unknown-option",
+  "sourceUrl": "https://www.tcgplayer.com/product/493958",
+  "sourceUpdatedAt": "2026-06-01T00:00:00.000Z",
+  "productId": 493958,
+  "productName": "Sprigatito",
+  "setName": "Scarlet & Violet",
+  "productLineId": 3,
+  "productLineName": "Pokemon",
+  "productTypeName": "Cards",
+  "customAttributes": {
+    "number": "001/198"
+  },
+  "productForm": "single",
+  "skuReferences": ["sku:15500003"],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:493958"
+    }
+  ],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:15500003",
+      "selectedOptions": [
+        {
+          "dimensionKey": "printing",
+          "optionKey": null,
+          "providerValue": "Confetti Galaxy Foil"
+        }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "productLineName": "Pokemon",
+    "setName": "Scarlet & Violet",
+    "productName": "Sprigatito",
+    "cardNumber": "001/198",
+    "productForm": "single"
+  },
+  "catalogHashMaterial": {
+    "productId": 493958,
+    "productName": "Sprigatito",
+    "setName": "Scarlet & Violet",
+    "skuIds": [15500003]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "unknown-option"
+  },
+  "barcode": null
+}

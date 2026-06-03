@@ -1,0 +1,54 @@
+{
+  "observationId": "tcgdex_en_sv01_001_unknown_option",
+  "externalKey": "en:sv01-001-unknown-option",
+  "sourceUrl": "https://api.tcgdex.net/v2/en/cards/sv01-001",
+  "sourceUpdatedAt": "2026-06-01T00:00:00.000Z",
+  "languageCode": "en",
+  "card": {
+    "name": "Sprigatito",
+    "localId": "001",
+    "rarity": "Common",
+    "category": "Pokemon",
+    "illustrator": null
+  },
+  "set": {
+    "id": "sv01",
+    "name": "Scarlet & Violet"
+  },
+  "sourceImageUrls": ["https://assets.tcgdex.net/en/sv/sv01/001/high.png"],
+  "variant": {
+    "key": "provider-new-foil",
+    "displayName": "Provider New Foil",
+    "sourceKey": "new-foil",
+    "parallelSet": true,
+    "isPrimaryImage": false
+  },
+  "variants": ["provider-new-foil"],
+  "mergeIdentity": {
+    "tcg": "pokemon",
+    "setId": "sv01",
+    "cardNumber": "001",
+    "variant": "provider-new-foil"
+  },
+  "externalCatalogItemReferences": [],
+  "catalogHashMaterial": {
+    "id": "sv01-001",
+    "name": "Sprigatito",
+    "setId": "sv01",
+    "variant": "provider-new-foil"
+  },
+  "sourcePayload": {
+    "provider": "tcgdex",
+    "payloadKind": "card-detail",
+    "fixtureFlow": "unknown-option"
+  },
+  "expansionAbbreviation": null,
+  "expansionCardCount": null,
+  "expansionParallelSetCardCount": null,
+  "seriesId": null,
+  "seriesName": null,
+  "releaseDate": null,
+  "releaseYear": null,
+  "imageBaseUrl": null,
+  "imageDisclaimer": null
+}
