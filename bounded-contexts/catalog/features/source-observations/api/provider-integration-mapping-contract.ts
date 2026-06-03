@@ -146,6 +146,8 @@ export type CatalogProviderMappingRuntimeFunctionKey =
   | "tcgdex-marketplace-reference-extractor"
   | "tcgdex-pokemon-reference-hierarchy"
   | "tcgdex-pokemon-promotion-command-plan"
+  | "tcgplayer-product-barcode"
+  | "tcgplayer-product-form"
   | "tcgplayer-sku-selected-option-resolver"
   | "scrydex-tcgplayer-id-reference-extractor";
 
@@ -163,6 +165,14 @@ export type CatalogProviderNormalizedObservationContract = Readonly<{
   fields: Readonly<Record<string, CatalogProviderMappingValueExpression>>;
   hashMaterial: readonly CatalogProviderMappingValueExpression[];
   mergeIdentity: readonly CatalogProviderMappingValueExpression[];
+}>;
+
+export type CatalogProviderSourceObservationContract = Readonly<{
+  observationId: CatalogProviderMappingValueExpression;
+  externalKey: CatalogProviderMappingValueExpression;
+  sourceUrl: CatalogProviderMappingValueExpression;
+  sourceUpdatedAt: CatalogProviderMappingValueExpression;
+  sourcePayload: CatalogProviderMappingValueExpression;
 }>;
 
 export type CatalogProviderExternalReferenceContract = Readonly<{
@@ -228,6 +238,7 @@ export type CatalogProviderExecutableMappingContract = Readonly<{
   sourceContract: CatalogProviderMappingSourceContract;
   connector: CatalogProviderMappingConnectorContract;
   fixtures: CatalogProviderProfileFixtureContract;
+  sourceObservation?: CatalogProviderSourceObservationContract;
   normalizedObservation: CatalogProviderNormalizedObservationContract;
   externalReferences: readonly CatalogProviderExternalReferenceContract[];
   referenceHierarchy: readonly CatalogProviderReferenceHierarchyContract[];
@@ -295,6 +306,13 @@ export function validateCatalogProviderExecutableMappingContract(
   contract.normalizedObservation.mergeIdentity.forEach((expression, index) =>
     validateExpression(`normalizedObservation.mergeIdentity.${index}`, expression, diagnostics),
   );
+  if (contract.sourceObservation) {
+    validateExpression("sourceObservation.observationId", contract.sourceObservation.observationId, diagnostics);
+    validateExpression("sourceObservation.externalKey", contract.sourceObservation.externalKey, diagnostics);
+    validateExpression("sourceObservation.sourceUrl", contract.sourceObservation.sourceUrl, diagnostics);
+    validateExpression("sourceObservation.sourceUpdatedAt", contract.sourceObservation.sourceUpdatedAt, diagnostics);
+    validateExpression("sourceObservation.sourcePayload", contract.sourceObservation.sourcePayload, diagnostics);
+  }
   contract.externalReferences.forEach((reference, index) => {
     validateExpression(`externalReferences.${index}.source`, reference.source, diagnostics);
     reference.selectedOptions?.dimensions.forEach((dimension, dimensionIndex) =>
