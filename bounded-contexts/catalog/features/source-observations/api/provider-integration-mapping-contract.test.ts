@@ -344,6 +344,20 @@ function duplicatePrevention(): CatalogProviderExecutableMappingContract["duplic
       expr("productName", "catalog-truth", ["merge-identity"]),
       expr("customAttributes.number", "catalog-truth", ["merge-identity"]),
     ],
+    identityRules: [
+      {
+        ruleKey: "exact-external-catalog-item-reference",
+        ruleKind: "exact-external-catalog-item-reference",
+        evidence: [expr("ids.tcgplayer", "external-reference", ["merge-identity"])],
+        candidatePolicy: "reuse",
+      },
+      {
+        ruleKey: "barcode-review",
+        ruleKind: "barcode-gtin-match",
+        evidence: [expr("barcode", "catalog-merge-evidence", ["merge-identity"])],
+        candidatePolicy: "review-only",
+      },
+    ],
     ambiguousCandidatePolicy: "block-promotion",
     replayPolicy: "same-profile-version",
   };

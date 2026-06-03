@@ -22,7 +22,7 @@ import {
   type DurableJobWorkUnitSummary,
 } from "@chase-sets/platform-runtime/durable-job-work-units";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
+import type { JsonValue } from "@chase-sets/primitives/json";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
 import { withCatalogAdminRealtimeInvalidation } from "../../../support/projection-support/realtime-invalidation";
@@ -86,6 +86,7 @@ import {
   planCatalogProviderPromotionCommands,
   type CatalogProviderPromotionCommandPlanResult,
 } from "./provider-promotion-command-planner";
+import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
 import { provisionCatalogProviderReferenceHierarchy } from "./provider-reference-hierarchy-provisioner";
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
@@ -536,37 +537,27 @@ export function createSourceObservationRuntime(
       );
     }
 
-    const externalReferenceCatalogItemId = existingCatalogItemId
-      ? null
-      : await findReusableCatalogItemIdForExternalCatalogItemReferences({
-          deps,
-          references: normalized.externalCatalogItemReferences ?? [],
-        });
-    const sourceReferenceExternalKey = formatSourceReferenceExternalKey(input.observation);
-    const sourceReferencedCatalogItemId =
-      existingCatalogItemId ??
-      externalReferenceCatalogItemId ??
-      (await findReusableCatalogItemIdForSourceReference({
-        deps,
-        providerKey: input.observation.provider_key,
-        externalKey: sourceReferenceExternalKey,
-      }));
-    const deterministicCatalogItemId =
-      sourceReferencedCatalogItemId || existingCatalogItemId
-        ? null
-        : await findReusableCatalogItemIdForDeterministicPokemonCardEvidence({
-            deps,
-            normalized,
-          });
-    const partiallyPromotedCatalogItemId =
-      sourceReferencedCatalogItemId || deterministicCatalogItemId || existingCatalogItemId
-        ? null
-        : await findPartiallyPromotedCatalogItemIdForObservation({
-            deps,
-            normalized,
-          });
+    const duplicatePreventionProfile = existingCatalogItemId ? null : await loadPokemonTcgPromotionProfile(deps);
+    const duplicatePreventionResult = duplicatePreventionProfile
+      ? await resolveCatalogProviderDuplicatePrevention({
+          db: deps.db,
+          profile: tcgdexPokemonTcgProviderProfile,
+          providerKey: input.observation.provider_key,
+          externalKey: input.observation.external_key,
+          normalized,
+          catalog: {
+            blueprintId: duplicatePreventionProfile.blueprintId,
+            categoryId: duplicatePreventionProfile.singlesCategoryId,
+            fieldIds: duplicatePreventionProfile.fieldIds,
+          },
+        })
+      : null;
+    if (duplicatePreventionResult?.status === "blocked") {
+      throw new Error(duplicatePreventionResult.diagnosticText);
+    }
     const reusableCatalogItemId =
-      sourceReferencedCatalogItemId ?? deterministicCatalogItemId ?? partiallyPromotedCatalogItemId;
+      existingCatalogItemId ??
+      (duplicatePreventionResult?.status === "matched" ? duplicatePreventionResult.catalogItemId : null);
     const catalogItemId = reusableCatalogItemId ?? (createId("cat") as CatalogItemId);
 
     if (reusableCatalogItemId) {
@@ -2801,26 +2792,6 @@ async function formatPokemonCardPromotionMetadata(input: {
   };
 }
 
-function uniqueExternalCatalogItemReferences(
-  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][],
-) {
-  const seen = new Set<string>();
-  return references
-    .map((reference) => ({
-      providerKey: reference.providerKey.trim().toLowerCase(),
-      externalKey: reference.externalKey.trim().toLowerCase(),
-    }))
-    .filter((reference) => reference.providerKey.length > 0 && reference.externalKey.length > 0)
-    .filter((reference) => {
-      const key = `${reference.providerKey}:${reference.externalKey}`;
-      if (seen.has(key)) {
-        return false;
-      }
-      seen.add(key);
-      return true;
-    });
-}
-
 function isPromotableObservationStatus(status: string): boolean {
   return status === "observed" || status === "changed" || status === "promoted";
 }
@@ -2834,12 +2805,6 @@ function requirePromotionAssetPorts(input: {
   }
 }
 
-function formatSourceReferenceExternalKey(
-  observation: Pick<SourceObservationDetailRow, "normalized" | "external_key">,
-) {
-  return `${observation.normalized.languageCode}:${observation.external_key}`;
-}
-
 function requirePokemonCardPromotionObservation(
   normalized: SourceObservationNormalized,
   providerKey: string,
@@ -2851,138 +2816,6 @@ function requirePokemonCardPromotionObservation(
   }
 
   return normalized;
-}
-
-async function findReusableCatalogItemIdForSourceReference(input: {
-  deps: CatalogRuntimeDeps;
-  providerKey: string;
-  externalKey: string;
-}): Promise<CatalogItemId | null> {
-  const result = await input.deps.db.query<{ catalog_item_id: string }>(
-    `SELECT reference.catalog_item_id
-     FROM catalog_external_product_references AS reference
-     JOIN catalog_items AS item
-       ON item.catalog_item_id = reference.catalog_item_id
-     WHERE reference.provider_key = $1
-       AND reference.external_key = $2
-       AND item.status NOT IN ('archived', 'removed')
-     LIMIT 1`,
-    [input.providerKey, input.externalKey],
-  );
-
-  return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
-}
-
-async function findReusableCatalogItemIdForExternalCatalogItemReferences(input: {
-  deps: CatalogRuntimeDeps;
-  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][];
-}): Promise<CatalogItemId | null> {
-  const references = uniqueExternalCatalogItemReferences(input.references);
-  if (references.length === 0) {
-    return null;
-  }
-
-  const values = references.flatMap((reference) => [reference.providerKey, reference.externalKey]);
-  const referencePredicates = references.map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`).join(", ");
-  const result = await input.deps.db.query<{ catalog_item_id: string }>(
-    `SELECT DISTINCT reference.catalog_item_id
-     FROM catalog_external_catalog_item_references AS reference
-     JOIN catalog_items AS item
-       ON item.catalog_item_id = reference.catalog_item_id
-     WHERE (reference.provider_key, reference.external_key) IN (${referencePredicates})
-       AND item.status NOT IN ('archived', 'removed')
-     ORDER BY reference.catalog_item_id ASC`,
-    values,
-  );
-  const catalogItemIds = [...new Set(result.rows.map((row) => row.catalog_item_id))];
-  if (catalogItemIds.length > 1) {
-    throw new Error("Multiple Catalog Items match this Source Observation's external catalog item references.");
-  }
-
-  return (catalogItemIds[0] as CatalogItemId | undefined) ?? null;
-}
-
-async function findPartiallyPromotedCatalogItemIdForObservation(input: {
-  deps: CatalogRuntimeDeps;
-  normalized: SourceObservationPokemonCardNormalized;
-}): Promise<CatalogItemId | null> {
-  const profile = await loadPokemonTcgPromotionProfile(input.deps);
-  const reusableTags = [
-    tcgdexPokemonTcgProviderProfile.providerKey,
-    `expansion:${input.normalized.expansionId}`,
-    `variant:${input.normalized.cardVariantKey}`,
-  ];
-  const cardNumberField = [{ fieldId: profile.fieldIds.cardNumber, value: input.normalized.cardNumber }];
-  const cardNameField = [{ fieldId: profile.fieldIds.cardName, value: localizedJsonText(input.normalized.name) }];
-  const cardVariantField = [{ fieldId: profile.fieldIds.cardVariant, value: input.normalized.cardVariantLabel }];
-  const result = await input.deps.db.query<{ catalog_item_id: string }>(
-    `SELECT item.catalog_item_id
-     FROM catalog_items AS item
-     LEFT JOIN catalog_external_product_references AS reference
-       ON reference.catalog_item_id = item.catalog_item_id
-     WHERE item.status = 'draft'
-       AND item.language_code = $1
-       AND item.tags @> $2::jsonb
-       AND item.field_values @> $3::jsonb
-       AND item.field_values @> $4::jsonb
-       AND item.field_values @> $5::jsonb
-       AND reference.catalog_item_id IS NULL
-     ORDER BY item.updated_at DESC, item.catalog_item_id ASC
-     LIMIT 1`,
-    [
-      input.normalized.languageCode,
-      JSON.stringify(reusableTags),
-      JSON.stringify(cardNumberField),
-      JSON.stringify(cardNameField),
-      JSON.stringify(cardVariantField),
-    ],
-  );
-
-  return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
-}
-
-async function findReusableCatalogItemIdForDeterministicPokemonCardEvidence(input: {
-  deps: CatalogRuntimeDeps;
-  normalized: SourceObservationPokemonCardNormalized;
-}): Promise<CatalogItemId | null> {
-  const profile = await loadPokemonTcgPromotionProfile(input.deps);
-  const expansionReferenceId = await findReferenceRecordByTypeAndKey(
-    input.deps,
-    "expansion",
-    normalizeReferenceKey(input.normalized.expansionName),
-  );
-  if (!expansionReferenceId) {
-    return null;
-  }
-
-  const cardNumberField = [{ fieldId: profile.fieldIds.cardNumber, value: input.normalized.cardNumber }];
-  const cardNameField = [{ fieldId: profile.fieldIds.cardName, value: localizedJsonText(input.normalized.name) }];
-  const cardVariantField = [{ fieldId: profile.fieldIds.cardVariant, value: input.normalized.cardVariantLabel }];
-  const expansionField = [{ fieldId: profile.fieldIds.expansion, value: { referenceId: expansionReferenceId } }];
-  const result = await input.deps.db.query<{ catalog_item_id: string }>(
-    `SELECT item.catalog_item_id
-     FROM catalog_items AS item
-     WHERE item.status NOT IN ('archived', 'removed')
-       AND item.language_code = $1
-       AND item.field_values @> $2::jsonb
-       AND item.field_values @> $3::jsonb
-       AND item.field_values @> $4::jsonb
-       AND item.field_values @> $5::jsonb
-     ORDER BY item.updated_at DESC, item.catalog_item_id ASC`,
-    [
-      input.normalized.languageCode,
-      JSON.stringify(cardNumberField),
-      JSON.stringify(cardNameField),
-      JSON.stringify(cardVariantField),
-      JSON.stringify(expansionField),
-    ],
-  );
-  const catalogItemIds = [...new Set(result.rows.map((row) => row.catalog_item_id))];
-  if (catalogItemIds.length > 1) {
-    throw new Error("Multiple Catalog Items match this Source Observation's deterministic card evidence.");
-  }
-
-  return (catalogItemIds[0] as CatalogItemId | undefined) ?? null;
 }
 
 function capitalize(value: string): string {
@@ -3209,23 +3042,6 @@ function isProviderReferenceAttributeKey(key: string): boolean {
   return key.startsWith("tcgdex-") || key.startsWith("tcgplayer-") || key.startsWith("scryfall-");
 }
 
-async function findReferenceRecordByTypeAndKey(
-  deps: CatalogRuntimeDeps,
-  typeKey: string,
-  key: string,
-): Promise<ReferenceRecordId | null> {
-  const existing = await deps.db.query<{ reference_record_id: string }>(
-    `SELECT reference_record_id
-     FROM catalog_reference_records
-     WHERE type_key = $1
-       AND key = $2
-     LIMIT 1`,
-    [typeKey, key],
-  );
-
-  return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
-}
-
 async function loadPokemonTcgPromotionProfile(deps: CatalogRuntimeDeps): Promise<{
   blueprintId: BlueprintId;
   singlesCategoryId: CategoryId;
@@ -3300,23 +3116,6 @@ async function requireCatalogIdByKey<TId extends string>(
 function localizedText(value: string): LocalizedTextMap {
   return {
     defaultLocale: "en" as const,
-    values: {
-      en: value,
-    },
-  };
-}
-
-function normalizeReferenceKey(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
-
-function localizedJsonText(value: string): JsonObject {
-  return {
-    defaultLocale: "en",
     values: {
       en: value,
     },

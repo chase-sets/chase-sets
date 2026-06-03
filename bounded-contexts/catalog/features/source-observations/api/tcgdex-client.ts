@@ -490,6 +490,7 @@ const tcgdexPokemonCardSourceObservationMapping = {
   duplicatePrevention: {
     exactExternalCatalogItemReferencesFirst: true,
     mergeCandidateEvidence: [],
+    identityRules: [],
     ambiguousCandidatePolicy: "block-promotion",
     replayPolicy: "same-profile-version",
   },
