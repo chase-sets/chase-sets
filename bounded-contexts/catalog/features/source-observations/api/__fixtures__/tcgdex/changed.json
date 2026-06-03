@@ -1,0 +1,59 @@
+{
+  "observationId": "tcgdex_en_sv01_001_changed",
+  "externalKey": "en:sv01-001-changed",
+  "sourceUrl": "https://api.tcgdex.net/v2/en/cards/sv01-001",
+  "sourceUpdatedAt": "2026-06-02T00:00:00.000Z",
+  "languageCode": "en",
+  "card": {
+    "name": "Sprigatito",
+    "localId": "001",
+    "rarity": "Common",
+    "illustrator": "Mina Nakai",
+    "category": "Pokemon"
+  },
+  "set": {
+    "id": "sv01",
+    "name": "Scarlet & Violet"
+  },
+  "releaseYear": 2023,
+  "sourceImageUrls": ["https://assets.tcgdex.net/en/sv/sv01/001/high.png"],
+  "variant": {
+    "key": "reverse-holo",
+    "displayName": "Reverse Holo",
+    "sourceKey": "reverse",
+    "parallelSet": true,
+    "isPrimaryImage": false
+  },
+  "variants": ["standard", "reverse-holo"],
+  "mergeIdentity": {
+    "tcg": "pokemon",
+    "setId": "sv01",
+    "cardNumber": "001",
+    "variant": "reverse-holo"
+  },
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:493959"
+    }
+  ],
+  "catalogHashMaterial": {
+    "id": "sv01-001",
+    "name": "Sprigatito",
+    "setId": "sv01",
+    "variant": "reverse-holo"
+  },
+  "sourcePayload": {
+    "provider": "tcgdex",
+    "payloadKind": "card-detail",
+    "fixtureFlow": "changed"
+  },
+  "expansionAbbreviation": null,
+  "expansionCardCount": null,
+  "expansionParallelSetCardCount": null,
+  "seriesId": null,
+  "seriesName": null,
+  "releaseDate": null,
+  "imageBaseUrl": null,
+  "imageDisclaimer": null
+}

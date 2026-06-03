@@ -1,0 +1,15 @@
+{
+  "object": "card",
+  "id": "unknown-option-fixture-0001",
+  "name": "Future Frame Sliver",
+  "lang": "en",
+  "released_at": "2026-06-01",
+  "scryfall_uri": "https://scryfall.com/card/future/001/future-frame-sliver",
+  "set": "future",
+  "set_name": "Future Fixture Set",
+  "collector_number": "001-star",
+  "image_uris": {
+    "normal": "https://cards.scryfall.io/normal/front/future/001.jpg"
+  },
+  "tcgplayer_id": 999001
+}

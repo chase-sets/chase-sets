@@ -1,0 +1,59 @@
+{
+  "observationId": "tcgdex_en_sv01_etb_sealed",
+  "externalKey": "en:sv01-etb-sealed",
+  "sourceUrl": "https://api.tcgdex.net/v2/en/cards/sv01-etb",
+  "sourceUpdatedAt": "2026-06-01T00:00:00.000Z",
+  "languageCode": "en",
+  "card": {
+    "name": "Scarlet & Violet Elite Trainer Box",
+    "localId": "ETB",
+    "category": "Sealed",
+    "rarity": null,
+    "illustrator": null
+  },
+  "set": {
+    "id": "sv01",
+    "name": "Scarlet & Violet"
+  },
+  "sourceImageUrls": ["https://assets.tcgdex.net/en/sv/sv01/etb/high.png"],
+  "variant": {
+    "key": "sealed",
+    "displayName": "Sealed Product",
+    "sourceKey": "sealed",
+    "parallelSet": false,
+    "isPrimaryImage": true
+  },
+  "variants": ["sealed"],
+  "mergeIdentity": {
+    "tcg": "pokemon",
+    "setId": "sv01",
+    "cardNumber": "ETB",
+    "variant": "sealed"
+  },
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:497105"
+    }
+  ],
+  "catalogHashMaterial": {
+    "id": "sv01-etb",
+    "name": "Scarlet & Violet Elite Trainer Box",
+    "setId": "sv01",
+    "variant": "sealed"
+  },
+  "sourcePayload": {
+    "provider": "tcgdex",
+    "payloadKind": "card-detail",
+    "fixtureFlow": "sealed-product"
+  },
+  "expansionAbbreviation": null,
+  "expansionCardCount": null,
+  "expansionParallelSetCardCount": null,
+  "seriesId": null,
+  "seriesName": null,
+  "releaseDate": null,
+  "releaseYear": null,
+  "imageBaseUrl": null,
+  "imageDisclaimer": null
+}

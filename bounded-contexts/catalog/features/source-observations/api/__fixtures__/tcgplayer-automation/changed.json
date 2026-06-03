@@ -1,0 +1,55 @@
+{
+  "observationId": "tcgplayer_product_493958_changed",
+  "externalKey": "493958-changed",
+  "sourceUrl": "https://www.tcgplayer.com/product/493958",
+  "sourceUpdatedAt": "2026-06-02T00:00:00.000Z",
+  "productId": 493958,
+  "productName": "Sprigatito - Reverse Holofoil",
+  "setName": "Scarlet & Violet",
+  "productLineId": 3,
+  "productLineName": "Pokemon",
+  "productTypeName": "Cards",
+  "customAttributes": {
+    "number": "001/198"
+  },
+  "productForm": "single",
+  "barcode": "0820650853217",
+  "skuReferences": ["sku:15500002"],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:493958"
+    }
+  ],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:15500002",
+      "selectedOptions": [
+        {
+          "dimensionKey": "printing",
+          "optionKey": "reverse-holofoil",
+          "providerValue": "Reverse Holofoil"
+        }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "productLineName": "Pokemon",
+    "setName": "Scarlet & Violet",
+    "productName": "Sprigatito - Reverse Holofoil",
+    "cardNumber": "001/198",
+    "productForm": "single"
+  },
+  "catalogHashMaterial": {
+    "productId": 493958,
+    "productName": "Sprigatito - Reverse Holofoil",
+    "setName": "Scarlet & Violet",
+    "skuIds": [15500002]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "changed"
+  }
+}

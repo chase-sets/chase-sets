@@ -1,0 +1,69 @@
+{
+  "observationId": "tcgplayer_product_493958_replay",
+  "externalKey": "493958-replay",
+  "sourceUrl": "https://www.tcgplayer.com/product/493958",
+  "sourceUpdatedAt": "2026-06-01T00:00:00.000Z",
+  "productId": 493958,
+  "productName": "Sprigatito",
+  "setName": "Scarlet & Violet",
+  "productLineId": 3,
+  "productLineName": "Pokemon",
+  "productTypeName": "Cards",
+  "customAttributes": {
+    "number": "001/198"
+  },
+  "productForm": "single",
+  "barcode": "0820650853217",
+  "skuReferences": ["sku:15500001"],
+  "externalCatalogItemReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "product:493958"
+    }
+  ],
+  "externalProductReferences": [
+    {
+      "providerKey": "tcgplayer",
+      "externalKey": "sku:15500001",
+      "selectedOptions": [
+        {
+          "dimensionKey": "condition",
+          "optionKey": "near-mint",
+          "providerValue": "Near Mint"
+        },
+        {
+          "dimensionKey": "printing",
+          "optionKey": "normal",
+          "providerValue": "Normal"
+        },
+        {
+          "dimensionKey": "language",
+          "optionKey": "en",
+          "providerValue": "English"
+        }
+      ]
+    }
+  ],
+  "mergeIdentity": {
+    "productLineName": "Pokemon",
+    "setName": "Scarlet & Violet",
+    "productName": "Sprigatito",
+    "cardNumber": "001/198",
+    "productForm": "single"
+  },
+  "catalogHashMaterial": {
+    "productId": 493958,
+    "productName": "Sprigatito",
+    "setName": "Scarlet & Violet",
+    "skuIds": [15500001]
+  },
+  "sourcePayload": {
+    "provider": "tcgplayer",
+    "payloadKind": "product-detail-with-skus",
+    "fixtureFlow": "replay",
+    "excludedEvidence": {
+      "price": "redacted fixture boundary",
+      "inventory": "redacted fixture boundary"
+    }
+  }
+}
