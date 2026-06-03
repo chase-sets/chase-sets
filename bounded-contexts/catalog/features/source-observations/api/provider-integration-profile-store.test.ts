@@ -62,10 +62,7 @@ describe("catalog provider integration profile version store", () => {
   it("activates a persisted version and deprecates the previous active version", async () => {
     const db = new InMemoryProfileVersionDb();
     const store = createCatalogProviderIntegrationProfileVersionStore(db);
-    await store.seedProfileVersions([
-      catalogProviderIntegrationProfileVersions[0],
-      tcgdexVersion("2026.06.04", "test", false),
-    ]);
+    await store.seedProfileVersions([currentTcgdexVersion(), tcgdexVersion("2026.06.04", "test", false)]);
 
     await store.activateProfileVersion("tcgdex", "2026.06.04");
 
@@ -104,7 +101,7 @@ function tcgdexVersion(
   lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
   active: boolean,
 ): CatalogProviderIntegrationProfileVersionRecord {
-  const base = catalogProviderIntegrationProfileVersions[0];
+  const base = currentTcgdexVersion();
   return {
     ...base,
     profileVersion,
@@ -121,7 +118,7 @@ function tcgdexVersion(
 }
 
 function legacyActiveTcgdexVersion(): CatalogProviderIntegrationProfileVersionRecord {
-  const base = catalogProviderIntegrationProfileVersions[0];
+  const base = currentTcgdexVersion();
   return {
     ...base,
     profileVersion: "2026.06.02",
@@ -140,6 +137,14 @@ function legacyActiveTcgdexVersion(): CatalogProviderIntegrationProfileVersionRe
     },
     executableMappingContract: undefined,
   };
+}
+
+function currentTcgdexVersion(): CatalogProviderIntegrationProfileVersionRecord {
+  const version = catalogProviderIntegrationProfileVersions.find((candidate) => candidate.providerKey === "tcgdex");
+  if (!version) {
+    throw new Error("Expected seeded TCGdex profile version.");
+  }
+  return version;
 }
 
 class InMemoryProfileVersionDb {

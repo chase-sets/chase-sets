@@ -971,6 +971,15 @@ describe("source observation runtime", () => {
 
     expect(providers).toEqual([
       expect.objectContaining({
+        providerKey: "scrydex",
+        value: "scrydex",
+        label: "Scrydex",
+        metadata: expect.objectContaining({
+          status: "planned",
+          connectorKind: "scrydex-scryfall-json",
+        }),
+      }),
+      expect.objectContaining({
         providerKey: "tcgdex",
         value: "tcgdex",
         label: "TCGdex",

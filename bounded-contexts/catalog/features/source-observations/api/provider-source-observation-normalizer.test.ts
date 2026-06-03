@@ -11,6 +11,7 @@ import {
   normalizeCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
+import { scrydexScryfallCardSourceObservationMappingContract } from "./scrydex-executable-mapping-contract";
 
 describe("provider Source Observation normalizer", () => {
   it("builds a provider-product Source Observation from mapping config", () => {
@@ -92,7 +93,69 @@ describe("provider Source Observation normalizer", () => {
       ]),
     );
   });
+
+  it("builds a Scrydex provider-product observation with TCGplayer Product ID bridge evidence", () => {
+    const result = normalizeCatalogProviderSourceObservation({
+      contract: scrydexScryfallCardSourceObservationMappingContract,
+      payload: scrydexScryfallCardPayload(),
+      observedAt: "2026-06-03T00:00:00.000Z",
+    });
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.observation).toMatchObject({
+      observationId: "scrydex_en_0000579f-7b35-4ed3-b44c-db2a538066fe",
+      providerKey: "scrydex",
+      externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      sourceUrl: "https://scryfall.com/card/tsp/157/fury-sliver",
+      languageCode: "en",
+      sourceUpdatedAt: "2006-10-06",
+      normalized: {
+        kind: "provider-product",
+        providerProductId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+        providerProductName: "Fury Sliver",
+        name: "Fury Sliver",
+        setName: "Time Spiral",
+        cardNumber: "157",
+        imageUrls: [
+          "https://cards.scryfall.io/normal/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.jpg",
+          "https://cards.scryfall.io/png/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.png",
+        ],
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
+        skuReferences: [],
+        mergeIdentity: {
+          tcg: "magic",
+          productLineName: "Magic: The Gathering",
+          setName: "Time Spiral",
+          printedProductName: "Fury Sliver",
+          collectorNumber: "157",
+          languageCode: "en",
+          productForm: "single",
+        },
+      },
+    });
+    expect(result.observation?.sourceRecordHash).toHaveLength(64);
+  });
 });
+
+function scrydexScryfallCardPayload(): JsonObject {
+  return {
+    object: "card",
+    id: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+    oracle_id: "44623693-51d6-49ad-8cd7-140505caf02f",
+    name: "Fury Sliver",
+    lang: "en",
+    released_at: "2006-10-06",
+    scryfall_uri: "https://scryfall.com/card/tsp/157/fury-sliver",
+    set: "tsp",
+    set_name: "Time Spiral",
+    collector_number: "157",
+    image_uris: {
+      normal: "https://cards.scryfall.io/normal/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.jpg",
+      png: "https://cards.scryfall.io/png/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.png",
+    },
+    tcgplayer_id: 14240,
+  };
+}
 
 function providerProductPayload(): JsonObject {
   return {

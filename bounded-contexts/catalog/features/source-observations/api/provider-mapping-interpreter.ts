@@ -158,6 +158,10 @@ function evaluateSelector(
       return { value: selector.value, omitted: false, diagnostics: [] };
     case "coalesce":
       return evaluateCoalesceSelector(selector.selectors, selector.required, context);
+    case "template":
+      return evaluateTemplateSelector(selector.template, selector.values, selector.required, context);
+    case "array":
+      return evaluateArraySelector(selector.items, context);
     case "object":
       return evaluateObjectSelector(selector.fields, context);
     case "array-map":
@@ -272,6 +276,94 @@ function evaluateCoalesceSelector(
         diagnosticText: "Required coalesce selector did not resolve any provider field.",
       },
     ],
+  };
+}
+
+function evaluateArraySelector(
+  items: readonly CatalogProviderMappingValueExpression[],
+  context: SelectorEvaluationContext,
+): SelectorEvaluationResult {
+  const diagnostics: CatalogProviderMappingInterpreterDiagnostic[] = [];
+  const values: JsonValue[] = [];
+
+  items.forEach((expression, index) => {
+    const result = evaluateCatalogProviderMappingExpression(
+      expression,
+      context.payload,
+      context.options,
+      `${context.path}.items.${index}`,
+    );
+    diagnostics.push(...result.diagnostics);
+    if (result.evidence) {
+      values.push(result.evidence.value);
+    }
+  });
+
+  return { value: values, omitted: false, diagnostics };
+}
+
+function evaluateTemplateSelector(
+  template: string,
+  values: Readonly<Record<string, CatalogProviderMappingValueExpression>>,
+  required: boolean,
+  context: SelectorEvaluationContext,
+): SelectorEvaluationResult {
+  const diagnostics: CatalogProviderMappingInterpreterDiagnostic[] = [];
+  const resolvedValues: Record<string, string> = {};
+
+  for (const [valueKey, expression] of Object.entries(values)) {
+    const result = evaluateCatalogProviderMappingExpression(
+      expression,
+      context.payload,
+      context.options,
+      `${context.path}.values.${valueKey}`,
+    );
+    diagnostics.push(...result.diagnostics);
+
+    if (!result.evidence) {
+      continue;
+    }
+
+    const value = result.evidence.value;
+    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+      resolvedValues[valueKey] = String(value);
+      continue;
+    }
+
+    diagnostics.push({
+      code: "transform-type-mismatch",
+      path: `${context.path}.values.${valueKey}`,
+      redaction: expression.redaction,
+      diagnosticText: "Template selector values must resolve to string-compatible provider evidence.",
+    });
+  }
+
+  const missingKeys = [...template.matchAll(/\{([^}]+)\}/g)]
+    .map((match) => match[1])
+    .filter((key) => !(key in resolvedValues));
+
+  if (missingKeys.length > 0) {
+    return required
+      ? {
+          value: null,
+          omitted: true,
+          diagnostics: [
+            ...diagnostics,
+            {
+              code: "missing-required-path",
+              path: context.path,
+              redaction: context.expression.redaction,
+              diagnosticText: `Template selector could not resolve value(s): ${missingKeys.join(", ")}.`,
+            },
+          ],
+        }
+      : { value: null, omitted: true, diagnostics };
+  }
+
+  return {
+    value: Object.entries(resolvedValues).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, value), template),
+    omitted: false,
+    diagnostics,
   };
 }
 

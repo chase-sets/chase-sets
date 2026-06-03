@@ -123,6 +123,29 @@ product-form, barcode, source hash, and selected-option context before invoking
 the profile contract; those helpers are not allowed to import price, listing,
 seller, inventory, order, or message facts into Catalog truth or hash material.
 
+## Scrydex Scryfall-Style Proof Profile
+
+The Scrydex profile is a planned, fixture-backed proof profile for
+Scryfall-style card payloads. It exists to validate the provider mapping
+framework's extensibility before a live Scrydex transport adapter is accepted.
+It does not add runtime provider branches and does not declare Catalog Item
+promotion capability.
+
+The executable Scrydex profile maps raw card payload evidence such as Scryfall
+ID, set code, set name, collector number, language, image URLs, and
+`tcgplayer_id` into a provider-product Source Observation. The `tcgplayer_id`
+is converted by profile config into the existing TCGplayer Catalog Item
+reference strategy: `providerKey: "tcgplayer"` and `externalKey:
+"product:<tcgplayer_id>"`. Duplicate prevention then uses the shared exact
+external Catalog Item reference rule before any review-only bridge evidence,
+which lets Scrydex supplement existing TCGdex or TCGplayer observations without
+creating duplicate Catalog Items.
+
+Scrydex fixtures deliberately exclude price, seller, inventory, ruling, and
+legality facts from Catalog truth and hash material. Those facts may belong in
+other bounded contexts or later reviewed integrations, but they are not part of
+this Catalog identity proof.
+
 ## Future Integrations
 
 Future TCG integrations should add their own provider integration profile when their structure differs from Pokemon TCG. Do not place integration-specific fields or blueprints in deployables, and do not make scenario data the source of structural truth.

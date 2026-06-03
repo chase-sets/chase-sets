@@ -5,6 +5,7 @@ import type {
   SourceObservationProviderProductNormalized,
 } from "../domain/domain";
 import {
+  scrydexScryfallCardProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfile,
@@ -164,6 +165,48 @@ describe("resolveCatalogProviderDuplicatePrevention", () => {
         evidenceText: "barcode/GTIN evidence 0084123456789",
       },
     });
+  });
+
+  it("reuses existing Catalog Items for Scrydex observations through TCGplayer ID evidence", async () => {
+    const db = duplicatePreventionDb({ externalCatalogItemIds: ["cat_tcgplayer_bridge"] });
+
+    const result = await resolveCatalogProviderDuplicatePrevention({
+      db,
+      profile: scrydexScryfallCardProviderProfile,
+      providerKey: "scrydex",
+      externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
+      normalized: providerProductObservation({
+        name: "Fury Sliver",
+        setName: "Time Spiral",
+        expansionName: "Time Spiral",
+        cardNumber: "157",
+        providerProductId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+        providerProductName: "Fury Sliver",
+        productLineName: "Magic: The Gathering",
+        productCategoryName: "Cards",
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
+        mergeIdentity: {
+          tcg: "magic",
+          productLineName: "Magic: The Gathering",
+          setName: "Time Spiral",
+          printedProductName: "Fury Sliver",
+          collectorNumber: "157",
+          languageCode: "en",
+          productForm: "single",
+        },
+      }),
+      catalog: catalogMapping(),
+    });
+
+    expect(result).toMatchObject({
+      status: "matched",
+      catalogItemId: "cat_tcgplayer_bridge",
+      ruleKey: "exact-external-catalog-item-reference",
+      evidenceSummary: {
+        evidenceText: "1 external Catalog Item reference(s)",
+      },
+    });
+    expect(db.queries.some((query) => query.includes("FROM catalog_items AS item"))).toBe(false);
   });
 });
 

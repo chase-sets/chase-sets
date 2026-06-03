@@ -12,6 +12,7 @@ import {
   validateCatalogProviderExecutableMappingContract,
 } from "./provider-integration-mapping-contract";
 import type { CatalogProviderSourceObservationMappingContract } from "./provider-source-observation-normalizer";
+import { scrydexScryfallCardSourceObservationMappingContract } from "./scrydex-executable-mapping-contract";
 import { tcgplayerProviderProductSourceObservationMappingContract } from "./tcgplayer-executable-mapping-contract";
 import { tcgdexPokemonCardSourceObservationMappingContract } from "./tcgdex-executable-mapping-contract";
 
@@ -127,7 +128,26 @@ export type TcgplayerAutomationClientConnectorProfile = Readonly<{
   }>;
 }>;
 
-export type CatalogProviderConnectorProfile = TcgdexJsonConnectorProfile | TcgplayerAutomationClientConnectorProfile;
+export type ScrydexScryfallJsonConnectorProfile = Readonly<{
+  kind: "scrydex-scryfall-json";
+  sourceContractDocument: string;
+  fixtureBackedOnly: true;
+  acceptedEvidence: readonly (
+    | "scryfall-id"
+    | "set-code"
+    | "set-name"
+    | "collector-number"
+    | "language"
+    | "image-url"
+    | "tcgplayer-id"
+  )[];
+  excludedEvidence: readonly ("price" | "seller" | "inventory" | "ruling" | "legality")[];
+}>;
+
+export type CatalogProviderConnectorProfile =
+  | TcgdexJsonConnectorProfile
+  | TcgplayerAutomationClientConnectorProfile
+  | ScrydexScryfallJsonConnectorProfile;
 
 export type CatalogProviderVariantRule = Readonly<{
   variantKey: string;
@@ -328,7 +348,7 @@ export type CatalogProviderIntegrationProfile = Readonly<{
   optionQueries: readonly CatalogProviderOptionQuery[];
   connector: CatalogProviderConnectorProfile;
   normalizedObservationMapping: Readonly<{
-    kind: "pokemon-card";
+    kind: "pokemon-card" | "provider-product";
     variantRules: readonly CatalogProviderVariantRule[];
     unknownVariantLabelPrefix: string;
     duplicateReferenceRule: "drop-repeated-across-variants";
@@ -1160,12 +1180,136 @@ export const tcgplayerAutomationClientProviderProfile = {
   },
 } as const satisfies CatalogProviderIntegrationProfile;
 
+export const scrydexScryfallCardProviderProfile = {
+  providerKey: "scrydex",
+  displayName: "Scrydex",
+  status: "planned",
+  capabilities: ["source-observation-import", "external-reference-extraction"],
+  supportedScopes: ["product/card"],
+  languageOptions: ["en"],
+  optionQueries: [],
+  connector: {
+    kind: "scrydex-scryfall-json",
+    sourceContractDocument: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+    fixtureBackedOnly: true,
+    acceptedEvidence: [
+      "scryfall-id",
+      "set-code",
+      "set-name",
+      "collector-number",
+      "language",
+      "image-url",
+      "tcgplayer-id",
+    ],
+    excludedEvidence: ["price", "seller", "inventory", "ruling", "legality"],
+  },
+  normalizedObservationMapping: {
+    kind: "provider-product",
+    variantRules: [],
+    unknownVariantLabelPrefix: "Unclassified Scrydex Variant",
+    duplicateReferenceRule: "drop-repeated-across-variants",
+  },
+  catalogFieldMapping: tcgdexPokemonTcgProviderProfile.catalogFieldMapping,
+  referenceHierarchyMapping: {
+    providerReferenceIdPrefix: "ref_scrydex",
+    providerAttributes: [
+      { typeKey: "expansion", providerAttributeKey: "scrydex-set-code" },
+      { typeKey: "expansion", providerAttributeKey: "scrydex-set-name" },
+    ],
+    targetRecordRuleKey: "set",
+    referenceTypes: [
+      {
+        referenceTypeId: catalogSeedIds.referenceTypes.expansion,
+        typeKey: "expansion",
+        name: "Expansion",
+        descriptionText: "A provider catalog set, expansion, or release group.",
+        attributeKeys: ["scrydex-set-code", "scrydex-set-name"],
+      },
+    ],
+    referenceRecords: [
+      {
+        ruleKey: "set",
+        typeKey: "expansion",
+        recordId: { kind: "provider", typeKey: "expansion", providerValuePaths: ["set", "set_name"] },
+        key: { kind: "path", path: "set_name" },
+        name: { kind: "path", path: "set_name" },
+        description: {
+          kind: "template",
+          template: "{setName} Magic: The Gathering set.",
+          values: { setName: { kind: "path", path: "set_name" } },
+        },
+        requiredPaths: ["set", "set_name"],
+        attributes: [
+          { attributeKey: "scrydex-set-code", value: { kind: "path", path: "set" } },
+          { attributeKey: "scrydex-set-name", value: { kind: "path", path: "set_name" } },
+        ],
+      },
+    ],
+  },
+  externalReferenceExtractionRules: {
+    referenceTarget: "catalog-item-reference",
+    rules: [
+      {
+        providerKey: "tcgplayer",
+        target: "catalog-item-reference",
+        externalKeyPrefix: "product:",
+        containerKeys: [],
+        valueKeys: ["tcgplayer_id"],
+        recordIdKeys: ["tcgplayer_id"],
+        pricingRootKeys: [],
+        pricingScope: "card",
+      },
+    ],
+  },
+  duplicatePreventionMapping: {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "exact-external-catalog-item-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "future-provider-bridge-review",
+        matchKind: "future-provider-bridge-match",
+        bridgeReferenceProviderKeys: ["tcgplayer"],
+        candidatePolicy: "review-only",
+      },
+    ],
+  },
+  ambiguityRules: {
+    repeatedMarketplaceReference: "skip-reference",
+    missingVariantSpecificReference: "leave-unmapped",
+  },
+} as const satisfies CatalogProviderIntegrationProfile;
+
 export const catalogProviderIntegrationProfiles = [
+  scrydexScryfallCardProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
 ] as const satisfies readonly CatalogProviderIntegrationProfile[];
 
 export const catalogProviderIntegrationProfileVersions = [
+  {
+    providerKey: "scrydex",
+    profileKey: "scryfall-card-fixture",
+    profileVersion: "2026.06.03",
+    lifecycle: "test",
+    active: false,
+    profile: scrydexScryfallCardProviderProfile,
+    sourceContract: scrydexScryfallCardSourceObservationMappingContract.sourceContract,
+    fixtures: scrydexScryfallCardSourceObservationMappingContract.fixtures,
+    compatibilityMode: "executable-mapping-contract",
+    retirementPlan: null,
+    executableMappingContract: scrydexScryfallCardSourceObservationMappingContract,
+  },
   {
     providerKey: "tcgdex",
     profileKey: "pokemon-tcg",

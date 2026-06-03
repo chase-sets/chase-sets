@@ -11,6 +11,7 @@ import {
   listCatalogProviderIntegrationProfileVersions,
   rollbackCatalogProviderIntegrationProfileVersion,
   validateCatalogProviderIntegrationProfileVersion,
+  scrydexScryfallCardProviderProfile,
   tcgdexPokemonTcgProviderProfile,
   tcgplayerAutomationClientProviderProfile,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -125,6 +126,35 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
+  it("registers Scrydex as a fixture-backed Scryfall-style extensibility profile", () => {
+    const profile = getCatalogProviderIntegrationProfile("SCRYDEX");
+
+    expect(profile).toBe(scrydexScryfallCardProviderProfile);
+    expect(profile).toMatchObject({
+      providerKey: "scrydex",
+      status: "planned",
+      capabilities: ["source-observation-import", "external-reference-extraction"],
+      supportedScopes: ["product/card"],
+      connector: {
+        kind: "scrydex-scryfall-json",
+        fixtureBackedOnly: true,
+        acceptedEvidence: expect.arrayContaining(["tcgplayer-id", "collector-number", "image-url"]),
+        excludedEvidence: ["price", "seller", "inventory", "ruling", "legality"],
+      },
+      externalReferenceExtractionRules: {
+        referenceTarget: "catalog-item-reference",
+        rules: [
+          expect.objectContaining({
+            providerKey: "tcgplayer",
+            target: "catalog-item-reference",
+            externalKeyPrefix: "product:",
+            valueKeys: ["tcgplayer_id"],
+          }),
+        ],
+      },
+    });
+  });
+
   it("declares ordered duplicate-prevention identity rules in provider profiles", () => {
     expect(tcgdexPokemonTcgProviderProfile.duplicatePreventionMapping).toMatchObject({
       ambiguousCandidatePolicy: "block-promotion",
@@ -227,6 +257,7 @@ describe("catalog provider integration profiles", () => {
 
   it("lists active and planned providers through the same provider catalog", () => {
     expect(listCatalogProviderIntegrationProfiles().map((profile) => [profile.providerKey, profile.status])).toEqual([
+      ["scrydex", "planned"],
       ["tcgdex", "active"],
       ["tcgplayer", "planned"],
     ]);
@@ -236,9 +267,36 @@ describe("catalog provider integration profiles", () => {
     const versions = listCatalogProviderIntegrationProfileVersions();
 
     expect(versions.map((version) => [version.providerKey, version.profileVersion, version.lifecycle])).toEqual([
+      ["scrydex", "2026.06.03", "test"],
       ["tcgdex", "2026.06.03", "active"],
       ["tcgplayer", "2026.06.03", "test"],
     ]);
+    expect(getCatalogProviderIntegrationProfileVersion("scrydex")).toMatchObject({
+      providerKey: "scrydex",
+      profileKey: "scryfall-card-fixture",
+      profileVersion: "2026.06.03",
+      active: false,
+      compatibilityMode: "executable-mapping-contract",
+      sourceContract: {
+        repository: "chase-sets/chase-sets",
+        fixtureSetVersion: "scrydex-scryfall-card-proof-v1",
+      },
+      retirementPlan: null,
+      executableMappingContract: expect.objectContaining({
+        providerKey: "scrydex",
+        profileKey: "scryfall-card-fixture",
+        profileVersion: "2026.06.03",
+        lifecycle: "test",
+        sourceObservation: expect.any(Object),
+      }),
+    });
+    expect(getCatalogProviderSourceObservationMappingContract("SCRYDEX")).toMatchObject({
+      providerKey: "scrydex",
+      sourceObservation: {
+        observationId: expect.any(Object),
+      },
+    });
+    expect(validateCatalogProviderIntegrationProfileVersion(catalogProviderIntegrationProfileVersions[0])).toEqual([]);
     expect(getActiveCatalogProviderIntegrationProfileVersion("TCGDEX")).toMatchObject({
       providerKey: "tcgdex",
       profileKey: "pokemon-tcg",
@@ -356,7 +414,7 @@ describe("catalog provider integration profiles", () => {
 
     expect(() =>
       activateCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.04", [
-        catalogProviderIntegrationProfileVersions[0],
+        getActiveCatalogProviderIntegrationProfileVersion("tcgdex")!,
         invalidVersion,
       ]),
     ).toThrow(/partial flow/);
@@ -384,7 +442,7 @@ function executableVersion(
 }
 
 function transitionalStaticVersion(): CatalogProviderIntegrationProfileVersionRecord {
-  const [, tcgplayerVersion] = catalogProviderIntegrationProfileVersions;
+  const tcgplayerVersion = getCatalogProviderIntegrationProfileVersion("tcgplayer")!;
   return {
     ...tcgplayerVersion,
     profileVersion: "2026.06.02",
