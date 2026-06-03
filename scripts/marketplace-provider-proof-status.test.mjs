@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   MARKETPLACE_PROVIDER_PROOF_STATUS_VERSION,
   buildProviderProofStatus,
+  normalizeProviderProofDatabaseUrl,
   parseProviderProofStatusArgs,
+  resolveProviderProofDatabaseSsl,
   runProviderProofStatus,
   validateProviderProofStatusOptions,
 } from "./marketplace-provider-proof-status.mjs";
@@ -266,6 +268,14 @@ describe("marketplace provider proof status", () => {
       "FULFILLMENT_DATABASE_URL, DATABASE_URL_FULFILLMENT, or --fulfillment-database-url is required.",
       "Provider proof status checkedAt must be an ISO timestamp.",
     ]);
+  });
+
+  it("uses DigitalOcean-compatible TLS settings for sslmode=require database URLs", () => {
+    const databaseUrl = "postgresql://user:pass@example.com:25060/defaultdb?sslmode=require";
+    const normalized = normalizeProviderProofDatabaseUrl(databaseUrl);
+
+    expect(new URL(normalized).searchParams.get("uselibpqcompat")).toBe("true");
+    expect(resolveProviderProofDatabaseSsl(normalized)).toEqual({ rejectUnauthorized: false });
   });
 
   it("queries each bounded-context read model without leaking full provider identifiers", async () => {

@@ -259,13 +259,44 @@ async function queryFulfillmentStatus(databaseUrl, ClientCtor) {
 }
 
 async function queryDatabase(databaseUrl, ClientCtor, queryFn) {
-  const client = new ClientCtor({ connectionString: databaseUrl });
+  const normalizedDatabaseUrl = normalizeProviderProofDatabaseUrl(databaseUrl);
+  const client = new ClientCtor({
+    connectionString: normalizedDatabaseUrl,
+    ssl: resolveProviderProofDatabaseSsl(normalizedDatabaseUrl),
+  });
   await client.connect();
   try {
     return await queryFn(client);
   } finally {
     await client.end();
   }
+}
+
+export function normalizeProviderProofDatabaseUrl(databaseUrl) {
+  try {
+    const url = new URL(databaseUrl);
+    if (url.searchParams.get("sslmode") === "require" && !url.searchParams.has("uselibpqcompat")) {
+      url.searchParams.set("uselibpqcompat", "true");
+      return url.toString();
+    }
+  } catch {
+    return databaseUrl;
+  }
+
+  return databaseUrl;
+}
+
+export function resolveProviderProofDatabaseSsl(databaseUrl) {
+  try {
+    const url = new URL(databaseUrl);
+    if (url.searchParams.get("sslmode") === "require") {
+      return { rejectUnauthorized: false };
+    }
+  } catch {
+    return undefined;
+  }
+
+  return undefined;
 }
 
 function buildStripeMoneyStatus(payments, settlement) {
