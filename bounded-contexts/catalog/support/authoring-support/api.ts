@@ -84,7 +84,10 @@ export function buildCatalogAuthoringApi(services: CatalogServices) {
   app.route("/blueprints", blueprintRoutes(services.blueprints, services.authoringBulkJobs));
   app.route("/categories", categoryRoutes(services.categories, services.authoringBulkJobs));
   app.route("/items", catalogItemRoutes(services.items, services.authoringBulkJobs));
-  app.route("/source-observations", sourceObservationRoutes(services.sourceObservations));
+  app.route(
+    "/source-observations",
+    sourceObservationRoutes(services.sourceObservations, services.providerIntegrationProfiles),
+  );
 
   return app;
 }

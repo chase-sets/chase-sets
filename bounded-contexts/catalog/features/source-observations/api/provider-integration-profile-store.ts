@@ -47,6 +47,10 @@ export type CatalogProviderIntegrationProfileVersionStore = Readonly<{
     providerKey: string,
     profileVersion: string,
   ) => Promise<CatalogProviderIntegrationProfileVersionRecord>;
+  deprecateProfileVersion: (
+    providerKey: string,
+    profileVersion: string,
+  ) => Promise<CatalogProviderIntegrationProfileVersionRecord>;
   rollbackProfileVersion: (
     providerKey: string,
     rollbackToProfileVersion: string,
@@ -69,6 +73,7 @@ export function createCatalogProviderIntegrationProfileVersionStore(
     getProfileVersion: (providerKey, profileVersion) => getProfileVersion(db, providerKey, profileVersion),
     getActiveProfileVersion: (providerKey) => getActiveProfileVersion(db, providerKey),
     activateProfileVersion: (providerKey, profileVersion) => activateProfileVersion(db, providerKey, profileVersion),
+    deprecateProfileVersion: (providerKey, profileVersion) => deprecateProfileVersion(db, providerKey, profileVersion),
     rollbackProfileVersion: (providerKey, rollbackToProfileVersion) =>
       activateProfileVersion(db, providerKey, rollbackToProfileVersion),
   };
@@ -238,6 +243,31 @@ async function activateProfileVersion(
     throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not activated.`);
   }
   return activated;
+}
+
+async function deprecateProfileVersion(
+  db: PgQueryable,
+  providerKey: string,
+  profileVersion: string,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  const existing = await getProfileVersion(db, providerKey, profileVersion);
+  if (!existing) {
+    throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not found.`);
+  }
+
+  const deprecated: CatalogProviderIntegrationProfileVersionRecord = {
+    ...existing,
+    lifecycle: "deprecated",
+    active: false,
+    executableMappingContract: existing.executableMappingContract
+      ? {
+          ...existing.executableMappingContract,
+          lifecycle: "deprecated",
+        }
+      : undefined,
+  };
+
+  return upsertProfileVersion(db, deprecated);
 }
 
 function rowToProfileVersion(

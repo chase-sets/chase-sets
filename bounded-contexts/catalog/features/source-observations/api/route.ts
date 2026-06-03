@@ -1,11 +1,22 @@
 import { t } from "@chase-sets/localization";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
+import type { JsonValue } from "@chase-sets/primitives/json";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
+import {
+  activateCatalogProviderProfileVersionForReview,
+  deprecateCatalogProviderProfileVersionForReview,
+  dryRunCatalogProviderProfileVersion,
+  listCatalogProviderProfileVersionReviews,
+} from "./provider-profile-review";
 import type { SourceObservationServices } from "./runtime";
 import type { SourceObservationFilterScope } from "../read-model/queries";
 
-export function sourceObservationRoutes(services: SourceObservationServices) {
+export function sourceObservationRoutes(
+  services: SourceObservationServices,
+  profileVersions?: CatalogProviderIntegrationProfileVersionStore,
+) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.get("/", async (c) => {
@@ -42,6 +53,56 @@ export function sourceObservationRoutes(services: SourceObservationServices) {
     });
 
     return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.get("/provider-profiles", async (c) => {
+    const items = profileVersions ? await listCatalogProviderProfileVersionReviews(profileVersions) : [];
+    return c.json({ items, total: items.length, count: items.length });
+  });
+
+  app.post("/provider-profiles/:providerKey/:profileVersion/dry-run", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as { payload?: unknown };
+    const result = await dryRunCatalogProviderProfileVersion({
+      store: profileVersions,
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+      payload: toJsonValue(body.payload),
+      observedAt: new Date(0).toISOString(),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/provider-profiles/:providerKey/:profileVersion/activate", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const result = await activateCatalogProviderProfileVersionForReview({
+      store: profileVersions,
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/provider-profiles/:providerKey/:profileVersion/deprecate", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const result = await deprecateCatalogProviderProfileVersionForReview({
+      store: profileVersions,
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+    });
+
+    return c.json(result);
   });
 
   app.post("/imports/tcgdex-set", async (c) => {
@@ -425,6 +486,10 @@ function promotionScopeToIntegrationScope(scope: SourceObservationFilterScope) {
 
 function stringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function toJsonValue(value: unknown): JsonValue {
+  return value === undefined ? null : (value as JsonValue);
 }
 
 function parseObservationIds(input: unknown): string[] {

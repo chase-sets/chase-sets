@@ -17,6 +17,8 @@ import type {
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
   SourceObservationReapplyPreview,
+  CatalogProviderProfileDryRunResult,
+  CatalogProviderProfileVersionReview,
   SourceObservationDetail,
   SourceObservationListItem,
   TcgdexExpansionOption,
@@ -73,6 +75,35 @@ export function useSourceObservationIntegrationOptions(input: {
         ? api.listSourceObservationIntegrationOptions<ListResponse<SourceObservationIntegrationOption>>(queryString)
         : Promise.resolve({ items: [], count: 0, total: 0 }),
     [enabled, queryString],
+  );
+}
+
+export function useSourceObservationProviderProfiles(
+  initialData?: ListResponse<CatalogProviderProfileVersionReview> | null,
+) {
+  return useFetch(
+    () => api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
+    [],
+    initialData,
+  );
+}
+
+export function dryRunSourceObservationProviderProfile(providerKey: string, profileVersion: string, payload: unknown) {
+  return api.dryRunSourceObservationProviderProfile<CatalogProviderProfileDryRunResult>(
+    providerKey,
+    profileVersion,
+    payload,
+  );
+}
+
+export function activateSourceObservationProviderProfile(providerKey: string, profileVersion: string) {
+  return api.activateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
+}
+
+export function deprecateSourceObservationProviderProfile(providerKey: string, profileVersion: string) {
+  return api.deprecateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+    providerKey,
+    profileVersion,
   );
 }
 
