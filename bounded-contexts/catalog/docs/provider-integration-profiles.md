@@ -56,6 +56,14 @@ and provider-derived Series and Expansion records using TCGdex provider
 attributes. Replays preserve the existing deterministic `ref_tcgdex_*` record
 ids and reuse records by type/key or provider attribute.
 
+Catalog Item promotion planning is profile-driven at the same boundary. The
+current TCGdex Pokemon planner converts normalized Source Observation facts plus
+resolved profile Catalog IDs into a reviewed command plan before the runtime
+writes Catalog Item aggregate commands. The plan covers create-vs-refresh,
+blueprint assignment, category assignment, field values, tags, image URL and
+Product Asset Set commands, source Product references, and external Catalog Item
+references.
+
 ## TCGplayer Automation Client Profile
 
 The TCGplayer integration uses the client contract documented in
@@ -80,7 +88,9 @@ Unknown, inactive, or missing selected-option evidence remains review evidence.
 The TCGplayer profile can represent product-line and set-name Reference Record
 evidence through the same hierarchy rules, including `tcgplayer-product-line-id`
 and `tcgplayer-set-name` attributes. The connector remains planned until the
-broader TCGplayer mapping migration is complete.
+broader TCGplayer mapping migration is complete. TCGplayer provider-product
+Source Observations remain non-promotable until the active profile declares
+Catalog Item promotion capability and a valid promotion command plan.
 
 ## Future Integrations
 
