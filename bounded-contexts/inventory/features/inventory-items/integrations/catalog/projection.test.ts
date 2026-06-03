@@ -4,7 +4,8 @@ import type { TransportEvent } from "@chase-sets/event-core/transport";
 import { buildInventoryCatalogItemProjectionHandlers } from "./projection";
 
 class ProjectionDb implements PgQueryable {
-  public readonly externalReferences = new Map<string, unknown>();
+  public readonly externalProductReferences = new Map<string, unknown>();
+  public readonly externalCatalogItemReferences = new Map<string, unknown>();
   public readonly catalogItems = new Map<string, Record<string, unknown>>();
 
   async query<Row = Record<string, unknown>>(
@@ -38,7 +39,7 @@ class ProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("INSERT INTO inventory_catalog_external_product_references")) {
-      this.externalReferences.set(`${values[0]}:${values[1]}`, {
+      this.externalProductReferences.set(`${values[0]}:${values[1]}`, {
         provider_key: values[0],
         external_key: values[1],
         catalog_item_id: values[2],
@@ -49,7 +50,22 @@ class ProjectionDb implements PgQueryable {
     }
 
     if (sql.includes("DELETE FROM inventory_catalog_external_product_references")) {
-      this.externalReferences.delete(`${values[0]}:${values[1]}`);
+      this.externalProductReferences.delete(`${values[0]}:${values[1]}`);
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (sql.includes("INSERT INTO inventory_catalog_external_catalog_item_references")) {
+      this.externalCatalogItemReferences.set(`${values[0]}:${values[1]}`, {
+        provider_key: values[0],
+        external_key: values[1],
+        catalog_item_id: values[2],
+        updated_at: values[3],
+      });
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (sql.includes("DELETE FROM inventory_catalog_external_catalog_item_references")) {
+      this.externalCatalogItemReferences.delete(`${values[0]}:${values[1]}`);
       return { rows: [], rowCount: 0 };
     }
 
@@ -113,7 +129,7 @@ describe("inventory catalog item projection", () => {
       }),
     );
 
-    expect(db.externalReferences.get("tcgplayer:tcg_sku_1")).toMatchObject({
+    expect(db.externalProductReferences.get("tcgplayer:tcg_sku_1")).toMatchObject({
       catalog_item_id: "cat_1",
       selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
     });
@@ -125,6 +141,38 @@ describe("inventory catalog item projection", () => {
       }),
     );
 
-    expect(db.externalReferences.has("tcgplayer:tcg_sku_1")).toBe(false);
+    expect(db.externalProductReferences.has("tcgplayer:tcg_sku_1")).toBe(false);
+  });
+
+  it("projects Catalog external Catalog Item reference links and unlinks", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildInventoryCatalogItemProjectionHandlers(db);
+
+    await handlers["catalog.catalog-item.external-catalog-item-reference-linked"]!(
+      event("catalog.catalog-item.external-catalog-item-reference-linked", {
+        providerKey: "tcgplayer",
+        externalKey: "product:12345",
+      }),
+    );
+
+    await handlers["catalog.catalog-item.external-catalog-item-reference-linked"]!(
+      event("catalog.catalog-item.external-catalog-item-reference-linked", {
+        providerKey: "tcgplayer",
+        externalKey: "product:12345",
+      }),
+    );
+
+    expect(db.externalCatalogItemReferences.get("tcgplayer:product:12345")).toMatchObject({
+      catalog_item_id: "cat_1",
+    });
+
+    await handlers["catalog.catalog-item.external-catalog-item-reference-unlinked"]!(
+      event("catalog.catalog-item.external-catalog-item-reference-unlinked", {
+        providerKey: "tcgplayer",
+        externalKey: "product:12345",
+      }),
+    );
+
+    expect(db.externalCatalogItemReferences.has("tcgplayer:product:12345")).toBe(false);
   });
 });
