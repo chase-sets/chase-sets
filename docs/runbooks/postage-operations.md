@@ -77,6 +77,14 @@ The rehearsal record must include:
 
 Do not commit live EasyPost labels, addresses, API keys, tracking URLs with private account data, or provider account screenshots to the repository. Store the evidence in the approved launch record and reference it with `PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE`.
 
+Before assembling or refreshing the Fulfillment postage proof record, run the read-only provider proof status report and attach its redacted Fulfillment section to the private evidence record:
+
+```powershell
+pnpm run marketplace:provider-proof-status -- --environment production --payments-database-url "$env:PAYMENTS_DATABASE_URL" --settlement-database-url "$env:SETTLEMENT_DATABASE_URL" --fulfillment-database-url "$env:FULFILLMENT_DATABASE_URL"
+```
+
+The report summarizes `fulfillment_postage_provider_events`, postage label operations, and shipment label status rows so operators can see whether tracking, refund, purchase, and void evidence exists before running the launch gate command. It is status evidence only and does not replace `pnpm run marketplace:fulfillment-postage-evidence`.
+
 Build the redacted launch-packet gate from the production EasyPost proof record instead of hand-editing `gates.fulfillmentPostage`. The proof record must include `proofCompletedAt`; rerun the production postage proof when the proof is older than 30 days at launch review.
 
 ```powershell
