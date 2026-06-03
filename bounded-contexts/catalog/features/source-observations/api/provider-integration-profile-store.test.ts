@@ -94,6 +94,25 @@ describe("catalog provider integration profile version store", () => {
       profile: tcgdexPokemonTcgProviderProfile,
     });
   });
+
+  it("deprecates a persisted profile version through the version store", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    await store.seedProfileVersions([tcgdexVersion("2026.06.03", "active", true)]);
+
+    const deprecated = await store.deprecateProfileVersion("tcgdex", "2026.06.03");
+
+    expect(deprecated).toMatchObject({
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.03",
+      lifecycle: "deprecated",
+      active: false,
+      executableMappingContract: expect.objectContaining({
+        lifecycle: "deprecated",
+      }),
+    });
+    expect(await store.getActiveProfileVersion("tcgdex")).toBeNull();
+  });
 });
 
 function tcgdexVersion(

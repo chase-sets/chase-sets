@@ -1,4 +1,5 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
+import type { ListResponse } from "@chase-sets/http/responses";
 import { useEffect, useMemo, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
@@ -8,6 +9,7 @@ import {
   Dialog,
   FilterBar,
   Inline,
+  KeyValueList,
   LinkButton,
   Page,
   PageHeader,
@@ -17,7 +19,9 @@ import {
   Stack,
   Stat,
   StatGrid,
+  StatusPill,
   TextInput,
+  Textarea,
   type DataColumn,
   type SegmentedControlItem,
   type SelectItem,
@@ -29,6 +33,8 @@ import {
 import type { CatalogBulkActionProgress } from "../../../support/shell-support/api/client";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type {
+  CatalogProviderProfileDryRunResult,
+  CatalogProviderProfileVersionReview,
   SourceObservationIntegrationOption,
   SourceObservationIntegrationJobResult,
   SourceObservationIntegrationJobScope,
@@ -38,11 +44,15 @@ import type {
   SourceObservationReapplyPreview,
 } from "./contracts";
 import {
+  activateSourceObservationProviderProfile,
   bulkPromoteSourceObservationsByScope,
+  deprecateSourceObservationProviderProfile,
+  dryRunSourceObservationProviderProfile,
   enqueueSourceObservationIntegrationJob,
   previewBulkPromoteSourceObservations,
   previewReapplySourceObservations,
   useActiveSourceObservationIntegrationJobs,
+  useSourceObservationProviderProfiles,
   useSourceObservationIntegrationOptions,
   watchSourceObservationIntegrationJob,
 } from "./use-source-observations";
@@ -57,10 +67,23 @@ const TCGPLAYER_PROVIDER = "tcgplayer";
 const TCGPLAYER_PRODUCT_LINE_SCOPE = "product-line";
 const TCGPLAYER_PRODUCT_SCOPE = "product";
 
-export function IntegrationManagementPage({ data, query }: CatalogListRouteData<SourceObservationIntegrationScope>) {
+export function IntegrationManagementPage({
+  data,
+  query,
+  profileReviews,
+}: CatalogListRouteData<SourceObservationIntegrationScope> & {
+  profileReviews?: ListResponse<CatalogProviderProfileVersionReview> | null;
+}) {
   const listControls = useCatalogListQueryControls(query);
   const revalidator = useRevalidator();
   const { addToast } = useToasts();
+  const providerProfiles = useSourceObservationProviderProfiles(profileReviews);
+  const [dryRunProfile, setDryRunProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
+  const [dryRunPayload, setDryRunPayload] = useState(defaultDryRunPayload());
+  const [dryRunResult, setDryRunResult] = useState<CatalogProviderProfileDryRunResult | null>(null);
+  const [dryRunError, setDryRunError] = useState<string | null>(null);
+  const [dryRunning, setDryRunning] = useState(false);
+  const [profileActionKey, setProfileActionKey] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [languageCode, setLanguageCode] = useState("en");
   const [seriesId, setSeriesId] = useState("");
@@ -85,6 +108,16 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   const [promoteAllProgress, setPromoteAllProgress] = useState<CatalogBulkActionProgress | null>(null);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const activeIntegrationJobs = useActiveSourceObservationIntegrationJobs();
+  const profileColumns = useMemo(
+    () =>
+      buildProfileColumns({
+        onDryRun: openDryRunDialog,
+        onActivate: (profile) => void handleActivateProfile(profile),
+        onDeprecate: (profile) => void handleDeprecateProfile(profile),
+        busyKey: profileActionKey,
+      }),
+    [profileActionKey],
+  );
   const integrationProviders = useSourceObservationIntegrationOptions({
     providerKey: TCGDEX_PROVIDER,
     queryKind: "providers",
@@ -193,6 +226,84 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
       language: languageCode,
       setId: "",
     });
+  }
+
+  function openDryRunDialog(profile: CatalogProviderProfileVersionReview) {
+    setDryRunProfile(profile);
+    setDryRunPayload(defaultDryRunPayload(profile.providerKey));
+    setDryRunResult(null);
+    setDryRunError(null);
+  }
+
+  async function handleDryRunProfile() {
+    if (!dryRunProfile) {
+      return;
+    }
+
+    setDryRunning(true);
+    setDryRunError(null);
+
+    try {
+      const payload = JSON.parse(dryRunPayload) as unknown;
+      const result = await dryRunSourceObservationProviderProfile(
+        dryRunProfile.providerKey,
+        dryRunProfile.profileVersion,
+        payload,
+      );
+      setDryRunResult(result);
+    } catch (error) {
+      setDryRunError(
+        error instanceof SyntaxError
+          ? t("catalog.features.sourceObservations.ui.integrations.profile.review.invalid.json")
+          : error instanceof Error
+            ? error.message
+            : t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.failed"),
+      );
+    } finally {
+      setDryRunning(false);
+    }
+  }
+
+  async function handleActivateProfile(profile: CatalogProviderProfileVersionReview) {
+    const key = profileActionIdentity(profile);
+    setProfileActionKey(key);
+
+    try {
+      await activateSourceObservationProviderProfile(profile.providerKey, profile.profileVersion);
+      addToast(t("catalog.features.sourceObservations.ui.integrations.profile.review.activated"), "success");
+      providerProfiles.refresh();
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(
+        error instanceof Error
+          ? error.message
+          : t("catalog.features.sourceObservations.ui.integrations.profile.review.activate.failed"),
+        "danger",
+      );
+    } finally {
+      setProfileActionKey(null);
+    }
+  }
+
+  async function handleDeprecateProfile(profile: CatalogProviderProfileVersionReview) {
+    const key = profileActionIdentity(profile);
+    setProfileActionKey(key);
+
+    try {
+      await deprecateSourceObservationProviderProfile(profile.providerKey, profile.profileVersion);
+      addToast(t("catalog.features.sourceObservations.ui.integrations.profile.review.deprecated"), "success");
+      providerProfiles.refresh();
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(
+        error instanceof Error
+          ? error.message
+          : t("catalog.features.sourceObservations.ui.integrations.profile.review.deprecate.failed"),
+        "danger",
+      );
+    } finally {
+      setProfileActionKey(null);
+    }
   }
 
   function tcgplayerImportScope(): SourceObservationIntegrationJobScope {
@@ -366,6 +477,24 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
     <Page>
       <PageHeader title={t("catalog.features.sourceObservations.ui.integrations.title")} />
       <Stack gap={4}>
+        <Stack gap={3}>
+          <Inline gap={3} align="center">
+            <Stack gap={1}>
+              <h2>{t("catalog.features.sourceObservations.ui.integrations.profile.review.title")}</h2>
+              <p>{t("catalog.features.sourceObservations.ui.integrations.profile.review.description")}</p>
+            </Stack>
+            <Button tone="secondary" leadingIcon="refreshCcw" onClick={providerProfiles.refresh}>
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.refresh")}
+            </Button>
+          </Inline>
+          <DataTable
+            rows={providerProfiles.data?.items ?? []}
+            columns={profileColumns}
+            getRowId={(row) => profileActionIdentity(row)}
+            emptyTitle={t("catalog.features.sourceObservations.ui.integrations.profile.review.none.found")}
+          />
+        </Stack>
+
         <ActionBar>
           <Button leadingIcon="plus" onClick={() => setShowImport(true)}>
             {t("catalog.features.sourceObservations.ui.integrations.pull.provider.data")}
@@ -458,6 +587,79 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
           emptyTitle={t("catalog.features.sourceObservations.ui.integrations.none.found")}
         />
       </Stack>
+
+      <Dialog
+        open={Boolean(dryRunProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDryRunProfile(null);
+            setDryRunResult(null);
+            setDryRunError(null);
+          }
+        }}
+        title={
+          dryRunProfile
+            ? t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.title.named", {
+                provider: dryRunProfile.displayName,
+                version: dryRunProfile.profileVersion,
+              })
+            : t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.title")
+        }
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setDryRunProfile(null)} disabled={dryRunning}>
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
+            </Button>
+            <Button leadingIcon="play" onClick={handleDryRunProfile} loading={dryRunning}>
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run")}
+            </Button>
+          </Inline>
+        }
+      >
+        <Stack gap={3}>
+          <Textarea
+            label={t("catalog.features.sourceObservations.ui.integrations.profile.review.fixture.payload")}
+            value={dryRunPayload}
+            onChange={(event) => setDryRunPayload(event.target.value)}
+            rows={12}
+            spellCheck={false}
+          />
+          {dryRunError ? <p>{dryRunError}</p> : null}
+          {dryRunResult ? (
+            <Stack gap={3}>
+              <KeyValueList
+                density="compact"
+                variant="plain"
+                items={[
+                  {
+                    key: t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.status"),
+                    value: dryRunResult.status,
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.hash"),
+                    value: dryRunResult.observation?.sourceRecordHash ?? "—",
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.external.key"),
+                    value: dryRunResult.observation?.externalKey ?? "—",
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.diagnostics"),
+                    value: String(dryRunResult.diagnostics.length),
+                  },
+                ]}
+              />
+              <Textarea
+                label={t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.output")}
+                value={formatJson(dryRunResult)}
+                rows={18}
+                readOnly
+                spellCheck={false}
+              />
+            </Stack>
+          ) : null}
+        </Stack>
+      </Dialog>
 
       <Dialog
         open={showImport}
@@ -663,6 +865,121 @@ type IntegrationRowActions = Readonly<{
   busy: boolean;
 }>;
 
+type ProfileRowActions = Readonly<{
+  onDryRun: (profile: CatalogProviderProfileVersionReview) => void;
+  onActivate: (profile: CatalogProviderProfileVersionReview) => void;
+  onDeprecate: (profile: CatalogProviderProfileVersionReview) => void;
+  busyKey: string | null;
+}>;
+
+function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProviderProfileVersionReview>[] {
+  return [
+    {
+      key: "provider",
+      header: t("catalog.features.sourceObservations.ui.integrations.provider"),
+      cell: (row) => row.displayName,
+    },
+    {
+      key: "version",
+      header: t("catalog.features.sourceObservations.ui.integrations.profile.review.version"),
+      cell: (row) => row.profileVersion,
+    },
+    {
+      key: "lifecycle",
+      header: t("catalog.features.sourceObservations.ui.integrations.profile.review.lifecycle"),
+      cell: (row) => (
+        <Inline gap={2}>
+          <StatusPill tone={row.active ? "success" : row.lifecycle === "deprecated" ? "warning" : "neutral"}>
+            {row.active
+              ? t("catalog.features.sourceObservations.ui.integrations.profile.review.active")
+              : row.lifecycle}
+          </StatusPill>
+          <span>{row.compatibilityMode}</span>
+        </Inline>
+      ),
+    },
+    {
+      key: "validation",
+      header: t("catalog.features.sourceObservations.ui.integrations.profile.review.validation"),
+      cell: (row) => (
+        <Stack gap={1}>
+          <StatusPill tone={row.validation.status === "valid" ? "success" : "danger"}>
+            {row.validation.status}
+          </StatusPill>
+          <span>
+            {t("catalog.features.sourceObservations.ui.integrations.profile.review.diagnostic.count", {
+              count: String(row.validation.diagnostics.length),
+            })}
+          </span>
+        </Stack>
+      ),
+    },
+    {
+      key: "fixture",
+      header: t("catalog.features.sourceObservations.ui.integrations.profile.review.fixture"),
+      cell: (row) => (
+        <Stack gap={1}>
+          <span>{row.sourceContract.fixtureSetVersion}</span>
+          <span>
+            {t("catalog.features.sourceObservations.ui.integrations.profile.review.fixture.flows", {
+              count: String(row.fixtures.coveredFlows.length),
+            })}
+          </span>
+        </Stack>
+      ),
+    },
+    {
+      key: "mapping",
+      header: t("catalog.features.sourceObservations.ui.integrations.profile.review.mapping"),
+      cell: (row) => (
+        <Stack gap={1}>
+          <span>{row.mappingOutputKind}</span>
+          <span>{row.connectorKind}</span>
+        </Stack>
+      ),
+    },
+    {
+      key: "scope",
+      header: t("catalog.features.sourceObservations.ui.integrations.profile.review.scope"),
+      cell: (row) => row.supportedScopes.join(", "),
+    },
+    {
+      key: "actions",
+      header: "",
+      cell: (row) => {
+        const busy = actions.busyKey === profileActionIdentity(row);
+        return (
+          <Inline gap={2} align="end">
+            <Button size="sm" tone="secondary" leadingIcon="play" onClick={() => actions.onDryRun(row)}>
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run")}
+            </Button>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="badgeCheck"
+              disabled={busy || row.active || row.validation.status !== "valid"}
+              loading={busy && !row.active}
+              onClick={() => actions.onActivate(row)}
+            >
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.activate")}
+            </Button>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="trash"
+              disabled={busy || row.lifecycle === "deprecated"}
+              loading={busy && row.lifecycle !== "deprecated"}
+              onClick={() => actions.onDeprecate(row)}
+            >
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.deprecate")}
+            </Button>
+          </Inline>
+        );
+      },
+    },
+  ];
+}
+
 function buildColumns(actions: IntegrationRowActions): DataColumn<SourceObservationIntegrationScope>[] {
   return [
     {
@@ -814,6 +1131,86 @@ function withSelectedFallback(options: readonly SelectItem[], selectedValue: str
     },
     ...options,
   ];
+}
+
+function profileActionIdentity(profile: Pick<CatalogProviderProfileVersionReview, "providerKey" | "profileVersion">) {
+  return `${profile.providerKey}:${profile.profileVersion}`;
+}
+
+function defaultDryRunPayload(providerKey = "scrydex"): string {
+  if (providerKey === "scrydex") {
+    return formatJson({
+      object: "card",
+      id: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+      name: "Fury Sliver",
+      lang: "en",
+      released_at: "2006-10-06",
+      scryfall_uri: "https://scryfall.com/card/tsp/157/fury-sliver",
+      set: "tsp",
+      set_name: "Time Spiral",
+      collector_number: "157",
+      image_uris: {
+        normal: "https://cards.scryfall.io/normal/front/0/0/0000579f-7b35-4ed3-b44c-db2a538066fe.jpg",
+      },
+      tcgplayer_id: 14240,
+      prices: {
+        usd: "0.42",
+      },
+    });
+  }
+
+  if (providerKey === TCGPLAYER_PROVIDER) {
+    return formatJson({
+      observationId: "tcgplayer_en_product_610001",
+      externalKey: "product:610001",
+      sourceUrl: "https://mp-search-api.tcgplayer.com/v2/product/610001/details",
+      sourceUpdatedAt: "2025-01-17",
+      sourcePayload: {
+        productId: 610001,
+        productName: "Eevee ex",
+      },
+      productId: 610001,
+      productName: "Eevee ex",
+      productLineName: "Pokemon",
+      productLineId: 3,
+      productTypeName: "Cards",
+      setName: "Prismatic Evolutions",
+      customAttributes: { number: "167/131" },
+      externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+      externalProductReferences: [],
+      skuReferences: [],
+      productForm: "single",
+      mergeIdentity: {
+        tcg: "pokemon",
+        productLineName: "Pokemon",
+        setName: "Prismatic Evolutions",
+        printedProductName: "Eevee ex",
+        collectorNumber: "167/131",
+        languageCode: "en",
+        productForm: "single",
+      },
+      catalogHashMaterial: {
+        productId: 610001,
+        productName: "Eevee ex",
+        setName: "Prismatic Evolutions",
+        number: "167/131",
+      },
+      marketPrice: "redacted by dry-run",
+    });
+  }
+
+  return formatJson({
+    observationId: "tcgdex_en_fixture",
+    externalKey: "fixture",
+    sourceUrl: "https://example.invalid/provider-fixture",
+    sourceUpdatedAt: "2026-06-03",
+    sourcePayload: {},
+    languageCode: "en",
+  });
+}
+
+function formatJson(value: unknown): string {
+  return JSON.stringify(value, null, 2);
 }
 
 function metadataString(value: unknown): string | null {

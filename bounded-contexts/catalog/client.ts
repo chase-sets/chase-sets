@@ -29,5 +29,7 @@ export type {
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
   SourceObservationDetail,
+  CatalogProviderProfileDryRunResult,
+  CatalogProviderProfileVersionReview,
   SourceObservationListItem,
 } from "./support/client-support/contracts";

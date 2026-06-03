@@ -1045,6 +1045,51 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async listSourceObservationProviderProfiles<T>(): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles`, {
+        method: "GET",
+        headers: headersToRecord(headers),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async dryRunSourceObservationProviderProfile<T>(
+      providerKey: string,
+      profileVersion: string,
+      payload: unknown,
+    ): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/dry-run`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({ payload }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async activateSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/activate`,
+        {
+          method: "POST",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async deprecateSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/deprecate`,
+        {
+          method: "POST",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async getSourceObservation<T>(id: string): Promise<T> {
       const response = await client["source-observations"][":id"].$get({
         param: { id },

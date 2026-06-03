@@ -81,6 +81,103 @@ export interface SourceObservationIntegrationOption {
   metadata: Record<string, JsonValue>;
 }
 
+export interface CatalogProviderProfileReviewDiagnostic {
+  code: string;
+  path: string;
+  diagnosticText: string;
+  severity: "error" | "warning";
+}
+
+export interface CatalogProviderProfileDryRunDiagnostic {
+  code: string;
+  path: string;
+  diagnosticText: string;
+  redaction: string;
+}
+
+export interface CatalogProviderProfileVersionReview {
+  providerKey: string;
+  profileKey: string;
+  profileVersion: string;
+  displayName: string;
+  lifecycle: string;
+  active: boolean;
+  status: string;
+  compatibilityMode: string;
+  connectorKind: string;
+  sourceContract: {
+    owner: string;
+    repository: string | null;
+    commit: string | null;
+    documentPath: string;
+    fixtureSetVersion: string;
+  };
+  fixtures: {
+    fixtureRoot: string;
+    coveredFlows: string[];
+    liveProviderCallsAllowed: false;
+  };
+  capabilities: string[];
+  supportedScopes: string[];
+  languageOptions: string[];
+  mappingOutputKind: string;
+  hasExecutableMappingContract: boolean;
+  validation: {
+    status: "valid" | "invalid";
+    diagnostics: CatalogProviderProfileReviewDiagnostic[];
+  };
+}
+
+export interface CatalogProviderProfileDryRunEvidence {
+  path: string;
+  owner: string;
+  uses: string[];
+  redaction: string;
+  value: JsonValue;
+  diagnostics: CatalogProviderProfileDryRunDiagnostic[];
+}
+
+export interface CatalogProviderProfileDryRunResult {
+  providerKey: string;
+  profileKey: string;
+  profileVersion: string;
+  status: "completed" | "blocked";
+  redactedPayload: JsonValue;
+  observation: {
+    observationId: string;
+    providerKey: string;
+    externalKey: string;
+    sourceUrl: string;
+    languageCode: string;
+    sourceRecordHash: string;
+    sourceUpdatedAt: string | null;
+    observedAt: string;
+    normalized: SourceObservationNormalized;
+    sourcePayload: JsonValue;
+  } | null;
+  diagnostics: CatalogProviderProfileDryRunDiagnostic[];
+  hashMaterial: CatalogProviderProfileDryRunEvidence[];
+  externalReferences: {
+    catalogItemReferences: JsonValue;
+    productReferences: JsonValue;
+  };
+  selectedOptions: JsonValue;
+  mergeCandidateEvidence: CatalogProviderProfileDryRunEvidence[];
+  duplicatePreventionRules: {
+    ruleKey: string;
+    ruleKind: string;
+    candidatePolicy: string;
+    evidence: CatalogProviderProfileDryRunEvidence[];
+  }[];
+  promotionCommandPlan: {
+    requiresReview: true;
+    commands: {
+      commandName: string;
+      inputs: CatalogProviderProfileDryRunEvidence[];
+    }[];
+  };
+}
+
 export interface SourceObservationPromotionScope {
   search?: string;
   status?: string;

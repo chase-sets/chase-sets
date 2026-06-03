@@ -3,14 +3,18 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import { IntegrationManagementPage } from "./integration-management-page";
-import type { SourceObservationIntegrationScope } from "./contracts";
+import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
 
 const {
+  mockActivateSourceObservationProviderProfile,
   mockBulkPromoteSourceObservationsByScope,
+  mockDeprecateSourceObservationProviderProfile,
+  mockDryRunSourceObservationProviderProfile,
   mockEnqueueSourceObservationIntegrationJob,
   mockPreviewBulkPromoteSourceObservations,
   mockPreviewReapplySourceObservations,
   mockRevalidate,
+  mockUseSourceObservationProviderProfiles,
   mockUseSourceObservationIntegrationOptions,
   mockUseActiveSourceObservationIntegrationJobs,
   mockWatchSourceObservationIntegrationJob,
@@ -18,11 +22,15 @@ const {
   mockUseNavigation,
   mockUseSearchParams,
 } = vi.hoisted(() => ({
+  mockActivateSourceObservationProviderProfile: vi.fn(),
   mockBulkPromoteSourceObservationsByScope: vi.fn(),
+  mockDeprecateSourceObservationProviderProfile: vi.fn(),
+  mockDryRunSourceObservationProviderProfile: vi.fn(),
   mockEnqueueSourceObservationIntegrationJob: vi.fn(),
   mockPreviewBulkPromoteSourceObservations: vi.fn(),
   mockPreviewReapplySourceObservations: vi.fn(),
   mockRevalidate: vi.fn(),
+  mockUseSourceObservationProviderProfiles: vi.fn(),
   mockUseSourceObservationIntegrationOptions: vi.fn(),
   mockUseActiveSourceObservationIntegrationJobs: vi.fn(),
   mockWatchSourceObservationIntegrationJob: vi.fn(),
@@ -38,11 +46,15 @@ vi.mock("react-router", () => ({
 }));
 
 vi.mock("./use-source-observations", () => ({
+  activateSourceObservationProviderProfile: mockActivateSourceObservationProviderProfile,
   bulkPromoteSourceObservationsByScope: mockBulkPromoteSourceObservationsByScope,
+  deprecateSourceObservationProviderProfile: mockDeprecateSourceObservationProviderProfile,
+  dryRunSourceObservationProviderProfile: mockDryRunSourceObservationProviderProfile,
   enqueueSourceObservationIntegrationJob: mockEnqueueSourceObservationIntegrationJob,
   previewBulkPromoteSourceObservations: mockPreviewBulkPromoteSourceObservations,
   previewReapplySourceObservations: mockPreviewReapplySourceObservations,
   useActiveSourceObservationIntegrationJobs: mockUseActiveSourceObservationIntegrationJobs,
+  useSourceObservationProviderProfiles: mockUseSourceObservationProviderProfiles,
   useSourceObservationIntegrationOptions: mockUseSourceObservationIntegrationOptions,
   watchSourceObservationIntegrationJob: mockWatchSourceObservationIntegrationJob,
 }));
@@ -90,6 +102,55 @@ describe("IntegrationManagementPage", () => {
       error: null,
       refresh: vi.fn(),
     });
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: { items: [profileReview()], total: 1, count: 1 },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockDryRunSourceObservationProviderProfile.mockResolvedValue({
+      providerKey: "scrydex",
+      profileKey: "scryfall-card-fixture",
+      profileVersion: "2026.06.03",
+      status: "completed",
+      redactedPayload: { prices: "[redacted]", auth: "[redacted]" },
+      observation: {
+        observationId: "scrydex_en_0000579f-7b35-4ed3-b44c-db2a538066fe",
+        providerKey: "scrydex",
+        externalKey: "scryfall:0000579f-7b35-4ed3-b44c-db2a538066fe",
+        sourceUrl: "https://scryfall.com/card/tsp/157/fury-sliver",
+        languageCode: "en",
+        sourceRecordHash: "hash_1",
+        sourceUpdatedAt: "2006-10-06",
+        observedAt: "2026-06-03T00:00:00.000Z",
+        sourcePayload: { prices: "[redacted]" },
+        normalized: {
+          kind: "provider-product",
+          languageCode: "en",
+          name: "Fury Sliver",
+          setName: "Time Spiral",
+          expansionName: "Time Spiral",
+          cardNumber: "157",
+          imageUrls: [],
+          providerProductId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+          providerProductName: "Fury Sliver",
+          productLineName: "Magic: The Gathering",
+          productCategoryName: "Cards",
+          skuReferences: [],
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
+        },
+      },
+      diagnostics: [],
+      hashMaterial: [],
+      externalReferences: {
+        catalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
+        productReferences: [],
+      },
+      selectedOptions: [],
+      mergeCandidateEvidence: [],
+      duplicatePreventionRules: [],
+      promotionCommandPlan: { requiresReview: true, commands: [] },
+    });
     mockEnqueueSourceObservationIntegrationJob.mockResolvedValue({ jobId: "job_integration" });
     mockWatchSourceObservationIntegrationJob.mockResolvedValue({
       requested: 1,
@@ -119,6 +180,8 @@ describe("IntegrationManagementPage", () => {
     );
 
     expect(screen.getByText("Catalog Integrations")).toBeTruthy();
+    expect(screen.getByText("Provider Profile Review")).toBeTruthy();
+    expect(screen.getAllByText("Scrydex").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Base Set").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Base").length).toBeGreaterThan(0);
     expect(screen.getAllByText("English").length).toBeGreaterThan(0);
@@ -126,6 +189,27 @@ describe("IntegrationManagementPage", () => {
     expect(screen.getAllByRole("link", { name: "Review" })[0].getAttribute("href")).toBe(
       "/catalog/source-observations?source=tcgdex&language=en&setId=base1",
     );
+  });
+
+  it("runs a provider profile fixture dry-run and displays redacted output", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Dry run$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Dry run$/i }));
+
+    await waitFor(() =>
+      expect(mockDryRunSourceObservationProviderProfile).toHaveBeenCalledWith(
+        "scrydex",
+        "2026.06.03",
+        expect.objectContaining({ tcgplayer_id: 14240 }),
+      ),
+    );
+    expect(await within(dialog).findByDisplayValue(/product:14240/)).toBeTruthy();
+    expect(within(dialog).getByDisplayValue(/\[redacted\]/)).toBeTruthy();
   });
 
   it("enqueues a TCGdex pull for the selected language and optional series", async () => {
@@ -490,6 +574,50 @@ function integrationOptionsResult(queryKind: string) {
     loading: false,
     error: null,
     refresh: vi.fn(),
+  };
+}
+
+function profileReview(): CatalogProviderProfileVersionReview {
+  return {
+    providerKey: "scrydex",
+    profileKey: "scryfall-card-fixture",
+    profileVersion: "2026.06.03",
+    displayName: "Scrydex",
+    lifecycle: "test",
+    active: false,
+    status: "planned",
+    compatibilityMode: "executable-mapping-contract",
+    connectorKind: "scrydex-scryfall-json",
+    sourceContract: {
+      owner: "chase-sets/catalog",
+      repository: "chase-sets/chase-sets",
+      commit: null,
+      documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+      fixtureSetVersion: "scrydex-scryfall-card-proof-v1",
+    },
+    fixtures: {
+      fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/scrydex",
+      coveredFlows: [
+        "normal",
+        "partial",
+        "stale",
+        "changed",
+        "ambiguous",
+        "replay",
+        "sealed-product",
+        "unknown-option",
+      ],
+      liveProviderCallsAllowed: false,
+    },
+    capabilities: ["source-observation-import", "external-reference-extraction"],
+    supportedScopes: ["product/card"],
+    languageOptions: ["en"],
+    mappingOutputKind: "provider-product",
+    hasExecutableMappingContract: true,
+    validation: {
+      status: "valid",
+      diagnostics: [],
+    },
   };
 }
 
