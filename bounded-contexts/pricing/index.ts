@@ -8,6 +8,7 @@ import type {
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import contextManifest from "./context.json";
 import { buildPricingApi } from "./api";
+import { buildPricingPriceSignalCatalogProjectionHandlers } from "./features/price-signals/integrations/catalog/projection";
 import {
   buildPricingCatalogInputProjectionHandlers,
   buildPricingFulfillmentInputProjectionHandlers,
@@ -60,7 +61,10 @@ export const module: BcApiModule<PricingServices, PgTransactionalPool, void> = {
         sourceContextName: "catalog",
         projectionName: catalogSubscription.projectionName,
         subscriptionVersion: catalogSubscription.subscriptionVersion,
-        handlers: buildPricingCatalogInputProjectionHandlers(services.db),
+        handlers: {
+          ...buildPricingCatalogInputProjectionHandlers(services.db),
+          ...buildPricingPriceSignalCatalogProjectionHandlers(services.db),
+        },
         eventTypes: catalogSubscription.eventTypes,
         streamPrefixes: catalogSubscription.streamPrefixes,
         order: catalogSubscription.order,

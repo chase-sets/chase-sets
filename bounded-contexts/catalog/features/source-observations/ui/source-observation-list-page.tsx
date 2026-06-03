@@ -6,6 +6,7 @@ import {
   Button,
   Dialog,
   Inline,
+  KeyValueList,
   ProgressBar,
   Select,
   Stack,
@@ -50,6 +51,11 @@ function buildColumns(): DataColumn<SourceObservationListItem>[] {
       cell: (row) => row.normalized.name,
     },
     {
+      key: "providerProduct",
+      header: t("catalog.features.sourceObservations.ui.list.provider.product"),
+      cell: (row) => providerProductSummary(row),
+    },
+    {
       key: "expansion",
       header: t("catalog.features.sourceObservations.ui.list.expansion"),
       cell: (row) => row.normalized.expansionName ?? row.normalized.setName,
@@ -68,6 +74,11 @@ function buildColumns(): DataColumn<SourceObservationListItem>[] {
       key: "status",
       header: t("catalog.features.sourceObservations.ui.list.status"),
       cell: (row) => <StatusPill>{row.status}</StatusPill>,
+    },
+    {
+      key: "merge",
+      header: t("catalog.features.sourceObservations.ui.list.merge.review"),
+      cell: (row) => mergeReviewSummary(row),
     },
   ];
 }
@@ -800,6 +811,55 @@ function addBulkCompletionToast(
     }),
     result.failed > 0 ? "warning" : "success",
   );
+}
+
+function providerProductSummary(row: SourceObservationListItem) {
+  if (row.normalized.kind !== "provider-product") {
+    return row.external_key;
+  }
+
+  return (
+    <KeyValueList
+      density="compact"
+      items={[
+        {
+          key: t("catalog.features.sourceObservations.ui.list.product.id"),
+          value: row.normalized.providerProductId,
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.list.sku.count"),
+          value: String(row.normalized.skuReferences.length),
+        },
+        {
+          key: t("catalog.features.sourceObservations.ui.list.product.line"),
+          value: row.normalized.productLineName ?? "—",
+        },
+      ]}
+    />
+  );
+}
+
+function mergeReviewSummary(row: SourceObservationListItem) {
+  if (row.promoted_catalog_item_id) {
+    return row.promoted_catalog_item_id;
+  }
+
+  if (row.status_reason) {
+    return row.status_reason;
+  }
+
+  const references = row.normalized.externalCatalogItemReferences ?? [];
+  if (references.length > 0) {
+    return t("catalog.features.sourceObservations.ui.list.merge.external.references", {
+      count: String(references.length),
+    });
+  }
+
+  if (row.normalized.mergeIdentity) {
+    return t("catalog.features.sourceObservations.ui.list.merge.deterministic");
+  }
+
+  return "—";
 }
 
 function formatBulkActionProgress(progress: CatalogBulkActionProgress): string {

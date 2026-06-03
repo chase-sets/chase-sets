@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import { IntegrationManagementPage } from "./integration-management-page";
@@ -103,6 +103,7 @@ describe("IntegrationManagementPage", () => {
   });
 
   afterEach(() => {
+    cleanup();
     vi.clearAllMocks();
   });
 
@@ -133,7 +134,7 @@ describe("IntegrationManagementPage", () => {
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Pull TCGdex Sets/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
     expect(screen.queryByLabelText("TCGdex Expansion ID")).toBeNull();
     const importButton = screen.getByRole("button", { name: /^Import$/i });
     await waitFor(() => expect((importButton as HTMLButtonElement).disabled).toBe(false));
@@ -160,7 +161,7 @@ describe("IntegrationManagementPage", () => {
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Pull TCGdex Sets/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
     const importButton = screen.getByRole("button", { name: /^Import$/i });
     await waitFor(() => expect((importButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(importButton);
@@ -198,7 +199,7 @@ describe("IntegrationManagementPage", () => {
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
-    fireEvent.click(screen.getAllByRole("button", { name: /Pull TCGdex Sets/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
     const importButton = screen.getByRole("button", { name: /^Import$/i });
     await waitFor(() => expect((importButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(importButton);
@@ -240,6 +241,35 @@ describe("IntegrationManagementPage", () => {
     });
 
     expect(await screen.findByText("64 of 100 processed.")).toBeTruthy();
+  });
+
+  it("enqueues a TCGplayer product-line import scope from explicit automation identifiers", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("tab", { name: "TCGplayer" }));
+    fireEvent.change(await within(dialog).findByLabelText("TCGplayer Product Line ID"), {
+      target: { value: "3" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Set Name"), {
+      target: { value: "Prismatic Evolutions" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Import$/i }));
+
+    await waitFor(() =>
+      expect(mockEnqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
+        provider: "tcgplayer",
+        language: "en",
+        productLineId: "3",
+        setName: "Prismatic Evolutions",
+      }),
+    );
+    expect(mockSetSearchParams).toHaveBeenCalled();
+    expect(mockRevalidate).toHaveBeenCalled();
   });
 
   it("previews and reapplies promoted observations in the current integration scope", async () => {
@@ -332,9 +362,66 @@ describe("IntegrationManagementPage", () => {
     );
     expect(mockRevalidate).toHaveBeenCalled();
   });
+
+  it("resyncs a TCGplayer row with product-line and set-name scope", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(
+      <IntegrationManagementPage
+        data={{ items: [tcgplayerIntegrationScope()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgplayer", language: "en", setId: "Prismatic Evolutions" }}
+      />,
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Resync set$/i })[0]);
+
+    await waitFor(() =>
+      expect(mockEnqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
+        provider: "tcgplayer",
+        language: "en",
+        productLineId: "3",
+        setName: "Prismatic Evolutions",
+      }),
+    );
+  });
 });
 
 function integrationOptionsResult(queryKind: string) {
+  if (queryKind === "providers") {
+    return {
+      data: {
+        items: [
+          {
+            providerKey: "tcgdex",
+            queryKind: "providers",
+            value: "tcgdex",
+            label: "TCGdex",
+            description: "source-observation-import",
+            parentValue: null,
+            imageUrl: null,
+            metadata: { status: "active" },
+          },
+          {
+            providerKey: "tcgplayer",
+            queryKind: "providers",
+            value: "tcgplayer",
+            label: "TCGplayer",
+            description: "source-observation-import",
+            parentValue: null,
+            imageUrl: null,
+            metadata: { status: "planned" },
+          },
+        ],
+        total: 2,
+        count: 2,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    };
+  }
+
   if (queryKind === "languages") {
     return {
       data: {
@@ -414,10 +501,33 @@ function integrationScope(): SourceObservationIntegrationScope {
     expansion_name: "Base Set",
     series_id: "base",
     series_name: "Base",
+    product_line_id: "",
+    product_line_name: "",
     total_observations: 102,
     observed_observations: 100,
     changed_observations: 0,
     promoted_observations: 2,
+    rejected_observations: 0,
+    first_observed_at: "2026-05-16T00:00:00.000Z",
+    latest_observed_at: "2026-05-16T00:01:00.000Z",
+    latest_source_updated_at: null,
+  };
+}
+
+function tcgplayerIntegrationScope(): SourceObservationIntegrationScope {
+  return {
+    provider_key: "tcgplayer",
+    language_code: "en",
+    expansion_id: "Prismatic Evolutions",
+    expansion_name: "Prismatic Evolutions",
+    series_id: "",
+    series_name: "",
+    product_line_id: "3",
+    product_line_name: "Pokemon",
+    total_observations: 2,
+    observed_observations: 2,
+    changed_observations: 0,
+    promoted_observations: 0,
     rejected_observations: 0,
     first_observed_at: "2026-05-16T00:00:00.000Z",
     latest_observed_at: "2026-05-16T00:01:00.000Z",

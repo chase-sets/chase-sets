@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
-import type { SourceObservationNormalized } from "../domain/domain";
+import type { SourceObservationPokemonCardNormalized } from "../domain/domain";
 import type { CatalogAssetStorage } from "./asset-storage";
 import { normalizeProductAssetSet, type CatalogImageProcessor } from "./product-asset-normalization";
 import {
@@ -107,7 +107,7 @@ export type TcgdexObservationInput = Readonly<{
   sourceRecordHash: string;
   sourceUpdatedAt: string | null;
   observedAt: string;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
   sourcePayload: JsonValue;
 }>;
 
@@ -260,7 +260,7 @@ async function toObservations(input: {
   const externalCatalogItemReferencesByVariant = marketplaceCatalogItemReferencesByVariantKey(input.card, cardVariants);
 
   return cardVariants.map((variant) => {
-    const normalized: SourceObservationNormalized = {
+    const normalized: SourceObservationPokemonCardNormalized = {
       kind: "pokemon-card",
       tcg: "pokemon",
       languageCode: input.languageCode,
@@ -282,6 +282,16 @@ async function toObservations(input: {
       category: input.card.category,
       imageBaseUrl: input.card.image ?? null,
       imageUrls: sourceImageUrls,
+      mergeIdentity: {
+        tcg: "pokemon",
+        productLineName: "Pokemon",
+        setName: input.set.name,
+        printedProductName: input.card.name,
+        collectorNumber: String(input.card.localId),
+        languageCode: input.languageCode,
+        productForm: "single",
+        barcode: null,
+      },
       productAssetSet: null,
       parallelSet: variant.parallelSet,
       cardVariantKey: variant.key,
@@ -292,7 +302,7 @@ async function toObservations(input: {
       variants,
       externalCatalogItemReferences: externalCatalogItemReferencesByVariant.get(variant.key) ?? [],
     };
-    const providerNormalizedForHash: SourceObservationNormalized = {
+    const providerNormalizedForHash: SourceObservationPokemonCardNormalized = {
       ...normalized,
       imageUrls: sourceImageUrls,
       productAssetSet: null,
@@ -323,7 +333,7 @@ export async function normalizeTcgdexImageAsset(input: {
   fetcher: typeof globalThis.fetch;
   assetStorage: CatalogAssetStorage;
   imageProcessor?: CatalogImageProcessor;
-}): Promise<NonNullable<SourceObservationNormalized["productAssetSet"]>> {
+}): Promise<NonNullable<SourceObservationPokemonCardNormalized["productAssetSet"]>> {
   const assetUrl = `${input.imageBaseUrl}/${TCGDEX_PROFILE.connector.highQualityAssetVariant}`;
   const response = await input.fetcher(assetUrl);
   if (!response.ok) {
@@ -357,10 +367,13 @@ function sanitizeTcgdexCardPayload(card: TcgdexCard): JsonRecord {
 function marketplaceCatalogItemReferencesByVariantKey(
   card: TcgdexCard,
   cardVariants: readonly PokemonCardVariant[],
-): Map<string, readonly NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][]> {
+): Map<
+  string,
+  readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][]
+> {
   const referencesByVariant = new Map<
     string,
-    NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][]
+    NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][]
   >();
 
   for (const variant of cardVariants) {
@@ -392,7 +405,7 @@ function marketplaceCatalogItemReferencesByVariantKey(
 function marketplaceReferencesFromVariantDetails(
   variantDetails: readonly JsonRecord[] | undefined,
   variant: PokemonCardVariant,
-): NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][] {
+): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
   return (variantDetails ?? [])
     .filter((detail) => variantDetailMatches(detail, variant))
     .flatMap(marketplaceReferencesFromRecord);
@@ -406,7 +419,7 @@ function variantDetailMatches(detail: JsonRecord, variant: PokemonCardVariant): 
 function marketplaceReferencesFromPricing(
   pricing: JsonRecord | undefined,
   variant: PokemonCardVariant,
-): NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][] {
+): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
   if (!pricing) {
     return [];
   }
@@ -428,7 +441,7 @@ function marketplaceReferencesFromPricing(
 
 function marketplaceReferencesFromRecord(
   record: JsonRecord,
-): NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][] {
+): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
   return uniqueExternalReferences(
     marketplaceReferenceRules().flatMap((rule) => {
       const containers = [record, ...rule.containerKeys.map((key) => recordField(record, [key]))].filter(
@@ -445,7 +458,7 @@ function marketplaceReferencesFromRecord(
 function providerReferencesFromValue(
   rule: CatalogProviderExternalReferenceRule,
   value: unknown,
-): NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][] {
+): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
   if (Array.isArray(value)) {
     return value.flatMap((entry) => providerReferencesFromValue(rule, entry));
   }
@@ -454,7 +467,9 @@ function providerReferencesFromValue(
     return providerReferenceIdsFromRecord(rule, value)
       .map((id) => toMarketplaceReference(rule, id))
       .filter(
-        (reference): reference is NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number] =>
+        (
+          reference,
+        ): reference is NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number] =>
           Boolean(reference),
       );
   }
@@ -462,7 +477,9 @@ function providerReferencesFromValue(
   return cleanMarketplaceId(value)
     .map((id) => toMarketplaceReference(rule, id))
     .filter(
-      (reference): reference is NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number] =>
+      (
+        reference,
+      ): reference is NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number] =>
         Boolean(reference),
     );
 }
@@ -474,7 +491,7 @@ function providerReferenceIdsFromRecord(rule: CatalogProviderExternalReferenceRu
 function toMarketplaceReference(
   rule: CatalogProviderExternalReferenceRule,
   id: string,
-): NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number] | null {
+): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number] | null {
   const normalizedId = id.trim().toLowerCase();
   if (!normalizedId) {
     return null;
@@ -498,8 +515,8 @@ function cleanMarketplaceId(value: unknown): string[] {
 }
 
 function uniqueExternalReferences(
-  references: readonly NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][],
-): NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][] {
+  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][],
+): NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][] {
   const seen = new Set<string>();
   return references.filter((reference) => {
     const key = externalReferenceIdentity(reference);
@@ -512,7 +529,7 @@ function uniqueExternalReferences(
 }
 
 function externalReferenceIdentity(
-  reference: NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number],
+  reference: NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number],
 ): string {
   return `${reference.providerKey.trim().toLowerCase()}:${reference.externalKey.trim().toLowerCase()}`;
 }

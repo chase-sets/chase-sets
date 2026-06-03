@@ -5,8 +5,12 @@ import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runt
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
-import type { SourceObservationNormalized } from "../domain/domain";
+import type { SourceObservationNormalized, SourceObservationPokemonCardNormalized } from "../domain/domain";
 import { createSourceObservationRuntime, ensurePokemonReferenceHierarchy } from "./runtime";
+import type {
+  TcgplayerAutomationCatalogClient,
+  TcgplayerAutomationProductDetail,
+} from "./tcgplayer-automation-catalog-client";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -176,6 +180,204 @@ describe("source observation runtime", () => {
         }),
       }),
     );
+  });
+
+  it("promotes observed observations by refreshing an existing Catalog Item linked to the same TCGplayer Product ID", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      reusableExternalCatalogItemIds: ["cat_existing_tcgplayer_product"],
+      normalized: {
+        ...pokemonObservation({
+          expansionName: "Prismatic Evolutions",
+          seriesName: "Scarlet & Violet",
+        }),
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+      },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing_tcgplayer_product",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+      "LinkExternalCatalogItemReference",
+    ]);
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        streamId: "catalog.item-cat_existing_tcgplayer_product",
+        command: expect.objectContaining({
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:610001",
+        }),
+      }),
+    );
+  });
+
+  it("promotes future provider observations through the same TCGplayer Product ID reference", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      providerKey: "scryfall",
+      status: "observed",
+      promotedCatalogItemId: null,
+      reusableExternalCatalogItemIds: ["cat_existing_scryfall_tcgplayer"],
+      normalized: {
+        ...pokemonObservation({
+          expansionName: "Prismatic Evolutions",
+          seriesName: "Scarlet & Violet",
+        }),
+        externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+      },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing_scryfall_tcgplayer",
+    });
+    expect(harness.itemCommands).toContainEqual(
+      expect.objectContaining({
+        streamId: "catalog.item-cat_existing_scryfall_tcgplayer",
+        command: expect.objectContaining({
+          type: "LinkExternalCatalogItemReference",
+          providerKey: "tcgplayer",
+          externalKey: "product:610001",
+        }),
+      }),
+    );
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+  });
+
+  it("blocks promotion when external Catalog Item references match multiple Catalog Items", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      reusableExternalCatalogItemIds: ["cat_existing_a", "cat_existing_b"],
+      normalized: {
+        ...pokemonObservation({
+          expansionName: "Prismatic Evolutions",
+          seriesName: "Scarlet & Violet",
+        }),
+        externalCatalogItemReferences: [
+          { providerKey: "tcgplayer", externalKey: "product:610001" },
+          { providerKey: "cardmarket", externalKey: "product:700001" },
+        ],
+      },
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
+      }),
+    ).rejects.toThrow("Multiple Catalog Items match this Source Observation's external catalog item references.");
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([]);
+  });
+
+  it("promotes observed observations by refreshing one deterministic Catalog Item match", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      deterministicCatalogItemIds: ["cat_existing_deterministic"],
+      normalized: pokemonObservation({
+        expansionName: "Prismatic Evolutions",
+        seriesName: "Scarlet & Violet",
+        cardNumber: "131",
+        name: "Eevee ex",
+        cardVariantLabel: "Standard Set Foil",
+        cardVariantKey: "holofoil",
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.promoteObservation({
+      observationId: "obs_changed",
+      context,
+    });
+
+    expect(result).toEqual({
+      observationId: "obs_changed",
+      catalogItemId: "cat_existing_deterministic",
+    });
+    expect(harness.itemCommands.map((entry) => entry.command.type)).toEqual([
+      "ReviseCatalogItemMetadata",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemFieldValue",
+      "SetCatalogItemTags",
+      "SetCatalogItemImageUrls",
+      "SetCatalogItemProductAssetSets",
+      "LinkExternalProductReference",
+    ]);
+    expect(harness.itemCommands).not.toContainEqual(
+      expect.objectContaining({
+        command: expect.objectContaining({ type: "CreateCatalogItem" }),
+      }),
+    );
+  });
+
+  it("blocks promotion when deterministic card evidence matches multiple Catalog Items", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "observed",
+      promotedCatalogItemId: null,
+      deterministicCatalogItemIds: ["cat_existing_a", "cat_existing_b"],
+      normalized: pokemonObservation({
+        expansionName: "Prismatic Evolutions",
+        seriesName: "Scarlet & Violet",
+        cardNumber: "131",
+        name: "Eevee ex",
+        cardVariantLabel: "Standard Set Foil",
+        cardVariantKey: "holofoil",
+      }),
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
+      }),
+    ).rejects.toThrow("Multiple Catalog Items match this Source Observation's deterministic card evidence.");
+    expect(harness.itemCommands).toEqual([]);
+    expect(harness.appendedSourceEvents).toEqual([]);
   });
 
   it("fails image-backed promotion before writing partial Catalog Item commands when asset storage is unavailable", async () => {
@@ -755,6 +957,225 @@ describe("source observation runtime", () => {
     ]);
   });
 
+  it("lists active and planned provider connector options for Catalog integration discovery", async () => {
+    const services = createSourceObservationRuntime(
+      { db: {} } as CatalogRuntimeDeps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const providers = await services.listIntegrationOptions({
+      providerKey: "tcgdex",
+      queryKind: "providers",
+    });
+
+    expect(providers).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgdex",
+        value: "tcgdex",
+        label: "TCGdex",
+        metadata: expect.objectContaining({
+          status: "active",
+          connectorKind: "tcgdex-json",
+        }),
+      }),
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        value: "tcgplayer",
+        label: "TCGplayer",
+        metadata: expect.objectContaining({
+          status: "planned",
+          connectorKind: "tcgplayer-automation-client",
+        }),
+      }),
+    ]);
+  });
+
+  it("does not run option queries against planned provider connectors before their adapter is installed", async () => {
+    const services = createSourceObservationRuntime(
+      { db: {} } as CatalogRuntimeDeps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    await expect(
+      services.listIntegrationOptions({
+        providerKey: "tcgplayer",
+        queryKind: "languages",
+      }),
+    ).rejects.toThrow("Unsupported Catalog integration query 'languages' for provider 'tcgplayer'.");
+  });
+
+  it("lists TCGplayer product-line and set-name options through the automation client", async () => {
+    const harness = createTcgplayerImportHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const productLines = await services.listIntegrationOptions({
+      providerKey: "tcgplayer",
+      queryKind: "product-lines",
+    });
+    const setNames = await services.listIntegrationOptions({
+      providerKey: "tcgplayer",
+      queryKind: "set-names",
+      parentValue: "3",
+    });
+
+    expect(productLines).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        queryKind: "product-lines",
+        value: "3",
+        label: "Pokemon",
+        metadata: expect.objectContaining({
+          productLineId: 3,
+          productLineUrlName: "pokemon",
+        }),
+      }),
+    ]);
+    expect(setNames).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        queryKind: "set-names",
+        value: "Prismatic Evolutions",
+        label: "Prismatic Evolutions",
+        parentValue: "3",
+        metadata: expect.objectContaining({
+          productLineId: 3,
+          setNameId: 7001,
+          cleanSetName: "Prismatic Evolutions",
+        }),
+      }),
+    ]);
+  });
+
+  it("imports TCGplayer set scopes as provider-product source observations", async () => {
+    const harness = createTcgplayerImportHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const result = await services.importTcgplayerScope({
+      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
+      context,
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      imported: 1,
+      observed: 2,
+      failed: 0,
+      outcomes: [
+        expect.objectContaining({
+          providerKey: "tcgplayer",
+          expansionId: "set:3:Prismatic Evolutions",
+          status: "imported",
+          observed: 2,
+        }),
+      ],
+    });
+    expect(harness.appendedSourceEvents).toHaveLength(2);
+    expect(harness.appendedSourceEvents[0]).toMatchObject({
+      eventType: "catalog.source-observation.recorded",
+      payload: expect.objectContaining({
+        observationId: "tcgplayer_en_product_610001",
+        providerKey: "tcgplayer",
+        externalKey: "product:610001",
+        normalized: expect.objectContaining({
+          kind: "provider-product",
+          mergeIdentity: expect.objectContaining({
+            productLineName: "Pokemon",
+            setName: "Prismatic Evolutions",
+            collectorNumber: "131",
+          }),
+          externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
+          externalProductReferences: [],
+          skuReferences: [
+            expect.objectContaining({
+              providerKey: "tcgplayer",
+              externalKey: "sku:987654",
+              reviewEvidence: expect.objectContaining({
+                condition: "Near Mint",
+                printing: "Normal",
+                language: "English",
+                productForm: "single",
+              }),
+            }),
+          ],
+        }),
+      }),
+    });
+  });
+
+  it("records fetched TCGplayer products while reporting product detail failures", async () => {
+    const harness = createTcgplayerImportHarness({ failProductIds: new Set([610002]) });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const result = await services.importTcgplayerScope({
+      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
+      context,
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      imported: 0,
+      observed: 1,
+      failed: 1,
+      outcomes: [
+        expect.objectContaining({
+          status: "failed",
+          observed: 1,
+          reason: "Imported 1 TCGplayer product details before Product 610002 unavailable.",
+        }),
+      ],
+    });
+    expect(harness.appendedSourceEvents).toHaveLength(1);
+    expect(harness.appendedSourceEvents[0]?.payload).toMatchObject({
+      observationId: "tcgplayer_en_product_610001",
+      externalKey: "product:610001",
+    });
+  });
+
+  it("processes queued TCGplayer imports through the durable integration worker", async () => {
+    const tcgplayerHarness = createTcgplayerImportHarness();
+    const harness = createIntegrationJobClaimHandoffHarness({
+      scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
+      renewSucceeds: true,
+      tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
+    });
+    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+
+    await expect(
+      services.processNextIntegrationJob({
+        claimOwnerId: "worker-1",
+        claimTtlMs: 120_000,
+      }),
+    ).resolves.toBe(1);
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.job.progress).toMatchObject({
+      phase: "completed",
+      completed: 1,
+      total: 1,
+    });
+    expect(harness.job.result).toMatchObject({
+      requested: 1,
+      imported: 1,
+      observed: 2,
+      failed: 0,
+    });
+    expect(harness.appendedSourceEvents).toHaveLength(2);
+  });
+
   it("hands off provider integration imports when the durable claim is lost before recording observations", async () => {
     const harness = createIntegrationJobClaimHandoffHarness();
     const originalFetch = globalThis.fetch;
@@ -825,7 +1246,7 @@ function pokemonObservation(input: {
   cardVariantLabel?: string;
   cardVariantSourceKey?: string | null;
   parallelSet?: boolean;
-}): SourceObservationNormalized {
+}): SourceObservationPokemonCardNormalized {
   return {
     kind: "pokemon-card",
     tcg: "pokemon",
@@ -857,6 +1278,155 @@ function pokemonObservation(input: {
     imageDisclaimer:
       "TCGDex provides one image for this card number. This Catalog Item represents the Parallel Set - Reverse Foil variant, so the image may not show the exact foil or pattern.",
     variants: {},
+  };
+}
+
+function createTcgplayerImportHarness(input: { failProductIds?: ReadonlySet<number> } = {}) {
+  const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
+  const productDetails = new Map<number, TcgplayerAutomationProductDetail>([
+    [610001, tcgplayerProductDetail({ productId: 610001, productName: "Eevee ex", number: "131", sku: 987654 })],
+    [610002, tcgplayerProductDetail({ productId: 610002, productName: "Umbreon ex", number: "161", sku: 987655 })],
+  ]);
+  const client: TcgplayerAutomationCatalogClient = {
+    listProductLines: async () => [
+      {
+        productLineId: 3,
+        productLineName: "Pokemon",
+        productLineUrlName: "pokemon",
+        isDirect: true,
+      },
+    ],
+    listCatalogSetNames: async () => ({
+      errors: [],
+      results: [
+        {
+          setNameId: 7001,
+          categoryId: 3,
+          name: "Prismatic Evolutions",
+          cleanSetName: "Prismatic Evolutions",
+          urlName: "prismatic-evolutions",
+          abbreviation: "PRE",
+          releaseDate: "2025-01-17",
+          isSupplemental: false,
+          active: true,
+        },
+      ],
+    }),
+    searchProducts: async () => ({
+      errors: [],
+      results: [],
+    }),
+    listAllProducts: async () => [
+      {
+        productId: 610001,
+        productName: "Eevee ex",
+        productLineId: 3,
+        productLineName: "Pokemon",
+        productTypeName: "Cards",
+        setId: 7001,
+        setName: "Prismatic Evolutions",
+        setUrlName: "prismatic-evolutions",
+        rarityName: "Special Illustration Rare",
+        sealed: false,
+        productStatusId: 1,
+        customAttributes: { number: "131", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+      },
+      {
+        productId: 610002,
+        productName: "Umbreon ex",
+        productLineId: 3,
+        productLineName: "Pokemon",
+        productTypeName: "Cards",
+        setId: 7001,
+        setName: "Prismatic Evolutions",
+        setUrlName: "prismatic-evolutions",
+        rarityName: "Special Illustration Rare",
+        sealed: false,
+        productStatusId: 1,
+        customAttributes: { number: "161", releaseDate: "2025-01-17", cardType: ["Pokemon"] },
+      },
+    ],
+    getProductDetail: async ({ productId }) => {
+      if (input.failProductIds?.has(productId)) {
+        throw new Error(`Product ${productId} unavailable.`);
+      }
+      const detail = productDetails.get(productId);
+      if (!detail) {
+        throw new Error(`Product ${productId} not found.`);
+      }
+      return detail;
+    },
+  };
+  const deps = {
+    db: {
+      query: async <T>() => ({ rowCount: 0, rows: [] as T[] }),
+    },
+    eventStore: {
+      readStream: async () => [],
+      appendToStream: async (eventInput: {
+        streamId: string;
+        events: ReadonlyArray<{ eventType: string; payload: Record<string, unknown> }>;
+      }) => {
+        appendedSourceEvents.push(...eventInput.events);
+        return eventInput.events.map((event, index) =>
+          storedEvent(index + 1, eventInput.streamId, event.eventType, event.payload),
+        );
+      },
+      readAll: async () => [],
+    },
+    checkpointStore: {
+      loadCheckpoint: async () => "0",
+      saveCheckpoint: async () => undefined,
+    },
+    tcgplayerAutomationCatalogClient: client,
+  } as unknown as CatalogRuntimeDeps;
+
+  return {
+    deps,
+    client,
+    appendedSourceEvents,
+  };
+}
+
+function tcgplayerProductDetail(input: {
+  productId: number;
+  productName: string;
+  number: string;
+  sku: number;
+}): TcgplayerAutomationProductDetail {
+  return {
+    productTypeName: "Cards",
+    rarityName: "Special Illustration Rare",
+    sealed: false,
+    productName: input.productName,
+    setId: 7001,
+    setCode: "PRE",
+    productId: input.productId,
+    setName: "Prismatic Evolutions",
+    productLineId: 3,
+    productStatusId: 1,
+    productLineName: "Pokemon",
+    customAttributes: {
+      number: input.number,
+      releaseDate: "2025-01-17",
+      cardType: ["Pokemon"],
+    },
+    formattedAttributes: {
+      Artist: "Catalog Artist",
+    },
+    skus: [
+      {
+        sku: input.sku,
+        condition: "Near Mint",
+        variant: "Normal",
+        language: "English",
+      },
+    ],
+    marketPrice: 12.34,
+    lowestPrice: 10.01,
+    lowestPriceWithShipping: 11.23,
+    medianPrice: 12.5,
+    listings: 25,
   };
 }
 
@@ -982,7 +1552,13 @@ function integrationJobRow(input: {
   };
 }
 
-function createIntegrationJobClaimHandoffHarness() {
+function createIntegrationJobClaimHandoffHarness(
+  input: {
+    scope?: Record<string, unknown>;
+    renewSucceeds?: boolean;
+    tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
+  } = {},
+) {
   const appendedSourceEvents: Array<{ eventType: string; payload: Record<string, unknown> }> = [];
   let renewAttempts = 0;
   const job = {
@@ -990,7 +1566,7 @@ function createIntegrationJobClaimHandoffHarness() {
     job_kind: "import",
     payload: {
       action: "import",
-      scope: {
+      scope: input.scope ?? {
         provider: "tcgdex",
         language: "en",
         setId: "base1",
@@ -1035,7 +1611,7 @@ function createIntegrationJobClaimHandoffHarness() {
           !sql.includes("RETURNING")
         ) {
           renewAttempts += 1;
-          return { rowCount: 0, rows: [] as T[] };
+          return { rowCount: input.renewSucceeds ? 1 : 0, rows: [] as T[] };
         }
 
         if (sql.includes("UPDATE catalog_source_observation_integration_durable_jobs")) {
@@ -1105,6 +1681,7 @@ function createIntegrationJobClaimHandoffHarness() {
       loadCheckpoint: async () => "0",
       saveCheckpoint: async () => undefined,
     },
+    tcgplayerAutomationCatalogClient: input.tcgplayerAutomationCatalogClient,
   } as unknown as CatalogRuntimeDeps;
 
   const referenceData = {
@@ -1217,11 +1794,14 @@ function createReferencePreloadHarness() {
 
 function createChangedObservationRefreshHarness(
   input: {
-    normalized?: SourceObservationNormalized;
+    normalized?: SourceObservationPokemonCardNormalized;
+    providerKey?: string;
     expansionAttributes?: Readonly<Record<string, JsonValue>>;
     status?: string;
     promotedCatalogItemId?: string | null;
     reusableCatalogItemId?: string | null;
+    reusableExternalCatalogItemIds?: readonly string[];
+    deterministicCatalogItemIds?: readonly string[];
     partialCatalogItemId?: string | null;
     promotionCommandAlreadyApplied?: { catalogItemId: string };
   } = {},
@@ -1238,7 +1818,7 @@ function createChangedObservationRefreshHarness(
     });
   const observationRow = {
     observation_id: "obs_changed",
-    provider_key: "tcgdex",
+    provider_key: input.providerKey ?? "tcgdex",
     external_key: "me02.5-136:reverse-holo",
     source_url: "https://api.tcgdex.net/v2/en/cards/me02.5-136",
     language_code: "en",
@@ -1306,11 +1886,29 @@ function createChangedObservationRefreshHarness(
           };
         }
 
+        if (sql.includes("FROM catalog_items AS item") && sql.includes("item.status NOT IN")) {
+          return {
+            rowCount: input.deterministicCatalogItemIds?.length ?? 0,
+            rows: (input.deterministicCatalogItemIds ?? []).map((catalogItemId) => ({
+              catalog_item_id: catalogItemId,
+            })) as T[],
+          };
+        }
+
         if (sql.includes("FROM catalog_items AS item")) {
           const row = input.partialCatalogItemId ? { catalog_item_id: input.partialCatalogItemId } : null;
           return {
             rowCount: row ? 1 : 0,
             rows: (row ? [row] : []) as T[],
+          };
+        }
+
+        if (sql.includes("FROM catalog_external_catalog_item_references")) {
+          return {
+            rowCount: input.reusableExternalCatalogItemIds?.length ?? 0,
+            rows: (input.reusableExternalCatalogItemIds ?? []).map((catalogItemId) => ({
+              catalog_item_id: catalogItemId,
+            })) as T[],
           };
         }
 

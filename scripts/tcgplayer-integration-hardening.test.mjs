@@ -1,0 +1,97 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+const scenarioFiles = [
+  {
+    name: "automation-app response fixtures",
+    file: "bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-response-fixtures.test-data.ts",
+    evidence: ["productLines", "catalogSetNames", "productSearch", "productDetail"],
+  },
+  {
+    name: "Catalog response contract and pricing boundary",
+    file: "bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-response-contract.test.ts",
+    evidence: [
+      "keeps sanitized fixtures for every Catalog-relevant automation endpoint",
+      "keeps price, listing, seller, and quantity fields out of Catalog observation hashes",
+      "productConditionId gap",
+    ],
+  },
+  {
+    name: "Catalog automation client normalization",
+    file: "bounded-contexts/catalog/features/source-observations/api/tcgplayer-automation-catalog-client.test.ts",
+    evidence: [
+      "normalizes product detail into one provider-product Source Observation",
+      "maps only SKU references whose selected options validate against the Product schema",
+      "carries sealed-product merge evidence",
+      "excludes price and listing fields from the Catalog observation hash material",
+    ],
+  },
+  {
+    name: "Catalog import and duplicate prevention",
+    file: "bounded-contexts/catalog/features/source-observations/api/runtime.test.ts",
+    evidence: [
+      "imports TCGplayer set scopes as provider-product source observations",
+      "refreshing an existing Catalog Item linked to the same TCGplayer Product ID",
+      "future provider observations through the same TCGplayer Product ID reference",
+      "blocks promotion when external Catalog Item references match multiple Catalog Items",
+      "blocks promotion when deterministic card evidence matches multiple Catalog Items",
+    ],
+  },
+  {
+    name: "Catalog admin review coverage",
+    file: "bounded-contexts/catalog/features/source-observations/ui/source-observation-list-page.test.tsx",
+    evidence: ["TCGplayer", "sku:987654", "product:610001"],
+  },
+  {
+    name: "Inventory SKU and Product ID resolution",
+    file: "bounded-contexts/inventory/features/import-batches/api/runtime.test.ts",
+    evidence: [
+      "resolves mapped TCGplayer rows and rejects unmapped external references",
+      "tries ordered external reference candidates before sending rows to review",
+      "resolves TCGplayer Product ID-only rows only when selected options are inferable",
+    ],
+  },
+  {
+    name: "Inventory replay projection",
+    file: "bounded-contexts/inventory/features/inventory-items/integrations/catalog/projection.test.ts",
+    evidence: ["external-product-reference-linked", "external-catalog-item-reference-linked"],
+  },
+  {
+    name: "Pricing signal boundary",
+    file: "bounded-contexts/pricing/features/price-signals/api/runtime.test.ts",
+    evidence: [
+      "resolves SKU references to Catalog Product keys before recording Pricing evidence",
+      "keeps unresolved SKU signals out of price facts",
+      "missing-price",
+      "stale",
+      "upserts replayed observations by deterministic signal id",
+    ],
+  },
+  {
+    name: "Pricing Catalog projection",
+    file: "bounded-contexts/pricing/features/price-signals/integrations/catalog/projection.test.ts",
+    evidence: ["external-product-reference-linked", "external-product-reference-unlinked"],
+  },
+];
+
+describe("TCGplayer integration hardening coverage", () => {
+  for (const scenario of scenarioFiles) {
+    it(`keeps fixture-backed coverage for ${scenario.name}`, () => {
+      const content = readFileSync(scenario.file, "utf8");
+
+      for (const evidence of scenario.evidence) {
+        expect(content, `${scenario.file} should include ${evidence}`).toContain(evidence);
+      }
+    });
+  }
+
+  it("keeps TCGplayer tests fixture-backed instead of live-provider backed", () => {
+    for (const scenario of scenarioFiles) {
+      const content = readFileSync(scenario.file, "utf8");
+
+      expect(content, `${scenario.file} must not call live TCGplayer through fetch`).not.toMatch(
+        /fetch\(\s*["'`]https:\/\/[^"'`]*tcgplayer\.com/i,
+      );
+    }
+  });
+});

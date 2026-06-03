@@ -29,6 +29,8 @@ export interface SourceObservationIntegrationScope {
   expansion_name: string;
   series_id: string;
   series_name: string;
+  product_line_id: string;
+  product_line_name: string;
   total_observations: number;
   observed_observations: number;
   changed_observations: number;
@@ -143,6 +145,9 @@ export interface SourceObservationIntegrationJobScope {
   language?: string;
   seriesId?: string;
   setId?: string;
+  productLineId?: string;
+  setName?: string;
+  productId?: string;
 }
 
 export interface SourceObservationIntegrationJobOutcome {

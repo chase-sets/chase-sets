@@ -344,6 +344,44 @@ describe("source observation routes", () => {
     });
   });
 
+  it("enqueues TCGplayer integration jobs with provider-product scope aliases", async () => {
+    const job = integrationJob({ status: "queued" });
+    const enqueueIntegrationJob = vi.fn(async () => job);
+    const services = {
+      enqueueIntegrationJob,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "import",
+        scope: {
+          source: "tcgplayer",
+          languageCode: "en",
+          categoryId: "3",
+          cleanSetName: "Base Set",
+          tcgplayerProductId: "12345",
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({ jobId: "job_integration", action: "import" });
+    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
+      action: "import",
+      scope: {
+        provider: "tcgplayer",
+        language: "en",
+        productLineId: "3",
+        setName: "Base Set",
+        productId: "12345",
+      },
+      context,
+    });
+  });
+
   it("lists active provider integration jobs for the current request context", async () => {
     const activeJob = integrationJob({ status: "running" });
     const listActiveIntegrationJobs = vi.fn(async () => [activeJob]);

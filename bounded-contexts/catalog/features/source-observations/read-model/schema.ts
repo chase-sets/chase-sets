@@ -32,6 +32,13 @@ CREATE INDEX IF NOT EXISTS catalog_source_observations_name_idx
     )
   );
 
+CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limits (
+  domain_key text PRIMARY KEY,
+  request_delay_ms integer NOT NULL,
+  learned_min_delay_ms integer NOT NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
 ${durableJobSchemaSql({
   jobsTable: "catalog_source_observation_bulk_review_jobs",
   eventsTable: "catalog_source_observation_bulk_review_job_events",

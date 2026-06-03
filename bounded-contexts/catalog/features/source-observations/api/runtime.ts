@@ -37,9 +37,11 @@ import {
   decideSourceObservation,
   evolveSourceObservation,
   initialSourceObservationState,
+  isPokemonCardSourceObservationNormalized,
   type SourceObservationCommand,
   type SourceObservationEvent,
   type SourceObservationNormalized,
+  type SourceObservationPokemonCardNormalized,
   type SourceObservationState,
 } from "../domain/domain";
 import { buildSourceObservationProjectionHandlers } from "../read-model/projection";
@@ -69,6 +71,11 @@ import {
   type TcgdexSetImportProgress,
   type TcgdexSetImportResult,
 } from "./tcgdex-client";
+import {
+  toTcgplayerAutomationSourceObservation,
+  type TcgplayerAutomationCatalogClient,
+  type TcgplayerAutomationProductDetail,
+} from "./tcgplayer-automation-catalog-client";
 import {
   getCatalogProviderIntegrationProfile,
   listCatalogProviderIntegrationProfiles,
@@ -124,6 +131,10 @@ export type BulkSourceObservationProgress = Readonly<{
 
 type SourceObservationProgressHandler = (progress: BulkSourceObservationProgress) => void | Promise<void>;
 type DurableSideEffectRunner = <T>(work: (signal: AbortSignal) => Promise<T>) => Promise<T>;
+type SourceObservationRecordInput = Omit<
+  Extract<SourceObservationCommand, { type: "RecordSourceObservation" }>,
+  "type"
+>;
 
 export type SourceObservationBulkJobAction = "promote" | "reject" | "reapply";
 
@@ -181,6 +192,9 @@ export type SourceObservationIntegrationJobScope = Readonly<{
   language?: string;
   seriesId?: string;
   setId?: string;
+  productLineId?: string;
+  setName?: string;
+  productId?: string;
 }>;
 
 type SourceObservationIntegrationJobPayload = Readonly<{
@@ -190,6 +204,21 @@ type SourceObservationIntegrationJobPayload = Readonly<{
 
 type SourceObservationIntegrationWorkUnitPayload = Readonly<{
   observationId: string;
+}>;
+
+type TcgplayerIntegrationImportTarget = Readonly<{
+  targetId: string;
+  name: string;
+  productLineId?: number;
+  productLineName?: string;
+  setName?: string;
+  productId?: number;
+}>;
+
+type TcgplayerProductImportProgress = Readonly<{
+  currentName: string | null;
+  completed: number;
+  total: number;
 }>;
 
 export type SourceObservationIntegrationJobOutcome = Readonly<{
@@ -247,6 +276,11 @@ export type SourceObservationServices = Readonly<{
     beforeRecordObservation?: () => Promise<void>;
     runRecordObservation?: DurableSideEffectRunner;
   }) => Promise<TcgdexSetImportResult>;
+  importTcgplayerScope: (input: {
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+  }) => Promise<SourceObservationIntegrationJobResult>;
   listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
   listTcgdexSeries: (input: { languageCode: string }) => Promise<readonly TcgdexSeriesOption[]>;
   listTcgdexExpansions: (input: {
@@ -466,10 +500,7 @@ export function createSourceObservationRuntime(
     },
   );
 
-  async function recordObservation(
-    observation: Awaited<ReturnType<typeof fetchTcgdexSetObservations>>[number],
-    context: EventStoreContext,
-  ) {
+  async function recordObservation(observation: SourceObservationRecordInput, context: EventStoreContext) {
     await commandHandler({
       streamId: sourceObservationStreamId(observation.observationId),
       command: {
@@ -484,7 +515,11 @@ export function createSourceObservationRuntime(
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
-    requirePromotionAssetPorts({ deps, normalized: input.observation.normalized });
+    const normalized = requirePokemonCardPromotionObservation(
+      input.observation.normalized,
+      input.observation.provider_key,
+    );
+    requirePromotionAssetPorts({ deps, normalized });
 
     const existingCatalogItemId =
       input.observation.status === "changed" || input.observation.status === "promoted"
@@ -496,22 +531,37 @@ export function createSourceObservationRuntime(
       );
     }
 
+    const externalReferenceCatalogItemId = existingCatalogItemId
+      ? null
+      : await findReusableCatalogItemIdForExternalCatalogItemReferences({
+          deps,
+          references: normalized.externalCatalogItemReferences ?? [],
+        });
     const sourceReferenceExternalKey = formatSourceReferenceExternalKey(input.observation);
-    const referencedCatalogItemId =
+    const sourceReferencedCatalogItemId =
       existingCatalogItemId ??
+      externalReferenceCatalogItemId ??
       (await findReusableCatalogItemIdForSourceReference({
         deps,
         providerKey: input.observation.provider_key,
         externalKey: sourceReferenceExternalKey,
       }));
+    const deterministicCatalogItemId =
+      sourceReferencedCatalogItemId || existingCatalogItemId
+        ? null
+        : await findReusableCatalogItemIdForDeterministicPokemonCardEvidence({
+            deps,
+            normalized,
+          });
     const partiallyPromotedCatalogItemId =
-      referencedCatalogItemId || existingCatalogItemId
+      sourceReferencedCatalogItemId || deterministicCatalogItemId || existingCatalogItemId
         ? null
         : await findPartiallyPromotedCatalogItemIdForObservation({
             deps,
-            normalized: input.observation.normalized,
+            normalized,
           });
-    const reusableCatalogItemId = referencedCatalogItemId ?? partiallyPromotedCatalogItemId;
+    const reusableCatalogItemId =
+      sourceReferencedCatalogItemId ?? deterministicCatalogItemId ?? partiallyPromotedCatalogItemId;
     const catalogItemId = reusableCatalogItemId ?? (createId("cat") as CatalogItemId);
 
     if (reusableCatalogItemId) {
@@ -520,7 +570,7 @@ export function createSourceObservationRuntime(
         referenceData,
         deps,
         catalogItemId: reusableCatalogItemId,
-        normalized: input.observation.normalized,
+        normalized,
         providerKey: input.observation.provider_key,
         externalKey: input.observation.external_key,
         context: input.context,
@@ -531,7 +581,7 @@ export function createSourceObservationRuntime(
         referenceData,
         deps,
         catalogItemId,
-        normalized: input.observation.normalized,
+        normalized,
         providerKey: input.observation.provider_key,
         externalKey: input.observation.external_key,
         context: input.context,
@@ -657,7 +707,11 @@ export function createSourceObservationRuntime(
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
-    requirePromotionAssetPorts({ deps, normalized: input.observation.normalized });
+    const normalized = requirePokemonCardPromotionObservation(
+      input.observation.normalized,
+      input.observation.provider_key,
+    );
+    requirePromotionAssetPorts({ deps, normalized });
 
     if (input.observation.status !== "promoted") {
       throw new Error("Only promoted source observations can be reapplied.");
@@ -673,7 +727,7 @@ export function createSourceObservationRuntime(
       referenceData,
       deps,
       catalogItemId,
-      normalized: input.observation.normalized,
+      normalized,
       providerKey: input.observation.provider_key,
       externalKey: input.observation.external_key,
       context: input.context,
@@ -1575,6 +1629,16 @@ export function createSourceObservationRuntime(
     const scope = normalizeIntegrationJobScope(input.job.scope);
     const providerProfile = requireCatalogImportProfile(scope.provider);
 
+    if (providerProfile.providerKey === "tcgplayer") {
+      return processTcgplayerIntegrationImportJobTurn({
+        job: input.job,
+        scope,
+        providerProfile,
+        claimTtlMs: input.claimTtlMs,
+        context: input.context,
+      });
+    }
+
     const languageCode = scope.language || "en";
     const expansions = scope.setId
       ? [
@@ -1759,6 +1823,14 @@ export function createSourceObservationRuntime(
     const scope = normalizeIntegrationJobScope(input.scope);
     const providerProfile = requireCatalogImportProfile(scope.provider);
 
+    if (providerProfile.providerKey === "tcgplayer") {
+      return processTcgplayerIntegrationImportJob({
+        scope,
+        context: input.context,
+        onProgress: input.onProgress,
+      });
+    }
+
     const languageCode = scope.language || "en";
     const expansions = scope.setId
       ? [
@@ -1867,6 +1939,315 @@ export function createSourceObservationRuntime(
     }
   }
 
+  async function processTcgplayerIntegrationImportJobTurn(input: {
+    job: ClaimedSourceObservationIntegrationJob;
+    scope: SourceObservationIntegrationJobScope;
+    providerProfile: CatalogProviderIntegrationProfile;
+    claimTtlMs: number;
+    context: SourceObservationJobRunContext;
+  }): Promise<
+    Readonly<{
+      complete: boolean;
+      progress: BulkSourceObservationProgress;
+      result: SourceObservationIntegrationJobResult;
+    }>
+  > {
+    throwIfJobRunCancelled(input.context);
+    const targets = await resolveTcgplayerImportTargets(input.scope);
+    throwIfJobRunCancelled(input.context);
+    const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(targets.length, []);
+    const completedTargetIds = new Set(previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean));
+    const nextTarget = targets.find((target) => !completedTargetIds.has(target.targetId));
+
+    if (!nextTarget) {
+      const result = summarizeIntegrationJobOutcomes(targets.length, previousResult.outcomes);
+      return {
+        complete: true,
+        progress: bulkProgress(result.requested, result.requested, null, null, "completed"),
+        result,
+      };
+    }
+
+    const jobContext = createDurableJobExecutionContext(integrationJobStore, {
+      jobId: input.job.jobId,
+      claimOwnerId: input.job.claimOwnerId,
+      claimTtlMs: input.claimTtlMs,
+      signal: input.context.signal,
+      throwIfLeaseLost: input.context.throwIfLeaseLost,
+      cancelledMessage: "Source Observation job run was cancelled.",
+      claimLostMessage: "Source Observation job claim was lost before the status update completed.",
+    });
+    const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
+      minRenewIntervalMs: Math.max(1_000, Math.floor(input.claimTtlMs / 3)),
+      completed: (progress) => progress.completed,
+      isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+    });
+    const recordRenewIntervalMs = Math.max(1_000, Math.floor(input.claimTtlMs / 3));
+    let lastRecordRenewedAt = 0;
+
+    await progressCheckpoint.flush(bulkProgress(previousResult.outcomes.length, targets.length, nextTarget.name));
+
+    const outcome = await importTcgplayerIntegrationTarget({
+      target: nextTarget,
+      providerProfile: input.providerProfile,
+      context: input.job.eventContext,
+      beforeRecordObservation: async () => {
+        throwIfJobRunCancelled(input.context);
+        const now = Date.now();
+        if (lastRecordRenewedAt === 0 || now - lastRecordRenewedAt >= recordRenewIntervalMs) {
+          await jobContext.renew();
+          lastRecordRenewedAt = Date.now();
+        }
+      },
+      runRecordObservation: createSourceObservationSideEffectRunner(jobContext),
+      onProgress: async (targetProgress) => {
+        throwIfJobRunCancelled(input.context);
+        await progressCheckpoint.checkpoint(
+          bulkProgress(
+            previousResult.outcomes.length,
+            targets.length,
+            targetProgress.currentName ?? nextTarget.name,
+            null,
+            "processing",
+          ),
+        );
+      },
+    });
+    const result = summarizeIntegrationJobOutcomes(targets.length, [...previousResult.outcomes, outcome]);
+
+    return {
+      complete: result.outcomes.length >= result.requested,
+      progress: bulkProgress(result.outcomes.length, result.requested, nextTarget.name, outcome.status),
+      result,
+    };
+  }
+
+  async function processTcgplayerIntegrationImportJob(input: {
+    scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+  }): Promise<SourceObservationIntegrationJobResult> {
+    const scope = normalizeIntegrationJobScope(input.scope);
+    const providerProfile = requireCatalogImportProfile(scope.provider);
+    if (providerProfile.providerKey !== "tcgplayer") {
+      throw new Error(`Provider '${providerProfile.providerKey}' is not supported by the TCGplayer import worker.`);
+    }
+    const targets = await resolveTcgplayerImportTargets(scope);
+    const outcomes: SourceObservationIntegrationJobOutcome[] = [];
+    await input.onProgress?.(bulkProgress(0, targets.length));
+
+    for (const target of targets) {
+      const outcome = await importTcgplayerIntegrationTarget({
+        target,
+        providerProfile,
+        context: input.context,
+        onProgress: (targetProgress) =>
+          input.onProgress?.(
+            bulkProgress(
+              outcomes.length,
+              targets.length,
+              targetProgress.currentName ?? target.name,
+              null,
+              "processing",
+            ),
+          ),
+      });
+      outcomes.push(outcome);
+      await input.onProgress?.(bulkProgress(outcomes.length, targets.length, target.name, outcome.status));
+    }
+
+    await input.onProgress?.(bulkProgress(targets.length, targets.length, null, null, "completed"));
+
+    return summarizeIntegrationJobOutcomes(targets.length, outcomes);
+  }
+
+  async function resolveTcgplayerImportTargets(
+    scope: SourceObservationIntegrationJobScope,
+  ): Promise<readonly TcgplayerIntegrationImportTarget[]> {
+    const productId = parsePositiveInteger(scope.productId);
+    if (productId !== null) {
+      return [
+        {
+          targetId: `product:${productId}`,
+          name: `Product ${productId}`,
+          productId,
+        },
+      ];
+    }
+
+    const productLineId = parsePositiveInteger(scope.productLineId ?? scope.seriesId);
+    if (productLineId === null) {
+      throw new Error("TCGplayer import requires productLineId/categoryId or productId.");
+    }
+
+    const client = requireTcgplayerAutomationCatalogClient();
+    const productLines = await client.listProductLines();
+    const productLine = productLines.find((item) => item.productLineId === productLineId);
+    if (!productLine) {
+      throw new Error(`TCGplayer product line '${productLineId}' was not found.`);
+    }
+
+    const setName = scope.setName?.trim() || scope.setId?.trim() || undefined;
+    if (setName) {
+      return [
+        {
+          targetId: `set:${productLineId}:${setName}`,
+          name: setName,
+          productLineId,
+          productLineName: productLine.productLineName,
+          setName,
+        },
+      ];
+    }
+
+    const response = await client.listCatalogSetNames({ categoryId: productLineId });
+    return response.results
+      .filter((setNameOption) => setNameOption.active)
+      .map((setNameOption) => ({
+        targetId: `set:${productLineId}:${setNameOption.cleanSetName}`,
+        name: setNameOption.cleanSetName,
+        productLineId,
+        productLineName: productLine.productLineName,
+        setName: setNameOption.cleanSetName,
+      }));
+  }
+
+  async function importTcgplayerIntegrationTarget(input: {
+    target: TcgplayerIntegrationImportTarget;
+    providerProfile: CatalogProviderIntegrationProfile;
+    context: EventStoreContext;
+    onProgress?: (progress: TcgplayerProductImportProgress) => void | Promise<void>;
+    beforeRecordObservation?: () => Promise<void>;
+    runRecordObservation?: DurableSideEffectRunner;
+  }): Promise<SourceObservationIntegrationJobOutcome> {
+    try {
+      const { details, failureReason } = await fetchTcgplayerTargetProductDetails(input.target, input.onProgress);
+      if (details.length === 0) {
+        return {
+          providerKey: input.providerProfile.providerKey,
+          languageCode: "en",
+          expansionId: input.target.targetId,
+          status: failureReason ? "failed" : "skipped",
+          observed: 0,
+          reapplied: 0,
+          reason: failureReason ?? `No TCGplayer products found for ${input.target.name}.`,
+        };
+      }
+
+      let observed = 0;
+      const observedAt = new Date().toISOString();
+      for (const detail of details) {
+        await input.beforeRecordObservation?.();
+        const observation = toTcgplayerAutomationSourceObservation({ detail, observedAt });
+        const writeObservation = () => recordObservation(observation, input.context);
+        if (input.runRecordObservation) {
+          await input.runRecordObservation(writeObservation);
+        } else {
+          await writeObservation();
+        }
+        observed += 1;
+      }
+
+      return {
+        providerKey: input.providerProfile.providerKey,
+        languageCode: "en",
+        expansionId: input.target.targetId,
+        status: failureReason ? "failed" : "imported",
+        observed,
+        reapplied: 0,
+        reason: failureReason,
+      };
+    } catch (error) {
+      if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
+        throw error;
+      }
+
+      return {
+        providerKey: input.providerProfile.providerKey,
+        languageCode: "en",
+        expansionId: input.target.targetId,
+        status: "failed",
+        observed: 0,
+        reapplied: 0,
+        reason: error instanceof Error ? error.message : "TCGplayer import failed.",
+      };
+    }
+  }
+
+  async function fetchTcgplayerTargetProductDetails(
+    target: TcgplayerIntegrationImportTarget,
+    onProgress?: (progress: TcgplayerProductImportProgress) => void | Promise<void>,
+  ): Promise<
+    Readonly<{
+      details: readonly TcgplayerAutomationProductDetail[];
+      failureReason: string | null;
+    }>
+  > {
+    const client = requireTcgplayerAutomationCatalogClient();
+    if (target.productId !== undefined) {
+      await onProgress?.({ currentName: target.name, completed: 0, total: 1 });
+      const detail = await client.getProductDetail({ productId: target.productId });
+      await onProgress?.({ currentName: detail.productName, completed: 1, total: 1 });
+      return { details: [detail], failureReason: null };
+    }
+
+    if (!target.productLineName || !target.setName) {
+      throw new Error("TCGplayer set import requires a product line name and set name.");
+    }
+
+    const products = await client.listAllProducts({
+      size: 24,
+      filters: {
+        term: {
+          productLineName: [target.productLineName],
+          setName: [target.setName],
+        },
+      },
+      sort: {
+        field: "product-sorting-name",
+        order: "asc",
+      },
+    });
+    const details: TcgplayerAutomationProductDetail[] = [];
+    const failures: string[] = [];
+    await onProgress?.({ currentName: target.name, completed: 0, total: products.length });
+
+    for (const product of products) {
+      try {
+        const detail = await client.getProductDetail({ productId: product.productId });
+        details.push(detail);
+        await onProgress?.({ currentName: detail.productName, completed: details.length, total: products.length });
+      } catch (error) {
+        if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
+          throw error;
+        }
+        failures.push(error instanceof Error ? error.message : `Product ${product.productId} failed.`);
+        await onProgress?.({ currentName: product.productName, completed: details.length, total: products.length });
+      }
+    }
+
+    if (failures.length > 0) {
+      const failureText = failures.length === 1 ? failures[0] : `${failures.length} product details failed.`;
+      return {
+        details,
+        failureReason:
+          details.length > 0
+            ? `Imported ${details.length} TCGplayer product details before ${failureText}`
+            : failureText,
+      };
+    }
+
+    return { details, failureReason: null };
+  }
+
+  function requireTcgplayerAutomationCatalogClient(): TcgplayerAutomationCatalogClient {
+    if (!deps.tcgplayerAutomationCatalogClient) {
+      throw new Error("TCGplayer automation Catalog client is required for TCGplayer imports.");
+    }
+
+    return deps.tcgplayerAutomationCatalogClient;
+  }
+
   async function processIntegrationReapplyJob(input: {
     scope: SourceObservationIntegrationJobScope;
     context: EventStoreContext;
@@ -1901,10 +2282,11 @@ export function createSourceObservationRuntime(
   return {
     commandHandler,
     importTcgdexSet: importTcgdexSetScope,
+    importTcgplayerScope: processTcgplayerIntegrationImportJob,
     listTcgdexLanguages: async () => listTcgdexLanguageOptions(),
     listTcgdexSeries: async ({ languageCode }) => fetchTcgdexSeriesOptions({ languageCode }),
     listTcgdexExpansions: async ({ languageCode, seriesId }) => fetchTcgdexExpansionOptions({ languageCode, seriesId }),
-    listIntegrationOptions: listProviderIntegrationOptions,
+    listIntegrationOptions: (input) => listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient),
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -2031,12 +2413,15 @@ export function createSourceObservationRuntime(
   };
 }
 
-async function listProviderIntegrationOptions(input: {
-  providerKey: string;
-  queryKind: string;
-  languageCode?: string | null;
-  parentValue?: string | null;
-}): Promise<readonly SourceObservationIntegrationOption[]> {
+async function listProviderIntegrationOptions(
+  input: {
+    providerKey: string;
+    queryKind: string;
+    languageCode?: string | null;
+    parentValue?: string | null;
+  },
+  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient,
+): Promise<readonly SourceObservationIntegrationOption[]> {
   const providerKey = normalizeIntegrationKey(input.providerKey || tcgdexPokemonTcgProviderProfile.providerKey);
   const queryKind = normalizeIntegrationKey(input.queryKind);
   const languageCode = normalizeIntegrationKey(input.languageCode || "en");
@@ -2054,6 +2439,8 @@ async function listProviderIntegrationOptions(input: {
       metadata: {
         providerKey: profile.providerKey,
         supportedScopes: profile.supportedScopes.join(","),
+        status: profile.status,
+        connectorKind: profile.connector.kind,
       },
     }));
   }
@@ -2061,6 +2448,21 @@ async function listProviderIntegrationOptions(input: {
   const profile = getCatalogProviderIntegrationProfile(providerKey);
   if (!profile) {
     throw new Error(`Unsupported Catalog integration provider: ${providerKey}.`);
+  }
+
+  if (profile.connector.kind === "tcgplayer-automation-client") {
+    return listTcgplayerIntegrationOptions({
+      providerKey: profile.providerKey,
+      queryKind,
+      parentValue,
+      client: tcgplayerAutomationCatalogClient,
+    });
+  }
+
+  if (profile.status !== "active" || profile.connector.kind !== "tcgdex-json") {
+    throw new Error(
+      `Catalog integration provider '${profile.providerKey}' is ${profile.status} and does not yet support runtime option queries.`,
+    );
   }
 
   if (queryKind === "languages" || queryKind === "language") {
@@ -2127,6 +2529,86 @@ async function listProviderIntegrationOptions(input: {
   );
 }
 
+async function listTcgplayerIntegrationOptions(input: {
+  providerKey: string;
+  queryKind: string;
+  parentValue: string | null;
+  client?: TcgplayerAutomationCatalogClient;
+}): Promise<readonly SourceObservationIntegrationOption[]> {
+  if (input.queryKind === "product-lines" || input.queryKind === "product-line" || input.queryKind === "categories") {
+    const client = requireTcgplayerAutomationCatalogClientForOptions(input.client);
+    const productLines = await client.listProductLines();
+    return productLines.map((item) => ({
+      providerKey: input.providerKey,
+      queryKind: "product-lines",
+      value: String(item.productLineId),
+      label: item.productLineName,
+      description: item.productLineUrlName || null,
+      parentValue: null,
+      imageUrl: null,
+      metadata: {
+        productLineId: item.productLineId,
+        productLineName: item.productLineName,
+        productLineUrlName: item.productLineUrlName,
+        isDirect: item.isDirect,
+      },
+    }));
+  }
+
+  if (input.queryKind === "set-names" || input.queryKind === "set-name" || input.queryKind === "sets") {
+    const client = requireTcgplayerAutomationCatalogClientForOptions(input.client);
+    const productLineId = parsePositiveInteger(input.parentValue);
+    if (productLineId === null) {
+      throw new Error("TCGplayer set-name option queries require a productLineId/categoryId parent value.");
+    }
+
+    const response = await client.listCatalogSetNames({ categoryId: productLineId });
+    return response.results
+      .filter((item) => item.active)
+      .map((item) => ({
+        providerKey: input.providerKey,
+        queryKind: "set-names",
+        value: item.cleanSetName,
+        label: item.name,
+        description: formatTcgplayerSetNameDescription(item.abbreviation, item.releaseDate),
+        parentValue: String(productLineId),
+        imageUrl: null,
+        metadata: {
+          productLineId,
+          setNameId: item.setNameId,
+          categoryId: item.categoryId,
+          cleanSetName: item.cleanSetName,
+          urlName: item.urlName,
+          abbreviation: item.abbreviation ?? null,
+          releaseDate: item.releaseDate ?? null,
+          isSupplemental: item.isSupplemental,
+          active: item.active,
+        },
+      }));
+  }
+
+  const profile = getCatalogProviderIntegrationProfile(input.providerKey);
+  throw new Error(
+    `Unsupported Catalog integration query '${input.queryKind}' for provider '${input.providerKey}'. Supported queries: ${
+      profile?.optionQueries.map((query) => query.queryKind).join(", ") ?? "product-lines, set-names"
+    }.`,
+  );
+}
+
+function requireTcgplayerAutomationCatalogClientForOptions(
+  client: TcgplayerAutomationCatalogClient | undefined,
+): TcgplayerAutomationCatalogClient {
+  if (!client) {
+    throw new Error("TCGplayer automation catalog client is required before TCGplayer runtime option queries can run.");
+  }
+
+  return client;
+}
+
+function formatTcgplayerSetNameDescription(abbreviation: string | undefined, releaseDate: string | undefined) {
+  return [abbreviation, releaseDate].filter(Boolean).join(" - ") || null;
+}
+
 function formatExpansionOptionDescription(item: TcgdexExpansionOption): string | null {
   if (item.officialCardCount === null && item.cardCount === null) {
     return item.seriesName;
@@ -2157,7 +2639,7 @@ async function createCatalogDraftFromObservation(input: {
   referenceData: ReferenceDataServices;
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
   providerKey: string;
   externalKey: string;
   context: EventStoreContext;
@@ -2275,7 +2757,7 @@ async function refreshCatalogItemFromObservation(input: {
   referenceData: ReferenceDataServices;
   deps: CatalogRuntimeDeps;
   catalogItemId: CatalogItemId;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
   providerKey: string;
   externalKey: string;
   context: EventStoreContext;
@@ -2372,7 +2854,7 @@ async function refreshCatalogItemFromObservation(input: {
 async function linkExternalCatalogItemReferencesFromObservation(
   items: CatalogItemServices,
   streamId: string,
-  normalized: SourceObservationNormalized,
+  normalized: SourceObservationPokemonCardNormalized,
   context: EventStoreContext,
 ) {
   for (const reference of uniqueExternalCatalogItemReferences(normalized.externalCatalogItemReferences ?? [])) {
@@ -2390,7 +2872,7 @@ async function linkExternalCatalogItemReferencesFromObservation(
 
 async function formatPokemonCardPromotionMetadata(input: {
   deps: CatalogRuntimeDeps;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
   expansionReferenceId: ReferenceRecordId;
 }): Promise<{ title: string; subtitle: string }> {
   void input.deps;
@@ -2401,7 +2883,7 @@ async function formatPokemonCardPromotionMetadata(input: {
   };
 }
 
-function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string[] {
+function pokemonCatalogItemTags(normalized: SourceObservationPokemonCardNormalized): string[] {
   return [
     "pokemon",
     tcgdexPokemonTcgProviderProfile.providerKey,
@@ -2413,7 +2895,7 @@ function pokemonCatalogItemTags(normalized: SourceObservationNormalized): string
 }
 
 function uniqueExternalCatalogItemReferences(
-  references: readonly NonNullable<SourceObservationNormalized["externalCatalogItemReferences"]>[number][],
+  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][],
 ) {
   const seen = new Set<string>();
   return references
@@ -2436,7 +2918,10 @@ function isPromotableObservationStatus(status: string): boolean {
   return status === "observed" || status === "changed" || status === "promoted";
 }
 
-function requirePromotionAssetPorts(input: { deps: CatalogRuntimeDeps; normalized: SourceObservationNormalized }) {
+function requirePromotionAssetPorts(input: {
+  deps: CatalogRuntimeDeps;
+  normalized: SourceObservationPokemonCardNormalized;
+}) {
   if (input.normalized.imageBaseUrl) {
     requireCatalogAssetStorage(input.deps.assetStorage);
   }
@@ -2446,6 +2931,19 @@ function formatSourceReferenceExternalKey(
   observation: Pick<SourceObservationDetailRow, "normalized" | "external_key">,
 ) {
   return `${observation.normalized.languageCode}:${observation.external_key}`;
+}
+
+function requirePokemonCardPromotionObservation(
+  normalized: SourceObservationNormalized,
+  providerKey: string,
+): SourceObservationPokemonCardNormalized {
+  if (!isPokemonCardSourceObservationNormalized(normalized)) {
+    throw new Error(
+      `Catalog promotion for provider '${providerKey}' requires a Pokemon card source observation. Normalized kind '${normalized.kind}' is not yet promotable.`,
+    );
+  }
+
+  return normalized;
 }
 
 async function findReusableCatalogItemIdForSourceReference(input: {
@@ -2468,9 +2966,38 @@ async function findReusableCatalogItemIdForSourceReference(input: {
   return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
 }
 
+async function findReusableCatalogItemIdForExternalCatalogItemReferences(input: {
+  deps: CatalogRuntimeDeps;
+  references: readonly NonNullable<SourceObservationPokemonCardNormalized["externalCatalogItemReferences"]>[number][];
+}): Promise<CatalogItemId | null> {
+  const references = uniqueExternalCatalogItemReferences(input.references);
+  if (references.length === 0) {
+    return null;
+  }
+
+  const values = references.flatMap((reference) => [reference.providerKey, reference.externalKey]);
+  const referencePredicates = references.map((_, index) => `($${index * 2 + 1}, $${index * 2 + 2})`).join(", ");
+  const result = await input.deps.db.query<{ catalog_item_id: string }>(
+    `SELECT DISTINCT reference.catalog_item_id
+     FROM catalog_external_catalog_item_references AS reference
+     JOIN catalog_items AS item
+       ON item.catalog_item_id = reference.catalog_item_id
+     WHERE (reference.provider_key, reference.external_key) IN (${referencePredicates})
+       AND item.status NOT IN ('archived', 'removed')
+     ORDER BY reference.catalog_item_id ASC`,
+    values,
+  );
+  const catalogItemIds = [...new Set(result.rows.map((row) => row.catalog_item_id))];
+  if (catalogItemIds.length > 1) {
+    throw new Error("Multiple Catalog Items match this Source Observation's external catalog item references.");
+  }
+
+  return (catalogItemIds[0] as CatalogItemId | undefined) ?? null;
+}
+
 async function findPartiallyPromotedCatalogItemIdForObservation(input: {
   deps: CatalogRuntimeDeps;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
 }): Promise<CatalogItemId | null> {
   const profile = await loadPokemonTcgPromotionProfile(input.deps);
   const reusableTags = [
@@ -2505,6 +3032,50 @@ async function findPartiallyPromotedCatalogItemIdForObservation(input: {
   );
 
   return (result.rows[0]?.catalog_item_id as CatalogItemId | undefined) ?? null;
+}
+
+async function findReusableCatalogItemIdForDeterministicPokemonCardEvidence(input: {
+  deps: CatalogRuntimeDeps;
+  normalized: SourceObservationPokemonCardNormalized;
+}): Promise<CatalogItemId | null> {
+  const profile = await loadPokemonTcgPromotionProfile(input.deps);
+  const expansionReferenceId = await findReferenceRecordByTypeAndKey(
+    input.deps,
+    "expansion",
+    normalizeReferenceKey(input.normalized.expansionName),
+  );
+  if (!expansionReferenceId) {
+    return null;
+  }
+
+  const cardNumberField = [{ fieldId: profile.fieldIds.cardNumber, value: input.normalized.cardNumber }];
+  const cardNameField = [{ fieldId: profile.fieldIds.cardName, value: localizedJsonText(input.normalized.name) }];
+  const cardVariantField = [{ fieldId: profile.fieldIds.cardVariant, value: input.normalized.cardVariantLabel }];
+  const expansionField = [{ fieldId: profile.fieldIds.expansion, value: { referenceId: expansionReferenceId } }];
+  const result = await input.deps.db.query<{ catalog_item_id: string }>(
+    `SELECT item.catalog_item_id
+     FROM catalog_items AS item
+     WHERE item.status NOT IN ('archived', 'removed')
+       AND item.language_code = $1
+       AND item.field_values @> $2::jsonb
+       AND item.field_values @> $3::jsonb
+       AND item.field_values @> $4::jsonb
+       AND item.field_values @> $5::jsonb
+     ORDER BY item.updated_at DESC, item.catalog_item_id ASC`,
+    [
+      input.normalized.languageCode,
+      JSON.stringify(cardNumberField),
+      JSON.stringify(cardNameField),
+      JSON.stringify(cardVariantField),
+      JSON.stringify(expansionField),
+    ],
+  );
+  const catalogItemIds = [...new Set(result.rows.map((row) => row.catalog_item_id))];
+  if (catalogItemIds.length > 1) {
+    throw new Error("Multiple Catalog Items match this Source Observation's deterministic card evidence.");
+  }
+
+  return (catalogItemIds[0] as CatalogItemId | undefined) ?? null;
 }
 
 function capitalize(value: string): string {
@@ -2546,7 +3117,7 @@ async function setFieldValue(
 export async function ensurePokemonReferenceHierarchy(input: {
   deps: CatalogRuntimeDeps;
   referenceData: ReferenceDataServices;
-  normalized: SourceObservationNormalized;
+  normalized: SourceObservationPokemonCardNormalized;
   context: EventStoreContext;
 }): Promise<ReferenceRecordId> {
   await ensureReferenceType(input, {
@@ -2839,6 +3410,23 @@ async function findReferenceRecordByProviderAttribute(
        AND attributes ->> $2 = $3
      LIMIT 1`,
     [def.typeKey, providerAttributeKey, providerAttributeValue],
+  );
+
+  return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
+}
+
+async function findReferenceRecordByTypeAndKey(
+  deps: CatalogRuntimeDeps,
+  typeKey: string,
+  key: string,
+): Promise<ReferenceRecordId | null> {
+  const existing = await deps.db.query<{ reference_record_id: string }>(
+    `SELECT reference_record_id
+     FROM catalog_reference_records
+     WHERE type_key = $1
+       AND key = $2
+     LIMIT 1`,
+    [typeKey, key],
   );
 
   return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
@@ -3175,7 +3763,19 @@ function normalizeIntegrationJobScope(
     language: scope.language?.trim() || undefined,
     seriesId: scope.seriesId?.trim() || undefined,
     setId: scope.setId?.trim() || undefined,
+    productLineId: scope.productLineId?.trim() || undefined,
+    setName: scope.setName?.trim() || undefined,
+    productId: scope.productId?.trim() || undefined,
   };
+}
+
+function parsePositiveInteger(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Number(value.trim());
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function integrationScopeToObservationScope(scope: SourceObservationIntegrationJobScope): SourceObservationFilterScope {

@@ -5,9 +5,11 @@ import {
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createPriceSignalRuntime } from "../../features/price-signals/api/runtime";
 import { createPricingRecommendationRuntime } from "../../features/recommendations/api/runtime";
 
 export type PricingServices = Readonly<{
+  priceSignals: ReturnType<typeof createPriceSignalRuntime>;
   recommendations: ReturnType<typeof createPricingRecommendationRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
@@ -18,6 +20,7 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
   const eventStore = createPostgresEventStore({ pool });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
+  const priceSignals = createPriceSignalRuntime({ db });
   const recommendations = createPricingRecommendationRuntime({
     eventStore,
     checkpointStore,
@@ -25,8 +28,9 @@ export function createPricingServices(pool: PgTransactionalPool): PricingService
   });
 
   return {
+    priceSignals,
     recommendations,
-    projectors: [...recommendations.projectors],
+    projectors: [...priceSignals.projectors, ...recommendations.projectors],
     pool,
     db,
   };

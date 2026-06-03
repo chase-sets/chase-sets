@@ -59,6 +59,8 @@ export type SourceObservationIntegrationScopeRow = Readonly<{
   expansion_name: string;
   series_id: string;
   series_name: string;
+  product_line_id: string;
+  product_line_name: string;
   total_observations: number;
   observed_observations: number;
   changed_observations: number;
@@ -103,10 +105,12 @@ export async function listSourceObservationIntegrationScopes(
     `SELECT
        provider_key,
        language_code,
-       coalesce(normalized->>'expansionId', normalized->>'setId', '') AS expansion_id,
+       coalesce(normalized->>'expansionId', normalized->>'setId', normalized->>'setName', '') AS expansion_id,
        coalesce(normalized->>'expansionName', normalized->>'setName', '') AS expansion_name,
        coalesce(normalized->>'seriesId', '') AS series_id,
        coalesce(normalized->>'seriesName', '') AS series_name,
+       coalesce(MIN(source_payload->>'productLineId'), '') AS product_line_id,
+       coalesce(normalized->>'productLineName', normalized->'mergeIdentity'->>'productLineName', '') AS product_line_name,
        COUNT(*)::integer AS total_observations,
        (COUNT(*) FILTER (WHERE status = 'observed'))::integer AS observed_observations,
        (COUNT(*) FILTER (WHERE status = 'changed'))::integer AS changed_observations,
@@ -120,10 +124,11 @@ export async function listSourceObservationIntegrationScopes(
      GROUP BY
        provider_key,
        language_code,
-       coalesce(normalized->>'expansionId', normalized->>'setId', ''),
+       coalesce(normalized->>'expansionId', normalized->>'setId', normalized->>'setName', ''),
        coalesce(normalized->>'expansionName', normalized->>'setName', ''),
        coalesce(normalized->>'seriesId', ''),
-       coalesce(normalized->>'seriesName', '')
+       coalesce(normalized->>'seriesName', ''),
+       coalesce(normalized->>'productLineName', normalized->'mergeIdentity'->>'productLineName', '')
      ORDER BY MAX(observed_at) DESC, provider_key ASC, language_code ASC`,
     filter.values,
   );
@@ -266,7 +271,9 @@ function buildSourceObservationFilter(
 
   if (scope.setId) {
     values.push(scope.setId);
-    conditions.push(`((normalized->>'setId') = $${values.length} OR (normalized->>'expansionId') = $${values.length})`);
+    conditions.push(
+      `((normalized->>'setId') = $${values.length} OR (normalized->>'expansionId') = $${values.length} OR (normalized->>'setName') = $${values.length})`,
+    );
   }
 
   if (options.statuses && options.statuses.length > 0) {
@@ -281,7 +288,7 @@ function buildSourceObservationFilter(
     values.push(`%${scope.search}%`);
     const param = `$${values.length}`;
     conditions.push(
-      `(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR (normalized->>'cardNumber') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`,
+      `(external_key ILIKE ${param} OR source_url ILIKE ${param} OR (normalized->>'setId') ILIKE ${param} OR (normalized->>'expansionId') ILIKE ${param} OR (normalized->>'providerProductId') ILIKE ${param} OR (normalized->>'name') ILIKE ${param} OR (normalized->>'cardNumber') ILIKE ${param} OR coalesce(normalized->>'expansionName', normalized->>'setName') ILIKE ${param})`,
     );
   }
 

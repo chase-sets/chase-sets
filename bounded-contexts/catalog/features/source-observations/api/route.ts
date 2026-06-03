@@ -387,12 +387,31 @@ function parseIntegrationJobScope(input: unknown) {
   }
 
   const record = input as Record<string, unknown>;
+  const provider = stringField(record.provider) ?? stringField(record.source);
+  const language = stringField(record.language) ?? stringField(record.languageCode);
+  const seriesId = stringField(record.seriesId);
+  const setId = stringField(record.expansionId) ?? stringField(record.setId);
+  const scope = {
+    ...(provider ? { provider } : {}),
+    ...(language ? { language } : {}),
+    ...(seriesId ? { seriesId } : {}),
+    ...(setId ? { setId } : {}),
+  };
+
+  if (provider?.toLowerCase() !== "tcgplayer") {
+    return scope;
+  }
+
+  const productLineId =
+    stringField(record.productLineId) ?? stringField(record.categoryId) ?? stringField(record.seriesId);
+  const setName = stringField(record.setName) ?? stringField(record.cleanSetName) ?? stringField(record.setId);
+  const productId = stringField(record.productId) ?? stringField(record.tcgplayerProductId);
 
   return {
-    provider: stringField(record.provider) ?? stringField(record.source),
-    language: stringField(record.language) ?? stringField(record.languageCode),
-    seriesId: stringField(record.seriesId),
-    setId: stringField(record.expansionId) ?? stringField(record.setId),
+    ...scope,
+    ...(productLineId ? { productLineId } : {}),
+    ...(setName ? { setName } : {}),
+    ...(productId ? { productId } : {}),
   };
 }
 

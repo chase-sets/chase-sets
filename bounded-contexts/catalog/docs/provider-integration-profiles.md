@@ -28,6 +28,21 @@ TCGdex imports still write Source Observations. Promotion remains a Catalog revi
 
 The TCGdex connector must stay transport-only: it fetches TCGdex JSON from profile-defined endpoints. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
 
+## TCGplayer Automation Client Profile
+
+The TCGplayer integration uses the client contract documented in
+[TCGplayer Automation Client Contract](./tcgplayer-automation-client-contract.md).
+That contract, not the official TCGplayer API docs, is the source of truth for
+provider domains, cookie auth, throttling, endpoint paths, and response concepts
+in this workstream.
+
+The TCGplayer profile should model product lines, set names, product search,
+product details, category filters, and SKUs from the automation app. It should
+map TCGplayer Product IDs to Catalog Item-level external references and
+TCGplayer SKUs/productConditionIds to Product-level external references only
+when condition, variant/printing, and language can be mapped to valid selected
+Options.
+
 ## Future Integrations
 
 Future TCG integrations should add their own provider integration profile when their structure differs from Pokemon TCG. Do not place integration-specific fields or blueprints in deployables, and do not make scenario data the source of structural truth.

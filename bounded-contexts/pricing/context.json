@@ -1,10 +1,10 @@
 {
   "contextName": "pricing",
   "packageName": "@chase-sets/pricing",
-  "ownedNouns": ["market-price-snapshot", "price-recommendation"],
+  "ownedNouns": ["market-price-snapshot", "price-recommendation", "price-signal"],
   "streamPrefix": "pricing.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["recommendations"],
+  "slices": ["recommendations", "price-signals"],
   "allowedSupportDirectories": ["request-support", "runtime-support"],
   "publicExports": [".", "./context", "./routes/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/marketplace"],
@@ -19,7 +19,9 @@
         "catalog.catalog-item.metadata-revised",
         "catalog.catalog-item.published",
         "catalog.catalog-item.retired",
-        "catalog.catalog-item.archived"
+        "catalog.catalog-item.archived",
+        "catalog.catalog-item.external-product-reference-linked",
+        "catalog.catalog-item.external-product-reference-unlinked"
       ],
       "order": 10,
       "projectionHandlerSetNames": ["pricing-catalog-input-projection"]
@@ -79,7 +81,7 @@
     {
       "projectionName": "pricing-catalog-input-projection",
       "sourceContextNames": ["catalog"],
-      "ownedTables": ["pricing_catalog_item_inputs"],
+      "ownedTables": ["pricing_catalog_item_inputs", "pricing_external_product_reference_inputs"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },
@@ -163,6 +165,12 @@
     "recommendations": {
       "classification": "slice",
       "purpose": "Own recommendations feature behavior, read models, and UI contracts for the pricing context.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": ["Internal pricing module composition"]
+    },
+    "price-signals": {
+      "classification": "slice",
+      "purpose": "Own provider market evidence ingestion and normalized Price Signal records for the pricing context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal pricing module composition"]
     },

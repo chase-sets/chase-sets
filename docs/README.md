@@ -40,6 +40,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Postage Operations](./runbooks/postage-operations.md): postage label provider configuration and label smoke checks.
 - [Playwright E2E](./runbooks/playwright-e2e.md): local browser e2e setup and sandbox-aware run commands.
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
+- [TCGplayer Automation Operations](./runbooks/tcgplayer-automation-operations.md): provider cookie handling, throttling, redaction, retention, and recovery for the automation-app client.
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Poison Events](./runbooks/projection-poison-events.md): triage and repair for degraded projection consumers.
 - [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, and rebuild triage.
@@ -61,6 +62,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Source Observation Integration](../bounded-contexts/catalog/docs/source-observation-integration.md)
 - [Catalog Provider Integration Profiles](../bounded-contexts/catalog/docs/provider-integration-profiles.md)
 - [Catalog External Product References](../bounded-contexts/catalog/docs/external-product-references.md)
+- [Catalog TCGplayer Automation Client Contract](../bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md)
 - [Catalog Admin Bulk Workflows](../bounded-contexts/catalog/docs/admin-bulk-workflows.md)
 - [Catalog Bulk Catalog Item Publish](../bounded-contexts/catalog/docs/bulk-catalog-item-publish.md)
 - [Catalog Item Imagery](../bounded-contexts/catalog/docs/catalog-item-imagery.md)

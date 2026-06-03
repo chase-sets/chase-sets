@@ -40,7 +40,7 @@ Provider integrations and import adapters should prefer stable provider identifi
 
 ## Update Paths
 
-Provider sync jobs may add or refresh Source Observations, provider integration profile data, external catalog item references, and external product references. They must not write Inventory Items or Marketplace Listings directly.
+Provider sync jobs may add or refresh Source Observations, provider integration profile data, external catalog item references, and external product references. TCGplayer imports retain every SKU as review evidence, but they publish SKU-level external product references only after the provider condition, printing, language, and product form evidence resolves to active Catalog Product schema options. They must not write Inventory Items or Marketplace Listings directly.
 
 Inventory import and sync adapters consume the Catalog projection of external references. If a provider export row carries multiple identifiers, Inventory may try each candidate in adapter order and use the first Catalog-owned reference that resolves. A Product-level SKU reference can resolve selected Options directly. A Catalog Item-level Product ID reference can resolve only the Catalog Item; the row still needs selected Options or a later review path when the Catalog Item's Product schema requires options.
 

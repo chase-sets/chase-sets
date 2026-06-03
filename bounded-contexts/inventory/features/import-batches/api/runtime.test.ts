@@ -458,6 +458,7 @@ describe("inventory import batch runtime", () => {
         externalKey: "sku:tcg_sku_1",
       },
       catalog_item_id: "cat_active",
+      seller_sku: "tcg_sku_1",
       set_quantity: 4,
       source_price_amount: "12.50",
     });
@@ -495,6 +496,45 @@ describe("inventory import batch runtime", () => {
       catalog_item_id: "cat_active",
       selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
     });
+  });
+
+  it("resolves TCGplayer Product ID-only rows only when selected options are inferable", async () => {
+    const services = runtime(dbWithLocations());
+    const batch = await services.createBatch(
+      {
+        accountId: "acc_1" as AccountId,
+        sourceKey: "tcgplayer-csv",
+        quantityMode: "replace",
+        defaultStorageLocationId: "loc_active",
+        csvText: [
+          "Product ID,Product Name,Set Name,Condition,Quantity,TCG Marketplace Price",
+          "12345,Pikachu,Jungle,Near Mint,4,12.50",
+          "12345,Pikachu,Jungle,Damaged,2,1.25",
+        ].join("\n"),
+      },
+      context,
+    );
+
+    expect(batch).toMatchObject({
+      accepted_count: 1,
+      rejected_count: 1,
+    });
+    expect(batch.rows[0]).toMatchObject({
+      status: "accepted",
+      resolution_status: "resolved",
+      external_reference: {
+        providerKey: "tcgplayer",
+        externalKey: "product:12345",
+      },
+      catalog_item_id: "cat_active",
+      selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+    });
+    expect(batch.rows[1]).toMatchObject({
+      status: "rejected",
+      resolution_status: "resolved",
+      catalog_item_id: "cat_active",
+    });
+    expect(batch.rows[1]?.validation_errors).toContain("Selected options must include Condition.");
   });
 
   it("accepts mapped Shopify exports through the same import workflow", async () => {

@@ -12,11 +12,14 @@ import {
   Page,
   PageHeader,
   ProgressBar,
+  SegmentedControl,
   Select,
   Stack,
   Stat,
   StatGrid,
+  TextInput,
   type DataColumn,
+  type SegmentedControlItem,
   type SelectItem,
 } from "@chase-sets/design-system";
 import {
@@ -49,6 +52,10 @@ const ALL_PROVIDERS = "__all__";
 const ALL_LANGUAGES = "__all__";
 const ALL_EXPANSIONS = "__all__";
 const ALL_SERIES = "__all__";
+const TCGDEX_PROVIDER = "tcgdex";
+const TCGPLAYER_PROVIDER = "tcgplayer";
+const TCGPLAYER_PRODUCT_LINE_SCOPE = "product-line";
+const TCGPLAYER_PRODUCT_SCOPE = "product";
 
 export function IntegrationManagementPage({ data, query }: CatalogListRouteData<SourceObservationIntegrationScope>) {
   const listControls = useCatalogListQueryControls(query);
@@ -57,6 +64,11 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   const [showImport, setShowImport] = useState(false);
   const [languageCode, setLanguageCode] = useState("en");
   const [seriesId, setSeriesId] = useState("");
+  const [importProviderKey, setImportProviderKey] = useState(TCGDEX_PROVIDER);
+  const [tcgplayerScopeKind, setTcgplayerScopeKind] = useState(TCGPLAYER_PRODUCT_LINE_SCOPE);
+  const [tcgplayerProductLineId, setTcgplayerProductLineId] = useState("");
+  const [tcgplayerSetName, setTcgplayerSetName] = useState("");
+  const [tcgplayerProductId, setTcgplayerProductId] = useState("");
   const [importing, setImporting] = useState(false);
   const [integrationProgress, setIntegrationProgress] = useState<CatalogBulkActionProgress | null>(null);
   const [showReapply, setShowReapply] = useState(false);
@@ -74,7 +86,7 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const activeIntegrationJobs = useActiveSourceObservationIntegrationJobs();
   const integrationProviders = useSourceObservationIntegrationOptions({
-    providerKey: "tcgdex",
+    providerKey: TCGDEX_PROVIDER,
     queryKind: "providers",
   });
   const columns = useMemo(
@@ -88,20 +100,20 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
     [importing, previewingPromoteAll, previewingReapply, promoteAllRunning, reapplying],
   );
   const importLanguages = useSourceObservationIntegrationOptions({
-    providerKey: "tcgdex",
+    providerKey: TCGDEX_PROVIDER,
     queryKind: "languages",
   });
   const importSeries = useSourceObservationIntegrationOptions({
-    providerKey: "tcgdex",
+    providerKey: TCGDEX_PROVIDER,
     queryKind: "series",
     languageCode,
   });
   const filterExpansionLanguage = listControls.language || languageCode || "en";
   const filterExpansions = useSourceObservationIntegrationOptions({
-    providerKey: listControls.source || "tcgdex",
+    providerKey: listControls.source || TCGDEX_PROVIDER,
     queryKind: "expansions",
     languageCode: filterExpansionLanguage,
-    enabled: !listControls.source || listControls.source === "tcgdex",
+    enabled: !listControls.source || listControls.source === TCGDEX_PROVIDER,
   });
   const languageOptions = useMemo(
     () =>
@@ -123,6 +135,18 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
         value: item.value,
       })),
     [integrationProviders.data],
+  );
+  const importProviderOptions = useMemo(
+    () =>
+      (providerOptions.length > 0
+        ? providerOptions
+        : [{ label: t("catalog.features.sourceObservations.ui.integrations.provider.tcgdex"), value: TCGDEX_PROVIDER }]
+      ).map((item) => ({
+        label: item.label,
+        value: item.value,
+        icon: item.value === TCGPLAYER_PROVIDER ? "package" : item.value === TCGDEX_PROVIDER ? "cards" : "grid",
+      })) satisfies SegmentedControlItem[],
+    [providerOptions],
   );
 
   useEffect(() => {
@@ -147,17 +171,55 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   }, [seriesOptions, seriesId]);
 
   async function handleImport() {
+    if (importProviderKey === TCGPLAYER_PROVIDER) {
+      await runIntegrationJob("import", tcgplayerImportScope());
+      setShowImport(false);
+      listControls.setFilters({
+        source: TCGPLAYER_PROVIDER,
+        language: "en",
+        setId: tcgplayerScopeKind === TCGPLAYER_PRODUCT_LINE_SCOPE ? tcgplayerSetName.trim() : "",
+      });
+      return;
+    }
+
     await runIntegrationJob("import", {
-      provider: "tcgdex",
+      provider: TCGDEX_PROVIDER,
       language: languageCode,
       seriesId: seriesId === ALL_SERIES ? undefined : seriesId,
     });
     setShowImport(false);
     listControls.setFilters({
-      source: "tcgdex",
+      source: TCGDEX_PROVIDER,
       language: languageCode,
       setId: "",
     });
+  }
+
+  function tcgplayerImportScope(): SourceObservationIntegrationJobScope {
+    if (tcgplayerScopeKind === TCGPLAYER_PRODUCT_SCOPE) {
+      return {
+        provider: TCGPLAYER_PROVIDER,
+        language: "en",
+        productId: tcgplayerProductId.trim(),
+      };
+    }
+
+    return {
+      provider: TCGPLAYER_PROVIDER,
+      language: "en",
+      productLineId: tcgplayerProductLineId.trim(),
+      setName: tcgplayerSetName.trim() || undefined,
+    };
+  }
+
+  function canImportCurrentScope(): boolean {
+    if (importProviderKey === TCGPLAYER_PROVIDER) {
+      return tcgplayerScopeKind === TCGPLAYER_PRODUCT_SCOPE
+        ? positiveIntegerText(tcgplayerProductId)
+        : positiveIntegerText(tcgplayerProductLineId);
+    }
+
+    return Boolean(languageCode);
   }
 
   function currentReapplyScope(): SourceObservationPromotionScope {
@@ -306,7 +368,7 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
       <Stack gap={4}>
         <ActionBar>
           <Button leadingIcon="plus" onClick={() => setShowImport(true)}>
-            {t("catalog.features.sourceObservations.ui.integrations.pull.tcgdex.sets")}
+            {t("catalog.features.sourceObservations.ui.integrations.pull.provider.data")}
           </Button>
           <Button
             tone="secondary"
@@ -384,7 +446,7 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
               },
               ...withSelectedFallback(filterExpansionOptions, listControls.setId),
             ]}
-            disabled={(!!listControls.source && listControls.source !== "tcgdex") || filterExpansions.loading}
+            disabled={(!!listControls.source && listControls.source !== TCGDEX_PROVIDER) || filterExpansions.loading}
             error={filterExpansions.error ?? undefined}
           />
         </FilterBar>
@@ -400,7 +462,7 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
       <Dialog
         open={showImport}
         onOpenChange={setShowImport}
-        title={t("catalog.features.sourceObservations.ui.integrations.pull.tcgdex.sets")}
+        title={t("catalog.features.sourceObservations.ui.integrations.pull.provider.data")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setShowImport(false)} disabled={importing}>
@@ -409,7 +471,11 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
             <Button
               onClick={handleImport}
               loading={importing}
-              disabled={!languageCode || importing || importLanguages.loading || importSeries.loading}
+              disabled={
+                !canImportCurrentScope() ||
+                importing ||
+                (importProviderKey === TCGDEX_PROVIDER && (importLanguages.loading || importSeries.loading))
+              }
             >
               {t("catalog.features.sourceObservations.ui.list.import")}
             </Button>
@@ -417,28 +483,81 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
         }
       >
         <Stack gap={3}>
-          <Select
-            label={t("catalog.features.sourceObservations.ui.list.language")}
-            value={languageCode}
-            onValueChange={setLanguageCode}
-            items={languageOptions}
-            disabled={importLanguages.loading || languageOptions.length === 0}
-            error={importLanguages.error ?? undefined}
+          <SegmentedControl
+            aria-label={t("catalog.features.sourceObservations.ui.integrations.provider")}
+            value={importProviderKey}
+            onValueChange={setImportProviderKey}
+            items={importProviderOptions}
+            fullWidth
           />
-          <Select
-            label={t("catalog.features.sourceObservations.ui.list.series")}
-            value={seriesId}
-            onValueChange={setSeriesId}
-            items={[
-              {
-                label: t("catalog.features.sourceObservations.ui.integrations.all.series"),
-                value: ALL_SERIES,
-              },
-              ...seriesOptions,
-            ]}
-            disabled={importSeries.loading || seriesOptions.length === 0}
-            error={importSeries.error ?? undefined}
-          />
+          {importProviderKey === TCGPLAYER_PROVIDER ? (
+            <>
+              <SegmentedControl
+                value={tcgplayerScopeKind}
+                onValueChange={setTcgplayerScopeKind}
+                items={[
+                  {
+                    label: t("catalog.features.sourceObservations.ui.integrations.tcgplayer.scope.product.line"),
+                    value: TCGPLAYER_PRODUCT_LINE_SCOPE,
+                    icon: "grid",
+                  },
+                  {
+                    label: t("catalog.features.sourceObservations.ui.integrations.tcgplayer.scope.product"),
+                    value: TCGPLAYER_PRODUCT_SCOPE,
+                    icon: "package",
+                  },
+                ]}
+                fullWidth
+              />
+              {tcgplayerScopeKind === TCGPLAYER_PRODUCT_SCOPE ? (
+                <TextInput
+                  label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.product.id")}
+                  value={tcgplayerProductId}
+                  onChange={(event) => setTcgplayerProductId(event.target.value)}
+                  inputMode="numeric"
+                />
+              ) : (
+                <>
+                  <TextInput
+                    label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.product.line.id")}
+                    value={tcgplayerProductLineId}
+                    onChange={(event) => setTcgplayerProductLineId(event.target.value)}
+                    inputMode="numeric"
+                  />
+                  <TextInput
+                    label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.set.name")}
+                    value={tcgplayerSetName}
+                    onChange={(event) => setTcgplayerSetName(event.target.value)}
+                  />
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <Select
+                label={t("catalog.features.sourceObservations.ui.list.language")}
+                value={languageCode}
+                onValueChange={setLanguageCode}
+                items={languageOptions}
+                disabled={importLanguages.loading || languageOptions.length === 0}
+                error={importLanguages.error ?? undefined}
+              />
+              <Select
+                label={t("catalog.features.sourceObservations.ui.list.series")}
+                value={seriesId}
+                onValueChange={setSeriesId}
+                items={[
+                  {
+                    label: t("catalog.features.sourceObservations.ui.integrations.all.series"),
+                    value: ALL_SERIES,
+                  },
+                  ...seriesOptions,
+                ]}
+                disabled={importSeries.loading || seriesOptions.length === 0}
+                error={importSeries.error ?? undefined}
+              />
+            </>
+          )}
           {integrationProgress ? (
             <ProgressBar
               value={bulkActionProgressPercent(integrationProgress)}
@@ -564,7 +683,7 @@ function buildColumns(actions: IntegrationRowActions): DataColumn<SourceObservat
     {
       key: "series",
       header: t("catalog.features.sourceObservations.ui.integrations.series"),
-      cell: (row) => row.series_name || row.series_id || "",
+      cell: (row) => row.series_name || row.series_id || row.product_line_name || "",
     },
     {
       key: "observed",
@@ -636,6 +755,15 @@ function rowPromotionScope(scope: SourceObservationIntegrationScope): SourceObse
 }
 
 function rowIntegrationScope(scope: SourceObservationIntegrationScope): SourceObservationIntegrationJobScope {
+  if (scope.provider_key === TCGPLAYER_PROVIDER) {
+    return {
+      provider: scope.provider_key,
+      language: scope.language_code,
+      productLineId: scope.product_line_id || undefined,
+      setName: scope.expansion_name || scope.expansion_id || undefined,
+    };
+  }
+
   return {
     provider: scope.provider_key,
     language: scope.language_code,
@@ -702,6 +830,10 @@ function sourceObservationScopeHref(scope: SourceObservationIntegrationScope) {
   }
 
   return `/catalog/source-observations?${params.toString()}`;
+}
+
+function positiveIntegerText(value: string): boolean {
+  return /^[1-9]\d*$/.test(value.trim());
 }
 
 function formatCount(value: number) {

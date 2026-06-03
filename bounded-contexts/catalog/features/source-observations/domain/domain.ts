@@ -10,7 +10,44 @@ export type SourceObservationExternalCatalogItemReference = Readonly<{
   externalKey: string;
 }>;
 
-export type SourceObservationNormalized = JsonObject &
+export type SourceObservationExternalProductReference = Readonly<{
+  providerKey: string;
+  externalKey: string;
+  selectedOptions?: readonly SourceObservationSelectedOptionReference[];
+  reviewEvidence?: JsonObject;
+}>;
+
+export type SourceObservationSelectedOptionReference = Readonly<{
+  dimensionId: string;
+  optionId: string;
+}>;
+
+export type SourceObservationMergeIdentity = Readonly<{
+  tcg: string;
+  productLineName: string | null;
+  setName: string | null;
+  printedProductName: string;
+  collectorNumber: string | null;
+  languageCode: string;
+  productForm?: string | null;
+  barcode?: string | null;
+}>;
+
+export type SourceObservationNormalizedBase = Readonly<{
+  kind: string;
+  languageCode: string;
+  name: string;
+  setName: string | null;
+  expansionName: string | null;
+  cardNumber: string | null;
+  imageUrls: readonly string[];
+  mergeIdentity?: SourceObservationMergeIdentity;
+  externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
+  externalProductReferences?: readonly SourceObservationExternalProductReference[];
+}>;
+
+export type SourceObservationPokemonCardNormalized = JsonObject &
+  SourceObservationNormalizedBase &
   Readonly<{
     kind: "pokemon-card";
     tcg: "pokemon";
@@ -43,6 +80,27 @@ export type SourceObservationNormalized = JsonObject &
     variants: JsonObject;
     externalCatalogItemReferences?: readonly SourceObservationExternalCatalogItemReference[];
   }>;
+
+export type SourceObservationProviderProductNormalized = JsonObject &
+  SourceObservationNormalizedBase &
+  Readonly<{
+    kind: "provider-product";
+    providerProductId: string;
+    providerProductName: string;
+    productLineName: string | null;
+    productCategoryName: string | null;
+    skuReferences: readonly SourceObservationExternalProductReference[];
+  }>;
+
+export type SourceObservationNormalized =
+  | SourceObservationPokemonCardNormalized
+  | SourceObservationProviderProductNormalized;
+
+export function isPokemonCardSourceObservationNormalized(
+  normalized: SourceObservationNormalized,
+): normalized is SourceObservationPokemonCardNormalized {
+  return normalized.kind === "pokemon-card";
+}
 
 export type SourceObservationState = Readonly<{
   id: string | null;
