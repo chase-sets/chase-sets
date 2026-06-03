@@ -8,6 +8,8 @@ A provider integration profile is Catalog-owned setup for a product line or prov
 
 Provider integration profiles are not fake data. They are the authoring structure that lets operators import, review, promote, and publish real provider observations.
 
+Executable mapping semantics are documented in [Provider Integration Mapping Contract](./provider-integration-mapping-contract.md). That contract is the migration target for profile versions, selectors, transforms, normalized Source Observation output, hash material, merge identity, external references, selected Options, Reference Record hierarchy, duplicate-prevention rules, and Catalog aggregate promotion command plans. Provider transport adapters should fetch provider payloads only; Catalog-owned profile data decides how those payloads become Catalog review facts.
+
 ## TCGdex Pokemon TCG Profile
 
 The TCGdex Pokemon TCG profile is seeded in Catalog config and installs the Pokemon card and sealed-product structure used by TCGdex Source Observations:
