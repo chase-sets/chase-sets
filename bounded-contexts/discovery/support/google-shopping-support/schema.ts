@@ -14,6 +14,11 @@ export const discoveryGoogleShoppingSchemaSql = `CREATE TABLE IF NOT EXISTS disc
   payload_hash text NULL,
   eligibility_status text NOT NULL DEFAULT 'excluded',
   exclusion_reasons jsonb NOT NULL DEFAULT '[]'::jsonb,
+  image_eligibility_status text NOT NULL DEFAULT 'excluded',
+  image_exclusion_reasons jsonb NOT NULL DEFAULT '[]'::jsonb,
+  shipping_policy_url text NULL,
+  return_policy_url text NULL,
+  return_policy_label text NULL,
   sync_status text NOT NULL DEFAULT 'never-submitted',
   last_submitted_payload_hash text NULL,
   last_submitted_at timestamptz NULL,
@@ -35,6 +40,11 @@ ALTER TABLE discovery_google_shopping_feed_rows
   ADD COLUMN IF NOT EXISTS payload_hash text NULL,
   ADD COLUMN IF NOT EXISTS eligibility_status text NOT NULL DEFAULT 'excluded',
   ADD COLUMN IF NOT EXISTS exclusion_reasons jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS image_eligibility_status text NOT NULL DEFAULT 'excluded',
+  ADD COLUMN IF NOT EXISTS image_exclusion_reasons jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS shipping_policy_url text NULL,
+  ADD COLUMN IF NOT EXISTS return_policy_url text NULL,
+  ADD COLUMN IF NOT EXISTS return_policy_label text NULL,
   ADD COLUMN IF NOT EXISTS sync_status text NOT NULL DEFAULT 'never-submitted',
   ADD COLUMN IF NOT EXISTS last_submitted_payload_hash text NULL,
   ADD COLUMN IF NOT EXISTS last_submitted_at timestamptz NULL,
@@ -59,6 +69,9 @@ CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_product_idx
 
 CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_eligibility_idx
   ON discovery_google_shopping_feed_rows (eligibility_status, updated_at);
+
+CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_image_eligibility_idx
+  ON discovery_google_shopping_feed_rows (image_eligibility_status, updated_at);
 
 CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_pending_sync_idx
   ON discovery_google_shopping_feed_rows (sync_status, updated_at)

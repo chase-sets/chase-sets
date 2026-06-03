@@ -40,10 +40,15 @@ Before enabling production writes, collect a private evidence record with:
 - total export rows,
 - eligible rows,
 - excluded rows by exclusion reason,
+- image eligibility status counts and image exclusion reasons,
 - tombstoned rows waiting for delete,
 - rows missing title, description, image, price, condition, shipping policy, returns policy, or crawlability,
 - sampled eligible listing URLs,
+- sampled production-public image URLs and crawlability checks,
 - sampled seller external ids,
+- public returns policy URL and Merchant Center return policy label,
+- Merchant Center shipping settings evidence reference,
+- Tax readiness evidence reference confirming Google-facing tax posture does not contradict checkout,
 - payload hash freshness,
 - dry-run sync result.
 
@@ -54,9 +59,10 @@ Use staging/proof in this order:
 1. Keep `GOOGLE_MERCHANT_SYNC_ENABLED=false` while schema and projection changes deploy.
 2. Enable dry-run with `GOOGLE_MERCHANT_SYNC_ENABLED=true` and `GOOGLE_MERCHANT_DRY_RUN=true`.
 3. Verify row counts, exclusion reasons, URL crawlability, sitemap/robots posture, and JSON-LD alignment.
-4. Confirm Merchant account/data-source approval outside the repo.
-5. Enable non-production writes only when Google account policy and data-source setup are ready.
-6. Keep production writes blocked until launch evidence gates pass.
+4. Verify image eligibility counts, sampled image crawlability, condition mapping, shipping settings, returns policy label, and Tax readiness posture.
+5. Confirm Merchant account/data-source approval outside the repo.
+6. Enable non-production writes only when Google account policy and data-source setup are ready.
+7. Keep production writes blocked until launch evidence gates pass.
 
 ## Incident Response
 

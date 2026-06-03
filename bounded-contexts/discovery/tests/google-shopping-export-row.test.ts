@@ -1,10 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildGoogleShoppingMappedFeedRow,
   buildGoogleShoppingExternalSellerId,
   buildGoogleShoppingMerchantOfferId,
   buildGoogleShoppingRowId,
   evaluateGoogleShoppingEligibility,
   hashGoogleShoppingPayload,
+  mapGoogleShoppingPolicyAttributes,
+  mapGoogleShoppingProductAttributes,
+  selectGoogleShoppingImage,
 } from "../support/google-shopping-support/export-row";
 import { discoveryGoogleShoppingSchemaSql } from "../support/google-shopping-support/schema";
 
@@ -61,6 +65,7 @@ describe("google shopping export rows", () => {
       reasons: [
         "listing-not-active",
         "seller-unavailable",
+        "missing-link",
         "missing-title",
         "missing-description",
         "missing-image",
@@ -113,4 +118,303 @@ describe("google shopping export rows", () => {
     expect(discoveryGoogleShoppingSchemaSql).toContain("discovery_google_shopping_feed_rows_stale_refresh_idx");
     expect(discoveryGoogleShoppingSchemaSql).toContain("discovery_google_shopping_feed_rows_tombstone_idx");
   });
+
+  it("records image eligibility and policy evidence columns for operator remediation", () => {
+    expect(discoveryGoogleShoppingSchemaSql).toContain("image_eligibility_status text NOT NULL DEFAULT 'excluded'");
+    expect(discoveryGoogleShoppingSchemaSql).toContain("image_exclusion_reasons jsonb NOT NULL DEFAULT '[]'::jsonb");
+    expect(discoveryGoogleShoppingSchemaSql).toContain("shipping_policy_url text NULL");
+    expect(discoveryGoogleShoppingSchemaSql).toContain("return_policy_url text NULL");
+    expect(discoveryGoogleShoppingSchemaSql).toContain("return_policy_label text NULL");
+    expect(discoveryGoogleShoppingSchemaSql).toContain("discovery_google_shopping_feed_rows_image_eligibility_idx");
+  });
+
+  it("maps a complete raw card listing into a stable eligible Merchant payload", () => {
+    const row = buildGoogleShoppingMappedFeedRow({
+      catalog: {
+        catalogItemId: "cat_charizard",
+        productId: "cat_charizard::condition:near-mint",
+        title: "Charizard 4/102",
+        subtitle: "Base Set Holo",
+        description: "Pokemon trading card from Base Set.",
+        productSummary: "Near Mint Holofoil English",
+        selectedOptions: [
+          {
+            dimensionId: "dim_condition",
+            dimensionName: "Condition",
+            optionId: "opt_near_mint",
+            optionCode: "near-mint",
+            optionLabel: "Near Mint",
+          },
+          {
+            dimensionId: "dim_finish",
+            dimensionName: "Finish",
+            optionId: "opt_holo",
+            optionCode: "holofoil",
+            optionLabel: "Holofoil",
+          },
+        ],
+        productAssetSets: [productAssetSet("https://assets.chasesets.com/catalog/charizard-detail.webp", 960, 1344)],
+        brand: "Pokemon",
+        productType: "Trading Cards > Pokemon",
+        googleProductCategory: "Arts & Entertainment > Hobbies & Creative Arts > Collectibles > Trading Cards",
+      },
+      offer: {
+        listingId: "lst_charizard",
+        listingStatus: "active",
+        sellerListingAvailabilityStatus: "available",
+        sellerAccountStatus: "active",
+        accountId: "acc_seller",
+        canonicalUrl: "https://marketplace.chasesets.com/listings/charizard-lst_charizard",
+        priceAmount: "199.99",
+        quantityCap: 1,
+        crawlable: true,
+      },
+      shipping: {
+        ready: true,
+        country: "US",
+        service: "Standard",
+        priceAmount: "4.99",
+        currencyCode: "USD",
+        shipFromCode: "US-IL",
+        shippingAllowancePercentageBps: 500,
+        productMeasureReady: true,
+      },
+      returns: {
+        ready: true,
+        policyUrl: "https://marketplace.chasesets.com/refunds-and-returns",
+        policyLabel: "chase-sets-standard-returns",
+      },
+      targetCountry: "US",
+      contentLanguage: "en",
+      feedLabel: "US",
+    });
+
+    expect(row.eligibility).toEqual({ status: "eligible", reasons: [] });
+    expect(row.imageEligibility).toEqual({
+      status: "eligible",
+      imageUrl: "https://assets.chasesets.com/catalog/charizard-detail.webp",
+      source: "product-asset",
+      reasons: [],
+    });
+    expect(row.payload).toMatchObject({
+      offerId: "cs-listing-lst_charizard",
+      externalSellerId: "cs-account-acc_seller",
+      title: "Charizard 4/102 Base Set Holo",
+      link: "https://marketplace.chasesets.com/listings/charizard-lst_charizard",
+      imageLink: "https://assets.chasesets.com/catalog/charizard-detail.webp",
+      priceAmount: "199.99",
+      condition: "used",
+      brand: "Pokemon",
+      identifierExists: false,
+      returnPolicyLabel: "chase-sets-standard-returns",
+    });
+    expect(row.payloadHash).toMatch(/^[a-f0-9]{64}$/);
+  });
+
+  it("maps sealed products conservatively as new when the product form is explicit", () => {
+    const product = mapGoogleShoppingProductAttributes({
+      catalogItemId: "cat_booster_box",
+      productId: "prd_booster_box",
+      title: "Pokemon Booster Box",
+      description: "Factory sealed Pokemon booster box.",
+      productForm: "sealed",
+      selectedOptions: [],
+      productAssetSets: [productAssetSet("https://assets.chasesets.com/catalog/booster-box.webp", 960, 960)],
+    });
+
+    expect(product.condition).toBe("new");
+    expect(product.exclusionReasons).toEqual([]);
+  });
+
+  it("excludes rows with ambiguous or missing trading-card condition facts", () => {
+    const product = mapGoogleShoppingProductAttributes({
+      catalogItemId: "cat_card",
+      productId: "prd_card",
+      title: "Test Card",
+      description: "Test card.",
+      selectedOptions: [
+        {
+          dimensionId: "dim_condition",
+          dimensionName: "Condition",
+          optionId: "opt_collectors_choice",
+          optionLabel: "Collector Choice",
+        },
+      ],
+      productAssetSets: [productAssetSet("https://assets.chasesets.com/catalog/test-card.webp", 960, 1344)],
+    });
+
+    expect(product.condition).toBeNull();
+    expect(product.exclusionReasons).toContain("ambiguous-condition");
+  });
+
+  it("does not let subtitles mask missing Catalog titles", () => {
+    const product = mapGoogleShoppingProductAttributes({
+      catalogItemId: "cat_card",
+      productId: "prd_card",
+      title: "",
+      subtitle: "Subtitle Only",
+      description: "Test card.",
+      selectedOptions: [
+        {
+          dimensionId: "dim_condition",
+          dimensionName: "Condition",
+          optionId: "opt_near_mint",
+          optionLabel: "Near Mint",
+        },
+      ],
+      productAssetSets: [productAssetSet("https://assets.chasesets.com/catalog/test-card.webp", 960, 1344)],
+    });
+
+    expect(product.title).toBeNull();
+    expect(product.exclusionReasons).toContain("missing-title");
+  });
+
+  it("requires concrete shipping and public returns policy evidence", () => {
+    const policy = mapGoogleShoppingPolicyAttributes(
+      {
+        ready: true,
+        country: "US",
+        service: "Standard",
+        priceAmount: "4.99",
+        currencyCode: "USD",
+        shipFromCode: "",
+        productMeasureReady: true,
+      },
+      {
+        ready: true,
+        policyUrl: "http://localhost/refunds-and-returns",
+      },
+    );
+
+    expect(policy.shipping).toEqual({
+      country: "US",
+      service: "Standard",
+      price: { amount: "4.99", currencyCode: "USD" },
+    });
+    expect(policy.exclusionReasons).toEqual(["missing-shipping-policy", "missing-returns-policy"]);
+  });
+
+  it("records image exclusion reasons for missing, invalid, fallback, and too-small candidates", () => {
+    expect(selectGoogleShoppingImage({ productAssetSets: [] })).toMatchObject({
+      status: "excluded",
+      reasons: ["missing-image"],
+    });
+    expect(selectGoogleShoppingImage({ imageUrls: ["not a url"] })).toMatchObject({
+      status: "excluded",
+      reasons: ["invalid-image-url"],
+    });
+    expect(
+      selectGoogleShoppingImage({
+        imageFallback: {
+          url: "https://assets.chasesets.com/catalog/card-back.webp",
+          alt: "Pokemon card back",
+          usage: "permanent",
+          variants: {},
+        },
+      }),
+    ).toMatchObject({
+      status: "excluded",
+      reasons: ["fallback-image-not-approved"],
+    });
+    expect(
+      selectGoogleShoppingImage({
+        productAssetSets: [productAssetSet("https://assets.chasesets.com/catalog/tiny.webp", 64, 64)],
+      }),
+    ).toMatchObject({
+      status: "excluded",
+      reasons: ["image-too-small"],
+    });
+  });
+
+  it("excludes inactive, unavailable, sold-out, uncrawlable, and policy-incomplete offers", () => {
+    const row = buildGoogleShoppingMappedFeedRow({
+      catalog: {
+        catalogItemId: "cat_card",
+        productId: "prd_card",
+        title: "Test Card",
+        description: "Test card.",
+        selectedOptions: [
+          {
+            dimensionId: "dim_condition",
+            dimensionName: "Condition",
+            optionId: "opt_damaged",
+            optionLabel: "Damaged",
+          },
+        ],
+        productAssetSets: [productAssetSet("https://assets.chasesets.com/catalog/test-card.webp", 960, 1344)],
+      },
+      offer: {
+        listingId: "lst_card",
+        listingStatus: "paused",
+        sellerListingAvailabilityStatus: "unavailable",
+        sellerAccountStatus: "suspended",
+        accountId: "acc_seller",
+        canonicalUrl: "",
+        priceAmount: "0",
+        quantityCap: 0,
+        crawlable: false,
+      },
+      shipping: {
+        ready: false,
+        country: "US",
+        productMeasureReady: false,
+      },
+      returns: {
+        ready: false,
+        policyUrl: null,
+      },
+      targetCountry: "US",
+      contentLanguage: "en",
+      feedLabel: "US",
+    });
+
+    expect(row.payload).toBeNull();
+    expect(row.payloadHash).toBeNull();
+    expect(row.eligibility).toEqual({
+      status: "excluded",
+      reasons: [
+        "listing-not-active",
+        "seller-unavailable",
+        "seller-not-active",
+        "sold-out",
+        "missing-link",
+        "missing-price",
+        "not-crawlable",
+        "missing-shipping-policy",
+        "missing-product-measure",
+        "missing-returns-policy",
+      ],
+    });
+  });
 });
+
+function productAssetSet(publicUrl: string, width: number, height: number) {
+  return {
+    kind: "product-image" as const,
+    sourceHash: "sha256:test",
+    source: {
+      role: "source" as const,
+      width,
+      height,
+      density: null,
+      mediaType: "image/webp" as const,
+      storageKey: "catalog/source.webp",
+      publicUrl,
+      byteSize: 2048,
+      generatedAt: "2026-06-03T00:00:00.000Z",
+    },
+    variants: [
+      {
+        role: "catalog-detail" as const,
+        width,
+        height,
+        density: 2 as const,
+        mediaType: "image/webp" as const,
+        storageKey: "catalog/detail.webp",
+        publicUrl,
+        byteSize: 1024,
+        generatedAt: "2026-06-03T00:00:00.000Z",
+      },
+    ],
+  };
+}
