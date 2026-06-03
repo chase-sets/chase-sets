@@ -2,20 +2,13 @@ import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationPokemonCardNormalized } from "../domain/domain";
 import type { CatalogAssetStorage } from "./asset-storage";
 import { normalizeProductAssetSet, type CatalogImageProcessor } from "./product-asset-normalization";
-import type {
-  CatalogProviderMappingEvidenceOwner,
-  CatalogProviderMappingEvidenceUse,
-  CatalogProviderMappingValueExpression,
-} from "./provider-integration-mapping-contract";
 import {
+  requireActiveCatalogProviderSourceObservationMappingContract,
   tcgdexPokemonTcgProviderProfile,
   type CatalogProviderExternalReferenceRule,
   type CatalogProviderVariantRule,
 } from "./provider-integration-profiles";
-import {
-  requireCatalogProviderSourceObservation,
-  type CatalogProviderSourceObservationMappingContract,
-} from "./provider-source-observation-normalizer";
+import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
 import {
   dropRepeatedCatalogItemReferencesAcrossVariants,
   extractCatalogProviderExternalReferences,
@@ -23,6 +16,7 @@ import {
 
 const TCGDEX_PROFILE = tcgdexPokemonTcgProviderProfile;
 const PROVIDER_KEY = TCGDEX_PROFILE.providerKey;
+const TCGDEX_SOURCE_OBSERVATION_MAPPING = requireActiveCatalogProviderSourceObservationMappingContract(PROVIDER_KEY);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -308,7 +302,7 @@ async function toObservations(input: {
     };
 
     const normalized = requireCatalogProviderSourceObservation({
-      contract: tcgdexPokemonCardSourceObservationMapping,
+      contract: TCGDEX_SOURCE_OBSERVATION_MAPPING,
       observedAt: input.observedAt,
       payload: toJsonValue({
         ...mappingPayload,
@@ -357,209 +351,6 @@ async function toObservations(input: {
       normalized: normalized.normalized as SourceObservationPokemonCardNormalized,
     };
   });
-}
-
-const tcgdexPokemonCardSourceObservationMapping = {
-  providerKey: PROVIDER_KEY,
-  profileKey: "pokemon-tcg",
-  displayName: "TCGdex Pokemon Card",
-  profileVersion: "2026.06.03",
-  lifecycle: "active",
-  sourceContract: {
-    owner: "Catalog",
-    repository: "chase-sets/chase-sets",
-    commit: null,
-    documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
-    fixtureSetVersion: "transitional-static-profile-v1",
-  },
-  connector: {
-    kind: "tcgdex-json",
-    transportOwns: ["domains", "endpoint-paths", "raw-provider-parse"],
-    mappingOwns: ["source-payload", "normalized-observation", "hash-material", "merge-identity", "external-reference"],
-  },
-  fixtures: {
-    fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
-    coveredFlows: ["normal", "partial", "stale", "changed", "ambiguous", "replay", "sealed-product", "unknown-option"],
-    liveProviderCallsAllowed: false,
-  },
-  sourceObservation: {
-    observationId: tcgdexPathExpression("observationId", "catalog-merge-evidence", ["normalized-observation"]),
-    externalKey: tcgdexPathExpression("externalKey", "external-reference", ["external-reference"]),
-    sourceUrl: tcgdexPathExpression("sourceUrl", "operations", ["source-payload"]),
-    sourceUpdatedAt: tcgdexOptionalPathExpression("sourceUpdatedAt", "catalog-truth", ["normalized-observation"]),
-    sourcePayload: tcgdexPathExpression("sourcePayload", "catalog-merge-evidence", ["source-payload"]),
-  },
-  normalizedObservation: {
-    outputKind: "pokemon-card",
-    languageCode: tcgdexPathExpression("languageCode", "catalog-truth", ["normalized-observation", "hash-material"]),
-    fields: {
-      tcg: tcgdexConstantExpression("pokemon", "catalog-truth", ["normalized-observation", "hash-material"]),
-      name: tcgdexPathExpression("card.name", "catalog-truth", ["normalized-observation", "hash-material"]),
-      cardNumber: tcgdexPathExpression(
-        "card.localId",
-        "catalog-truth",
-        ["normalized-observation", "hash-material", "merge-identity"],
-        {
-          transforms: [{ kind: "coerce", to: "string" }],
-        },
-      ),
-      setId: tcgdexPathExpression("set.id", "external-reference", ["normalized-observation", "hash-material"]),
-      setName: tcgdexPathExpression("set.name", "catalog-truth", ["normalized-observation", "hash-material"]),
-      expansionId: tcgdexPathExpression("set.id", "external-reference", ["normalized-observation", "hash-material"]),
-      expansionName: tcgdexPathExpression("set.name", "catalog-truth", ["normalized-observation", "hash-material"]),
-      expansionAbbreviation: tcgdexOptionalPathExpression("expansionAbbreviation", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      expansionCardCount: tcgdexOptionalPathExpression("expansionCardCount", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      expansionParallelSetCardCount: tcgdexOptionalPathExpression("expansionParallelSetCardCount", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      seriesId: tcgdexOptionalPathExpression("seriesId", "external-reference", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      seriesName: tcgdexOptionalPathExpression("seriesName", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      rarity: tcgdexOptionalPathExpression("card.rarity", "catalog-truth", ["normalized-observation", "hash-material"]),
-      illustrator: tcgdexOptionalPathExpression("card.illustrator", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      releaseDate: tcgdexOptionalPathExpression("releaseDate", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      releaseYear: tcgdexOptionalPathExpression("releaseYear", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      category: tcgdexPathExpression("card.category", "catalog-truth", ["normalized-observation", "hash-material"]),
-      imageBaseUrl: tcgdexOptionalPathExpression("imageBaseUrl", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      imageUrls: tcgdexPathExpression("sourceImageUrls", "catalog-truth", ["normalized-observation", "hash-material"]),
-      mergeIdentity: tcgdexPathExpression("mergeIdentity", "catalog-merge-evidence", [
-        "normalized-observation",
-        "merge-identity",
-      ]),
-      productAssetSet: tcgdexConstantExpression(null, "catalog-truth", ["normalized-observation", "hash-material"]),
-      parallelSet: tcgdexPathExpression("variant.parallelSet", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      cardVariantKey: tcgdexPathExpression("variant.key", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-        "merge-identity",
-      ]),
-      cardVariantLabel: tcgdexPathExpression("variant.displayName", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      cardVariantSourceKey: tcgdexOptionalPathExpression("variant.sourceKey", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      cardVariantIsPrimaryImage: tcgdexPathExpression("variant.isPrimaryImage", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      imageDisclaimer: tcgdexOptionalPathExpression("imageDisclaimer", "catalog-truth", [
-        "normalized-observation",
-        "hash-material",
-      ]),
-      variants: tcgdexPathExpression("variants", "catalog-truth", ["normalized-observation", "hash-material"]),
-      externalCatalogItemReferences: tcgdexPathExpression("externalCatalogItemReferences", "external-reference", [
-        "normalized-observation",
-        "external-reference",
-      ]),
-    },
-    hashMaterial: [tcgdexPathExpression("catalogHashMaterial", "catalog-truth", ["hash-material"])],
-    mergeIdentity: [tcgdexPathExpression("mergeIdentity", "catalog-merge-evidence", ["merge-identity"])],
-  },
-  externalReferences: [],
-  referenceHierarchy: [],
-  duplicatePrevention: {
-    exactExternalCatalogItemReferencesFirst: true,
-    mergeCandidateEvidence: [],
-    identityRules: [],
-    ambiguousCandidatePolicy: "block-promotion",
-    replayPolicy: "same-profile-version",
-  },
-  promotionCommandPlan: {
-    planKind: "catalog-item-promotion",
-    requiresReview: true,
-    commands: [],
-  },
-  nonGoals: [
-    "no-live-provider-calls-in-mapping-tests",
-    "no-pricing-facts-as-catalog-truth",
-    "no-inventory-facts-as-global-catalog-truth",
-    "no-provider-secrets-in-events-logs-or-fixtures",
-    "no-provider-transport-branches-in-mapping-interpreter",
-  ],
-} as const satisfies CatalogProviderSourceObservationMappingContract;
-
-function tcgdexPathExpression(
-  path: string,
-  owner: CatalogProviderMappingEvidenceOwner,
-  uses: readonly CatalogProviderMappingEvidenceUse[],
-  options: Partial<Pick<CatalogProviderMappingValueExpression, "transforms" | "redaction">> = {},
-): CatalogProviderMappingValueExpression {
-  return {
-    selector: {
-      kind: "path",
-      path,
-      required: true,
-      nullPolicy: "diagnostic",
-    },
-    transforms: options.transforms,
-    owner,
-    uses,
-    redaction: options.redaction ?? "none",
-  };
-}
-
-function tcgdexOptionalPathExpression(
-  path: string,
-  owner: CatalogProviderMappingEvidenceOwner,
-  uses: readonly CatalogProviderMappingEvidenceUse[],
-): CatalogProviderMappingValueExpression {
-  return {
-    selector: {
-      kind: "path",
-      path,
-      required: false,
-      nullPolicy: "allow-null",
-    },
-    owner,
-    uses,
-    redaction: "none",
-  };
-}
-
-function tcgdexConstantExpression(
-  value: JsonValue,
-  owner: CatalogProviderMappingEvidenceOwner,
-  uses: readonly CatalogProviderMappingEvidenceUse[],
-): CatalogProviderMappingValueExpression {
-  return {
-    selector: {
-      kind: "constant",
-      value,
-    },
-    owner,
-    uses,
-    redaction: "none",
-  };
 }
 
 export async function normalizeTcgdexImageAsset(input: {

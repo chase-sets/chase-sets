@@ -27,11 +27,16 @@ describe("catalog provider integration profile version store", () => {
     ).toMatchObject({
       providerKey: "tcgdex",
       profileKey: "pokemon-tcg",
-      profileVersion: "2026.06.02",
+      profileVersion: "2026.06.03",
       active: true,
+      compatibilityMode: "executable-mapping-contract",
       sourceContract: {
-        fixtureSetVersion: "transitional-static-profile-v1",
+        fixtureSetVersion: "tcgdex-pokemon-executable-v1",
       },
+      executableMappingContract: expect.objectContaining({
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.03",
+      }),
     });
   });
 
@@ -40,24 +45,19 @@ describe("catalog provider integration profile version store", () => {
     const store = createCatalogProviderIntegrationProfileVersionStore(db);
     await store.seedProfileVersions([
       catalogProviderIntegrationProfileVersions[0],
-      {
-        ...catalogProviderIntegrationProfileVersions[0],
-        profileVersion: "2026.06.03",
-        lifecycle: "test",
-        active: false,
-      },
+      tcgdexVersion("2026.06.04", "test", false),
     ]);
 
-    await store.activateProfileVersion("tcgdex", "2026.06.03");
+    await store.activateProfileVersion("tcgdex", "2026.06.04");
 
     expect(
       (await store.listProfileVersions("tcgdex")).map((version) => [version.profileVersion, version.lifecycle]),
     ).toEqual([
-      ["2026.06.03", "active"],
-      ["2026.06.02", "deprecated"],
+      ["2026.06.04", "active"],
+      ["2026.06.03", "deprecated"],
     ]);
     expect(await store.getActiveProfileVersion("tcgdex")).toMatchObject({
-      profileVersion: "2026.06.03",
+      profileVersion: "2026.06.04",
       active: true,
     });
   });
@@ -66,28 +66,40 @@ describe("catalog provider integration profile version store", () => {
     const db = new InMemoryProfileVersionDb();
     const store = createCatalogProviderIntegrationProfileVersionStore(db);
     await store.seedProfileVersions([
-      {
-        ...catalogProviderIntegrationProfileVersions[0],
-        lifecycle: "deprecated",
-        active: false,
-      },
-      {
-        ...catalogProviderIntegrationProfileVersions[0],
-        profileVersion: "2026.06.03",
-        lifecycle: "active",
-        active: true,
-      },
+      tcgdexVersion("2026.06.03", "deprecated", false),
+      tcgdexVersion("2026.06.04", "active", true),
     ]);
 
-    await store.rollbackProfileVersion("tcgdex", "2026.06.02");
+    await store.rollbackProfileVersion("tcgdex", "2026.06.03");
 
     expect(await store.getActiveProfileVersion("tcgdex")).toMatchObject({
-      profileVersion: "2026.06.02",
+      profileVersion: "2026.06.03",
       lifecycle: "active",
       profile: tcgdexPokemonTcgProviderProfile,
     });
   });
 });
+
+function tcgdexVersion(
+  profileVersion: string,
+  lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
+  active: boolean,
+): CatalogProviderIntegrationProfileVersionRecord {
+  const base = catalogProviderIntegrationProfileVersions[0];
+  return {
+    ...base,
+    profileVersion,
+    lifecycle,
+    active,
+    executableMappingContract: base.executableMappingContract
+      ? {
+          ...base.executableMappingContract,
+          profileVersion,
+          lifecycle,
+        }
+      : undefined,
+  };
+}
 
 class InMemoryProfileVersionDb {
   readonly statements: string[] = [];

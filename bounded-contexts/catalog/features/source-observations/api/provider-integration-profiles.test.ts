@@ -3,6 +3,7 @@ import {
   activateCatalogProviderIntegrationProfileVersion,
   catalogProviderIntegrationProfileVersions,
   getActiveCatalogProviderIntegrationProfileVersion,
+  getActiveCatalogProviderSourceObservationMappingContract,
   getCatalogProviderIntegrationProfile,
   getCatalogProviderIntegrationProfileVersion,
   listCatalogProviderIntegrationProfiles,
@@ -234,19 +235,31 @@ describe("catalog provider integration profiles", () => {
     const versions = listCatalogProviderIntegrationProfileVersions();
 
     expect(versions.map((version) => [version.providerKey, version.profileVersion, version.lifecycle])).toEqual([
-      ["tcgdex", "2026.06.02", "active"],
+      ["tcgdex", "2026.06.03", "active"],
       ["tcgplayer", "2026.06.02", "test"],
     ]);
     expect(getActiveCatalogProviderIntegrationProfileVersion("TCGDEX")).toMatchObject({
       providerKey: "tcgdex",
       profileKey: "pokemon-tcg",
       active: true,
+      compatibilityMode: "executable-mapping-contract",
       sourceContract: {
         repository: "chase-sets/chase-sets",
-        fixtureSetVersion: "transitional-static-profile-v1",
+        fixtureSetVersion: "tcgdex-pokemon-executable-v1",
       },
-      retirementPlan: {
-        trackingIssue: 621,
+      retirementPlan: null,
+      executableMappingContract: expect.objectContaining({
+        providerKey: "tcgdex",
+        profileKey: "pokemon-tcg",
+        profileVersion: "2026.06.03",
+        lifecycle: "active",
+        sourceObservation: expect.any(Object),
+      }),
+    });
+    expect(getActiveCatalogProviderSourceObservationMappingContract("TCGDEX")).toMatchObject({
+      providerKey: "tcgdex",
+      sourceObservation: {
+        observationId: expect.any(Object),
       },
     });
     expect(getCatalogProviderIntegrationProfileVersion("tcgplayer")).toMatchObject({
@@ -265,13 +278,13 @@ describe("catalog provider integration profiles", () => {
   });
 
   it("validates transitional static profile versions by requiring fixture coverage and a retirement path", () => {
-    const [tcgdexVersion] = catalogProviderIntegrationProfileVersions;
+    const [, tcgplayerVersion] = catalogProviderIntegrationProfileVersions;
 
-    expect(validateCatalogProviderIntegrationProfileVersion(tcgdexVersion)).toEqual([]);
+    expect(validateCatalogProviderIntegrationProfileVersion(tcgplayerVersion)).toEqual([]);
     expect(
       validateCatalogProviderIntegrationProfileVersion({
-        ...tcgdexVersion,
-        fixtures: { ...tcgdexVersion.fixtures, coveredFlows: ["normal"] },
+        ...tcgplayerVersion,
+        fixtures: { ...tcgplayerVersion.fixtures, coveredFlows: ["normal"] },
         retirementPlan: null,
       }),
     ).toEqual(
@@ -284,41 +297,41 @@ describe("catalog provider integration profiles", () => {
 
   it("activates a validated executable profile version and deprecates the prior active version", () => {
     const versions = [
-      catalogProviderIntegrationProfileVersions[0],
-      executableVersion("2026.06.03", "test"),
+      executableVersion("2026.06.03", "active"),
+      executableVersion("2026.06.04", "test"),
     ] as const satisfies readonly CatalogProviderIntegrationProfileVersionRecord[];
 
-    const activated = activateCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.03", versions);
+    const activated = activateCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.04", versions);
 
     expect(activated.map((version) => [version.profileVersion, version.lifecycle, version.active])).toEqual([
-      ["2026.06.02", "deprecated", false],
-      ["2026.06.03", "active", true],
+      ["2026.06.03", "deprecated", false],
+      ["2026.06.04", "active", true],
     ]);
   });
 
   it("rolls back to a prior validated profile version without mutating history", () => {
-    const activeNewVersion = executableVersion("2026.06.03", "active");
+    const activeNewVersion = executableVersion("2026.06.04", "active");
     const priorVersion = {
-      ...executableVersion("2026.06.02", "deprecated"),
+      ...executableVersion("2026.06.03", "deprecated"),
       active: false,
     };
 
-    const rolledBack = rollbackCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.02", [
+    const rolledBack = rollbackCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.03", [
       priorVersion,
       activeNewVersion,
     ]);
 
     expect(rolledBack.map((version) => [version.profileVersion, version.lifecycle, version.active])).toEqual([
-      ["2026.06.02", "active", true],
-      ["2026.06.03", "deprecated", false],
+      ["2026.06.03", "active", true],
+      ["2026.06.04", "deprecated", false],
     ]);
   });
 
   it("blocks activation when executable mapping fixtures are incomplete", () => {
     const invalidVersion = {
-      ...executableVersion("2026.06.03", "test"),
+      ...executableVersion("2026.06.04", "test"),
       executableMappingContract: {
-        ...mappingContract("2026.06.03", "test"),
+        ...mappingContract("2026.06.04", "test"),
         fixtures: {
           fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
           coveredFlows: ["normal"],
@@ -328,7 +341,7 @@ describe("catalog provider integration profiles", () => {
     } satisfies CatalogProviderIntegrationProfileVersionRecord;
 
     expect(() =>
-      activateCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.03", [
+      activateCatalogProviderIntegrationProfileVersion("tcgdex", "2026.06.04", [
         catalogProviderIntegrationProfileVersions[0],
         invalidVersion,
       ]),
