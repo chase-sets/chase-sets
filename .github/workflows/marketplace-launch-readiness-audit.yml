@@ -183,7 +183,7 @@ jobs:
           set -euo pipefail
           artifact_dir="artifacts/marketplace-launch-readiness-audit"
           exit_code=0
-          pnpm run marketplace:production-proof-readiness -- \
+          node ./scripts/marketplace-production-proof-readiness.mjs \
             --variables "$artifact_dir/github-environment-variables.json" \
             --secrets "$artifact_dir/github-environment-secrets.json" \
             --environment "$AUDIT_ENVIRONMENT_NAME" \
@@ -199,7 +199,7 @@ jobs:
           set -euo pipefail
           artifact_dir="artifacts/marketplace-launch-readiness-audit"
           exit_code=0
-          pnpm run marketplace:production-launch-readiness -- \
+          node ./scripts/marketplace-production-launch-readiness.mjs \
             --variables "$artifact_dir/github-environment-variables.json" \
             --secrets "$artifact_dir/github-environment-secrets.json" \
             --environment "$AUDIT_ENVIRONMENT_NAME" \
@@ -216,7 +216,7 @@ jobs:
           run_audit() {
             local mode="$1"
             local exit_code=0
-            pnpm run marketplace:public-presence-copy-audit -- \
+            node ./scripts/marketplace-public-presence-copy-audit.mjs \
               --base-url "$PUBLIC_COPY_BASE_URL" \
               --mode "$mode" \
               > "$artifact_dir/public-presence-copy-audit-${mode}.json" || exit_code=$?
