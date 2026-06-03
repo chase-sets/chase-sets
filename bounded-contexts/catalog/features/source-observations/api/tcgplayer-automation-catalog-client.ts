@@ -1,10 +1,18 @@
-import { createHash } from "node:crypto";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type {
   SourceObservationExternalProductReference,
   SourceObservationProviderProductNormalized,
   SourceObservationSelectedOptionReference,
 } from "../domain/domain";
+import type {
+  CatalogProviderMappingEvidenceOwner,
+  CatalogProviderMappingEvidenceUse,
+  CatalogProviderMappingValueExpression,
+} from "./provider-integration-mapping-contract";
+import {
+  requireCatalogProviderSourceObservation,
+  type CatalogProviderSourceObservationMappingContract,
+} from "./provider-source-observation-normalizer";
 import type {
   TcgplayerAutomationDomainHttpClient,
   TcgplayerAutomationHttpClients,
@@ -182,51 +190,197 @@ export function toTcgplayerAutomationSourceObservation(input: {
 }): TcgplayerAutomationSourceObservationInput {
   const languageCode = "en";
   const externalKey = `product:${input.detail.productId}`;
+  const sourceUrl =
+    input.sourceUrl ?? `https://mp-search-api.tcgplayer.com/v2/product/${input.detail.productId}/details`;
   const skuReferences = input.detail.skus.map((sku) => ({
     providerKey: "tcgplayer",
     externalKey: `sku:${sku.sku}`,
     reviewEvidence: skuReviewEvidence(input.detail, sku),
   }));
-  const normalized: SourceObservationProviderProductNormalized = {
-    kind: "provider-product",
-    languageCode,
-    name: input.detail.productName,
-    setName: input.detail.setName,
-    expansionName: input.detail.setName,
-    cardNumber: input.detail.customAttributes.number ?? null,
-    imageUrls: [],
-    mergeIdentity: {
-      tcg: normalizeTcgName(input.detail.productLineName),
-      productLineName: input.detail.productLineName,
-      setName: input.detail.setName,
-      printedProductName: input.detail.productName,
-      collectorNumber: input.detail.customAttributes.number ?? null,
-      languageCode,
+  const normalized = requireCatalogProviderSourceObservation({
+    contract: tcgplayerProviderProductSourceObservationMapping,
+    observedAt: input.observedAt,
+    payload: {
+      ...input.detail,
+      observationId: `tcgplayer_${languageCode}_product_${input.detail.productId}`,
+      externalKey,
+      sourceUrl,
+      sourceUpdatedAt: input.detail.customAttributes.releaseDate ?? null,
+      sourcePayload: input.detail as JsonValue,
+      catalogHashMaterial: tcgplayerCatalogHashMaterial(input.detail),
       productForm: tcgplayerProductForm(input.detail),
       barcode: tcgplayerProductBarcode(input.detail),
+      mergeIdentity: {
+        tcg: normalizeTcgName(input.detail.productLineName),
+        productLineName: input.detail.productLineName,
+        setName: input.detail.setName,
+        printedProductName: input.detail.productName,
+        collectorNumber: input.detail.customAttributes.number ?? null,
+        languageCode,
+        productForm: tcgplayerProductForm(input.detail),
+        barcode: tcgplayerProductBarcode(input.detail),
+      },
+      externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey }],
+      externalProductReferences: input.productReferenceSchema
+        ? mapTcgplayerSkuExternalProductReferences(input.detail, input.productReferenceSchema)
+        : [],
+      skuReferences,
     },
-    externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey }],
-    externalProductReferences: input.productReferenceSchema
-      ? mapTcgplayerSkuExternalProductReferences(input.detail, input.productReferenceSchema)
-      : [],
-    providerProductId: String(input.detail.productId),
-    providerProductName: input.detail.productName,
-    productLineName: input.detail.productLineName,
-    productCategoryName: input.detail.productTypeName,
-    skuReferences,
-  };
+  });
 
   return {
-    observationId: `tcgplayer_${languageCode}_product_${input.detail.productId}`,
+    ...normalized,
     providerKey: "tcgplayer",
-    externalKey,
-    sourceUrl: input.sourceUrl ?? `https://mp-search-api.tcgplayer.com/v2/product/${input.detail.productId}/details`,
-    languageCode,
-    sourceRecordHash: hashJson(tcgplayerCatalogHashMaterial(input.detail)),
-    sourceUpdatedAt: input.detail.customAttributes.releaseDate ?? null,
-    observedAt: input.observedAt,
-    normalized,
-    sourcePayload: input.detail as JsonValue,
+    normalized: normalized.normalized as SourceObservationProviderProductNormalized,
+  };
+}
+
+const tcgplayerProviderProductSourceObservationMapping = {
+  providerKey: "tcgplayer",
+  profileKey: "pokemon-tcg-automation-client",
+  displayName: "TCGplayer Provider Product",
+  profileVersion: "2026.06.03",
+  lifecycle: "test",
+  sourceContract: {
+    owner: "Catalog",
+    repository: "todd-skelton/tcgplayer-automation-app",
+    commit: "bf42aa8",
+    documentPath: "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
+    fixtureSetVersion: "automation-client-contract-v1",
+  },
+  connector: {
+    kind: "tcgplayer-automation-client",
+    transportOwns: ["auth", "domains", "endpoint-paths", "pagination", "throttling", "raw-provider-parse"],
+    mappingOwns: ["source-payload", "normalized-observation", "hash-material", "merge-identity", "external-reference"],
+  },
+  fixtures: {
+    fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer-automation",
+    coveredFlows: ["normal", "partial", "stale", "changed", "ambiguous", "replay", "sealed-product", "unknown-option"],
+    liveProviderCallsAllowed: false,
+  },
+  sourceObservation: {
+    observationId: pathExpression("observationId", "catalog-merge-evidence", ["normalized-observation"]),
+    externalKey: pathExpression("externalKey", "external-reference", ["external-reference"]),
+    sourceUrl: pathExpression("sourceUrl", "operations", ["source-payload"]),
+    sourceUpdatedAt: optionalPathExpression("sourceUpdatedAt", "catalog-truth", ["normalized-observation"]),
+    sourcePayload: pathExpression("sourcePayload", "catalog-merge-evidence", ["source-payload"]),
+  },
+  normalizedObservation: {
+    outputKind: "provider-product",
+    languageCode: constantExpression("en", "catalog-truth", ["normalized-observation", "hash-material"]),
+    fields: {
+      name: pathExpression("productName", "catalog-truth", ["normalized-observation", "hash-material"]),
+      setName: pathExpression("setName", "catalog-truth", ["normalized-observation", "hash-material"]),
+      expansionName: pathExpression("setName", "catalog-truth", ["normalized-observation", "hash-material"]),
+      cardNumber: optionalPathExpression("customAttributes.number", "catalog-truth", [
+        "normalized-observation",
+        "hash-material",
+      ]),
+      imageUrls: constantExpression([], "catalog-truth", ["normalized-observation"]),
+      mergeIdentity: pathExpression("mergeIdentity", "catalog-merge-evidence", [
+        "normalized-observation",
+        "merge-identity",
+      ]),
+      externalCatalogItemReferences: pathExpression("externalCatalogItemReferences", "external-reference", [
+        "normalized-observation",
+        "external-reference",
+      ]),
+      externalProductReferences: pathExpression("externalProductReferences", "external-reference", [
+        "normalized-observation",
+        "external-reference",
+      ]),
+      providerProductId: pathExpression(
+        "productId",
+        "external-reference",
+        ["normalized-observation", "hash-material"],
+        {
+          transforms: [{ kind: "coerce", to: "string" }],
+        },
+      ),
+      providerProductName: pathExpression("productName", "catalog-truth", ["normalized-observation", "hash-material"]),
+      productLineName: pathExpression("productLineName", "catalog-merge-evidence", [
+        "normalized-observation",
+        "merge-identity",
+      ]),
+      productCategoryName: pathExpression("productTypeName", "catalog-merge-evidence", ["normalized-observation"]),
+      skuReferences: pathExpression("skuReferences", "external-reference", ["normalized-observation"]),
+    },
+    hashMaterial: [pathExpression("catalogHashMaterial", "catalog-truth", ["hash-material"])],
+    mergeIdentity: [pathExpression("mergeIdentity", "catalog-merge-evidence", ["merge-identity"])],
+  },
+  externalReferences: [],
+  referenceHierarchy: [],
+  duplicatePrevention: {
+    exactExternalCatalogItemReferencesFirst: true,
+    mergeCandidateEvidence: [],
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+  },
+  promotionCommandPlan: {
+    planKind: "catalog-item-promotion",
+    requiresReview: true,
+    commands: [],
+  },
+  nonGoals: [
+    "no-live-provider-calls-in-mapping-tests",
+    "no-pricing-facts-as-catalog-truth",
+    "no-inventory-facts-as-global-catalog-truth",
+    "no-provider-secrets-in-events-logs-or-fixtures",
+    "no-provider-transport-branches-in-mapping-interpreter",
+  ],
+} as const satisfies CatalogProviderSourceObservationMappingContract;
+
+function pathExpression(
+  path: string,
+  owner: CatalogProviderMappingEvidenceOwner,
+  uses: readonly CatalogProviderMappingEvidenceUse[],
+  options: Partial<Pick<CatalogProviderMappingValueExpression, "transforms" | "redaction">> = {},
+): CatalogProviderMappingValueExpression {
+  return {
+    selector: {
+      kind: "path",
+      path,
+      required: true,
+      nullPolicy: "diagnostic",
+    },
+    transforms: options.transforms,
+    owner,
+    uses,
+    redaction: options.redaction ?? "none",
+  };
+}
+
+function optionalPathExpression(
+  path: string,
+  owner: CatalogProviderMappingEvidenceOwner,
+  uses: readonly CatalogProviderMappingEvidenceUse[],
+): CatalogProviderMappingValueExpression {
+  return {
+    selector: {
+      kind: "path",
+      path,
+      required: false,
+      nullPolicy: "allow-null",
+    },
+    owner,
+    uses,
+    redaction: "none",
+  };
+}
+
+function constantExpression(
+  value: JsonValue,
+  owner: CatalogProviderMappingEvidenceOwner,
+  uses: readonly CatalogProviderMappingEvidenceUse[],
+): CatalogProviderMappingValueExpression {
+  return {
+    selector: {
+      kind: "constant",
+      value,
+    },
+    owner,
+    uses,
+    redaction: "none",
   };
 }
 
@@ -404,8 +558,4 @@ function normalizeProviderOption(value: string): string {
 
 function normalizeTcgName(value: string): string {
   return value.trim().toLowerCase() === "pokemon" ? "pokemon" : value.trim().toLowerCase();
-}
-
-function hashJson(value: JsonValue): string {
-  return createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
