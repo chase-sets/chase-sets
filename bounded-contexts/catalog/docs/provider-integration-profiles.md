@@ -49,6 +49,13 @@ TCGdex imports still write Source Observations. Promotion remains a Catalog revi
 
 The TCGdex connector must stay transport-only: it fetches TCGdex JSON from profile-defined endpoints. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
 
+Reference hierarchy provisioning is profile-driven. The TCGdex profile declares
+Reference Types for Manufacturer, Product Line, Series, and Expansion, static
+root Reference Records for The Pokemon Company International and Pokemon TCG,
+and provider-derived Series and Expansion records using TCGdex provider
+attributes. Replays preserve the existing deterministic `ref_tcgdex_*` record
+ids and reuse records by type/key or provider attribute.
+
 ## TCGplayer Automation Client Profile
 
 The TCGplayer integration uses the client contract documented in
@@ -70,6 +77,11 @@ and product-form value mapping. Runtime code resolves those rules against the
 active Product schema before an external Product reference can be published.
 Unknown, inactive, or missing selected-option evidence remains review evidence.
 
+The TCGplayer profile can represent product-line and set-name Reference Record
+evidence through the same hierarchy rules, including `tcgplayer-product-line-id`
+and `tcgplayer-set-name` attributes. The connector remains planned until the
+broader TCGplayer mapping migration is complete.
+
 ## Future Integrations
 
 Future TCG integrations should add their own provider integration profile when their structure differs from Pokemon TCG. Do not place integration-specific fields or blueprints in deployables, and do not make scenario data the source of structural truth.
@@ -81,6 +93,7 @@ Each profile should define:
 - option query definitions and parent scope requirements
 - required Fields and value types
 - reusable Reference Types and Reference Records
+- reference hierarchy rules for static roots, provider-derived records, attributes, and relationships
 - Dimensions and Options that affect product identity
 - Components and Blueprints used to author and resolve Products
 - Categories used for browse grouping
