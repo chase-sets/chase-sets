@@ -138,7 +138,10 @@ export function IntegrationManagementPage({ data, query }: CatalogListRouteData<
   );
   const importProviderOptions = useMemo(
     () =>
-      (providerOptions.length > 0 ? providerOptions : [{ label: "TCGdex", value: TCGDEX_PROVIDER }]).map((item) => ({
+      (providerOptions.length > 0
+        ? providerOptions
+        : [{ label: t("catalog.features.sourceObservations.ui.integrations.provider.tcgdex"), value: TCGDEX_PROVIDER }]
+      ).map((item) => ({
         label: item.label,
         value: item.value,
         icon: item.value === TCGPLAYER_PROVIDER ? "package" : item.value === TCGDEX_PROVIDER ? "cards" : "grid",

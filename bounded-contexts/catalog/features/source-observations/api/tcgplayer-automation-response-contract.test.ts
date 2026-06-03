@@ -8,7 +8,7 @@ import {
   tcgplayerSourcePayloadOnlyFieldPaths,
   type TcgplayerAutomationCatalogEndpoint,
 } from "./tcgplayer-automation-response-contract";
-import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures";
+import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures.test-data";
 
 describe("TCGplayer automation response contract", () => {
   it("keeps sanitized fixtures for every Catalog-relevant automation endpoint", () => {

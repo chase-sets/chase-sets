@@ -9,7 +9,7 @@ import {
   type TcgplayerAutomationProductSearchResponse,
   type TcgplayerProductReferenceSchema,
 } from "./tcgplayer-automation-catalog-client";
-import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures";
+import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures.test-data";
 
 describe("TCGplayer automation Catalog client", () => {
   it("uses automation-app endpoint paths for product lines, set names, search, and product details", async () => {
