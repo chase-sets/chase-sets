@@ -123,6 +123,46 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
+  it("models reference hierarchy provisioning as provider profile data", () => {
+    expect(tcgdexPokemonTcgProviderProfile.referenceHierarchyMapping).toMatchObject({
+      providerReferenceIdPrefix: "ref_tcgdex",
+      targetRecordRuleKey: "expansion",
+      referenceTypes: expect.arrayContaining([
+        expect.objectContaining({ typeKey: "manufacturer", attributeKeys: ["homepage-url"] }),
+        expect.objectContaining({ typeKey: "product-line", attributeKeys: ["official-name", "short-name"] }),
+        expect.objectContaining({ typeKey: "series", attributeKeys: ["tcgdex-series-id"] }),
+        expect.objectContaining({ typeKey: "expansion", attributeKeys: expect.arrayContaining(["tcgdex-set-id"]) }),
+      ]),
+      referenceRecords: expect.arrayContaining([
+        expect.objectContaining({ ruleKey: "manufacturer", typeKey: "manufacturer" }),
+        expect.objectContaining({ ruleKey: "product-line", typeKey: "product-line" }),
+        expect.objectContaining({
+          ruleKey: "series",
+          recordId: { kind: "provider", typeKey: "series", providerValuePaths: ["seriesId", "seriesName"] },
+        }),
+        expect.objectContaining({
+          ruleKey: "expansion",
+          recordId: { kind: "provider", typeKey: "expansion", providerValuePaths: ["expansionId"] },
+        }),
+      ]),
+    });
+
+    expect(tcgplayerAutomationClientProviderProfile.referenceHierarchyMapping).toMatchObject({
+      providerReferenceIdPrefix: "ref_tcgplayer",
+      targetRecordRuleKey: "set-name",
+      referenceRecords: expect.arrayContaining([
+        expect.objectContaining({
+          ruleKey: "product-line",
+          attributes: expect.arrayContaining([expect.objectContaining({ attributeKey: "tcgplayer-product-line-id" })]),
+        }),
+        expect.objectContaining({
+          ruleKey: "set-name",
+          attributes: expect.arrayContaining([expect.objectContaining({ attributeKey: "tcgplayer-set-name" })]),
+        }),
+      ]),
+    });
+  });
+
   it("maps TCGplayer SKU selected options to review evidence when provider values are unknown", () => {
     expect(tcgplayerAutomationClientProviderProfile.selectedOptionMapping).toMatchObject({
       source: "tcgplayer-sku-condition-variant-language",

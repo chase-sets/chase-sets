@@ -82,6 +82,7 @@ import {
   tcgdexPokemonTcgProviderProfile,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
+import { provisionCatalogProviderReferenceHierarchy } from "./provider-reference-hierarchy-provisioner";
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
 const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
@@ -3120,113 +3121,16 @@ export async function ensurePokemonReferenceHierarchy(input: {
   normalized: SourceObservationPokemonCardNormalized;
   context: EventStoreContext;
 }): Promise<ReferenceRecordId> {
-  await ensureReferenceType(input, {
-    referenceTypeId: catalogSeedIds.referenceTypes.manufacturer as ReferenceTypeId,
-    key: "manufacturer",
-    name: "Manufacturer",
-    description: "A company responsible for publishing or manufacturing catalog products.",
-    attributeKeys: ["homepage-url"],
-  });
-  await ensureReferenceType(input, {
-    referenceTypeId: catalogSeedIds.referenceTypes.productLine as ReferenceTypeId,
-    key: "product-line",
-    name: "Product Line",
-    description: "A branded collectible product line.",
-    attributeKeys: ["official-name", "short-name"],
-  });
-  await ensureReferenceType(input, {
-    referenceTypeId: catalogSeedIds.referenceTypes.series as ReferenceTypeId,
-    key: "series",
-    name: "Series",
-    description: "An official Pokemon TCG series that groups expansions.",
-    attributeKeys: [providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, "series")],
-  });
-  await ensureReferenceType(input, {
-    referenceTypeId: catalogSeedIds.referenceTypes.expansion as ReferenceTypeId,
-    key: "expansion",
-    name: "Expansion",
-    description: "An official Pokemon TCG card expansion.",
-    attributeKeys: [
-      "abbreviation",
-      "card-count",
-      "parallel-set-card-count",
-      "printed-card-count",
-      "release-date",
-      providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, "expansion"),
-    ],
-  });
-
-  const manufacturerId = await ensureReferenceRecord(input, {
-    referenceRecordId: catalogSeedIds.referenceRecords.manufacturers.thePokemonCompanyInternational,
-    typeKey: "manufacturer",
-    key: "the-pokemon-company-international",
-    name: "The Pokemon Company International",
-    description: "Publisher of the English Pokemon Trading Card Game.",
-    attributes: { "homepage-url": "https://www.pokemon.com/us" },
-  });
-  const productLineId = await ensureReferenceRecord(input, {
-    referenceRecordId: catalogSeedIds.referenceRecords.productLines.pokemonTradingCardGame,
-    typeKey: "product-line",
-    key: "pokemon-trading-card-game",
-    name: "Pokemon Trading Card Game",
-    description: "The Pokemon Trading Card Game product line.",
-    attributes: {
-      "official-name": "Pokemon Trading Card Game",
-      "short-name": "Pokemon TCG",
+  const result = await provisionCatalogProviderReferenceHierarchy({
+    profile: tcgdexPokemonTcgProviderProfile,
+    payload: input.normalized as unknown as JsonValue,
+    provisioner: {
+      ensureReferenceType: (def) => ensureReferenceType(input, def),
+      ensureReferenceRecord: (def) => ensureReferenceRecord(input, def),
     },
-    relationships: [{ relationshipType: "published-by", referenceId: manufacturerId }],
   });
-  const seriesReferenceId = input.normalized.seriesName
-    ? await ensureReferenceRecord(input, {
-        referenceRecordId: providerReferenceRecordId(
-          tcgdexPokemonTcgProviderProfile,
-          "series",
-          input.normalized.seriesId || input.normalized.seriesName,
-        ),
-        typeKey: "series",
-        key: normalizeReferenceKey(input.normalized.seriesName),
-        name: input.normalized.seriesName,
-        description: `${input.normalized.seriesName} Pokemon TCG series.`,
-        attributes: input.normalized.seriesId
-          ? { [providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, "series")]: input.normalized.seriesId }
-          : {},
-        relationships: [{ relationshipType: "part-of", referenceId: productLineId }],
-      })
-    : productLineId;
 
-  const expansionAttributes: Record<string, JsonValue> = {
-    [providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, "expansion")]: input.normalized.expansionId,
-  };
-
-  if (input.normalized.releaseDate) {
-    expansionAttributes["release-date"] = input.normalized.releaseDate;
-  }
-
-  if (input.normalized.expansionAbbreviation) {
-    expansionAttributes.abbreviation = input.normalized.expansionAbbreviation;
-  }
-
-  if (input.normalized.expansionCardCount !== null) {
-    expansionAttributes["card-count"] = input.normalized.expansionCardCount;
-  }
-
-  if (input.normalized.expansionParallelSetCardCount !== null) {
-    expansionAttributes["parallel-set-card-count"] = input.normalized.expansionParallelSetCardCount;
-  }
-
-  return ensureReferenceRecord(input, {
-    referenceRecordId: providerReferenceRecordId(
-      tcgdexPokemonTcgProviderProfile,
-      "expansion",
-      input.normalized.expansionId,
-    ),
-    typeKey: "expansion",
-    key: normalizeReferenceKey(input.normalized.expansionName),
-    name: input.normalized.expansionName,
-    description: `${input.normalized.expansionName} Pokemon TCG expansion.`,
-    attributes: expansionAttributes,
-    relationships: [{ relationshipType: "part-of", referenceId: seriesReferenceId }],
-  });
+  return result.targetReferenceRecordId;
 }
 
 async function ensureReferenceType(
@@ -3393,11 +3297,11 @@ async function findReferenceRecordByProviderAttribute(
     attributes?: Readonly<Record<string, JsonValue>>;
   },
 ): Promise<ReferenceRecordId | null> {
-  const providerAttributeKey =
-    def.typeKey === "series" || def.typeKey === "expansion"
-      ? providerReferenceAttributeKey(tcgdexPokemonTcgProviderProfile, def.typeKey)
-      : null;
-  const providerAttributeValue = providerAttributeKey ? def.attributes?.[providerAttributeKey] : null;
+  const providerAttribute = Object.entries(def.attributes ?? {}).find(
+    ([key, value]) => isProviderReferenceAttributeKey(key) && typeof value === "string" && value.trim().length > 0,
+  );
+  const providerAttributeKey = providerAttribute?.[0] ?? null;
+  const providerAttributeValue = providerAttribute?.[1] ?? null;
 
   if (typeof providerAttributeValue !== "string" || providerAttributeValue.trim().length === 0) {
     return null;
@@ -3413,6 +3317,10 @@ async function findReferenceRecordByProviderAttribute(
   );
 
   return (existing.rows[0]?.reference_record_id as ReferenceRecordId | undefined) ?? null;
+}
+
+function isProviderReferenceAttributeKey(key: string): boolean {
+  return key.startsWith("tcgdex-") || key.startsWith("tcgplayer-") || key.startsWith("scryfall-");
 }
 
 async function findReferenceRecordByTypeAndKey(
@@ -3518,26 +3426,6 @@ function normalizeReferenceKey(value: string): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/(^-|-$)/g, "");
-}
-
-function providerReferenceAttributeKey(
-  profile: CatalogProviderIntegrationProfile,
-  typeKey: "series" | "expansion",
-): string {
-  const rule = profile.referenceHierarchyMapping.providerAttributes.find((candidate) => candidate.typeKey === typeKey);
-  if (!rule) {
-    throw new Error(`${profile.displayName} provider profile is missing a ${typeKey} reference attribute mapping.`);
-  }
-
-  return rule.providerAttributeKey;
-}
-
-function providerReferenceRecordId(
-  profile: CatalogProviderIntegrationProfile,
-  typeKey: "series" | "expansion",
-  providerId: string,
-): ReferenceRecordId {
-  return `${profile.referenceHierarchyMapping.providerReferenceIdPrefix}_${typeKey}_${normalizeReferenceKey(providerId).replace(/-/g, "_")}` as ReferenceRecordId;
 }
 
 function localizedJsonText(value: string): JsonObject {
