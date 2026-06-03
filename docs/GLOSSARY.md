@@ -66,6 +66,9 @@ Do not rename durable event fields, persisted columns, provider metadata, or tra
 | Notification Feed Item | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-visible update projected into the Notification Center. |
 | Notification Preference | [Notifications](../bounded-contexts/notifications/GLOSSARY.md) | Account-level setting that controls notification delivery or notification-center behavior. |
 | Product Alert | [Discovery](../bounded-contexts/discovery/GLOSSARY.md) | Account-owned watch on one resolved Catalog Product for listing or limited offer-demand notifications. |
+| Google Shopping Export Row | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Discovery-owned public export row for one Marketplace Listing submitted or dry-run-evaluated for Google Merchant Center. |
+| Merchant Offer ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Stable Google-facing offer id derived from immutable Chase Sets Listing identity. |
+| External Seller ID | [Architecture](./adr/0007-google-shopping-merchant-center-integration.md) | Google marketplace seller identifier derived from Chase Sets Account identity for multi-seller Merchant Center submissions. |
 | Platform Feedback | [Experience](../bounded-contexts/experience/GLOSSARY.md) | Internal product feedback, not public account reputation. |
 | Sign-In Identifier | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Contact value Auth accepts to start an authentication journey, such as email or phone. |
 | Phone Code | [Auth](../bounded-contexts/auth/GLOSSARY.md) | Short-lived Auth challenge sent over SMS and consumed to start or continue a session. |

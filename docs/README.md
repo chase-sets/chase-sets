@@ -22,6 +22,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Email Delivery Strategy](./architecture/email-delivery-strategy.md): transactional vs marketing scope, provider strategy, and cost-focused integration plan.
 - [Email Delivery Completion Task List](./architecture/email-delivery-task-list.md): implementation checklist covering follow-up findings.
 - [UCP Agent Commerce](./architecture/ucp-agent-commerce.md): Universal Commerce Protocol facade, REST/MCP surfaces, and bounded-context ownership.
+- [ADR 0007: Google Shopping Merchant Center Integration](./adr/0007-google-shopping-merchant-center-integration.md): Merchant account posture, feed ownership, export projection, and launch exclusions.
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
 - [Marketplace OpenAPI](./api/marketplace.openapi.json): machine-readable API contract.
 - [UCP OpenAPI](./api/ucp.openapi.json): UCP REST transport contract.
@@ -48,6 +49,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.
+- [Google Shopping Operations](./runbooks/google-shopping-operations.md): Merchant Center account readiness, worker config, dry-run proof, and provider incident response.
 
 ## Owner-Owned Documentation
 
@@ -91,6 +93,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0004: Consumer-Owned Projection Subscriptions](./adr/0004-consumer-owned-projection-subscriptions.md)
 - [ADR 0005: Representative Staging Commerce State](./adr/0005-representative-staging-commerce-state.md)
 - [ADR 0006: Stripe Connect Custom Account Experience](./adr/0006-stripe-connect-custom-account-experience.md)
+- [ADR 0007: Google Shopping Merchant Center Integration](./adr/0007-google-shopping-merchant-center-integration.md)
 
 ## Maintenance
 

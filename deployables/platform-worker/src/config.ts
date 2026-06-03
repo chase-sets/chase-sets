@@ -50,6 +50,7 @@ export type PlatformWorkerConfig = Readonly<{
   moneyMovement: PlatformWorkerMoneyMovementConfig;
   mobileMessaging: PlatformWorkerMobileMessagingConfig;
   postage: PlatformWorkerPostageConfig;
+  googleMerchant: PlatformWorkerGoogleMerchantConfig;
   notificationEmail: PlatformWorkerNotificationEmailConfig;
 }>;
 
@@ -99,6 +100,22 @@ export type PlatformWorkerPostageConfig =
       apiKey: string;
       apiBaseUrl?: string;
       mode: "test" | "production";
+    }>;
+
+export type PlatformWorkerGoogleMerchantConfig =
+  | Readonly<{
+      syncEnabled: false;
+      dryRun: boolean;
+    }>
+  | Readonly<{
+      syncEnabled: true;
+      dryRun: boolean;
+      merchantAccountId: string;
+      apiDataSourceId: string;
+      targetCountry: string;
+      contentLanguage: string;
+      feedLabel: string;
+      credentialSecretName: string;
     }>;
 
 export type PlatformWorkerMobileMessagingConfig =
@@ -169,6 +186,14 @@ export function loadConfig(): PlatformWorkerConfig {
   const easyPostApiKey = getOptionalEnv("EASYPOST_API_KEY");
   const easyPostApiBaseUrl = getOptionalEnv("EASYPOST_API_BASE_URL") ?? undefined;
   const easyPostMode = getOptionalEnv("EASYPOST_MODE") === "production" ? "production" : "test";
+  const googleMerchantSyncEnabled = getBooleanEnv("GOOGLE_MERCHANT_SYNC_ENABLED", false);
+  const googleMerchantDryRun = getBooleanEnv("GOOGLE_MERCHANT_DRY_RUN", true);
+  const googleMerchantAccountId = getOptionalEnv("GOOGLE_MERCHANT_ACCOUNT_ID");
+  const googleMerchantApiDataSourceId = getOptionalEnv("GOOGLE_MERCHANT_API_DATA_SOURCE_ID");
+  const googleMerchantTargetCountry = getOptionalEnv("GOOGLE_MERCHANT_TARGET_COUNTRY") ?? "US";
+  const googleMerchantContentLanguage = getOptionalEnv("GOOGLE_MERCHANT_CONTENT_LANGUAGE") ?? "en";
+  const googleMerchantFeedLabel = getOptionalEnv("GOOGLE_MERCHANT_FEED_LABEL") ?? googleMerchantTargetCountry;
+  const googleMerchantCredentialSecretName = getOptionalEnv("GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME");
   const mobileMessagingProvider = getOptionalEnv("MOBILE_MESSAGING_PROVIDER");
   const twilioAccountSid = getOptionalEnv("TWILIO_ACCOUNT_SID");
   const twilioAuthToken = getOptionalEnv("TWILIO_AUTH_TOKEN");
@@ -347,6 +372,16 @@ export function loadConfig(): PlatformWorkerConfig {
           mode: easyPostMode,
         }
       : { kind: "sandbox" },
+    googleMerchant: loadGoogleMerchantConfig({
+      syncEnabled: googleMerchantSyncEnabled,
+      dryRun: googleMerchantDryRun,
+      merchantAccountId: googleMerchantAccountId,
+      apiDataSourceId: googleMerchantApiDataSourceId,
+      targetCountry: googleMerchantTargetCountry,
+      contentLanguage: googleMerchantContentLanguage,
+      feedLabel: googleMerchantFeedLabel,
+      credentialSecretName: googleMerchantCredentialSecretName,
+    }),
     notificationEmail: {
       provider: notificationEmailProvider,
       ses: {
@@ -361,6 +396,74 @@ export function loadConfig(): PlatformWorkerConfig {
         filePath: localEmailCaptureFile,
       },
     },
+  };
+}
+
+export function describeGoogleMerchantConfigForLogs(config: PlatformWorkerGoogleMerchantConfig) {
+  if (!config.syncEnabled) {
+    return {
+      syncEnabled: false,
+      dryRun: config.dryRun,
+    };
+  }
+
+  return {
+    syncEnabled: true,
+    dryRun: config.dryRun,
+    merchantAccountId: config.merchantAccountId,
+    apiDataSourceId: config.apiDataSourceId,
+    targetCountry: config.targetCountry,
+    contentLanguage: config.contentLanguage,
+    feedLabel: config.feedLabel,
+    credentialSecretName: "[configured]",
+  };
+}
+
+function loadGoogleMerchantConfig(input: {
+  syncEnabled: boolean;
+  dryRun: boolean;
+  merchantAccountId: string | null;
+  apiDataSourceId: string | null;
+  targetCountry: string;
+  contentLanguage: string;
+  feedLabel: string;
+  credentialSecretName: string | null;
+}): PlatformWorkerGoogleMerchantConfig {
+  if (!input.syncEnabled) {
+    return {
+      syncEnabled: false,
+      dryRun: input.dryRun,
+    };
+  }
+
+  const missing = [
+    ["GOOGLE_MERCHANT_ACCOUNT_ID", input.merchantAccountId],
+    ["GOOGLE_MERCHANT_API_DATA_SOURCE_ID", input.apiDataSourceId],
+    ["GOOGLE_MERCHANT_TARGET_COUNTRY", input.targetCountry],
+    ["GOOGLE_MERCHANT_CONTENT_LANGUAGE", input.contentLanguage],
+    ["GOOGLE_MERCHANT_FEED_LABEL", input.feedLabel],
+    ["GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME", input.credentialSecretName],
+  ].flatMap(([name, value]) => (value ? [] : [name]));
+
+  if (missing.length > 0) {
+    throw new Error(`${missing.join(", ")} are required when GOOGLE_MERCHANT_SYNC_ENABLED=true.`);
+  }
+  if (!/^[A-Z]{2}$/.test(input.targetCountry)) {
+    throw new Error("GOOGLE_MERCHANT_TARGET_COUNTRY must be an ISO 3166-1 alpha-2 country code such as US.");
+  }
+  if (!/^[a-z]{2}(-[A-Z]{2})?$/.test(input.contentLanguage)) {
+    throw new Error("GOOGLE_MERCHANT_CONTENT_LANGUAGE must be a language code such as en or en-US.");
+  }
+
+  return {
+    syncEnabled: true,
+    dryRun: input.dryRun,
+    merchantAccountId: input.merchantAccountId as string,
+    apiDataSourceId: input.apiDataSourceId as string,
+    targetCountry: input.targetCountry,
+    contentLanguage: input.contentLanguage,
+    feedLabel: input.feedLabel,
+    credentialSecretName: input.credentialSecretName as string,
   };
 }
 

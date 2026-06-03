@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { loadConfig } from "../src/config";
+import { describeGoogleMerchantConfigForLogs, loadConfig } from "../src/config";
 
 const envNames = [
   "DATABASE_URL",
@@ -17,6 +17,14 @@ const envNames = [
   "EASYPOST_API_KEY",
   "EASYPOST_API_BASE_URL",
   "EASYPOST_MODE",
+  "GOOGLE_MERCHANT_SYNC_ENABLED",
+  "GOOGLE_MERCHANT_DRY_RUN",
+  "GOOGLE_MERCHANT_ACCOUNT_ID",
+  "GOOGLE_MERCHANT_API_DATA_SOURCE_ID",
+  "GOOGLE_MERCHANT_TARGET_COUNTRY",
+  "GOOGLE_MERCHANT_CONTENT_LANGUAGE",
+  "GOOGLE_MERCHANT_FEED_LABEL",
+  "GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME",
   "NOTIFICATION_EMAIL_PROVIDER",
   "SES_AWS_REGION",
   "SES_AWS_ACCESS_KEY_ID",
@@ -90,10 +98,76 @@ describe("platform worker config", () => {
     expect(config.moneyMovement).toEqual({ kind: "fake" });
     expect(config.mobileMessaging).toEqual({ kind: "noop" });
     expect(config.postage).toEqual({ kind: "sandbox" });
+    expect(config.googleMerchant).toEqual({ syncEnabled: false, dryRun: true });
     expect(config.catalogAssetStorage).toEqual({
       kind: "filesystem",
       rootDir: "artifacts/catalog-assets",
       publicBaseUrl: `http://localhost:${config.port}/catalog-assets`,
+    });
+  });
+
+  it("keeps Google Merchant sync disabled unless explicitly enabled", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.GOOGLE_MERCHANT_ACCOUNT_ID = "123456";
+    process.env.GOOGLE_MERCHANT_API_DATA_SOURCE_ID = "7890";
+
+    expect(loadConfig().googleMerchant).toEqual({ syncEnabled: false, dryRun: true });
+  });
+
+  it("requires complete Google Merchant config when sync is enabled", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.GOOGLE_MERCHANT_SYNC_ENABLED = "true";
+    process.env.GOOGLE_MERCHANT_ACCOUNT_ID = "123456";
+
+    expect(() => loadConfig()).toThrow(
+      "GOOGLE_MERCHANT_API_DATA_SOURCE_ID, GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME are required when GOOGLE_MERCHANT_SYNC_ENABLED=true.",
+    );
+  });
+
+  it("loads Google Merchant config for enabled dry-run sync", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.GOOGLE_MERCHANT_SYNC_ENABLED = "true";
+    process.env.GOOGLE_MERCHANT_DRY_RUN = "true";
+    process.env.GOOGLE_MERCHANT_ACCOUNT_ID = "123456";
+    process.env.GOOGLE_MERCHANT_API_DATA_SOURCE_ID = "7890";
+    process.env.GOOGLE_MERCHANT_TARGET_COUNTRY = "US";
+    process.env.GOOGLE_MERCHANT_CONTENT_LANGUAGE = "en";
+    process.env.GOOGLE_MERCHANT_FEED_LABEL = "US";
+    process.env.GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME = "google-merchant-service-account";
+
+    expect(loadConfig().googleMerchant).toEqual({
+      syncEnabled: true,
+      dryRun: true,
+      merchantAccountId: "123456",
+      apiDataSourceId: "7890",
+      targetCountry: "US",
+      contentLanguage: "en",
+      feedLabel: "US",
+      credentialSecretName: "google-merchant-service-account",
+    });
+  });
+
+  it("redacts Google Merchant credential references from log descriptions", () => {
+    const description = describeGoogleMerchantConfigForLogs({
+      syncEnabled: true,
+      dryRun: false,
+      merchantAccountId: "123456",
+      apiDataSourceId: "7890",
+      targetCountry: "US",
+      contentLanguage: "en",
+      feedLabel: "US",
+      credentialSecretName: "google-merchant-service-account",
+    });
+
+    expect(description).toEqual({
+      syncEnabled: true,
+      dryRun: false,
+      merchantAccountId: "123456",
+      apiDataSourceId: "7890",
+      targetCountry: "US",
+      contentLanguage: "en",
+      feedLabel: "US",
+      credentialSecretName: "[configured]",
     });
   });
 
