@@ -1,22 +1,17 @@
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
-import type { SourceObservationPokemonCardNormalized, SourceObservationSourceProfileEvidence } from "../domain/domain";
+import type { SourceObservationPokemonCardNormalized } from "../domain/domain";
 import type { CatalogAssetStorage } from "./asset-storage";
 import { normalizeProductAssetSet, type CatalogImageProcessor } from "./product-asset-normalization";
 import {
-  requireActiveCatalogProviderSourceObservationMappingContract,
-  tcgdexPokemonTcgProviderProfile,
+  type CatalogProviderIntegrationProfile,
   type CatalogProviderExternalReferenceRule,
   type CatalogProviderVariantRule,
+  type TcgdexJsonConnectorProfile,
 } from "./provider-integration-profiles";
-import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
 import {
   dropRepeatedCatalogItemReferencesAcrossVariants,
   extractCatalogProviderExternalReferences,
 } from "./provider-external-reference-extractor";
-
-const TCGDEX_PROFILE = tcgdexPokemonTcgProviderProfile;
-const PROVIDER_KEY = TCGDEX_PROFILE.providerKey;
-const TCGDEX_SOURCE_OBSERVATION_MAPPING = requireActiveCatalogProviderSourceObservationMappingContract(PROVIDER_KEY);
 
 type JsonRecord = Record<string, unknown>;
 
@@ -104,19 +99,10 @@ export type TcgdexCard = Readonly<{
   pricing?: JsonRecord;
 }>;
 
-export type TcgdexObservationInput = SourceObservationSourceProfileEvidence &
-  Readonly<{
-    observationId: string;
-    providerKey: typeof PROVIDER_KEY;
-    externalKey: string;
-    sourceUrl: string;
-    languageCode: string;
-    sourceRecordHash: string;
-    sourceUpdatedAt: string | null;
-    observedAt: string;
-    normalized: SourceObservationPokemonCardNormalized;
-    sourcePayload: JsonValue;
-  }>;
+export type TcgdexObservationPayload = Readonly<{
+  observedAt: string;
+  payload: JsonObject;
+}>;
 
 type PokemonCardVariant = Readonly<{
   key: string;
@@ -141,17 +127,19 @@ export type TcgdexSetImportProgress = Readonly<{
   currentName: string | null;
 }>;
 
-export function listTcgdexLanguageOptions(): readonly TcgdexLanguageOption[] {
-  return TCGDEX_PROFILE.languageOptions.map((languageCode) => ({ languageCode }));
+export function listTcgdexLanguageOptions(profile: CatalogProviderIntegrationProfile): readonly TcgdexLanguageOption[] {
+  return profile.languageOptions.map((languageCode) => ({ languageCode }));
 }
 
 export async function fetchTcgdexSeriesOptions(input: {
+  profile: CatalogProviderIntegrationProfile;
   languageCode: string;
   fetch?: typeof globalThis.fetch;
 }): Promise<readonly TcgdexSeriesOption[]> {
   const languageCode = normalizeKey(input.languageCode || "en");
   const fetcher = input.fetch ?? globalThis.fetch;
-  const url = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.seriesList, { language: languageCode });
+  const connector = requireTcgdexConnector(input.profile);
+  const url = tcgdexUrl(connector, connector.endpoints.seriesList, { language: languageCode });
   const series = await fetchJson<readonly Omit<TcgdexSeries, "sets">[]>(fetcher, url);
 
   return series
@@ -164,6 +152,7 @@ export async function fetchTcgdexSeriesOptions(input: {
 }
 
 export async function fetchTcgdexExpansionOptions(input: {
+  profile: CatalogProviderIntegrationProfile;
   languageCode: string;
   seriesId?: string | null;
   fetch?: typeof globalThis.fetch;
@@ -171,36 +160,39 @@ export async function fetchTcgdexExpansionOptions(input: {
   const languageCode = normalizeKey(input.languageCode || "en");
   const seriesId = input.seriesId?.trim();
   const fetcher = input.fetch ?? globalThis.fetch;
+  const connector = requireTcgdexConnector(input.profile);
 
   if (seriesId) {
-    const url = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.seriesDetail, { language: languageCode, seriesId });
+    const url = tcgdexUrl(connector, connector.endpoints.seriesDetail, { language: languageCode, seriesId });
     const series = await fetchJson<TcgdexSeries>(fetcher, url);
 
     return series.sets.map((item) => toExpansionOption(item, series));
   }
 
-  const url = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.expansionList, { language: languageCode });
+  const url = tcgdexUrl(connector, connector.endpoints.expansionList, { language: languageCode });
   const sets = await fetchJson<readonly TcgdexSetBrief[]>(fetcher, url);
 
   return sets.map((item) => toExpansionOption(item, null));
 }
 
-export async function fetchTcgdexSetObservations(input: {
+export async function fetchTcgdexSetObservationPayloads(input: {
+  profile: CatalogProviderIntegrationProfile;
   languageCode: string;
   setId: string;
   fetch?: typeof globalThis.fetch;
   onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
-}): Promise<readonly TcgdexObservationInput[]> {
+}): Promise<readonly TcgdexObservationPayload[]> {
   const languageCode = normalizeKey(input.languageCode || "en");
   const setId = input.setId.trim();
   const fetcher = input.fetch ?? globalThis.fetch;
-  const setUrl = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.expansionDetail, {
+  const connector = requireTcgdexConnector(input.profile);
+  const setUrl = tcgdexUrl(connector, connector.endpoints.expansionDetail, {
     language: languageCode,
     expansionId: setId,
   });
   const set = await fetchJson<TcgdexSet>(fetcher, setUrl);
   const observedAt = new Date().toISOString();
-  const observations: TcgdexObservationInput[] = [];
+  const observations: TcgdexObservationPayload[] = [];
   await input.onProgress?.({
     phase: "fetching",
     completed: 0,
@@ -209,13 +201,14 @@ export async function fetchTcgdexSetObservations(input: {
   });
 
   for (const [index, cardBrief] of set.cards.entries()) {
-    const cardUrl = tcgdexUrl(TCGDEX_PROFILE.connector.endpoints.productDetail, {
+    const cardUrl = tcgdexUrl(connector, connector.endpoints.productDetail, {
       language: languageCode,
       cardId: cardBrief.id,
     });
     const card = await fetchJson<TcgdexCard>(fetcher, cardUrl);
     observations.push(
       ...(await toObservations({
+        profile: input.profile,
         card,
         set,
         languageCode,
@@ -251,20 +244,24 @@ function toExpansionOption(
 }
 
 async function toObservations(input: {
+  profile: CatalogProviderIntegrationProfile;
   card: TcgdexCard;
   set: TcgdexSet;
   languageCode: string;
   sourceUrl: string;
   observedAt: string;
-}): Promise<readonly TcgdexObservationInput[]> {
+}): Promise<readonly TcgdexObservationPayload[]> {
+  const connector = requireTcgdexConnector(input.profile);
   const releaseYear = releaseYearFromDate(input.set.releaseDate);
   const sourcePayload = toJsonValue(sanitizeTcgdexCardPayload(input.card));
-  const sourceImageUrls = input.card.image
-    ? [`${input.card.image}/${TCGDEX_PROFILE.connector.highQualityAssetVariant}`]
-    : [];
+  const sourceImageUrls = input.card.image ? [`${input.card.image}/${connector.highQualityAssetVariant}`] : [];
   const variants = normalizeVariants(input.card.variants);
-  const cardVariants = normalizeCardVariants(input.card.variants);
-  const externalCatalogItemReferencesByVariant = marketplaceCatalogItemReferencesByVariantKey(input.card, cardVariants);
+  const cardVariants = normalizeCardVariants(input.profile, input.card.variants);
+  const externalCatalogItemReferencesByVariant = marketplaceCatalogItemReferencesByVariantKey(
+    input.profile,
+    input.card,
+    cardVariants,
+  );
 
   return cardVariants.map((variant) => {
     const externalCatalogItemReferences = externalCatalogItemReferencesByVariant.get(variant.key) ?? [];
@@ -302,8 +299,7 @@ async function toObservations(input: {
       },
     };
 
-    const normalized = requireCatalogProviderSourceObservation({
-      contract: TCGDEX_SOURCE_OBSERVATION_MAPPING,
+    return {
       observedAt: input.observedAt,
       payload: toJsonValue({
         ...mappingPayload,
@@ -343,18 +339,13 @@ async function toObservations(input: {
           },
           sourcePayload,
         },
-      }),
-    });
-
-    return {
-      ...normalized,
-      providerKey: PROVIDER_KEY,
-      normalized: normalized.normalized as SourceObservationPokemonCardNormalized,
+      }) as JsonObject,
     };
   });
 }
 
 export async function normalizeTcgdexImageAsset(input: {
+  profile: CatalogProviderIntegrationProfile;
   imageBaseUrl: string;
   storageBaseKey: string;
   observedAt: string;
@@ -362,7 +353,8 @@ export async function normalizeTcgdexImageAsset(input: {
   assetStorage: CatalogAssetStorage;
   imageProcessor?: CatalogImageProcessor;
 }): Promise<NonNullable<SourceObservationPokemonCardNormalized["productAssetSet"]>> {
-  const assetUrl = `${input.imageBaseUrl}/${TCGDEX_PROFILE.connector.highQualityAssetVariant}`;
+  const connector = requireTcgdexConnector(input.profile);
+  const assetUrl = `${input.imageBaseUrl}/${connector.highQualityAssetVariant}`;
   const response = await input.fetcher(assetUrl);
   if (!response.ok) {
     throw new Error(`TCGdex asset request failed with ${response.status} for ${assetUrl}.`);
@@ -393,6 +385,7 @@ function sanitizeTcgdexCardPayload(card: TcgdexCard): JsonRecord {
 }
 
 function marketplaceCatalogItemReferencesByVariantKey(
+  profile: CatalogProviderIntegrationProfile,
   card: TcgdexCard,
   cardVariants: readonly PokemonCardVariant[],
 ): Map<
@@ -405,19 +398,19 @@ function marketplaceCatalogItemReferencesByVariantKey(
   >();
 
   for (const variant of cardVariants) {
-    const variantScope = variantRuleByVariantKey(variant.key) ?? {
+    const variantScope = variantRuleByVariantKey(profile, variant.key) ?? {
       variantKey: variant.key,
       sourceKeys: variant.sourceKey ? [variant.sourceKey] : [],
       pricingKeys: [variant.key],
     };
     const payloads = [
       card,
-      ...(card.variants_detailed ?? []).filter((detail) => variantDetailMatches(detail, variant)),
+      ...(card.variants_detailed ?? []).filter((detail) => variantDetailMatches(profile, detail, variant)),
     ];
     const resultReferences = payloads.flatMap(
       (payload) =>
         extractCatalogProviderExternalReferences({
-          rules: marketplaceReferenceRules().filter((rule) => rule.target === "catalog-item-reference"),
+          rules: marketplaceReferenceRules(profile).filter((rule) => rule.target === "catalog-item-reference"),
           payload: toJsonValue(payload),
           variant: variantScope,
         }).externalCatalogItemReferences,
@@ -428,9 +421,13 @@ function marketplaceCatalogItemReferencesByVariantKey(
   return new Map(dropRepeatedCatalogItemReferencesAcrossVariants(referencesByVariant));
 }
 
-function variantDetailMatches(detail: JsonRecord, variant: PokemonCardVariant): boolean {
+function variantDetailMatches(
+  profile: CatalogProviderIntegrationProfile,
+  detail: JsonRecord,
+  variant: PokemonCardVariant,
+): boolean {
   const sourceKey = stringField(detail, ["type", "variant", "variantType", "key", "name"]);
-  return sourceKey ? normalizeVariantKey(sourceKey) === variant.key : false;
+  return sourceKey ? normalizeVariantKey(profile, sourceKey) === variant.key : false;
 }
 
 function valueField(record: JsonRecord, keys: readonly string[]): unknown {
@@ -474,15 +471,18 @@ function normalizeVariants(variants: Readonly<Record<string, boolean>> | undefin
   );
 }
 
-function normalizeCardVariants(variants: Readonly<Record<string, boolean>> | undefined): readonly PokemonCardVariant[] {
+function normalizeCardVariants(
+  profile: CatalogProviderIntegrationProfile,
+  variants: Readonly<Record<string, boolean>> | undefined,
+): readonly PokemonCardVariant[] {
   const sourceKeysByVariantKey = new Map<string, string>();
   Object.entries(variants ?? {})
     .filter(([, value]) => value === true)
     .map(([key]) => key.trim())
     .filter((key) => key.length > 0)
-    .sort(compareVariantSourceKeys)
+    .sort(compareVariantSourceKeysForProfile(profile))
     .forEach((sourceKey) => {
-      const variantKey = normalizeVariantKey(sourceKey);
+      const variantKey = normalizeVariantKey(profile, sourceKey);
       if (!sourceKeysByVariantKey.has(variantKey)) {
         sourceKeysByVariantKey.set(variantKey, sourceKey);
       }
@@ -501,40 +501,43 @@ function normalizeCardVariants(variants: Readonly<Record<string, boolean>> | und
     ];
   }
 
-  const primaryKey = sourceKeys.find((key) => normalizeVariantKey(key) === "standard") ?? sourceKeys[0] ?? null;
+  const primaryKey =
+    sourceKeys.find((key) => normalizeVariantKey(profile, key) === "standard") ?? sourceKeys[0] ?? null;
 
   return sourceKeys.map((sourceKey) => {
-    const key = normalizeVariantKey(sourceKey);
+    const key = normalizeVariantKey(profile, sourceKey);
 
     return {
       key,
-      displayName: variantLabel(sourceKey),
+      displayName: variantLabel(profile, sourceKey),
       sourceKey,
       isPrimaryImage: sourceKey === primaryKey,
-      parallelSet: isParallelSetVariant(key),
+      parallelSet: isParallelSetVariant(profile, key),
     };
   });
 }
 
-function compareVariantSourceKeys(left: string, right: string): number {
-  const leftOrder = variantSortOrder(left);
-  const rightOrder = variantSortOrder(right);
+function compareVariantSourceKeysForProfile(profile: CatalogProviderIntegrationProfile) {
+  return (left: string, right: string): number => {
+    const leftOrder = variantSortOrder(profile, left);
+    const rightOrder = variantSortOrder(profile, right);
 
-  return leftOrder === rightOrder ? left.localeCompare(right) : leftOrder - rightOrder;
+    return leftOrder === rightOrder ? left.localeCompare(right) : leftOrder - rightOrder;
+  };
 }
 
-function variantSortOrder(sourceKey: string): number {
-  return variantRuleBySourceKey(sourceKey)?.sortOrder ?? 100;
+function variantSortOrder(profile: CatalogProviderIntegrationProfile, sourceKey: string): number {
+  return variantRuleBySourceKey(profile, sourceKey)?.sortOrder ?? 100;
 }
 
-function isParallelSetVariant(variantKey: string): boolean {
-  return variantRuleByVariantKey(variantKey)?.parallelSet ?? false;
+function isParallelSetVariant(profile: CatalogProviderIntegrationProfile, variantKey: string): boolean {
+  return variantRuleByVariantKey(profile, variantKey)?.parallelSet ?? false;
 }
 
-function normalizeVariantKey(sourceKey: string): string {
+function normalizeVariantKey(profile: CatalogProviderIntegrationProfile, sourceKey: string): string {
   const key = sourceKey.trim();
   const compact = key.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  const rule = variantRuleByCompactSourceKey(compact);
+  const rule = variantRuleByCompactSourceKey(profile, compact);
 
   if (rule) {
     return rule.variantKey;
@@ -547,35 +550,46 @@ function normalizeVariantKey(sourceKey: string): string {
     .replace(/(^-|-$)/g, "");
 }
 
-function variantLabel(sourceKey: string): string {
+function variantLabel(profile: CatalogProviderIntegrationProfile, sourceKey: string): string {
   return (
-    variantRuleBySourceKey(sourceKey)?.displayName ??
-    `${TCGDEX_PROFILE.normalizedObservationMapping.unknownVariantLabelPrefix} - ${humanizeVariantKey(sourceKey)}`
+    variantRuleBySourceKey(profile, sourceKey)?.displayName ??
+    `${profile.normalizedObservationMapping.unknownVariantLabelPrefix} - ${humanizeVariantKey(sourceKey)}`
   );
 }
 
-function marketplaceReferenceRules(): readonly CatalogProviderExternalReferenceRule[] {
-  return TCGDEX_PROFILE.externalReferenceExtractionRules.rules;
+function marketplaceReferenceRules(
+  profile: CatalogProviderIntegrationProfile,
+): readonly CatalogProviderExternalReferenceRule[] {
+  return profile.externalReferenceExtractionRules.rules;
 }
 
-function variantRules(): readonly CatalogProviderVariantRule[] {
-  return TCGDEX_PROFILE.normalizedObservationMapping.variantRules;
+function variantRules(profile: CatalogProviderIntegrationProfile): readonly CatalogProviderVariantRule[] {
+  return profile.normalizedObservationMapping.variantRules;
 }
 
-function variantRuleBySourceKey(sourceKey: string): CatalogProviderVariantRule | null {
-  return variantRuleByCompactSourceKey(sourceKey.toLowerCase().replace(/[^a-z0-9]+/g, ""));
+function variantRuleBySourceKey(
+  profile: CatalogProviderIntegrationProfile,
+  sourceKey: string,
+): CatalogProviderVariantRule | null {
+  return variantRuleByCompactSourceKey(profile, sourceKey.toLowerCase().replace(/[^a-z0-9]+/g, ""));
 }
 
-function variantRuleByCompactSourceKey(compactSourceKey: string): CatalogProviderVariantRule | null {
+function variantRuleByCompactSourceKey(
+  profile: CatalogProviderIntegrationProfile,
+  compactSourceKey: string,
+): CatalogProviderVariantRule | null {
   return (
-    variantRules().find((rule) =>
+    variantRules(profile).find((rule) =>
       rule.sourceKeys.some((sourceKey) => sourceKey.toLowerCase().replace(/[^a-z0-9]+/g, "") === compactSourceKey),
     ) ?? null
   );
 }
 
-function variantRuleByVariantKey(variantKey: string): CatalogProviderVariantRule | null {
-  return variantRules().find((rule) => rule.variantKey === variantKey) ?? null;
+function variantRuleByVariantKey(
+  profile: CatalogProviderIntegrationProfile,
+  variantKey: string,
+): CatalogProviderVariantRule | null {
+  return variantRules(profile).find((rule) => rule.variantKey === variantKey) ?? null;
 }
 
 function humanizeVariantKey(sourceKey: string): string {
@@ -652,10 +666,22 @@ function normalizeKey(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function tcgdexUrl(template: string, params: Readonly<Record<string, string>>): string {
+function requireTcgdexConnector(profile: CatalogProviderIntegrationProfile): TcgdexJsonConnectorProfile {
+  if (profile.connector.kind !== "tcgdex-json") {
+    throw new Error(`Catalog provider '${profile.providerKey}' does not use the TCGdex JSON connector.`);
+  }
+
+  return profile.connector;
+}
+
+function tcgdexUrl(
+  connector: TcgdexJsonConnectorProfile,
+  template: string,
+  params: Readonly<Record<string, string>>,
+): string {
   const path = Object.entries(params).reduce(
     (current, [key, value]) => current.replace(`{${key}}`, encodeURIComponent(value)),
     template,
   );
-  return `${TCGDEX_PROFILE.connector.baseUrl}${path}`;
+  return `${connector.baseUrl}${path}`;
 }

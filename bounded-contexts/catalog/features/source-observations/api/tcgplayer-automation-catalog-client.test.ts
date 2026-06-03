@@ -1,14 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "../../../support/seed-support/ids";
 import {
+  buildTcgplayerAutomationSourceObservationPayload,
   createTcgplayerAutomationCatalogClient,
   mapTcgplayerSkuExternalProductReferences,
   tcgplayerCatalogHashMaterial,
-  toTcgplayerAutomationSourceObservation,
   type TcgplayerAutomationProductDetail,
   type TcgplayerAutomationProductSearchResponse,
   type TcgplayerProductReferenceSchema,
 } from "./tcgplayer-automation-catalog-client";
+import {
+  requireCatalogProviderSourceObservationMappingContract,
+  tcgplayerAutomationClientProviderProfile,
+} from "./provider-integration-profiles";
+import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
 import { tcgplayerAutomationResponseFixtures } from "./tcgplayer-automation-response-fixtures.test-data";
 
 describe("TCGplayer automation Catalog client", () => {
@@ -70,7 +75,7 @@ describe("TCGplayer automation Catalog client", () => {
   });
 
   it("normalizes product detail into one provider-product Source Observation with Product and SKU references", () => {
-    const observation = toTcgplayerAutomationSourceObservation({
+    const observation = normalizeAutomationDetail({
       detail: tcgplayerAutomationResponseFixtures.productDetail,
       observedAt: "2026-06-02T00:00:00.000Z",
     });
@@ -146,7 +151,7 @@ describe("TCGplayer automation Catalog client", () => {
       skus: [],
     };
 
-    const observation = toTcgplayerAutomationSourceObservation({
+    const observation = normalizeAutomationDetail({
       detail: sealedDetail,
       observedAt: "2026-06-02T00:00:00.000Z",
     });
@@ -179,6 +184,8 @@ describe("TCGplayer automation Catalog client", () => {
     const references = mapTcgplayerSkuExternalProductReferences(
       tcgplayerAutomationResponseFixtures.productDetail,
       rawPokemonSingleProductReferenceSchema(),
+      tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+      tcgplayerAutomationClientProviderProfile.externalReferenceExtractionRules.rules,
     );
 
     expect(references).toEqual([
@@ -206,23 +213,28 @@ describe("TCGplayer automation Catalog client", () => {
   });
 
   it("blocks SKU Product references when a schema dimension has unknown provider evidence", () => {
-    const references = mapTcgplayerSkuExternalProductReferences(tcgplayerAutomationResponseFixtures.productDetail, {
-      dimensions: [
-        ...rawPokemonSingleProductReferenceSchema().dimensions,
-        {
-          dimensionKey: "printing",
-          dimensionId: "dim_printing",
-          required: true,
-          options: [{ optionId: "opt_reverse_holo", aliases: ["Reverse Holofoil"] }],
-        },
-      ],
-    });
+    const references = mapTcgplayerSkuExternalProductReferences(
+      tcgplayerAutomationResponseFixtures.productDetail,
+      {
+        dimensions: [
+          ...rawPokemonSingleProductReferenceSchema().dimensions,
+          {
+            dimensionKey: "printing",
+            dimensionId: "dim_printing",
+            required: true,
+            options: [{ optionId: "opt_reverse_holo", aliases: ["Reverse Holofoil"] }],
+          },
+        ],
+      },
+      tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+      tcgplayerAutomationClientProviderProfile.externalReferenceExtractionRules.rules,
+    );
 
     expect(references).toEqual([]);
   });
 
   it("can include validated SKU Product references in a Source Observation when a schema is supplied", () => {
-    const observation = toTcgplayerAutomationSourceObservation({
+    const observation = normalizeAutomationDetail({
       detail: tcgplayerAutomationResponseFixtures.productDetail,
       observedAt: "2026-06-02T00:00:00.000Z",
       productReferenceSchema: rawPokemonSingleProductReferenceSchema(),
@@ -259,12 +271,12 @@ describe("TCGplayer automation Catalog client", () => {
 
     expect(tcgplayerCatalogHashMaterial(repriced)).toEqual(tcgplayerCatalogHashMaterial(detail));
     expect(
-      toTcgplayerAutomationSourceObservation({
+      normalizeAutomationDetail({
         detail: repriced,
         observedAt: "2026-06-02T00:00:00.000Z",
       }).sourceRecordHash,
     ).toBe(
-      toTcgplayerAutomationSourceObservation({
+      normalizeAutomationDetail({
         detail,
         observedAt: "2026-06-02T00:00:00.000Z",
       }).sourceRecordHash,
@@ -288,6 +300,22 @@ function searchResponse(input: { totalResults: number; productId: number }): Tcg
       },
     ],
   };
+}
+
+function normalizeAutomationDetail(input: {
+  detail: TcgplayerAutomationProductDetail;
+  observedAt: string;
+  productReferenceSchema?: TcgplayerProductReferenceSchema | null;
+}) {
+  return requireCatalogProviderSourceObservation({
+    contract: requireCatalogProviderSourceObservationMappingContract("tcgplayer"),
+    payload: buildTcgplayerAutomationSourceObservationPayload({
+      ...input,
+      selectedOptionMapping: tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+      externalReferenceRules: tcgplayerAutomationClientProviderProfile.externalReferenceExtractionRules.rules,
+    }),
+    observedAt: input.observedAt,
+  });
 }
 
 function rawPokemonSingleProductReferenceSchema(): TcgplayerProductReferenceSchema {

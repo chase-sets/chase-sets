@@ -7,6 +7,7 @@ import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
 import type { SourceObservationNormalized, SourceObservationPokemonCardNormalized } from "../domain/domain";
 import { createSourceObservationRuntime, ensurePokemonReferenceHierarchy } from "./runtime";
+import { tcgdexPokemonTcgProviderProfile } from "./provider-integration-profiles";
 import type {
   TcgplayerAutomationCatalogClient,
   TcgplayerAutomationProductDetail,
@@ -39,6 +40,7 @@ describe("source observation runtime", () => {
     const firstExpansionReferenceId = await ensurePokemonReferenceHierarchy({
       deps: harness.deps,
       referenceData: harness.referenceData,
+      profile: tcgdexPokemonTcgProviderProfile,
       normalized: pokemonObservation({
         expansionName: "Ascended Heroes",
         seriesName: "Mega Evolution",
@@ -48,6 +50,7 @@ describe("source observation runtime", () => {
     const translatedExpansionReferenceId = await ensurePokemonReferenceHierarchy({
       deps: harness.deps,
       referenceData: harness.referenceData,
+      profile: tcgdexPokemonTcgProviderProfile,
       normalized: pokemonObservation({
         expansionName: "Heros Ascendidos",
         seriesName: "Mega Evolucion",
@@ -400,7 +403,7 @@ describe("source observation runtime", () => {
         observationId: "obs_changed",
         context,
       }),
-    ).rejects.toThrow("Catalog asset storage is required to promote TCGDex image assets.");
+    ).rejects.toThrow("Catalog asset storage is required to promote source observation image assets.");
     expect(harness.itemCommands).toEqual([]);
     expect(harness.appendedSourceEvents).toEqual([]);
   });
