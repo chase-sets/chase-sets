@@ -123,6 +123,50 @@ describe("provider mapping selector and transform interpreter", () => {
     });
   });
 
+  it("builds templated strings and arrays from provider evidence", () => {
+    const result = evaluateCatalogProviderMappingExpression(
+      {
+        ...baseExpression({ owner: "external-reference", uses: ["external-reference"] }),
+        selector: {
+          kind: "array",
+          items: [
+            {
+              ...baseExpression({ owner: "external-reference", uses: ["external-reference"] }),
+              selector: {
+                kind: "object",
+                fields: {
+                  providerKey: {
+                    ...baseExpression({ owner: "external-reference", uses: ["external-reference"] }),
+                    selector: { kind: "constant", value: "tcgplayer" },
+                  },
+                  externalKey: {
+                    ...baseExpression({ owner: "external-reference", uses: ["external-reference"] }),
+                    selector: {
+                      kind: "template",
+                      template: "product:{productId}",
+                      required: true,
+                      values: {
+                        productId: expr("product.productId", { transforms: [{ kind: "coerce", to: "string" }] }),
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+      payload,
+    );
+
+    expect(result).toMatchObject({
+      evidence: {
+        value: [{ providerKey: "tcgplayer", externalKey: "product:12345" }],
+      },
+      diagnostics: [],
+    });
+  });
+
   it("applies named selectors and transforms only when a registry explicitly provides them", () => {
     const options: CatalogProviderMappingInterpreterOptions = {
       namedSelectors: {

@@ -73,6 +73,8 @@ export type CatalogProviderMappingSelector =
   | CatalogProviderPathSelector
   | CatalogProviderConstantSelector
   | CatalogProviderCoalesceSelector
+  | CatalogProviderTemplateSelector
+  | CatalogProviderArraySelector
   | CatalogProviderObjectSelector
   | CatalogProviderArrayMapSelector
   | CatalogProviderNamedRuntimeSelector;
@@ -93,6 +95,18 @@ export type CatalogProviderCoalesceSelector = Readonly<{
   kind: "coalesce";
   selectors: readonly CatalogProviderMappingSelector[];
   required: boolean;
+}>;
+
+export type CatalogProviderTemplateSelector = Readonly<{
+  kind: "template";
+  template: string;
+  values: Readonly<Record<string, CatalogProviderMappingValueExpression>>;
+  required: boolean;
+}>;
+
+export type CatalogProviderArraySelector = Readonly<{
+  kind: "array";
+  items: readonly CatalogProviderMappingValueExpression[];
 }>;
 
 export type CatalogProviderObjectSelector = Readonly<{

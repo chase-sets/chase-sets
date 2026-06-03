@@ -93,7 +93,7 @@ operations, and constrained option output selectors. Runtime supplies transport
 operations such as `tcgdex-list-expansions` or `tcgplayer-list-set-names`; the
 profile decides which operation and mapping are valid for each provider query.
 
-The interpreter evaluates provider payload evidence only. It returns evidence values with owner, use, and redaction metadata; it does not automatically make output Catalog truth. It supports nested paths, constants, coalescing, object selectors, array mapping, string transforms, coercion, lookup tables, and explicitly registered named selectors/transforms. Missing required fields, unregistered named functions, lookup misses, empty arrays, and type coercion failures return diagnostics that identify the config path and redaction category without including raw provider values.
+The interpreter evaluates provider payload evidence only. It returns evidence values with owner, use, and redaction metadata; it does not automatically make output Catalog truth. It supports nested paths, constants, coalescing, templated string assembly, fixed arrays, object selectors, array mapping, string transforms, coercion, lookup tables, and explicitly registered named selectors/transforms. Missing required fields, unresolved template values, unregistered named functions, lookup misses, empty arrays, and type coercion failures return diagnostics that identify the config path and redaction category without including raw provider values.
 
 Profile activation and import preparation should validate executable expressions against fixture payloads before import jobs run. Invalid configs fail at validation time, not halfway through a live provider import.
 
