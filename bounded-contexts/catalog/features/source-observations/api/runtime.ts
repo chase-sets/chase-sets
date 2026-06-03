@@ -63,7 +63,7 @@ import {
 import {
   fetchTcgdexExpansionOptions,
   fetchTcgdexSeriesOptions,
-  fetchTcgdexSetObservations,
+  fetchTcgdexSetObservationPayloads,
   listTcgdexLanguageOptions,
   normalizeTcgdexImageAsset,
   type TcgdexExpansionOption,
@@ -73,7 +73,7 @@ import {
   type TcgdexSetImportResult,
 } from "./tcgdex-client";
 import {
-  toTcgplayerAutomationSourceObservation,
+  buildTcgplayerAutomationSourceObservationPayload,
   type TcgplayerAutomationCatalogClient,
   type TcgplayerAutomationProductDetail,
 } from "./tcgplayer-automation-catalog-client";
@@ -81,12 +81,14 @@ import {
   getCatalogProviderIntegrationProfile,
   getActiveCatalogProviderIntegrationProfileVersion,
   listCatalogProviderIntegrationProfiles,
-  tcgdexPokemonTcgProviderProfile,
+  requireCatalogProviderSourceObservationMappingContract,
   type CatalogProviderIntegrationProfile,
 } from "./provider-integration-profiles";
+import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
 import {
   planCatalogProviderPromotionCommands,
+  type CatalogProviderPromotionResolvedCatalogMapping,
   type CatalogProviderPromotionCommandPlanResult,
 } from "./provider-promotion-command-planner";
 import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
@@ -528,6 +530,7 @@ export function createSourceObservationRuntime(
       input.observation.normalized,
       input.observation.provider_key,
     );
+    const providerProfile = requireCatalogPromotionProfile(input.observation.provider_key, normalized);
     requirePromotionAssetPorts({ deps, normalized });
 
     const existingCatalogItemId =
@@ -540,18 +543,18 @@ export function createSourceObservationRuntime(
       );
     }
 
-    const duplicatePreventionProfile = existingCatalogItemId ? null : await loadPokemonTcgPromotionProfile(deps);
-    const duplicatePreventionResult = duplicatePreventionProfile
+    const catalogMapping = await loadPokemonTcgPromotionProfile(deps, providerProfile);
+    const duplicatePreventionResult = !existingCatalogItemId
       ? await resolveCatalogProviderDuplicatePrevention({
           db: deps.db,
-          profile: tcgdexPokemonTcgProviderProfile,
+          profile: providerProfile,
           providerKey: input.observation.provider_key,
           externalKey: input.observation.external_key,
           normalized,
           catalog: {
-            blueprintId: duplicatePreventionProfile.blueprintId,
-            categoryId: duplicatePreventionProfile.singlesCategoryId,
-            fieldIds: duplicatePreventionProfile.fieldIds,
+            blueprintId: catalogMapping.blueprintId,
+            categoryId: catalogMapping.categoryId,
+            fieldIds: catalogMapping.fieldIds,
           },
         })
       : null;
@@ -572,6 +575,8 @@ export function createSourceObservationRuntime(
           normalized,
           providerKey: input.observation.provider_key,
           externalKey: input.observation.external_key,
+          providerProfile,
+          catalogMapping,
           context: input.context,
         })
       : await createCatalogDraftFromObservation({
@@ -582,6 +587,8 @@ export function createSourceObservationRuntime(
           normalized,
           providerKey: input.observation.provider_key,
           externalKey: input.observation.external_key,
+          providerProfile,
+          catalogMapping,
           context: input.context,
         });
 
@@ -709,6 +716,7 @@ export function createSourceObservationRuntime(
       input.observation.normalized,
       input.observation.provider_key,
     );
+    const providerProfile = requireCatalogPromotionProfile(input.observation.provider_key, normalized);
     requirePromotionAssetPorts({ deps, normalized });
 
     if (input.observation.status !== "promoted") {
@@ -728,6 +736,8 @@ export function createSourceObservationRuntime(
       normalized,
       providerKey: input.observation.provider_key,
       externalKey: input.observation.external_key,
+      providerProfile,
+      catalogMapping: await loadPokemonTcgPromotionProfile(deps, providerProfile),
       context: input.context,
     });
     await commandHandler({
@@ -907,17 +917,32 @@ export function createSourceObservationRuntime(
     beforeRecordObservation?: () => Promise<void>;
     runRecordObservation?: DurableSideEffectRunner;
   }): Promise<TcgdexSetImportResult> {
-    const observations = await fetchTcgdexSetObservations({
+    const profile = requireCatalogImportProfile("tcgdex");
+    const contract = requireCatalogProviderSourceObservationMappingContract(profile.providerKey);
+    const observationPayloads = await fetchTcgdexSetObservationPayloads({
+      profile,
       languageCode: input.languageCode,
       setId: input.setId,
       onProgress: input.onProgress,
     });
+    const observations = observationPayloads.map(({ observedAt, payload }) =>
+      requireCatalogProviderSourceObservation({
+        contract,
+        payload,
+        observedAt,
+      }),
+    );
 
-    if (observations[0]) {
+    const firstObservation = observations[0] ?? null;
+    if (firstObservation) {
+      if (!isPokemonCardSourceObservationNormalized(firstObservation.normalized)) {
+        throw new Error("TCGdex import profile must produce Pokemon card Source Observations.");
+      }
       await ensurePokemonReferenceHierarchy({
         deps,
         referenceData,
-        normalized: observations[0].normalized,
+        profile,
+        normalized: firstObservation.normalized,
         context: input.context,
       });
     }
@@ -1533,7 +1558,7 @@ export function createSourceObservationRuntime(
         return 0;
       }
       const outcome: SourceObservationIntegrationJobOutcome = {
-        providerKey: job.scope.provider || tcgdexPokemonTcgProviderProfile.providerKey,
+        providerKey: job.scope.provider || defaultSourceObservationImportProviderKey(),
         languageCode: job.scope.language || "",
         expansionId: claim.unit.payload.observationId,
         status: "failed",
@@ -1655,6 +1680,7 @@ export function createSourceObservationRuntime(
           },
         ]
       : await fetchTcgdexExpansionOptions({
+          profile: providerProfile,
           languageCode,
           seriesId: scope.seriesId || null,
         });
@@ -1803,7 +1829,7 @@ export function createSourceObservationRuntime(
     const outcomes: SourceObservationIntegrationJobOutcome[] = [
       ...previousResult.outcomes,
       ...batchResult.outcomes.map((outcome) => ({
-        providerKey: input.job.scope.provider || tcgdexPokemonTcgProviderProfile.providerKey,
+        providerKey: input.job.scope.provider || defaultSourceObservationImportProviderKey(),
         languageCode: input.job.scope.language || "",
         expansionId: outcome.observationId,
         status: outcome.status,
@@ -1847,6 +1873,7 @@ export function createSourceObservationRuntime(
           },
         ]
       : await fetchTcgdexExpansionOptions({
+          profile: providerProfile,
           languageCode,
           seriesId: scope.seriesId || null,
         });
@@ -2143,9 +2170,22 @@ export function createSourceObservationRuntime(
 
       let observed = 0;
       const observedAt = new Date().toISOString();
+      const contract = requireCatalogProviderSourceObservationMappingContract("tcgplayer");
+      const selectedOptionMapping = input.providerProfile.selectedOptionMapping;
+      if (!selectedOptionMapping) {
+        throw new Error("TCGplayer import profile must define selected option mapping.");
+      }
       for (const detail of details) {
         await input.beforeRecordObservation?.();
-        const observation = toTcgplayerAutomationSourceObservation({ detail, observedAt });
+        const observation = requireCatalogProviderSourceObservation({
+          contract,
+          payload: buildTcgplayerAutomationSourceObservationPayload({
+            detail,
+            selectedOptionMapping,
+            externalReferenceRules: input.providerProfile.externalReferenceExtractionRules.rules,
+          }),
+          observedAt,
+        });
         const writeObservation = () => recordObservation(observation, input.context);
         if (input.runRecordObservation) {
           await input.runRecordObservation(writeObservation);
@@ -2275,7 +2315,7 @@ export function createSourceObservationRuntime(
       skipped: result.skipped,
       failed: result.failed,
       outcomes: result.outcomes.map((outcome) => ({
-        providerKey: input.scope.provider || tcgdexPokemonTcgProviderProfile.providerKey,
+        providerKey: input.scope.provider || defaultSourceObservationImportProviderKey(),
         languageCode: input.scope.language || "",
         expansionId: input.scope.setId || null,
         status: outcome.status,
@@ -2290,9 +2330,11 @@ export function createSourceObservationRuntime(
     commandHandler,
     importTcgdexSet: importTcgdexSetScope,
     importTcgplayerScope: processTcgplayerIntegrationImportJob,
-    listTcgdexLanguages: async () => listTcgdexLanguageOptions(),
-    listTcgdexSeries: async ({ languageCode }) => fetchTcgdexSeriesOptions({ languageCode }),
-    listTcgdexExpansions: async ({ languageCode, seriesId }) => fetchTcgdexExpansionOptions({ languageCode, seriesId }),
+    listTcgdexLanguages: async () => listTcgdexLanguageOptions(requireCatalogImportProfile("tcgdex")),
+    listTcgdexSeries: async ({ languageCode }) =>
+      fetchTcgdexSeriesOptions({ profile: requireCatalogImportProfile("tcgdex"), languageCode }),
+    listTcgdexExpansions: async ({ languageCode, seriesId }) =>
+      fetchTcgdexExpansionOptions({ profile: requireCatalogImportProfile("tcgdex"), languageCode, seriesId }),
     listIntegrationOptions: (input) => listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient),
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
@@ -2435,12 +2477,13 @@ async function listProviderIntegrationOptions(
     queryKind: input.queryKind,
     languageCode: input.languageCode,
     parentValue: input.parentValue,
-    defaultProviderKey: tcgdexPokemonTcgProviderProfile.providerKey,
+    defaultProviderKey: defaultSourceObservationImportProviderKey(),
     transports: {
-      listTcgdexLanguages: async () => listTcgdexLanguageOptions(),
-      listTcgdexSeries: async ({ languageCode }) => fetchTcgdexSeriesOptions({ languageCode }),
+      listTcgdexLanguages: async () => listTcgdexLanguageOptions(requireCatalogImportProfile("tcgdex")),
+      listTcgdexSeries: async ({ languageCode }) =>
+        fetchTcgdexSeriesOptions({ profile: requireCatalogImportProfile("tcgdex"), languageCode }),
       listTcgdexExpansions: async ({ languageCode, seriesId }) =>
-        fetchTcgdexExpansionOptions({ languageCode, seriesId }),
+        fetchTcgdexExpansionOptions({ profile: requireCatalogImportProfile("tcgdex"), languageCode, seriesId }),
       listTcgplayerProductLines: async () =>
         requireTcgplayerAutomationCatalogClient(tcgplayerAutomationCatalogClient).listProductLines(),
       listTcgplayerSetNames: async ({ productLineId }) => {
@@ -2468,7 +2511,7 @@ function normalizeIntegrationKey(value: string): string {
 }
 
 function requireCatalogImportProfile(providerKey: string | null | undefined): CatalogProviderIntegrationProfile {
-  const normalizedProvider = normalizeIntegrationKey(providerKey || tcgdexPokemonTcgProviderProfile.providerKey);
+  const normalizedProvider = normalizeIntegrationKey(providerKey || defaultSourceObservationImportProviderKey());
   const profile = getCatalogProviderIntegrationProfile(normalizedProvider);
   if (!profile || !profile.capabilities.includes("source-observation-import")) {
     throw new Error(`Provider '${normalizedProvider}' does not support background import.`);
@@ -2485,14 +2528,16 @@ async function createCatalogDraftFromObservation(input: {
   normalized: SourceObservationPokemonCardNormalized;
   providerKey: string;
   externalKey: string;
+  providerProfile: CatalogProviderIntegrationProfile;
+  catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   context: EventStoreContext;
 }): Promise<SourceObservationPromotionProfileEvidence> {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const profile = await loadPokemonTcgPromotionProfile(input.deps);
-  const profileVersion = requireActivePromotionProfileVersion();
+  const profileVersion = requireActivePromotionProfileVersion(input.providerProfile.providerKey);
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
+    profile: input.providerProfile,
     normalized: input.normalized,
     context: input.context,
   });
@@ -2503,6 +2548,7 @@ async function createCatalogDraftFromObservation(input: {
   });
   const productAssetSet = input.normalized.imageBaseUrl
     ? await normalizeTcgdexImageAsset({
+        profile: input.providerProfile,
         imageBaseUrl: input.normalized.imageBaseUrl,
         storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
         observedAt: new Date().toISOString(),
@@ -2511,7 +2557,7 @@ async function createCatalogDraftFromObservation(input: {
       })
     : null;
   const plan = planCatalogProviderPromotionCommands({
-    profile: tcgdexPokemonTcgProviderProfile,
+    profile: input.providerProfile,
     profileKey: profileVersion.profileKey,
     profileVersion: profileVersion.profileVersion,
     providerKey: input.providerKey,
@@ -2520,9 +2566,9 @@ async function createCatalogDraftFromObservation(input: {
     catalogItemId: input.catalogItemId,
     normalized: input.normalized,
     catalog: {
-      blueprintId: profile.blueprintId,
-      categoryId: profile.singlesCategoryId,
-      fieldIds: profile.fieldIds,
+      blueprintId: input.catalogMapping.blueprintId,
+      categoryId: input.catalogMapping.categoryId,
+      fieldIds: input.catalogMapping.fieldIds,
     },
     expansionReferenceId,
     metadata,
@@ -2548,14 +2594,16 @@ async function refreshCatalogItemFromObservation(input: {
   normalized: SourceObservationPokemonCardNormalized;
   providerKey: string;
   externalKey: string;
+  providerProfile: CatalogProviderIntegrationProfile;
+  catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   context: EventStoreContext;
 }): Promise<SourceObservationPromotionProfileEvidence> {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const profile = await loadPokemonTcgPromotionProfile(input.deps);
-  const profileVersion = requireActivePromotionProfileVersion();
+  const profileVersion = requireActivePromotionProfileVersion(input.providerProfile.providerKey);
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
+    profile: input.providerProfile,
     normalized: input.normalized,
     context: input.context,
   });
@@ -2566,6 +2614,7 @@ async function refreshCatalogItemFromObservation(input: {
   });
   const productAssetSet = input.normalized.imageBaseUrl
     ? await normalizeTcgdexImageAsset({
+        profile: input.providerProfile,
         imageBaseUrl: input.normalized.imageBaseUrl,
         storageBaseKey: catalogItemAssetObjectBaseKey(input.catalogItemId),
         observedAt: new Date().toISOString(),
@@ -2574,7 +2623,7 @@ async function refreshCatalogItemFromObservation(input: {
       })
     : null;
   const plan = planCatalogProviderPromotionCommands({
-    profile: tcgdexPokemonTcgProviderProfile,
+    profile: input.providerProfile,
     profileKey: profileVersion.profileKey,
     profileVersion: profileVersion.profileVersion,
     providerKey: input.providerKey,
@@ -2583,9 +2632,9 @@ async function refreshCatalogItemFromObservation(input: {
     catalogItemId: input.catalogItemId,
     normalized: input.normalized,
     catalog: {
-      blueprintId: profile.blueprintId,
-      categoryId: profile.singlesCategoryId,
-      fieldIds: profile.fieldIds,
+      blueprintId: input.catalogMapping.blueprintId,
+      categoryId: input.catalogMapping.categoryId,
+      fieldIds: input.catalogMapping.fieldIds,
     },
     expansionReferenceId,
     metadata,
@@ -2603,10 +2652,10 @@ async function refreshCatalogItemFromObservation(input: {
   return promotionEvidenceFromPlan(plan);
 }
 
-function requireActivePromotionProfileVersion() {
-  const version = getActiveCatalogProviderIntegrationProfileVersion(tcgdexPokemonTcgProviderProfile.providerKey);
+function requireActivePromotionProfileVersion(providerKey: string) {
+  const version = getActiveCatalogProviderIntegrationProfileVersion(providerKey);
   if (!version) {
-    throw new Error(`Catalog provider '${tcgdexPokemonTcgProviderProfile.providerKey}' has no active profile version.`);
+    throw new Error(`Catalog provider '${providerKey}' has no active profile version.`);
   }
   return version;
 }
@@ -2703,7 +2752,7 @@ function capitalize(value: string): string {
 
 function requireCatalogAssetStorage(assetStorage: CatalogRuntimeDeps["assetStorage"]) {
   if (!assetStorage) {
-    throw new Error("Catalog asset storage is required to promote TCGDex image assets.");
+    throw new Error("Catalog asset storage is required to promote source observation image assets.");
   }
 
   return assetStorage;
@@ -2716,11 +2765,12 @@ function catalogItemAssetObjectBaseKey(catalogItemId: CatalogItemId): string {
 export async function ensurePokemonReferenceHierarchy(input: {
   deps: CatalogRuntimeDeps;
   referenceData: ReferenceDataServices;
+  profile: CatalogProviderIntegrationProfile;
   normalized: SourceObservationPokemonCardNormalized;
   context: EventStoreContext;
 }): Promise<ReferenceRecordId> {
   const result = await provisionCatalogProviderReferenceHierarchy({
-    profile: tcgdexPokemonTcgProviderProfile,
+    profile: input.profile,
     payload: input.normalized as unknown as JsonValue,
     provisioner: {
       ensureReferenceType: (def) => ensureReferenceType(input, def),
@@ -2921,45 +2971,27 @@ function isProviderReferenceAttributeKey(key: string): boolean {
   return key.startsWith("tcgdex-") || key.startsWith("tcgplayer-") || key.startsWith("scryfall-");
 }
 
-async function loadPokemonTcgPromotionProfile(deps: CatalogRuntimeDeps): Promise<{
-  blueprintId: BlueprintId;
-  singlesCategoryId: CategoryId;
-  fieldIds: {
-    cardNumber: FieldId;
-    cardName: FieldId;
-    expansion: FieldId;
-    rarity: FieldId;
-    cardVariant: FieldId;
-    cardIllustrator: FieldId;
-    releaseYear: FieldId;
-  };
-}> {
-  const mapping = tcgdexPokemonTcgProviderProfile.catalogFieldMapping;
-  const [
-    blueprintId,
-    singlesCategoryId,
-    cardNumber,
-    cardName,
-    expansion,
-    rarity,
-    cardVariant,
-    cardIllustrator,
-    releaseYear,
-  ] = await Promise.all([
-    requireCatalogIdByKey<BlueprintId>(deps, "catalog_blueprints", "blueprint_id", mapping.blueprintKey),
-    requireCatalogIdByKey<CategoryId>(deps, "catalog_categories", "category_id", mapping.categoryKey),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.cardNumber),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.cardName),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.expansion),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.rarity),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.cardVariant),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.cardIllustrator),
-    requireCatalogIdByKey<FieldId>(deps, "catalog_fields", "field_id", mapping.fieldKeys.releaseYear),
-  ]);
+async function loadPokemonTcgPromotionProfile(
+  deps: CatalogRuntimeDeps,
+  profile: CatalogProviderIntegrationProfile,
+): Promise<CatalogProviderPromotionResolvedCatalogMapping> {
+  const mapping = profile.catalogFieldMapping;
+  const [blueprintId, categoryId, cardNumber, cardName, expansion, rarity, cardVariant, cardIllustrator, releaseYear] =
+    await Promise.all([
+      requireCatalogIdByKey<BlueprintId>(deps, profile, "catalog_blueprints", "blueprint_id", mapping.blueprintKey),
+      requireCatalogIdByKey<CategoryId>(deps, profile, "catalog_categories", "category_id", mapping.categoryKey),
+      requireCatalogIdByKey<FieldId>(deps, profile, "catalog_fields", "field_id", mapping.fieldKeys.cardNumber),
+      requireCatalogIdByKey<FieldId>(deps, profile, "catalog_fields", "field_id", mapping.fieldKeys.cardName),
+      requireCatalogIdByKey<FieldId>(deps, profile, "catalog_fields", "field_id", mapping.fieldKeys.expansion),
+      requireCatalogIdByKey<FieldId>(deps, profile, "catalog_fields", "field_id", mapping.fieldKeys.rarity),
+      requireCatalogIdByKey<FieldId>(deps, profile, "catalog_fields", "field_id", mapping.fieldKeys.cardVariant),
+      requireCatalogIdByKey<FieldId>(deps, profile, "catalog_fields", "field_id", mapping.fieldKeys.cardIllustrator),
+      requireCatalogIdByKey<FieldId>(deps, profile, "catalog_fields", "field_id", mapping.fieldKeys.releaseYear),
+    ]);
 
   return {
     blueprintId,
-    singlesCategoryId,
+    categoryId,
     fieldIds: {
       cardNumber,
       cardName,
@@ -2974,6 +3006,7 @@ async function loadPokemonTcgPromotionProfile(deps: CatalogRuntimeDeps): Promise
 
 async function requireCatalogIdByKey<TId extends string>(
   deps: CatalogRuntimeDeps,
+  profile: CatalogProviderIntegrationProfile,
   tableName: "catalog_blueprints" | "catalog_categories" | "catalog_fields",
   idColumnName: "blueprint_id" | "category_id" | "field_id",
   key: string,
@@ -2985,11 +3018,53 @@ async function requireCatalogIdByKey<TId extends string>(
   const id = existing.rows[0]?.id;
   if (!id) {
     throw new Error(
-      `${tcgdexPokemonTcgProviderProfile.displayName} promotion requires active Catalog ${tableName} key '${key}'. Run the Catalog integration bootstrap first.`,
+      `${profile.displayName} promotion requires active Catalog ${tableName} key '${key}'. Run the Catalog integration bootstrap first.`,
     );
   }
 
   return id as TId;
+}
+
+function requireCatalogPromotionProfile(
+  providerKey: string,
+  normalized: SourceObservationNormalized,
+): CatalogProviderIntegrationProfile {
+  const profile = getCatalogProviderIntegrationProfile(providerKey);
+  if (
+    profile?.capabilities.includes("catalog-item-promotion") &&
+    profile.normalizedObservationMapping.kind === normalized.kind
+  ) {
+    return profile;
+  }
+
+  const compatibleProfile = listCatalogProviderIntegrationProfiles().find(
+    (candidate) =>
+      candidate.status === "active" &&
+      candidate.capabilities.includes("catalog-item-promotion") &&
+      candidate.normalizedObservationMapping.kind === normalized.kind,
+  );
+  if (compatibleProfile) {
+    return compatibleProfile;
+  }
+
+  if (profile && profile.normalizedObservationMapping.kind !== normalized.kind) {
+    throw new Error(
+      `Provider '${providerKey}' promotion mapping '${profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
+    );
+  }
+
+  throw new Error(`Provider '${providerKey}' does not support Catalog Item promotion.`);
+}
+
+function defaultSourceObservationImportProviderKey(): string {
+  const profile = listCatalogProviderIntegrationProfiles().find(
+    (profile) => profile.status === "active" && profile.capabilities.includes("source-observation-import"),
+  );
+  if (!profile) {
+    throw new Error("No active Catalog source observation import provider is configured.");
+  }
+
+  return profile.providerKey;
 }
 
 function localizedText(value: string): LocalizedTextMap {
@@ -3455,7 +3530,7 @@ function integrationReapplyOutcomeFromBulkOutcome(
   outcome: BulkSourceObservationReapplyOutcome | undefined,
 ): SourceObservationIntegrationJobOutcome {
   return {
-    providerKey: job.scope.provider || tcgdexPokemonTcgProviderProfile.providerKey,
+    providerKey: job.scope.provider || defaultSourceObservationImportProviderKey(),
     languageCode: job.scope.language || "",
     expansionId: observationId,
     status: outcome?.status ?? "failed",

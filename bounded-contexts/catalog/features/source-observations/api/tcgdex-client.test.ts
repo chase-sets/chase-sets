@@ -2,10 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   fetchTcgdexExpansionOptions,
   fetchTcgdexSeriesOptions,
-  fetchTcgdexSetObservations,
+  fetchTcgdexSetObservationPayloads,
   listTcgdexLanguageOptions,
   normalizeTcgdexImageAsset,
+  type TcgdexObservationPayload,
 } from "./tcgdex-client";
+import {
+  requireCatalogProviderSourceObservationMappingContract,
+  tcgdexPokemonTcgProviderProfile,
+} from "./provider-integration-profiles";
+import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
 
 const testImageProcessor = {
   async metadata() {
@@ -25,7 +31,7 @@ const testImageProcessor = {
 
 describe("TCGdex client", () => {
   it("preloads supported language options from the Catalog-owned allowlist", () => {
-    expect(listTcgdexLanguageOptions()).toEqual(
+    expect(listTcgdexLanguageOptions(tcgdexPokemonTcgProviderProfile)).toEqual(
       expect.arrayContaining([{ languageCode: "en" }, { languageCode: "ja" }, { languageCode: "zh-tw" }]),
     );
   });
@@ -61,11 +67,20 @@ describe("TCGdex client", () => {
       return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
     };
 
-    await expect(fetchTcgdexSeriesOptions({ languageCode: "EN", fetch: fetcher })).resolves.toEqual([
+    await expect(
+      fetchTcgdexSeriesOptions({ profile: tcgdexPokemonTcgProviderProfile, languageCode: "EN", fetch: fetcher }),
+    ).resolves.toEqual([
       { seriesId: "me", name: "Mega Evolution", logoUrl: "https://assets.tcgdex.net/en/me/me01/logo" },
       { seriesId: "sv", name: "Scarlet & Violet", logoUrl: null },
     ]);
-    await expect(fetchTcgdexExpansionOptions({ languageCode: "en", seriesId: "me", fetch: fetcher })).resolves.toEqual([
+    await expect(
+      fetchTcgdexExpansionOptions({
+        profile: tcgdexPokemonTcgProviderProfile,
+        languageCode: "en",
+        seriesId: "me",
+        fetch: fetcher,
+      }),
+    ).resolves.toEqual([
       {
         expansionId: "me02.5",
         name: "Ascended Heroes",
@@ -126,11 +141,14 @@ describe("TCGdex client", () => {
       });
     };
 
-    const observations = await fetchTcgdexSetObservations({
-      languageCode: "en",
-      setId: "swsh3",
-      fetch: fetcher,
-    });
+    const observations = normalizeTcgdexObservationPayloads(
+      await fetchTcgdexSetObservationPayloads({
+        profile: tcgdexPokemonTcgProviderProfile,
+        languageCode: "en",
+        setId: "swsh3",
+        fetch: fetcher,
+      }),
+    );
 
     expect(observations).toHaveLength(2);
     expect(observations[0]).toMatchObject({
@@ -224,11 +242,14 @@ describe("TCGdex client", () => {
       return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
     };
 
-    const observations = await fetchTcgdexSetObservations({
-      languageCode: "en",
-      setId: "sv4pt5",
-      fetch: fetcher,
-    });
+    const observations = normalizeTcgdexObservationPayloads(
+      await fetchTcgdexSetObservationPayloads({
+        profile: tcgdexPokemonTcgProviderProfile,
+        languageCode: "en",
+        setId: "sv4pt5",
+        fetch: fetcher,
+      }),
+    );
 
     expect(observations.map((observation) => observation.normalized.cardVariantLabel)).toEqual([
       "Standard Set",
@@ -293,11 +314,14 @@ describe("TCGdex client", () => {
       return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
     };
 
-    const observations = await fetchTcgdexSetObservations({
-      languageCode: "en",
-      setId: "sv1",
-      fetch: fetcher,
-    });
+    const observations = normalizeTcgdexObservationPayloads(
+      await fetchTcgdexSetObservationPayloads({
+        profile: tcgdexPokemonTcgProviderProfile,
+        languageCode: "en",
+        setId: "sv1",
+        fetch: fetcher,
+      }),
+    );
 
     expect(observations.map((observation) => observation.normalized.externalCatalogItemReferences)).toEqual([
       [
@@ -349,11 +373,14 @@ describe("TCGdex client", () => {
       return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
     };
 
-    const observations = await fetchTcgdexSetObservations({
-      languageCode: "en",
-      setId: "swsh3",
-      fetch: fetcher,
-    });
+    const observations = normalizeTcgdexObservationPayloads(
+      await fetchTcgdexSetObservationPayloads({
+        profile: tcgdexPokemonTcgProviderProfile,
+        languageCode: "en",
+        setId: "swsh3",
+        fetch: fetcher,
+      }),
+    );
 
     expect(observations.map((observation) => observation.normalized.externalCatalogItemReferences)).toEqual([[], []]);
   });
@@ -400,14 +427,17 @@ describe("TCGdex client", () => {
     };
     const progress: unknown[] = [];
 
-    const observations = await fetchTcgdexSetObservations({
-      languageCode: "en",
-      setId: "swsh3",
-      fetch: fetcher,
-      onProgress: (event) => {
-        progress.push(event);
-      },
-    });
+    const observations = normalizeTcgdexObservationPayloads(
+      await fetchTcgdexSetObservationPayloads({
+        profile: tcgdexPokemonTcgProviderProfile,
+        languageCode: "en",
+        setId: "swsh3",
+        fetch: fetcher,
+        onProgress: (event) => {
+          progress.push(event);
+        },
+      }),
+    );
 
     expect(observations).toHaveLength(2);
     expect(progress).toEqual([
@@ -444,13 +474,16 @@ describe("TCGdex client", () => {
       return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
     };
 
-    await expect(
-      fetchTcgdexSetObservations({
+    const observations = normalizeTcgdexObservationPayloads(
+      await fetchTcgdexSetObservationPayloads({
+        profile: tcgdexPokemonTcgProviderProfile,
         languageCode: "en",
         setId: "swsh3",
         fetch: fetcher,
       }),
-    ).resolves.toMatchObject([
+    );
+
+    expect(observations).toMatchObject([
       {
         normalized: {
           imageBaseUrl: null,
@@ -486,6 +519,7 @@ describe("TCGdex client", () => {
     };
 
     const assetSet = await normalizeTcgdexImageAsset({
+      profile: tcgdexPokemonTcgProviderProfile,
       imageBaseUrl: "https://assets.tcgdex.net/en/swsh/swsh3/136",
       storageBaseKey: "catalog/items/cat_test/product-image",
       observedAt: "2026-05-19T00:00:00.000Z",
@@ -543,6 +577,7 @@ describe("TCGdex client", () => {
 
     await expect(
       normalizeTcgdexImageAsset({
+        profile: tcgdexPokemonTcgProviderProfile,
         imageBaseUrl: "https://assets.tcgdex.net/en/swsh/swsh3/136",
         storageBaseKey: "catalog/items/cat_test/product-image",
         observedAt: "2026-05-19T00:00:00.000Z",
@@ -558,3 +593,14 @@ describe("TCGdex client", () => {
     );
   });
 });
+
+function normalizeTcgdexObservationPayloads(payloads: readonly TcgdexObservationPayload[]) {
+  const contract = requireCatalogProviderSourceObservationMappingContract("tcgdex");
+  return payloads.map(({ observedAt, payload }) =>
+    requireCatalogProviderSourceObservation({
+      contract,
+      payload,
+      observedAt,
+    }),
+  );
+}

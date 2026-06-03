@@ -55,7 +55,9 @@ Most mapping rules should be declarative:
 - coerce simple value types
 - apply small named string or lookup transforms
 
-Some behavior remains a named reviewed runtime function until a generic interpreter can express it safely. Examples include existing TCGdex variant expansion, marketplace reference extraction, TCGdex Pokemon Reference Record hierarchy provisioning, Pokemon promotion command planning, TCGplayer SKU selected option resolution, and Scrydex/Scryfall-style `tcgplayer_id` extraction.
+Executable provider profiles are the canonical Catalog integration mapping path. Provider adapters may fetch, parse, and shape transport DTOs into the profile's declared fixture payload, but Source Observation normalization, hash material, external references, selected-option evidence, duplicate-prevention evidence, reference hierarchy, replay evidence, and promotion-plan evidence must be owned by the profile contract plus shared interpreters.
+
+Some behavior remains a named reviewed runtime function until the generic interpreter can express it safely. Those named functions must be referenced from profile contracts and covered by local fixtures; they must not reintroduce provider-specific mapping branches inside deployables or transport clients.
 
 Profiles may reference those functions by a stable function key. They may not execute arbitrary code or carry dynamic scripts.
 

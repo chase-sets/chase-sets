@@ -1,14 +1,9 @@
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
+import type { SourceObservationExternalProductReference } from "../domain/domain";
 import type {
-  SourceObservationExternalProductReference,
-  SourceObservationProviderProductNormalized,
-  SourceObservationSourceProfileEvidence,
-} from "../domain/domain";
-import {
-  requireCatalogProviderSourceObservationMappingContract,
-  tcgplayerAutomationClientProviderProfile,
+  CatalogProviderExternalReferenceRule,
+  CatalogProviderSelectedOptionMapping,
 } from "./provider-integration-profiles";
-import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
 import { extractCatalogProviderExternalReferences } from "./provider-external-reference-extractor";
 import {
   resolveCatalogProviderSelectedOptions,
@@ -132,27 +127,11 @@ export type TcgplayerAutomationProductSku = Readonly<{
   language: string;
 }>;
 
-export type TcgplayerAutomationSourceObservationInput = SourceObservationSourceProfileEvidence &
-  Readonly<{
-    observationId: string;
-    providerKey: "tcgplayer";
-    externalKey: string;
-    sourceUrl: string;
-    languageCode: string;
-    sourceRecordHash: string;
-    sourceUpdatedAt: string | null;
-    observedAt: string;
-    normalized: SourceObservationProviderProductNormalized;
-    sourcePayload: JsonValue;
-  }>;
-
 export type TcgplayerProductReferenceSchema = CatalogProviderProductReferenceSchema;
 
 export type TcgplayerProductReferenceDimension = CatalogProviderProductReferenceDimension;
 
 export type TcgplayerProductReferenceOption = CatalogProviderProductReferenceOption;
-
-const TCGPLAYER_SOURCE_OBSERVATION_MAPPING = requireCatalogProviderSourceObservationMappingContract("tcgplayer");
 
 export type TcgplayerAutomationCatalogClient = Readonly<{
   listProductLines: () => Promise<readonly TcgplayerAutomationProductLine[]>;
@@ -176,12 +155,13 @@ export function createTcgplayerAutomationCatalogClient(
   };
 }
 
-export function toTcgplayerAutomationSourceObservation(input: {
+export function buildTcgplayerAutomationSourceObservationPayload(input: {
   detail: TcgplayerAutomationProductDetail;
-  observedAt: string;
+  externalReferenceRules: readonly CatalogProviderExternalReferenceRule[];
+  selectedOptionMapping: CatalogProviderSelectedOptionMapping;
   sourceUrl?: string;
   productReferenceSchema?: TcgplayerProductReferenceSchema | null;
-}): TcgplayerAutomationSourceObservationInput {
+}): JsonObject {
   const languageCode = "en";
   const externalKey = `product:${input.detail.productId}`;
   const sourceUrl =
@@ -194,58 +174,56 @@ export function toTcgplayerAutomationSourceObservation(input: {
   const externalReferences = extractTcgplayerAutomationExternalReferences(
     input.detail,
     input.productReferenceSchema ?? null,
+    input.selectedOptionMapping,
+    input.externalReferenceRules,
   );
-  const normalized = requireCatalogProviderSourceObservation({
-    contract: TCGPLAYER_SOURCE_OBSERVATION_MAPPING,
-    observedAt: input.observedAt,
-    payload: {
-      ...input.detail,
-      observationId: `tcgplayer_${languageCode}_product_${input.detail.productId}`,
-      externalKey,
-      sourceUrl,
-      sourceUpdatedAt: input.detail.customAttributes.releaseDate ?? null,
-      sourcePayload: input.detail as JsonValue,
-      catalogHashMaterial: tcgplayerCatalogHashMaterial(input.detail),
-      productForm: tcgplayerProductForm(input.detail),
-      barcode: tcgplayerProductBarcode(input.detail),
-      mergeIdentity: {
-        tcg: normalizeTcgName(input.detail.productLineName),
-        productLineName: input.detail.productLineName,
-        setName: input.detail.setName,
-        printedProductName: input.detail.productName,
-        collectorNumber: input.detail.customAttributes.number ?? null,
-        languageCode,
-        productForm: tcgplayerProductForm(input.detail),
-        barcode: tcgplayerProductBarcode(input.detail),
-      },
-      externalCatalogItemReferences: externalReferences.externalCatalogItemReferences,
-      externalProductReferences: externalReferences.externalProductReferences,
-      skuReferences,
-    },
-  });
 
   return {
-    ...normalized,
-    providerKey: "tcgplayer",
-    normalized: normalized.normalized as SourceObservationProviderProductNormalized,
+    ...input.detail,
+    observationId: `tcgplayer_${languageCode}_product_${input.detail.productId}`,
+    externalKey,
+    sourceUrl,
+    sourceUpdatedAt: input.detail.customAttributes.releaseDate ?? null,
+    sourcePayload: input.detail as JsonValue,
+    catalogHashMaterial: tcgplayerCatalogHashMaterial(input.detail),
+    productForm: tcgplayerProductForm(input.detail),
+    barcode: tcgplayerProductBarcode(input.detail),
+    mergeIdentity: {
+      tcg: normalizeTcgName(input.detail.productLineName),
+      productLineName: input.detail.productLineName,
+      setName: input.detail.setName,
+      printedProductName: input.detail.productName,
+      collectorNumber: input.detail.customAttributes.number ?? null,
+      languageCode,
+      productForm: tcgplayerProductForm(input.detail),
+      barcode: tcgplayerProductBarcode(input.detail),
+    },
+    externalCatalogItemReferences: externalReferences.externalCatalogItemReferences,
+    externalProductReferences: externalReferences.externalProductReferences,
+    skuReferences,
   };
 }
 
 export function mapTcgplayerSkuExternalProductReferences(
   detail: TcgplayerAutomationProductDetail,
   schema: TcgplayerProductReferenceSchema,
+  selectedOptionMapping: CatalogProviderSelectedOptionMapping,
+  externalReferenceRules: readonly CatalogProviderExternalReferenceRule[],
 ): readonly SourceObservationExternalProductReference[] {
-  return extractTcgplayerAutomationExternalReferences(detail, schema).externalProductReferences;
+  return extractTcgplayerAutomationExternalReferences(detail, schema, selectedOptionMapping, externalReferenceRules)
+    .externalProductReferences;
 }
 
 function extractTcgplayerAutomationExternalReferences(
   detail: TcgplayerAutomationProductDetail,
   schema: TcgplayerProductReferenceSchema | null,
+  selectedOptionMapping: CatalogProviderSelectedOptionMapping,
+  externalReferenceRules: readonly CatalogProviderExternalReferenceRule[],
 ) {
   const skus = detail.skus.map((sku) => {
     const selectedOptionResult = schema
       ? resolveCatalogProviderSelectedOptions({
-          mapping: tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+          mapping: selectedOptionMapping,
           payload: detail as unknown as JsonValue,
           record: sku as unknown as JsonValue,
           productReferenceSchema: schema,
@@ -259,7 +237,7 @@ function extractTcgplayerAutomationExternalReferences(
   });
 
   return extractCatalogProviderExternalReferences({
-    rules: tcgplayerAutomationClientProviderProfile.externalReferenceExtractionRules.rules,
+    rules: externalReferenceRules,
     payload: {
       ...detail,
       skus,
