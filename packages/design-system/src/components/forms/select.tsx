@@ -123,9 +123,12 @@ export function Select({
           </SelectPrimitive.Icon>
         </SelectPrimitive.Trigger>
         <SelectPrimitive.Portal container={overlayNode ?? undefined}>
-          <SelectPrimitive.Positioner sideOffset={8} className="z-popover min-w-[var(--anchor-width)]">
+          <SelectPrimitive.Positioner
+            sideOffset={8}
+            className="z-popover min-w-[var(--anchor-width)] max-w-[calc(100vw-2rem)]"
+          >
             <SelectPrimitive.Popup className="modern-surface overflow-hidden rounded-tokenLg border border-muted shadow-overlay">
-              <SelectPrimitive.List className="p-2">
+              <SelectPrimitive.List className="motion-safe-scroll-area max-h-[min(18rem,calc(100dvh-8rem))] overscroll-contain p-2 [scrollbar-gutter:stable] [touch-action:pan-y]">
                 {items.map((item) => (
                   <SelectPrimitive.Item
                     key={item.value}

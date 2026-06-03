@@ -1,4 +1,4 @@
-import { useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
@@ -12,6 +12,7 @@ export interface ComboboxProps extends BaseInputProps {
   onValueChange?: (value: string) => void;
   placeholder?: string;
   noMatchesLabel?: string;
+  disabled?: boolean;
 }
 
 export function Combobox({
@@ -25,18 +26,26 @@ export function Combobox({
   onValueChange,
   placeholder = "Search options",
   noMatchesLabel = "No matches",
+  disabled = false,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const inputId = useId();
   const listboxId = useId();
   const selected = items.find((item) => item.value === value);
+  const selectedLabel = selected?.label ?? "";
   const itemValues = useMemo(() => items.map((item) => item.value), [items]);
   const filteredItems = useMemo(
     () => items.filter((item) => item.label.toLowerCase().includes(query.toLowerCase())),
     [items, query],
   );
   const { overlayNode } = usePortalRoots();
+
+  useEffect(() => {
+    if (!open) {
+      setQuery(selectedLabel);
+    }
+  }, [open, selectedLabel]);
 
   return (
     <FieldChrome
@@ -52,7 +61,11 @@ export function Combobox({
         value={value ?? null}
         inputValue={query}
         open={open}
-        onOpenChange={setOpen}
+        disabled={disabled}
+        onOpenChange={(nextOpen) => {
+          setOpen(nextOpen);
+          setQuery(nextOpen ? "" : selectedLabel);
+        }}
         onInputValueChange={setQuery}
         onValueChange={(nextValue) => {
           if (nextValue !== null) {
@@ -76,13 +89,17 @@ export function Combobox({
         >
           <ComboboxPrimitive.Input
             id={inputId}
-            placeholder={selected?.label ?? placeholder}
+            placeholder={placeholder}
             aria-controls={listboxId}
             aria-describedby={error || description ? fieldHintId(inputId) : undefined}
             aria-invalid={!!error || undefined}
+            disabled={disabled}
             className="min-w-0 flex-1 bg-transparent px-4 py-2.5 outline-none"
           />
-          <ComboboxPrimitive.Trigger className="focus-ring mr-2 inline-flex h-8 w-8 items-center justify-center rounded-tokenSm">
+          <ComboboxPrimitive.Trigger
+            disabled={disabled}
+            className="focus-ring mr-2 inline-flex h-8 w-8 items-center justify-center rounded-tokenSm disabled:cursor-not-allowed disabled:opacity-50"
+          >
             <Icon name="chevronDown" size="sm" tone="secondary" />
           </ComboboxPrimitive.Trigger>
         </ComboboxPrimitive.InputGroup>
@@ -92,7 +109,7 @@ export function Combobox({
               <ComboboxPrimitive.List
                 id={listboxId}
                 aria-label={typeof label === "string" ? label : "Options"}
-                className="motion-safe-scroll-area max-h-60 space-y-1"
+                className="motion-safe-scroll-area max-h-[min(15rem,calc(100dvh-8rem))] space-y-1 overscroll-contain [scrollbar-gutter:stable] [touch-action:pan-y]"
               >
                 {filteredItems.length === 0 ? (
                   <ComboboxPrimitive.Empty className="rounded-tokenMd bg-background px-3 py-2 text-sm text-secondary">
