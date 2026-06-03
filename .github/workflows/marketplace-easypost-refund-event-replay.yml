@@ -1,0 +1,172 @@
+name: Marketplace EasyPost Refund Event Replay
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment_name:
+        description: Environment whose EasyPost secrets should be used.
+        required: true
+        default: production
+        type: choice
+        options:
+          - staging
+          - production
+      mode:
+        description: Use dry-run to inspect only, replay to post one matching real EasyPost refund event.
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - replay
+      webhook_url:
+        description: Optional Chase Sets postage webhook URL override. Defaults from environment.
+        required: false
+        type: string
+      event_id:
+        description: Optional EasyPost evt_ id to inspect/replay.
+        required: false
+        type: string
+      target_shipment_id:
+        description: Optional EasyPost shp_ id to filter refund events.
+        required: false
+        type: string
+      target_refund_id:
+        description: Optional EasyPost rfnd_ id to filter refund events.
+        required: false
+        type: string
+      target_tracking_code:
+        description: Optional tracking code to filter refund events.
+        required: false
+        type: string
+      start_datetime:
+        description: Optional event search start timestamp.
+        required: false
+        type: string
+      end_datetime:
+        description: Optional event search end timestamp.
+        required: false
+        type: string
+      max_pages:
+        description: Maximum EasyPost event pages to inspect.
+        required: false
+        default: "5"
+        type: string
+      confirm:
+        description: Type "replay easypost refund event" only when mode is replay.
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: marketplace-easypost-refund-event-replay-${{ inputs.environment_name }}
+  cancel-in-progress: false
+
+jobs:
+  easypost-refund-event-replay:
+    name: EasyPost Refund Event Replay
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: ${{ inputs.environment_name }}
+    env:
+      EASYPOST_API_KEY: ${{ secrets.EASYPOST_API_KEY }}
+      EASYPOST_WEBHOOK_SECRET: ${{ secrets.EASYPOST_WEBHOOK_SECRET }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-pnpm-workspace
+        with:
+          install: true
+
+      - name: Run EasyPost refund event replay
+        env:
+          REPLAY_MODE: ${{ inputs.mode }}
+          WEBHOOK_URL: ${{ inputs.webhook_url }}
+          EVENT_ID: ${{ inputs.event_id }}
+          TARGET_SHIPMENT_ID: ${{ inputs.target_shipment_id }}
+          TARGET_REFUND_ID: ${{ inputs.target_refund_id }}
+          TARGET_TRACKING_CODE: ${{ inputs.target_tracking_code }}
+          START_DATETIME: ${{ inputs.start_datetime }}
+          END_DATETIME: ${{ inputs.end_datetime }}
+          MAX_PAGES: ${{ inputs.max_pages }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/easypost-refund-event-replay
+          webhook_url="$WEBHOOK_URL"
+          if [ -z "$webhook_url" ]; then
+            case "${{ inputs.environment_name }}" in
+              production) webhook_url="https://chasesets.com/api/fulfillment/provider/postage/webhooks" ;;
+              staging) webhook_url="https://marketplace.staging.chasesets.com/api/fulfillment/provider/postage/webhooks" ;;
+              *)
+                echo "Unsupported environment '${{ inputs.environment_name }}'." >&2
+                exit 1
+                ;;
+            esac
+          fi
+
+          args=(
+            "--mode" "$REPLAY_MODE"
+            "--webhook-url" "$webhook_url"
+            "--max-pages" "$MAX_PAGES"
+          )
+          if [ -n "$EVENT_ID" ]; then
+            args+=("--event-id" "$EVENT_ID")
+          fi
+          if [ -n "$TARGET_SHIPMENT_ID" ]; then
+            args+=("--target-shipment-id" "$TARGET_SHIPMENT_ID")
+          fi
+          if [ -n "$TARGET_REFUND_ID" ]; then
+            args+=("--target-refund-id" "$TARGET_REFUND_ID")
+          fi
+          if [ -n "$TARGET_TRACKING_CODE" ]; then
+            args+=("--target-tracking-code" "$TARGET_TRACKING_CODE")
+          fi
+          if [ -n "$START_DATETIME" ]; then
+            args+=("--start-datetime" "$START_DATETIME")
+          fi
+          if [ -n "$END_DATETIME" ]; then
+            args+=("--end-datetime" "$END_DATETIME")
+          fi
+          if [ -n "$CONFIRM" ]; then
+            args+=("--confirm" "$CONFIRM")
+          fi
+
+          pnpm run marketplace:easypost-refund-event-replay -- "${args[@]}" \
+            > artifacts/easypost-refund-event-replay/easypost-refund-event-replay.json
+
+      - name: Summarize EasyPost refund event replay
+        run: |
+          set -euo pipefail
+          REPORT_PATH="artifacts/easypost-refund-event-replay/easypost-refund-event-replay.json" node <<'NODE'
+          const fs = require("node:fs");
+          const report = JSON.parse(fs.readFileSync(process.env.REPORT_PATH, "utf8"));
+          const replay = report.replay;
+          const lines = [
+            "### EasyPost refund event replay",
+            "",
+            `- Mode: ${report.mode}`,
+            `- Checked at: ${report.checkedAt}`,
+            `- Matching refund events: ${report.refundEventCount}`,
+            `- Selected event: ${report.selectedEvent?.id ?? "none"}`,
+            `- Replay attempted: ${Boolean(replay?.attempted)}`,
+          ];
+          if (replay) {
+            lines.push(
+              `- Replay source: ${replay.source}`,
+              `- Replay response status: ${replay.responseStatus}`,
+              `- Replay succeeded: ${replay.succeeded}`,
+            );
+          }
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\n")}\n`);
+          NODE
+
+      - name: Upload EasyPost refund event replay report
+        uses: actions/upload-artifact@v7
+        with:
+          name: easypost-refund-event-replay-${{ inputs.environment_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: artifacts/easypost-refund-event-replay/easypost-refund-event-replay.json
+          if-no-files-found: error
+          retention-days: 30
