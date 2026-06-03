@@ -29,6 +29,8 @@ export type SourceObservationMergeIdentity = Readonly<{
   printedProductName: string;
   collectorNumber: string | null;
   languageCode: string;
+  productForm?: string | null;
+  barcode?: string | null;
 }>;
 
 export type SourceObservationNormalizedBase = Readonly<{

@@ -86,6 +86,16 @@ describe("TCGplayer automation Catalog client", () => {
         providerProductName: "Eevee ex",
         productLineName: "Pokemon",
         productCategoryName: "Cards",
+        mergeIdentity: {
+          tcg: "pokemon",
+          productLineName: "Pokemon",
+          setName: "Prismatic Evolutions",
+          printedProductName: "Eevee ex",
+          collectorNumber: "167/131",
+          languageCode: "en",
+          productForm: "single",
+          barcode: null,
+        },
         externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610001" }],
         externalProductReferences: [],
         skuReferences: [
@@ -118,6 +128,51 @@ describe("TCGplayer automation Catalog client", () => {
     expect(observation.normalized.externalProductReferences).not.toContainEqual(
       expect.objectContaining({ externalKey: "product:610001" }),
     );
+  });
+
+  it("carries sealed-product merge evidence without treating it as single-card identity", () => {
+    const sealedDetail: TcgplayerAutomationProductDetail = {
+      ...tcgplayerAutomationResponseFixtures.productDetail,
+      productId: 610777,
+      productName: "Prismatic Evolutions Booster Box",
+      productTypeName: "Booster Box",
+      rarityName: "",
+      sealed: true,
+      customAttributes: {
+        ...tcgplayerAutomationResponseFixtures.productDetail.customAttributes,
+        number: undefined,
+        barcode: "0084123456789",
+      },
+      skus: [],
+    };
+
+    const observation = toTcgplayerAutomationSourceObservation({
+      detail: sealedDetail,
+      observedAt: "2026-06-02T00:00:00.000Z",
+    });
+
+    expect(observation.normalized).toMatchObject({
+      kind: "provider-product",
+      providerProductId: "610777",
+      name: "Prismatic Evolutions Booster Box",
+      cardNumber: null,
+      mergeIdentity: {
+        tcg: "pokemon",
+        productLineName: "Pokemon",
+        setName: "Prismatic Evolutions",
+        printedProductName: "Prismatic Evolutions Booster Box",
+        collectorNumber: null,
+        languageCode: "en",
+        productForm: "sealed",
+        barcode: "0084123456789",
+      },
+      externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:610777" }],
+    });
+    expect(tcgplayerCatalogHashMaterial(sealedDetail)).toMatchObject({
+      productId: 610777,
+      productForm: "sealed",
+      barcode: "0084123456789",
+    });
   });
 
   it("maps only SKU references whose selected options validate against the Product schema", () => {

@@ -289,6 +289,8 @@ async function toObservations(input: {
         printedProductName: input.card.name,
         collectorNumber: String(input.card.localId),
         languageCode: input.languageCode,
+        productForm: "single",
+        barcode: null,
       },
       productAssetSet: null,
       parallelSet: variant.parallelSet,

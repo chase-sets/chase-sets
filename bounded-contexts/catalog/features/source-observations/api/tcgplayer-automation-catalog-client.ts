@@ -96,7 +96,13 @@ export type TcgplayerAutomationProductDetail = Readonly<{
     releaseDate?: string;
     cardType?: readonly string[];
     detailNote?: string;
+    barcode?: string;
+    gtin?: string;
+    upc?: string;
   }>;
+  barcode?: string;
+  gtin?: string;
+  upc?: string;
   formattedAttributes?: Readonly<{
     Artist?: string;
   }>;
@@ -196,6 +202,8 @@ export function toTcgplayerAutomationSourceObservation(input: {
       printedProductName: input.detail.productName,
       collectorNumber: input.detail.customAttributes.number ?? null,
       languageCode,
+      productForm: tcgplayerProductForm(input.detail),
+      barcode: tcgplayerProductBarcode(input.detail),
     },
     externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey }],
     externalProductReferences: input.productReferenceSchema
@@ -253,6 +261,8 @@ export function tcgplayerCatalogHashMaterial(detail: TcgplayerAutomationProductD
     setName: detail.setName,
     rarityName: detail.rarityName,
     sealed: detail.sealed,
+    productForm: tcgplayerProductForm(detail),
+    barcode: tcgplayerProductBarcode(detail),
     productStatusId: detail.productStatusId,
     number: detail.customAttributes.number,
     releaseDate: detail.customAttributes.releaseDate,
@@ -265,6 +275,32 @@ export function tcgplayerCatalogHashMaterial(detail: TcgplayerAutomationProductD
       language: sku.language,
     })),
   };
+}
+
+function tcgplayerProductForm(detail: Pick<TcgplayerAutomationProductDetail, "sealed">): "sealed" | "single" {
+  return detail.sealed ? "sealed" : "single";
+}
+
+function tcgplayerProductBarcode(detail: TcgplayerAutomationProductDetail): string | null {
+  return firstNonEmptyString(
+    detail.gtin,
+    detail.upc,
+    detail.barcode,
+    detail.customAttributes.gtin,
+    detail.customAttributes.upc,
+    detail.customAttributes.barcode,
+  );
+}
+
+function firstNonEmptyString(...values: readonly (string | null | undefined)[]): string | null {
+  for (const value of values) {
+    const normalized = value?.trim();
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return null;
 }
 
 async function listAllTcgplayerAutomationProducts(

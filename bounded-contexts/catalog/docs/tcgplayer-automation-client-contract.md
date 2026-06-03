@@ -242,6 +242,12 @@ merge candidates from product line, set name, card number, normalized product
 name, variant/printing, and language. Candidate evidence is review-only when it
 is not unique.
 
+Sealed TCGplayer products must not reuse single-card deterministic identity.
+Their merge identity uses product line, set/group, normalized product name,
+product form, language, and barcode/GTIN/UPC when the automation response
+provides it. A sealed product without an exact external reference or unique
+sealed-product identity stays in review rather than creating an automatic match.
+
 Replaying the same import must not duplicate Source Observations, Catalog Items,
 external catalog item references, or external product references.
 
