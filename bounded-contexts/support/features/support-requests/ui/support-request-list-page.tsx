@@ -2,16 +2,16 @@ import { t } from "@chase-sets/localization";
 import { Form } from "react-router";
 import { useMemo, useState } from "react";
 import {
-  Input,
+  Button,
+  Select,
+  TextInput,
   UiBadge,
-  UiButton,
   UiEmptyState,
   UiGrid,
   UiInline,
   UiPage,
   UiPageHeader,
   UiPageSection,
-  UiSelect,
   UiStack,
   UiSurface,
   UiTable,
@@ -139,41 +139,33 @@ function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFl
         <input type="hidden" name="openedByRole" value={openedByRole} />
         <input type="hidden" name="flowType" value={selectedFlowType} />
         <UiGrid className="md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)]">
-          <label className="grid gap-2 text-sm font-semibold">
-            {t("support.features.supportRequests.ui.supportRequestListPage.open.order")}
-            <Input
-              name="orderId"
-              placeholder={t("support.features.supportRequests.ui.supportRequestListPage.open.order.placeholder")}
-              required
-            />
-          </label>
-          <label className="grid gap-2 text-sm font-semibold">
-            {t("support.features.supportRequests.ui.supportRequestListPage.open.role")}
-            <UiSelect
-              label={t("support.features.supportRequests.ui.supportRequestListPage.open.role")}
-              value={openedByRole}
-              onValueChange={changeRole}
-              items={[
-                {
-                  value: "buyer",
-                  label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.buyer"),
-                },
-                {
-                  value: "seller",
-                  label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.seller"),
-                },
-              ]}
-            />
-          </label>
-          <label className="grid gap-2 text-sm font-semibold">
-            {t("support.features.supportRequests.ui.supportRequestListPage.open.issue")}
-            <UiSelect
-              label={t("support.features.supportRequests.ui.supportRequestListPage.open.issue")}
-              value={selectedFlowType}
-              onValueChange={(nextValue) => setSelectedFlowType(nextValue as typeof selectedFlowType)}
-              items={flowItems}
-            />
-          </label>
+          <TextInput
+            label={t("support.features.supportRequests.ui.supportRequestListPage.open.order")}
+            name="orderId"
+            placeholder={t("support.features.supportRequests.ui.supportRequestListPage.open.order.placeholder")}
+            required
+          />
+          <Select
+            label={t("support.features.supportRequests.ui.supportRequestListPage.open.role")}
+            value={openedByRole}
+            onValueChange={changeRole}
+            items={[
+              {
+                value: "buyer",
+                label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.buyer"),
+              },
+              {
+                value: "seller",
+                label: t("support.features.supportRequests.ui.supportRequestListPage.open.role.seller"),
+              },
+            ]}
+          />
+          <Select
+            label={t("support.features.supportRequests.ui.supportRequestListPage.open.issue")}
+            value={selectedFlowType}
+            onValueChange={(nextValue) => setSelectedFlowType(nextValue as typeof selectedFlowType)}
+            items={flowItems}
+          />
         </UiGrid>
         {selectedFlow ? (
           <div className="grid gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--secondary)] p-4">
@@ -199,9 +191,7 @@ function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFl
           </div>
         ) : null}
         <UiInline className="justify-end">
-          <UiButton type="submit">
-            {t("support.features.supportRequests.ui.supportRequestListPage.open.submit")}
-          </UiButton>
+          <Button type="submit">{t("support.features.supportRequests.ui.supportRequestListPage.open.submit")}</Button>
         </UiInline>
       </Form>
     </UiSurface>

@@ -4,6 +4,7 @@ import { Tabs as TabsPrimitive } from "@base-ui/react/tabs";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { renderActivePill } from "./shared";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
 
 export interface TabItem {
   value: string;
@@ -122,7 +123,10 @@ export function Tabs({
                 value={item.value}
                 className={(state) =>
                   cx(
-                    "focus-ring relative inline-flex touch-target min-w-0 items-center justify-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-center text-sm font-semibold text-secondary transition md:flex-1 md:basis-0 md:px-4",
+                    "focus-ring relative inline-flex min-w-0 items-center justify-center gap-2 overflow-hidden rounded-tokenMd text-center font-semibold text-secondary transition md:flex-1 md:basis-0",
+                    controlHeightClasses.md,
+                    controlPaddingClasses.md,
+                    controlTextClasses.md,
                     state.active && "text-accent",
                   )
                 }

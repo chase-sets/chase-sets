@@ -3,17 +3,12 @@ import { forwardRef } from "react";
 import { motion } from "motion/react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
-import { useChaseMotion, useDensity } from "../../theme/provider";
+import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { toMotionDomProps } from "../../utils/motion-props";
+import { controlSquareSizeClasses } from "../control-sizing";
 import type { ButtonTone, ButtonSize } from "./shared";
-import {
-  buttonBaseClass,
-  buttonToneClasses,
-  buttonSizeClasses,
-  buttonCompactSizeClasses,
-  resolveInteractiveMotion,
-} from "./shared";
+import { buttonBaseClass, buttonToneClasses, buttonSizeClasses, resolveInteractiveMotion } from "./shared";
 
 function iconTone(tone: ButtonTone): "inverse" | "accent" {
   return tone === "primary" || tone === "danger" ? "inverse" : "accent";
@@ -65,8 +60,6 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   ref,
 ) {
   const motionSettings = useChaseMotion();
-  const density = useDensity();
-  const sizeClasses = density === "compact" ? buttonCompactSizeClasses : buttonSizeClasses;
   const interactiveMotion = resolveInteractiveMotion(
     motionSettings.reducedMotion,
     motionSettings.interactiveScale,
@@ -83,7 +76,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
       disabled={isDisabled}
       aria-busy={loading || undefined}
       {...(isDisabled ? undefined : interactiveMotion)}
-      className={cx(buttonBaseClass, buttonToneClasses[tone], sizeClasses[size], block && "w-full")}
+      className={cx(buttonBaseClass, buttonToneClasses[tone], buttonSizeClasses[size], block && "w-full")}
     >
       {loading ? <ButtonSpinner tone={tone} /> : null}
       <span className={cx("inline-flex min-w-0 max-w-full items-center justify-center gap-2", loading && "invisible")}>
@@ -110,8 +103,6 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
   ref,
 ) {
   const motionSettings = useChaseMotion();
-  const density = useDensity();
-  const sizeClasses = density === "compact" ? buttonCompactSizeClasses : buttonSizeClasses;
   const interactiveMotion = resolveInteractiveMotion(
     motionSettings.reducedMotion,
     motionSettings.interactiveScale,
@@ -126,7 +117,7 @@ export const IconButton = forwardRef<HTMLButtonElement, IconButtonProps>(functio
       type={type}
       aria-label={label}
       {...interactiveMotion}
-      className={cx(buttonBaseClass, buttonToneClasses[tone], sizeClasses[size], "px-0")}
+      className={cx(buttonBaseClass, buttonToneClasses[tone], controlSquareSizeClasses[size], "p-0")}
     >
       <Icon name={icon} size="sm" tone={iconTone(tone)} />
     </motion.button>

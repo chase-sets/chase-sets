@@ -74,7 +74,7 @@ export function CurrencyInput({
       htmlFor={inputId}
     >
       <div className="relative">
-        <span className="pointer-events-none absolute inset-y-0 left-4 flex items-center text-secondary">
+        <span className="pointer-events-none absolute inset-y-0 left-[var(--control-md-px)] flex items-center text-secondary">
           {currencySymbol}
         </span>
         <input
@@ -85,7 +85,7 @@ export function CurrencyInput({
           inputMode="decimal"
           aria-describedby={error || description ? fieldHintId(inputId) : undefined}
           aria-invalid={!!error || undefined}
-          className={cx(controlClass, !!error && controlErrorClass, "pl-8")}
+          className={cx(controlClass, !!error && controlErrorClass, "pl-[calc(var(--control-md-px)+1rem)]")}
         />
       </div>
     </FieldChrome>
@@ -116,7 +116,7 @@ export function SearchInput({
       htmlFor={inputId}
     >
       <div className="relative">
-        <span className="pointer-events-none absolute inset-y-0 left-4 flex items-center">
+        <span className="pointer-events-none absolute inset-y-0 left-[var(--control-md-px)] flex items-center">
           <Icon name="search" size="sm" tone="secondary" />
         </span>
         <input
@@ -126,7 +126,7 @@ export function SearchInput({
           type="search"
           aria-describedby={error || description ? fieldHintId(inputId) : undefined}
           aria-invalid={!!error || undefined}
-          className={cx(controlClass, !!error && controlErrorClass, "pl-10")}
+          className={cx(controlClass, !!error && controlErrorClass, "pl-[calc(var(--control-md-px)+1.5rem)]")}
         />
       </div>
     </FieldChrome>

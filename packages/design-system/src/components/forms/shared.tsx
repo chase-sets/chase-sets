@@ -1,6 +1,7 @@
 import { type HTMLAttributes, type ReactNode } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
 
 export interface FieldChromeProps {
   label?: ReactNode;
@@ -17,8 +18,12 @@ interface FieldFrameProps extends Omit<HTMLAttributes<HTMLDivElement>, "classNam
 
 export { type FieldFrameProps };
 
-export const controlClass =
-  "focus-ring touch-target w-full rounded-tokenMd border border-border bg-surface-2 px-4 py-2.5 text-sm text-foreground shadow-tokenSm placeholder:text-tertiary transition duration-150 hover:border-accent disabled:cursor-not-allowed disabled:opacity-60";
+export const controlClass = cx(
+  "focus-ring w-full rounded-tokenMd border border-border bg-surface-2 text-foreground shadow-tokenSm placeholder:text-tertiary transition duration-150 hover:border-accent disabled:cursor-not-allowed disabled:opacity-60",
+  controlHeightClasses.md,
+  controlPaddingClasses.md,
+  controlTextClasses.md,
+);
 
 export const controlErrorClass = "border-danger focus-visible:ring-danger/30";
 

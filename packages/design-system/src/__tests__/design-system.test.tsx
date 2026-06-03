@@ -16,13 +16,12 @@ import {
   BulkActionSurface,
   CommerceSheet,
   UiBadge as Badge,
-  UiButton as Button,
+  Button,
   UiCard as Card,
   UiCardContent as CardContent,
   UiCardHeader as CardHeader,
   UiCardTitle as CardTitle,
   UiDialog as Dialog,
-  Input,
   Inline,
   NavigationHeader,
   AccountReputationSummary,
@@ -86,7 +85,7 @@ import {
   SearchControlBar,
   AccountProfileHeader,
   AccountCredibilityHeader,
-  UiSelect as Select,
+  Select,
   UiTable as Table,
   UiTableBody as TableBody,
   UiTableCell as TableCell,
@@ -94,7 +93,7 @@ import {
   UiTableHeader as TableHeader,
   UiTableRow as TableRow,
   UiTabs as Tabs,
-  UiTextarea as Textarea,
+  Textarea,
   UiTooltip as Tooltip,
   TextInput,
   formatProductImageAltText,
@@ -115,6 +114,15 @@ describe("design-system", () => {
       ["Commerce", "Drawer"],
       ["Notification", "Center", "Drawer"],
       ["Dropdown", "Menu"],
+      ["Ui", "Button"],
+      ["Ui", "Button", "Props"],
+      ["Ui", "Button", "Size"],
+      ["Ui", "Button", "Variant"],
+      ["Input"],
+      ["Ui", "Select"],
+      ["Ui", "Select", "Item"],
+      ["Ui", "Select", "Props"],
+      ["Ui", "Textarea"],
     ].map((parts) => parts.join(""));
 
     for (const aliasName of retiredAliasNames) {
@@ -139,8 +147,8 @@ describe("design-system", () => {
         <CardContent>
           <Button>Save</Button>
           <Badge variant="success">Ready</Badge>
-          <Input defaultValue="Charizard" />
-          <Textarea defaultValue="Seller note" />
+          <TextInput label="Card" hideLabel defaultValue="Charizard" />
+          <Textarea label="Seller note" hideLabel defaultValue="Seller note" />
         </CardContent>
       </Card>,
     );
@@ -677,7 +685,7 @@ describe("design-system", () => {
         protection="Order protected"
         reassurance="Final totals appear before payment."
         primaryAction={<Button>Buy now</Button>}
-        secondaryAction={<Button variant="secondary">Compare market</Button>}
+        secondaryAction={<Button tone="secondary">Compare market</Button>}
       />,
     );
 
@@ -709,10 +717,10 @@ describe("design-system", () => {
   it("renders search controls with applied filters and saved search recovery", () => {
     const markup = renderToString(
       <SearchControlBar
-        search={<Input aria-label="Search" defaultValue="pikachu" />}
+        search={<SearchInput label="Search" hideLabel defaultValue="pikachu" />}
         sort={<Select label="Sort" items={[{ label: "Newest", value: "newest" }]} />}
         filters={<Select label="Language" items={[{ label: "All languages", value: "all" }]} />}
-        actions={<Button variant="secondary">Clear filters</Button>}
+        actions={<Button tone="secondary">Clear filters</Button>}
         filterControlsVisibility="desktop"
         appliedFilters={<AppliedFilterChips filters={[{ id: "q", label: "Search: pikachu" }]} />}
         savedSearch={
@@ -723,7 +731,7 @@ describe("design-system", () => {
 
     expect(markup).toContain("Search: pikachu");
     expect(markup).toContain("Clear filters");
-    expect(markup).toContain("min-h-11");
+    expect(markup).toContain("min-h-[var(--control-md-height)]");
     expect(markup).toContain("hidden lg:block");
     expect(markup).toContain("Save this search");
   });
@@ -753,9 +761,9 @@ describe("design-system", () => {
     const markup = renderToString(
       <ActionBar>
         <Inline>
-          <Button variant="secondary">Promote all matching</Button>
+          <Button tone="secondary">Promote all matching</Button>
           <TextInput label="Reject reason" defaultValue="" />
-          <Button variant="destructive">Reject matching</Button>
+          <Button tone="danger">Reject matching</Button>
         </Inline>
       </ActionBar>,
     );
@@ -775,7 +783,7 @@ describe("design-system", () => {
           <>
             <Select label="Bulk Edit" items={[{ label: "Assign Blueprint", value: "assignBlueprint" }]} />
             <TextInput label="Blueprint ID" defaultValue="bpr_card" />
-            <Button variant="secondary">Preview matching</Button>
+            <Button tone="secondary">Preview matching</Button>
           </>
         }
       />,
@@ -792,7 +800,7 @@ describe("design-system", () => {
         count={25}
         formatSelectedLabel={(count) => `${count} Catalog Items selected`}
         primaryActions={<Button>Preview Publish</Button>}
-        secondaryActions={<Button variant="secondary">Clear Selection</Button>}
+        secondaryActions={<Button tone="secondary">Clear Selection</Button>}
         overflowActions={[
           { key: "archive", label: "Archive" },
           { key: "remove-drafts", label: "Remove Drafts", destructive: true },
@@ -838,7 +846,7 @@ describe("design-system", () => {
               <TextInput label="Blueprint ID or slug" defaultValue="bpr_card" />
             </BulkActionPanel>
           }
-          secondaryActions={<Button variant="secondary">Preview retire</Button>}
+          secondaryActions={<Button tone="secondary">Preview retire</Button>}
         />
       </BulkActionSurface>,
     );
@@ -944,7 +952,7 @@ describe("design-system", () => {
         />
         <AppliedFilterChips
           filters={[{ id: "verified", label: "Verified accounts" }]}
-          clearAction={<Button variant="ghost">Clear all</Button>}
+          clearAction={<Button tone="ghost">Clear all</Button>}
         />
         <AppliedFilterChips
           filters={[{ id: "ships", label: "Ships today", onRemove: vi.fn() }]}
@@ -1334,7 +1342,7 @@ describe("design-system", () => {
         price="$472.19"
         context="Final total before payment"
         primaryAction={<Button>Continue to payment</Button>}
-        secondaryAction={<Button variant="outline">Edit cart</Button>}
+        secondaryAction={<Button tone="secondary">Edit cart</Button>}
       />,
     );
 

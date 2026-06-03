@@ -3,6 +3,7 @@ import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomple
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { controlIconButtonSizeClasses } from "../control-sizing";
 import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface AutocompleteItem {
@@ -73,9 +74,14 @@ export function Autocomplete({
             aria-controls={listboxId}
             aria-describedby={error || description ? fieldHintId(inputId) : undefined}
             aria-invalid={!!error || undefined}
-            className="min-w-0 flex-1 bg-transparent px-4 py-2.5 outline-none"
+            className="min-w-0 flex-1 self-stretch bg-transparent px-[var(--control-md-px)] py-[var(--control-md-py)] outline-none"
           />
-          <AutocompletePrimitive.Trigger className="focus-ring mr-2 inline-flex h-8 w-8 items-center justify-center rounded-tokenSm">
+          <AutocompletePrimitive.Trigger
+            className={cx(
+              "focus-ring mr-[var(--control-compound-inset)] inline-flex items-center justify-center rounded-tokenSm",
+              controlIconButtonSizeClasses.md,
+            )}
+          >
             <Icon name="search" size="sm" tone="secondary" />
           </AutocompletePrimitive.Trigger>
         </AutocompletePrimitive.InputGroup>

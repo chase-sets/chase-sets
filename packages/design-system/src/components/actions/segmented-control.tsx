@@ -4,6 +4,7 @@ import { LayoutGroup } from "motion/react";
 import type { IconName } from "../../icons";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
+import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
 import { renderActivePill } from "./shared";
 
 export interface SegmentedControlItem {
@@ -66,7 +67,10 @@ export function SegmentedControl({ items, value, fullWidth = false, onValueChang
               aria-selected={active}
               tabIndex={active ? 0 : -1}
               className={cx(
-                "focus-ring relative inline-flex min-h-10 min-w-0 items-center gap-2 overflow-hidden rounded-tokenMd px-3 py-2 text-sm font-semibold transition",
+                "focus-ring relative inline-flex min-w-0 items-center gap-2 overflow-hidden rounded-tokenMd font-semibold transition",
+                controlHeightClasses.md,
+                controlPaddingClasses.md,
+                controlTextClasses.md,
                 fullWidth && "justify-center",
                 active ? "text-accent" : "text-secondary hover:text-foreground",
               )}

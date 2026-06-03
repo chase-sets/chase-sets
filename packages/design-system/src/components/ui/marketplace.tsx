@@ -8,9 +8,7 @@ import {
   ChevronRight,
   Clock,
   CreditCard,
-  Eye,
   FileText,
-  Heart,
   HelpCircle,
   ImageIcon,
   Inbox,
@@ -22,10 +20,8 @@ import {
   PackageCheck,
   RefreshCcw,
   RotateCcw,
-  Search,
   ShieldCheck,
   ShoppingCart,
-  SlidersHorizontal,
   Star,
   Tag,
   Truck,
@@ -34,11 +30,11 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { Inset } from "../../primitives/layout";
+import { Button, IconButton } from "../actions";
 import { ProductMediaImage, type ResponsiveImageSource } from "../data-display/product-media";
+import { SearchInput } from "../forms";
 import { Badge } from "./badge";
-import { Button } from "./button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
-import { Input } from "./input";
 import { Progress, Skeleton } from "./progress";
 import {
   ProductOptions,
@@ -215,10 +211,7 @@ export function MarketplaceCartLineItem({
         </div>
         <div className="col-span-2 grid min-w-0 grid-cols-1 items-end gap-3 border-t border-[var(--border)] pt-3 min-[420px]:grid-cols-3 md:col-span-1 md:grid-cols-1 md:border-t-0 md:pt-0">
           <div className="min-w-0">{quantityControl}</div>
-          <div
-            className="grid min-w-0 gap-2 min-[420px]:contents [&>button]:!min-h-11 md:grid md:grid-cols-1"
-            data-cart-line-actions
-          >
+          <div className="grid min-w-0 gap-2 min-[420px]:contents md:grid md:grid-cols-1" data-cart-line-actions>
             {actions}
           </div>
         </div>
@@ -820,21 +813,15 @@ export function ListingCard({
         >
           {primaryAction}
           {secondaryAction ?? (
-            <Button
-              variant="outline"
-              size="icon"
-              aria-label={`${saved ? savedLabel : saveLabel} ${title}`}
+            <IconButton
+              label={`${saved ? savedLabel : saveLabel} ${title}`}
+              icon="heart"
+              tone="secondary"
               aria-pressed={saved}
-            >
-              <Heart className="h-4 w-4" aria-hidden="true" />
-            </Button>
+            />
           )}
           {compareAction}
-          {watching ? (
-            <Button variant="ghost" size="icon" aria-label={`${watchingLabel} ${title}`} aria-pressed>
-              <Eye className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          ) : null}
+          {watching ? <IconButton label={`${watchingLabel} ${title}`} icon="eye" tone="ghost" aria-pressed /> : null}
         </div>
       </div>
     </article>
@@ -923,8 +910,7 @@ export interface WatchlistButtonProps {
 
 export function WatchlistButton({ label, active = false, watchingLabel }: WatchlistButtonProps) {
   return (
-    <Button variant="outline" aria-pressed={active}>
-      <Heart className="h-4 w-4" aria-hidden="true" />
+    <Button tone="secondary" aria-pressed={active} leadingIcon="heart">
       {active ? (watchingLabel ?? label) : label}
     </Button>
   );
@@ -1143,17 +1129,9 @@ export function SearchFilterPanel({
     <Card>
       <CardContent className="gap-4 p-0">
         <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
-          <label className="relative">
-            <span className="sr-only">{searchLabel}</span>
-            <Search
-              className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-[var(--muted-foreground)]"
-              aria-hidden="true"
-            />
-            <Input className="pl-9" placeholder={placeholder} />
-          </label>
+          <SearchInput label={searchLabel} hideLabel placeholder={placeholder} />
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline">
-              <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+            <Button tone="secondary" leadingIcon="filter">
               {filterLabel}
             </Button>
             {actions}
@@ -1281,9 +1259,7 @@ export function SearchControlBar({
             {filters || actions ? (
               <div className="flex min-w-0 flex-wrap items-end gap-3">
                 {filters ? <div className={cn(filterControlsClass, "min-w-44")}>{filters}</div> : null}
-                {actions ? (
-                  <div className="flex min-h-11 items-end [&>a]:min-h-11 [&>button]:min-h-11">{actions}</div>
-                ) : null}
+                {actions ? <div className="flex items-end">{actions}</div> : null}
               </div>
             ) : null}
           </div>
@@ -1314,7 +1290,7 @@ export function SortSelector({ label, value, options, onChange }: SortSelectorPr
     <label className="grid gap-1 text-sm font-semibold text-[var(--foreground)]">
       <span>{label}</span>
       <select
-        className="ds-focus min-h-11 rounded-[var(--radius)] border border-[var(--input)] bg-[var(--card)] px-3 text-sm text-[var(--foreground)]"
+        className="ds-focus min-h-[var(--control-md-height)] rounded-[var(--radius)] border border-[var(--input)] bg-[var(--card)] px-[var(--control-md-px)] text-sm text-[var(--foreground)]"
         value={value}
         onChange={(event) => onChange?.(event.currentTarget.value)}
       >

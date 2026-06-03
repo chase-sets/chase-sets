@@ -1,6 +1,6 @@
 import type { HTMLAttributes, ReactNode } from "react";
 import { cn } from "../../lib/utils";
-import { Button } from "./button";
+import { Button } from "../actions";
 
 export function Page({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
   return <div {...props} className={cn("grid gap-6 md:gap-8", className)} />;
@@ -90,7 +90,7 @@ export function EmptyState({
       <div className="grid max-w-md gap-3">
         <h3 className="m-0 text-xl font-semibold">{title}</h3>
         {description ? <p className="m-0 text-sm text-[var(--muted-foreground)]">{description}</p> : null}
-        {action ?? <Button variant="secondary">Review next step</Button>}
+        {action ?? <Button tone="secondary">Review next step</Button>}
       </div>
     </Surface>
   );

@@ -78,8 +78,27 @@
     --motion-fast: 120ms;
     --motion-slow: 240ms;
     --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
-    --control-py: 0.625rem;
-    --control-px: 1rem;
+    --control-sm-height: 2.25rem;
+    --control-md-height: 2.75rem;
+    --control-lg-height: 3rem;
+    --control-sm-px: 0.75rem;
+    --control-md-px: 1rem;
+    --control-lg-px: 1.25rem;
+    --control-sm-py: 0.375rem;
+    --control-md-py: 0.625rem;
+    --control-lg-py: 0.75rem;
+    --control-sm-icon-size: 1.75rem;
+    --control-md-icon-size: 2rem;
+    --control-lg-icon-size: 2.25rem;
+    --control-compact-sm-height: 1.75rem;
+    --control-compact-md-height: 2rem;
+    --control-compact-lg-height: 2.5rem;
+    --control-compact-sm-px: 0.625rem;
+    --control-compact-md-px: 0.75rem;
+    --control-compact-lg-px: 1rem;
+    --control-compound-inset: 0.25rem;
+    --control-py: var(--control-md-py);
+    --control-px: var(--control-md-px);
     --z-sticky: 20;
     --z-dropdown: 65;
     --z-popover: 70;
@@ -249,8 +268,20 @@
   }
 
   [data-density="compact"] {
-    --control-py: 0.375rem;
-    --control-px: 0.75rem;
+    --control-sm-height: 1.75rem;
+    --control-md-height: 2.25rem;
+    --control-lg-height: 2.75rem;
+    --control-sm-px: 0.625rem;
+    --control-md-px: 0.75rem;
+    --control-lg-px: 1rem;
+    --control-sm-py: 0.25rem;
+    --control-md-py: 0.375rem;
+    --control-lg-py: 0.625rem;
+    --control-sm-icon-size: 1.5rem;
+    --control-md-icon-size: 1.75rem;
+    --control-lg-icon-size: 2rem;
+    --control-py: var(--control-md-py);
+    --control-px: var(--control-md-px);
   }
 
   *,
@@ -384,11 +415,6 @@
 
   .ds-numeric {
     font-variant-numeric: tabular-nums;
-  }
-
-  .touch-target {
-    min-height: 2.75rem;
-    min-width: 2.75rem;
   }
 
   .motion-safe-scroll-area {

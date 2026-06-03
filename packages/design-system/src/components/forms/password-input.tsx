@@ -41,11 +41,11 @@ export function PasswordInput({
           type={visible ? "text" : "password"}
           aria-describedby={error || description ? fieldHintId(inputId) : undefined}
           aria-invalid={!!error || undefined}
-          className={cx(controlClass, !!error && controlErrorClass, "pr-12")}
+          className={cx(controlClass, !!error && controlErrorClass, "pr-[calc(var(--control-md-px)+2rem)]")}
         />
         <button
           type="button"
-          className="focus-ring absolute inset-y-0 right-3 flex items-center rounded-sm"
+          className="focus-ring absolute inset-y-0 right-[var(--control-md-px)] flex items-center rounded-sm"
           onClick={() => setVisible((v) => !v)}
           aria-label={visible ? hidePasswordLabel : showPasswordLabel}
         >

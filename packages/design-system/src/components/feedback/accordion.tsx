@@ -12,6 +12,7 @@ import { motion } from "motion/react";
 import { Icon, type IconName } from "../../icons";
 import { useChaseMotion } from "../../theme/provider";
 import { cx } from "../../utils/cx";
+import { compactControlPaddingClasses, controlHeightClasses, controlPaddingClasses } from "../control-sizing";
 
 const AnimatedAccordionContent = forwardRef<HTMLDivElement, ComponentProps<"div"> & { open: boolean }>(
   function AnimatedAccordionContent({ children, open, ...rest }, ref) {
@@ -241,10 +242,11 @@ export function Accordion({
                 disabled={item.disabled}
                 className={cx(
                   "focus-ring flex w-full items-center justify-between gap-3 text-left text-sm font-semibold text-foreground transition hover:bg-background",
-                  isSectionList && edgeMode === "compact" && "px-3 py-2.5",
-                  isSectionList && edgeMode === "panel" && "px-5 py-2.5",
-                  isSectionList && edgeMode !== "compact" && edgeMode !== "panel" && "px-4 py-2.5",
-                  !isSectionList && "px-4 py-3",
+                  controlHeightClasses.md,
+                  isSectionList && edgeMode === "compact" && compactControlPaddingClasses.md,
+                  isSectionList && edgeMode === "panel" && "px-5 py-[var(--control-md-py)]",
+                  isSectionList && edgeMode !== "compact" && edgeMode !== "panel" && controlPaddingClasses.md,
+                  !isSectionList && controlPaddingClasses.md,
                   isSectionList && isOpen && "text-accent hover:bg-transparent",
                   item.disabled && "cursor-not-allowed opacity-55 hover:bg-transparent",
                 )}
