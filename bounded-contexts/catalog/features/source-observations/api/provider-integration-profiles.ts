@@ -118,36 +118,35 @@ export type CatalogProviderReferenceRecordRule = Readonly<{
 
 export type CatalogProviderSelectedOptionMapping = Readonly<{
   source: "tcgplayer-sku-condition-variant-language";
-  dimensions: Readonly<{
-    condition: Readonly<{
-      sourceKey: "condition";
-      dimensionKey: "condition";
-      unknownPolicy: "review-evidence";
-    }>;
-    variant: Readonly<{
-      sourceKey: "variant";
-      dimensionKey: "printing";
-      unknownPolicy: "review-evidence";
-    }>;
-    language: Readonly<{
-      sourceKey: "language";
-      dimensionKey: "language";
-      unknownPolicy: "review-evidence";
-    }>;
-    sealedForm: Readonly<{
-      sourceKey: "sealed";
-      dimensionKey: "product-form";
-      sealedOptionKey: "unopened";
-      unsealedOptionKey: "single";
-      unknownPolicy: "review-evidence";
-    }>;
-  }>;
+  dimensions: readonly CatalogProviderSelectedOptionDimensionMapping[];
   productReferenceRule: Readonly<{
     providerKey: "tcgplayer";
     externalKeyPrefix: "sku:";
     requiredSourceKeys: readonly ("sku" | "condition" | "variant" | "language")[];
     missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence";
   }>;
+}>;
+
+export type CatalogProviderSelectedOptionDimensionMapping = Readonly<{
+  dimensionKey: string;
+  providerValue: Readonly<{
+    source: "payload" | "record";
+    path: string;
+  }>;
+  required: boolean;
+  unknownPolicy: "review-evidence";
+  optionAliases?: readonly CatalogProviderSelectedOptionAliasMapping[];
+  valueMappings?: readonly CatalogProviderSelectedOptionValueMapping[];
+}>;
+
+export type CatalogProviderSelectedOptionAliasMapping = Readonly<{
+  optionKey: string;
+  providerValues: readonly string[];
+}>;
+
+export type CatalogProviderSelectedOptionValueMapping = Readonly<{
+  from: JsonValue;
+  value: string;
 }>;
 
 export type CatalogProviderIntegrationProfile = Readonly<{
@@ -487,30 +486,55 @@ export const tcgplayerAutomationClientProviderProfile = {
   },
   selectedOptionMapping: {
     source: "tcgplayer-sku-condition-variant-language",
-    dimensions: {
-      condition: {
-        sourceKey: "condition",
+    dimensions: [
+      {
         dimensionKey: "condition",
+        providerValue: { source: "record", path: "condition" },
+        required: true,
         unknownPolicy: "review-evidence",
+        optionAliases: [
+          { optionKey: "pristine", providerValues: ["Pristine"] },
+          { optionKey: "mint", providerValues: ["Mint"] },
+          { optionKey: "near-mint", providerValues: ["Near Mint", "Near-Mint", "NM"] },
+          { optionKey: "excellent", providerValues: ["Excellent", "Lightly Played", "LP"] },
+          { optionKey: "good", providerValues: ["Good", "Moderately Played", "MP"] },
+          { optionKey: "poor", providerValues: ["Poor", "Heavily Played", "HP"] },
+          { optionKey: "damaged", providerValues: ["Damaged", "DMG"] },
+        ],
       },
-      variant: {
-        sourceKey: "variant",
+      {
         dimensionKey: "printing",
+        providerValue: { source: "record", path: "variant" },
+        required: false,
         unknownPolicy: "review-evidence",
+        optionAliases: [
+          { optionKey: "normal", providerValues: ["Normal", "Standard"] },
+          { optionKey: "holofoil", providerValues: ["Holofoil", "Holo", "Foil"] },
+          { optionKey: "reverse-holofoil", providerValues: ["Reverse Holofoil", "Reverse Holo", "Reverse"] },
+        ],
       },
-      language: {
-        sourceKey: "language",
+      {
         dimensionKey: "language",
+        providerValue: { source: "record", path: "language" },
+        required: false,
         unknownPolicy: "review-evidence",
+        optionAliases: [{ optionKey: "english", providerValues: ["English", "EN"] }],
       },
-      sealedForm: {
-        sourceKey: "sealed",
+      {
         dimensionKey: "product-form",
-        sealedOptionKey: "unopened",
-        unsealedOptionKey: "single",
+        providerValue: { source: "payload", path: "sealed" },
+        required: true,
         unknownPolicy: "review-evidence",
+        valueMappings: [
+          { from: true, value: "unopened" },
+          { from: false, value: "single" },
+        ],
+        optionAliases: [
+          { optionKey: "unopened", providerValues: ["unopened", "sealed"] },
+          { optionKey: "raw", providerValues: ["single", "raw"] },
+        ],
       },
-    },
+    ],
     productReferenceRule: {
       providerKey: "tcgplayer",
       externalKeyPrefix: "sku:",

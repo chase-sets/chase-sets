@@ -126,30 +126,33 @@ describe("catalog provider integration profiles", () => {
   it("maps TCGplayer SKU selected options to review evidence when provider values are unknown", () => {
     expect(tcgplayerAutomationClientProviderProfile.selectedOptionMapping).toMatchObject({
       source: "tcgplayer-sku-condition-variant-language",
-      dimensions: {
-        condition: {
-          sourceKey: "condition",
+      dimensions: [
+        {
           dimensionKey: "condition",
+          providerValue: { source: "record", path: "condition" },
+          required: true,
           unknownPolicy: "review-evidence",
         },
-        variant: {
-          sourceKey: "variant",
+        {
           dimensionKey: "printing",
+          providerValue: { source: "record", path: "variant" },
           unknownPolicy: "review-evidence",
         },
-        language: {
-          sourceKey: "language",
+        {
           dimensionKey: "language",
+          providerValue: { source: "record", path: "language" },
           unknownPolicy: "review-evidence",
         },
-        sealedForm: {
-          sourceKey: "sealed",
+        {
           dimensionKey: "product-form",
-          sealedOptionKey: "unopened",
-          unsealedOptionKey: "single",
+          providerValue: { source: "payload", path: "sealed" },
+          valueMappings: [
+            { from: true, value: "unopened" },
+            { from: false, value: "single" },
+          ],
           unknownPolicy: "review-evidence",
         },
-      },
+      ],
       productReferenceRule: {
         providerKey: "tcgplayer",
         externalKeyPrefix: "sku:",

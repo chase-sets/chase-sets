@@ -2,7 +2,6 @@ import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type {
   SourceObservationExternalProductReference,
   SourceObservationProviderProductNormalized,
-  SourceObservationSelectedOptionReference,
 } from "../domain/domain";
 import type {
   CatalogProviderMappingEvidenceOwner,
@@ -15,6 +14,12 @@ import {
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
 import { extractCatalogProviderExternalReferences } from "./provider-external-reference-extractor";
+import {
+  resolveCatalogProviderSelectedOptions,
+  type CatalogProviderProductReferenceDimension,
+  type CatalogProviderProductReferenceOption,
+  type CatalogProviderProductReferenceSchema,
+} from "./provider-selected-option-resolver";
 import type {
   TcgplayerAutomationDomainHttpClient,
   TcgplayerAutomationHttpClients,
@@ -144,23 +149,11 @@ export type TcgplayerAutomationSourceObservationInput = Readonly<{
   sourcePayload: JsonValue;
 }>;
 
-export type TcgplayerProductReferenceDimensionKey = "condition" | "printing" | "language" | "product-form";
+export type TcgplayerProductReferenceSchema = CatalogProviderProductReferenceSchema;
 
-export type TcgplayerProductReferenceSchema = Readonly<{
-  dimensions: readonly TcgplayerProductReferenceDimension[];
-}>;
+export type TcgplayerProductReferenceDimension = CatalogProviderProductReferenceDimension;
 
-export type TcgplayerProductReferenceDimension = Readonly<{
-  dimensionKey: TcgplayerProductReferenceDimensionKey;
-  dimensionId: string;
-  required?: boolean;
-  options: readonly TcgplayerProductReferenceOption[];
-}>;
-
-export type TcgplayerProductReferenceOption = Readonly<{
-  optionId: string;
-  aliases: readonly string[];
-}>;
+export type TcgplayerProductReferenceOption = CatalogProviderProductReferenceOption;
 
 export type TcgplayerAutomationCatalogClient = Readonly<{
   listProductLines: () => Promise<readonly TcgplayerAutomationProductLine[]>;
@@ -400,11 +393,18 @@ function extractTcgplayerAutomationExternalReferences(
   schema: TcgplayerProductReferenceSchema | null,
 ) {
   const skus = detail.skus.map((sku) => {
-    const selectedOptions = schema ? resolveTcgplayerSkuSelectedOptions(detail, sku, schema) : null;
+    const selectedOptionResult = schema
+      ? resolveCatalogProviderSelectedOptions({
+          mapping: tcgplayerAutomationClientProviderProfile.selectedOptionMapping,
+          payload: detail as unknown as JsonValue,
+          record: sku as unknown as JsonValue,
+          productReferenceSchema: schema,
+        })
+      : null;
     return {
       ...sku,
-      selectedOptions: selectedOptions ?? undefined,
-      reviewEvidence: skuReviewEvidence(detail, sku),
+      selectedOptions: selectedOptionResult?.resolved ? selectedOptionResult.selectedOptions : undefined,
+      reviewEvidence: skuReviewEvidence(detail, sku, selectedOptionResult ?? undefined),
     };
   });
 
@@ -500,74 +500,23 @@ async function listAllTcgplayerAutomationProducts(
   return products;
 }
 
-function resolveTcgplayerSkuSelectedOptions(
+function skuReviewEvidence(
   detail: TcgplayerAutomationProductDetail,
   sku: TcgplayerAutomationProductSku,
-  schema: TcgplayerProductReferenceSchema,
-): readonly SourceObservationSelectedOptionReference[] | null {
-  const selectedOptions: SourceObservationSelectedOptionReference[] = [];
-
-  for (const dimension of schema.dimensions) {
-    const providerValue = providerValueForDimension(detail, sku, dimension.dimensionKey);
-    if (!providerValue) {
-      if (dimension.required) {
-        return null;
-      }
-      continue;
-    }
-
-    const option = dimension.options.find((candidate) =>
-      candidate.aliases.some((alias) => normalizeProviderOption(alias) === normalizeProviderOption(providerValue)),
-    );
-    if (!option) {
-      return null;
-    }
-    selectedOptions.push({
-      dimensionId: dimension.dimensionId,
-      optionId: option.optionId,
-    });
-  }
-
-  return selectedOptions.length > 0
-    ? selectedOptions.sort((left, right) =>
-        left.dimensionId === right.dimensionId
-          ? left.optionId.localeCompare(right.optionId)
-          : left.dimensionId.localeCompare(right.dimensionId),
-      )
-    : null;
-}
-
-function providerValueForDimension(
-  detail: TcgplayerAutomationProductDetail,
-  sku: TcgplayerAutomationProductSku,
-  dimensionKey: TcgplayerProductReferenceDimensionKey,
-): string | null {
-  switch (dimensionKey) {
-    case "condition":
-      return sku.condition;
-    case "printing":
-      return sku.variant;
-    case "language":
-      return sku.language;
-    case "product-form":
-      return detail.sealed ? "unopened" : "single";
-  }
-}
-
-function skuReviewEvidence(detail: TcgplayerAutomationProductDetail, sku: TcgplayerAutomationProductSku): JsonObject {
-  return {
+  selectedOptionResult?: ReturnType<typeof resolveCatalogProviderSelectedOptions>,
+): JsonObject {
+  const reviewEvidence: JsonObject = {
     condition: sku.condition,
     printing: sku.variant,
     language: sku.language,
     productForm: detail.sealed ? "unopened" : "single",
   };
-}
 
-function normalizeProviderOption(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
+  if (selectedOptionResult && !selectedOptionResult.resolved && selectedOptionResult.reviewEvidence.length > 0) {
+    reviewEvidence.selectedOptions = selectedOptionResult.reviewEvidence as unknown as JsonValue;
+  }
+
+  return reviewEvidence;
 }
 
 function normalizeTcgName(value: string): string {
