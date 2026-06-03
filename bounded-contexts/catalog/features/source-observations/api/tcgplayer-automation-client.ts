@@ -95,6 +95,8 @@ export const DEFAULT_TCGPLAYER_AUTOMATION_ADAPTIVE_CONFIG: TcgplayerAutomationAd
   successThreshold: 10,
 };
 
+const MAX_PROVIDER_DIAGNOSTIC_BODY_LENGTH = 2_048;
+
 export class TcgplayerAutomationHttpError extends Error {
   constructor(
     message: string,
@@ -239,7 +241,7 @@ export class TcgplayerAutomationDomainHttpClient {
     return new TcgplayerAutomationHttpError(
       `TCGplayer automation request to ${this.domainKey} failed with HTTP ${response.status}.`,
       response.status,
-      responseBody,
+      redactTcgplayerAutomationProviderDiagnostic(responseBody),
     );
   }
 }
@@ -402,6 +404,28 @@ function applyPersistedDomainDelays(
 
 function isTcgplayerAutomationDomainKey(value: string): value is TcgplayerAutomationDomainKey {
   return Object.values(TCGPLAYER_AUTOMATION_DOMAIN_KEYS).includes(value as TcgplayerAutomationDomainKey);
+}
+
+export function redactTcgplayerAutomationProviderDiagnostic(value: string | null): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  const redacted = value
+    .replace(/TCGAuthTicket_Production\s*=\s*[^;\s"']+/gi, "TCGAuthTicket_Production=<redacted>")
+    .replace(
+      /("(?:authorization|cookie|sellerId|sellerKey|sellerName|sellerEmail|email|phone)"\s*:\s*)"[^"]*"/gi,
+      '$1"<redacted>"',
+    )
+    .replace(/("(?:sellerId|sellerKey)"\s*:\s*)\d+/gi, '$1"<redacted>"')
+    .replace(
+      /((?:authorization|cookie|sellerId|sellerKey|sellerName|sellerEmail|email|phone)\s*=\s*)[^&\s;]+/gi,
+      "$1<redacted>",
+    );
+
+  return redacted.length > MAX_PROVIDER_DIAGNOSTIC_BODY_LENGTH
+    ? `${redacted.slice(0, MAX_PROVIDER_DIAGNOSTIC_BODY_LENGTH)}...[truncated]`
+    : redacted;
 }
 
 class TcgplayerAutomationRequestThrottler {

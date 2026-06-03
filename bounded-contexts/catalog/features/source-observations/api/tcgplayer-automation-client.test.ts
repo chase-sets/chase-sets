@@ -9,6 +9,7 @@ import {
   TCGPLAYER_AUTOMATION_DOMAIN_KEYS,
   TcgplayerAutomationDomainHttpClient,
   TcgplayerAutomationHttpError,
+  redactTcgplayerAutomationProviderDiagnostic,
   type TcgplayerAutomationHttpConfig,
 } from "./tcgplayer-automation-client";
 
@@ -33,6 +34,33 @@ describe("TCGplayer automation HTTP client", () => {
     expect(requests[0]?.url).toBe("https://mp-search-api.tcgplayer.com/v1/products?q=furret");
     expect(requests[0]?.headers.get("User-Agent")).toBe("Catalog Test Agent");
     expect(requests[0]?.headers.get("Cookie")).toBe("TCGAuthTicket_Production=secret-cookie;");
+  });
+
+  it("omits the provider cookie when it is missing and redacts auth failure diagnostics", async () => {
+    const requests: Request[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(new Request(input, init));
+      return textResponse(
+        'expired TCGAuthTicket_Production=secret-cookie {"sellerId":12345,"sellerName":"seller-name"}',
+        { status: 403 },
+      );
+    });
+    const client = clientWithConfig(
+      {
+        auth: { tcgAuthCookie: null, userAgent: "Catalog Test Agent" },
+        maxRetries: 0,
+      },
+      { fetch: fetchMock },
+    );
+
+    await expect(client.get("/v1/products", { q: "furret" })).rejects.toMatchObject({
+      name: "TcgplayerAutomationHttpError",
+      status: 403,
+      responseBody: 'expired TCGAuthTicket_Production=<redacted> {"sellerId":"<redacted>","sellerName":"<redacted>"}',
+    } satisfies Partial<TcgplayerAutomationHttpError>);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(requests[0]?.headers.get("Cookie")).toBeNull();
   });
 
   it("retries automation-app retryable statuses and persists adaptive rate-limit delays", async () => {
@@ -117,6 +145,35 @@ describe("TCGplayer automation HTTP client", () => {
     } satisfies Partial<TcgplayerAutomationHttpError>);
   });
 
+  it("surfaces sanitized retry exhaustion details for operators", async () => {
+    const sleeps: number[] = [];
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(textResponse('unavailable {"sellerKey":"seller-key"}', { status: 503 }))
+      .mockResolvedValueOnce(textResponse('still unavailable {"sellerKey":"seller-key"}', { status: 503 }));
+    const client = clientWithConfig(
+      {
+        maxRetries: 1,
+      },
+      {
+        fetch: fetchMock,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+        random: () => 0,
+      },
+    );
+
+    await expect(client.get("/unstable")).rejects.toMatchObject({
+      name: "TcgplayerAutomationHttpError",
+      status: 503,
+      responseBody: 'still unavailable {"sellerKey":"<redacted>"}',
+    } satisfies Partial<TcgplayerAutomationHttpError>);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(sleeps).toEqual([0]);
+  });
+
   it("creates the four Catalog-relevant automation-app domain clients", () => {
     const clients = createTcgplayerAutomationHttpClients(createInMemoryTcgplayerAutomationHttpConfigStore());
 
@@ -171,6 +228,19 @@ describe("TCGplayer automation HTTP client", () => {
     expect(queries.at(-1)).toMatchObject({
       values: [TCGPLAYER_AUTOMATION_DOMAIN_KEYS.MPAPI, 300, 100],
     });
+  });
+
+  it("redacts provider diagnostics and caps retained body length", () => {
+    const diagnostic = redactTcgplayerAutomationProviderDiagnostic(
+      `TCGAuthTicket_Production=secret-cookie; sellerId=123 sellerName=seller ${"x".repeat(2_100)}`,
+    );
+
+    expect(diagnostic).toContain("TCGAuthTicket_Production=<redacted>");
+    expect(diagnostic).toContain("sellerId=<redacted>");
+    expect(diagnostic).toContain("sellerName=<redacted>");
+    expect(diagnostic).not.toContain("secret-cookie");
+    expect(diagnostic).not.toContain("seller ");
+    expect(diagnostic).toMatch(/\.\.\.\[truncated]$/);
   });
 });
 
