@@ -191,6 +191,50 @@ describe("IntegrationManagementPage", () => {
     );
   });
 
+  it("searches and selects an integration expansion filter", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams("source=tcgdex&language=en"), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [integrationScope()], total: 1, count: 1 }} query={query} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Expansion" }));
+    fireEvent.change(screen.getByRole("combobox", { name: "Expansion" }), {
+      target: { value: "fos" },
+    });
+
+    expect(await screen.findByRole("option", { name: "Fossil" })).toBeTruthy();
+    expect(screen.queryByRole("option", { name: "Base Set" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("option", { name: "Fossil" }));
+
+    await waitFor(() => expect(mockSetSearchParams).toHaveBeenCalled());
+    const [updateSearchParams, options] = mockSetSearchParams.mock.calls.at(-1)!;
+    const nextParams =
+      typeof updateSearchParams === "function"
+        ? updateSearchParams(new URLSearchParams("source=tcgdex&language=en"))
+        : updateSearchParams;
+
+    expect(nextParams.toString()).toBe("source=tcgdex&language=en&setId=fossil");
+    expect(options).toMatchObject({ preventScrollReset: true, replace: false });
+  });
+
+  it("keeps a URL-selected expansion fallback visible before options include it", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([
+      new URLSearchParams("source=tcgdex&language=en&setId=me04"),
+      mockSetSearchParams,
+    ]);
+
+    render(
+      <IntegrationManagementPage
+        data={{ items: [integrationScope()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgdex", language: "en", setId: "me04" }}
+      />,
+    );
+
+    expect((screen.getByRole("combobox", { name: "Expansion" }) as HTMLInputElement).value).toBe("me04");
+  });
+
   it("runs a provider profile fixture dry-run and displays redacted output", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
@@ -567,9 +611,19 @@ function integrationOptionsResult(queryKind: string) {
           imageUrl: null,
           metadata: { expansionId: "base1" },
         },
+        {
+          providerKey: "tcgdex",
+          queryKind: "expansions",
+          value: "fossil",
+          label: "Fossil",
+          description: "62 official cards",
+          parentValue: "base",
+          imageUrl: null,
+          metadata: { expansionId: "fossil" },
+        },
       ],
-      total: 1,
-      count: 1,
+      total: 2,
+      count: 2,
     },
     loading: false,
     error: null,

@@ -285,6 +285,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrations.job.failed": "Integration job failed.",
   "catalog.features.sourceObservations.ui.integrations.last.observed": "Last Observed",
   "catalog.features.sourceObservations.ui.integrations.needs.review": "Needs Review",
+  "catalog.features.sourceObservations.ui.integrations.no.expansions.found": "No matching expansions",
   "catalog.features.sourceObservations.ui.integrations.none.found": "No integration scopes found",
   "catalog.features.sourceObservations.ui.integrations.observations": "Observations",
   "catalog.features.sourceObservations.ui.integrations.promote.all": "Promote all",

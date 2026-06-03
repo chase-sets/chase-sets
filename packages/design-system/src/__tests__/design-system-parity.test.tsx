@@ -260,7 +260,7 @@ describe("design system", () => {
 
     unmount();
 
-    render(
+    const combobox = render(
       <ChaseRoot>
         <Combobox label="Condition" items={[{ value: "nm", label: "Near Mint" }]} />
       </ChaseRoot>,
@@ -269,6 +269,27 @@ describe("design system", () => {
     fireEvent.click(screen.getByRole("button", { name: "Condition" }));
 
     expect((await screen.findByRole("listbox")).getAttribute("class")).toContain("motion-safe-scroll-area");
+
+    combobox.unmount();
+
+    render(
+      <ChaseRoot>
+        <Select
+          label="Expansion"
+          items={Array.from({ length: 200 }, (_, index) => ({
+            value: `set-${index + 1}`,
+            label: `Expansion ${index + 1}`,
+          }))}
+        />
+      </ChaseRoot>,
+    );
+
+    await userEvent.click(screen.getByRole("combobox", { name: "Expansion" }));
+
+    const longSelectListbox = await screen.findByRole("listbox");
+    expect(longSelectListbox.getAttribute("class")).toContain("motion-safe-scroll-area");
+    expect(longSelectListbox.getAttribute("class")).toContain("overscroll-contain");
+    expect(longSelectListbox.getAttribute("class")).toContain("[touch-action:pan-y]");
   });
 
   it("selects values from Base UI select popups", async () => {

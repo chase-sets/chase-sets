@@ -5,6 +5,7 @@ import { useRevalidator } from "react-router";
 import {
   Button,
   ActionBar,
+  Combobox,
   DataTable,
   Dialog,
   FilterBar,
@@ -564,10 +565,12 @@ export function IntegrationManagementPage({
               ...languageOptions,
             ]}
           />
-          <Select
+          <Combobox
             label={t("catalog.features.sourceObservations.ui.list.expansion")}
             value={listControls.setId || ALL_EXPANSIONS}
             onValueChange={(value) => listControls.setSetId(value === ALL_EXPANSIONS ? "" : value)}
+            placeholder={t("catalog.features.sourceObservations.ui.integrations.all.expansions")}
+            noMatchesLabel={t("catalog.features.sourceObservations.ui.integrations.no.expansions.found")}
             items={[
               {
                 label: t("catalog.features.sourceObservations.ui.integrations.all.expansions"),
