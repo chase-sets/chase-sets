@@ -64,6 +64,12 @@ TCGplayer SKUs/productConditionIds to Product-level external references only
 when condition, variant/printing, and language can be mapped to valid selected
 Options.
 
+TCGplayer SKU selected Options are profile-driven: each mapped dimension defines
+the provider evidence path, requiredness, unknown-value policy, provider aliases,
+and product-form value mapping. Runtime code resolves those rules against the
+active Product schema before an external Product reference can be published.
+Unknown, inactive, or missing selected-option evidence remains review evidence.
+
 ## Future Integrations
 
 Future TCG integrations should add their own provider integration profile when their structure differs from Pokemon TCG. Do not place integration-specific fields or blueprints in deployables, and do not make scenario data the source of structural truth.
@@ -79,6 +85,7 @@ Each profile should define:
 - Components and Blueprints used to author and resolve Products
 - Categories used for browse grouping
 - external reference extraction rules and item-level vs product-level target
+- selected-option mapping rules for Product-level external references
 - ambiguity rules for repeated or incomplete provider identifiers
 - promotion mapping from normalized provider observations into Catalog Item commands
 

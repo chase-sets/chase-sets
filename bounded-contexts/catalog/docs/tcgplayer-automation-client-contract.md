@@ -219,6 +219,12 @@ that are not currently part of the Product schema remain review evidence on the
 Source Observation SKU reference. They must not create invalid Product
 references.
 
+Selected-option resolution is configured in the Catalog-owned TCGplayer provider
+profile. The profile supplies provider evidence paths, alias mappings,
+requiredness, and sealed/unsealed product-form mappings; runtime resolution
+still validates the result against the active Product schema before emitting a
+SKU-level external Product reference.
+
 ## Ownership Mapping
 
 | Provider evidence | Owning Chase Sets context | Policy |
