@@ -88,6 +88,7 @@ import { shouldAcceptSourceObservationJobProgress } from "./job-progress";
 import {
   MappingExpressionEditor,
   defaultExpression,
+  previewMappingExpression,
   validateMappingExpression,
   type MappingExpressionValue,
 } from "./mapping-expression-editor";
@@ -1685,6 +1686,7 @@ export function IntegrationManagementPage({
             form={editBasicsForm}
             onChange={setEditBasicsForm}
             error={editProfileError}
+            authoringModel={editAuthoringModel.data ?? null}
             previewPayload={selectedDryRunPayload(
               editAuthoringModel.data,
               editAuthoringModel.data?.dryRunInputTemplate.defaultFlow ?? "normal",
@@ -3019,12 +3021,14 @@ function ProfileBasicsEditor({
   form,
   onChange,
   error,
+  authoringModel,
   previewPayload,
 }: Readonly<{
   profile: CatalogProviderProfileVersionReview;
   form: ProfileBasicsForm;
   onChange: (form: ProfileBasicsForm) => void;
   error: string | null;
+  authoringModel: CatalogProviderProfileAuthoringModel | null;
   previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileBasicsForm>) => onChange({ ...form, ...patch });
@@ -3447,6 +3451,7 @@ function ProfileBasicsEditor({
         onChange={setNormalizedObservation}
         diagnostics={normalizedObservationDiagnostics}
         editable={editable}
+        authoringModel={authoringModel}
         previewPayload={previewPayload}
       />
 
@@ -3718,12 +3723,14 @@ function NormalizedObservationEditor({
   onChange,
   diagnostics,
   editable,
+  authoringModel,
   previewPayload,
 }: Readonly<{
   form: ProfileNormalizedObservationForm;
   onChange: (form: ProfileNormalizedObservationForm) => void;
   diagnostics: readonly string[];
   editable: boolean;
+  authoringModel: CatalogProviderProfileAuthoringModel | null;
   previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileNormalizedObservationForm>) => onChange({ ...form, ...patch });
@@ -3762,6 +3769,7 @@ function NormalizedObservationEditor({
           setForm({ outputKind: value === "pokemon-card" ? "pokemon-card" : "provider-product" })
         }
       />
+      <NormalizedOutputPreview form={form} authoringModel={authoringModel} previewPayload={previewPayload} />
       <MappingExpressionEditor
         label="Language expression"
         value={form.languageCode}
@@ -3852,6 +3860,54 @@ function NormalizedObservationEditor({
       />
     </Stack>
   );
+}
+
+function NormalizedOutputPreview({
+  form,
+  authoringModel,
+  previewPayload,
+}: Readonly<{
+  form: ProfileNormalizedObservationForm;
+  authoringModel: CatalogProviderProfileAuthoringModel | null;
+  previewPayload: JsonValue | null;
+}>) {
+  const preview = previewPayload ? normalizedOutputPreview(form, previewPayload) : null;
+  const fingerprint = authoringModel?.semanticDiff.mappingFingerprint ?? null;
+
+  return (
+    <TaskSummary
+      title="Sample Normalized Output"
+      items={[
+        { label: "Output kind", value: form.outputKind },
+        { label: "Language", value: preview?.languageCode ?? "No fixture sample" },
+        { label: "Fields", value: preview ? summarizeJsonValue(preview.fields) : "No fixture sample" },
+        { label: "Hash material", value: preview ? summarizeJsonValue(preview.hashMaterial) : "No fixture sample" },
+        { label: "Merge identity", value: preview ? summarizeJsonValue(preview.mergeIdentity) : "No fixture sample" },
+        {
+          label: "Fingerprint impact",
+          value: fingerprint
+            ? fingerprint.changed
+              ? `Changed: ${fingerprint.active ?? "none"} -> ${fingerprint.candidate ?? "none"}`
+              : `Unchanged: ${fingerprint.candidate ?? "none"}`
+            : "Not loaded",
+        },
+      ]}
+    />
+  );
+}
+
+function normalizedOutputPreview(form: ProfileNormalizedObservationForm, payload: JsonValue) {
+  return {
+    languageCode: summarizeJsonValue(previewMappingExpression(form.languageCode, payload).value),
+    fields: Object.fromEntries(
+      form.fields.map((field) => [
+        field.fieldKey.trim() || "unnamed",
+        previewMappingExpression(field.expression, payload).value,
+      ]),
+    ) as JsonValue,
+    hashMaterial: form.hashMaterial.map((item) => previewMappingExpression(item.expression, payload).value),
+    mergeIdentity: form.mergeIdentity.map((item) => previewMappingExpression(item.expression, payload).value),
+  };
 }
 
 function NormalizedExpressionListEditor({

@@ -892,7 +892,7 @@ function templateKeys(template: string): readonly string[] {
   return Array.from(template.matchAll(/\{([^}]+)\}/g), (match) => match[1]);
 }
 
-function previewMappingExpression(expression: MappingExpressionValue, payload: JsonValue) {
+export function previewMappingExpression(expression: MappingExpressionValue, payload: JsonValue) {
   const diagnostics: string[] = [];
   let value = previewSelector(expression.selector, payload, payload, diagnostics);
   for (const transform of expression.transforms ?? []) {

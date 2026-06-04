@@ -851,6 +851,9 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Normalized Observation")).toBeTruthy();
+    expect(within(dialog).getByText("Sample Normalized Output")).toBeTruthy();
+    expect(within(dialog).getByText("Fingerprint impact")).toBeTruthy();
+    expect(within(dialog).getByText(/active_fingerprint -> candidate_fingerprint/i)).toBeTruthy();
     expect(within(dialog).getAllByText("Fixture Preview").length).toBeGreaterThan(0);
     expect(within(dialog).getAllByText("fixture_1").length).toBeGreaterThan(0);
     expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
