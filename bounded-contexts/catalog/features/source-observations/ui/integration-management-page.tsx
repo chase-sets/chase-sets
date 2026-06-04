@@ -2021,6 +2021,14 @@ function ProfileAuthoringCompare({ model }: Readonly<{ model: CatalogProviderPro
               key: "Migration evidence",
               value: readiness.requiresMigrationEvidence ? "Required" : "Not required",
             },
+            {
+              key: "Candidate fingerprint",
+              value: model.semanticDiff.mappingFingerprint.candidate ?? "None",
+            },
+            {
+              key: "Active fingerprint",
+              value: model.semanticDiff.mappingFingerprint.active ?? "None",
+            },
           ]}
         />
       </Stack>
@@ -4232,9 +4240,17 @@ const semanticDiffColumns: DataColumn<CatalogProviderProfileAuthoringModel["sema
     cell: (row) => (
       <Stack gap={1}>
         <span>{row.label}</span>
-        <StatusPill tone={row.changed ? "warning" : "success"}>{row.changed ? "Changed" : "Unchanged"}</StatusPill>
+        <Inline gap={1}>
+          <StatusPill tone={row.changed ? "warning" : "success"}>{row.changed ? "Changed" : "Unchanged"}</StatusPill>
+          <StatusPill tone={semanticDiffSeverityTone(row.severity)}>{row.severity}</StatusPill>
+        </Inline>
       </Stack>
     ),
+  },
+  {
+    key: "impact",
+    header: "Activation Impact",
+    cell: (row) => row.activationImpact,
   },
   {
     key: "candidate",
@@ -4247,6 +4263,19 @@ const semanticDiffColumns: DataColumn<CatalogProviderProfileAuthoringModel["sema
     cell: (row) => summarizeDiffValue(row.active),
   },
 ];
+
+function semanticDiffSeverityTone(
+  severity: CatalogProviderProfileAuthoringModel["semanticDiff"]["changes"][number]["severity"],
+) {
+  switch (severity) {
+    case "error":
+      return "danger";
+    case "warning":
+      return "warning";
+    default:
+      return "neutral";
+  }
+}
 
 const profileValidationColumns: DataColumn<CatalogProviderProfileVersionReview["validation"]["diagnostics"][number]>[] =
   [

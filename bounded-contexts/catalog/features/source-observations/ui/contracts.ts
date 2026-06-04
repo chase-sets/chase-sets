@@ -321,6 +321,8 @@ export interface CatalogProviderProfileSemanticDiff {
     candidate: JsonValue;
     active: JsonValue;
     changed: boolean;
+    severity: "info" | "warning" | "error";
+    activationImpact: string;
   }[];
 }
 

@@ -304,6 +304,16 @@ export type CatalogProviderProfileDryRunInputTemplate = Readonly<{
   fixturePayloads: readonly CatalogProviderProfileFixtureMetadata[];
 }>;
 
+export type CatalogProviderProfileSemanticDiffChange = Readonly<{
+  path: string;
+  label: string;
+  candidate: JsonValue;
+  active: JsonValue;
+  changed: boolean;
+  severity: "info" | "warning" | "error";
+  activationImpact: string;
+}>;
+
 export type CatalogProviderProfileSemanticDiff = Readonly<{
   providerKey: string;
   candidateProfileVersion: string;
@@ -313,13 +323,7 @@ export type CatalogProviderProfileSemanticDiff = Readonly<{
     active: string | null;
     changed: boolean;
   }>;
-  changes: readonly Readonly<{
-    path: string;
-    label: string;
-    candidate: JsonValue;
-    active: JsonValue;
-    changed: boolean;
-  }>[];
+  changes: readonly CatalogProviderProfileSemanticDiffChange[];
 }>;
 
 export type CatalogProviderProfileActivationReadiness = Readonly<{
@@ -767,13 +771,24 @@ function toSemanticDiff(
 ): CatalogProviderProfileSemanticDiff {
   const candidateFingerprint = sourceMappingFingerprint(candidate);
   const activeFingerprint = active ? sourceMappingFingerprint(active) : null;
-  const compare = (path: string, label: string, candidateValue: JsonValue, activeValue: JsonValue) => ({
+  const compare = (
+    path: string,
+    label: string,
+    candidateValue: JsonValue,
+    activeValue: JsonValue,
+    severity: CatalogProviderProfileSemanticDiffChange["severity"],
+    activationImpact: string,
+  ): CatalogProviderProfileSemanticDiffChange => ({
     path,
     label,
     candidate: candidateValue,
     active: activeValue,
     changed: JSON.stringify(candidateValue) !== JSON.stringify(activeValue),
+    severity,
+    activationImpact,
   });
+  const contract = candidate.executableMappingContract;
+  const activeContract = active?.executableMappingContract;
 
   return {
     providerKey: candidate.providerKey,
@@ -785,48 +800,222 @@ function toSemanticDiff(
       changed: candidateFingerprint !== activeFingerprint,
     },
     changes: [
-      compare("lifecycle", "Lifecycle", candidate.lifecycle, active?.lifecycle ?? null),
-      compare("profile.status", "Status", candidate.profile.status, active?.profile.status ?? null),
+      compare(
+        "lifecycle",
+        "Lifecycle",
+        candidate.lifecycle,
+        active?.lifecycle ?? null,
+        "warning",
+        "Controls whether the candidate can be activated or edited.",
+      ),
+      compare(
+        "profile.status",
+        "Status",
+        candidate.profile.status,
+        active?.profile.status ?? null,
+        "info",
+        "Changes profile visibility/status only.",
+      ),
       compare(
         "compatibilityMode",
         "Compatibility Mode",
         candidate.compatibilityMode,
         active?.compatibilityMode ?? null,
+        "warning",
+        "Changes which profile engine the admin and runtime expect.",
       ),
       compare(
         "profile.capabilities",
         "Capabilities",
         [...candidate.profile.capabilities],
         [...(active?.profile.capabilities ?? [])],
+        "warning",
+        "Changes available import, reference extraction, and promotion workflows.",
       ),
       compare(
         "profile.supportedScopes",
         "Supported Scopes",
         [...candidate.profile.supportedScopes],
         [...(active?.profile.supportedScopes ?? [])],
+        "warning",
+        "Changes which provider scopes operators can import.",
       ),
       compare(
         "profile.languageOptions",
         "Language Options",
         [...candidate.profile.languageOptions],
         [...(active?.profile.languageOptions ?? [])],
+        "info",
+        "Changes selectable import languages.",
+      ),
+      compare(
+        "profile.optionQueries",
+        "Provider Option Queries",
+        candidate.profile.optionQueries as unknown as JsonValue,
+        (active?.profile.optionQueries ?? []) as unknown as JsonValue,
+        "warning",
+        "Changes import filters, parent scopes, and option discovery behavior.",
       ),
       compare(
         "profile.connector.kind",
         "Connector",
         candidate.profile.connector.kind,
         active?.profile.connector.kind ?? null,
+        "warning",
+        "Changes the provider transport/integration implementation.",
+      ),
+      compare(
+        "profile.connector",
+        "Connector Contract",
+        candidate.profile.connector as unknown as JsonValue,
+        (active?.profile.connector ?? null) as unknown as JsonValue,
+        "warning",
+        "Changes provider endpoints, repository metadata, authentication, retry, or evidence settings.",
+      ),
+      compare(
+        "sourceContract",
+        "Source Contract",
+        candidate.sourceContract as unknown as JsonValue,
+        (active?.sourceContract ?? null) as unknown as JsonValue,
+        "info",
+        "Changes authored contract provenance and fixture set documentation.",
       ),
       compare(
         "fixtures.coveredFlows",
         "Fixture Coverage",
         [...candidate.fixtures.coveredFlows],
         [...(active?.fixtures.coveredFlows ?? [])],
+        "warning",
+        "Changes fixture validation coverage before activation.",
       ),
-      compare("sourceMappingFingerprint", "Source Mapping Fingerprint", candidateFingerprint, activeFingerprint),
-      compare("promotionCommandPlan.commands", "Promotion Commands", promotionCommandNames(candidate), [
-        ...(active ? promotionCommandNames(active) : []),
-      ]),
+      compare(
+        "fixtures",
+        "Fixture Contract",
+        candidate.fixtures as unknown as JsonValue,
+        (active?.fixtures ?? null) as unknown as JsonValue,
+        "warning",
+        "Changes fixture root, covered flows, and live-call safety.",
+      ),
+      compare(
+        "profile.normalizedObservationMapping",
+        "Static Normalized Mapping",
+        candidate.profile.normalizedObservationMapping as unknown as JsonValue,
+        (active?.profile.normalizedObservationMapping ?? null) as unknown as JsonValue,
+        "warning",
+        "Changes normalized output kind, variant rules, and duplicate-reference handling.",
+      ),
+      compare(
+        "profile.catalogFieldMapping",
+        "Catalog Field Mapping",
+        candidate.profile.catalogFieldMapping as unknown as JsonValue,
+        (active?.profile.catalogFieldMapping ?? null) as unknown as JsonValue,
+        "warning",
+        "Changes Catalog blueprint, category, or field assignment behavior.",
+      ),
+      compare(
+        "executableMappingContract.normalizedObservation.outputKind",
+        "Normalized Output Kind",
+        contract?.normalizedObservation.outputKind ?? null,
+        activeContract?.normalizedObservation.outputKind ?? null,
+        "error",
+        "Changes the normalized Source Observation kind and replay/promotion expectations.",
+      ),
+      compare(
+        "executableMappingContract.normalizedObservation.fields",
+        "Normalized Fields",
+        (contract?.normalizedObservation.fields ?? null) as unknown as JsonValue,
+        (activeContract?.normalizedObservation.fields ?? null) as unknown as JsonValue,
+        "warning",
+        "Changes Catalog truth fields generated from provider payloads.",
+      ),
+      compare(
+        "executableMappingContract.normalizedObservation.hashMaterial",
+        "Hash Material",
+        (contract?.normalizedObservation.hashMaterial ?? null) as unknown as JsonValue,
+        (activeContract?.normalizedObservation.hashMaterial ?? null) as unknown as JsonValue,
+        "error",
+        "Changes replay identity/hash behavior and may require migration evidence.",
+      ),
+      compare(
+        "executableMappingContract.normalizedObservation.mergeIdentity",
+        "Merge Identity",
+        (contract?.normalizedObservation.mergeIdentity ?? null) as unknown as JsonValue,
+        (activeContract?.normalizedObservation.mergeIdentity ?? null) as unknown as JsonValue,
+        "error",
+        "Changes duplicate candidate matching and replay reuse behavior.",
+      ),
+      compare(
+        "executableMappingContract.externalReferences",
+        "External References",
+        (contract?.externalReferences ?? null) as unknown as JsonValue,
+        (activeContract?.externalReferences ?? null) as unknown as JsonValue,
+        "warning",
+        "Changes emitted external Catalog/Product references and selected-option evidence.",
+      ),
+      compare(
+        "profile.selectedOptionMapping",
+        "Selected Option Mapping",
+        (candidate.profile.selectedOptionMapping ?? null) as unknown as JsonValue,
+        (active?.profile.selectedOptionMapping ?? null) as unknown as JsonValue,
+        "warning",
+        "Changes provider option normalization used by product references.",
+      ),
+      compare(
+        "executableMappingContract.referenceHierarchy",
+        "Reference Hierarchy",
+        (contract?.referenceHierarchy ?? null) as unknown as JsonValue,
+        (activeContract?.referenceHierarchy ?? null) as unknown as JsonValue,
+        "warning",
+        "Changes provisioned Reference Records and parent chains.",
+      ),
+      compare(
+        "executableMappingContract.duplicatePrevention",
+        "Duplicate Prevention",
+        (contract?.duplicatePrevention ?? null) as unknown as JsonValue,
+        (activeContract?.duplicatePrevention ?? null) as unknown as JsonValue,
+        "error",
+        "Changes duplicate candidate order, evidence, or replay policy.",
+      ),
+      compare(
+        "sourceMappingFingerprint",
+        "Source Mapping Fingerprint",
+        candidateFingerprint,
+        activeFingerprint,
+        candidateFingerprint !== activeFingerprint ? "error" : "info",
+        "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
+      ),
+      compare(
+        "promotionCommandPlan.commands",
+        "Promotion Commands",
+        promotionCommandNames(candidate),
+        [...(active ? promotionCommandNames(active) : [])],
+        "warning",
+        "Changes ordered Catalog promotion commands.",
+      ),
+      compare(
+        "retirementPlan",
+        "Retirement Plan",
+        (candidate.retirementPlan ?? null) as unknown as JsonValue,
+        (active?.retirementPlan ?? null) as unknown as JsonValue,
+        "info",
+        "Changes planned cleanup tracking only.",
+      ),
+      compare(
+        "migrationEvidence",
+        "Migration Evidence",
+        (candidate.migrationEvidence ?? null) as unknown as JsonValue,
+        (active?.migrationEvidence ?? null) as unknown as JsonValue,
+        "warning",
+        "Records operator evidence for fingerprint-changing activation.",
+      ),
+      compare(
+        "authoringAudit",
+        "Authoring Audit",
+        (candidate.authoringAudit ?? null) as unknown as JsonValue,
+        (active?.authoringAudit ?? null) as unknown as JsonValue,
+        "info",
+        "Shows who authored the candidate and when.",
+      ),
     ],
   };
 }

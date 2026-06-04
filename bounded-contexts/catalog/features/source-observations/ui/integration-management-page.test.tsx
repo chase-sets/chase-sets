@@ -445,9 +445,57 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText("Mapping changed")).toBeTruthy();
     expect(within(dialog).getByText("Semantic Changes")).toBeTruthy();
     expect(within(dialog).getAllByText("Source Mapping Fingerprint").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("candidate_fingerprint").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("active_fingerprint").length).toBeGreaterThan(0);
+    expect(
+      within(dialog).getAllByText(
+        "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
+      ).length,
+    ).toBeGreaterThan(0);
     expect(within(dialog).queryByLabelText("Candidate profile JSON")).toBeNull();
     expect(within(dialog).queryByLabelText("Active profile JSON")).toBeNull();
   }, 180000);
+
+  it("renders semantic comparison fingerprint and impact metadata without raw JSON", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    const activeProfile = profileReview({
+      providerKey: "scrydex",
+      profileVersion: "2026.06.02",
+      lifecycle: "active",
+      active: true,
+    });
+    const draftProfile = profileReview({
+      providerKey: "scrydex",
+      profileVersion: "2026.06.03",
+      lifecycle: "draft",
+      active: false,
+    });
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: { items: [draftProfile, activeProfile], total: 2, count: 2 },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Compare$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Semantic Changes")).toBeTruthy();
+    expect(within(dialog).getByText("Candidate fingerprint")).toBeTruthy();
+    expect(within(dialog).getAllByText("candidate_fingerprint").length).toBeGreaterThan(0);
+    expect(within(dialog).getByText("Active fingerprint")).toBeTruthy();
+    expect(within(dialog).getAllByText("active_fingerprint").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("Activation Impact").length).toBeGreaterThan(0);
+    expect(
+      within(dialog).getAllByText(
+        "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(within(dialog).queryByLabelText("Candidate profile JSON")).toBeNull();
+    expect(within(dialog).queryByLabelText("Active profile JSON")).toBeNull();
+  });
 
   it("edits normalized observation expressions through typed controls", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
@@ -2445,6 +2493,9 @@ function profileAuthoringModel(
           candidate: "candidate_fingerprint",
           active: "active_fingerprint",
           changed: true,
+          severity: "error",
+          activationImpact:
+            "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
         },
         {
           path: "profile.capabilities",
@@ -2452,6 +2503,8 @@ function profileAuthoringModel(
           candidate: ["source-observation-import", "external-reference-extraction"],
           active: ["source-observation-import"],
           changed: true,
+          severity: "warning",
+          activationImpact: "Changes available import, reference extraction, and promotion workflows.",
         },
       ],
     },

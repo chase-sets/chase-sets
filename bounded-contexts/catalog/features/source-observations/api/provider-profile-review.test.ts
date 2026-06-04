@@ -188,6 +188,31 @@ describe("Catalog provider profile review", () => {
       activeProfileVersion: "2026.06.03",
       mappingFingerprint: { changed: true },
     });
+    expect(model.semanticDiff.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "executableMappingContract.normalizedObservation.hashMaterial",
+          label: "Hash Material",
+          severity: "error",
+          activationImpact: expect.stringContaining("migration evidence"),
+        }),
+        expect.objectContaining({
+          path: "executableMappingContract.duplicatePrevention",
+          label: "Duplicate Prevention",
+          severity: "error",
+        }),
+        expect.objectContaining({
+          path: "profile.optionQueries",
+          label: "Provider Option Queries",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          path: "migrationEvidence",
+          label: "Migration Evidence",
+          activationImpact: expect.stringContaining("fingerprint-changing activation"),
+        }),
+      ]),
+    );
     expect(model.activationReadiness).toMatchObject({
       status: "blocked",
       requiresMigrationEvidence: true,
