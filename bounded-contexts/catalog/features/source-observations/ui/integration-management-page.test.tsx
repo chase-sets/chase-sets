@@ -351,10 +351,27 @@ describe("IntegrationManagementPage", () => {
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
+    expect((screen.getAllByRole("button", { name: /^Edit Profile$/i })[1] as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     let dialog = screen.getByRole("dialog");
     expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
     fireEvent.change(within(dialog).getByLabelText("Display name"), { target: { value: "Scrydex Draft" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Contract owner/i), { target: { value: "Catalog Ops" } });
+    fireEvent.change(within(dialog).getByLabelText("Repository"), {
+      target: { value: "chase-sets/catalog-contracts" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Commit"), { target: { value: "abc123" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Document path/i), {
+      target: { value: "bounded-contexts/catalog/docs/scrydex-contract.md" },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/^Fixture set version/i), {
+      target: { value: "scrydex-scryfall-card-proof-v2" },
+    });
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /^Track planned retirement$/i }));
+    fireEvent.change(within(dialog).getByLabelText("Tracking issue"), { target: { value: "739" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Retirement diagnostic/i), {
+      target: { value: "Retire once the executable mapping contract is active." },
+    });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
 
     await waitFor(() =>
@@ -374,6 +391,34 @@ describe("IntegrationManagementPage", () => {
         }),
       ),
     );
+    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "scrydex",
+      "2026.06.03",
+      "source-contract",
+      {
+        section: "source-contract",
+        sourceContract: {
+          owner: "Catalog Ops",
+          repository: "chase-sets/catalog-contracts",
+          commit: "abc123",
+          documentPath: "bounded-contexts/catalog/docs/scrydex-contract.md",
+          fixtureSetVersion: "scrydex-scryfall-card-proof-v2",
+        },
+      },
+    );
+    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "scrydex",
+      "2026.06.03",
+      "retirement-plan",
+      {
+        section: "retirement-plan",
+        retirementPlan: {
+          trackingIssue: 739,
+          removeAfter: "executable-mapping-contract-activated",
+          diagnosticText: "Retire once the executable mapping contract is active.",
+        },
+      },
+    );
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Compare$/i })[0]);
     dialog = screen.getByRole("dialog");
@@ -384,6 +429,92 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getAllByText("Source Mapping Fingerprint").length).toBeGreaterThan(0);
     expect(within(dialog).queryByLabelText("Candidate profile JSON")).toBeNull();
     expect(within(dialog).queryByLabelText("Active profile JSON")).toBeNull();
+  });
+
+  it("keeps immutable profile rows out of the basics editor", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({ profileVersion: "2026.06.01", lifecycle: "active", active: true }),
+          profileReview({ profileVersion: "2026.06.02", lifecycle: "deprecated", active: false }),
+          profileReview({ profileVersion: "2026.06.03", lifecycle: "retired", active: false }),
+        ],
+        total: 3,
+        count: 3,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    for (const button of screen.getAllByRole("button", { name: /^Edit Profile$/i })) {
+      expect((button as HTMLButtonElement).disabled).toBe(true);
+    }
+  });
+
+  it("keeps draft and test profile rows editable in the basics editor", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({ profileVersion: "2026.06.01", lifecycle: "draft", active: false }),
+          profileReview({ profileVersion: "2026.06.02", lifecycle: "test", active: false }),
+        ],
+        total: 2,
+        count: 2,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    for (const button of screen.getAllByRole("button", { name: /^Edit Profile$/i })) {
+      expect((button as HTMLButtonElement).disabled).toBe(false);
+    }
+  });
+
+  it("shows section validation messages in the basics editor", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            lifecycle: "draft",
+            validation: {
+              status: "invalid",
+              diagnostics: [
+                {
+                  code: "source-contract-owner",
+                  severity: "error",
+                  path: "sourceContract.owner",
+                  diagnosticText: "sourceContract.owner must be a non-empty string.",
+                },
+              ],
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getAllByText("sourceContract.owner").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("sourceContract.owner must be a non-empty string.").length).toBeGreaterThan(0);
   });
 
   it("enqueues a TCGdex pull for the selected language and optional series", async () => {

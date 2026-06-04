@@ -37,6 +37,8 @@ import type {
   CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileBasicsUpdateCommand,
   CatalogProviderProfileDryRunResult,
+  CatalogProviderProfileRetirementPlanUpdateCommand,
+  CatalogProviderProfileSourceContractUpdateCommand,
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationOption,
   SourceObservationIntegrationJobResult,
@@ -113,6 +115,22 @@ type ProfileBasicsForm = Readonly<{
   capabilities: readonly string[];
   supportedScopes: readonly string[];
   languageOptionsText: string;
+  sourceContract: ProfileSourceContractForm;
+  retirementPlan: ProfileRetirementPlanForm;
+}>;
+
+type ProfileSourceContractForm = Readonly<{
+  owner: string;
+  repository: string;
+  commit: string;
+  documentPath: string;
+  fixtureSetVersion: string;
+}>;
+
+type ProfileRetirementPlanForm = Readonly<{
+  enabled: boolean;
+  trackingIssueText: string;
+  diagnosticText: string;
 }>;
 
 export function IntegrationManagementPage({
@@ -433,11 +451,43 @@ export function IntegrationManagementPage({
         supportedScopes: [...editBasicsForm.supportedScopes],
         languageOptions: parseListInput(editBasicsForm.languageOptionsText),
       };
+      const sourceContractCommand: CatalogProviderProfileSourceContractUpdateCommand = {
+        section: "source-contract",
+        sourceContract: {
+          owner: editBasicsForm.sourceContract.owner.trim(),
+          repository: nullableTrimmedValue(editBasicsForm.sourceContract.repository),
+          commit: nullableTrimmedValue(editBasicsForm.sourceContract.commit),
+          documentPath: editBasicsForm.sourceContract.documentPath.trim(),
+          fixtureSetVersion: editBasicsForm.sourceContract.fixtureSetVersion.trim(),
+        },
+      };
+      const retirementPlanCommand: CatalogProviderProfileRetirementPlanUpdateCommand = {
+        section: "retirement-plan",
+        retirementPlan: editBasicsForm.retirementPlan.enabled
+          ? {
+              trackingIssue: Number(editBasicsForm.retirementPlan.trackingIssueText),
+              removeAfter: "executable-mapping-contract-activated",
+              diagnosticText: editBasicsForm.retirementPlan.diagnosticText.trim(),
+            }
+          : null,
+      };
       await updateSourceObservationProviderProfileSection(
         editProfile.providerKey,
         editProfile.profileVersion,
         "basics",
         command,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "source-contract",
+        sourceContractCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "retirement-plan",
+        retirementPlanCommand,
       );
       addToast("Profile basics saved.", "success");
       setEditProfile(null);
@@ -1003,7 +1053,7 @@ export function IntegrationManagementPage({
             <Button
               leadingIcon="settings"
               onClick={handleSaveProfileBasics}
-              disabled={!editBasicsForm?.displayName.trim() || editBasicsForm.capabilities.length === 0}
+              disabled={profileBasicsSaveDisabled(editProfile, editBasicsForm)}
               loading={Boolean(editProfile && profileActionKey === profileActionIdentity(editProfile))}
             >
               Save Basics
@@ -1593,6 +1643,13 @@ function ProfileBasicsEditor({
   error: string | null;
 }>) {
   const setForm = (patch: Partial<ProfileBasicsForm>) => onChange({ ...form, ...patch });
+  const setSourceContract = (patch: Partial<ProfileSourceContractForm>) =>
+    setForm({ sourceContract: { ...form.sourceContract, ...patch } });
+  const setRetirementPlan = (patch: Partial<ProfileRetirementPlanForm>) =>
+    setForm({ retirementPlan: { ...form.retirementPlan, ...patch } });
+  const editable = profileLifecycleEditable(profile);
+  const retirementTrackingIssueInvalid =
+    form.retirementPlan.enabled && !positiveIntegerText(form.retirementPlan.trackingIssueText);
 
   return (
     <Stack gap={4}>
@@ -1601,14 +1658,34 @@ function ProfileBasicsEditor({
           { key: "Provider key", value: profile.providerKey },
           { key: "Profile key", value: profile.profileKey },
           { key: "Profile version", value: profile.profileVersion },
+          { key: "Lifecycle", value: profile.lifecycle },
           { key: "Active", value: profile.active ? "Yes" : "No" },
-          { key: "Authoring audit", value: profile.authoringAudit?.updatedAt ?? "Not recorded" },
+          { key: "Created", value: profile.authoringAudit?.createdAt ?? "Not recorded" },
+          { key: "Created by", value: profile.authoringAudit?.createdByUserId ?? "Not recorded" },
+          { key: "Created for account", value: profile.authoringAudit?.createdForAccountId ?? "Not recorded" },
+          { key: "Last updated", value: profile.authoringAudit?.updatedAt ?? "Not recorded" },
+          { key: "Updated by", value: profile.authoringAudit?.updatedByUserId ?? "Not recorded" },
+          { key: "Updated for account", value: profile.authoringAudit?.updatedForAccountId ?? "Not recorded" },
+          { key: "Migration evidence recorded", value: profile.migrationEvidence?.recordedAt ?? "Not recorded" },
+          { key: "Migration evidence by", value: profile.migrationEvidence?.recordedByUserId ?? "Not recorded" },
+          {
+            key: "Migration evidence account",
+            value: profile.migrationEvidence?.recordedForAccountId ?? "Not recorded",
+          },
         ]}
       />
+
+      {!editable ? (
+        <p className="text-sm text-secondary">
+          This profile version is immutable from the Basics editor. Use the lifecycle actions on the profile row to
+          deprecate, roll back, or retire it.
+        </p>
+      ) : null}
 
       <TextInput
         label="Display name"
         value={form.displayName}
+        disabled={!editable}
         onChange={(event) => setForm({ displayName: event.currentTarget.value })}
       />
 
@@ -1618,12 +1695,14 @@ function ProfileBasicsEditor({
           value={form.lifecycle}
           onValueChange={(value) => setForm({ lifecycle: value === "test" ? "test" : "draft" })}
           items={PROFILE_LIFECYCLE_OPTIONS}
+          disabled={!editable}
         />
         <Select
           label="Status"
           value={form.status}
           onValueChange={(value) => setForm({ status: value === "active" ? "active" : "planned" })}
           items={PROFILE_STATUS_OPTIONS}
+          disabled={!editable}
         />
         <Select
           label="Compatibility"
@@ -1635,6 +1714,7 @@ function ProfileBasicsEditor({
             })
           }
           items={PROFILE_COMPATIBILITY_MODE_OPTIONS}
+          disabled={!editable}
         />
       </Inline>
 
@@ -1643,6 +1723,7 @@ function ProfileBasicsEditor({
         options={CATALOG_PROVIDER_CAPABILITY_OPTIONS}
         selected={form.capabilities}
         onChange={(capabilities) => setForm({ capabilities })}
+        disabled={!editable}
       />
 
       <CheckboxSet
@@ -1650,15 +1731,102 @@ function ProfileBasicsEditor({
         options={CATALOG_PROVIDER_SCOPE_OPTIONS}
         selected={form.supportedScopes}
         onChange={(supportedScopes) => setForm({ supportedScopes })}
+        disabled={!editable}
       />
 
       <Textarea
         label="Language options"
         description="Comma or line separated language codes."
         value={form.languageOptionsText}
+        disabled={!editable}
         onChange={(event) => setForm({ languageOptionsText: event.currentTarget.value })}
         rows={4}
       />
+
+      <Stack gap={3}>
+        <h3 className="text-sm font-semibold text-foreground">Source Contract</h3>
+        <Inline gap={3}>
+          <TextInput
+            label="Contract owner"
+            value={form.sourceContract.owner}
+            disabled={!editable}
+            required
+            onChange={(event) => setSourceContract({ owner: event.currentTarget.value })}
+          />
+          <TextInput
+            label="Repository"
+            value={form.sourceContract.repository}
+            disabled={!editable}
+            onChange={(event) => setSourceContract({ repository: event.currentTarget.value })}
+          />
+          <TextInput
+            label="Commit"
+            value={form.sourceContract.commit}
+            disabled={!editable}
+            onChange={(event) => setSourceContract({ commit: event.currentTarget.value })}
+          />
+        </Inline>
+        <Inline gap={3}>
+          <TextInput
+            label="Document path"
+            value={form.sourceContract.documentPath}
+            disabled={!editable}
+            required
+            onChange={(event) => setSourceContract({ documentPath: event.currentTarget.value })}
+          />
+          <TextInput
+            label="Fixture set version"
+            value={form.sourceContract.fixtureSetVersion}
+            disabled={!editable}
+            required
+            onChange={(event) => setSourceContract({ fixtureSetVersion: event.currentTarget.value })}
+          />
+        </Inline>
+      </Stack>
+
+      <Stack gap={3}>
+        <h3 className="text-sm font-semibold text-foreground">Retirement Plan</h3>
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            checked={form.retirementPlan.enabled}
+            disabled={!editable}
+            onChange={() => setRetirementPlan({ enabled: !form.retirementPlan.enabled })}
+            className="h-4 w-4 rounded border-border accent-accent"
+          />
+          <span>Track planned retirement</span>
+        </label>
+        {form.retirementPlan.enabled ? (
+          <Inline gap={3}>
+            <TextInput
+              label="Tracking issue"
+              value={form.retirementPlan.trackingIssueText}
+              disabled={!editable}
+              inputMode="numeric"
+              error={retirementTrackingIssueInvalid ? "Enter a positive issue number." : undefined}
+              onChange={(event) => setRetirementPlan({ trackingIssueText: event.currentTarget.value })}
+            />
+            <Select
+              label="Remove after"
+              value="executable-mapping-contract-activated"
+              disabled
+              items={[
+                { value: "executable-mapping-contract-activated", label: "Executable mapping contract activated" },
+              ]}
+            />
+          </Inline>
+        ) : null}
+        {form.retirementPlan.enabled ? (
+          <Textarea
+            label="Retirement diagnostic"
+            value={form.retirementPlan.diagnosticText}
+            disabled={!editable}
+            required
+            onChange={(event) => setRetirementPlan({ diagnosticText: event.currentTarget.value })}
+            rows={3}
+          />
+        ) : null}
+      </Stack>
 
       {profile.validation.diagnostics.length > 0 ? (
         <DataTable
@@ -1679,11 +1847,13 @@ function CheckboxSet({
   options,
   selected,
   onChange,
+  disabled = false,
 }: Readonly<{
   legend: string;
   options: readonly string[];
   selected: readonly string[];
   onChange: (selected: readonly string[]) => void;
+  disabled?: boolean;
 }>) {
   return (
     <fieldset className="space-y-2">
@@ -1694,6 +1864,7 @@ function CheckboxSet({
             <input
               type="checkbox"
               checked={selected.includes(option)}
+              disabled={disabled}
               onChange={() => onChange(toggleStringSelection(selected, option))}
               className="h-4 w-4 rounded border-border accent-accent"
             />
@@ -2186,6 +2357,13 @@ function profileComparisonItems(
 }
 
 function profileBasicsForm(profile: CatalogProviderProfileVersionReview): ProfileBasicsForm {
+  const retirementPlan = profile.retirementPlan;
+  const retirementPlanObject = isRecord(retirementPlan) ? retirementPlan : null;
+  const trackingIssue =
+    typeof retirementPlanObject?.trackingIssue === "number" ? String(retirementPlanObject.trackingIssue) : "";
+  const diagnosticText =
+    typeof retirementPlanObject?.diagnosticText === "string" ? retirementPlanObject.diagnosticText : "";
+
   return {
     displayName: profile.displayName,
     lifecycle: profile.lifecycle === "test" ? "test" : "draft",
@@ -2197,7 +2375,47 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
     capabilities: [...profile.capabilities],
     supportedScopes: [...profile.supportedScopes],
     languageOptionsText: profile.languageOptions.join("\n"),
+    sourceContract: {
+      owner: profile.sourceContract.owner,
+      repository: profile.sourceContract.repository ?? "",
+      commit: profile.sourceContract.commit ?? "",
+      documentPath: profile.sourceContract.documentPath,
+      fixtureSetVersion: profile.sourceContract.fixtureSetVersion,
+    },
+    retirementPlan: {
+      enabled: Boolean(retirementPlanObject),
+      trackingIssueText: trackingIssue,
+      diagnosticText,
+    },
   };
+}
+
+function profileBasicsSaveDisabled(
+  profile: CatalogProviderProfileVersionReview | null,
+  form: ProfileBasicsForm | null,
+): boolean {
+  if (!profile || !form || !profileLifecycleEditable(profile)) {
+    return true;
+  }
+
+  if (
+    !form.displayName.trim() ||
+    form.capabilities.length === 0 ||
+    !form.sourceContract.owner.trim() ||
+    !form.sourceContract.documentPath.trim() ||
+    !form.sourceContract.fixtureSetVersion.trim()
+  ) {
+    return true;
+  }
+
+  return (
+    form.retirementPlan.enabled &&
+    (!positiveIntegerText(form.retirementPlan.trackingIssueText) || !form.retirementPlan.diagnosticText.trim())
+  );
+}
+
+function profileLifecycleEditable(profile: CatalogProviderProfileVersionReview): boolean {
+  return !profile.active && (profile.lifecycle === "draft" || profile.lifecycle === "test");
 }
 
 function parseListInput(value: string): string[] {
@@ -2205,6 +2423,15 @@ function parseListInput(value: string): string[] {
     .split(/[\n,]/)
     .map((entry) => entry.trim())
     .filter(Boolean);
+}
+
+function nullableTrimmedValue(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed.length === 0 ? null : trimmed;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function toggleStringSelection(selected: readonly string[], option: string): readonly string[] {
