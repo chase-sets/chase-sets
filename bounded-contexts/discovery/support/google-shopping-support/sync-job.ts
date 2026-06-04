@@ -145,6 +145,79 @@ export type GoogleShoppingMaintenancePreview = Readonly<{
   total: number;
 }>;
 
+export type GoogleShoppingFeedRowFilter =
+  | "all"
+  | "eligible"
+  | "excluded"
+  | "failed"
+  | "disapproved"
+  | "pending-delete"
+  | "nearing-refresh"
+  | "stale"
+  | "pending-diagnostics";
+
+export type GoogleShoppingFeedRowListItem = Readonly<{
+  rowId: string;
+  listingId: string;
+  accountId: string;
+  catalogItemId: string;
+  productId: string;
+  merchantOfferId: string;
+  externalSellerId: string;
+  canonicalUrl: string;
+  targetCountry: string;
+  contentLanguage: string;
+  feedLabel: string;
+  eligibilityStatus: string;
+  exclusionReasons: readonly string[];
+  imageEligibilityStatus: string;
+  imageExclusionReasons: readonly string[];
+  syncStatus: string;
+  diagnosticStatus: GoogleShoppingDiagnosticStatus | null;
+  activeIssueCount: number;
+  unknownIssueCodeCount: number;
+  blockingIssueCount: number;
+  remediationOwners: readonly string[];
+  pendingDelete: boolean;
+  stale: boolean;
+  nearingRefresh: boolean;
+  payloadHash: string | null;
+  lastSubmittedPayloadHash: string | null;
+  lastSubmittedAt: string | null;
+  lastAcceptedAt: string | null;
+  lastSyncAttemptedAt: string | null;
+  lastSyncErrorCode: string | null;
+  lastSyncErrorMessage: string | null;
+  lastProviderOperation: string | null;
+  deleteSubmittedAt: string | null;
+  lastDiagnosticAt: string | null;
+  shippingPolicyUrl: string | null;
+  returnPolicyUrl: string | null;
+  returnPolicyLabel: string | null;
+  updatedAt: string;
+}>;
+
+export type GoogleShoppingFeedRowList = Readonly<{
+  generatedAt: string;
+  filter: GoogleShoppingFeedRowFilter;
+  search: string;
+  limit: number;
+  refreshWindowDays: number;
+  refreshCutoff: string;
+  summary: Readonly<{
+    totalRows: number;
+    eligibleRows: number;
+    excludedRows: number;
+    failedRows: number;
+    disapprovedRows: number;
+    pendingDeleteRows: number;
+    staleRows: number;
+    nearingRefreshRows: number;
+    pendingDiagnosticsRows: number;
+  }>;
+  rows: readonly GoogleShoppingFeedRowListItem[];
+}>;
+
 export type GoogleShoppingMaintenanceEnqueueResult = Readonly<{
   summary: GoogleShoppingMaintenancePreview;
   job: GoogleShoppingFullSyncJob | null;
@@ -316,6 +389,54 @@ type GoogleShoppingMaintenanceCandidateRow = Readonly<{
   delete_submitted_at: Date | string | null;
 }>;
 
+type GoogleShoppingFeedRowListDbRow = Readonly<{
+  row_id: string;
+  listing_id: string;
+  account_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  merchant_offer_id: string;
+  external_seller_id: string;
+  canonical_url: string;
+  target_country: string;
+  content_language: string;
+  feed_label: string;
+  payload_hash: string | null;
+  eligibility_status: string;
+  exclusion_reasons: unknown;
+  image_eligibility_status: string;
+  image_exclusion_reasons: unknown;
+  shipping_policy_url: string | null;
+  return_policy_url: string | null;
+  return_policy_label: string | null;
+  sync_status: string;
+  last_submitted_payload_hash: string | null;
+  last_submitted_at: Date | string | null;
+  last_accepted_at: Date | string | null;
+  last_sync_attempted_at: Date | string | null;
+  last_sync_error_code: string | null;
+  last_sync_error_message: string | null;
+  last_provider_operation: string | null;
+  diagnostic_status: string | null;
+  diagnostic_issues: unknown;
+  last_diagnostic_at: Date | string | null;
+  tombstone_status: string;
+  delete_submitted_at: Date | string | null;
+  updated_at: Date | string;
+}>;
+
+type GoogleShoppingFeedRowSummaryDbRow = Readonly<{
+  total_rows: number | string;
+  eligible_rows: number | string;
+  excluded_rows: number | string;
+  failed_rows: number | string;
+  disapproved_rows: number | string;
+  pending_delete_rows: number | string;
+  stale_rows: number | string;
+  nearing_refresh_rows: number | string;
+  pending_diagnostics_rows: number | string;
+}>;
+
 type GoogleShoppingSyncRuntimeDeps = Readonly<{
   db: PgQueryable;
 }>;
@@ -360,6 +481,13 @@ export type GoogleShoppingSyncServices = Readonly<{
     params: Readonly<{ mode: GoogleShoppingSyncMode; batchSize?: number }>,
     context: EventStoreContext,
   ) => Promise<GoogleShoppingFullSyncJob>;
+  listFeedRows: (input?: {
+    filter?: GoogleShoppingFeedRowFilter;
+    search?: string;
+    limit?: number;
+    refreshWindowDays?: number;
+    now?: string | Date;
+  }) => Promise<GoogleShoppingFeedRowList>;
   getDiagnosticsSnapshot: (input?: { limit?: number }) => Promise<GoogleShoppingDiagnosticsSnapshot>;
   processScheduledMaintenanceSync: (
     params: Readonly<{ mode: GoogleShoppingSyncMode; refreshWindowDays?: number; limit?: number }>,
@@ -488,6 +616,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
       getGoogleShoppingDiagnosticsSnapshot(deps.db, {
         limit: normalizeBatchSize(input.limit ?? DEFAULT_DIAGNOSTICS_BATCH_SIZE),
       }),
+    listFeedRows: (input = {}) => listGoogleShoppingFeedRows(deps.db, input),
     getFullSyncJob: async (jobId) => (await jobStore.get(jobId)) as GoogleShoppingFullSyncJob | null,
     listFullSyncJobEvents: async (jobId, afterSequence = 0) =>
       (await jobStore.listEvents(jobId, afterSequence)) as readonly DurableJobEvent<
@@ -1511,6 +1640,336 @@ async function getGoogleShoppingDiagnosticsSnapshot(
   }));
 
   return buildGoogleShoppingDiagnosticsSnapshot(rows, new Date().toISOString());
+}
+
+async function listGoogleShoppingFeedRows(
+  db: PgQueryable,
+  input: Readonly<{
+    filter?: GoogleShoppingFeedRowFilter;
+    search?: string;
+    limit?: number;
+    refreshWindowDays?: number;
+    now?: string | Date;
+  }> = {},
+): Promise<GoogleShoppingFeedRowList> {
+  const filter = normalizeFeedRowFilter(input.filter);
+  const search = input.search?.trim() ?? "";
+  const limit = normalizeBatchSize(input.limit ?? DEFAULT_BATCH_SIZE);
+  const refreshWindowDays = normalizePositiveInteger(input.refreshWindowDays, DEFAULT_REFRESH_WINDOW_DAYS);
+  const refreshCutoff = refreshCutoffFor(input.now, refreshWindowDays).toISOString();
+  const where = googleShoppingFeedRowWhere(filter, search, refreshCutoff);
+  const summaryResult = await db.query<GoogleShoppingFeedRowSummaryDbRow>(
+    `SELECT COUNT(*)::integer AS total_rows,
+            COUNT(*) FILTER (WHERE eligibility_status = 'eligible')::integer AS eligible_rows,
+            COUNT(*) FILTER (WHERE eligibility_status <> 'eligible')::integer AS excluded_rows,
+            COUNT(*) FILTER (WHERE sync_status = 'failed')::integer AS failed_rows,
+            COUNT(*) FILTER (WHERE diagnostic_status = 'disapproved')::integer AS disapproved_rows,
+            COUNT(*) FILTER (
+              WHERE last_submitted_payload_hash IS NOT NULL
+                AND delete_submitted_at IS NULL
+                AND (tombstone_status <> 'live' OR eligibility_status <> 'eligible')
+            )::integer AS pending_delete_rows,
+            COUNT(*) FILTER (
+              WHERE eligibility_status = 'eligible'
+                AND tombstone_status = 'live'
+                AND last_submitted_payload_hash IS NOT NULL
+                AND payload_hash IS DISTINCT FROM last_submitted_payload_hash
+            )::integer AS stale_rows,
+            COUNT(*) FILTER (
+              WHERE eligibility_status = 'eligible'
+                AND tombstone_status = 'live'
+                AND last_submitted_payload_hash IS NOT NULL
+                AND COALESCE(last_accepted_at, last_submitted_at) <= $1::timestamptz
+            )::integer AS nearing_refresh_rows,
+            COUNT(*) FILTER (
+              WHERE last_submitted_payload_hash IS NOT NULL
+                AND delete_submitted_at IS NULL
+                AND COALESCE(diagnostic_status, 'unknown') IN ('pending', 'unknown')
+            )::integer AS pending_diagnostics_rows
+     FROM discovery_google_shopping_feed_rows`,
+    [refreshCutoff],
+  );
+  const rowResult = await db.query<GoogleShoppingFeedRowListDbRow>(
+    `SELECT row_id,
+            listing_id,
+            account_id,
+            catalog_catalog_item_id,
+            product_id,
+            merchant_offer_id,
+            external_seller_id,
+            canonical_url,
+            target_country,
+            content_language,
+            feed_label,
+            payload_hash,
+            eligibility_status,
+            exclusion_reasons,
+            image_eligibility_status,
+            image_exclusion_reasons,
+            shipping_policy_url,
+            return_policy_url,
+            return_policy_label,
+            sync_status,
+            last_submitted_payload_hash,
+            last_submitted_at,
+            last_accepted_at,
+            last_sync_attempted_at,
+            last_sync_error_code,
+            last_sync_error_message,
+            last_provider_operation,
+            diagnostic_status,
+            diagnostic_issues,
+            last_diagnostic_at,
+            tombstone_status,
+            delete_submitted_at,
+            updated_at
+     FROM discovery_google_shopping_feed_rows
+     ${where.sql}
+     ORDER BY ${googleShoppingFeedRowOrder(filter)}
+     LIMIT $${where.values.length + 1}`,
+    [...where.values, limit],
+  );
+  const summary = summaryResult.rows[0] ?? {
+    total_rows: 0,
+    eligible_rows: 0,
+    excluded_rows: 0,
+    failed_rows: 0,
+    disapproved_rows: 0,
+    pending_delete_rows: 0,
+    stale_rows: 0,
+    nearing_refresh_rows: 0,
+    pending_diagnostics_rows: 0,
+  };
+
+  return {
+    generatedAt: new Date(input.now ?? Date.now()).toISOString(),
+    filter,
+    search,
+    limit,
+    refreshWindowDays,
+    refreshCutoff,
+    summary: {
+      totalRows: Number(summary.total_rows),
+      eligibleRows: Number(summary.eligible_rows),
+      excludedRows: Number(summary.excluded_rows),
+      failedRows: Number(summary.failed_rows),
+      disapprovedRows: Number(summary.disapproved_rows),
+      pendingDeleteRows: Number(summary.pending_delete_rows),
+      staleRows: Number(summary.stale_rows),
+      nearingRefreshRows: Number(summary.nearing_refresh_rows),
+      pendingDiagnosticsRows: Number(summary.pending_diagnostics_rows),
+    },
+    rows: rowResult.rows.map((row) => toGoogleShoppingFeedRowListItem(row, refreshCutoff)),
+  };
+}
+
+function googleShoppingFeedRowWhere(filter: GoogleShoppingFeedRowFilter, search: string, refreshCutoff: string) {
+  const clauses: string[] = [];
+  const values: unknown[] = [];
+  const parameter = (value: unknown) => {
+    values.push(value);
+    return `$${values.length}`;
+  };
+
+  switch (filter) {
+    case "eligible":
+      clauses.push("eligibility_status = 'eligible'");
+      break;
+    case "excluded":
+      clauses.push("eligibility_status <> 'eligible'");
+      break;
+    case "failed":
+      clauses.push("sync_status = 'failed'");
+      break;
+    case "disapproved":
+      clauses.push("diagnostic_status = 'disapproved'");
+      break;
+    case "pending-delete":
+      clauses.push(
+        "last_submitted_payload_hash IS NOT NULL AND delete_submitted_at IS NULL AND (tombstone_status <> 'live' OR eligibility_status <> 'eligible')",
+      );
+      break;
+    case "nearing-refresh":
+      clauses.push(
+        `eligibility_status = 'eligible' AND tombstone_status = 'live' AND last_submitted_payload_hash IS NOT NULL AND COALESCE(last_accepted_at, last_submitted_at) <= ${parameter(refreshCutoff)}::timestamptz`,
+      );
+      break;
+    case "stale":
+      clauses.push(
+        "eligibility_status = 'eligible' AND tombstone_status = 'live' AND last_submitted_payload_hash IS NOT NULL AND payload_hash IS DISTINCT FROM last_submitted_payload_hash",
+      );
+      break;
+    case "pending-diagnostics":
+      clauses.push(
+        "last_submitted_payload_hash IS NOT NULL AND delete_submitted_at IS NULL AND COALESCE(diagnostic_status, 'unknown') IN ('pending', 'unknown')",
+      );
+      break;
+    case "all":
+      break;
+  }
+
+  if (search) {
+    const searchParameter = parameter(`%${search.toLowerCase()}%`);
+    clauses.push(
+      `(lower(row_id) LIKE ${searchParameter} OR lower(listing_id) LIKE ${searchParameter} OR lower(account_id) LIKE ${searchParameter} OR lower(catalog_catalog_item_id) LIKE ${searchParameter} OR lower(product_id) LIKE ${searchParameter} OR lower(merchant_offer_id) LIKE ${searchParameter} OR lower(external_seller_id) LIKE ${searchParameter})`,
+    );
+  }
+
+  return {
+    sql: clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "",
+    values,
+  };
+}
+
+function googleShoppingFeedRowOrder(filter: GoogleShoppingFeedRowFilter) {
+  switch (filter) {
+    case "failed":
+      return "last_sync_attempted_at DESC NULLS LAST, updated_at DESC, row_id ASC";
+    case "disapproved":
+    case "pending-diagnostics":
+      return "last_diagnostic_at DESC NULLS LAST, updated_at DESC, row_id ASC";
+    case "pending-delete":
+    case "stale":
+    case "nearing-refresh":
+      return "updated_at ASC, row_id ASC";
+    default:
+      return "updated_at DESC, row_id ASC";
+  }
+}
+
+function normalizeFeedRowFilter(value: unknown): GoogleShoppingFeedRowFilter {
+  return value === "eligible" ||
+    value === "excluded" ||
+    value === "failed" ||
+    value === "disapproved" ||
+    value === "pending-delete" ||
+    value === "nearing-refresh" ||
+    value === "stale" ||
+    value === "pending-diagnostics"
+    ? value
+    : "all";
+}
+
+function toGoogleShoppingFeedRowListItem(
+  row: GoogleShoppingFeedRowListDbRow,
+  refreshCutoff: string,
+): GoogleShoppingFeedRowListItem {
+  const exclusionReasons = readStringArray(row.exclusion_reasons);
+  const imageExclusionReasons = readStringArray(row.image_exclusion_reasons);
+  const activeIssues = diagnosticIssueSnapshots(row.diagnostic_issues).filter((issue) => !issue.resolvedAt);
+  const pendingDelete =
+    row.last_submitted_payload_hash !== null &&
+    row.delete_submitted_at === null &&
+    (row.tombstone_status !== "live" || row.eligibility_status !== "eligible");
+  const stale =
+    row.eligibility_status === "eligible" &&
+    row.tombstone_status === "live" &&
+    row.last_submitted_payload_hash !== null &&
+    row.payload_hash !== row.last_submitted_payload_hash;
+  const lastAcceptedOrSubmittedAt = row.last_accepted_at ?? row.last_submitted_at;
+  const nearingRefresh =
+    row.eligibility_status === "eligible" &&
+    row.tombstone_status === "live" &&
+    row.last_submitted_payload_hash !== null &&
+    lastAcceptedOrSubmittedAt !== null &&
+    new Date(lastAcceptedOrSubmittedAt).getTime() <= new Date(refreshCutoff).getTime();
+
+  return {
+    rowId: row.row_id,
+    listingId: row.listing_id,
+    accountId: row.account_id,
+    catalogItemId: row.catalog_catalog_item_id,
+    productId: row.product_id,
+    merchantOfferId: row.merchant_offer_id,
+    externalSellerId: row.external_seller_id,
+    canonicalUrl: row.canonical_url,
+    targetCountry: row.target_country,
+    contentLanguage: row.content_language,
+    feedLabel: row.feed_label,
+    eligibilityStatus: row.eligibility_status,
+    exclusionReasons,
+    imageEligibilityStatus: row.image_eligibility_status,
+    imageExclusionReasons,
+    syncStatus: row.sync_status,
+    diagnosticStatus: readGoogleShoppingDiagnosticStatus(row.diagnostic_status),
+    activeIssueCount: activeIssues.length,
+    unknownIssueCodeCount: activeIssues.filter((issue) => !issue.known).length,
+    blockingIssueCount:
+      exclusionReasons.length + imageExclusionReasons.length + (row.last_sync_error_code ? 1 : 0) + activeIssues.length,
+    remediationOwners: googleShoppingRemediationOwners({
+      exclusionReasons,
+      imageExclusionReasons,
+      activeIssues,
+      syncStatus: row.sync_status,
+      diagnosticStatus: row.diagnostic_status,
+      pendingDelete,
+    }),
+    pendingDelete,
+    stale,
+    nearingRefresh,
+    payloadHash: row.payload_hash,
+    lastSubmittedPayloadHash: row.last_submitted_payload_hash,
+    lastSubmittedAt: row.last_submitted_at == null ? null : formatTimestamp(row.last_submitted_at),
+    lastAcceptedAt: row.last_accepted_at == null ? null : formatTimestamp(row.last_accepted_at),
+    lastSyncAttemptedAt: row.last_sync_attempted_at == null ? null : formatTimestamp(row.last_sync_attempted_at),
+    lastSyncErrorCode: row.last_sync_error_code,
+    lastSyncErrorMessage: row.last_sync_error_message,
+    lastProviderOperation: row.last_provider_operation,
+    deleteSubmittedAt: row.delete_submitted_at == null ? null : formatTimestamp(row.delete_submitted_at),
+    lastDiagnosticAt: row.last_diagnostic_at == null ? null : formatTimestamp(row.last_diagnostic_at),
+    shippingPolicyUrl: row.shipping_policy_url,
+    returnPolicyUrl: row.return_policy_url,
+    returnPolicyLabel: row.return_policy_label,
+    updatedAt: formatTimestamp(row.updated_at),
+  };
+}
+
+function readStringArray(value: unknown): readonly string[] {
+  const parsed = readJsonValue<unknown>(value);
+  return Array.isArray(parsed) ? parsed.map((entry) => String(entry)).filter(Boolean) : [];
+}
+
+function googleShoppingRemediationOwners(input: {
+  exclusionReasons: readonly string[];
+  imageExclusionReasons: readonly string[];
+  activeIssues: readonly GoogleShoppingDiagnosticIssueSnapshot[];
+  syncStatus: string;
+  diagnosticStatus: string | null;
+  pendingDelete: boolean;
+}): readonly string[] {
+  const owners = new Set<string>();
+  const reasons = [...input.exclusionReasons, ...input.imageExclusionReasons].join(" ").toLowerCase();
+
+  if (/(image|title|description|catalog|condition|product|option)/.test(reasons)) {
+    owners.add("Catalog");
+  }
+  if (/(listing|price|availability|quantity|seller-unavailable|tombstone)/.test(reasons) || input.pendingDelete) {
+    owners.add("Marketplace");
+  }
+  if (/(crawl|canonical|url|policy|robots|sitemap)/.test(reasons)) {
+    owners.add("Public Presence");
+  }
+  if (/(shipping|fulfillment)/.test(reasons)) {
+    owners.add("Ordering/Fulfillment");
+  }
+  if (/tax/.test(reasons)) {
+    owners.add("Tax");
+  }
+  if (/(account|seller|external_seller_id)/.test(reasons)) {
+    owners.add("Identity");
+  }
+  if (input.syncStatus === "failed") {
+    owners.add("Platform Runtime");
+  }
+  if (input.diagnosticStatus === "disapproved" || input.activeIssues.some((issue) => !issue.known)) {
+    owners.add("Ops / Google Merchant Center");
+  }
+
+  if (owners.size === 0) {
+    owners.add("Discovery");
+  }
+
+  return [...owners];
 }
 
 async function countGoogleShoppingFeedRows(db: PgQueryable): Promise<number> {

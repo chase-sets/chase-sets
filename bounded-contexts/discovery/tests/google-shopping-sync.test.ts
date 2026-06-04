@@ -523,6 +523,55 @@ describe("google shopping diagnostics", () => {
       },
     });
   });
+
+  it("lists operator feed rows with filters, remediation owners, and redacted provider state", async () => {
+    const db = feedRowListDb();
+    const runtime = createGoogleShoppingSyncRuntime({ db });
+
+    const list = await runtime.listFeedRows({
+      filter: "failed",
+      search: "lst_1",
+      refreshWindowDays: 25,
+      now,
+      limit: 10,
+    });
+
+    expect(list).toMatchObject({
+      filter: "failed",
+      search: "lst_1",
+      refreshWindowDays: 25,
+      summary: {
+        totalRows: 3,
+        failedRows: 1,
+        disapprovedRows: 1,
+        pendingDeleteRows: 1,
+        staleRows: 1,
+      },
+      rows: [
+        {
+          rowId: "google-shopping:listing:lst_1",
+          listingId: "lst_1",
+          accountId: "acc_1",
+          catalogItemId: "cit_1",
+          productId: "prd_1",
+          merchantOfferId: "cs-listing-lst_1",
+          eligibilityStatus: "excluded",
+          syncStatus: "failed",
+          diagnosticStatus: "disapproved",
+          pendingDelete: true,
+          stale: false,
+          unknownIssueCodeCount: 1,
+          lastProviderOperation: "insert-product-input",
+        },
+      ],
+    });
+    expect(list.rows[0]).not.toHaveProperty("lastProviderResponse");
+    expect(list.rows[0]?.remediationOwners).toEqual(
+      expect.arrayContaining(["Catalog", "Public Presence", "Platform Runtime", "Ops / Google Merchant Center"]),
+    );
+    expect(db.queries[1]?.sql).toContain("sync_status = 'failed'");
+    expect(db.queries[1]?.sql).toContain("lower(listing_id)");
+  });
 });
 
 describe("google shopping sync routes", () => {
@@ -616,6 +665,35 @@ describe("google shopping sync routes", () => {
       rows: [{ listingId: "lst_1", accountId: "acc_1" }],
     });
     expect(getDiagnosticsSnapshot).toHaveBeenCalledWith({ limit: 50 });
+  });
+
+  it("requires security.manage to inspect feed rows", async () => {
+    const listFeedRows = vi.fn();
+    const app = createAuthenticatedApp({ listFeedRows }, ["pricing.manage"]);
+
+    const response = await app.request("/feed-rows?filter=failed");
+
+    expect(response.status).toBe(403);
+    expect(listFeedRows).not.toHaveBeenCalled();
+  });
+
+  it("lists feed rows for security operators with parsed filters", async () => {
+    const listFeedRows = vi.fn(async () => feedRowListResponse());
+    const app = createAuthenticatedApp({ listFeedRows }, ["security.manage"]);
+
+    const response = await app.request("/feed-rows?filter=disapproved&search=lst_1&limit=25&refreshWindowDays=20");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      filter: "disapproved",
+      rows: [{ listingId: "lst_1", diagnosticStatus: "disapproved" }],
+    });
+    expect(listFeedRows).toHaveBeenCalledWith({
+      filter: "disapproved",
+      search: "lst_1",
+      limit: 25,
+      refreshWindowDays: 20,
+    });
   });
 
   it("enqueues diagnostics refresh jobs for security operators", async () => {
@@ -798,6 +876,94 @@ function diagnosticsSnapshotDb(): PgQueryable {
   };
 }
 
+function feedRowListDb(): PgQueryable & { queries: Array<{ sql: string; values: readonly unknown[] }> } {
+  const queries: Array<{ sql: string; values: readonly unknown[] }> = [];
+  return {
+    queries,
+    query: async (sql: string, values: readonly unknown[] = []) => {
+      queries.push({ sql, values });
+      if (sql.includes("COUNT(*)::integer AS total_rows")) {
+        return {
+          rows: [
+            {
+              total_rows: 3,
+              eligible_rows: 1,
+              excluded_rows: 2,
+              failed_rows: 1,
+              disapproved_rows: 1,
+              pending_delete_rows: 1,
+              stale_rows: 1,
+              nearing_refresh_rows: 1,
+              pending_diagnostics_rows: 1,
+            },
+          ],
+          rowCount: 1,
+        };
+      }
+
+      return {
+        rows: [feedRowListDbRow()],
+        rowCount: 1,
+      };
+    },
+  };
+}
+
+function feedRowListDbRow(overrides: Record<string, unknown> = {}) {
+  return {
+    row_id: "google-shopping:listing:lst_1",
+    listing_id: "lst_1",
+    account_id: "acc_1",
+    catalog_catalog_item_id: "cit_1",
+    product_id: "prd_1",
+    merchant_offer_id: "cs-listing-lst_1",
+    external_seller_id: "cs-account-acc_1",
+    canonical_url: "https://marketplace.chasesets.com/listings/charizard-lst_1",
+    target_country: "US",
+    content_language: "en",
+    feed_label: "US",
+    payload_hash: "hash_2",
+    eligibility_status: "excluded",
+    exclusion_reasons: ["missing-title", "not-crawlable"],
+    image_eligibility_status: "excluded",
+    image_exclusion_reasons: ["missing-image"],
+    shipping_policy_url: "https://chasesets.com/policies/shipping",
+    return_policy_url: "https://chasesets.com/policies/returns",
+    return_policy_label: "chase-sets-standard-returns",
+    sync_status: "failed",
+    last_submitted_payload_hash: "hash_1",
+    last_submitted_at: "2026-05-01T12:00:00.000Z",
+    last_accepted_at: "2026-05-01T12:00:00.000Z",
+    last_sync_attempted_at: now,
+    last_sync_error_code: "google_merchant_rate_limited",
+    last_sync_error_message: "Merchant API rate limit exhausted.",
+    last_provider_operation: "insert-product-input",
+    diagnostic_status: "disapproved",
+    diagnostic_issues: [
+      {
+        code: "brand_new_policy_code",
+        severity: "DISAPPROVED",
+        resolution: "merchant_action",
+        attribute: "gtins",
+        reportingContext: "FREE_LISTINGS",
+        description: "Invalid GTIN",
+        detail: "Fix the GTIN.",
+        documentation: null,
+        applicableCountries: ["US"],
+        firstSeenAt: now,
+        lastSeenAt: now,
+        resolvedAt: null,
+        known: false,
+      },
+    ],
+    last_diagnostic_at: now,
+    tombstone_status: "live",
+    delete_submitted_at: null,
+    updated_at: now,
+    ...overrides,
+  };
+}
+
 function diagnosticsSnapshotRow(overrides: Record<string, unknown>) {
   return {
     row_id: "google-shopping:listing:lst_1",
@@ -937,6 +1103,70 @@ function diagnosticsSnapshot() {
             known: true,
           },
         ],
+      },
+    ],
+  };
+}
+
+function feedRowListResponse() {
+  return {
+    generatedAt: now,
+    filter: "disapproved",
+    search: "lst_1",
+    limit: 25,
+    refreshWindowDays: 20,
+    refreshCutoff: "2026-05-14T12:00:00.000Z",
+    summary: {
+      totalRows: 1,
+      eligibleRows: 1,
+      excludedRows: 0,
+      failedRows: 0,
+      disapprovedRows: 1,
+      pendingDeleteRows: 0,
+      staleRows: 0,
+      nearingRefreshRows: 0,
+      pendingDiagnosticsRows: 0,
+    },
+    rows: [
+      {
+        rowId: "google-shopping:listing:lst_1",
+        listingId: "lst_1",
+        accountId: "acc_1",
+        catalogItemId: "cit_1",
+        productId: "prd_1",
+        merchantOfferId: "cs-listing-lst_1",
+        externalSellerId: "cs-account-acc_1",
+        canonicalUrl: "https://marketplace.chasesets.com/listings/charizard-lst_1",
+        targetCountry: "US",
+        contentLanguage: "en",
+        feedLabel: "US",
+        eligibilityStatus: "eligible",
+        exclusionReasons: [],
+        imageEligibilityStatus: "eligible",
+        imageExclusionReasons: [],
+        syncStatus: "submitted",
+        diagnosticStatus: "disapproved",
+        activeIssueCount: 1,
+        unknownIssueCodeCount: 0,
+        blockingIssueCount: 1,
+        remediationOwners: ["Ops / Google Merchant Center"],
+        pendingDelete: false,
+        stale: false,
+        nearingRefresh: false,
+        payloadHash: "hash_1",
+        lastSubmittedPayloadHash: "hash_1",
+        lastSubmittedAt: now,
+        lastAcceptedAt: now,
+        lastSyncAttemptedAt: now,
+        lastSyncErrorCode: null,
+        lastSyncErrorMessage: null,
+        lastProviderOperation: "get-processed-product",
+        deleteSubmittedAt: null,
+        lastDiagnosticAt: now,
+        shippingPolicyUrl: "https://chasesets.com/policies/shipping",
+        returnPolicyUrl: "https://chasesets.com/policies/returns",
+        returnPolicyLabel: "chase-sets-standard-returns",
+        updatedAt: now,
       },
     ],
   };

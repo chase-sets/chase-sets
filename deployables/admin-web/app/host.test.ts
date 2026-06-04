@@ -30,4 +30,27 @@ describe("admin web host context registry", () => {
       }),
     );
   });
+
+  it("contributes Google Shopping operations to the operations section", () => {
+    expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
+      expect.objectContaining({
+        routeId: "google-shopping-operations",
+        routePath: "operations/google-shopping",
+      }),
+    );
+
+    expect(
+      resolveAdminWebNavItems(
+        {
+          permissions: ["security.manage"],
+        },
+        { section: "operations" },
+      ),
+    ).toContainEqual(
+      expect.objectContaining({
+        href: "/operations/google-shopping",
+        label: "Google Shopping",
+      }),
+    );
+  });
 });
