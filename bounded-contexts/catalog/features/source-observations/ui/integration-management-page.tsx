@@ -593,6 +593,11 @@ export function IntegrationManagementPage({
     dryRunProfile?.profileVersion ?? "",
     Boolean(dryRunProfile),
   );
+  const editAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
+    editProfile?.providerKey ?? "",
+    editProfile?.profileVersion ?? "",
+    Boolean(editProfile),
+  );
   const compareAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
     compareProfile?.providerKey ?? "",
     compareProfile?.profileVersion ?? "",
@@ -1680,6 +1685,10 @@ export function IntegrationManagementPage({
             form={editBasicsForm}
             onChange={setEditBasicsForm}
             error={editProfileError}
+            previewPayload={selectedDryRunPayload(
+              editAuthoringModel.data,
+              editAuthoringModel.data?.dryRunInputTemplate.defaultFlow ?? "normal",
+            )}
           />
         ) : null}
       </Dialog>
@@ -3010,11 +3019,13 @@ function ProfileBasicsEditor({
   form,
   onChange,
   error,
+  previewPayload,
 }: Readonly<{
   profile: CatalogProviderProfileVersionReview;
   form: ProfileBasicsForm;
   onChange: (form: ProfileBasicsForm) => void;
   error: string | null;
+  previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileBasicsForm>) => onChange({ ...form, ...patch });
   const setSourceContract = (patch: Partial<ProfileSourceContractForm>) =>
@@ -3436,6 +3447,7 @@ function ProfileBasicsEditor({
         onChange={setNormalizedObservation}
         diagnostics={normalizedObservationDiagnostics}
         editable={editable}
+        previewPayload={previewPayload}
       />
 
       <ExternalReferencesEditor
@@ -3706,11 +3718,13 @@ function NormalizedObservationEditor({
   onChange,
   diagnostics,
   editable,
+  previewPayload,
 }: Readonly<{
   form: ProfileNormalizedObservationForm;
   onChange: (form: ProfileNormalizedObservationForm) => void;
   diagnostics: readonly string[];
   editable: boolean;
+  previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileNormalizedObservationForm>) => onChange({ ...form, ...patch });
   const setField = (id: string, patch: Partial<ProfileExpressionFieldForm>) =>
@@ -3752,6 +3766,7 @@ function NormalizedObservationEditor({
         label="Language expression"
         value={form.languageCode}
         onChange={(languageCode) => setForm({ languageCode })}
+        previewPayload={previewPayload}
       />
       <Stack gap={4}>
         {form.fields.map((field, index) => (
@@ -3814,6 +3829,7 @@ function NormalizedObservationEditor({
               label={`Field expression: ${field.fieldKey.trim() || index + 1}`}
               value={field.expression}
               onChange={(expression) => setField(field.id, { expression })}
+              previewPayload={previewPayload}
             />
           </Stack>
         ))}
@@ -3824,6 +3840,7 @@ function NormalizedObservationEditor({
         items={form.hashMaterial}
         onChange={setHashMaterial}
         editable={editable}
+        previewPayload={previewPayload}
       />
       <NormalizedExpressionListEditor
         title="Merge Identity"
@@ -3831,6 +3848,7 @@ function NormalizedObservationEditor({
         items={form.mergeIdentity}
         onChange={setMergeIdentity}
         editable={editable}
+        previewPayload={previewPayload}
       />
     </Stack>
   );
@@ -3842,12 +3860,14 @@ function NormalizedExpressionListEditor({
   items,
   onChange,
   editable,
+  previewPayload,
 }: Readonly<{
   title: string;
   addLabel: string;
   items: readonly ProfileExpressionListItemForm[];
   onChange: (items: readonly ProfileExpressionListItemForm[]) => void;
   editable: boolean;
+  previewPayload?: JsonValue | null;
 }>) {
   const setExpression = (id: string, expression: MappingExpressionValue) =>
     onChange(items.map((item) => (item.id === id ? { ...item, expression } : item)));
@@ -3914,6 +3934,7 @@ function NormalizedExpressionListEditor({
             label={`${title} expression ${index + 1}`}
             value={item.expression}
             onChange={(expression) => setExpression(item.id, expression)}
+            previewPayload={previewPayload}
           />
         </Stack>
       ))}

@@ -851,6 +851,8 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Normalized Observation")).toBeTruthy();
+    expect(within(dialog).getAllByText("Fixture Preview").length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText("fixture_1").length).toBeGreaterThan(0);
     expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
 
     fireEvent.change(within(dialog).getAllByLabelText(/^Path$/i)[1], {
