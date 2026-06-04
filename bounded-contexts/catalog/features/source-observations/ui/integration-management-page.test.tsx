@@ -204,6 +204,11 @@ describe("IntegrationManagementPage", () => {
       },
       selectedOptions: [],
       mergeCandidateEvidence: [],
+      duplicatePreventionPolicy: {
+        ambiguousCandidatePolicy: "block-promotion",
+        replayPolicy: "same-profile-version",
+        exactExternalCatalogItemReferencesFirst: true,
+      },
       duplicatePreventionRules: [],
       promotionCommandPlan: { requiresReview: true, commands: [] },
     });
@@ -401,6 +406,9 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText("Evidence redaction categories")).toBeTruthy();
     expect(within(dialog).getByText("External References")).toBeTruthy();
     expect(within(dialog).getByText("Mapping Evidence")).toBeTruthy();
+    expect(within(dialog).getByText("Ambiguous candidates")).toBeTruthy();
+    expect(within(dialog).getByText("Block promotion")).toBeTruthy();
+    expect(within(dialog).getByText("Same profile version")).toBeTruthy();
     expect(within(dialog).getAllByText("product:14240").length).toBeGreaterThan(0);
     expect(within(dialog).queryByLabelText("Dry-run output JSON")).toBeNull();
   });
@@ -476,6 +484,8 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText("Ready to activate")).toBeTruthy();
     expect(within(dialog).getByText("Mapping unchanged")).toBeTruthy();
     expect(within(dialog).getByText("Readiness Checks")).toBeTruthy();
+    expect(within(dialog).getByText("Duplicate prevention")).toBeTruthy();
+    expect(within(dialog).getByText(/Block promotion; replay same profile version/i)).toBeTruthy();
     fireEvent.click(within(dialog).getByRole("button", { name: /^Confirm activation$/i }));
 
     await waitFor(() =>

@@ -384,6 +384,11 @@ export interface CatalogProviderProfileDryRunResult {
   };
   selectedOptions: JsonValue;
   mergeCandidateEvidence: CatalogProviderProfileDryRunEvidence[];
+  duplicatePreventionPolicy: {
+    ambiguousCandidatePolicy: string;
+    replayPolicy: string;
+    exactExternalCatalogItemReferencesFirst: boolean;
+  };
   duplicatePreventionRules: {
     ruleKey: string;
     ruleKind: string;

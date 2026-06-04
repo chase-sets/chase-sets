@@ -2493,6 +2493,7 @@ function MigrationReadinessSummary({ model }: Readonly<{ model: CatalogProviderP
           { key: "Profile validation", value: readinessCheckSummary(readiness, ["profile-validation"], "Valid") },
           { key: "Lifecycle gate", value: readinessCheckSummary(readiness, ["mutable-lifecycle"]) },
           { key: "Mapping contract", value: readinessCheckSummary(readiness, ["executable-mapping-contract"]) },
+          { key: "Duplicate prevention", value: duplicatePreventionReadinessSummary(model.review) },
         ]}
       />
     </Stack>
@@ -2511,6 +2512,42 @@ function readinessCheckSummary(
   }
 
   return checks.length > 0 ? passedText : "Not reported";
+}
+
+function duplicatePreventionReadinessSummary(profile: CatalogProviderProfileVersionReview): string {
+  const contract = isRecord(profile.executableMappingContract) ? profile.executableMappingContract : null;
+  const duplicatePrevention = isRecord(contract?.duplicatePrevention) ? contract.duplicatePrevention : null;
+  const ambiguousCandidatePolicy =
+    typeof duplicatePrevention?.ambiguousCandidatePolicy === "string"
+      ? duplicatePrevention.ambiguousCandidatePolicy
+      : "";
+  const replayPolicy = typeof duplicatePrevention?.replayPolicy === "string" ? duplicatePrevention.replayPolicy : "";
+  if (!ambiguousCandidatePolicy && !replayPolicy) {
+    return "Not configured";
+  }
+
+  return `${duplicatePreventionPolicyLabel(ambiguousCandidatePolicy)}; replay ${duplicatePreventionPolicyLabel(
+    replayPolicy,
+  ).toLowerCase()}`;
+}
+
+function duplicatePreventionPolicyLabel(policy: string): string {
+  switch (policy) {
+    case "block-promotion":
+      return "Block promotion";
+    case "review-only":
+      return "Review only";
+    case "reuse":
+      return "Reuse";
+    case "same-profile-version":
+      return "Same profile version";
+    case "current-active-profile":
+      return "Current active profile";
+    case "not-evaluated":
+      return "Not evaluated";
+    default:
+      return policy ? readableFieldLabel(policy) : "Not configured";
+  }
 }
 
 function MigrationEvidenceEditor({
@@ -5192,6 +5229,21 @@ function ProfileDryRunResultPanels({
 
       <Stack gap={2}>
         <h3>Duplicate Prevention</h3>
+        <KeyValueList
+          density="compact"
+          variant="plain"
+          items={[
+            {
+              key: "Ambiguous candidates",
+              value: duplicatePreventionPolicyLabel(result.duplicatePreventionPolicy.ambiguousCandidatePolicy),
+            },
+            { key: "Replay policy", value: duplicatePreventionPolicyLabel(result.duplicatePreventionPolicy.replayPolicy) },
+            {
+              key: "Exact external references first",
+              value: result.duplicatePreventionPolicy.exactExternalCatalogItemReferencesFirst ? "Yes" : "No",
+            },
+          ]}
+        />
         <DataTable
           rows={result.duplicatePreventionRules}
           columns={dryRunDuplicatePreventionColumns}

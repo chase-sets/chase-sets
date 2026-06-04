@@ -261,6 +261,11 @@ export type CatalogProviderProfileDryRunResult = Readonly<{
   }>;
   selectedOptions: JsonValue;
   mergeCandidateEvidence: readonly CatalogProviderProfileDryRunEvidence[];
+  duplicatePreventionPolicy: Readonly<{
+    ambiguousCandidatePolicy: string;
+    replayPolicy: string;
+    exactExternalCatalogItemReferencesFirst: boolean;
+  }>;
   duplicatePreventionRules: readonly Readonly<{
     ruleKey: string;
     ruleKind: string;
@@ -470,6 +475,11 @@ export async function dryRunCatalogProviderProfileVersion(input: {
       ) ?? [],
     ),
     mergeCandidateEvidence,
+    duplicatePreventionPolicy: {
+      ambiguousCandidatePolicy: contract.duplicatePrevention.ambiguousCandidatePolicy,
+      replayPolicy: contract.duplicatePrevention.replayPolicy,
+      exactExternalCatalogItemReferencesFirst: contract.duplicatePrevention.exactExternalCatalogItemReferencesFirst,
+    },
     duplicatePreventionRules: contract.duplicatePrevention.identityRules.map((rule, index) => ({
       ruleKey: rule.ruleKey,
       ruleKind: rule.ruleKind,
@@ -1642,6 +1652,11 @@ function blockedDryRun(
     },
     selectedOptions: [],
     mergeCandidateEvidence: [],
+    duplicatePreventionPolicy: {
+      ambiguousCandidatePolicy: "not-evaluated",
+      replayPolicy: "not-evaluated",
+      exactExternalCatalogItemReferencesFirst: false,
+    },
     duplicatePreventionRules: [],
     promotionCommandPlan: {
       requiresReview: true,

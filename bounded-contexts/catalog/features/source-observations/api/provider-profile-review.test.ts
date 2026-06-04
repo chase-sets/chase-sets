@@ -65,6 +65,11 @@ describe("Catalog provider profile review", () => {
     });
     expect(result.hashMaterial).toHaveLength(1);
     expect(result.mergeCandidateEvidence.map((evidence) => evidence.value)).toEqual([14240, "157", "Time Spiral"]);
+    expect(result.duplicatePreventionPolicy).toEqual({
+      ambiguousCandidatePolicy: "block-promotion",
+      replayPolicy: "same-profile-version",
+      exactExternalCatalogItemReferencesFirst: true,
+    });
     expect(result.duplicatePreventionRules).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
