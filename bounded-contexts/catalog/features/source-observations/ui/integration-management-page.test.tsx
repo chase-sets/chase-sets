@@ -761,6 +761,100 @@ describe("IntegrationManagementPage", () => {
     expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("saves duplicate-prevention policies and ordered identity rules through typed controls", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Duplicate Prevention")).toBeTruthy();
+    expect(within(dialog).getByText(/Rule 1: exact-external-catalog-item-reference/i)).toBeTruthy();
+    expect(within(dialog).getByText(/Rule 2: source-observation-link/i)).toBeTruthy();
+    expect(within(dialog).getByText(/Rule 3: pokemon-card-deterministic-fields/i)).toBeTruthy();
+
+    fireEvent.change(within(dialog).getByDisplayValue("card.localId"), {
+      target: { value: "card.printedNumber" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "scrydex",
+        "2026.06.03",
+        "duplicate-prevention",
+        expect.objectContaining({
+          section: "duplicate-prevention",
+          duplicatePreventionContract: expect.objectContaining({
+            ambiguousCandidatePolicy: "block-promotion",
+            replayPolicy: "same-profile-version",
+            exactExternalCatalogItemReferencesFirst: true,
+            identityRules: [
+              expect.objectContaining({ ruleKey: "exact-external-catalog-item-reference" }),
+              expect.objectContaining({ ruleKey: "source-observation-link" }),
+              expect.objectContaining({
+                ruleKey: "pokemon-card-deterministic-fields",
+                evidence: expect.arrayContaining([
+                  expect.objectContaining({
+                    selector: expect.objectContaining({ path: "card.printedNumber" }),
+                  }),
+                ]),
+              }),
+            ],
+          }),
+        }),
+      ),
+    );
+  });
+
+  it("blocks duplicate duplicate-prevention rule keys before save", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    const duplicatePrevention = duplicatePreventionContractFixture() as Record<string, JsonValue>;
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            executableMappingContract: executableMappingContract({
+              duplicatePrevention: {
+                ...duplicatePrevention,
+                identityRules: [
+                  {
+                    ruleKey: "same-rule",
+                    ruleKind: "exact-external-catalog-item-reference",
+                    evidence: [
+                      mappingExpression("externalCatalogItemReferences", "external-reference", ["external-reference"]),
+                    ],
+                    candidatePolicy: "reuse",
+                  },
+                  {
+                    ruleKey: "same-rule",
+                    ruleKind: "source-observation-link",
+                    evidence: [mappingExpression("externalKey", "external-reference", ["external-reference"])],
+                    candidatePolicy: "reuse",
+                  },
+                ],
+              },
+            }),
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/same-rule: rule keys must be unique/i)).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("keeps immutable profile rows out of the basics editor", () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
@@ -1836,6 +1930,11 @@ function profileReview(
     ],
     normalizedObservationMapping: { kind: "provider-product" },
     referenceHierarchyMapping: referenceHierarchyMappingFixture(),
+    duplicatePreventionMapping: duplicatePreventionMappingFixture(),
+    ambiguityRules: {
+      repeatedMarketplaceReference: "skip-reference",
+      missingVariantSpecificReference: "leave-unmapped",
+    },
   };
   const overrideProfile = isPlainObject(overrides.profile) ? overrides.profile : {};
 
@@ -1898,6 +1997,7 @@ function executableMappingContract(
     mergeIdentity: ReturnType<typeof mappingExpression>[];
     externalReferences: JsonValue[];
     referenceHierarchy: JsonValue[];
+    duplicatePrevention: JsonValue;
   }> = {},
 ): JsonValue {
   return {
@@ -1913,6 +2013,7 @@ function executableMappingContract(
     },
     externalReferences: overrides.externalReferences ?? [],
     referenceHierarchy: overrides.referenceHierarchy ?? referenceHierarchyContractsFixture(),
+    duplicatePrevention: overrides.duplicatePrevention ?? duplicatePreventionContractFixture(),
   };
 }
 
@@ -2084,6 +2185,66 @@ function referenceHierarchyContractsFixture(): JsonValue[] {
       },
     },
   ];
+}
+
+function duplicatePreventionMappingFixture() {
+  return {
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+    rules: [
+      {
+        ruleKey: "exact-external-catalog-item-reference",
+        matchKind: "exact-external-catalog-item-reference",
+        sourcePath: "externalCatalogItemReferences",
+      },
+      {
+        ruleKey: "source-observation-link",
+        matchKind: "source-observation-link",
+        providerKeySource: "observation-provider",
+        externalKey: "language-prefixed-observation-external-key",
+      },
+      {
+        ruleKey: "pokemon-card-deterministic-fields",
+        matchKind: "deterministic-pokemon-card-field-match",
+        normalizedKind: "pokemon-card",
+      },
+    ],
+  };
+}
+
+function duplicatePreventionContractFixture(): JsonValue {
+  return {
+    exactExternalCatalogItemReferencesFirst: true,
+    mergeCandidateEvidence: [
+      mappingExpression("mergeIdentity", "catalog-merge-evidence", ["merge-identity"]),
+      mappingExpression("externalCatalogItemReferences", "external-reference", ["external-reference"]),
+    ],
+    identityRules: [
+      {
+        ruleKey: "exact-external-catalog-item-reference",
+        ruleKind: "exact-external-catalog-item-reference",
+        evidence: [mappingExpression("externalCatalogItemReferences", "external-reference", ["external-reference"])],
+        candidatePolicy: "reuse",
+      },
+      {
+        ruleKey: "source-observation-link",
+        ruleKind: "source-observation-link",
+        evidence: [mappingExpression("externalKey", "external-reference", ["external-reference"])],
+        candidatePolicy: "reuse",
+      },
+      {
+        ruleKey: "pokemon-card-deterministic-fields",
+        ruleKind: "deterministic-field-match",
+        evidence: [
+          mappingExpression("set.name", "catalog-truth", ["merge-identity"]),
+          mappingExpression("card.localId", "catalog-truth", ["merge-identity"]),
+        ],
+        candidatePolicy: "reuse",
+      },
+    ],
+    ambiguousCandidatePolicy: "block-promotion",
+    replayPolicy: "same-profile-version",
+  };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

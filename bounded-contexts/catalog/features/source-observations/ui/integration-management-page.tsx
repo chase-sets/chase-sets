@@ -38,6 +38,7 @@ import type {
   CatalogProviderProfileBasicsUpdateCommand,
   CatalogProviderProfileConnectorUpdateCommand,
   CatalogProviderProfileDryRunResult,
+  CatalogProviderProfileDuplicatePreventionUpdateCommand,
   CatalogProviderProfileFixturesUpdateCommand,
   CatalogProviderProfileExternalReferencesUpdateCommand,
   CatalogProviderProfileNormalizedObservationUpdateCommand,
@@ -175,6 +176,26 @@ const SELECTED_OPTION_PROVIDER_VALUE_SOURCE_OPTIONS = [
   { value: "record", label: "Record" },
   { value: "payload", label: "Payload" },
 ] satisfies SelectItem[];
+const DUPLICATE_PREVENTION_RULE_KIND_OPTIONS = [
+  { value: "exact-external-catalog-item-reference", label: "Exact external Catalog Item reference" },
+  { value: "source-observation-link", label: "Source Observation link" },
+  { value: "deterministic-field-match", label: "Deterministic field match" },
+  { value: "sealed-product-match", label: "Sealed product match" },
+  { value: "barcode-gtin-match", label: "Barcode/GTIN match" },
+  { value: "future-provider-bridge-match", label: "Future provider bridge match" },
+] satisfies SelectItem[];
+const DUPLICATE_PREVENTION_CANDIDATE_POLICY_OPTIONS = [
+  { value: "reuse", label: "Reuse candidate" },
+  { value: "review-only", label: "Review only" },
+] satisfies SelectItem[];
+const DUPLICATE_PREVENTION_AMBIGUOUS_POLICY_OPTIONS = [
+  { value: "block-promotion", label: "Block promotion" },
+  { value: "review-only", label: "Review only" },
+] satisfies SelectItem[];
+const DUPLICATE_PREVENTION_REPLAY_POLICY_OPTIONS = [
+  { value: "same-profile-version", label: "Same profile version" },
+  { value: "operator-reapply-active-version", label: "Operator reapplies active version" },
+] satisfies SelectItem[];
 
 type ProfileBasicsForm = Readonly<{
   displayName: string;
@@ -192,6 +213,7 @@ type ProfileBasicsForm = Readonly<{
   normalizedObservation: ProfileNormalizedObservationForm;
   externalReferences: ProfileExternalReferencesForm;
   referenceHierarchy: ProfileReferenceHierarchyForm;
+  duplicatePrevention: ProfileDuplicatePreventionForm;
 }>;
 
 type ProfileSourceContractForm = Readonly<{
@@ -362,6 +384,30 @@ type ProfileReferenceHierarchyParentForm = Readonly<{
   targetTypeKey: string;
   providerAttributeKey: string;
   referenceRecordKey: MappingExpressionValue;
+}>;
+
+type ProfileDuplicatePreventionForm = Readonly<{
+  rawMapping: Record<string, unknown>;
+  rawAmbiguityRules: Record<string, unknown>;
+  exactExternalCatalogItemReferencesFirst: boolean;
+  ambiguousCandidatePolicy: "block-promotion" | "review-only";
+  replayPolicy: "same-profile-version" | "operator-reapply-active-version";
+  mergeCandidateEvidence: readonly ProfileExpressionListItemForm[];
+  identityRules: readonly ProfileDuplicatePreventionRuleForm[];
+}>;
+
+type ProfileDuplicatePreventionRuleForm = Readonly<{
+  id: string;
+  ruleKey: string;
+  ruleKind:
+    | "exact-external-catalog-item-reference"
+    | "source-observation-link"
+    | "deterministic-field-match"
+    | "sealed-product-match"
+    | "barcode-gtin-match"
+    | "future-provider-bridge-match";
+  candidatePolicy: "reuse" | "review-only";
+  evidence: readonly ProfileExpressionListItemForm[];
 }>;
 
 export function IntegrationManagementPage({
@@ -741,6 +787,12 @@ export function IntegrationManagementPage({
         referenceHierarchyMapping: referenceHierarchyMappingFormToCommand(editBasicsForm.referenceHierarchy),
         referenceHierarchyContracts: referenceHierarchyContractsFormToCommand(editBasicsForm.referenceHierarchy),
       };
+      const duplicatePreventionCommand: CatalogProviderProfileDuplicatePreventionUpdateCommand = {
+        section: "duplicate-prevention",
+        duplicatePreventionMapping: duplicatePreventionMappingFormToCommand(editBasicsForm.duplicatePrevention),
+        ambiguityRules: duplicatePreventionAmbiguityRulesFormToCommand(editBasicsForm.duplicatePrevention),
+        duplicatePreventionContract: duplicatePreventionContractFormToCommand(editBasicsForm.duplicatePrevention),
+      };
       await updateSourceObservationProviderProfileSection(
         editProfile.providerKey,
         editProfile.profileVersion,
@@ -800,6 +852,12 @@ export function IntegrationManagementPage({
         editProfile.profileVersion,
         "reference-hierarchy",
         referenceHierarchyCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "duplicate-prevention",
+        duplicatePreventionCommand,
       );
       addToast("Profile basics saved.", "success");
       setEditProfile(null);
@@ -1969,6 +2027,8 @@ function ProfileBasicsEditor({
     setForm({ normalizedObservation });
   const setExternalReferences = (externalReferences: ProfileExternalReferencesForm) => setForm({ externalReferences });
   const setReferenceHierarchy = (referenceHierarchy: ProfileReferenceHierarchyForm) => setForm({ referenceHierarchy });
+  const setDuplicatePrevention = (duplicatePrevention: ProfileDuplicatePreventionForm) =>
+    setForm({ duplicatePrevention });
   const editable = profileLifecycleEditable(profile);
   const retirementTrackingIssueInvalid =
     form.retirementPlan.enabled && !positiveIntegerText(form.retirementPlan.trackingIssueText);
@@ -1977,6 +2037,7 @@ function ProfileBasicsEditor({
   const normalizedObservationDiagnostics = validateNormalizedObservationForm(form.normalizedObservation);
   const externalReferenceDiagnostics = validateExternalReferencesForm(form.externalReferences);
   const referenceHierarchyDiagnostics = validateReferenceHierarchyForm(form.referenceHierarchy);
+  const duplicatePreventionDiagnostics = validateDuplicatePreventionForm(form.duplicatePrevention);
   const missingFixtureFlows = REQUIRED_FIXTURE_FLOW_OPTIONS.filter(
     (flow) => !form.fixtures.coveredFlows.includes(flow),
   );
@@ -2382,6 +2443,13 @@ function ProfileBasicsEditor({
         form={form.referenceHierarchy}
         onChange={setReferenceHierarchy}
         diagnostics={referenceHierarchyDiagnostics}
+        editable={editable}
+      />
+
+      <DuplicatePreventionEditor
+        form={form.duplicatePrevention}
+        onChange={setDuplicatePrevention}
+        diagnostics={duplicatePreventionDiagnostics}
         editable={editable}
       />
 
@@ -3576,6 +3644,177 @@ function ReferenceHierarchyParentsEditor({
   );
 }
 
+function DuplicatePreventionEditor({
+  form,
+  onChange,
+  diagnostics,
+  editable,
+}: Readonly<{
+  form: ProfileDuplicatePreventionForm;
+  onChange: (form: ProfileDuplicatePreventionForm) => void;
+  diagnostics: readonly string[];
+  editable: boolean;
+}>) {
+  const setForm = (patch: Partial<ProfileDuplicatePreventionForm>) => onChange({ ...form, ...patch });
+  const setRule = (id: string, patch: Partial<ProfileDuplicatePreventionRuleForm>) =>
+    setForm({ identityRules: form.identityRules.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)) });
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-foreground">Duplicate Prevention</h3>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => setForm({ identityRules: [...form.identityRules, emptyDuplicatePreventionRuleForm()] })}
+        >
+          Add identity rule
+        </Button>
+      </div>
+      {diagnostics.length > 0 ? (
+        <ul className="text-sm text-danger">
+          {diagnostics.map((diagnostic) => (
+            <li key={diagnostic}>{diagnostic}</li>
+          ))}
+        </ul>
+      ) : null}
+      <Inline gap={3}>
+        <Select
+          label="Ambiguous candidate policy"
+          value={form.ambiguousCandidatePolicy}
+          disabled={!editable}
+          items={DUPLICATE_PREVENTION_AMBIGUOUS_POLICY_OPTIONS}
+          onValueChange={(value) =>
+            setForm({ ambiguousCandidatePolicy: value === "review-only" ? "review-only" : "block-promotion" })
+          }
+        />
+        <Select
+          label="Replay policy"
+          value={form.replayPolicy}
+          disabled={!editable}
+          items={DUPLICATE_PREVENTION_REPLAY_POLICY_OPTIONS}
+          onValueChange={(value) =>
+            setForm({
+              replayPolicy:
+                value === "operator-reapply-active-version"
+                  ? "operator-reapply-active-version"
+                  : "same-profile-version",
+            })
+          }
+        />
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            checked={form.exactExternalCatalogItemReferencesFirst}
+            disabled={!editable}
+            onChange={() =>
+              setForm({ exactExternalCatalogItemReferencesFirst: !form.exactExternalCatalogItemReferencesFirst })
+            }
+            className="h-4 w-4 rounded border-border accent-accent"
+          />
+          <span>Exact external references first</span>
+        </label>
+      </Inline>
+      <NormalizedExpressionListEditor
+        title="Merge Candidate Evidence"
+        addLabel="Add merge evidence"
+        items={form.mergeCandidateEvidence}
+        onChange={(mergeCandidateEvidence) => setForm({ mergeCandidateEvidence })}
+        editable={editable}
+      />
+      <Stack gap={4}>
+        {form.identityRules.map((rule, index) => (
+          <Stack key={rule.id} gap={3}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold text-foreground">
+                Rule {index + 1}: {rule.ruleKey || rule.ruleKind}
+              </h4>
+              <Inline gap={2}>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === 0}
+                  onClick={() => setForm({ identityRules: moveItem(form.identityRules, index, index - 1) })}
+                >
+                  Up
+                </Button>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === form.identityRules.length - 1}
+                  onClick={() => setForm({ identityRules: moveItem(form.identityRules, index, index + 1) })}
+                >
+                  Down
+                </Button>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable}
+                  onClick={() =>
+                    setForm({
+                      identityRules: insertItem(form.identityRules, index + 1, {
+                        ...rule,
+                        id: newFormRowId("duplicate-rule"),
+                        ruleKey: `${rule.ruleKey}Copy`,
+                      }),
+                    })
+                  }
+                >
+                  Duplicate
+                </Button>
+                <Button
+                  size="sm"
+                  tone="danger"
+                  disabled={!editable}
+                  onClick={() =>
+                    setForm({ identityRules: form.identityRules.filter((candidate) => candidate.id !== rule.id) })
+                  }
+                >
+                  Remove
+                </Button>
+              </Inline>
+            </div>
+            <Inline gap={3}>
+              <TextInput
+                label="Duplicate rule key"
+                value={rule.ruleKey}
+                disabled={!editable}
+                required
+                onChange={(event) => setRule(rule.id, { ruleKey: event.currentTarget.value })}
+              />
+              <Select
+                label="Duplicate rule kind"
+                value={rule.ruleKind}
+                disabled={!editable}
+                items={DUPLICATE_PREVENTION_RULE_KIND_OPTIONS}
+                onValueChange={(value) => setRule(rule.id, { ruleKind: duplicatePreventionRuleKindValue(value) })}
+              />
+              <Select
+                label="Candidate policy"
+                value={rule.candidatePolicy}
+                disabled={!editable}
+                items={DUPLICATE_PREVENTION_CANDIDATE_POLICY_OPTIONS}
+                onValueChange={(value) =>
+                  setRule(rule.id, { candidatePolicy: value === "review-only" ? "review-only" : "reuse" })
+                }
+              />
+            </Inline>
+            <NormalizedExpressionListEditor
+              title={`Rule Evidence: ${rule.ruleKey || index + 1}`}
+              addLabel="Add rule evidence"
+              items={rule.evidence}
+              onChange={(evidence) => setRule(rule.id, { evidence })}
+              editable={editable}
+            />
+          </Stack>
+        ))}
+      </Stack>
+    </Stack>
+  );
+}
+
 function CheckboxSet({
   legend,
   options,
@@ -4134,6 +4373,7 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
     normalizedObservation: profileNormalizedObservationForm(profile),
     externalReferences: profileExternalReferencesForm(profile),
     referenceHierarchy: profileReferenceHierarchyForm(profile),
+    duplicatePrevention: profileDuplicatePreventionForm(profile),
   };
 }
 
@@ -4163,6 +4403,7 @@ function profileBasicsSaveDisabled(
     validateNormalizedObservationForm(form.normalizedObservation).length > 0 ||
     validateExternalReferencesForm(form.externalReferences).length > 0 ||
     validateReferenceHierarchyForm(form.referenceHierarchy).length > 0 ||
+    validateDuplicatePreventionForm(form.duplicatePrevention).length > 0 ||
     !form.fixtures.fixtureRoot.trim()
   );
 }
@@ -5014,6 +5255,158 @@ function referenceHierarchyChainSummary(contract: ProfileReferenceHierarchyContr
   return [contract.targetTypeKey, ...contract.parents.map((parent) => parent.targetTypeKey)]
     .filter(Boolean)
     .join(" > ");
+}
+
+function profileDuplicatePreventionForm(profile: CatalogProviderProfileVersionReview): ProfileDuplicatePreventionForm {
+  const profileRecord = isRecord(profile.profile) ? profile.profile : {};
+  const mapping = isRecord(profileRecord.duplicatePreventionMapping) ? profileRecord.duplicatePreventionMapping : {};
+  const ambiguityRules = isRecord(profileRecord.ambiguityRules) ? profileRecord.ambiguityRules : {};
+  const contractRoot = isRecord(profile.executableMappingContract) ? profile.executableMappingContract : {};
+  const duplicatePrevention = isRecord(contractRoot.duplicatePrevention) ? contractRoot.duplicatePrevention : {};
+  const mergeCandidateEvidence = Array.isArray(duplicatePrevention.mergeCandidateEvidence)
+    ? duplicatePrevention.mergeCandidateEvidence
+    : [];
+  const identityRules = Array.isArray(duplicatePrevention.identityRules) ? duplicatePrevention.identityRules : [];
+
+  return {
+    rawMapping: { ...mapping },
+    rawAmbiguityRules: { ...ambiguityRules },
+    exactExternalCatalogItemReferencesFirst: duplicatePrevention.exactExternalCatalogItemReferencesFirst !== false,
+    ambiguousCandidatePolicy:
+      duplicatePrevention.ambiguousCandidatePolicy === "review-only" ? "review-only" : "block-promotion",
+    replayPolicy:
+      duplicatePrevention.replayPolicy === "operator-reapply-active-version"
+        ? "operator-reapply-active-version"
+        : "same-profile-version",
+    mergeCandidateEvidence: expressionListForm(mergeCandidateEvidence, "merge-candidate", ["merge-identity"]),
+    identityRules: identityRules.map(duplicatePreventionRuleForm),
+  };
+}
+
+function duplicatePreventionRuleForm(value: unknown, index: number): ProfileDuplicatePreventionRuleForm {
+  const rule = isRecord(value) ? value : {};
+  const evidence = Array.isArray(rule.evidence) ? rule.evidence : [];
+  return {
+    id: `duplicate-rule-${index}`,
+    ruleKey: stringValue(rule.ruleKey),
+    ruleKind: duplicatePreventionRuleKindValue(rule.ruleKind),
+    candidatePolicy: rule.candidatePolicy === "review-only" ? "review-only" : "reuse",
+    evidence: expressionListForm(evidence, `duplicate-rule-${index}-evidence`, ["merge-identity"]),
+  };
+}
+
+function emptyDuplicatePreventionRuleForm(): ProfileDuplicatePreventionRuleForm {
+  return {
+    id: newFormRowId("duplicate-rule"),
+    ruleKey: "",
+    ruleKind: "deterministic-field-match",
+    candidatePolicy: "review-only",
+    evidence: [emptyExpressionListItemForm()],
+  };
+}
+
+function duplicatePreventionMappingFormToCommand(
+  form: ProfileDuplicatePreventionForm,
+): CatalogProviderProfileDuplicatePreventionUpdateCommand["duplicatePreventionMapping"] {
+  return {
+    ...form.rawMapping,
+    ambiguousCandidatePolicy: form.ambiguousCandidatePolicy,
+    replayPolicy: form.replayPolicy,
+    rules: mergeDuplicatePreventionMappingRules(form.rawMapping.rules, form.identityRules),
+  } as CatalogProviderProfileDuplicatePreventionUpdateCommand["duplicatePreventionMapping"];
+}
+
+function mergeDuplicatePreventionMappingRules(
+  existingRules: unknown,
+  rules: readonly ProfileDuplicatePreventionRuleForm[],
+): readonly Record<string, unknown>[] {
+  const existingByKey = new Map(
+    (Array.isArray(existingRules) ? existingRules : [])
+      .filter(isRecord)
+      .map((rule) => [stringValue(rule.ruleKey), rule]),
+  );
+  return rules.map((rule) => ({
+    ...(existingByKey.get(rule.ruleKey) ?? {}),
+    ruleKey: rule.ruleKey.trim(),
+    matchKind: duplicatePreventionProfileMatchKind(rule.ruleKind),
+    candidatePolicy: rule.candidatePolicy,
+  }));
+}
+
+function duplicatePreventionAmbiguityRulesFormToCommand(
+  form: ProfileDuplicatePreventionForm,
+): CatalogProviderProfileDuplicatePreventionUpdateCommand["ambiguityRules"] {
+  return form.rawAmbiguityRules as CatalogProviderProfileDuplicatePreventionUpdateCommand["ambiguityRules"];
+}
+
+function duplicatePreventionContractFormToCommand(
+  form: ProfileDuplicatePreventionForm,
+): CatalogProviderProfileDuplicatePreventionUpdateCommand["duplicatePreventionContract"] {
+  return {
+    exactExternalCatalogItemReferencesFirst: form.exactExternalCatalogItemReferencesFirst,
+    mergeCandidateEvidence: form.mergeCandidateEvidence.map((item) => item.expression),
+    identityRules: form.identityRules.map((rule) => ({
+      ruleKey: rule.ruleKey.trim(),
+      ruleKind: rule.ruleKind,
+      evidence: rule.evidence.map((item) => item.expression),
+      candidatePolicy: rule.candidatePolicy,
+    })),
+    ambiguousCandidatePolicy: form.ambiguousCandidatePolicy,
+    replayPolicy: form.replayPolicy,
+  } as CatalogProviderProfileDuplicatePreventionUpdateCommand["duplicatePreventionContract"];
+}
+
+function validateDuplicatePreventionForm(form: ProfileDuplicatePreventionForm): string[] {
+  const diagnostics: string[] = [];
+  const seenRuleKeys = new Set<string>();
+  if (form.mergeCandidateEvidence.length === 0) {
+    diagnostics.push("Duplicate prevention: merge candidate evidence needs at least one expression.");
+  }
+  form.mergeCandidateEvidence.forEach((item, index) => {
+    diagnostics.push(...prefixedExpressionDiagnostics(`Merge candidate evidence ${index + 1}`, item.expression));
+  });
+
+  if (form.identityRules.length === 0) {
+    diagnostics.push("Duplicate prevention: at least one identity rule is required.");
+  }
+  form.identityRules.forEach((rule, index) => {
+    const label = rule.ruleKey.trim() || `Duplicate prevention rule ${index + 1}`;
+    if (!rule.ruleKey.trim()) {
+      diagnostics.push(`${label}: rule key is required.`);
+    }
+    if (seenRuleKeys.has(rule.ruleKey.trim())) {
+      diagnostics.push(`${label}: rule keys must be unique.`);
+    }
+    seenRuleKeys.add(rule.ruleKey.trim());
+    if (rule.evidence.length === 0) {
+      diagnostics.push(`${label}: at least one evidence expression is required.`);
+    }
+    rule.evidence.forEach((item, evidenceIndex) => {
+      diagnostics.push(...prefixedExpressionDiagnostics(`${label} evidence ${evidenceIndex + 1}`, item.expression));
+    });
+  });
+  return diagnostics;
+}
+
+function duplicatePreventionRuleKindValue(value: unknown): ProfileDuplicatePreventionRuleForm["ruleKind"] {
+  switch (value) {
+    case "exact-external-catalog-item-reference":
+    case "source-observation-link":
+    case "deterministic-field-match":
+    case "sealed-product-match":
+    case "barcode-gtin-match":
+    case "future-provider-bridge-match":
+      return value;
+    default:
+      return "deterministic-field-match";
+  }
+}
+
+function duplicatePreventionProfileMatchKind(ruleKind: ProfileDuplicatePreventionRuleForm["ruleKind"]): string {
+  if (ruleKind === "deterministic-field-match") {
+    return "deterministic-pokemon-card-field-match";
+  }
+  return ruleKind;
 }
 
 function profileConnectorForm(value: unknown): ProfileConnectorForm {
