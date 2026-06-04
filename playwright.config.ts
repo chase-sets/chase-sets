@@ -6,7 +6,9 @@ const adminWebBaseUrl = process.env.ADMIN_WEB_URL ?? sandbox.urls.adminWeb;
 const marketplaceBaseUrl = process.env.MARKETPLACE_WEB_URL ?? sandbox.urls.marketplaceWeb;
 const isCi = Boolean(process.env.CI);
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
-const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_URL);
+const hasDeployedAdminCredentials =
+  Boolean(process.env.CATALOG_ADMIN_E2E_EMAIL?.trim()) && Boolean(process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim());
+const includeAdminWebProject = !skipWebServer || (Boolean(process.env.ADMIN_WEB_URL) && hasDeployedAdminCredentials);
 const projects = [
   {
     name: "marketplace-chromium",
