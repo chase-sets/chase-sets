@@ -419,6 +419,23 @@ describe("IntegrationManagementPage", () => {
         },
       },
     );
+    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "scrydex",
+      "2026.06.03",
+      "normalized-observation",
+      expect.objectContaining({
+        section: "normalized-observation",
+        normalizedObservationMapping: expect.objectContaining({ kind: "provider-product" }),
+        normalizedObservationContract: expect.objectContaining({
+          outputKind: "provider-product",
+          fields: expect.objectContaining({
+            name: expect.objectContaining({
+              selector: expect.objectContaining({ kind: "path", path: "name" }),
+            }),
+          }),
+        }),
+      }),
+    );
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Compare$/i })[0]);
     dialog = screen.getByRole("dialog");
@@ -429,6 +446,91 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getAllByText("Source Mapping Fingerprint").length).toBeGreaterThan(0);
     expect(within(dialog).queryByLabelText("Candidate profile JSON")).toBeNull();
     expect(within(dialog).queryByLabelText("Active profile JSON")).toBeNull();
+  });
+
+  it("edits normalized observation expressions through typed controls", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Normalized Observation")).toBeTruthy();
+    expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
+
+    fireEvent.change(within(dialog).getAllByLabelText(/^Path$/i)[1], {
+      target: { value: "card.printed_name" },
+    });
+    fireEvent.change(within(dialog).getAllByLabelText(/^Path$/i)[3], {
+      target: { value: "catalogHashMaterial.printedProductName" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "scrydex",
+        "2026.06.03",
+        "normalized-observation",
+        {
+          section: "normalized-observation",
+          normalizedObservationMapping: expect.objectContaining({ kind: "provider-product" }),
+          normalizedObservationContract: expect.objectContaining({
+            outputKind: "provider-product",
+            languageCode: expect.objectContaining({
+              selector: expect.objectContaining({ path: "lang" }),
+            }),
+            fields: expect.objectContaining({
+              name: expect.objectContaining({
+                selector: expect.objectContaining({ path: "card.printed_name" }),
+              }),
+            }),
+            hashMaterial: [
+              expect.objectContaining({
+                selector: expect.objectContaining({ path: "catalogHashMaterial.printedProductName" }),
+              }),
+            ],
+            mergeIdentity: [
+              expect.objectContaining({
+                selector: expect.objectContaining({ path: "id" }),
+              }),
+            ],
+          }),
+        },
+      ),
+    );
+  });
+
+  it("blocks unsafe normalized hash material before save", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            executableMappingContract: executableMappingContract({
+              hashMaterial: [
+                mappingExpression("prices.usd", "catalog-truth", ["hash-material"], {
+                  redaction: "price",
+                }),
+              ],
+            }),
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/hash material cannot use secret, pricing, inventory/i)).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("keeps immutable profile rows out of the basics editor", () => {
@@ -1538,7 +1640,7 @@ function profileReview(
       liveProviderCallsAllowed: false,
     },
     retirementPlan: null,
-    executableMappingContract: null,
+    executableMappingContract: executableMappingContract(),
     referenceCount: 0,
     capabilities: ["source-observation-import", "external-reference-extraction"],
     supportedScopes: ["product/card"],
@@ -1552,6 +1654,64 @@ function profileReview(
       diagnostics: [],
     },
     ...overrides,
+  };
+}
+
+function executableMappingContract(
+  overrides: Partial<{
+    outputKind: "pokemon-card" | "provider-product";
+    languageCode: ReturnType<typeof mappingExpression>;
+    fields: Record<string, ReturnType<typeof mappingExpression>>;
+    hashMaterial: ReturnType<typeof mappingExpression>[];
+    mergeIdentity: ReturnType<typeof mappingExpression>[];
+  }> = {},
+) {
+  return {
+    normalizedObservation: {
+      outputKind: overrides.outputKind ?? "provider-product",
+      languageCode: overrides.languageCode ?? mappingExpression("lang", "catalog-truth", ["normalized-observation"]),
+      fields: overrides.fields ?? {
+        name: mappingExpression("name", "catalog-truth", ["normalized-observation", "hash-material"]),
+        setName: mappingExpression("set_name", "catalog-truth", ["normalized-observation", "hash-material"]),
+      },
+      hashMaterial: overrides.hashMaterial ?? [mappingExpression("name", "catalog-truth", ["hash-material"])],
+      mergeIdentity: overrides.mergeIdentity ?? [mappingExpression("id", "catalog-merge-evidence", ["merge-identity"])],
+    },
+  };
+}
+
+function mappingExpression(
+  path: string,
+  owner:
+    | "catalog-truth"
+    | "catalog-merge-evidence"
+    | "external-reference"
+    | "pricing-signal"
+    | "inventory-signal"
+    | "operations"
+    | "excluded",
+  uses: readonly (
+    | "source-payload"
+    | "normalized-observation"
+    | "hash-material"
+    | "merge-identity"
+    | "external-reference"
+    | "selected-option"
+    | "reference-hierarchy"
+    | "promotion-command"
+  )[],
+  options: Partial<{ redaction: "none" | "secret" | "seller" | "price" | "operations"; required: boolean }> = {},
+) {
+  return {
+    selector: {
+      kind: "path",
+      path,
+      required: options.required ?? true,
+      nullPolicy: "diagnostic",
+    },
+    owner,
+    uses,
+    redaction: options.redaction ?? "none",
   };
 }
 

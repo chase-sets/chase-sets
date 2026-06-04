@@ -39,6 +39,7 @@ import type {
   CatalogProviderProfileConnectorUpdateCommand,
   CatalogProviderProfileDryRunResult,
   CatalogProviderProfileFixturesUpdateCommand,
+  CatalogProviderProfileNormalizedObservationUpdateCommand,
   CatalogProviderProfileProviderOptionsUpdateCommand,
   CatalogProviderProfileRetirementPlanUpdateCommand,
   CatalogProviderProfileSourceContractUpdateCommand,
@@ -71,6 +72,12 @@ import {
   watchSourceObservationIntegrationJob,
 } from "./use-source-observations";
 import { shouldAcceptSourceObservationJobProgress } from "./job-progress";
+import {
+  MappingExpressionEditor,
+  defaultExpression,
+  validateMappingExpression,
+  type MappingExpressionValue,
+} from "./mapping-expression-editor";
 
 const ALL_PROVIDERS = "__all__";
 const ALL_LANGUAGES = "__all__";
@@ -144,6 +151,10 @@ const CONNECTOR_KIND_OPTIONS = [
   { value: "tcgplayer-automation-client", label: "TCGplayer automation client" },
   { value: "scrydex-scryfall-json", label: "Scrydex Scryfall JSON" },
 ] satisfies SelectItem[];
+const NORMALIZED_OUTPUT_KIND_OPTIONS = [
+  { value: "pokemon-card", label: "Pokemon card" },
+  { value: "provider-product", label: "Provider product" },
+] satisfies SelectItem[];
 
 type ProfileBasicsForm = Readonly<{
   displayName: string;
@@ -158,6 +169,7 @@ type ProfileBasicsForm = Readonly<{
   optionQueries: readonly ProfileOptionQueryForm[];
   connector: ProfileConnectorForm;
   fixtures: ProfileFixturesForm;
+  normalizedObservation: ProfileNormalizedObservationForm;
 }>;
 
 type ProfileSourceContractForm = Readonly<{
@@ -222,6 +234,26 @@ type ProfileConnectorForm = Readonly<{
 type ProfileFixturesForm = Readonly<{
   fixtureRoot: string;
   coveredFlows: readonly string[];
+}>;
+
+type ProfileNormalizedObservationForm = Readonly<{
+  outputKind: "pokemon-card" | "provider-product";
+  profileMapping: Record<string, unknown>;
+  languageCode: MappingExpressionValue;
+  fields: readonly ProfileExpressionFieldForm[];
+  hashMaterial: readonly ProfileExpressionListItemForm[];
+  mergeIdentity: readonly ProfileExpressionListItemForm[];
+}>;
+
+type ProfileExpressionFieldForm = Readonly<{
+  id: string;
+  fieldKey: string;
+  expression: MappingExpressionValue;
+}>;
+
+type ProfileExpressionListItemForm = Readonly<{
+  id: string;
+  expression: MappingExpressionValue;
 }>;
 
 export function IntegrationManagementPage({
@@ -578,6 +610,11 @@ export function IntegrationManagementPage({
           liveProviderCallsAllowed: false,
         },
       };
+      const normalizedObservationCommand: CatalogProviderProfileNormalizedObservationUpdateCommand = {
+        section: "normalized-observation",
+        normalizedObservationMapping: normalizedObservationMappingFormToCommand(editBasicsForm.normalizedObservation),
+        normalizedObservationContract: normalizedObservationContractFormToCommand(editBasicsForm.normalizedObservation),
+      };
       await updateSourceObservationProviderProfileSection(
         editProfile.providerKey,
         editProfile.profileVersion,
@@ -613,6 +650,12 @@ export function IntegrationManagementPage({
         editProfile.profileVersion,
         "fixtures",
         fixturesCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "normalized-observation",
+        normalizedObservationCommand,
       );
       addToast("Profile basics saved.", "success");
       setEditProfile(null);
@@ -1778,11 +1821,14 @@ function ProfileBasicsEditor({
   const setConnector = (patch: Partial<ProfileConnectorForm>) =>
     setForm({ connector: { ...form.connector, ...patch } });
   const setFixtures = (patch: Partial<ProfileFixturesForm>) => setForm({ fixtures: { ...form.fixtures, ...patch } });
+  const setNormalizedObservation = (normalizedObservation: ProfileNormalizedObservationForm) =>
+    setForm({ normalizedObservation });
   const editable = profileLifecycleEditable(profile);
   const retirementTrackingIssueInvalid =
     form.retirementPlan.enabled && !positiveIntegerText(form.retirementPlan.trackingIssueText);
   const optionQueryDiagnostics = validateOptionQueryForms(form.optionQueries);
   const connectorDiagnostics = validateConnectorForm(form.connector);
+  const normalizedObservationDiagnostics = validateNormalizedObservationForm(form.normalizedObservation);
   const missingFixtureFlows = REQUIRED_FIXTURE_FLOW_OPTIONS.filter(
     (flow) => !form.fixtures.coveredFlows.includes(flow),
   );
@@ -2170,6 +2216,13 @@ function ProfileBasicsEditor({
         />
       </Stack>
 
+      <NormalizedObservationEditor
+        form={form.normalizedObservation}
+        onChange={setNormalizedObservation}
+        diagnostics={normalizedObservationDiagnostics}
+        editable={editable}
+      />
+
       <Stack gap={3}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-sm font-semibold text-foreground">Provider Options</h3>
@@ -2379,6 +2432,226 @@ function ProfileBasicsEditor({
         />
       ) : null}
       {error ? <p>{error}</p> : null}
+    </Stack>
+  );
+}
+
+function NormalizedObservationEditor({
+  form,
+  onChange,
+  diagnostics,
+  editable,
+}: Readonly<{
+  form: ProfileNormalizedObservationForm;
+  onChange: (form: ProfileNormalizedObservationForm) => void;
+  diagnostics: readonly string[];
+  editable: boolean;
+}>) {
+  const setForm = (patch: Partial<ProfileNormalizedObservationForm>) => onChange({ ...form, ...patch });
+  const setField = (id: string, patch: Partial<ProfileExpressionFieldForm>) =>
+    setForm({ fields: form.fields.map((field) => (field.id === id ? { ...field, ...patch } : field)) });
+  const setHashMaterial = (items: readonly ProfileExpressionListItemForm[]) => setForm({ hashMaterial: items });
+  const setMergeIdentity = (items: readonly ProfileExpressionListItemForm[]) => setForm({ mergeIdentity: items });
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-foreground">Normalized Observation</h3>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => setForm({ fields: [...form.fields, emptyExpressionFieldForm()] })}
+        >
+          Add field
+        </Button>
+      </div>
+      {diagnostics.length > 0 ? (
+        <ul className="text-sm text-danger">
+          {diagnostics.map((diagnostic) => (
+            <li key={diagnostic}>{diagnostic}</li>
+          ))}
+        </ul>
+      ) : null}
+      <Select
+        label="Normalized output kind"
+        value={form.outputKind}
+        disabled={!editable}
+        items={NORMALIZED_OUTPUT_KIND_OPTIONS}
+        onValueChange={(value) =>
+          setForm({ outputKind: value === "pokemon-card" ? "pokemon-card" : "provider-product" })
+        }
+      />
+      <MappingExpressionEditor
+        label="Language expression"
+        value={form.languageCode}
+        onChange={(languageCode) => setForm({ languageCode })}
+      />
+      <Stack gap={4}>
+        {form.fields.map((field, index) => (
+          <Stack key={field.id} gap={3}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold text-foreground">
+                {field.fieldKey.trim() || `Normalized Field ${index + 1}`}
+              </h4>
+              <Inline gap={2}>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === 0}
+                  onClick={() => setForm({ fields: moveItem(form.fields, index, index - 1) })}
+                >
+                  Up
+                </Button>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === form.fields.length - 1}
+                  onClick={() => setForm({ fields: moveItem(form.fields, index, index + 1) })}
+                >
+                  Down
+                </Button>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable}
+                  onClick={() =>
+                    setForm({
+                      fields: insertItem(form.fields, index + 1, {
+                        ...field,
+                        id: newFormRowId("field"),
+                        fieldKey: `${field.fieldKey}Copy`,
+                      }),
+                    })
+                  }
+                >
+                  Duplicate
+                </Button>
+                <Button
+                  size="sm"
+                  tone="danger"
+                  disabled={!editable}
+                  onClick={() => setForm({ fields: form.fields.filter((candidate) => candidate.id !== field.id) })}
+                >
+                  Remove
+                </Button>
+              </Inline>
+            </div>
+            <TextInput
+              label="Normalized field key"
+              value={field.fieldKey}
+              disabled={!editable}
+              required
+              onChange={(event) => setField(field.id, { fieldKey: event.currentTarget.value })}
+            />
+            <MappingExpressionEditor
+              label={`Field expression: ${field.fieldKey.trim() || index + 1}`}
+              value={field.expression}
+              onChange={(expression) => setField(field.id, { expression })}
+            />
+          </Stack>
+        ))}
+      </Stack>
+      <NormalizedExpressionListEditor
+        title="Hash Material"
+        addLabel="Add hash expression"
+        items={form.hashMaterial}
+        onChange={setHashMaterial}
+        editable={editable}
+      />
+      <NormalizedExpressionListEditor
+        title="Merge Identity"
+        addLabel="Add merge expression"
+        items={form.mergeIdentity}
+        onChange={setMergeIdentity}
+        editable={editable}
+      />
+    </Stack>
+  );
+}
+
+function NormalizedExpressionListEditor({
+  title,
+  addLabel,
+  items,
+  onChange,
+  editable,
+}: Readonly<{
+  title: string;
+  addLabel: string;
+  items: readonly ProfileExpressionListItemForm[];
+  onChange: (items: readonly ProfileExpressionListItemForm[]) => void;
+  editable: boolean;
+}>) {
+  const setExpression = (id: string, expression: MappingExpressionValue) =>
+    onChange(items.map((item) => (item.id === id ? { ...item, expression } : item)));
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => onChange([...items, emptyExpressionListItemForm()])}
+        >
+          {addLabel}
+        </Button>
+      </div>
+      {items.length === 0 ? <p className="text-sm text-danger">{title} needs at least one expression.</p> : null}
+      {items.map((item, index) => (
+        <Stack key={item.id} gap={3}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h5 className="text-sm font-semibold text-foreground">
+              {title} Expression {index + 1}
+            </h5>
+            <Inline gap={2}>
+              <Button
+                size="sm"
+                tone="secondary"
+                disabled={!editable || index === 0}
+                onClick={() => onChange(moveItem(items, index, index - 1))}
+              >
+                Up
+              </Button>
+              <Button
+                size="sm"
+                tone="secondary"
+                disabled={!editable || index === items.length - 1}
+                onClick={() => onChange(moveItem(items, index, index + 1))}
+              >
+                Down
+              </Button>
+              <Button
+                size="sm"
+                tone="secondary"
+                disabled={!editable}
+                onClick={() =>
+                  onChange(insertItem(items, index + 1, { ...item, id: newFormRowId(title.toLowerCase()) }))
+                }
+              >
+                Duplicate
+              </Button>
+              <Button
+                size="sm"
+                tone="danger"
+                disabled={!editable}
+                onClick={() => onChange(items.filter((candidate) => candidate.id !== item.id))}
+              >
+                Remove
+              </Button>
+            </Inline>
+          </div>
+          <MappingExpressionEditor
+            label={`${title} expression ${index + 1}`}
+            value={item.expression}
+            onChange={(expression) => setExpression(item.id, expression)}
+          />
+        </Stack>
+      ))}
     </Stack>
   );
 }
@@ -2938,6 +3211,7 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
       fixtureRoot: profile.fixtures.fixtureRoot,
       coveredFlows: [...profile.fixtures.coveredFlows],
     },
+    normalizedObservation: profileNormalizedObservationForm(profile),
   };
 }
 
@@ -2964,6 +3238,7 @@ function profileBasicsSaveDisabled(
       (!positiveIntegerText(form.retirementPlan.trackingIssueText) || !form.retirementPlan.diagnosticText.trim())) ||
     validateOptionQueryForms(form.optionQueries).length > 0 ||
     validateConnectorForm(form.connector).length > 0 ||
+    validateNormalizedObservationForm(form.normalizedObservation).length > 0 ||
     !form.fixtures.fixtureRoot.trim()
   );
 }
@@ -2988,6 +3263,232 @@ function parseNumberListInput(value: string): number[] {
 function nullableTrimmedValue(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
+}
+
+function profileNormalizedObservationForm(
+  profile: CatalogProviderProfileVersionReview,
+): ProfileNormalizedObservationForm {
+  const profileRecord = isRecord(profile.profile) ? profile.profile : {};
+  const profileMapping = isRecord(profileRecord.normalizedObservationMapping)
+    ? { ...profileRecord.normalizedObservationMapping }
+    : {};
+  const contractRoot = isRecord(profile.executableMappingContract) ? profile.executableMappingContract : {};
+  const normalizedObservation = isRecord(contractRoot.normalizedObservation) ? contractRoot.normalizedObservation : {};
+  const fields = isRecord(normalizedObservation.fields) ? normalizedObservation.fields : {};
+  const outputKind = normalizedOutputKindValue(
+    normalizedObservation.outputKind,
+    profileMapping.kind,
+    profile.mappingOutputKind,
+  );
+
+  return {
+    outputKind,
+    profileMapping,
+    languageCode: mappingExpressionFromUnknown(
+      normalizedObservation.languageCode,
+      defaultPathExpression("languageCode", "catalog-truth", ["normalized-observation", "hash-material"]),
+    ),
+    fields: Object.entries(fields).map(([fieldKey, expression], index) => ({
+      id: `field-${fieldKey || index}`,
+      fieldKey,
+      expression: mappingExpressionFromUnknown(
+        expression,
+        defaultPathExpression(fieldKey, "catalog-truth", ["normalized-observation"]),
+      ),
+    })),
+    hashMaterial: expressionListForm(normalizedObservation.hashMaterial, "hash", ["hash-material"]),
+    mergeIdentity: expressionListForm(normalizedObservation.mergeIdentity, "merge", ["merge-identity"]),
+  };
+}
+
+function normalizedOutputKindValue(...values: readonly unknown[]): "pokemon-card" | "provider-product" {
+  return values.some((value) => value === "pokemon-card") ? "pokemon-card" : "provider-product";
+}
+
+function expressionListForm(
+  value: unknown,
+  prefix: string,
+  uses: MappingExpressionValue["uses"],
+): readonly ProfileExpressionListItemForm[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((expression, index) => ({
+    id: `${prefix}-${index}`,
+    expression: mappingExpressionFromUnknown(expression, defaultPathExpression("", "catalog-truth", uses)),
+  }));
+}
+
+function mappingExpressionFromUnknown(value: unknown, fallback: MappingExpressionValue): MappingExpressionValue {
+  if (!isRecord(value) || !isRecord(value.selector)) {
+    return fallback;
+  }
+  return value as unknown as MappingExpressionValue;
+}
+
+function defaultPathExpression(
+  path: string,
+  owner: MappingExpressionValue["owner"],
+  uses: MappingExpressionValue["uses"],
+): MappingExpressionValue {
+  return {
+    ...defaultExpression(),
+    selector: { kind: "path", path, required: true, nullPolicy: "diagnostic" },
+    owner,
+    uses,
+  };
+}
+
+function emptyExpressionFieldForm(): ProfileExpressionFieldForm {
+  return {
+    id: newFormRowId("field"),
+    fieldKey: "",
+    expression: defaultPathExpression("", "catalog-truth", ["normalized-observation"]),
+  };
+}
+
+function emptyExpressionListItemForm(): ProfileExpressionListItemForm {
+  return {
+    id: newFormRowId("expression"),
+    expression: defaultPathExpression("", "catalog-truth", ["hash-material"]),
+  };
+}
+
+function normalizedObservationMappingFormToCommand(
+  form: ProfileNormalizedObservationForm,
+): CatalogProviderProfileNormalizedObservationUpdateCommand["normalizedObservationMapping"] {
+  return {
+    ...form.profileMapping,
+    kind: form.outputKind,
+  } as CatalogProviderProfileNormalizedObservationUpdateCommand["normalizedObservationMapping"];
+}
+
+function normalizedObservationContractFormToCommand(
+  form: ProfileNormalizedObservationForm,
+): CatalogProviderProfileNormalizedObservationUpdateCommand["normalizedObservationContract"] {
+  return {
+    outputKind: form.outputKind,
+    languageCode: form.languageCode,
+    fields: Object.fromEntries(
+      form.fields.map((field) => [field.fieldKey.trim(), field.expression]).filter(([fieldKey]) => fieldKey),
+    ),
+    hashMaterial: form.hashMaterial.map((item) => item.expression),
+    mergeIdentity: form.mergeIdentity.map((item) => item.expression),
+  } as CatalogProviderProfileNormalizedObservationUpdateCommand["normalizedObservationContract"];
+}
+
+function validateNormalizedObservationForm(form: ProfileNormalizedObservationForm): string[] {
+  const diagnostics: string[] = [];
+  const seenFields = new Set<string>();
+
+  diagnostics.push(...prefixedExpressionDiagnostics("Language expression", form.languageCode));
+
+  for (const field of form.fields) {
+    const fieldKey = field.fieldKey.trim();
+    const label = fieldKey || "Normalized field";
+    if (!fieldKey) {
+      diagnostics.push("Normalized field key is required.");
+    }
+    if (seenFields.has(fieldKey)) {
+      diagnostics.push(`${label}: normalized field keys must be unique.`);
+    }
+    seenFields.add(fieldKey);
+    diagnostics.push(...prefixedExpressionDiagnostics(label, field.expression));
+    diagnostics.push(...unsafeEvidenceDiagnostics(label, field.expression, "normalized field"));
+  }
+
+  if (form.hashMaterial.length === 0) {
+    diagnostics.push("Hash material needs at least one expression.");
+  }
+  form.hashMaterial.forEach((item, index) => {
+    const label = `Hash material ${index + 1}`;
+    diagnostics.push(...prefixedExpressionDiagnostics(label, item.expression));
+    diagnostics.push(...unsafeEvidenceDiagnostics(label, item.expression, "hash material"));
+  });
+
+  if (form.mergeIdentity.length === 0) {
+    diagnostics.push("Merge identity needs at least one expression.");
+  }
+  form.mergeIdentity.forEach((item, index) => {
+    const label = `Merge identity ${index + 1}`;
+    diagnostics.push(...prefixedExpressionDiagnostics(label, item.expression));
+    diagnostics.push(...unsafeEvidenceDiagnostics(label, item.expression, "merge identity"));
+  });
+
+  return diagnostics;
+}
+
+function prefixedExpressionDiagnostics(label: string, expression: MappingExpressionValue): string[] {
+  return validateMappingExpression(expression).map((diagnostic) => `${label}: ${diagnostic}`);
+}
+
+function unsafeEvidenceDiagnostics(
+  label: string,
+  expression: MappingExpressionValue,
+  surface: "normalized field" | "hash material" | "merge identity",
+): string[] {
+  const diagnostics: string[] = [];
+  for (const candidate of expressionTree(expression)) {
+    const selectorPath = selectorEvidencePath(candidate.selector).toLowerCase();
+    const unsafePath = [
+      "price",
+      "pricing",
+      "inventory",
+      "seller",
+      "listing",
+      "order",
+      "message",
+      "auth",
+      "cookie",
+    ].some((token) => selectorPath.includes(token));
+    const unsafeOwner =
+      candidate.owner === "pricing-signal" ||
+      candidate.owner === "inventory-signal" ||
+      candidate.owner === "operations";
+    const unsafeRedaction = candidate.redaction !== "none";
+    const drivesCatalogTruth = candidate.uses.includes("normalized-observation") || candidate.owner === "catalog-truth";
+    const drivesHash = candidate.uses.includes("hash-material") || surface === "hash material";
+
+    if ((unsafeOwner || unsafeRedaction || unsafePath) && (drivesCatalogTruth || drivesHash)) {
+      diagnostics.push(
+        `${label}: ${surface} cannot use secret, pricing, inventory, operations, seller, listing, order, or message evidence.`,
+      );
+      break;
+    }
+  }
+  return diagnostics;
+}
+
+function expressionTree(expression: MappingExpressionValue): readonly MappingExpressionValue[] {
+  const nested: MappingExpressionValue[] = [expression];
+  const selector = expression.selector;
+  if (selector.kind === "template") {
+    nested.push(...Object.values(selector.values).flatMap((value) => expressionTree(value)));
+  }
+  if (selector.kind === "array") {
+    nested.push(...selector.items.flatMap((value) => expressionTree(value)));
+  }
+  if (selector.kind === "object") {
+    nested.push(...Object.values(selector.fields).flatMap((value) => expressionTree(value)));
+  }
+  if (selector.kind === "array-map") {
+    nested.push(...expressionTree(selector.item));
+  }
+  return nested;
+}
+
+function selectorEvidencePath(selector: MappingExpressionValue["selector"]): string {
+  if (selector.kind === "path" || selector.kind === "array-map") {
+    return selector.path;
+  }
+  if (selector.kind === "template") {
+    return selector.template;
+  }
+  if (selector.kind === "named-runtime-selector") {
+    return `${selector.functionKey} ${selector.reason}`;
+  }
+  return "";
 }
 
 function profileConnectorForm(value: unknown): ProfileConnectorForm {
@@ -3312,6 +3813,14 @@ function moveItem<T>(items: readonly T[], fromIndex: number, toIndex: number): r
   const [item] = nextItems.splice(fromIndex, 1);
   nextItems.splice(toIndex, 0, item);
   return nextItems;
+}
+
+function insertItem<T>(items: readonly T[], index: number, item: T): readonly T[] {
+  return [...items.slice(0, index), item, ...items.slice(index)];
+}
+
+function newFormRowId(prefix: string): string {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
 function dryRunFixtureItems(model: CatalogProviderProfileAuthoringModel): SelectItem[] {
