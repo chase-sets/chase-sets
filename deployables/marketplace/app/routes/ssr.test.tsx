@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildCanonicalUrl } from "../seo";
+import { buildCanonicalUrl, buildMarketplaceCrawlPosture, buildMarketplaceRobotsTxt } from "../seo";
 import { loader as accountLoader } from "@chase-sets/identity/routes/marketplace/account";
 import { loader as chromeDevtoolsLoader } from "./chrome-devtools";
 import { loader as faviconLoader } from "./favicon";
@@ -148,6 +148,39 @@ describe("marketplace SSR routes", () => {
         search: "?search=charizard",
       }),
     ).toBe("https://marketplace.example/search?search=charizard");
+  });
+
+  it("describes production Merchant crawl posture from origin and indexing configuration", () => {
+    expect(
+      buildMarketplaceCrawlPosture({
+        origin: "https://marketplace.chasesets.com/search?q=ignored",
+        shouldIndex: true,
+      }),
+    ).toMatchObject({
+      origin: "https://marketplace.chasesets.com",
+      productionOrigin: true,
+      shouldIndex: true,
+      sitemapUrl: "https://marketplace.chasesets.com/sitemap.xml",
+      merchantFeedSubmissionAllowed: true,
+    });
+    expect(
+      buildMarketplaceCrawlPosture({
+        origin: "https://marketplace.staging.chasesets.com",
+        shouldIndex: true,
+      }),
+    ).toMatchObject({
+      productionOrigin: false,
+      merchantFeedSubmissionAllowed: false,
+    });
+    expect(
+      buildMarketplaceCrawlPosture({
+        origin: "https://marketplace.chasesets.com",
+        shouldIndex: false,
+      }),
+    ).toMatchObject({
+      productionOrigin: true,
+      merchantFeedSubmissionAllowed: false,
+    });
   });
 
   it("returns search route SEO metadata", () => {
@@ -315,6 +348,12 @@ describe("marketplace SSR routes", () => {
 
     expect(robots.headers.get("Content-Type")).toContain("text/plain");
     await expect(robots.text()).resolves.toContain("Sitemap: https://marketplace.example/sitemap.xml");
+    expect(
+      buildMarketplaceRobotsTxt({
+        origin: "https://marketplace.example",
+        shouldIndex: true,
+      }),
+    ).toContain("Allow: /");
     const favicon = faviconLoader({
       request: new Request("https://marketplace.example/favicon.ico"),
       params: {},
@@ -402,6 +441,12 @@ describe("marketplace SSR routes", () => {
 
     expect(robots.headers.get("Content-Type")).toContain("text/plain");
     await expect(robots.text()).resolves.toContain("Disallow: /");
+    expect(
+      buildMarketplaceRobotsTxt({
+        origin: "https://marketplace.staging.chasesets.com",
+        shouldIndex: false,
+      }),
+    ).not.toContain("Sitemap:");
   });
 
   it("does not expose resource routes before production proof access is authenticated", async () => {

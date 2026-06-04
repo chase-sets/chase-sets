@@ -74,6 +74,11 @@ export async function refreshGoogleShoppingFeedRowForListing(
   if (!facts) {
     return null;
   }
+  const canonicalUrl = canonicalListingUrl(facts.listing_slug);
+  const crawlable = isGoogleShoppingListingLandingPageCrawlable({
+    listingStatus: facts.status,
+    listingSlug: facts.listing_slug,
+  });
 
   const row = buildGoogleShoppingMappedFeedRow({
     catalog: {
@@ -96,11 +101,11 @@ export async function refreshGoogleShoppingFeedRowForListing(
       sellerListingAvailabilityStatus: facts.seller_listing_availability_status ?? "available",
       sellerAccountStatus: facts.seller_account_status,
       accountId: facts.account_id,
-      canonicalUrl: canonicalListingUrl(facts.listing_slug),
+      canonicalUrl,
       priceAmount: facts.price_amount,
       currencyCode: "USD",
       quantityCap: facts.quantity_cap,
-      crawlable: facts.status === "active" && Boolean(facts.listing_slug.trim()),
+      crawlable,
     },
     shipping: {
       ready: Boolean(facts.ship_from_code?.trim()),
@@ -392,6 +397,25 @@ function productFormFromSchema(productSchema: unknown) {
 function canonicalListingUrl(listingSlug: string | null): string | null {
   const slug = listingSlug?.trim();
   return slug ? `${MARKETPLACE_CANONICAL_ORIGIN}/listings/${encodeURIComponent(slug)}` : null;
+}
+
+export function isGoogleShoppingMarketplaceIndexingEnabled(
+  env: Partial<Record<"CHASE_SETS_MARKETPLACE_INDEXING", string>> = process.env,
+) {
+  const value = env.CHASE_SETS_MARKETPLACE_INDEXING?.trim().toLowerCase();
+  return !["0", "false", "no", "off"].includes(value ?? "");
+}
+
+export function isGoogleShoppingListingLandingPageCrawlable(input: {
+  listingStatus: string;
+  listingSlug: string | null;
+  indexingEnabled?: boolean;
+}) {
+  return (
+    input.listingStatus === "active" &&
+    Boolean(input.listingSlug?.trim()) &&
+    (input.indexingEnabled ?? isGoogleShoppingMarketplaceIndexingEnabled())
+  );
 }
 
 function shippingAllowanceAmount(priceAmount: string, allowanceBps: number): string | null {
