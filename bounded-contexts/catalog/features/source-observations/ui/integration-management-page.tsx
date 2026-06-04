@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { JsonValue } from "@chase-sets/primitives/json";
+import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
@@ -22,8 +23,11 @@ import {
   Stat,
   StatGrid,
   StatusPill,
+  OperationalStatusBanner,
+  TaskSummary,
   TextInput,
   Textarea,
+  WorkstationLayout,
   type DataColumn,
   type SegmentedControlItem,
   type SelectItem,
@@ -89,6 +93,7 @@ const ALL_PROVIDERS = "__all__";
 const ALL_LANGUAGES = "__all__";
 const ALL_EXPANSIONS = "__all__";
 const ALL_SERIES = "__all__";
+const NO_PROFILE_WORKSPACE = "__no_profile_workspace__";
 const TCGDEX_PROVIDER = "tcgdex";
 const TCGPLAYER_PROVIDER = "tcgplayer";
 const TCGPLAYER_PRODUCT_LINE_SCOPE = "product-line";
@@ -132,6 +137,15 @@ const PROFILE_LIFECYCLE_OPTIONS = [
   { value: "draft", label: "Draft" },
   { value: "test", label: "Test" },
 ] satisfies SelectItem[];
+const EMPTY_PROFILE_REVIEWS: CatalogProviderProfileVersionReview[] = [];
+const CATALOG_INTEGRATION_MODULE_AREAS = [
+  { value: "health", label: "Health", icon: "dashboard" },
+  { value: "authoring", label: "Authoring", icon: "settings" },
+  { value: "validation", label: "Validation", icon: "badgeCheck" },
+  { value: "operations", label: "Operations", icon: "refreshCcw" },
+  { value: "audit", label: "Audit", icon: "search" },
+] satisfies SegmentedControlItem[];
+type CatalogIntegrationModuleArea = (typeof CATALOG_INTEGRATION_MODULE_AREAS)[number]["value"];
 const OPTION_QUERY_OPERATION_OPTIONS = [
   { value: "tcgdex-list-languages", label: "TCGdex languages" },
   { value: "tcgdex-list-series", label: "TCGdex series" },
@@ -478,7 +492,10 @@ export function IntegrationManagementPage({
   const revalidator = useRevalidator();
   const { addToast } = useToasts();
   const providerProfiles = useSourceObservationProviderProfiles(profileReviews);
+  const profileRows = providerProfiles.data?.items ?? EMPTY_PROFILE_REVIEWS;
   const canManageCatalog = permissions?.canManageCatalog ?? true;
+  const [moduleArea, setModuleArea] = useState<CatalogIntegrationModuleArea>("health");
+  const [selectedProfileId, setSelectedProfileId] = useState("");
   const [dryRunProfile, setDryRunProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [dryRunFlow, setDryRunFlow] = useState("normal");
   const [dryRunOverrides, setDryRunOverrides] = useState<DryRunSafeOverrides>({
@@ -529,6 +546,29 @@ export function IntegrationManagementPage({
   const [promoteAllProgress, setPromoteAllProgress] = useState<CatalogBulkActionProgress | null>(null);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const activeIntegrationJobs = useActiveSourceObservationIntegrationJobs();
+  const profileWorkspaceItems = useMemo(() => buildProfileWorkspaceItems(profileRows), [profileRows]);
+  const selectedProfile = useMemo(
+    () => profileRows.find((profile) => profileActionIdentity(profile) === selectedProfileId) ?? null,
+    [profileRows, selectedProfileId],
+  );
+  const activeJobCount = activeIntegrationJobs.data?.items.length ?? 0;
+
+  useEffect(() => {
+    if (profileRows.length === 0) {
+      if (selectedProfileId) {
+        setSelectedProfileId("");
+      }
+      return;
+    }
+
+    if (selectedProfileId && profileRows.some((profile) => profileActionIdentity(profile) === selectedProfileId)) {
+      return;
+    }
+
+    const defaultProfile = profileRows.find((profile) => profile.active) ?? profileRows[0];
+    setSelectedProfileId(profileActionIdentity(defaultProfile));
+  }, [profileRows, selectedProfileId]);
+
   const dryRunAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
     dryRunProfile?.providerKey ?? "",
     dryRunProfile?.profileVersion ?? "",
@@ -1248,24 +1288,22 @@ export function IntegrationManagementPage({
   return (
     <Page>
       <PageHeader title={t("catalog.features.sourceObservations.ui.integrations.title")} />
-      <Stack gap={4}>
-        <Stack gap={3}>
-          <Inline gap={3} align="center">
-            <Stack gap={1}>
-              <h2>{t("catalog.features.sourceObservations.ui.integrations.profile.review.title")}</h2>
-              <p>{t("catalog.features.sourceObservations.ui.integrations.profile.review.description")}</p>
-            </Stack>
-            <Button tone="secondary" leadingIcon="refreshCcw" onClick={providerProfiles.refresh}>
-              {t("catalog.features.sourceObservations.ui.integrations.profile.review.refresh")}
-            </Button>
-          </Inline>
-          <DataTable
-            rows={providerProfiles.data?.items ?? []}
-            columns={profileColumns}
-            getRowId={(row) => profileActionIdentity(row)}
-            emptyTitle={t("catalog.features.sourceObservations.ui.integrations.profile.review.none.found")}
-          />
-        </Stack>
+      <CatalogIntegrationModuleShell
+        area={moduleArea}
+        onAreaChange={(value) => setModuleArea(value as CatalogIntegrationModuleArea)}
+        selectedProfile={selectedProfile}
+        summary={summary}
+        activeJobCount={activeJobCount}
+        canManageCatalog={canManageCatalog}
+      >
+        <CatalogIntegrationProfileHealthPanel
+          profiles={profileRows}
+          columns={profileColumns}
+          profileWorkspaceItems={profileWorkspaceItems}
+          selectedProfileId={selectedProfileId || profileWorkspaceItems[0]?.value || NO_PROFILE_WORKSPACE}
+          onSelectedProfileChange={(value) => setSelectedProfileId(value === NO_PROFILE_WORKSPACE ? "" : value)}
+          onRefresh={providerProfiles.refresh}
+        />
 
         <ActionBar>
           <Button leadingIcon="plus" onClick={() => setShowImport(true)} disabled={!canManageCatalog}>
@@ -1362,7 +1400,7 @@ export function IntegrationManagementPage({
           getRowId={(row) => [row.provider_key, row.language_code, row.expansion_id, row.series_id].join(":")}
           emptyTitle={t("catalog.features.sourceObservations.ui.integrations.none.found")}
         />
-      </Stack>
+      </CatalogIntegrationModuleShell>
 
       <Dialog
         open={Boolean(dryRunProfile)}
@@ -1878,6 +1916,152 @@ export function IntegrationManagementPage({
       </Dialog>
     </Page>
   );
+}
+
+type CatalogIntegrationModuleShellProps = Readonly<{
+  area: CatalogIntegrationModuleArea;
+  onAreaChange: (value: string) => void;
+  selectedProfile: CatalogProviderProfileVersionReview | null;
+  summary: ReturnType<typeof summarizeScopes>;
+  activeJobCount: number;
+  canManageCatalog: boolean;
+  children: ReactNode;
+}>;
+
+function CatalogIntegrationModuleShell({
+  area,
+  onAreaChange,
+  selectedProfile,
+  summary,
+  activeJobCount,
+  canManageCatalog,
+  children,
+}: CatalogIntegrationModuleShellProps) {
+  return (
+    <WorkstationLayout
+      secondaryTitle="Module context"
+      secondaryDescription="Selected profile health, operations, permissions, and the admin module map."
+      primary={
+        <Stack gap={4}>
+          <SegmentedControl
+            aria-label="Catalog integration module area"
+            value={area}
+            onValueChange={onAreaChange}
+            items={CATALOG_INTEGRATION_MODULE_AREAS}
+            fullWidth
+          />
+          {children}
+        </Stack>
+      }
+      secondary={
+        <Stack gap={3}>
+          <OperationalStatusBanner
+            tone={canManageCatalog ? "success" : "warning"}
+            title={canManageCatalog ? "Catalog manage enabled" : "View-only catalog access"}
+            description={
+              canManageCatalog
+                ? "This operator can author profiles, run imports, reapply promoted observations, and manage lifecycle actions."
+                : "This operator can inspect profiles, compare versions, dry-run fixtures, and review observations. Writes require catalog.manage."
+            }
+          />
+          <TaskSummary
+            title="Selected profile"
+            items={
+              selectedProfile
+                ? [
+                    { label: "Provider", value: selectedProfile.displayName },
+                    { label: "Version", value: selectedProfile.profileVersion },
+                    { label: "Lifecycle", value: selectedProfile.active ? "active" : selectedProfile.lifecycle },
+                    { label: "Validation", value: selectedProfile.validation.status },
+                    { label: "Mapping", value: selectedProfile.mappingOutputKind },
+                    { label: "Fixture flows", value: String(selectedProfile.fixtures.coveredFlows.length) },
+                  ]
+                : [{ label: "Profile", value: "No profile selected" }]
+            }
+          />
+          <TaskSummary
+            title="Module map"
+            items={[
+              { label: "Current area", value: moduleAreaLabel(area) },
+              { label: "Authoring", value: "Profile basics, options, connector, mappings, references, and plans" },
+              { label: "Validation", value: "Fixture dry-runs, diagnostics, readiness, and semantic comparison" },
+              { label: "Operations", value: "Import, promote all, reapply, job status, and failure groups" },
+              { label: "Audit", value: "Migration evidence, authoring metadata, rollback, and retirement" },
+            ]}
+          />
+          <TaskSummary
+            title="Operations"
+            items={[
+              { label: "Scopes", value: formatCount(summary.scopes) },
+              { label: "Needs review", value: formatCount(summary.observed + summary.changed) },
+              { label: "Promoted", value: formatCount(summary.promoted) },
+              { label: "Active jobs", value: formatCount(activeJobCount) },
+            ]}
+          />
+        </Stack>
+      }
+    />
+  );
+}
+
+type CatalogIntegrationProfileHealthPanelProps = Readonly<{
+  profiles: CatalogProviderProfileVersionReview[];
+  columns: DataColumn<CatalogProviderProfileVersionReview>[];
+  profileWorkspaceItems: SelectItem[];
+  selectedProfileId: string;
+  onSelectedProfileChange: (value: string) => void;
+  onRefresh: () => void;
+}>;
+
+function CatalogIntegrationProfileHealthPanel({
+  profiles,
+  columns,
+  profileWorkspaceItems,
+  selectedProfileId,
+  onSelectedProfileChange,
+  onRefresh,
+}: CatalogIntegrationProfileHealthPanelProps) {
+  return (
+    <Stack gap={3}>
+      <Inline gap={3} align="center">
+        <Stack gap={1}>
+          <h2>{t("catalog.features.sourceObservations.ui.integrations.profile.review.title")}</h2>
+          <p>{t("catalog.features.sourceObservations.ui.integrations.profile.review.description")}</p>
+        </Stack>
+        <Button tone="secondary" leadingIcon="refreshCcw" onClick={onRefresh}>
+          {t("catalog.features.sourceObservations.ui.integrations.profile.review.refresh")}
+        </Button>
+      </Inline>
+      <Select
+        label="Profile workspace"
+        value={selectedProfileId}
+        onValueChange={onSelectedProfileChange}
+        items={
+          profileWorkspaceItems.length > 0
+            ? profileWorkspaceItems
+            : [{ label: "No provider profiles available", value: NO_PROFILE_WORKSPACE }]
+        }
+        disabled={profileWorkspaceItems.length === 0}
+      />
+      <DataTable
+        rows={profiles}
+        columns={columns}
+        getRowId={(row) => profileActionIdentity(row)}
+        emptyTitle={t("catalog.features.sourceObservations.ui.integrations.profile.review.none.found")}
+      />
+    </Stack>
+  );
+}
+
+function buildProfileWorkspaceItems(profiles: readonly CatalogProviderProfileVersionReview[]): SelectItem[] {
+  return profiles.map((profile) => ({
+    value: profileActionIdentity(profile),
+    label: `${profile.displayName} ${profile.profileVersion}${profile.active ? " active" : ` ${profile.lifecycle}`}`,
+  }));
+}
+
+function moduleAreaLabel(area: CatalogIntegrationModuleArea) {
+  return CATALOG_INTEGRATION_MODULE_AREAS.find((item) => item.value === area)?.label ?? area;
 }
 
 type IntegrationRowActions = Readonly<{

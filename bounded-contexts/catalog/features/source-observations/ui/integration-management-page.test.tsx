@@ -241,6 +241,28 @@ describe("IntegrationManagementPage", () => {
     );
   });
 
+  it("renders the integration module shell and selected profile context", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(
+      <IntegrationManagementPage
+        data={{ items: [integrationScope()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgdex", language: "en", setId: "base1" }}
+      />,
+    );
+
+    expect(screen.getByRole("tablist", { name: "Catalog integration module area" })).toBeTruthy();
+    expect(screen.getByRole("tab", { name: "Health" }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(screen.getByRole("tab", { name: "Validation" }));
+    expect(screen.getByRole("tab", { name: "Validation" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByLabelText("Profile workspace")).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "Selected profile" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Module map" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "Operations" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Catalog manage enabled").length).toBeGreaterThan(0);
+  });
+
   it("searches and selects an integration expansion filter", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams("source=tcgdex&language=en"), mockSetSearchParams]);
