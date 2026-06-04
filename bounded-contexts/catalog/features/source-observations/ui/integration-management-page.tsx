@@ -453,6 +453,23 @@ type ProfileReferenceHierarchyParentForm = Readonly<{
   referenceRecordKey: MappingExpressionValue;
 }>;
 
+type ReferenceHierarchyPreviewRecord = Readonly<{
+  typeKey: string;
+  providerAttributeKey: string;
+  referenceRecordKey: JsonValue;
+  deterministicId: string;
+  parentChain: readonly ReferenceHierarchyPreviewParent[];
+  diagnostics: readonly string[];
+}>;
+
+type ReferenceHierarchyPreviewParent = Readonly<{
+  typeKey: string;
+  providerAttributeKey: string;
+  referenceRecordKey: JsonValue;
+  deterministicId: string;
+  diagnostics: readonly string[];
+}>;
+
 type ProfileDuplicatePreventionForm = Readonly<{
   rawMapping: Record<string, unknown>;
   rawAmbiguityRules: Record<string, unknown>;
@@ -3468,6 +3485,7 @@ function ProfileBasicsEditor({
         onChange={setReferenceHierarchy}
         diagnostics={referenceHierarchyDiagnostics}
         editable={editable}
+        previewPayload={previewPayload}
       />
 
       <DuplicatePreventionEditor
@@ -4544,11 +4562,13 @@ function ReferenceHierarchyEditor({
   onChange,
   diagnostics,
   editable,
+  previewPayload,
 }: Readonly<{
   form: ProfileReferenceHierarchyForm;
   onChange: (form: ProfileReferenceHierarchyForm) => void;
   diagnostics: readonly string[];
   editable: boolean;
+  previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileReferenceHierarchyForm>) => onChange({ ...form, ...patch });
   const setProviderAttribute = (id: string, patch: Partial<ProfileReferenceProviderAttributeForm>) =>
@@ -4603,6 +4623,7 @@ function ReferenceHierarchyEditor({
           onChange={(event) => setForm({ targetRecordRuleKey: event.currentTarget.value })}
         />
       </Inline>
+      <ReferenceHierarchyPreview form={form} previewPayload={previewPayload} />
       <Stack gap={3}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h4 className="text-sm font-semibold text-foreground">Provider Attributes</h4>
@@ -4749,11 +4770,13 @@ function ReferenceHierarchyEditor({
               label="Target reference record"
               node={contract}
               editable={editable}
+              previewPayload={previewPayload}
               onChange={(patch) => setContract(contract.id, patch)}
             />
             <ReferenceHierarchyParentsEditor
               parents={contract.parents}
               editable={editable}
+              previewPayload={previewPayload}
               onChange={(parents) => setContract(contract.id, { parents })}
             />
           </Stack>
@@ -4763,15 +4786,111 @@ function ReferenceHierarchyEditor({
   );
 }
 
+function ReferenceHierarchyPreview({
+  form,
+  previewPayload,
+}: Readonly<{
+  form: ProfileReferenceHierarchyForm;
+  previewPayload: JsonValue | null;
+}>) {
+  const preview = previewPayload ? referenceHierarchyPreview(form, previewPayload) : [];
+  const diagnostics = preview.flatMap((record, index) => [
+    ...record.diagnostics.map((diagnostic) => `Chain ${index + 1}: ${diagnostic}`),
+    ...record.parentChain.flatMap((parent, parentIndex) =>
+      parent.diagnostics.map((diagnostic) => `Chain ${index + 1} parent ${parentIndex + 1}: ${diagnostic}`),
+    ),
+  ]);
+
+  return (
+    <TaskSummary
+      title="Reference Hierarchy Preview"
+      items={[
+        {
+          label: "Target record rule",
+          value: form.targetRecordRuleKey || "Not configured",
+        },
+        {
+          label: "Provider attributes",
+          value:
+            form.providerAttributes
+              .map((attribute) => `${attribute.typeKey || "type"}=${attribute.providerAttributeKey || "provider-key"}`)
+              .join(", ") || "No provider attributes",
+        },
+        {
+          label: "Provisioned records",
+          value: previewPayload ? summarizeJsonValue(preview) : "No fixture sample",
+        },
+        {
+          label: "Preview diagnostics",
+          value: diagnostics.length > 0 ? diagnostics.join("; ") : "None",
+        },
+      ]}
+    />
+  );
+}
+
+export function referenceHierarchyPreview(
+  form: ProfileReferenceHierarchyForm,
+  payload: JsonValue,
+): readonly ReferenceHierarchyPreviewRecord[] {
+  return form.contracts.map((contract) => {
+    const targetPreview = previewMappingExpression(contract.referenceRecordKey, payload);
+    const parentChain = contract.parents.map((parent) => {
+      const parentPreview = previewMappingExpression(parent.referenceRecordKey, payload);
+      return {
+        typeKey: parent.targetTypeKey,
+        providerAttributeKey: parent.providerAttributeKey,
+        referenceRecordKey: parentPreview.value,
+        deterministicId: referenceHierarchyPreviewId(form, parent.targetTypeKey, parentPreview.value),
+        diagnostics: parentPreview.diagnostics,
+      };
+    });
+
+    return {
+      typeKey: contract.targetTypeKey,
+      providerAttributeKey: contract.providerAttributeKey,
+      referenceRecordKey: targetPreview.value,
+      deterministicId: referenceHierarchyPreviewId(form, contract.targetTypeKey, targetPreview.value),
+      parentChain,
+      diagnostics: targetPreview.diagnostics,
+    };
+  });
+}
+
+function referenceHierarchyPreviewId(
+  form: ProfileReferenceHierarchyForm,
+  typeKey: string,
+  referenceRecordKey: JsonValue,
+): string {
+  const normalizedKey = normalizeReferenceHierarchyPreviewKey(referenceRecordKey);
+  if (!form.providerReferenceIdPrefix.trim() || !typeKey.trim() || !normalizedKey) {
+    return "Not available";
+  }
+  return `${form.providerReferenceIdPrefix.trim()}_${typeKey.trim()}_${normalizedKey.replace(/-/g, "_")}`;
+}
+
+function normalizeReferenceHierarchyPreviewKey(value: JsonValue): string {
+  if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean") {
+    return "";
+  }
+  return String(value)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
 function ReferenceHierarchyNodeEditor({
   label,
   node,
   editable,
+  previewPayload,
   onChange,
 }: Readonly<{
   label: string;
   node: Pick<ProfileReferenceHierarchyContractForm, "targetTypeKey" | "providerAttributeKey" | "referenceRecordKey">;
   editable: boolean;
+  previewPayload: JsonValue | null;
   onChange: (patch: Partial<ProfileReferenceHierarchyContractForm>) => void;
 }>) {
   return (
@@ -4797,6 +4916,7 @@ function ReferenceHierarchyNodeEditor({
         label={`${label} key expression`}
         value={node.referenceRecordKey}
         onChange={(referenceRecordKey) => onChange({ referenceRecordKey })}
+        previewPayload={previewPayload}
       />
     </Stack>
   );
@@ -4805,10 +4925,12 @@ function ReferenceHierarchyNodeEditor({
 function ReferenceHierarchyParentsEditor({
   parents,
   editable,
+  previewPayload,
   onChange,
 }: Readonly<{
   parents: readonly ProfileReferenceHierarchyParentForm[];
   editable: boolean;
+  previewPayload: JsonValue | null;
   onChange: (parents: readonly ProfileReferenceHierarchyParentForm[]) => void;
 }>) {
   const setParent = (id: string, patch: Partial<ProfileReferenceHierarchyParentForm>) =>
@@ -4866,6 +4988,7 @@ function ReferenceHierarchyParentsEditor({
             label={`Parent reference record ${index + 1}`}
             node={parent}
             editable={editable}
+            previewPayload={previewPayload}
             onChange={(patch) => setParent(parent.id, patch as Partial<ProfileReferenceHierarchyParentForm>)}
           />
         </Stack>

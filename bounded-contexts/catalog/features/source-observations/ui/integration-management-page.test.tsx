@@ -9,6 +9,7 @@ import {
   providerOptionMetadataPreview,
   providerOptionOutputPreview,
   providerOptionParentPreview,
+  referenceHierarchyPreview,
 } from "./integration-management-page";
 import type {
   CatalogProviderProfileAuthoringModel,
@@ -363,6 +364,94 @@ describe("IntegrationManagementPage", () => {
     expect(preview.selectedOptions).toEqual(
       expect.arrayContaining([expect.objectContaining({ dimension: "condition", providerValue: "Near Mint" })]),
     );
+  });
+
+  it("builds reference hierarchy previews from fixture payloads", () => {
+    const preview = referenceHierarchyPreview(
+      {
+        rawMapping: {},
+        providerReferenceIdPrefix: "ref_tcgdex",
+        targetRecordRuleKey: "expansion",
+        providerAttributes: [
+          { id: "series-attribute", typeKey: "series", providerAttributeKey: "tcgdex-series-id" },
+          { id: "expansion-attribute", typeKey: "expansion", providerAttributeKey: "tcgdex-set-id" },
+        ],
+        recordRules: [
+          {
+            id: "series-rule",
+            ruleKey: "series",
+            typeKey: "series",
+            requiredPathsText: "seriesName",
+            relationshipsText: "part-of=product-line",
+          },
+          {
+            id: "expansion-rule",
+            ruleKey: "expansion",
+            typeKey: "expansion",
+            requiredPathsText: "expansionName",
+            relationshipsText: "part-of=series",
+          },
+        ],
+        contracts: [
+          {
+            id: "expansion-contract",
+            targetTypeKey: "expansion",
+            providerAttributeKey: "tcgdex-set-id",
+            referenceRecordKey: mappingExpression("expansionId", "external-reference", [
+              "reference-hierarchy",
+            ]) as MappingExpressionValue,
+            parents: [
+              {
+                id: "series-parent",
+                targetTypeKey: "series",
+                providerAttributeKey: "tcgdex-series-id",
+                referenceRecordKey: mappingExpression("seriesId", "external-reference", [
+                  "reference-hierarchy",
+                ]) as MappingExpressionValue,
+              },
+              {
+                id: "product-line-parent",
+                targetTypeKey: "product-line",
+                providerAttributeKey: "official-name",
+                referenceRecordKey: {
+                  selector: { kind: "constant", value: "Pokemon Trading Card Game" },
+                  owner: "catalog-truth",
+                  uses: ["reference-hierarchy"],
+                  redaction: "none",
+                } as MappingExpressionValue,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        expansionId: "swsh3",
+        expansionName: "Darkness Ablaze",
+        seriesId: "swsh",
+        seriesName: "Sword & Shield",
+      },
+    );
+
+    expect(preview).toEqual([
+      expect.objectContaining({
+        typeKey: "expansion",
+        providerAttributeKey: "tcgdex-set-id",
+        referenceRecordKey: "swsh3",
+        deterministicId: "ref_tcgdex_expansion_swsh3",
+        parentChain: [
+          expect.objectContaining({
+            typeKey: "series",
+            referenceRecordKey: "swsh",
+            deterministicId: "ref_tcgdex_series_swsh",
+          }),
+          expect.objectContaining({
+            typeKey: "product-line",
+            referenceRecordKey: "Pokemon Trading Card Game",
+            deterministicId: "ref_tcgdex_product-line_pokemon_trading_card_game",
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("shows pulled provider scopes with language expansion series and review counts", () => {
