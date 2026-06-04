@@ -51,7 +51,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.
-- [Google Shopping Operations](./runbooks/google-shopping-operations.md): Merchant Center account readiness, worker config, dry-run proof, and provider incident response.
+- [Google Shopping Operations](./runbooks/google-shopping-operations.md): Merchant Center launch checklist, worker config, operating cadence, pause/withdrawal, diagnostics owner routing, and provider incident response.
 
 ## Owner-Owned Documentation
 

@@ -2,6 +2,12 @@
 
 This runbook owns the operator checklist for Chase Sets Google Merchant Center / Google Shopping integration. It is secret-safe: do not paste real credentials, private keys, account screenshots containing private seller data, or raw provider payloads into this file.
 
+## Operator Surface And Evidence Links
+
+The launch evidence output from `pnpm run google-shopping:launch-readiness-evidence` includes this runbook path as `runbook.path`. Store that JSON output or its private evidence reference with the launch packet so release reviewers can jump from the machine gate to the human operating guide.
+
+The Google Shopping admin/operator surface should link to this runbook with the label `Google Shopping Operations` near sync status, diagnostics, and pause/rollback controls. The surface should not copy credentials, private Merchant Center screenshots, or raw provider payloads into the UI; it should show redacted status, row identifiers, evidence references, and the next operator action from this runbook.
+
 ## Account Posture
 
 The integration targets Google's marketplace/multi-seller account model. Chase Sets rows use one Google offer per public Marketplace Listing and include an external seller id derived from the Chase Sets Account id.
@@ -15,6 +21,23 @@ Production submission remains blocked until Ops records a private evidence refer
 - Seller-level policy handling for `external_seller_id` is understood.
 
 If approval is not available, keep `GOOGLE_MERCHANT_SYNC_ENABLED=false` or `GOOGLE_MERCHANT_DRY_RUN=true`.
+
+## First Launch Checklist
+
+Complete these steps in order before live production Merchant writes:
+
+1. Confirm Merchant Center approval, API data source creation, target country, content language, feed label, free-listings destination, shipping settings, returns settings, and marketplace/multi-seller handling in a private evidence record.
+2. Confirm production worker variables are present with `GOOGLE_MERCHANT_SYNC_ENABLED=true`, `GOOGLE_MERCHANT_DRY_RUN=true`, `CHASE_SETS_MARKETPLACE_INDEXING=true`, and a credential secret reference that points to the bound service-account JSON variable.
+3. Run the feed row evidence sweep and verify non-zero eligible rows, zero blocking row issues, representative sample payloads, HTTPS images, production listing links, seller external ids, and policy fields.
+4. Run `pnpm run google-shopping:crawl-posture-evidence` against `https://marketplace.chasesets.com` with sampled eligible listing links and verify `merchantFeedSubmissionAllowed=true`.
+5. Enqueue a full dry-run sync, wait for completion, and confirm `failed=0`, expected submitted/deleted/excluded counts, and a concrete job reference.
+6. Refresh diagnostics in dry-run/live-read mode as appropriate, then capture `/google-shopping/diagnostics/snapshot?limit=500` with zero P0 disapproved submitted rows.
+7. Run `pnpm run google-shopping:launch-readiness-evidence -- --expected-mode dry-run` and store the passing output reference.
+8. Obtain production sync approval from Ops and policy owners, including the evidence reference that authorizes changing from dry-run to live writes.
+9. Change production to `GOOGLE_MERCHANT_DRY_RUN=false` only after the dry-run evidence, diagnostics snapshot, crawl posture, policy references, and production approval are complete.
+10. Run `pnpm run google-shopping:launch-readiness-evidence -- --expected-mode live --production-sync-approval-reference <reference>` and do not launch if `passesGoogleShoppingLaunchReadinessGate` is false.
+11. Enqueue a small live sync batch first when possible, inspect provider responses and diagnostics, then scale to the normal full sync batch.
+12. Monitor the next scheduled maintenance and diagnostics windows before declaring launch complete.
 
 ## Worker Configuration
 
@@ -98,6 +121,7 @@ Use `--expected-mode disabled` when proving that Google Shopping submission is i
 The redacted readiness report should include:
 
 - production environment values for `GOOGLE_MERCHANT_SYNC_ENABLED`, `GOOGLE_MERCHANT_DRY_RUN`, `CHASE_SETS_MARKETPLACE_INDEXING`, and the required Merchant account/data-source/target/feed/credential-secret variable names;
+- this runbook reference, either from `runbook.path` in the launch evidence output or from the private launch packet index;
 - feed quality counts: total, eligible, excluded, exclusion reasons, image eligibility counts, blocking issue counts, representative sample payloads, and sampled image HTTP checks;
 - crawl posture output from `google-shopping:crawl-posture-evidence`;
 - policy references for Merchant account approval, API data source, policy review, Merchant shipping settings, Merchant returns settings, Tax readiness, public shipping URL, public returns URL, and return policy label;
@@ -129,6 +153,33 @@ Use staging/proof in this order:
 6. Run `google-shopping:launch-readiness-evidence -- --expected-mode dry-run` and store the output reference in the private launch record.
 7. Enable non-production writes only when Google account policy and data-source setup are ready.
 8. Keep production writes blocked until `google-shopping:launch-readiness-evidence -- --expected-mode live` passes.
+
+## Recurring Operating Cadence
+
+Daily:
+
+- Review the latest sync job results for failed rows, provider retry exhaustion, unexpected delete spikes, and rows stuck in pending diagnostics.
+- Review diagnostics snapshot totals for any P0 disapproved row, unknown issue code, or P1 issue-volume warning.
+- Confirm scheduled maintenance and diagnostics jobs are running when `GOOGLE_MERCHANT_SYNC_ENABLED=true`.
+
+Weekly:
+
+- Sample eligible feed rows and compare public listing pages, canonical URLs, image URLs, JSON-LD condition/availability, shipping policy URL, returns policy URL, and sitemap membership.
+- Review exclusion reason trends with Catalog, Marketplace, Public Presence, and Ops owners so avoidable exclusions do not become launch-supply drift.
+- Check Merchant Center account, API data source, shipping, returns, and policy status for notices that are not yet visible in row diagnostics.
+
+Monthly:
+
+- Reconfirm Merchant Center account access for the service account and remove stale human access.
+- Re-run crawl posture evidence against production with fresh sampled listing URLs.
+- Review Tax readiness and public policy references for any changes that could affect Google-facing disclosures.
+- Confirm row sync state and diagnostics retention still satisfy the 90-day post-withdrawal evidence expectation.
+
+After every release touching Catalog, Marketplace, Discovery, Public Presence, Ordering/Fulfillment, Tax, Identity, Platform Runtime, or public routing:
+
+- Run a dry-run sync or maintenance preview for representative rows affected by the release.
+- Refresh diagnostics if any submitted row shape, policy field, listing URL, image URL, price, availability, seller identity, shipping, returns, or crawl posture changed.
+- Store the release-specific evidence reference when the change affects launch readiness or incident recovery.
 
 ## Merchant API Client Behavior
 
@@ -270,6 +321,60 @@ Launch-impact thresholds:
 
 Raw provider payload retention remains bounded and secret-safe: sync job/event history is pruned after seven days, and feed rows keep only normalized diagnostics plus redacted provider response summaries.
 
+## Diagnostics Owner Routing
+
+| Symptom or issue family | Primary owner | First operator action |
+| --- | --- | --- |
+| Missing title, description, category, product identity, or selected option facts | Catalog | Fix canonical Catalog item data, replay/refresh Discovery projections, then dry-run sync the affected rows. |
+| Missing or non-crawlable image URL, image fallback drift, or product asset issue | Catalog | Correct catalog imagery or fallback selection, confirm HTTPS public access, then refresh the affected feed rows. |
+| Listing withdrawn, paused, seller availability disabled, price invalid, quantity unavailable, or stale buyable state | Marketplace | Correct listing lifecycle, price, quantity, or seller availability; let Discovery project the row tombstone/exclusion and submit deletes when needed. |
+| Incorrect public listing URL, canonical URL mismatch, robots noindex, sitemap miss, or policy page link issue | Public Presence | Repair public routing, canonical metadata, robots/sitemap posture, or policy page availability before submitting live rows. |
+| Shipping speed/cost mismatch, fulfillment destination limitation, or Merchant shipping settings conflict | Ordering/Fulfillment with Ops | Confirm checkout shipping behavior and Merchant Center shipping settings agree; update private Merchant settings or public policy evidence. |
+| Tax disclosure, tax collection posture, or jurisdiction evidence conflict | Tax | Refresh Tax readiness evidence and ensure Google-facing tax posture does not contradict checkout. |
+| Seller identity, account suspension, closed account, or `external_seller_id` traceability issue | Identity | Resolve account status or identity projection facts; Marketplace may pause seller availability while Identity remediation completes. |
+| Sync job lease loss, worker startup config failure, credential secret missing, provider retry exhaustion, or scheduler lag | Platform Runtime | Fix worker configuration, credentials, scheduling, or provider client behavior; keep sync disabled or dry-run until stable. |
+| Merchant account approval, API data-source approval, marketplace policy, item disapproval appeal, or unknown Google issue code | Ops / Google Merchant Center | Open Merchant Center/support escalation with redacted row identifiers, provider issue codes, and private evidence; keep offer ids stable. |
+| Feed eligibility, payload hash, Merchant offer id, diagnostics normalization, or incremental request drain defect | Discovery | Fix projection/sync contracts, rerun focused tests, rebuild projections if needed, then dry-run sync before live writes. |
+
+Unknown provider issue codes are P1 until classified. Route the first investigation through Ops/Google and Discovery together: Ops confirms the Merchant Center meaning, while Discovery decides whether the code maps to a known owner or remains a provider-only escalation.
+
+## Emergency Pause And Withdrawal
+
+Use this sequence when live Google Shopping writes could create buyer confusion, policy risk, or stale buyable rows:
+
+1. Set `GOOGLE_MERCHANT_DRY_RUN=true` for the fastest write stop when the worker must keep producing dry-run evidence, or set `GOOGLE_MERCHANT_SYNC_ENABLED=false` when all Google Shopping sync and diagnostics jobs must stop.
+2. If rows are currently buyable in Google but should be withdrawn, do not stop after disabling sync. First pause or withdraw the affected Marketplace listings, disable seller availability, or fix upstream facts so Discovery projects tombstones or exclusions.
+3. Re-enable dry-run sync if needed and run a maintenance preview to confirm the stale submitted rows appear as cleanup candidates.
+4. When it is safe to contact Merchant Center, temporarily allow live cleanup with `GOOGLE_MERCHANT_SYNC_ENABLED=true` and `GOOGLE_MERCHANT_DRY_RUN=false`, then enqueue a focused maintenance/full sync batch that submits `productInputs.delete` for stale rows.
+5. Confirm the job result has the expected `deleted` count and `failed=0`. Refresh diagnostics until the withdrawn rows no longer appear as approved buyable products or the provider records their removal.
+6. Return production to `GOOGLE_MERCHANT_DRY_RUN=true` or `GOOGLE_MERCHANT_SYNC_ENABLED=false` after cleanup if the incident is still active.
+7. Record the private incident reference, affected row ids, Merchant offer ids, listing ids, operator, timestamps, config changes, sync job ids, and final diagnostics snapshot.
+
+Do not change Merchant offer ids to escape a disapproval or stale row. Stable ids are required for provider diagnostics, cleanup deletes, evidence correlation, and seller/account traceability.
+
+## Rollback And Recovery
+
+Rollback to disabled:
+
+1. Pause new live writes by setting `GOOGLE_MERCHANT_DRY_RUN=true` or `GOOGLE_MERCHANT_SYNC_ENABLED=false`.
+2. Withdraw affected Marketplace listings or seller availability only when the public marketplace should also stop selling them.
+3. For Google-only withdrawal, keep public listings active but run live cleanup for submitted rows that must leave Merchant Center.
+4. Verify cleanup with sync job results and diagnostics snapshots before declaring rollback complete.
+5. Store a rollback evidence reference and link it from the release or incident record.
+
+Recover to dry-run:
+
+1. Restore worker configuration with `GOOGLE_MERCHANT_SYNC_ENABLED=true` and `GOOGLE_MERCHANT_DRY_RUN=true`.
+2. Run maintenance preview, full dry-run sync, crawl posture evidence, and diagnostics snapshot.
+3. Fix all P0 blockers and review P1 warnings with the owner matrix above.
+
+Recover to live:
+
+1. Re-run launch readiness evidence in `dry-run` mode and confirm the private approval reference still applies.
+2. Change `GOOGLE_MERCHANT_DRY_RUN=false`.
+3. Re-run launch readiness evidence in `live` mode with the production sync approval reference.
+4. Submit a bounded live batch before returning to the normal cadence.
+
 ## Incident Response
 
 If Google disapproves rows or reports seller-level issues:
@@ -279,3 +384,11 @@ If Google disapproves rows or reports seller-level issues:
 - Pause affected listings or seller availability through Marketplace/Identity-owned workflows.
 - Let Discovery project the exclusion or tombstone state and let sync submit deletes for withdrawn rows.
 - Record policy appeal or account approval evidence outside public docs when it contains private seller/provider data.
+
+Escalation paths:
+
+- Merchant account, API data source, marketplace/multi-seller approval, and policy appeal issues: Ops owns the Google Merchant Center support path and keeps private approval references current.
+- Credential, OAuth, retry, scheduler, deploy, or worker startup failures: Platform Runtime owns the incident and should keep live writes disabled or dry-run until the worker is healthy.
+- Public crawlability, robots, sitemap, canonical, and policy page failures: Public Presence owns the public fix; Ops reruns crawl posture evidence before live writes resume.
+- Source data or listing lifecycle failures: route through the owner matrix above and rerun dry-run sync before live writes.
+- Any incident that affects buyer-visible availability or could leave Google with stale buyable rows: Marketplace and Ops jointly decide whether to pause public listings, submit Merchant deletes, or both.

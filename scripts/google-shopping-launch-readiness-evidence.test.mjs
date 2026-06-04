@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   GOOGLE_SHOPPING_LAUNCH_READINESS_EVIDENCE_VERSION,
+  GOOGLE_SHOPPING_OPERATIONS_RUNBOOK_PATH,
   buildGoogleShoppingLaunchReadinessEvidence,
   parseGoogleShoppingLaunchReadinessArgs,
 } from "./google-shopping-launch-readiness-evidence.mjs";
@@ -23,6 +24,10 @@ describe("google shopping launch readiness evidence", () => {
       readinessStatus: "live",
       merchantFeedSubmissionAllowed: true,
       passesGoogleShoppingLaunchReadinessGate: true,
+      runbook: {
+        path: GOOGLE_SHOPPING_OPERATIONS_RUNBOOK_PATH,
+        operatorSurfaceLinkText: "Google Shopping Operations",
+      },
       productionEnvironment: {
         googleMerchantSyncEnabled: true,
         googleMerchantDryRun: false,

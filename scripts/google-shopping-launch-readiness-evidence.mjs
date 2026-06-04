@@ -9,6 +9,7 @@ export const GOOGLE_SHOPPING_REQUIRED_TARGET_COUNTRY = "US";
 export const GOOGLE_SHOPPING_REQUIRED_CONTENT_LANGUAGE = "en";
 export const GOOGLE_SHOPPING_REQUIRED_FEED_LABEL = "US";
 export const GOOGLE_SHOPPING_REQUIRED_PRODUCTION_ORIGIN = "https://marketplace.chasesets.com";
+export const GOOGLE_SHOPPING_OPERATIONS_RUNBOOK_PATH = "docs/runbooks/google-shopping-operations.md";
 
 const EXPECTED_MODES = new Set(["disabled", "dry-run", "live"]);
 const REQUIRED_MERCHANT_CONFIG_FIELDS = [
@@ -100,6 +101,11 @@ export function buildGoogleShoppingLaunchReadinessEvidence(input) {
     reference: input.reference,
     owner: input.owner,
     checkedAt: input.checkedAt,
+    runbook: {
+      path: GOOGLE_SHOPPING_OPERATIONS_RUNBOOK_PATH,
+      launchEvidenceSection: "Launch Readiness Evidence",
+      operatorSurfaceLinkText: "Google Shopping Operations",
+    },
     expectedMode,
     readinessStatus,
     productionEnvironment: {
