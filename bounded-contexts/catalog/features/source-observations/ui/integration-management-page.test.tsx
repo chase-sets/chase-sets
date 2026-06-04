@@ -437,6 +437,42 @@ describe("IntegrationManagementPage", () => {
     expect(mockActivateSourceObservationProviderProfile).not.toHaveBeenCalled();
   });
 
+  it("confirms deprecation rollback and retirement with lifecycle context", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Deprecate$/i })[0]);
+    let dialog = screen.getByRole("dialog", { name: "Deprecate profile" });
+    expect(within(dialog).getByText(/Deprecation keeps this profile readable for replay and rollback/i)).toBeTruthy();
+    expect(within(dialog).getByText(/Source Observation References/i)).toBeTruthy();
+    expect(mockDeprecateSourceObservationProviderProfile).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Confirm deprecation$/i }));
+
+    await waitFor(() =>
+      expect(mockDeprecateSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03"),
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Rollback$/i })[0]);
+    dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/Rollback reactivates this previously validated profile version/i)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Roll back$/i }));
+
+    await waitFor(() =>
+      expect(mockRollbackSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03"),
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Retire$/i })[0]);
+    dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("No Source Observation references remain.")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Retire$/i }));
+
+    await waitFor(() =>
+      expect(mockRetireSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03"),
+    );
+  });
+
   it("clones provider profiles and records migration evidence from the review table", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);

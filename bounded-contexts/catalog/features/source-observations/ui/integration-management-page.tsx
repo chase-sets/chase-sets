@@ -517,6 +517,7 @@ export function IntegrationManagementPage({
   const [editBasicsForm, setEditBasicsForm] = useState<ProfileBasicsForm | null>(null);
   const [editProfileError, setEditProfileError] = useState<string | null>(null);
   const [compareProfile, setCompareProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
+  const [deprecateProfile, setDeprecateProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [rollbackProfile, setRollbackProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [retireProfile, setRetireProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [showImport, setShowImport] = useState(false);
@@ -599,7 +600,7 @@ export function IntegrationManagementPage({
         onCompareActive: setCompareProfile,
         onMigrationEvidence: openMigrationEvidenceDialog,
         onActivate: setActivationProfile,
-        onDeprecate: (profile) => void handleDeprecateProfile(profile),
+        onDeprecate: setDeprecateProfile,
         onRollback: setRollbackProfile,
         onRetire: setRetireProfile,
         busyKey: profileActionKey,
@@ -1108,13 +1109,19 @@ export function IntegrationManagementPage({
     }
   }
 
-  async function handleDeprecateProfile(profile: CatalogProviderProfileVersionReview) {
+  async function handleDeprecateProfile() {
+    if (!deprecateProfile) {
+      return;
+    }
+
+    const profile = deprecateProfile;
     const key = profileActionIdentity(profile);
     setProfileActionKey(key);
 
     try {
       await deprecateSourceObservationProviderProfile(profile.providerKey, profile.profileVersion);
       addToast(t("catalog.features.sourceObservations.ui.integrations.profile.review.deprecated"), "success");
+      setDeprecateProfile(null);
       providerProfiles.refresh();
       revalidator.revalidate();
     } catch (error) {
@@ -1680,6 +1687,41 @@ export function IntegrationManagementPage({
       </Dialog>
 
       <Dialog
+        open={Boolean(deprecateProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeprecateProfile(null);
+          }
+        }}
+        title="Deprecate profile"
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setDeprecateProfile(null)} disabled={Boolean(profileActionKey)}>
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
+            </Button>
+            <Button
+              tone="danger"
+              leadingIcon="trash"
+              onClick={handleDeprecateProfile}
+              loading={Boolean(deprecateProfile && profileActionKey === profileActionIdentity(deprecateProfile))}
+            >
+              Confirm deprecation
+            </Button>
+          </Inline>
+        }
+      >
+        {deprecateProfile ? (
+          <Stack gap={3}>
+            <p className="text-sm text-secondary">
+              Deprecation keeps this profile readable for replay and rollback, but removes it from normal new import
+              selection once another validated profile is active.
+            </p>
+            <KeyValueList items={lifecycleProfileContextItems(deprecateProfile)} />
+          </Stack>
+        ) : null}
+      </Dialog>
+
+      <Dialog
         open={Boolean(rollbackProfile)}
         onOpenChange={(open) => {
           if (!open) {
@@ -1703,12 +1745,19 @@ export function IntegrationManagementPage({
         }
       >
         {rollbackProfile ? (
-          <p>
-            {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback.body", {
-              provider: rollbackProfile.displayName,
-              version: rollbackProfile.profileVersion,
-            })}
-          </p>
+          <Stack gap={3}>
+            <p>
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback.body", {
+                provider: rollbackProfile.displayName,
+                version: rollbackProfile.profileVersion,
+              })}
+            </p>
+            <p className="text-sm text-secondary">
+              Rollback reactivates this previously validated profile version and records lifecycle audit metadata. It
+              does not edit historical profile rows or rewrite queued job profile snapshots.
+            </p>
+            <KeyValueList items={lifecycleProfileContextItems(rollbackProfile)} />
+          </Stack>
         ) : null}
       </Dialog>
 
@@ -1746,11 +1795,13 @@ export function IntegrationManagementPage({
             </p>
             <KeyValueList
               items={[
+                ...lifecycleProfileContextItems(retireProfile),
                 {
-                  key: t(
-                    "catalog.features.sourceObservations.ui.integrations.profile.review.source.observation.references",
-                  ),
-                  value: String(retireProfile.referenceCount),
+                  key: "Retirement gate",
+                  value:
+                    retireProfile.referenceCount > 0
+                      ? "Blocked until all Source Observation references are migrated or archived."
+                      : "No Source Observation references remain.",
                 },
               ]}
             />
@@ -2118,6 +2169,20 @@ function buildProfileWorkspaceItems(profiles: readonly CatalogProviderProfileVer
 
 function moduleAreaLabel(area: CatalogIntegrationModuleArea) {
   return CATALOG_INTEGRATION_MODULE_AREAS.find((item) => item.value === area)?.label ?? area;
+}
+
+function lifecycleProfileContextItems(profile: CatalogProviderProfileVersionReview) {
+  return [
+    { key: "Provider", value: profile.displayName },
+    { key: "Version", value: profile.profileVersion },
+    { key: "Lifecycle", value: profile.active ? "active" : profile.lifecycle },
+    { key: "Validation", value: profile.validation.status },
+    { key: "Mapping", value: profile.mappingOutputKind },
+    {
+      key: t("catalog.features.sourceObservations.ui.integrations.profile.review.source.observation.references"),
+      value: String(profile.referenceCount),
+    },
+  ];
 }
 
 type IntegrationRowActions = Readonly<{
