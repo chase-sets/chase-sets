@@ -49,6 +49,8 @@ export type PlatformWorkerConfig = Readonly<{
   googleShoppingMaintenanceIntervalMs: number | null;
   googleShoppingMaintenanceBatchSize: number;
   googleShoppingRefreshWindowDays: number;
+  googleShoppingDiagnosticsIntervalMs: number | null;
+  googleShoppingDiagnosticsBatchSize: number;
   paymentProcessor: PlatformWorkerPaymentProcessorConfig;
   moneyMovement: PlatformWorkerMoneyMovementConfig;
   mobileMessaging: PlatformWorkerMobileMessagingConfig;
@@ -340,6 +342,11 @@ export function loadConfig(): PlatformWorkerConfig {
     ),
     googleShoppingMaintenanceBatchSize: getPositiveNumberEnv("GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE", 100),
     googleShoppingRefreshWindowDays: getPositiveNumberEnv("GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS", 25),
+    googleShoppingDiagnosticsIntervalMs: getOptionalPositiveNumberEnv(
+      "GOOGLE_SHOPPING_DIAGNOSTICS_INTERVAL_MS",
+      86_400_000,
+    ),
+    googleShoppingDiagnosticsBatchSize: getPositiveNumberEnv("GOOGLE_SHOPPING_DIAGNOSTICS_BATCH_SIZE", 100),
     paymentProcessor:
       stripeSecretKey && stripePublishableKey && stripeWebhookSecret
         ? {

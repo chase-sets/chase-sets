@@ -464,6 +464,8 @@ function createScheduledJobRunners(
     | "googleShoppingMaintenanceIntervalMs"
     | "googleShoppingMaintenanceBatchSize"
     | "googleShoppingRefreshWindowDays"
+    | "googleShoppingDiagnosticsIntervalMs"
+    | "googleShoppingDiagnosticsBatchSize"
   >,
   controlPlane: PlatformControlPlane,
 ): readonly WorkerRunner[] {
@@ -476,6 +478,10 @@ function createScheduledJobRunners(
             mode: GoogleShoppingSyncMode;
             limit?: number;
             refreshWindowDays?: number;
+          }) => Promise<number>;
+          processScheduledDiagnosticsRefresh?: (input: {
+            mode: GoogleShoppingSyncMode;
+            batchSize?: number;
           }) => Promise<number>;
         };
       }
@@ -577,6 +583,32 @@ function createScheduledJobRunners(
           });
           logger.info("Google Shopping maintenance scan completed.", {
             type: "google-shopping.maintenance",
+            processed,
+            mode: input.googleMerchant.dryRun ? "dry-run" : "live",
+          });
+          return processed;
+        },
+      ),
+    );
+  }
+
+  if (
+    discovery?.googleShoppingSync?.processScheduledDiagnosticsRefresh &&
+    input.googleMerchant.syncEnabled &&
+    input.googleShoppingDiagnosticsIntervalMs
+  ) {
+    runners.push(
+      createScheduledJobRunner(
+        "discovery.google-shopping-diagnostics",
+        input.googleShoppingDiagnosticsIntervalMs,
+        controlPlane,
+        async () => {
+          const processed = await discovery.googleShoppingSync!.processScheduledDiagnosticsRefresh!({
+            mode: input.googleMerchant.dryRun ? "dry-run" : "live",
+            batchSize: input.googleShoppingDiagnosticsBatchSize,
+          });
+          logger.info("Google Shopping diagnostics refresh scan completed.", {
+            type: "google-shopping.diagnostics",
             processed,
             mode: input.googleMerchant.dryRun ? "dry-run" : "live",
           });
@@ -907,13 +939,21 @@ function createGoogleShoppingJobRunners(
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
+          processNextDiagnosticsRefreshJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            merchantClientForMode: (mode: GoogleShoppingSyncMode) => ReturnType<typeof createGoogleMerchantApiClient>;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
         };
       }
     | undefined;
   const processNextFullSyncJob = discovery?.googleShoppingSync?.processNextFullSyncJob;
   const processNextIncrementalSyncJob = discovery?.googleShoppingSync?.processNextIncrementalSyncJob;
+  const processNextDiagnosticsRefreshJob = discovery?.googleShoppingSync?.processNextDiagnosticsRefreshJob;
 
-  if (!processNextFullSyncJob && !processNextIncrementalSyncJob) {
+  if (!processNextFullSyncJob && !processNextIncrementalSyncJob && !processNextDiagnosticsRefreshJob) {
     return [];
   }
 
@@ -943,6 +983,22 @@ function createGoogleShoppingJobRunners(
               claimOwnerId: `${input.workerId}:${lane.laneName}`,
               claimTtlMs: input.leaseTtlMs * 4,
               mode: input.googleMerchant.syncEnabled && !input.googleMerchant.dryRun ? "live" : "dry-run",
+              merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
+              signal: lane.runnerContext?.signal,
+              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+            }),
+            lastGlobalPosition: "0" as never,
+          }),
+        })
+      : []),
+    ...(processNextDiagnosticsRefreshJob
+      ? createDurableJobLaneRunners({
+          workflowName: "discovery.google-shopping-diagnostics-jobs",
+          laneCount: 1,
+          runLane: async (lane) => ({
+            processed: await processNextDiagnosticsRefreshJob({
+              claimOwnerId: `${input.workerId}:${lane.laneName}`,
+              claimTtlMs: input.leaseTtlMs * 4,
               merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
               signal: lane.runnerContext?.signal,
               throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,

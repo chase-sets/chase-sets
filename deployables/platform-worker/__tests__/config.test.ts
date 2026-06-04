@@ -28,6 +28,8 @@ const envNames = [
   "GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS",
   "GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE",
   "GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS",
+  "GOOGLE_SHOPPING_DIAGNOSTICS_INTERVAL_MS",
+  "GOOGLE_SHOPPING_DIAGNOSTICS_BATCH_SIZE",
   "NOTIFICATION_EMAIL_PROVIDER",
   "SES_AWS_REGION",
   "SES_AWS_ACCESS_KEY_ID",
@@ -226,6 +228,8 @@ describe("platform worker config", () => {
       googleShoppingMaintenanceIntervalMs: 86_400_000,
       googleShoppingMaintenanceBatchSize: 100,
       googleShoppingRefreshWindowDays: 25,
+      googleShoppingDiagnosticsIntervalMs: 86_400_000,
+      googleShoppingDiagnosticsBatchSize: 100,
     });
   });
 
@@ -256,6 +260,8 @@ describe("platform worker config", () => {
     process.env.GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS = "3600000";
     process.env.GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE = "250";
     process.env.GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS = "20";
+    process.env.GOOGLE_SHOPPING_DIAGNOSTICS_INTERVAL_MS = "7200000";
+    process.env.GOOGLE_SHOPPING_DIAGNOSTICS_BATCH_SIZE = "150";
 
     expect(loadConfig()).toMatchObject({
       projectionMaxConcurrentRunners: 6,
@@ -283,6 +289,8 @@ describe("platform worker config", () => {
       googleShoppingMaintenanceIntervalMs: 3_600_000,
       googleShoppingMaintenanceBatchSize: 250,
       googleShoppingRefreshWindowDays: 20,
+      googleShoppingDiagnosticsIntervalMs: 7_200_000,
+      googleShoppingDiagnosticsBatchSize: 150,
     });
   });
 

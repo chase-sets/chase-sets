@@ -33,6 +33,8 @@ Platform Worker reads these environment variables:
 | `GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS` | No | Defaults to 24 hours. Set to `0` to disable scheduled refresh/cleanup scans. |
 | `GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE` | No | Defaults to 100 rows per scheduled scan. |
 | `GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS` | No | Defaults to 25 days so accepted/submitted products refresh before the 30-day Merchant freshness window. |
+| `GOOGLE_SHOPPING_DIAGNOSTICS_INTERVAL_MS` | No | Defaults to 24 hours. Set to `0` to disable scheduled processed-product diagnostics refresh. |
+| `GOOGLE_SHOPPING_DIAGNOSTICS_BATCH_SIZE` | No | Defaults to 100 submitted rows per diagnostics refresh job. |
 
 Startup fails when sync is enabled without complete required config.
 
@@ -172,6 +174,42 @@ Retention decision:
 
 - Durable Google Shopping sync job/event history follows the shared 7-day terminal job retention task.
 - Google Shopping row sync state and diagnostics should remain available for 90 days after a Merchant withdrawal so Ops can correlate policy, crawl, and product issue evidence before later pruning work removes historical row state.
+
+## Diagnostics
+
+Diagnostics refresh reads Merchant API processed product status for submitted rows and persists normalized status on the Google Shopping feed row:
+
+- `diagnostic_status`: `approved`, `approved_with_issues`, `disapproved`, `pending`, or `unknown`.
+- `diagnostic_destination_statuses`: normalized provider destination status data.
+- `diagnostic_issues`: active and resolved item-level issues with code, severity, resolution, attribute, reporting context, remediation text/URL, applicable countries, first seen, last seen, resolved at, and known/unknown code classification.
+- `last_diagnostic_at`: the last processed-product diagnostic attempt.
+
+Operators with `security.manage` can refresh diagnostics on demand:
+
+```http
+POST /google-shopping/diagnostics/refresh-jobs
+Content-Type: application/json
+
+{ "mode": "dry-run", "batchSize": 100 }
+```
+
+Use live mode only when Google Merchant sync is enabled and dry-run is disabled. Dry-run diagnostics prepares Merchant API `products.get` requests but does not mutate row diagnostic state.
+
+The launch evidence snapshot is available at:
+
+```http
+GET /google-shopping/diagnostics/snapshot?limit=500
+```
+
+The snapshot includes approval/disapproval counts, active issue severity counts, unknown provider issue-code count, launch-impact flags, and row-level traceability to listing id, account id, catalog item id, product id, external seller id, and Merchant offer id. Store the snapshot output or evidence reference in the private launch evidence record; do not paste raw provider payloads or private seller data into public issues.
+
+Launch-impact thresholds:
+
+- P0: any submitted row has `diagnostic_status=disapproved`.
+- P1: any active unknown provider issue code is present.
+- P1: five or more submitted rows have active Merchant issues, even if not disapproved.
+
+Raw provider payload retention remains bounded and secret-safe: sync job/event history is pruned after seven days, and feed rows keep only normalized diagnostics plus redacted provider response summaries.
 
 ## Incident Response
 
