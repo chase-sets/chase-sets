@@ -81,6 +81,42 @@ The proof records:
 
 For staging/proof, run the same command with `--expect-indexing false` and the staging base URL. A passing noindex proof requires `Disallow: /` and records `merchantFeedSubmissionAllowed=false`; do not use that environment as evidence for live Merchant submission.
 
+## Launch Readiness Evidence
+
+Before changing production from dry-run to live Merchant writes, produce a redacted Google Shopping readiness report and run:
+
+```bash
+pnpm run google-shopping:launch-readiness-evidence -- \
+  --readiness-report ./secure/google-shopping-readiness.json \
+  --expected-mode live \
+  --reference GOOGLE-SHOPPING-LAUNCH-2026-06-04 \
+  --production-sync-approval-reference GOOGLE-SHOPPING-SYNC-APPROVAL-2026-06-04
+```
+
+Use `--expected-mode disabled` when proving that Google Shopping submission is intentionally off, `--expected-mode dry-run` when proving the integration is configured but must not write live Merchant data, and `--expected-mode live` only for the final production launch gate. The command emits `passesGoogleShoppingLaunchReadinessGate`, `readinessStatus`, `merchantFeedSubmissionAllowed`, per-area gate summaries, errors, and warnings as JSON suitable for PR and release review.
+
+The redacted readiness report should include:
+
+- production environment values for `GOOGLE_MERCHANT_SYNC_ENABLED`, `GOOGLE_MERCHANT_DRY_RUN`, `CHASE_SETS_MARKETPLACE_INDEXING`, and the required Merchant account/data-source/target/feed/credential-secret variable names;
+- feed quality counts: total, eligible, excluded, exclusion reasons, image eligibility counts, blocking issue counts, representative sample payloads, and sampled image HTTP checks;
+- crawl posture output from `google-shopping:crawl-posture-evidence`;
+- policy references for Merchant account approval, API data source, policy review, Merchant shipping settings, Merchant returns settings, Tax readiness, public shipping URL, public returns URL, and return policy label;
+- diagnostics snapshot totals and launch-impact flags from `/google-shopping/diagnostics/snapshot`;
+- the latest dry-run sync result with job reference, completion timestamp, total/submitted/skipped/deleted/excluded/failed counts.
+
+Live mode blocks rollout when any P0 item is missing:
+
+- `GOOGLE_MERCHANT_SYNC_ENABLED=true`, `GOOGLE_MERCHANT_DRY_RUN=false`, and `CHASE_SETS_MARKETPLACE_INDEXING=true` are not present together;
+- required Merchant config variables are missing or not aligned to `US` / `en` / `US`;
+- production sync approval reference is missing or a placeholder;
+- the feed has no rows, no eligible rows, invalid sample payloads, failed sample image checks, or non-zero blocking issue counts;
+- crawl posture does not pass or does not allow Merchant feed submission on `https://marketplace.chasesets.com`;
+- account/data-source/policy/shipping/returns/Tax references or public policy URLs are missing;
+- diagnostics include any disapproved submitted row;
+- dry-run sync did not complete, processed zero rows, or recorded any failed rows.
+
+Warnings still require operator review before launch but do not fail the P0 gate by themselves: fewer than three sample payloads, pending diagnostics rows, unknown provider issue codes, or P1 diagnostics launch-impact reasons.
+
 ## Staging And Proof
 
 Use staging/proof in this order:
@@ -90,8 +126,9 @@ Use staging/proof in this order:
 3. Verify row counts, exclusion reasons, URL crawlability, sitemap/robots posture, and JSON-LD alignment.
 4. Verify image eligibility counts, sampled image crawlability, condition mapping, shipping settings, returns policy label, and Tax readiness posture.
 5. Confirm Merchant account/data-source approval outside the repo.
-6. Enable non-production writes only when Google account policy and data-source setup are ready.
-7. Keep production writes blocked until launch evidence gates pass.
+6. Run `google-shopping:launch-readiness-evidence -- --expected-mode dry-run` and store the output reference in the private launch record.
+7. Enable non-production writes only when Google account policy and data-source setup are ready.
+8. Keep production writes blocked until `google-shopping:launch-readiness-evidence -- --expected-mode live` passes.
 
 ## Merchant API Client Behavior
 
