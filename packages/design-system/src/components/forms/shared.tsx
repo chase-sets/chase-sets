@@ -1,7 +1,12 @@
 import { type HTMLAttributes, type ReactNode } from "react";
 import { Field as BaseField } from "@base-ui/react/field";
 import { cx } from "../../utils/cx";
-import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
+import {
+  compoundControlInsetClass,
+  controlHeightClasses,
+  controlPaddingClasses,
+  controlTextClasses,
+} from "../control-sizing";
 
 export interface FieldChromeProps {
   label?: ReactNode;
@@ -18,10 +23,20 @@ interface FieldFrameProps extends Omit<HTMLAttributes<HTMLDivElement>, "classNam
 
 export { type FieldFrameProps };
 
+const controlBaseClass =
+  "focus-ring w-full min-w-0 rounded-tokenMd border border-border bg-surface-2 text-foreground shadow-tokenSm placeholder:text-tertiary transition duration-150 hover:border-accent disabled:cursor-not-allowed disabled:opacity-60";
+
 export const controlClass = cx(
-  "focus-ring w-full rounded-tokenMd border border-border bg-surface-2 text-foreground shadow-tokenSm placeholder:text-tertiary transition duration-150 hover:border-accent disabled:cursor-not-allowed disabled:opacity-60",
+  controlBaseClass,
   controlHeightClasses.md,
   controlPaddingClasses.md,
+  controlTextClasses.md,
+);
+
+export const compoundControlClass = cx(
+  controlBaseClass,
+  controlHeightClasses.md,
+  compoundControlInsetClass,
   controlTextClasses.md,
 );
 

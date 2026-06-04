@@ -1,8 +1,7 @@
 import { useId, useState, type KeyboardEvent } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { compoundControlInsetClass } from "../control-sizing";
-import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
+import { FieldChrome, compoundControlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface TagInputProps extends BaseInputProps {
   values: string[];
@@ -56,14 +55,7 @@ export function TagInput({
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
-      <div
-        className={cx(
-          controlClass,
-          !!error && controlErrorClass,
-          "flex flex-wrap items-center gap-2",
-          compoundControlInsetClass,
-        )}
-      >
+      <div className={cx(compoundControlClass, !!error && controlErrorClass, "flex flex-wrap items-center gap-2")}>
         {values.map((tag) => (
           <span
             key={tag}

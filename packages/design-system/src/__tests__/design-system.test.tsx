@@ -757,6 +757,19 @@ describe("design-system", () => {
     expect(markup).not.toContain("Promote all matching");
   });
 
+  it("uses standard widths for direct filter bar controls", () => {
+    const markup = renderToString(
+      <FilterBar sticky={false}>
+        <Select label="Provider" items={[{ label: "All Providers", value: "all" }]} />
+        <Select label="Language" items={[{ label: "All Languages", value: "all" }]} />
+        <Select label="Expansion" items={[{ label: "All Expansions", value: "all" }]} />
+      </FilterBar>,
+    );
+
+    expect(markup).toContain("md:[&amp;&gt;*]:w-48");
+    expect(markup).toContain("md:[&amp;&gt;*]:min-w-[12rem]");
+  });
+
   it("renders admin commands in action bars", () => {
     const markup = renderToString(
       <ActionBar>

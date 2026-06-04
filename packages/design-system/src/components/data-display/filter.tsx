@@ -34,7 +34,7 @@ export function FilterBar({ children, actions, sticky = true, stickyOffset, ...r
         sticky && !stickyOffset && "top-16",
       )}
     >
-      <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3 md:[&>*]:max-w-full md:[&>*]:min-w-[12rem]">
+      <div className="flex min-w-0 flex-1 flex-wrap items-end gap-3 md:[&>*]:w-48 md:[&>*]:max-w-full md:[&>*]:min-w-[12rem]">
         {children}
       </div>
       {actions ? (
