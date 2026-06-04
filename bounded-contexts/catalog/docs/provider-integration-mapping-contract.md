@@ -103,6 +103,19 @@ Admin-managed activation must run the local fixture harness for the target profi
 
 When a candidate profile changes the source mapping fingerprint from the currently active profile, activation requires durable migration evidence on the profile version. Evidence should summarize the compatibility review, replay policy, and observed before/after impact; it must not include raw provider payloads or sensitive provider material. Rollback reactivates a previously validated version and records fresh lifecycle audit metadata instead of editing historical rows.
 
+## Admin Editing Contract
+
+Admin profile editing uses typed section commands, not arbitrary profile JSON edits, for normal operator workflows. Versioned profile JSONB remains the persistence shape, but the UI and API contract should be domain-shaped:
+
+- section commands identify the edited profile section, command type, and typed payload
+- saves preserve immutable provider/profile/version identity and unknown future-compatible profile data
+- validation returns diagnostics with section/control paths that can be pinned to guided controls
+- lifecycle-sensitive commands respect draft, test, active, deprecated, and retired constraints
+- unsafe evidence categories block normalized output, hash material, merge identity, duplicate-prevention identity, promotion command inputs, and activation
+- raw JSON patching is internal/deprecated compatibility infrastructure until every normal authoring section has moved to typed commands
+
+The admin module workflow and no-raw-JSON policy are documented in [Provider Integration Admin Module](./provider-integration-admin-module.md).
+
 ## Lifecycle
 
 - `draft`: authored but not eligible for import jobs.
@@ -148,4 +161,5 @@ The contract must support:
 4. Add fixture-backed validation for active profiles.
 5. Move Source Observation normalization, external reference extraction, selected Option mapping, Reference Record hierarchy, promotion command planning, duplicate-prevention rules, and option queries onto the executable profile.
 6. Migrate TCGdex, TCGplayer automation, and Scrydex/Scryfall-style proof profiles.
-7. Retire provider-specific mapping code after the generic interpreters cover current behavior.
+7. Migrate normal admin editing from raw JSON patching to typed section commands and guided controls.
+8. Retire provider-specific mapping code after the generic interpreters cover current behavior.

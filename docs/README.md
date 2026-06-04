@@ -65,6 +65,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Graded Card Data Model](../bounded-contexts/catalog/docs/graded-card-data-model.md)
 - [Catalog Source Observation Integration](../bounded-contexts/catalog/docs/source-observation-integration.md)
 - [Catalog Provider Integration Profiles](../bounded-contexts/catalog/docs/provider-integration-profiles.md)
+- [Catalog Provider Integration Admin Module](../bounded-contexts/catalog/docs/provider-integration-admin-module.md)
 - [Catalog External Product References](../bounded-contexts/catalog/docs/external-product-references.md)
 - [Catalog TCGplayer Automation Client Contract](../bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md)
 - [Catalog Admin Bulk Workflows](../bounded-contexts/catalog/docs/admin-bulk-workflows.md)
