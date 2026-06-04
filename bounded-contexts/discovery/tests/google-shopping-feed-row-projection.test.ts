@@ -1,0 +1,118 @@
+import { describe, expect, it } from "vitest";
+import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { refreshGoogleShoppingFeedRowForListing } from "../support/google-shopping-support/feed-row-projection";
+
+describe("google shopping feed row projection", () => {
+  it("materializes a changed listing row and queues a debounced incremental price sync", async () => {
+    const db = projectionDb(listingFacts({ price_amount: "51.25" }));
+
+    const row = await refreshGoogleShoppingFeedRowForListing(db, "lst_1", {
+      reason: "price",
+      requestedAt: "2026-06-03T10:00:00.000Z",
+      debounceMs: 5_000,
+    });
+
+    expect(row?.payload).toMatchObject({
+      offerId: "cs-listing-lst_1",
+      priceAmount: "51.25",
+      availability: "in stock",
+      link: "https://marketplace.chasesets.com/listings/charizard-lst_1",
+    });
+    expect(db.queries[1]?.sql).toContain("INSERT INTO discovery_google_shopping_feed_rows");
+    expect(JSON.parse(String(db.queries[1]?.values[8]))).toMatchObject({ priceAmount: "51.25" });
+    expect(db.queries[2]?.sql).toContain("discovery_google_shopping_incremental_sync_requests");
+    expect(JSON.parse(String(db.queries[2]?.values[1]))).toEqual(["price"]);
+    expect(db.queries[2]?.values[3]).toBe(5_000);
+  });
+
+  it("records image exclusion reasons and queues affected listing image sync", async () => {
+    const db = projectionDb(
+      listingFacts({
+        product_asset_sets: [
+          {
+            variants: [
+              {
+                role: "catalog-detail",
+                publicUrl: "https://assets.chasesets.com/catalog/tiny.webp",
+                width: 64,
+                height: 64,
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    const row = await refreshGoogleShoppingFeedRowForListing(db, "lst_1", {
+      reason: "image",
+      requestedAt: "2026-06-03T10:00:00.000Z",
+      debounceMs: 0,
+    });
+
+    expect(row?.imageEligibility).toMatchObject({
+      status: "excluded",
+      reasons: ["image-too-small"],
+    });
+    expect(row?.eligibility.reasons).toContain("image-too-small");
+    expect(JSON.parse(String(db.queries[2]?.values[1]))).toEqual(["image"]);
+  });
+});
+
+function projectionDb(facts: Record<string, unknown>): PgQueryable & {
+  queries: Array<{ sql: string; values: readonly unknown[] }>;
+} {
+  const queries: Array<{ sql: string; values: readonly unknown[] }> = [];
+  return {
+    queries,
+    query: async (sql: string, values: readonly unknown[] = []) => {
+      queries.push({ sql, values });
+      if (sql.includes("FROM discovery_market_listings AS listing")) {
+        return { rows: [facts], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    },
+  };
+}
+
+function listingFacts(overrides: Record<string, unknown> = {}) {
+  return {
+    listing_id: "lst_1",
+    listing_slug: "charizard-lst_1",
+    account_id: "acc_1",
+    catalog_catalog_item_id: "cit_1",
+    product_id: "prd_1",
+    item_title: "Charizard",
+    item_subtitle: "Base Set",
+    selected_options: [{ dimensionId: "condition", optionId: "near_mint" }],
+    product_summary: "A Base Set Charizard card.",
+    ship_from_code: "US",
+    price_amount: "42.00",
+    shipping_allowance_percentage_bps: 500,
+    quantity_cap: 1,
+    status: "active",
+    seller_listing_availability_status: "available",
+    seller_account_status: "active",
+    catalog_title: "Charizard",
+    catalog_subtitle: "Base Set",
+    catalog_description: "A Base Set Charizard card.",
+    catalog_status: "active",
+    image_urls: [],
+    product_asset_sets: [
+      {
+        variants: [
+          {
+            role: "catalog-detail",
+            publicUrl: "https://assets.chasesets.com/catalog/charizard.webp",
+            width: 960,
+            height: 1344,
+          },
+        ],
+      },
+    ],
+    image_fallback: null,
+    product_schema: {
+      canonicalDimensionOrder: [{ dimensionId: "condition", dimensionName: "Condition" }],
+    },
+    ...overrides,
+  };
+}

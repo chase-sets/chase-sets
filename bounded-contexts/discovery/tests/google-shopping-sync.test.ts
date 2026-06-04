@@ -142,6 +142,71 @@ describe("google shopping sync row processing", () => {
     expect(db.queries.at(-1)?.sql).toContain("SET sync_status = 'deleted'");
   });
 
+  it("deletes rows that become ineligible after a prior submission", async () => {
+    const db = recordingDb();
+    const client: GoogleShoppingSyncMerchantClient = {
+      insertOrUpdateProductInput: vi.fn(),
+      deleteProductInput: vi.fn(
+        async (): Promise<GoogleShoppingSyncProviderResult> => ({
+          status: "success",
+          operation: "delete-product-input",
+          attempts: 1,
+        }),
+      ),
+    };
+
+    const outcome = await processGoogleShoppingSyncRow({
+      db,
+      row: row({
+        eligibilityStatus: "excluded",
+        exclusionReasons: ["seller-unavailable"],
+        payload: null,
+        payloadHash: null,
+        lastSubmittedPayloadHash: "hash_1",
+      }),
+      mode: "live",
+      merchantClient: client,
+      jobContext: testJobContext(),
+    });
+
+    expect(outcome).toBe("deleted");
+    expect(client.deleteProductInput).toHaveBeenCalledWith("cs-listing-lst_1", expect.any(Object));
+  });
+
+  it("patches price and availability for incremental price-only changes", async () => {
+    const db = recordingDb();
+    const client: GoogleShoppingSyncMerchantClient = {
+      insertOrUpdateProductInput: vi.fn(),
+      patchPriceAndAvailability: vi.fn(
+        async (): Promise<GoogleShoppingSyncProviderResult> => ({
+          status: "success",
+          operation: "patch-product-input",
+          attempts: 1,
+          request: { updateMask: ["productAttributes.price", "productAttributes.availability"] },
+        }),
+      ),
+      deleteProductInput: vi.fn(),
+    };
+
+    const outcome = await processGoogleShoppingSyncRow({
+      db,
+      row: row({ payloadHash: "hash_2", lastSubmittedPayloadHash: "hash_1" }),
+      mode: "live",
+      merchantClient: client,
+      jobContext: testJobContext(),
+      preferredOperation: "patch-price-availability",
+    });
+
+    expect(outcome).toBe("submitted");
+    expect(client.patchPriceAndAvailability).toHaveBeenCalledWith(
+      "cs-listing-lst_1",
+      { priceAmount: "42.00", currencyCode: "USD", availability: "in stock" },
+      expect.any(Object),
+    );
+    expect(client.insertOrUpdateProductInput).not.toHaveBeenCalled();
+    expect(db.queries.at(-1)?.values).toContain("patch-product-input");
+  });
+
   it("records provider failures without throwing the row processor", async () => {
     const db = recordingDb();
     const client: GoogleShoppingSyncMerchantClient = {
@@ -214,6 +279,7 @@ describe("google shopping sync routes", () => {
 function row(overrides: Partial<GoogleShoppingFeedRowForSync> = {}): GoogleShoppingFeedRowForSync {
   return {
     rowId: "google-shopping:listing:lst_1",
+    listingId: "lst_1",
     merchantOfferId: "cs-listing-lst_1",
     payload,
     payloadHash: "hash_1",

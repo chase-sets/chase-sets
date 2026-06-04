@@ -855,29 +855,59 @@ function createGoogleShoppingJobRunners(
             signal?: AbortSignal;
             throwIfLeaseLost?: () => void;
           }) => Promise<number>;
+          processNextIncrementalSyncJob?: (input: {
+            claimOwnerId: string;
+            claimTtlMs: number;
+            mode: GoogleShoppingSyncMode;
+            merchantClientForMode: (mode: GoogleShoppingSyncMode) => ReturnType<typeof createGoogleMerchantApiClient>;
+            signal?: AbortSignal;
+            throwIfLeaseLost?: () => void;
+          }) => Promise<number>;
         };
       }
     | undefined;
   const processNextFullSyncJob = discovery?.googleShoppingSync?.processNextFullSyncJob;
+  const processNextIncrementalSyncJob = discovery?.googleShoppingSync?.processNextIncrementalSyncJob;
 
-  if (!processNextFullSyncJob) {
+  if (!processNextFullSyncJob && !processNextIncrementalSyncJob) {
     return [];
   }
 
-  return createDurableJobLaneRunners({
-    workflowName: "discovery.google-shopping-full-sync-jobs",
-    laneCount: 1,
-    runLane: async (lane) => ({
-      processed: await processNextFullSyncJob({
-        claimOwnerId: `${input.workerId}:${lane.laneName}`,
-        claimTtlMs: input.leaseTtlMs * 4,
-        merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
-        signal: lane.runnerContext?.signal,
-        throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
-      }),
-      lastGlobalPosition: "0" as never,
-    }),
-  });
+  return [
+    ...(processNextFullSyncJob
+      ? createDurableJobLaneRunners({
+          workflowName: "discovery.google-shopping-full-sync-jobs",
+          laneCount: 1,
+          runLane: async (lane) => ({
+            processed: await processNextFullSyncJob({
+              claimOwnerId: `${input.workerId}:${lane.laneName}`,
+              claimTtlMs: input.leaseTtlMs * 4,
+              merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
+              signal: lane.runnerContext?.signal,
+              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+            }),
+            lastGlobalPosition: "0" as never,
+          }),
+        })
+      : []),
+    ...(processNextIncrementalSyncJob
+      ? createDurableJobLaneRunners({
+          workflowName: "discovery.google-shopping-incremental-sync-jobs",
+          laneCount: 1,
+          runLane: async (lane) => ({
+            processed: await processNextIncrementalSyncJob({
+              claimOwnerId: `${input.workerId}:${lane.laneName}`,
+              claimTtlMs: input.leaseTtlMs * 4,
+              mode: input.googleMerchant.syncEnabled && !input.googleMerchant.dryRun ? "live" : "dry-run",
+              merchantClientForMode: (mode) => createGoogleShoppingMerchantClient(input.googleMerchant, mode),
+              signal: lane.runnerContext?.signal,
+              throwIfLeaseLost: lane.runnerContext?.throwIfLeaseLost,
+            }),
+            lastGlobalPosition: "0" as never,
+          }),
+        })
+      : []),
+  ];
 }
 
 function createPricingJobRunners(

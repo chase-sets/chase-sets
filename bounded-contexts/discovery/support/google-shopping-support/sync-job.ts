@@ -13,6 +13,11 @@ import {
   toDurableJobPublicSnapshot,
 } from "@chase-sets/platform-runtime/durable-job-store";
 import type { GoogleShoppingPayloadInput } from "./export-row";
+import {
+  drainDueGoogleShoppingIncrementalSyncRequests,
+  type GoogleShoppingIncrementalSyncReason,
+  type GoogleShoppingIncrementalSyncRequest,
+} from "./feed-row-projection";
 
 export type GoogleShoppingSyncMode = "dry-run" | "live";
 
@@ -51,6 +56,15 @@ export type GoogleShoppingSyncMerchantClient = Readonly<{
     payload: GoogleShoppingPayloadInput,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<GoogleShoppingSyncProviderResult>;
+  patchPriceAndAvailability?: (
+    offerId: string,
+    input: Readonly<{
+      priceAmount: string;
+      currencyCode: string;
+      availability: GoogleShoppingPayloadInput["availability"];
+    }>,
+    options?: Readonly<{ signal?: AbortSignal }>,
+  ) => Promise<GoogleShoppingSyncProviderResult>;
   deleteProductInput: (
     offerId: string,
     options?: Readonly<{ signal?: AbortSignal }>,
@@ -60,6 +74,15 @@ export type GoogleShoppingSyncMerchantClient = Readonly<{
 export type GoogleShoppingFullSyncJobPayload = Readonly<{
   mode: GoogleShoppingSyncMode;
   batchSize: number;
+  requestedByUserId: string | null;
+  requestedForAccountId: string | null;
+}>;
+
+export type GoogleShoppingIncrementalSyncJobPayload = Readonly<{
+  mode: GoogleShoppingSyncMode;
+  batchSize: number;
+  listingIds: readonly string[];
+  reasonsByListingId: Readonly<Record<string, readonly GoogleShoppingIncrementalSyncReason[]>>;
   requestedByUserId: string | null;
   requestedForAccountId: string | null;
 }>;
@@ -98,8 +121,19 @@ export type GoogleShoppingFullSyncJobStatus = DurableJobPublicSnapshot<
   GoogleShoppingFullSyncJobResult
 >;
 
+type GoogleShoppingSyncJobPayload = GoogleShoppingFullSyncJobPayload | GoogleShoppingIncrementalSyncJobPayload;
+
+type GoogleShoppingSyncJobStore = ReturnType<
+  typeof createPostgresDurableJobStore<
+    GoogleShoppingSyncJobPayload,
+    GoogleShoppingFullSyncJobProgress,
+    GoogleShoppingFullSyncJobResult
+  >
+>;
+
 export type GoogleShoppingFeedRowForSync = Readonly<{
   rowId: string;
+  listingId: string;
   merchantOfferId: string;
   payload: GoogleShoppingPayloadInput | null;
   payloadHash: string | null;
@@ -116,8 +150,18 @@ type GoogleShoppingSyncRuntimeDeps = Readonly<{
 }>;
 
 const FULL_SYNC_JOB_KIND = "full-sync";
+const INCREMENTAL_SYNC_JOB_KIND = "incremental-sync";
 const DEFAULT_BATCH_SIZE = 100;
 const MAX_BATCH_SIZE = 500;
+const DEFAULT_INCREMENTAL_BATCH_SIZE = 100;
+
+const GOOGLE_SHOPPING_SYSTEM_CONTEXT: EventStoreContext = {
+  tenantId: "tnt_discovery" as never,
+  audit: {
+    performedByUserId: "usr_discovery_google_shopping_system" as never,
+    forAccountId: "acc_discovery_google_shopping_system" as never,
+  },
+};
 
 export type GoogleShoppingSyncServices = Readonly<{
   enqueueFullSyncJob: (
@@ -144,11 +188,20 @@ export type GoogleShoppingSyncServices = Readonly<{
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
   }) => Promise<number>;
+  processNextIncrementalSyncJob: (input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
+    mode: GoogleShoppingSyncMode;
+    batchSize?: number;
+    merchantClientForMode: (mode: GoogleShoppingSyncMode) => GoogleShoppingSyncMerchantClient;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+  }) => Promise<number>;
 }>;
 
 export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeDeps): GoogleShoppingSyncServices {
   const jobStore = createPostgresDurableJobStore<
-    GoogleShoppingFullSyncJobPayload,
+    GoogleShoppingSyncJobPayload,
     GoogleShoppingFullSyncJobProgress,
     GoogleShoppingFullSyncJobResult
   >(deps.db, {
@@ -160,7 +213,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
   return {
     enqueueFullSyncJob: async (params, context) => {
       const total = await countGoogleShoppingFeedRows(deps.db);
-      return jobStore.enqueue({
+      return (await jobStore.enqueue({
         jobId: createJobId(),
         jobKind: FULL_SYNC_JOB_KIND,
         payload: {
@@ -177,10 +230,15 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
           message: "Google Shopping full sync queued.",
         }),
         eventContext: context,
-      });
+      })) as GoogleShoppingFullSyncJob;
     },
-    getFullSyncJob: (jobId) => jobStore.get(jobId),
-    listFullSyncJobEvents: (jobId, afterSequence = 0) => jobStore.listEvents(jobId, afterSequence),
+    getFullSyncJob: async (jobId) => (await jobStore.get(jobId)) as GoogleShoppingFullSyncJob | null,
+    listFullSyncJobEvents: async (jobId, afterSequence = 0) =>
+      (await jobStore.listEvents(jobId, afterSequence)) as readonly DurableJobEvent<
+        GoogleShoppingFullSyncJobPayload,
+        GoogleShoppingFullSyncJobProgress,
+        GoogleShoppingFullSyncJobResult
+      >[],
     waitForFullSyncJobEvents: (jobId, signal) => jobStore.waitForEvents({ jobId, signal }),
     pruneFullSyncJobRetention: (input = {}) =>
       jobStore.pruneTerminalJobs({
@@ -297,11 +355,180 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
         return 1;
       }
     },
+    processNextIncrementalSyncJob: async (input) => {
+      let claimed = await jobStore.claimNext({
+        claimOwnerId: input.claimOwnerId,
+        claimTtlMs: input.claimTtlMs,
+        jobKinds: [INCREMENTAL_SYNC_JOB_KIND],
+      });
+
+      if (!claimed) {
+        const requests = await drainDueGoogleShoppingIncrementalSyncRequests(deps.db, {
+          limit: normalizeBatchSize(input.batchSize ?? DEFAULT_INCREMENTAL_BATCH_SIZE),
+        });
+        if (requests.length === 0) {
+          return 0;
+        }
+
+        await enqueueIncrementalSyncJob(jobStore, {
+          mode: input.mode,
+          requests,
+        });
+        claimed = await jobStore.claimNext({
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          jobKinds: [INCREMENTAL_SYNC_JOB_KIND],
+        });
+      }
+
+      if (!claimed) {
+        return 0;
+      }
+
+      try {
+        throwIfGoogleShoppingSyncCancelled(input);
+        const payload = claimed.payload as GoogleShoppingIncrementalSyncJobPayload;
+        const jobContext = createDurableJobExecutionContext(jobStore, {
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          signal: input.signal,
+          throwIfLeaseLost: input.throwIfLeaseLost,
+          cancelledMessage: "Google Shopping incremental sync job was cancelled.",
+          claimLostMessage: "Google Shopping incremental sync job claim was lost before the status update completed.",
+        });
+        const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
+          minIntervalMs: 1_000,
+          minCompletedDelta: Math.max(1, Math.floor(payload.batchSize / 2)),
+          minRenewIntervalMs: 5_000,
+          completed: (progress) => progress.completed,
+          isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+        });
+        let progress = googleShoppingSyncProgress({
+          ...claimed.progress,
+          phase: "processing",
+          total: payload.listingIds.length,
+          message: "Processing Google Shopping incremental sync.",
+        });
+        await requireGoogleShoppingSyncClaim(
+          jobStore.updateProgress({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            claimTtlMs: input.claimTtlMs,
+            progress,
+          }),
+        );
+
+        const rows = await listGoogleShoppingFeedRowsByListingIds(deps.db, payload.listingIds);
+        const rowsByListingId = new Map(rows.map((row) => [row.listingId, row]));
+        const merchantClient = input.merchantClientForMode(payload.mode);
+
+        for (const listingId of payload.listingIds) {
+          throwIfGoogleShoppingSyncCancelled(input);
+          const row = rowsByListingId.get(listingId);
+          if (!row) {
+            progress = addGoogleShoppingSyncOutcome(progress, listingId, "excluded");
+            await progressCheckpoint.checkpoint(progress, toGoogleShoppingSyncResult(payload.mode, progress));
+            continue;
+          }
+
+          const outcome = await processGoogleShoppingSyncRow({
+            db: deps.db,
+            row,
+            mode: payload.mode,
+            merchantClient,
+            signal: input.signal,
+            jobContext,
+            preferredOperation: shouldPatchPriceAndAvailability(payload.reasonsByListingId[listingId] ?? [])
+              ? "patch-price-availability"
+              : "full",
+          });
+          progress = addGoogleShoppingSyncOutcome(progress, row.rowId, outcome);
+          await progressCheckpoint.checkpoint(progress, toGoogleShoppingSyncResult(payload.mode, progress));
+        }
+
+        const finalProgress = googleShoppingSyncProgress({
+          ...progress,
+          phase: "completed",
+          completed: progress.completed,
+          total: Math.max(progress.total, progress.completed),
+          message: "Google Shopping incremental sync completed.",
+        });
+        const result = toGoogleShoppingSyncResult(payload.mode, finalProgress);
+        await requireGoogleShoppingSyncClaim(
+          jobStore.complete({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: finalProgress,
+            result,
+          }),
+        );
+        return 1;
+      } catch (error) {
+        if (isDurableJobHandoffError(error, input)) {
+          return 0;
+        }
+        await requireGoogleShoppingSyncClaim(
+          jobStore.fail({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: {
+              ...claimed.progress,
+              phase: "failed",
+              message: error instanceof Error ? error.message : "Google Shopping incremental sync job failed.",
+            },
+            errorMessage: error instanceof Error ? error.message : "Google Shopping incremental sync job failed.",
+          }),
+        );
+        return 1;
+      }
+    },
   };
 }
 
 export function toGoogleShoppingFullSyncJobStatus(job: GoogleShoppingFullSyncJob): GoogleShoppingFullSyncJobStatus {
   return toDurableJobPublicSnapshot(job);
+}
+
+async function enqueueIncrementalSyncJob(
+  jobStore: GoogleShoppingSyncJobStore,
+  input: Readonly<{
+    mode: GoogleShoppingSyncMode;
+    requests: readonly GoogleShoppingIncrementalSyncRequest[];
+  }>,
+) {
+  const listingIds = [...new Set(input.requests.map((request) => request.listingId))];
+  const reasonsByListingId = Object.fromEntries(
+    listingIds.map((listingId) => [
+      listingId,
+      [
+        ...new Set(
+          input.requests.filter((request) => request.listingId === listingId).flatMap((request) => request.reasons),
+        ),
+      ],
+    ]),
+  );
+
+  await jobStore.enqueue({
+    jobId: createJobId(),
+    jobKind: INCREMENTAL_SYNC_JOB_KIND,
+    payload: {
+      mode: input.mode,
+      batchSize: listingIds.length,
+      listingIds,
+      reasonsByListingId,
+      requestedByUserId: GOOGLE_SHOPPING_SYSTEM_CONTEXT.audit.performedByUserId,
+      requestedForAccountId: GOOGLE_SHOPPING_SYSTEM_CONTEXT.audit.forAccountId,
+    },
+    progress: googleShoppingSyncProgress({
+      phase: "queued",
+      completed: 0,
+      total: listingIds.length,
+      currentRowId: null,
+      message: "Google Shopping incremental sync queued.",
+    }),
+    eventContext: GOOGLE_SHOPPING_SYSTEM_CONTEXT,
+  });
 }
 
 export function classifyGoogleShoppingSyncRow(
@@ -349,6 +576,7 @@ export async function processGoogleShoppingSyncRow(input: {
   merchantClient: GoogleShoppingSyncMerchantClient;
   signal?: AbortSignal;
   jobContext: DurableJobExecutionContext<GoogleShoppingFullSyncJobProgress, GoogleShoppingFullSyncJobResult>;
+  preferredOperation?: "full" | "patch-price-availability";
 }): Promise<"submitted" | "skipped" | "deleted" | "failed" | "excluded"> {
   const classification = classifyGoogleShoppingSyncRow(input.row);
   const attemptedAt = new Date().toISOString();
@@ -377,7 +605,17 @@ export async function processGoogleShoppingSyncRow(input: {
     const result =
       classification.action === "submit"
         ? await runGoogleShoppingSyncSideEffect(input.jobContext, (signal) =>
-            input.merchantClient.insertOrUpdateProductInput(input.row.payload!, { signal }),
+            shouldPatchGoogleShoppingRow(input)
+              ? input.merchantClient.patchPriceAndAvailability!(
+                  input.row.merchantOfferId,
+                  {
+                    priceAmount: input.row.payload!.priceAmount,
+                    currencyCode: input.row.payload!.currencyCode,
+                    availability: input.row.payload!.availability,
+                  },
+                  { signal },
+                )
+              : input.merchantClient.insertOrUpdateProductInput(input.row.payload!, { signal }),
           )
         : await runGoogleShoppingSyncSideEffect(input.jobContext, (signal) =>
             input.merchantClient.deleteProductInput(input.row.merchantOfferId, { signal }),
@@ -423,12 +661,27 @@ export async function processGoogleShoppingSyncRow(input: {
   }
 }
 
+function shouldPatchGoogleShoppingRow(input: {
+  row: GoogleShoppingFeedRowForSync;
+  merchantClient: GoogleShoppingSyncMerchantClient;
+  preferredOperation?: "full" | "patch-price-availability";
+}) {
+  return (
+    input.preferredOperation === "patch-price-availability" &&
+    Boolean(input.merchantClient.patchPriceAndAvailability) &&
+    Boolean(input.row.payload) &&
+    Boolean(input.row.lastSubmittedPayloadHash) &&
+    !input.row.deleteSubmittedAt
+  );
+}
+
 async function listGoogleShoppingFeedRowsAfter(
   db: PgQueryable,
   input: Readonly<{ afterRowId: string | null; limit: number }>,
 ): Promise<GoogleShoppingFeedRowForSync[]> {
   const result = await db.query<{
     row_id: string;
+    listing_id: string;
     merchant_offer_id: string;
     payload: unknown;
     payload_hash: string | null;
@@ -440,6 +693,7 @@ async function listGoogleShoppingFeedRowsAfter(
     delete_submitted_at: Date | string | null;
   }>(
     `SELECT row_id,
+            listing_id,
             merchant_offer_id,
             payload,
             payload_hash,
@@ -458,6 +712,60 @@ async function listGoogleShoppingFeedRowsAfter(
 
   return result.rows.map((row) => ({
     rowId: row.row_id,
+    listingId: row.listing_id,
+    merchantOfferId: row.merchant_offer_id,
+    payload: readJsonValue<GoogleShoppingPayloadInput | null>(row.payload),
+    payloadHash: row.payload_hash,
+    eligibilityStatus: row.eligibility_status,
+    exclusionReasons: row.exclusion_reasons,
+    syncStatus: row.sync_status,
+    lastSubmittedPayloadHash: row.last_submitted_payload_hash,
+    tombstoneStatus: row.tombstone_status,
+    deleteSubmittedAt: row.delete_submitted_at == null ? null : formatTimestamp(row.delete_submitted_at),
+  }));
+}
+
+async function listGoogleShoppingFeedRowsByListingIds(
+  db: PgQueryable,
+  listingIds: readonly string[],
+): Promise<GoogleShoppingFeedRowForSync[]> {
+  if (listingIds.length === 0) {
+    return [];
+  }
+
+  const result = await db.query<{
+    row_id: string;
+    listing_id: string;
+    merchant_offer_id: string;
+    payload: unknown;
+    payload_hash: string | null;
+    eligibility_status: string;
+    exclusion_reasons: unknown;
+    sync_status: string;
+    last_submitted_payload_hash: string | null;
+    tombstone_status: string;
+    delete_submitted_at: Date | string | null;
+  }>(
+    `SELECT row_id,
+            listing_id,
+            merchant_offer_id,
+            payload,
+            payload_hash,
+            eligibility_status,
+            exclusion_reasons,
+            sync_status,
+            last_submitted_payload_hash,
+            tombstone_status,
+            delete_submitted_at
+     FROM discovery_google_shopping_feed_rows
+     WHERE listing_id = ANY($1)
+     ORDER BY array_position($1::text[], listing_id) ASC`,
+    [listingIds],
+  );
+
+  return result.rows.map((row) => ({
+    rowId: row.row_id,
+    listingId: row.listing_id,
     merchantOfferId: row.merchant_offer_id,
     payload: readJsonValue<GoogleShoppingPayloadInput | null>(row.payload),
     payloadHash: row.payload_hash,
@@ -621,6 +929,13 @@ function toGoogleShoppingSyncResult(
     excluded: progress.excluded,
     total: progress.total,
   };
+}
+
+function shouldPatchPriceAndAvailability(reasons: readonly GoogleShoppingIncrementalSyncReason[]) {
+  return (
+    reasons.length > 0 &&
+    reasons.every((reason) => reason === "price" || reason === "availability" || reason === "seller-availability")
+  );
 }
 
 function normalizeBatchSize(value: number | undefined) {

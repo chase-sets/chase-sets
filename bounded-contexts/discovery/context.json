@@ -173,6 +173,26 @@
       "projectionHandlerSetNames": ["discovery-item-detail-projection"]
     },
     {
+      "sourceContextName": "catalog",
+      "projectionName": "discovery-google-shopping-feed-row-projection",
+      "subscriptionVersion": 1,
+      "eventTypes": [
+        "catalog.catalog-item.created",
+        "catalog.catalog-item.field-value-set",
+        "catalog.catalog-item.field-value-cleared",
+        "catalog.catalog-item.published",
+        "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.image-urls-set",
+        "catalog.catalog-item.product-asset-sets-set",
+        "catalog.catalog-item.image-fallback-set",
+        "catalog.catalog-item.image-fallback-cleared",
+        "catalog.catalog-item.retired",
+        "catalog.catalog-item.archived"
+      ],
+      "order": 11,
+      "projectionHandlerSetNames": ["discovery-google-shopping-feed-row-projection"]
+    },
+    {
       "sourceContextName": "identity",
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
@@ -282,6 +302,13 @@
         "discovery_market_listings",
         "discovery_offer_demand_matches"
       ],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "discovery-google-shopping-feed-row-projection",
+      "sourceContextNames": ["catalog"],
+      "ownedTables": ["discovery_google_shopping_feed_rows", "discovery_google_shopping_incremental_sync_requests"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
     },

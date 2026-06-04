@@ -4,11 +4,12 @@ import {
   type PgTransactionalPool,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
-import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
+import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/notifications";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
 import { createDiscoveryCategoryRuntime, type DiscoveryCategoryServices } from "../../features/categories/api/runtime";
 import { createProductAlertRuntime, type ProductAlertServices } from "../../features/product-alerts/api/runtime";
+import { buildGoogleShoppingFeedRowProjectionHandlers } from "../google-shopping-support/projection";
 import { createGoogleShoppingSyncRuntime, type GoogleShoppingSyncServices } from "../google-shopping-support/sync-job";
 import { createDiscoveryItemRuntime, type DiscoveryItemsServices } from "../item-support/runtime";
 
@@ -36,6 +37,12 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
   const categories = createDiscoveryCategoryRuntime(deps);
   const items = createDiscoveryItemRuntime(deps);
   const googleShoppingSync = createGoogleShoppingSyncRuntime({ db });
+  const googleShoppingProjectors = [
+    createProjectionHandlerSet({
+      projectionName: "discovery-google-shopping-feed-row-projection",
+      handlers: buildGoogleShoppingFeedRowProjectionHandlers(db),
+    }),
+  ];
   const productAlerts = createProductAlertRuntime(deps);
 
   return {
@@ -44,7 +51,12 @@ export function createDiscoveryServices(pool: PgTransactionalPool, ports: Discov
     googleShoppingSync,
     productAlerts,
     notificationOutbox,
-    projectors: [...items.projectors, ...categories.projectors, ...productAlerts.projectors],
+    projectors: [
+      ...items.projectors,
+      ...googleShoppingProjectors,
+      ...categories.projectors,
+      ...productAlerts.projectors,
+    ],
     db,
     pool,
   };
