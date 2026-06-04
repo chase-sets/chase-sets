@@ -864,11 +864,11 @@ export function IntegrationManagementPage({
             setCloneProfile(null);
           }
         }}
-        title="Clone profile version"
+        title={t("catalog.features.sourceObservations.ui.integrations.profile.review.clone.title")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setCloneProfile(null)} disabled={Boolean(profileActionKey)}>
-              Cancel
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
             </Button>
             <Button
               leadingIcon="plus"
@@ -876,7 +876,7 @@ export function IntegrationManagementPage({
               disabled={!cloneProfileVersion.trim()}
               loading={Boolean(cloneProfile && profileActionKey === profileActionIdentity(cloneProfile))}
             >
-              Clone
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.clone")}
             </Button>
           </Inline>
         }
@@ -886,11 +886,14 @@ export function IntegrationManagementPage({
             <KeyValueList
               items={[
                 { key: "Provider", value: cloneProfile.displayName },
-                { key: "Source version", value: cloneProfile.profileVersion },
+                {
+                  key: t("catalog.features.sourceObservations.ui.integrations.profile.review.source.version"),
+                  value: cloneProfile.profileVersion,
+                },
               ]}
             />
             <TextInput
-              label="Target profile version"
+              label={t("catalog.features.sourceObservations.ui.integrations.profile.review.target.profile.version")}
               value={cloneProfileVersion}
               onChange={(event) => setCloneProfileVersion(event.currentTarget.value)}
             />
@@ -905,11 +908,11 @@ export function IntegrationManagementPage({
             setMigrationProfile(null);
           }
         }}
-        title="Migration evidence"
+        title={t("catalog.features.sourceObservations.ui.integrations.profile.review.migration.evidence.title")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setMigrationProfile(null)} disabled={Boolean(profileActionKey)}>
-              Cancel
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
             </Button>
             <Button
               leadingIcon="badgeCheck"
@@ -917,7 +920,7 @@ export function IntegrationManagementPage({
               disabled={!migrationEvidenceText.trim()}
               loading={Boolean(migrationProfile && profileActionKey === profileActionIdentity(migrationProfile))}
             >
-              Save evidence
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.save.evidence")}
             </Button>
           </Inline>
         }
@@ -932,7 +935,7 @@ export function IntegrationManagementPage({
               ]}
             />
             <Textarea
-              label="Evidence"
+              label={t("catalog.features.sourceObservations.ui.integrations.profile.review.evidence")}
               rows={6}
               value={migrationEvidenceText}
               onChange={(event) => setMigrationEvidenceText(event.currentTarget.value)}
@@ -949,18 +952,18 @@ export function IntegrationManagementPage({
             setEditProfileError(null);
           }
         }}
-        title="Edit profile JSON"
+        title={t("catalog.features.sourceObservations.ui.integrations.profile.review.edit.json.title")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setEditProfile(null)} disabled={Boolean(profileActionKey)}>
-              Cancel
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
             </Button>
             <Button
               leadingIcon="settings"
               onClick={handleSaveProfileJson}
               loading={Boolean(editProfile && profileActionKey === profileActionIdentity(editProfile))}
             >
-              Save JSON
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.save.json")}
             </Button>
           </Inline>
         }
@@ -975,7 +978,7 @@ export function IntegrationManagementPage({
               ]}
             />
             <Textarea
-              label="Profile JSON"
+              label={t("catalog.features.sourceObservations.ui.integrations.profile.review.profile.json")}
               value={editProfileJson}
               onChange={(event) => setEditProfileJson(event.currentTarget.value)}
               rows={22}
@@ -993,11 +996,11 @@ export function IntegrationManagementPage({
             setCompareProfile(null);
           }
         }}
-        title="Compare active profile"
+        title={t("catalog.features.sourceObservations.ui.integrations.profile.review.compare.title")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setCompareProfile(null)}>
-              Close
+              {t("catalog.features.sourceObservations.ui.list.close")}
             </Button>
           </Inline>
         }
@@ -1011,14 +1014,14 @@ export function IntegrationManagementPage({
               )}
             />
             <Textarea
-              label="Candidate profile JSON"
+              label={t("catalog.features.sourceObservations.ui.integrations.profile.review.candidate.profile.json")}
               value={formatJson(profileEditableJson(compareProfile))}
               rows={12}
               readOnly
               spellCheck={false}
             />
             <Textarea
-              label="Active profile JSON"
+              label={t("catalog.features.sourceObservations.ui.integrations.profile.review.active.profile.json")}
               value={formatJson(
                 profileEditableJson(activeProfileFor(compareProfile, providerProfiles.data?.items ?? [])),
               )}
@@ -1037,26 +1040,28 @@ export function IntegrationManagementPage({
             setRollbackProfile(null);
           }
         }}
-        title="Rollback active profile"
+        title={t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback.title")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setRollbackProfile(null)} disabled={Boolean(profileActionKey)}>
-              Cancel
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
             </Button>
             <Button
               leadingIcon="refreshCcw"
               onClick={handleRollbackProfile}
               loading={Boolean(rollbackProfile && profileActionKey === profileActionIdentity(rollbackProfile))}
             >
-              Roll back
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback.confirm")}
             </Button>
           </Inline>
         }
       >
         {rollbackProfile ? (
           <p>
-            Activate {rollbackProfile.displayName} {rollbackProfile.profileVersion} and deprecate the current active
-            version.
+            {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback.body", {
+              provider: rollbackProfile.displayName,
+              version: rollbackProfile.profileVersion,
+            })}
           </p>
         ) : null}
       </Dialog>
@@ -1068,11 +1073,11 @@ export function IntegrationManagementPage({
             setRetireProfile(null);
           }
         }}
-        title="Retire profile version"
+        title={t("catalog.features.sourceObservations.ui.integrations.profile.review.retire.title")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setRetireProfile(null)} disabled={Boolean(profileActionKey)}>
-              Cancel
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
             </Button>
             <Button
               tone="danger"
@@ -1080,7 +1085,7 @@ export function IntegrationManagementPage({
               onClick={handleRetireProfile}
               loading={Boolean(retireProfile && profileActionKey === profileActionIdentity(retireProfile))}
             >
-              Retire
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.retire")}
             </Button>
           </Inline>
         }
@@ -1088,11 +1093,20 @@ export function IntegrationManagementPage({
         {retireProfile ? (
           <Stack gap={3}>
             <p>
-              Retire {retireProfile.displayName} {retireProfile.profileVersion}. Retired versions remain visible for
-              historical review but cannot be activated for imports.
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.retire.body", {
+                provider: retireProfile.displayName,
+                version: retireProfile.profileVersion,
+              })}
             </p>
             <KeyValueList
-              items={[{ key: "Source Observation references", value: String(retireProfile.referenceCount) }]}
+              items={[
+                {
+                  key: t(
+                    "catalog.features.sourceObservations.ui.integrations.profile.review.source.observation.references",
+                  ),
+                  value: String(retireProfile.referenceCount),
+                },
+              ]}
             />
           </Stack>
         ) : null}
@@ -1412,7 +1426,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run")}
             </Button>
             <Button size="sm" tone="secondary" leadingIcon="plus" onClick={() => actions.onClone(row)}>
-              Clone
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.clone")}
             </Button>
             <Button
               size="sm"
@@ -1421,10 +1435,10 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               disabled={row.lifecycle !== "draft" && row.lifecycle !== "test"}
               onClick={() => actions.onEditJson(row)}
             >
-              Edit JSON
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.edit.json")}
             </Button>
             <Button size="sm" tone="secondary" leadingIcon="search" onClick={() => actions.onCompareActive(row)}>
-              Compare
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.compare")}
             </Button>
             <Button
               size="sm"
@@ -1432,7 +1446,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               leadingIcon="badgeCheck"
               onClick={() => actions.onMigrationEvidence(row)}
             >
-              Evidence
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.evidence")}
             </Button>
             <Button
               size="sm"
@@ -1461,7 +1475,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               disabled={busy || row.active || row.lifecycle === "retired"}
               onClick={() => actions.onRollback(row)}
             >
-              Rollback
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback")}
             </Button>
             <Button
               size="sm"
@@ -1470,7 +1484,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               disabled={busy || row.active || row.lifecycle === "retired" || row.referenceCount > 0}
               onClick={() => actions.onRetire(row)}
             >
-              Retire
+              {t("catalog.features.sourceObservations.ui.integrations.profile.review.retire")}
             </Button>
           </Inline>
         );

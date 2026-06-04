@@ -981,7 +981,7 @@ describe("source observation routes", () => {
 });
 
 function mutableProfileStore(): CatalogProviderIntegrationProfileVersionStore {
-  let records = [...catalogProviderIntegrationProfileVersions];
+  let records: CatalogProviderIntegrationProfileVersionRecord[] = [...catalogProviderIntegrationProfileVersions];
   return {
     seedProfileVersions: async () => records,
     upsertProfileVersion: async (version) => {

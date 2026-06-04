@@ -335,7 +335,7 @@ describe("IntegrationManagementPage", () => {
       target: {
         value: JSON.stringify({
           profile: {
-            ...draftProfile.profile,
+            ...(draftProfile.profile as Record<string, unknown>),
             displayName: "Scrydex Draft",
           },
         }),

@@ -633,7 +633,7 @@ async function readJsonObject(c: Context<CatalogAuthoringEnv>): Promise<Record<s
         {
           error: {
             code: "invalid_json_body",
-            message: "Expected a JSON object request body.",
+            message: t("catalog.features.sourceObservations.api.route.profile.review.invalid.json.object"),
           },
         },
         400,
@@ -645,7 +645,7 @@ async function readJsonObject(c: Context<CatalogAuthoringEnv>): Promise<Record<s
       {
         error: {
           code: "invalid_json_body",
-          message: "Expected a valid JSON object request body.",
+          message: t("catalog.features.sourceObservations.api.route.profile.review.invalid.json.valid.object"),
         },
       },
       400,
