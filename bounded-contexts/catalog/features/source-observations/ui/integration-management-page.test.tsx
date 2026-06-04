@@ -380,14 +380,17 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByLabelText("Fixture flow")).toBeTruthy();
     expect(within(dialog).queryByLabelText("Fixture Payload JSON")).toBeNull();
     expect(within(dialog).getByText("Safe Payload Overrides")).toBeTruthy();
+    expect(within(dialog).getByText("Fixture Sample Fields")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Override Id")).toBeTruthy();
     fireEvent.change(within(dialog).getByLabelText("Override name"), { target: { value: "Fury Sliver Override" } });
+    fireEvent.change(within(dialog).getByLabelText("Override Tcgplayer Id"), { target: { value: "14241" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Dry run$/i }));
 
     await waitFor(() =>
       expect(mockDryRunSourceObservationProviderProfile).toHaveBeenCalledWith(
         "scrydex",
         "2026.06.03",
-        expect.objectContaining({ tcgplayer_id: 14240, name: "Fury Sliver Override" }),
+        expect.objectContaining({ tcgplayer_id: 14241, name: "Fury Sliver Override" }),
       ),
     );
     expect(await within(dialog).findByText("Dry-Run Summary")).toBeTruthy();

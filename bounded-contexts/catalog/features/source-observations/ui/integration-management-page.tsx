@@ -270,6 +270,7 @@ type DryRunSafeOverrides = Readonly<{
   name: string;
   language: string;
   sourceUpdatedAt: string;
+  sampleFields: Readonly<Record<string, string>>;
 }>;
 
 type MigrationEvidenceForm = Readonly<{
@@ -518,11 +519,7 @@ export function IntegrationManagementPage({
   const [selectedProfileId, setSelectedProfileId] = useState("");
   const [dryRunProfile, setDryRunProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [dryRunFlow, setDryRunFlow] = useState("normal");
-  const [dryRunOverrides, setDryRunOverrides] = useState<DryRunSafeOverrides>({
-    name: "",
-    language: "",
-    sourceUpdatedAt: "",
-  });
+  const [dryRunOverrides, setDryRunOverrides] = useState<DryRunSafeOverrides>(emptyDryRunSafeOverrides());
   const [dryRunResult, setDryRunResult] = useState<CatalogProviderProfileDryRunResult | null>(null);
   const [dryRunError, setDryRunError] = useState<string | null>(null);
   const [dryRunning, setDryRunning] = useState(false);
@@ -784,7 +781,7 @@ export function IntegrationManagementPage({
   function openDryRunDialog(profile: CatalogProviderProfileVersionReview) {
     setDryRunProfile(profile);
     setDryRunFlow("normal");
-    setDryRunOverrides({ name: "", language: "", sourceUpdatedAt: "" });
+    setDryRunOverrides(emptyDryRunSafeOverrides());
     setDryRunResult(null);
     setDryRunError(null);
   }
@@ -1455,7 +1452,7 @@ export function IntegrationManagementPage({
         onOpenChange={(open) => {
           if (!open) {
             setDryRunProfile(null);
-            setDryRunOverrides({ name: "", language: "", sourceUpdatedAt: "" });
+            setDryRunOverrides(emptyDryRunSafeOverrides());
             setDryRunResult(null);
             setDryRunError(null);
           }
@@ -1489,12 +1486,15 @@ export function IntegrationManagementPage({
                 value={dryRunFlow}
                 onValueChange={(flow) => {
                   setDryRunFlow(flow);
+                  setDryRunOverrides(emptyDryRunSafeOverrides());
                   setDryRunResult(null);
                 }}
                 items={dryRunFixtureItems(dryRunAuthoringModel.data)}
               />
               <DryRunFixtureSummary model={dryRunAuthoringModel.data} flow={dryRunFlow} />
               <DryRunSafeOverrideEditor
+                model={dryRunAuthoringModel.data}
+                flow={dryRunFlow}
                 overrides={dryRunOverrides}
                 onChange={(overrides) => {
                   setDryRunOverrides(overrides);
@@ -5049,13 +5049,20 @@ function DryRunFixtureSummary({
 }
 
 function DryRunSafeOverrideEditor({
+  model,
+  flow,
   overrides,
   onChange,
 }: Readonly<{
+  model: CatalogProviderProfileAuthoringModel;
+  flow: string;
   overrides: DryRunSafeOverrides;
   onChange: (overrides: DryRunSafeOverrides) => void;
 }>) {
   const setOverride = (patch: Partial<DryRunSafeOverrides>) => onChange({ ...overrides, ...patch });
+  const sampleFieldItems = dryRunSampleFieldOverrideItems(model, flow);
+  const setSampleFieldOverride = (key: string, value: string) =>
+    setOverride({ sampleFields: { ...overrides.sampleFields, [key]: value } });
 
   return (
     <Stack gap={2}>
@@ -5077,6 +5084,22 @@ function DryRunSafeOverrideEditor({
           onChange={(event) => setOverride({ sourceUpdatedAt: event.currentTarget.value })}
         />
       </Inline>
+      {sampleFieldItems.length > 0 ? (
+        <Stack gap={2}>
+          <h4>Fixture Sample Fields</h4>
+          <Inline gap={2}>
+            {sampleFieldItems.map((item) => (
+              <TextInput
+                key={item.key}
+                label={`Override ${item.label}`}
+                value={overrides.sampleFields[item.key] ?? ""}
+                placeholder={String(item.value)}
+                onChange={(event) => setSampleFieldOverride(item.key, event.currentTarget.value)}
+              />
+            ))}
+          </Inline>
+        </Stack>
+      ) : null}
     </Stack>
   );
 }
@@ -7321,6 +7344,15 @@ function emptyMigrationEvidenceForm(): MigrationEvidenceForm {
   };
 }
 
+function emptyDryRunSafeOverrides(): DryRunSafeOverrides {
+  return {
+    name: "",
+    language: "",
+    sourceUpdatedAt: "",
+    sampleFields: {},
+  };
+}
+
 function migrationEvidenceFormFromProfile(profile: CatalogProviderProfileVersionReview): MigrationEvidenceForm {
   return {
     ...emptyMigrationEvidenceForm(),
@@ -7376,6 +7408,14 @@ function applyDryRunSafeOverrides(payload: JsonValue | null, overrides: DryRunSa
   }
 
   const next: Record<string, JsonValue> = { ...(payload as Record<string, JsonValue>) };
+  for (const [key, value] of Object.entries(overrides.sampleFields)) {
+    const trimmedValue = value.trim();
+    if (!trimmedValue || !isSafeDryRunSampleFieldKey(key) || !Object.prototype.hasOwnProperty.call(next, key)) {
+      continue;
+    }
+    next[key] = coerceDryRunSampleFieldValue(next[key], trimmedValue);
+  }
+
   const name = overrides.name.trim();
   const language = overrides.language.trim();
   const sourceUpdatedAt = overrides.sourceUpdatedAt.trim();
@@ -7397,6 +7437,64 @@ function applyDryRunSafeOverrides(payload: JsonValue | null, overrides: DryRunSa
 
   return next;
 }
+
+function dryRunSampleFieldOverrideItems(model: CatalogProviderProfileAuthoringModel, flow: string) {
+  const payload = selectedDryRunPayload(model, flow);
+  if (!isRecord(payload)) {
+    return [];
+  }
+
+  return Object.entries(payload)
+    .filter(([key, value]) => isSafeDryRunSampleFieldKey(key) && isDryRunEditablePrimitive(value))
+    .slice(0, 8)
+    .map(([key, value]) => ({
+      key,
+      label: readableFieldLabel(key),
+      value,
+    }));
+}
+
+function isSafeDryRunSampleFieldKey(key: string): boolean {
+  return (
+    !DRY_RUN_MANAGED_SAMPLE_FIELD_KEYS.has(key) &&
+    !/auth|cookie|secret|token|password|seller|listing|price|inventory|order|message/i.test(key)
+  );
+}
+
+function isDryRunEditablePrimitive(value: JsonValue): value is string | number | boolean {
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean";
+}
+
+function coerceDryRunSampleFieldValue(existingValue: JsonValue, value: string): JsonValue {
+  if (typeof existingValue === "number") {
+    const numericValue = Number(value);
+    return Number.isFinite(numericValue) ? numericValue : existingValue;
+  }
+  if (typeof existingValue === "boolean") {
+    return value.toLowerCase() === "true";
+  }
+  return value;
+}
+
+function readableFieldLabel(key: string): string {
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+const DRY_RUN_MANAGED_SAMPLE_FIELD_KEYS = new Set([
+  "name",
+  "productName",
+  "cardName",
+  "languageCode",
+  "language",
+  "lang",
+  "sourceUpdatedAt",
+  "source_updated_at",
+  "updatedAt",
+  "updated_at",
+]);
 
 function setFirstExistingOrDefault(
   target: Record<string, JsonValue>,
