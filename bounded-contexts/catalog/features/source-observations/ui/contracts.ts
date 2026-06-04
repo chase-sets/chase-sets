@@ -278,6 +278,75 @@ export type CatalogProviderProfileSectionUpdateCommand =
   | CatalogProviderProfileRetirementPlanUpdateCommand
   | CatalogProviderProfileMigrationEvidenceUpdateCommand;
 
+export interface CatalogProviderProfileEditableSection {
+  section: CatalogProviderProfileEditableSectionKey;
+  displayName: string;
+  requiredPermission: "catalog.manage";
+  rawJsonBacked: false;
+}
+
+export interface CatalogProviderProfileFixtureMetadata {
+  flow: string;
+  payloadFile: string;
+  payloadPath: string;
+  expectedStatus: "completed" | "blocked";
+  expectedDiagnosticPaths: string[];
+  expectedHashEvidencePaths: string[];
+  expectedMergeEvidencePaths: string[];
+  expectedPromotionCommands: string[];
+  expectedObservation: JsonValue;
+  samplePayload: JsonValue;
+  samplePayloadAvailable: boolean;
+}
+
+export interface CatalogProviderProfileDryRunInputTemplate {
+  observedAt: string;
+  defaultFlow: string | null;
+  payload: JsonValue;
+  fixturePayloads: CatalogProviderProfileFixtureMetadata[];
+}
+
+export interface CatalogProviderProfileSemanticDiff {
+  providerKey: string;
+  candidateProfileVersion: string;
+  activeProfileVersion: string | null;
+  mappingFingerprint: {
+    candidate: string | null;
+    active: string | null;
+    changed: boolean;
+  };
+  changes: {
+    path: string;
+    label: string;
+    candidate: JsonValue;
+    active: JsonValue;
+    changed: boolean;
+  }[];
+}
+
+export interface CatalogProviderProfileActivationReadiness {
+  status: "ready" | "blocked";
+  checks: {
+    checkKey: string;
+    status: "passed" | "blocked";
+    path: string;
+    diagnosticText: string;
+    severity: "error" | "warning";
+    flow?: string;
+  }[];
+  requiresMigrationEvidence: boolean;
+  referenceCount: number;
+}
+
+export interface CatalogProviderProfileAuthoringModel {
+  review: CatalogProviderProfileVersionReview;
+  editableSections: CatalogProviderProfileEditableSection[];
+  fixtureCases: CatalogProviderProfileFixtureMetadata[];
+  dryRunInputTemplate: CatalogProviderProfileDryRunInputTemplate;
+  semanticDiff: CatalogProviderProfileSemanticDiff;
+  activationReadiness: CatalogProviderProfileActivationReadiness;
+}
+
 export interface CatalogProviderProfileDryRunEvidence {
   path: string;
   owner: string;

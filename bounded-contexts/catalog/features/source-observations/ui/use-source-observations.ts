@@ -18,6 +18,7 @@ import type {
   SourceObservationPromotionScope,
   SourceObservationReapplyPreview,
   CatalogProviderProfileEditableSectionKey,
+  CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileDryRunResult,
   CatalogProviderProfileSectionUpdateCommand,
   CatalogProviderProfileVersionReview,
@@ -87,6 +88,23 @@ export function useSourceObservationProviderProfiles(
     () => api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
     [],
     initialData,
+  );
+}
+
+export function useSourceObservationProviderProfileAuthoringModel(
+  providerKey: string,
+  profileVersion: string,
+  enabled = true,
+) {
+  return useFetch(
+    () =>
+      enabled
+        ? api.getSourceObservationProviderProfileAuthoringModel<CatalogProviderProfileAuthoringModel>(
+            providerKey,
+            profileVersion,
+          )
+        : Promise.resolve(null),
+    [enabled, providerKey, profileVersion],
   );
 }
 

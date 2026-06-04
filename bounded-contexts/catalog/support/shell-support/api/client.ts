@@ -1060,6 +1060,19 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async getSourceObservationProviderProfileAuthoringModel<T>(
+      providerKey: string,
+      profileVersion: string,
+    ): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/authoring`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async createSourceObservationProviderProfile<T>(version: unknown): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles`, {
         method: "POST",

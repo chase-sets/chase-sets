@@ -354,6 +354,7 @@ describe("source observation routes", () => {
   it("updates provider profile sections through typed admin commands", async () => {
     const services = {} as SourceObservationServices;
     const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
       profileVersion("tcgdex", {
         profileVersion: "2026.06.04",
         lifecycle: "draft",
@@ -382,6 +383,41 @@ describe("source observation routes", () => {
       authoringAudit: {
         updatedByUserId: "usr_test",
         updatedForAccountId: "acc_test",
+      },
+    });
+  });
+
+  it("returns a typed provider profile authoring model through the admin API", async () => {
+    const services = {} as SourceObservationServices;
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/authoring");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      review: {
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+      },
+      editableSections: expect.arrayContaining([
+        expect.objectContaining({
+          section: "provider-options",
+          rawJsonBacked: false,
+        }),
+      ]),
+      dryRunInputTemplate: {
+        defaultFlow: "normal",
+      },
+      activationReadiness: {
+        status: "blocked",
       },
     });
   });

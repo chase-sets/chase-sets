@@ -12,6 +12,7 @@ import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-i
 import {
   activateCatalogProviderProfileVersionForReview,
   cloneCatalogProviderProfileVersionForReview,
+  getCatalogProviderProfileAuthoringModel,
   updateCatalogProviderProfileVersionForReview,
   updateCatalogProviderProfileSectionForReview,
   dryRunCatalogProviderProfileVersion,
@@ -153,6 +154,49 @@ describe("Catalog provider profile review", () => {
     ).resolves.toMatchObject({
       active: true,
       lifecycle: "active",
+    });
+  });
+
+  it("builds a UI authoring model with fixture templates, semantic diff, and activation readiness", async () => {
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      tcgdexVersion("2026.06.04", "draft", false),
+    ]);
+
+    const model = await getCatalogProviderProfileAuthoringModel({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      repositoryRoot: repositoryRoot(),
+    });
+
+    expect(model.review).toMatchObject({
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+    });
+    expect(model.editableSections.map((section) => section.section)).toEqual(
+      expect.arrayContaining(["basics", "provider-options", "promotion-plan", "migration-evidence"]),
+    );
+    expect(model.fixtureCases.map((fixtureCase) => fixtureCase.flow)).toEqual(
+      expect.arrayContaining(["normal", "ambiguous", "unknown-option"]),
+    );
+    expect(model.dryRunInputTemplate).toMatchObject({
+      defaultFlow: "normal",
+      payload: expect.objectContaining({ observationId: "tcgdex_en_sv01_001_standard" }),
+    });
+    expect(model.semanticDiff).toMatchObject({
+      activeProfileVersion: "2026.06.03",
+      mappingFingerprint: { changed: true },
+    });
+    expect(model.activationReadiness).toMatchObject({
+      status: "blocked",
+      requiresMigrationEvidence: true,
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          checkKey: "migration-evidence",
+          status: "blocked",
+        }),
+      ]),
     });
   });
 

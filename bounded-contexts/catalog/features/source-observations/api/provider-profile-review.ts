@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type {
@@ -36,10 +37,12 @@ import {
 } from "./provider-source-observation-normalizer";
 import {
   formatCatalogProviderProfileFixtureFailures,
+  type CatalogProviderProfileFixtureHarnessFailure,
   validateCatalogProviderProfileFixtures,
   type CatalogProviderProfileFixtureCase,
 } from "./provider-profile-contract-harness";
 import { catalogProviderProfileFixtureCases } from "./provider-profile-fixture-cases";
+import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
 
 type SourceObservationProfileVersionRecord = CatalogProviderIntegrationProfileVersionRecord &
   Readonly<{ executableMappingContract: CatalogProviderSourceObservationMappingContract }>;
@@ -273,6 +276,75 @@ export type CatalogProviderProfileDryRunResult = Readonly<{
   }>;
 }>;
 
+export type CatalogProviderProfileEditableSection = Readonly<{
+  section: CatalogProviderProfileEditableSectionKey;
+  displayName: string;
+  requiredPermission: "catalog.manage";
+  rawJsonBacked: false;
+}>;
+
+export type CatalogProviderProfileFixtureMetadata = Readonly<{
+  flow: CatalogProviderProfileFixtureCase["flow"];
+  payloadFile: string;
+  payloadPath: string;
+  expectedStatus: CatalogProviderProfileFixtureCase["expectedStatus"];
+  expectedDiagnosticPaths: readonly string[];
+  expectedHashEvidencePaths: readonly string[];
+  expectedMergeEvidencePaths: readonly string[];
+  expectedPromotionCommands: readonly string[];
+  expectedObservation: CatalogProviderProfileFixtureCase["expectedObservation"] | null;
+  samplePayload: JsonValue | null;
+  samplePayloadAvailable: boolean;
+}>;
+
+export type CatalogProviderProfileDryRunInputTemplate = Readonly<{
+  observedAt: string;
+  defaultFlow: CatalogProviderProfileFixtureCase["flow"] | null;
+  payload: JsonValue;
+  fixturePayloads: readonly CatalogProviderProfileFixtureMetadata[];
+}>;
+
+export type CatalogProviderProfileSemanticDiff = Readonly<{
+  providerKey: string;
+  candidateProfileVersion: string;
+  activeProfileVersion: string | null;
+  mappingFingerprint: Readonly<{
+    candidate: string | null;
+    active: string | null;
+    changed: boolean;
+  }>;
+  changes: readonly Readonly<{
+    path: string;
+    label: string;
+    candidate: JsonValue;
+    active: JsonValue;
+    changed: boolean;
+  }>[];
+}>;
+
+export type CatalogProviderProfileActivationReadiness = Readonly<{
+  status: "ready" | "blocked";
+  checks: readonly Readonly<{
+    checkKey: string;
+    status: "passed" | "blocked";
+    path: string;
+    diagnosticText: string;
+    severity: "error" | "warning";
+    flow?: string;
+  }>[];
+  requiresMigrationEvidence: boolean;
+  referenceCount: number;
+}>;
+
+export type CatalogProviderProfileAuthoringModel = Readonly<{
+  review: CatalogProviderProfileVersionReview;
+  editableSections: readonly CatalogProviderProfileEditableSection[];
+  fixtureCases: readonly CatalogProviderProfileFixtureMetadata[];
+  dryRunInputTemplate: CatalogProviderProfileDryRunInputTemplate;
+  semanticDiff: CatalogProviderProfileSemanticDiff;
+  activationReadiness: CatalogProviderProfileActivationReadiness;
+}>;
+
 export async function listCatalogProviderProfileVersionReviews(
   store: CatalogProviderIntegrationProfileVersionStore,
 ): Promise<readonly CatalogProviderProfileVersionReview[]> {
@@ -285,6 +357,49 @@ export async function listCatalogProviderProfileVersionReviews(
       ),
     ),
   );
+}
+
+export async function getCatalogProviderProfileAuthoringModel(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  providerKey: string;
+  profileVersion: string;
+  repositoryRoot?: string;
+  observedAt?: string;
+  fixtureCases?: readonly CatalogProviderProfileFixtureCase[];
+}): Promise<CatalogProviderProfileAuthoringModel> {
+  const version = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const referenceCount = await input.store.countProfileVersionReferences(version.providerKey, version.profileVersion);
+  const versions = await input.store.listProfileVersions(version.providerKey);
+  const activeVersion =
+    versions.find((candidate) => candidate.active && candidate.lifecycle === "active") ??
+    (await input.store.getActiveProfileVersion(version.providerKey));
+  const fixtureCases = authoringFixtureCasesForVersion(
+    version,
+    input.fixtureCases ?? catalogProviderProfileFixtureCases(),
+  );
+  const fixtureMetadata = await Promise.all(
+    fixtureCases.map((fixtureCase) =>
+      toFixtureMetadata({
+        version,
+        fixtureCase,
+        repositoryRoot: input.repositoryRoot ?? defaultRepositoryRoot(),
+      }),
+    ),
+  );
+
+  return {
+    review: toProfileVersionReview(version, referenceCount),
+    editableSections: catalogProviderProfileEditableSections(),
+    fixtureCases: fixtureMetadata,
+    dryRunInputTemplate: toDryRunInputTemplate(fixtureMetadata, input.observedAt ?? new Date(0).toISOString()),
+    semanticDiff: toSemanticDiff(version, activeVersion ?? null),
+    activationReadiness: toActivationReadiness({
+      version,
+      activeVersion: activeVersion ?? null,
+      referenceCount,
+      fixtureCases,
+    }),
+  };
 }
 
 export async function dryRunCatalogProviderProfileVersion(input: {
@@ -541,6 +656,285 @@ export async function retireCatalogProviderProfileVersionForReview(input: {
     authoringAudit: mergeAuthoringAudit(existing.authoringAudit ?? null, input.audit),
   });
   return toProfileVersionReview(retired);
+}
+
+function catalogProviderProfileEditableSections(): readonly CatalogProviderProfileEditableSection[] {
+  return [
+    editableSection("basics", "Basics"),
+    editableSection("provider-options", "Provider Options"),
+    editableSection("connector", "Connector"),
+    editableSection("catalog-field-mapping", "Catalog Field Mapping"),
+    editableSection("source-contract", "Source Contract"),
+    editableSection("fixtures", "Fixtures"),
+    editableSection("source-observation", "Source Observation"),
+    editableSection("normalized-observation", "Normalized Observation"),
+    editableSection("external-references", "External References"),
+    editableSection("selected-options", "Selected Options"),
+    editableSection("reference-hierarchy", "Reference Hierarchy"),
+    editableSection("duplicate-prevention", "Duplicate Prevention"),
+    editableSection("promotion-plan", "Promotion Plan"),
+    editableSection("retirement-plan", "Retirement Plan"),
+    editableSection("migration-evidence", "Migration Evidence"),
+  ];
+}
+
+function editableSection(
+  section: CatalogProviderProfileEditableSectionKey,
+  displayName: string,
+): CatalogProviderProfileEditableSection {
+  return {
+    section,
+    displayName,
+    requiredPermission: "catalog.manage",
+    rawJsonBacked: false,
+  };
+}
+
+function authoringFixtureCasesForVersion(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+  fixtureCases: readonly CatalogProviderProfileFixtureCase[],
+): readonly CatalogProviderProfileFixtureCase[] {
+  const providerCases = fixtureCases.filter((fixtureCase) => fixtureCase.providerKey === version.providerKey);
+  return catalogProviderRequiredFixtureFlows.map((flow) => {
+    const fixtureCase = providerCases.find((candidate) => candidate.flow === flow);
+    return {
+      providerKey: version.providerKey,
+      profileVersion: version.profileVersion,
+      flow,
+      payloadFile: fixtureCase?.payloadFile ?? `${flow}.json`,
+      expectedStatus: fixtureCase?.expectedStatus ?? "completed",
+      expectedObservation: fixtureCase?.expectedObservation,
+      expectedDiagnosticPaths: fixtureCase?.expectedDiagnosticPaths,
+      expectedHashEvidencePaths: fixtureCase?.expectedHashEvidencePaths,
+      expectedMergeEvidencePaths: fixtureCase?.expectedMergeEvidencePaths,
+      expectedPromotionCommands: fixtureCase?.expectedPromotionCommands,
+    };
+  });
+}
+
+async function toFixtureMetadata(input: {
+  version: CatalogProviderIntegrationProfileVersionRecord;
+  fixtureCase: CatalogProviderProfileFixtureCase;
+  repositoryRoot: string;
+}): Promise<CatalogProviderProfileFixtureMetadata> {
+  const payloadPath = path.join(input.version.fixtures.fixtureRoot, input.fixtureCase.payloadFile);
+  const absolutePayloadPath = path.join(input.repositoryRoot, payloadPath);
+  const samplePayload = await readJsonFixture(absolutePayloadPath);
+
+  return {
+    flow: input.fixtureCase.flow,
+    payloadFile: input.fixtureCase.payloadFile,
+    payloadPath,
+    expectedStatus: input.fixtureCase.expectedStatus,
+    expectedDiagnosticPaths: input.fixtureCase.expectedDiagnosticPaths ?? [],
+    expectedHashEvidencePaths: input.fixtureCase.expectedHashEvidencePaths ?? [],
+    expectedMergeEvidencePaths: input.fixtureCase.expectedMergeEvidencePaths ?? [],
+    expectedPromotionCommands: input.fixtureCase.expectedPromotionCommands ?? [],
+    expectedObservation: input.fixtureCase.expectedObservation ?? null,
+    samplePayload: samplePayload ? redactJson(samplePayload) : null,
+    samplePayloadAvailable: Boolean(samplePayload),
+  };
+}
+
+async function readJsonFixture(absolutePayloadPath: string): Promise<JsonValue | null> {
+  try {
+    return JSON.parse(await readFile(absolutePayloadPath, "utf8")) as JsonValue;
+  } catch {
+    return null;
+  }
+}
+
+function toDryRunInputTemplate(
+  fixtureMetadata: readonly CatalogProviderProfileFixtureMetadata[],
+  observedAt: string,
+): CatalogProviderProfileDryRunInputTemplate {
+  const defaultFixture =
+    fixtureMetadata.find((fixtureCase) => fixtureCase.flow === "normal" && fixtureCase.samplePayloadAvailable) ??
+    fixtureMetadata.find((fixtureCase) => fixtureCase.samplePayloadAvailable) ??
+    null;
+
+  return {
+    observedAt,
+    defaultFlow: defaultFixture?.flow ?? null,
+    payload: defaultFixture?.samplePayload ?? {},
+    fixturePayloads: fixtureMetadata,
+  };
+}
+
+function toSemanticDiff(
+  candidate: CatalogProviderIntegrationProfileVersionRecord,
+  active: CatalogProviderIntegrationProfileVersionRecord | null,
+): CatalogProviderProfileSemanticDiff {
+  const candidateFingerprint = sourceMappingFingerprint(candidate);
+  const activeFingerprint = active ? sourceMappingFingerprint(active) : null;
+  const compare = (path: string, label: string, candidateValue: JsonValue, activeValue: JsonValue) => ({
+    path,
+    label,
+    candidate: candidateValue,
+    active: activeValue,
+    changed: JSON.stringify(candidateValue) !== JSON.stringify(activeValue),
+  });
+
+  return {
+    providerKey: candidate.providerKey,
+    candidateProfileVersion: candidate.profileVersion,
+    activeProfileVersion: active?.profileVersion ?? null,
+    mappingFingerprint: {
+      candidate: candidateFingerprint,
+      active: activeFingerprint,
+      changed: candidateFingerprint !== activeFingerprint,
+    },
+    changes: [
+      compare("lifecycle", "Lifecycle", candidate.lifecycle, active?.lifecycle ?? null),
+      compare("profile.status", "Status", candidate.profile.status, active?.profile.status ?? null),
+      compare(
+        "compatibilityMode",
+        "Compatibility Mode",
+        candidate.compatibilityMode,
+        active?.compatibilityMode ?? null,
+      ),
+      compare(
+        "profile.capabilities",
+        "Capabilities",
+        [...candidate.profile.capabilities],
+        [...(active?.profile.capabilities ?? [])],
+      ),
+      compare(
+        "profile.supportedScopes",
+        "Supported Scopes",
+        [...candidate.profile.supportedScopes],
+        [...(active?.profile.supportedScopes ?? [])],
+      ),
+      compare(
+        "profile.languageOptions",
+        "Language Options",
+        [...candidate.profile.languageOptions],
+        [...(active?.profile.languageOptions ?? [])],
+      ),
+      compare(
+        "profile.connector.kind",
+        "Connector",
+        candidate.profile.connector.kind,
+        active?.profile.connector.kind ?? null,
+      ),
+      compare(
+        "fixtures.coveredFlows",
+        "Fixture Coverage",
+        [...candidate.fixtures.coveredFlows],
+        [...(active?.fixtures.coveredFlows ?? [])],
+      ),
+      compare("sourceMappingFingerprint", "Source Mapping Fingerprint", candidateFingerprint, activeFingerprint),
+      compare("promotionCommandPlan.commands", "Promotion Commands", promotionCommandNames(candidate), [
+        ...(active ? promotionCommandNames(active) : []),
+      ]),
+    ],
+  };
+}
+
+function toActivationReadiness(input: {
+  version: CatalogProviderIntegrationProfileVersionRecord;
+  activeVersion: CatalogProviderIntegrationProfileVersionRecord | null;
+  referenceCount: number;
+  fixtureCases: readonly CatalogProviderProfileFixtureCase[];
+}): CatalogProviderProfileActivationReadiness {
+  const checks: Array<CatalogProviderProfileActivationReadiness["checks"][number]> = [];
+  const addBlocked = (checkKey: string, path: string, diagnosticText: string, flow?: string) => {
+    checks.push({
+      checkKey,
+      status: "blocked",
+      path,
+      diagnosticText,
+      severity: "error",
+      ...(flow ? { flow } : {}),
+    });
+  };
+  const addPassed = (checkKey: string, path: string, diagnosticText: string) => {
+    checks.push({
+      checkKey,
+      status: "passed",
+      path,
+      diagnosticText,
+      severity: "warning",
+    });
+  };
+
+  if (input.version.lifecycle !== "draft" && input.version.lifecycle !== "test") {
+    addBlocked(
+      "mutable-lifecycle",
+      "lifecycle",
+      `Only draft or test profiles can be activated from the admin; '${input.version.lifecycle}' is immutable.`,
+    );
+  } else {
+    addPassed("mutable-lifecycle", "lifecycle", "Profile version is in an activation-ready lifecycle.");
+  }
+
+  if (!input.version.executableMappingContract) {
+    addBlocked(
+      "executable-mapping-contract",
+      "executableMappingContract",
+      "Activation requires an executable mapping contract.",
+    );
+  } else {
+    addPassed("executable-mapping-contract", "executableMappingContract", "Executable mapping contract is present.");
+  }
+
+  if (input.version.fixtures.liveProviderCallsAllowed) {
+    addBlocked(
+      "fixture-live-calls",
+      "fixtures.liveProviderCallsAllowed",
+      "Fixture validation must not require live provider calls.",
+    );
+  } else {
+    addPassed(
+      "fixture-live-calls",
+      "fixtures.liveProviderCallsAllowed",
+      "Fixture validation is isolated from live provider calls.",
+    );
+  }
+
+  for (const flow of catalogProviderRequiredFixtureFlows) {
+    if (!input.version.fixtures.coveredFlows.includes(flow)) {
+      addBlocked(
+        "fixture-covered-flow",
+        `fixtures.coveredFlows.${flow}`,
+        `Profile fixture contract must cover ${flow}.`,
+        flow,
+      );
+    } else if (!input.fixtureCases.some((fixtureCase) => fixtureCase.flow === flow)) {
+      addBlocked("fixture-case", `fixtures.${flow}`, `Fixture metadata must include a ${flow} case.`, flow);
+    }
+  }
+  if (catalogProviderRequiredFixtureFlows.every((flow) => input.version.fixtures.coveredFlows.includes(flow))) {
+    addPassed("fixture-coverage", "fixtures.coveredFlows", "All required fixture flows are covered.");
+  }
+
+  for (const diagnostic of validateCatalogProviderIntegrationProfileVersion(input.version)) {
+    addBlocked("profile-validation", diagnostic.path, diagnostic.diagnosticText);
+  }
+
+  const requiresMigrationEvidence = migrationEvidenceRequired(input.version, input.activeVersion);
+  if (requiresMigrationEvidence && !hasMigrationEvidence(input.version)) {
+    addBlocked(
+      "migration-evidence",
+      "migrationEvidence.evidenceText",
+      "Source Observation mapping fingerprint changes require explicit migration evidence before activation.",
+    );
+  } else if (requiresMigrationEvidence) {
+    addPassed(
+      "migration-evidence",
+      "migrationEvidence.evidenceText",
+      "Migration evidence is recorded for the fingerprint change.",
+    );
+  } else {
+    addPassed("migration-evidence", "migrationEvidence", "No migration evidence is required for this activation.");
+  }
+
+  return {
+    status: checks.some((check) => check.status === "blocked") ? "blocked" : "ready",
+    checks,
+    requiresMigrationEvidence,
+    referenceCount: input.referenceCount,
+  };
 }
 
 function toProfileSectionPatch(
@@ -1083,6 +1477,25 @@ function isSourceObservationContract(
   contract: CatalogProviderExecutableMappingContract | undefined,
 ): contract is CatalogProviderSourceObservationMappingContract {
   return Boolean(contract?.sourceObservation);
+}
+
+function sourceMappingFingerprint(version: CatalogProviderIntegrationProfileVersionRecord): string | null {
+  return isSourceObservationContract(version.executableMappingContract)
+    ? catalogProviderSourceMappingFingerprint(version.executableMappingContract)
+    : null;
+}
+
+function promotionCommandNames(version: CatalogProviderIntegrationProfileVersionRecord): readonly string[] {
+  return version.executableMappingContract?.promotionCommandPlan.commands.map((command) => command.commandName) ?? [];
+}
+
+function migrationEvidenceRequired(
+  target: CatalogProviderIntegrationProfileVersionRecord,
+  active: CatalogProviderIntegrationProfileVersionRecord | null,
+): boolean {
+  const targetFingerprint = sourceMappingFingerprint(target);
+  const activeFingerprint = active ? sourceMappingFingerprint(active) : null;
+  return Boolean(targetFingerprint && activeFingerprint && targetFingerprint !== activeFingerprint);
 }
 
 function isSourceObservationProfileVersion(

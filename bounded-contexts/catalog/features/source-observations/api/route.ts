@@ -12,6 +12,7 @@ import {
   createCatalogProviderProfileVersionForReview,
   deprecateCatalogProviderProfileVersionForReview,
   dryRunCatalogProviderProfileVersion,
+  getCatalogProviderProfileAuthoringModel,
   listCatalogProviderProfileVersionReviews,
   retireCatalogProviderProfileVersionForReview,
   rollbackCatalogProviderProfileVersionForReview,
@@ -86,6 +87,20 @@ export function sourceObservationRoutes(
     });
 
     return c.json(result, 201);
+  });
+
+  app.get("/provider-profiles/:providerKey/:profileVersion/authoring", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const result = await getCatalogProviderProfileAuthoringModel({
+      store: profileVersions,
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+    });
+
+    return c.json(result);
   });
 
   app.patch("/provider-profiles/:providerKey/:profileVersion", async (c) => {
