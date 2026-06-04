@@ -517,6 +517,288 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getAllByText("sourceContract.owner must be a non-empty string.").length).toBeGreaterThan(0);
   });
 
+  it("edits provider option queries through guided controls", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgplayer",
+            profileKey: "tcgplayer-automation-client",
+            displayName: "TCGplayer",
+            lifecycle: "draft",
+            capabilities: ["provider-option-query", "source-observation-import"],
+            supportedScopes: ["product-line/category", "set-name"],
+            profile: {
+              providerKey: "tcgplayer",
+              profileKey: "tcgplayer-automation-client",
+              displayName: "TCGplayer",
+              status: "planned",
+              connector: { kind: "tcgplayer-automation-client" },
+              capabilities: ["provider-option-query", "source-observation-import"],
+              supportedScopes: ["product-line/category", "set-name"],
+              languageOptions: ["en"],
+              optionQueries: [
+                {
+                  queryKind: "product-lines",
+                  aliases: ["product-line"],
+                  displayName: "Product Line",
+                  scope: "product-line/category",
+                  parentScope: null,
+                  operation: "tcgplayer-list-product-lines",
+                  output: {
+                    valuePath: "productLineId",
+                    labelPath: "productLineName",
+                    metadataPaths: { productLineId: "productLineId" },
+                  },
+                },
+                {
+                  queryKind: "set-names",
+                  aliases: ["set-name"],
+                  displayName: "Set Name",
+                  scope: "set-name",
+                  parentScope: "product-line/category",
+                  operation: "tcgplayer-list-set-names",
+                  parentValue: {
+                    required: true,
+                    valueKind: "product-line-id",
+                    diagnosticText: "A product line is required.",
+                  },
+                  output: {
+                    valuePath: "cleanSetName",
+                    labelPath: "name",
+                    description: { kind: "tcgplayer-set-name" },
+                    parentValuePath: "$parentValue",
+                    metadataPaths: { productLineId: "$parentValueNumber", cleanSetName: "cleanSetName" },
+                  },
+                },
+              ],
+              normalizedObservationMapping: { kind: "provider-product" },
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getAllByLabelText(/^Option display name/i)[1], {
+      target: { value: "Set Filter" },
+    });
+    fireEvent.change(within(dialog).getAllByLabelText("Aliases")[1], { target: { value: "set-name, sets" } });
+    fireEvent.change(within(dialog).getAllByLabelText("Parent diagnostic")[0], {
+      target: { value: "Choose a product line before loading set names." },
+    });
+    fireEvent.change(within(dialog).getAllByLabelText("Metadata paths")[1], {
+      target: { value: "productLineId=$parentValueNumber\ncleanSetName=cleanSetName\nurlName=urlName" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "tcgplayer",
+        "2026.06.03",
+        "provider-options",
+        {
+          section: "provider-options",
+          optionQueries: expect.arrayContaining([
+            expect.objectContaining({
+              queryKind: "set-names",
+              aliases: ["set-name", "sets"],
+              displayName: "Set Filter",
+              parentScope: "product-line/category",
+              parentValue: {
+                required: true,
+                valueKind: "product-line-id",
+                diagnosticText: "Choose a product line before loading set names.",
+              },
+              output: expect.objectContaining({
+                valuePath: "cleanSetName",
+                labelPath: "name",
+                parentValuePath: "$parentValue",
+                metadataPaths: {
+                  productLineId: "$parentValueNumber",
+                  cleanSetName: "cleanSetName",
+                  urlName: "urlName",
+                },
+              }),
+            }),
+          ]),
+        },
+      ),
+    );
+  });
+
+  it("edits TCGdex option query parent and output mappings", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgdex",
+            profileKey: "tcgdex-pokemon-card",
+            displayName: "TCGdex",
+            lifecycle: "draft",
+            capabilities: ["provider-option-query", "source-observation-import"],
+            supportedScopes: ["language", "series"],
+            profile: {
+              providerKey: "tcgdex",
+              profileKey: "tcgdex-pokemon-card",
+              displayName: "TCGdex",
+              status: "planned",
+              connector: { kind: "tcgdex-api" },
+              capabilities: ["provider-option-query", "source-observation-import"],
+              supportedScopes: ["language", "series"],
+              languageOptions: ["en", "fr"],
+              optionQueries: [
+                {
+                  queryKind: "series",
+                  aliases: ["serie"],
+                  displayName: "Series",
+                  scope: "series",
+                  parentScope: "language",
+                  operation: "tcgdex-list-series",
+                  parentValue: {
+                    required: false,
+                    valueKind: "language-code",
+                    diagnosticText: "TCGdex series use the selected language.",
+                  },
+                  output: {
+                    valuePath: "seriesId",
+                    labelPath: "name",
+                    parentValuePath: "$languageCode",
+                    imageUrlPath: "logoUrl",
+                    metadataPaths: { languageCode: "$languageCode", seriesId: "seriesId" },
+                  },
+                },
+              ],
+              normalizedObservationMapping: { kind: "pokemon-card" },
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Parent diagnostic"), {
+      target: { value: "Use the selected TCGdex language before loading series." },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Image URL path"), { target: { value: "symbolUrl" } });
+    fireEvent.change(within(dialog).getByLabelText("Metadata paths"), {
+      target: { value: "languageCode=$languageCode\nseriesId=seriesId\nsymbolUrl=symbolUrl" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "tcgdex",
+        "2026.06.03",
+        "provider-options",
+        {
+          section: "provider-options",
+          optionQueries: [
+            expect.objectContaining({
+              queryKind: "series",
+              operation: "tcgdex-list-series",
+              parentScope: "language",
+              parentValue: {
+                required: false,
+                valueKind: "language-code",
+                diagnosticText: "Use the selected TCGdex language before loading series.",
+              },
+              output: expect.objectContaining({
+                valuePath: "seriesId",
+                labelPath: "name",
+                parentValuePath: "$languageCode",
+                imageUrlPath: "symbolUrl",
+                metadataPaths: {
+                  languageCode: "$languageCode",
+                  seriesId: "seriesId",
+                  symbolUrl: "symbolUrl",
+                },
+              }),
+            }),
+          ],
+        },
+      ),
+    );
+  });
+
+  it("blocks duplicate provider option aliases before save", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            lifecycle: "draft",
+            capabilities: ["provider-option-query", "source-observation-import"],
+            profile: {
+              providerKey: "scrydex",
+              profileKey: "scryfall-card-fixture",
+              displayName: "Scrydex",
+              status: "planned",
+              connector: { kind: "scrydex-scryfall-json" },
+              capabilities: ["provider-option-query", "source-observation-import"],
+              supportedScopes: ["set-name"],
+              languageOptions: ["en"],
+              optionQueries: [
+                {
+                  queryKind: "sets",
+                  aliases: ["set"],
+                  displayName: "Set",
+                  scope: "set-name",
+                  parentScope: null,
+                  operation: "scrydex-list-sets",
+                  output: { valuePath: "set", labelPath: "set_name", metadataPaths: {} },
+                },
+                {
+                  queryKind: "series",
+                  aliases: ["set"],
+                  displayName: "Series",
+                  scope: "series",
+                  parentScope: null,
+                  operation: "tcgdex-list-series",
+                  output: { valuePath: "", labelPath: "name", metadataPaths: {} },
+                },
+              ],
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Series: value path and label path are required.")).toBeTruthy();
+    expect(within(dialog).getByText("Series: query kind and aliases must be unique.")).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("enqueues a TCGdex pull for the selected language and optional series", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
@@ -971,6 +1253,22 @@ function profileReview(
       capabilities: ["source-observation-import", "external-reference-extraction"],
       supportedScopes: ["product/card"],
       languageOptions: ["en"],
+      optionQueries: [
+        {
+          queryKind: "sets",
+          aliases: ["set"],
+          displayName: "Set",
+          scope: "set-name",
+          parentScope: null,
+          operation: "scrydex-list-sets",
+          output: {
+            valuePath: "set",
+            labelPath: "set_name",
+            description: { kind: "path", path: "released_at" },
+            metadataPaths: { set: "set", setName: "set_name" },
+          },
+        },
+      ],
       normalizedObservationMapping: { kind: "provider-product" },
     },
     sourceContract: {

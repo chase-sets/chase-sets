@@ -37,6 +37,7 @@ import type {
   CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileBasicsUpdateCommand,
   CatalogProviderProfileDryRunResult,
+  CatalogProviderProfileProviderOptionsUpdateCommand,
   CatalogProviderProfileRetirementPlanUpdateCommand,
   CatalogProviderProfileSourceContractUpdateCommand,
   CatalogProviderProfileVersionReview,
@@ -106,6 +107,26 @@ const PROFILE_LIFECYCLE_OPTIONS = [
   { value: "draft", label: "Draft" },
   { value: "test", label: "Test" },
 ] satisfies SelectItem[];
+const OPTION_QUERY_OPERATION_OPTIONS = [
+  { value: "tcgdex-list-languages", label: "TCGdex languages" },
+  { value: "tcgdex-list-series", label: "TCGdex series" },
+  { value: "tcgdex-list-expansions", label: "TCGdex expansions" },
+  { value: "tcgplayer-list-product-lines", label: "TCGplayer product lines" },
+  { value: "tcgplayer-list-set-names", label: "TCGplayer set names" },
+  { value: "tcgplayer-list-products", label: "TCGplayer products" },
+  { value: "tcgplayer-list-skus", label: "TCGplayer SKUs" },
+  { value: "scrydex-list-sets", label: "Scrydex sets" },
+] satisfies SelectItem[];
+const OPTION_QUERY_SCOPE_OPTIONS = [
+  { value: "__none__", label: "None" },
+  ...CATALOG_PROVIDER_SCOPE_OPTIONS.map((scope) => ({ value: scope, label: scope })),
+] satisfies SelectItem[];
+const OPTION_QUERY_DESCRIPTION_KIND_OPTIONS = [
+  { value: "__none__", label: "None" },
+  { value: "path", label: "Path" },
+  { value: "tcgdex-expansion-card-count", label: "TCGdex expansion card count" },
+  { value: "tcgplayer-set-name", label: "TCGplayer set name" },
+] satisfies SelectItem[];
 
 type ProfileBasicsForm = Readonly<{
   displayName: string;
@@ -117,6 +138,7 @@ type ProfileBasicsForm = Readonly<{
   languageOptionsText: string;
   sourceContract: ProfileSourceContractForm;
   retirementPlan: ProfileRetirementPlanForm;
+  optionQueries: readonly ProfileOptionQueryForm[];
 }>;
 
 type ProfileSourceContractForm = Readonly<{
@@ -131,6 +153,27 @@ type ProfileRetirementPlanForm = Readonly<{
   enabled: boolean;
   trackingIssueText: string;
   diagnosticText: string;
+}>;
+
+type ProfileOptionQueryForm = Readonly<{
+  id: string;
+  queryKind: string;
+  aliasesText: string;
+  displayName: string;
+  scope: string;
+  parentScope: string;
+  parentRequired: boolean;
+  parentValueKind: string;
+  parentDiagnosticText: string;
+  operation: string;
+  valuePath: string;
+  labelPath: string;
+  descriptionKind: string;
+  descriptionPath: string;
+  parentValuePath: string;
+  imageUrlPath: string;
+  imageUrlCoalescePathsText: string;
+  metadataPathsText: string;
 }>;
 
 export function IntegrationManagementPage({
@@ -471,6 +514,10 @@ export function IntegrationManagementPage({
             }
           : null,
       };
+      const providerOptionsCommand: CatalogProviderProfileProviderOptionsUpdateCommand = {
+        section: "provider-options",
+        optionQueries: editBasicsForm.optionQueries.map(optionQueryFormToCommand),
+      };
       await updateSourceObservationProviderProfileSection(
         editProfile.providerKey,
         editProfile.profileVersion,
@@ -488,6 +535,12 @@ export function IntegrationManagementPage({
         editProfile.profileVersion,
         "retirement-plan",
         retirementPlanCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "provider-options",
+        providerOptionsCommand,
       );
       addToast("Profile basics saved.", "success");
       setEditProfile(null);
@@ -1647,9 +1700,13 @@ function ProfileBasicsEditor({
     setForm({ sourceContract: { ...form.sourceContract, ...patch } });
   const setRetirementPlan = (patch: Partial<ProfileRetirementPlanForm>) =>
     setForm({ retirementPlan: { ...form.retirementPlan, ...patch } });
+  const setOptionQueries = (optionQueries: readonly ProfileOptionQueryForm[]) => setForm({ optionQueries });
+  const setOptionQuery = (id: string, patch: Partial<ProfileOptionQueryForm>) =>
+    setOptionQueries(form.optionQueries.map((query) => (query.id === id ? { ...query, ...patch } : query)));
   const editable = profileLifecycleEditable(profile);
   const retirementTrackingIssueInvalid =
     form.retirementPlan.enabled && !positiveIntegerText(form.retirementPlan.trackingIssueText);
+  const optionQueryDiagnostics = validateOptionQueryForms(form.optionQueries);
 
   return (
     <Stack gap={4}>
@@ -1826,6 +1883,205 @@ function ProfileBasicsEditor({
             rows={3}
           />
         ) : null}
+      </Stack>
+
+      <Stack gap={3}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="text-sm font-semibold text-foreground">Provider Options</h3>
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="plus"
+            disabled={!editable}
+            onClick={() => setOptionQueries([...form.optionQueries, emptyOptionQueryForm()])}
+          >
+            Add query
+          </Button>
+        </div>
+        {optionQueryDiagnostics.length > 0 ? (
+          <ul className="text-sm text-danger">
+            {optionQueryDiagnostics.map((diagnostic) => (
+              <li key={diagnostic}>{diagnostic}</li>
+            ))}
+          </ul>
+        ) : null}
+        <Stack gap={4}>
+          {form.optionQueries.map((query, index) => (
+            <Stack key={query.id} gap={3}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h4 className="text-sm font-semibold text-foreground">
+                  {query.displayName.trim() || query.queryKind.trim() || `Option Query ${index + 1}`}
+                </h4>
+                <Inline gap={2}>
+                  <Button
+                    size="sm"
+                    tone="secondary"
+                    disabled={!editable || index === 0}
+                    onClick={() => setOptionQueries(moveItem(form.optionQueries, index, index - 1))}
+                  >
+                    Up
+                  </Button>
+                  <Button
+                    size="sm"
+                    tone="secondary"
+                    disabled={!editable || index === form.optionQueries.length - 1}
+                    onClick={() => setOptionQueries(moveItem(form.optionQueries, index, index + 1))}
+                  >
+                    Down
+                  </Button>
+                  <Button
+                    size="sm"
+                    tone="danger"
+                    disabled={!editable}
+                    onClick={() =>
+                      setOptionQueries(form.optionQueries.filter((candidate) => candidate.id !== query.id))
+                    }
+                  >
+                    Remove
+                  </Button>
+                </Inline>
+              </div>
+              <Inline gap={3}>
+                <TextInput
+                  label="Query kind"
+                  value={query.queryKind}
+                  disabled={!editable}
+                  required
+                  onChange={(event) => setOptionQuery(query.id, { queryKind: event.currentTarget.value })}
+                />
+                <TextInput
+                  label="Aliases"
+                  description="Comma or line separated."
+                  value={query.aliasesText}
+                  disabled={!editable}
+                  onChange={(event) => setOptionQuery(query.id, { aliasesText: event.currentTarget.value })}
+                />
+                <TextInput
+                  label="Option display name"
+                  value={query.displayName}
+                  disabled={!editable}
+                  required
+                  onChange={(event) => setOptionQuery(query.id, { displayName: event.currentTarget.value })}
+                />
+              </Inline>
+              <Inline gap={3}>
+                <Select
+                  label="Scope"
+                  value={query.scope}
+                  disabled={!editable}
+                  items={OPTION_QUERY_SCOPE_OPTIONS.filter((item) => item.value !== "__none__")}
+                  onValueChange={(value) => setOptionQuery(query.id, { scope: value })}
+                />
+                <Select
+                  label="Parent scope"
+                  value={query.parentScope}
+                  disabled={!editable}
+                  items={OPTION_QUERY_SCOPE_OPTIONS}
+                  onValueChange={(value) =>
+                    setOptionQuery(query.id, {
+                      parentScope: value,
+                      parentRequired: value === "__none__" ? false : query.parentRequired,
+                    })
+                  }
+                />
+                <Select
+                  label="Operation"
+                  value={query.operation}
+                  disabled={!editable}
+                  items={OPTION_QUERY_OPERATION_OPTIONS}
+                  onValueChange={(value) => setOptionQuery(query.id, { operation: value })}
+                />
+              </Inline>
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={query.parentRequired}
+                  disabled={!editable || query.parentScope === "__none__"}
+                  onChange={() => setOptionQuery(query.id, { parentRequired: !query.parentRequired })}
+                  className="h-4 w-4 rounded border-border accent-accent"
+                />
+                <span>Parent value required</span>
+              </label>
+              {query.parentScope !== "__none__" ? (
+                <Inline gap={3}>
+                  <TextInput
+                    label="Parent value kind"
+                    value={query.parentValueKind}
+                    disabled={!editable}
+                    onChange={(event) => setOptionQuery(query.id, { parentValueKind: event.currentTarget.value })}
+                  />
+                  <TextInput
+                    label="Parent diagnostic"
+                    value={query.parentDiagnosticText}
+                    disabled={!editable}
+                    onChange={(event) => setOptionQuery(query.id, { parentDiagnosticText: event.currentTarget.value })}
+                  />
+                </Inline>
+              ) : null}
+              <Inline gap={3}>
+                <TextInput
+                  label="Value path"
+                  value={query.valuePath}
+                  disabled={!editable}
+                  required
+                  onChange={(event) => setOptionQuery(query.id, { valuePath: event.currentTarget.value })}
+                />
+                <TextInput
+                  label="Label path"
+                  value={query.labelPath}
+                  disabled={!editable}
+                  required
+                  onChange={(event) => setOptionQuery(query.id, { labelPath: event.currentTarget.value })}
+                />
+                <TextInput
+                  label="Parent value path"
+                  value={query.parentValuePath}
+                  disabled={!editable}
+                  onChange={(event) => setOptionQuery(query.id, { parentValuePath: event.currentTarget.value })}
+                />
+              </Inline>
+              <Inline gap={3}>
+                <Select
+                  label="Description"
+                  value={query.descriptionKind}
+                  disabled={!editable}
+                  items={OPTION_QUERY_DESCRIPTION_KIND_OPTIONS}
+                  onValueChange={(value) => setOptionQuery(query.id, { descriptionKind: value })}
+                />
+                {query.descriptionKind === "path" ? (
+                  <TextInput
+                    label="Description path"
+                    value={query.descriptionPath}
+                    disabled={!editable}
+                    onChange={(event) => setOptionQuery(query.id, { descriptionPath: event.currentTarget.value })}
+                  />
+                ) : null}
+                <TextInput
+                  label="Image URL path"
+                  value={query.imageUrlPath}
+                  disabled={!editable}
+                  onChange={(event) => setOptionQuery(query.id, { imageUrlPath: event.currentTarget.value })}
+                />
+              </Inline>
+              <Textarea
+                label="Image URL coalesce paths"
+                description="Comma or line separated paths."
+                value={query.imageUrlCoalescePathsText}
+                disabled={!editable}
+                rows={2}
+                onChange={(event) => setOptionQuery(query.id, { imageUrlCoalescePathsText: event.currentTarget.value })}
+              />
+              <Textarea
+                label="Metadata paths"
+                description="One key=path mapping per line."
+                value={query.metadataPathsText}
+                disabled={!editable}
+                rows={4}
+                onChange={(event) => setOptionQuery(query.id, { metadataPathsText: event.currentTarget.value })}
+              />
+            </Stack>
+          ))}
+        </Stack>
       </Stack>
 
       {profile.validation.diagnostics.length > 0 ? (
@@ -2363,6 +2619,10 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
     typeof retirementPlanObject?.trackingIssue === "number" ? String(retirementPlanObject.trackingIssue) : "";
   const diagnosticText =
     typeof retirementPlanObject?.diagnosticText === "string" ? retirementPlanObject.diagnosticText : "";
+  const optionQueries =
+    isRecord(profile.profile) && Array.isArray(profile.profile.optionQueries)
+      ? profile.profile.optionQueries.map(profileOptionQueryForm)
+      : [];
 
   return {
     displayName: profile.displayName,
@@ -2387,6 +2647,7 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
       trackingIssueText: trackingIssue,
       diagnosticText,
     },
+    optionQueries,
   };
 }
 
@@ -2409,8 +2670,9 @@ function profileBasicsSaveDisabled(
   }
 
   return (
-    form.retirementPlan.enabled &&
-    (!positiveIntegerText(form.retirementPlan.trackingIssueText) || !form.retirementPlan.diagnosticText.trim())
+    (form.retirementPlan.enabled &&
+      (!positiveIntegerText(form.retirementPlan.trackingIssueText) || !form.retirementPlan.diagnosticText.trim())) ||
+    validateOptionQueryForms(form.optionQueries).length > 0
   );
 }
 
@@ -2430,12 +2692,188 @@ function nullableTrimmedValue(value: string): string | null {
   return trimmed.length === 0 ? null : trimmed;
 }
 
+function profileOptionQueryForm(value: unknown, index: number): ProfileOptionQueryForm {
+  const query = isRecord(value) ? value : {};
+  const output = isRecord(query.output) ? query.output : {};
+  const parentValue = isRecord(query.parentValue) ? query.parentValue : null;
+  const description = isRecord(output.description) ? output.description : null;
+
+  return {
+    id: `${stringValue(query.queryKind) || "query"}-${index}`,
+    queryKind: stringValue(query.queryKind),
+    aliasesText: arrayText(query.aliases),
+    displayName: stringValue(query.displayName),
+    scope: stringValue(query.scope) || "product/card",
+    parentScope: stringValue(query.parentScope) || "__none__",
+    parentRequired: parentValue?.required === true,
+    parentValueKind: stringValue(parentValue?.valueKind),
+    parentDiagnosticText: stringValue(parentValue?.diagnosticText),
+    operation: stringValue(query.operation) || OPTION_QUERY_OPERATION_OPTIONS[0].value,
+    valuePath: stringValue(output.valuePath),
+    labelPath: stringValue(output.labelPath),
+    descriptionKind: stringValue(description?.kind) || "__none__",
+    descriptionPath: stringValue(description?.path),
+    parentValuePath: stringValue(output.parentValuePath),
+    imageUrlPath: stringValue(output.imageUrlPath),
+    imageUrlCoalescePathsText: arrayText(output.imageUrlCoalescePaths),
+    metadataPathsText: metadataPathsText(output.metadataPaths),
+  };
+}
+
+function emptyOptionQueryForm(): ProfileOptionQueryForm {
+  return {
+    id: `new-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    queryKind: "",
+    aliasesText: "",
+    displayName: "",
+    scope: "product/card",
+    parentScope: "__none__",
+    parentRequired: false,
+    parentValueKind: "",
+    parentDiagnosticText: "",
+    operation: OPTION_QUERY_OPERATION_OPTIONS[0].value,
+    valuePath: "",
+    labelPath: "",
+    descriptionKind: "__none__",
+    descriptionPath: "",
+    parentValuePath: "",
+    imageUrlPath: "",
+    imageUrlCoalescePathsText: "",
+    metadataPathsText: "",
+  };
+}
+
+function optionQueryFormToCommand(
+  query: ProfileOptionQueryForm,
+): CatalogProviderProfileProviderOptionsUpdateCommand["optionQueries"][number] {
+  const output: CatalogProviderProfileProviderOptionsUpdateCommand["optionQueries"][number]["output"] = {
+    valuePath: query.valuePath.trim(),
+    labelPath: query.labelPath.trim(),
+    metadataPaths: metadataPathsObject(query.metadataPathsText),
+  };
+  const parentValuePath = nullableTrimmedValue(query.parentValuePath);
+  const imageUrlPath = nullableTrimmedValue(query.imageUrlPath);
+  const imageUrlCoalescePaths = parseListInput(query.imageUrlCoalescePathsText);
+  if (parentValuePath) {
+    output.parentValuePath = parentValuePath;
+  }
+  if (imageUrlPath) {
+    output.imageUrlPath = imageUrlPath;
+  }
+  if (imageUrlCoalescePaths.length > 0) {
+    output.imageUrlCoalescePaths = imageUrlCoalescePaths;
+  }
+  if (query.descriptionKind === "path" && query.descriptionPath.trim()) {
+    output.description = { kind: "path", path: query.descriptionPath.trim() };
+  } else if (query.descriptionKind !== "__none__" && query.descriptionKind !== "path") {
+    output.description = { kind: query.descriptionKind };
+  }
+
+  const command: CatalogProviderProfileProviderOptionsUpdateCommand["optionQueries"][number] = {
+    queryKind: query.queryKind.trim(),
+    displayName: query.displayName.trim(),
+    scope: query.scope,
+    parentScope: query.parentScope === "__none__" ? null : query.parentScope,
+    operation: query.operation,
+    output,
+  };
+  const aliases = parseListInput(query.aliasesText);
+  if (aliases.length > 0) {
+    command.aliases = aliases;
+  }
+  if (query.parentScope !== "__none__") {
+    command.parentValue = {
+      required: query.parentRequired,
+      valueKind: query.parentValueKind.trim(),
+      diagnosticText: query.parentDiagnosticText.trim(),
+    };
+  }
+
+  return command;
+}
+
+function validateOptionQueryForms(queries: readonly ProfileOptionQueryForm[]): string[] {
+  const diagnostics: string[] = [];
+  const seenKeys = new Set<string>();
+
+  queries.forEach((query, index) => {
+    const label = query.displayName.trim() || query.queryKind.trim() || `Option query ${index + 1}`;
+    if (!query.queryKind.trim()) {
+      diagnostics.push(`${label}: query kind is required.`);
+    }
+    if (!query.displayName.trim()) {
+      diagnostics.push(`${label}: display name is required.`);
+    }
+    if (!query.valuePath.trim() || !query.labelPath.trim()) {
+      diagnostics.push(`${label}: value path and label path are required.`);
+    }
+    if (query.descriptionKind === "path" && !query.descriptionPath.trim()) {
+      diagnostics.push(`${label}: description path is required when description uses a path.`);
+    }
+    if (query.parentScope !== "__none__" && (!query.parentValueKind.trim() || !query.parentDiagnosticText.trim())) {
+      diagnostics.push(`${label}: parent value kind and diagnostic are required when a parent scope is selected.`);
+    }
+
+    for (const key of [query.queryKind, ...parseListInput(query.aliasesText)]) {
+      const normalized = key.trim().toLowerCase();
+      if (!normalized) {
+        continue;
+      }
+      if (seenKeys.has(normalized)) {
+        diagnostics.push(`${label}: query kind and aliases must be unique.`);
+        break;
+      }
+      seenKeys.add(normalized);
+    }
+  });
+
+  return diagnostics;
+}
+
+function metadataPathsText(value: unknown): string {
+  if (!isRecord(value)) {
+    return "";
+  }
+  return Object.entries(value)
+    .map(([key, path]) => `${key}=${String(path)}`)
+    .join("\n");
+}
+
+function metadataPathsObject(value: string): Record<string, string> {
+  return Object.fromEntries(
+    value
+      .split(/\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const [key, ...pathParts] = entry.split("=");
+        return [key.trim(), pathParts.join("=").trim()];
+      })
+      .filter(([key, path]) => key.length > 0 && path.length > 0),
+  );
+}
+
+function arrayText(value: unknown): string {
+  return Array.isArray(value) ? value.map(String).join("\n") : "";
+}
+
+function stringValue(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function toggleStringSelection(selected: readonly string[], option: string): readonly string[] {
   return selected.includes(option) ? selected.filter((entry) => entry !== option) : [...selected, option];
+}
+
+function moveItem<T>(items: readonly T[], fromIndex: number, toIndex: number): readonly T[] {
+  const nextItems = [...items];
+  const [item] = nextItems.splice(fromIndex, 1);
+  nextItems.splice(toIndex, 0, item);
+  return nextItems;
 }
 
 function dryRunFixtureItems(model: CatalogProviderProfileAuthoringModel): SelectItem[] {
