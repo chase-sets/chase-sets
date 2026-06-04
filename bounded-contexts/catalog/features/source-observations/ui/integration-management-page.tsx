@@ -55,6 +55,7 @@ import type {
   CatalogProviderProfileSelectedOptionsUpdateCommand,
   CatalogProviderProfileSourceContractUpdateCommand,
   CatalogProviderProfileVersionReview,
+  BulkSourceObservationPromotionResult,
   SourceObservationIntegrationOption,
   SourceObservationIntegrationJobOutcome,
   SourceObservationIntegrationJobResult,
@@ -106,6 +107,11 @@ type LastIntegrationJobResultSummary = {
   action: "import" | "reapply";
   scope: SourceObservationIntegrationJobScope;
   result: SourceObservationIntegrationJobResult;
+};
+
+type LastPromotionResultSummary = {
+  scope: SourceObservationPromotionScope;
+  result: BulkSourceObservationPromotionResult;
 };
 
 type IntegrationFailureGroup = {
@@ -559,6 +565,7 @@ export function IntegrationManagementPage({
   const [previewingPromoteAll, setPreviewingPromoteAll] = useState(false);
   const [promoteAllRunning, setPromoteAllRunning] = useState(false);
   const [promoteAllProgress, setPromoteAllProgress] = useState<CatalogBulkActionProgress | null>(null);
+  const [lastPromotionResult, setLastPromotionResult] = useState<LastPromotionResultSummary | null>(null);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const activeIntegrationJobs = useActiveSourceObservationIntegrationJobs();
   const profileWorkspaceItems = useMemo(() => buildProfileWorkspaceItems(profileRows), [profileRows]);
@@ -1265,6 +1272,7 @@ export function IntegrationManagementPage({
         }),
         result.failed > 0 ? "warning" : "success",
       );
+      setLastPromotionResult({ scope: promoteAllScope, result });
       setShowPromoteAll(false);
       setPromoteAllPreview(null);
       revalidator.revalidate();
@@ -1378,6 +1386,7 @@ export function IntegrationManagementPage({
         />
 
         {lastIntegrationJobResult ? <IntegrationJobResultSummary summary={lastIntegrationJobResult} /> : null}
+        {lastPromotionResult ? <PromotionResultSummary summary={lastPromotionResult} /> : null}
 
         <FilterBar sticky={false}>
           <Select
@@ -2740,6 +2749,29 @@ function IntegrationJobResultSummary({ summary }: Readonly<{ summary: LastIntegr
         emptyTitle="No grouped failures"
         density="compact"
       />
+    </Stack>
+  );
+}
+
+function PromotionResultSummary({ summary }: Readonly<{ summary: LastPromotionResultSummary }>) {
+  const reviewHref = sourceObservationPromotionScopeHref(summary.scope);
+
+  return (
+    <Stack gap={3}>
+      <Cluster gap={3} align="center" justify="between">
+        <h3>Last Promotion Result</h3>
+        <LinkButton href={reviewHref} size="sm" tone="secondary">
+          Review Matching Observations
+        </LinkButton>
+      </Cluster>
+      <KeyValueList items={[{ key: "Scope", value: formatPromotionScope(summary.scope) }]} />
+      <StatGrid columns={{ base: 2, md: 5 }}>
+        <Stat label="Requested" value={formatCount(summary.result.requested)} />
+        <Stat label="Promoted" value={formatCount(summary.result.promoted)} />
+        <Stat label="Rejected" value={formatCount(summary.result.rejected ?? 0)} />
+        <Stat label="Skipped" value={formatCount(summary.result.skipped)} />
+        <Stat label="Failed" value={formatCount(summary.result.failed)} />
+      </StatGrid>
     </Stack>
   );
 }
@@ -7312,6 +7344,25 @@ function sourceObservationOutcomeHref(outcome: SourceObservationIntegrationJobOu
   });
 }
 
+function sourceObservationPromotionScopeHref(scope: SourceObservationPromotionScope) {
+  const params = new URLSearchParams();
+
+  if (scope.provider) {
+    params.set("source", scope.provider);
+  }
+
+  if (scope.language) {
+    params.set("language", scope.language);
+  }
+
+  if (scope.setId) {
+    params.set("setId", scope.setId);
+  }
+
+  const query = params.toString();
+  return query ? `/catalog/source-observations?${query}` : "/catalog/source-observations";
+}
+
 function positiveIntegerText(value: string): boolean {
   return /^[1-9]\d*$/.test(value.trim());
 }
@@ -7402,6 +7453,16 @@ function formatReapplyScope(scope: Required<SourceObservationPromotionScope>): s
   return parts.length > 0
     ? parts.join(", ")
     : t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.all");
+}
+
+function formatPromotionScope(scope: SourceObservationPromotionScope): string {
+  return formatReapplyScope({
+    search: scope.search ?? "",
+    status: scope.status ?? "",
+    provider: scope.provider ?? "",
+    language: scope.language ?? "",
+    setId: scope.setId ?? "",
+  });
 }
 
 function formatIntegrationJobScope(scope: SourceObservationIntegrationJobScope): string {

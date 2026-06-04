@@ -2213,6 +2213,12 @@ describe("IntegrationManagementPage", () => {
         { onProgress: expect.any(Function) },
       ),
     );
+    expect(await screen.findByText("Last Promotion Result")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Review Matching Observations" }).getAttribute("href")).toBe(
+      "/catalog/source-observations?source=tcgdex&language=en&setId=base1",
+    );
+    expect(screen.getAllByText("Promoted").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("100").length).toBeGreaterThan(0);
     expect(mockRevalidate).toHaveBeenCalled();
   });
 
