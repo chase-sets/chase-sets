@@ -4,7 +4,7 @@ import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { controlIconButtonSizeClasses } from "../control-sizing";
-import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
+import { FieldChrome, compoundControlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface AutocompleteItem {
   value: string;
@@ -63,9 +63,9 @@ export function Autocomplete({
       >
         <AutocompletePrimitive.InputGroup
           className={cx(
-            controlClass,
+            compoundControlClass,
             !!error && controlErrorClass,
-            "inline-flex items-center justify-between gap-2 p-0",
+            "inline-flex items-center justify-between gap-2",
           )}
         >
           <AutocompletePrimitive.Input
@@ -74,11 +74,11 @@ export function Autocomplete({
             aria-controls={listboxId}
             aria-describedby={error || description ? fieldHintId(inputId) : undefined}
             aria-invalid={!!error || undefined}
-            className="min-w-0 flex-1 self-stretch bg-transparent px-[var(--control-md-px)] py-[var(--control-md-py)] outline-none"
+            className="min-w-0 flex-1 self-stretch bg-transparent px-[var(--control-md-px)] py-0 outline-none"
           />
           <AutocompletePrimitive.Trigger
             className={cx(
-              "focus-ring mr-[var(--control-compound-inset)] inline-flex items-center justify-center rounded-tokenSm",
+              "focus-ring inline-flex items-center justify-center rounded-tokenSm",
               controlIconButtonSizeClasses.md,
             )}
           >

@@ -2,8 +2,8 @@ import { useId } from "react";
 import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { compoundControlInsetClass, controlIconButtonSizeClasses } from "../control-sizing";
-import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
+import { controlIconButtonSizeClasses } from "../control-sizing";
+import { FieldChrome, compoundControlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
 
 export interface NumberFieldProps extends BaseInputProps {
   value?: number | null;
@@ -64,10 +64,9 @@ export function NumberField({
       >
         <NumberFieldPrimitive.Group
           className={cx(
-            controlClass,
+            compoundControlClass,
             !!error && controlErrorClass,
             "grid grid-cols-[var(--control-md-icon-size)_minmax(0,1fr)_var(--control-md-icon-size)] items-center gap-1",
-            compoundControlInsetClass,
           )}
         >
           <NumberFieldPrimitive.Decrement

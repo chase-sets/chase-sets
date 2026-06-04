@@ -370,6 +370,24 @@ describe("design system", () => {
     expect(markup).toContain("px-[var(--control-md-px)]");
   });
 
+  it("uses inset-only shells for compound controls", () => {
+    const markup = renderToString(
+      <ChaseRoot>
+        <div>
+          <Combobox label="Combobox" items={[{ value: "one", label: "One" }]} />
+          <Autocomplete label="Autocomplete" items={[{ value: "one", label: "One" }]} />
+          <NumberField label="Number" />
+          <TagInput label="Tags" values={[]} />
+        </div>
+      </ChaseRoot>,
+    );
+
+    expect(markup).toContain("p-[var(--control-compound-inset)]");
+    expect(markup).toContain("py-0");
+    expect(markup).not.toContain(" p-0");
+    expect(markup).not.toContain("py-[var(--control-md-py)]");
+  });
+
   it("closes dialogs with Escape and backdrop interaction", async () => {
     const { unmount } = render(<DialogInteractionHarness title="Escape dialog" />);
 
