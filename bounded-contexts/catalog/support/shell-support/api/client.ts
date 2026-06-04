@@ -1089,6 +1089,25 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async updateSourceObservationProviderProfileSection<T>(
+      providerKey: string,
+      profileVersion: string,
+      section: string,
+      command: unknown,
+    ): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/sections/${encodeURIComponent(section)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({ command }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async dryRunSourceObservationProviderProfile<T>(
       providerKey: string,
       profileVersion: string,

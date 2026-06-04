@@ -13,6 +13,7 @@ import {
   activateCatalogProviderProfileVersionForReview,
   cloneCatalogProviderProfileVersionForReview,
   updateCatalogProviderProfileVersionForReview,
+  updateCatalogProviderProfileSectionForReview,
   dryRunCatalogProviderProfileVersion,
   listCatalogProviderProfileVersionReviews,
   retireCatalogProviderProfileVersionForReview,
@@ -153,6 +154,58 @@ describe("Catalog provider profile review", () => {
       active: true,
       lifecycle: "active",
     });
+  });
+
+  it("updates profile basics through typed section commands", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      command: {
+        section: "basics",
+        lifecycle: "test",
+        displayName: "TCGdex Authoring Candidate",
+        status: "planned",
+        compatibilityMode: "transitional-static-profile",
+        capabilities: ["provider-option-query"],
+        supportedScopes: ["language", "expansion"],
+        languageOptions: ["en", "fr"],
+      },
+    });
+
+    expect(review).toMatchObject({
+      displayName: "TCGdex Authoring Candidate",
+      lifecycle: "test",
+      status: "planned",
+      compatibilityMode: "transitional-static-profile",
+      capabilities: ["provider-option-query"],
+      supportedScopes: ["language", "expansion"],
+      languageOptions: ["en", "fr"],
+      executableMappingContract: {
+        displayName: "TCGdex Authoring Candidate",
+        lifecycle: "test",
+      },
+    });
+  });
+
+  it("rejects fixture section commands that allow live provider calls", async () => {
+    await expect(
+      updateCatalogProviderProfileSectionForReview({
+        store: mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]),
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        command: {
+          section: "fixtures",
+          fixtures: {
+            fixtureRoot: "bounded-contexts/catalog/fixtures/source-observations/tcgdex",
+            coveredFlows: ["normal"],
+            liveProviderCallsAllowed: true as false,
+          },
+        },
+      }),
+    ).rejects.toThrow("fixtures.liveProviderCallsAllowed must remain false.");
   });
 
   it("blocks activation when fixture harness validation fails", async () => {

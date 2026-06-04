@@ -3,15 +3,22 @@ import path from "node:path";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type {
   CatalogProviderIntegrationProfileAuthoringAudit,
+  CatalogProviderCapability,
+  CatalogProviderIntegrationProfile,
+  CatalogProviderIntegrationProfileCompatibilityMode,
   CatalogProviderIntegrationProfileMigrationEvidence,
+  CatalogProviderIntegrationProfileRetirementPlan,
   CatalogProviderIntegrationProfileVersionDiagnostic,
   CatalogProviderIntegrationProfileVersionRecord,
+  CatalogProviderScope,
 } from "./provider-integration-profiles";
 import { validateCatalogProviderIntegrationProfileVersion } from "./provider-integration-profiles";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import type {
   CatalogProviderExecutableMappingContract,
+  CatalogProviderMappingSourceContract,
   CatalogProviderMappingValueExpression,
+  CatalogProviderProfileFixtureContract,
 } from "./provider-integration-mapping-contract";
 import { evaluateCatalogProviderMappingExpression } from "./provider-mapping-interpreter";
 import type { CatalogProviderMappingInterpreterDiagnostic } from "./provider-mapping-interpreter";
@@ -91,6 +98,58 @@ export type CatalogProviderProfileVersionUpdatePatch = Readonly<{
   executableMappingContract?: CatalogProviderIntegrationProfileVersionRecord["executableMappingContract"] | null;
   migrationEvidence?: CatalogProviderIntegrationProfileMigrationEvidence | null;
 }>;
+
+export type CatalogProviderProfileEditableSectionKey =
+  | "basics"
+  | "source-contract"
+  | "fixtures"
+  | "retirement-plan"
+  | "migration-evidence";
+
+export type CatalogProviderProfileBasicsUpdateCommand = Readonly<{
+  section: "basics";
+  lifecycle?: "draft" | "test";
+  displayName?: string;
+  status?: CatalogProviderIntegrationProfile["status"];
+  compatibilityMode?: CatalogProviderIntegrationProfileCompatibilityMode;
+  capabilities?: readonly CatalogProviderCapability[];
+  supportedScopes?: readonly CatalogProviderScope[];
+  languageOptions?: readonly string[];
+}>;
+
+export type CatalogProviderProfileSourceContractUpdateCommand = Readonly<{
+  section: "source-contract";
+  sourceContract: CatalogProviderMappingSourceContract;
+}>;
+
+export type CatalogProviderProfileFixturesUpdateCommand = Readonly<{
+  section: "fixtures";
+  fixtures: CatalogProviderProfileFixtureContract;
+}>;
+
+export type CatalogProviderProfileRetirementPlanUpdateCommand = Readonly<{
+  section: "retirement-plan";
+  retirementPlan: CatalogProviderIntegrationProfileRetirementPlan | null;
+}>;
+
+export type CatalogProviderProfileMigrationEvidenceUpdateCommand = Readonly<{
+  section: "migration-evidence";
+  migrationEvidence: CatalogProviderIntegrationProfileMigrationEvidence | null;
+}>;
+
+export type CatalogProviderProfileSectionUpdateCommand =
+  | CatalogProviderProfileBasicsUpdateCommand
+  | CatalogProviderProfileSourceContractUpdateCommand
+  | CatalogProviderProfileFixturesUpdateCommand
+  | CatalogProviderProfileRetirementPlanUpdateCommand
+  | CatalogProviderProfileMigrationEvidenceUpdateCommand;
+
+export class CatalogProviderProfileSectionValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "CatalogProviderProfileSectionValidationError";
+  }
+}
 
 export type CatalogProviderProfileDryRunEvidence = Readonly<{
   path: string;
@@ -341,6 +400,24 @@ export async function updateCatalogProviderProfileVersionForReview(input: {
   return toProfileVersionReview(saved);
 }
 
+export async function updateCatalogProviderProfileSectionForReview(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  providerKey: string;
+  profileVersion: string;
+  command: CatalogProviderProfileSectionUpdateCommand;
+  audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
+}): Promise<CatalogProviderProfileVersionReview> {
+  const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const patch = toProfileSectionPatch(existing, input.command);
+  return updateCatalogProviderProfileVersionForReview({
+    store: input.store,
+    providerKey: input.providerKey,
+    profileVersion: input.profileVersion,
+    patch,
+    audit: input.audit,
+  });
+}
+
 export async function rollbackCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
@@ -381,6 +458,60 @@ export async function retireCatalogProviderProfileVersionForReview(input: {
     authoringAudit: mergeAuthoringAudit(existing.authoringAudit ?? null, input.audit),
   });
   return toProfileVersionReview(retired);
+}
+
+function toProfileSectionPatch(
+  existing: CatalogProviderIntegrationProfileVersionRecord,
+  command: CatalogProviderProfileSectionUpdateCommand,
+): CatalogProviderProfileVersionUpdatePatch {
+  assertProfileSectionCommand(command);
+
+  switch (command.section) {
+    case "basics":
+      return {
+        lifecycle: command.lifecycle,
+        compatibilityMode: command.compatibilityMode,
+        profile: {
+          ...existing.profile,
+          displayName: command.displayName ?? existing.profile.displayName,
+          status: command.status ?? existing.profile.status,
+          capabilities: command.capabilities ?? existing.profile.capabilities,
+          supportedScopes: command.supportedScopes ?? existing.profile.supportedScopes,
+          languageOptions: command.languageOptions ?? existing.profile.languageOptions,
+        },
+        executableMappingContract: existing.executableMappingContract
+          ? {
+              ...existing.executableMappingContract,
+              displayName: command.displayName ?? existing.executableMappingContract.displayName,
+              lifecycle: command.lifecycle ?? existing.lifecycle,
+            }
+          : undefined,
+      };
+    case "source-contract":
+      return {
+        sourceContract: command.sourceContract,
+        executableMappingContract: existing.executableMappingContract
+          ? {
+              ...existing.executableMappingContract,
+              sourceContract: command.sourceContract,
+            }
+          : undefined,
+      };
+    case "fixtures":
+      return {
+        fixtures: command.fixtures,
+        executableMappingContract: existing.executableMappingContract
+          ? {
+              ...existing.executableMappingContract,
+              fixtures: command.fixtures,
+            }
+          : undefined,
+      };
+    case "retirement-plan":
+      return { retirementPlan: command.retirementPlan };
+    case "migration-evidence":
+      return { migrationEvidence: command.migrationEvidence };
+  }
 }
 
 function toProfileVersionReview(
@@ -446,6 +577,120 @@ function assertMutableLifecycle(lifecycle: CatalogProviderIntegrationProfileVers
   if (lifecycle !== "draft" && lifecycle !== "test") {
     throw new Error(`Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`);
   }
+}
+
+function assertProfileSectionCommand(command: CatalogProviderProfileSectionUpdateCommand): void {
+  if (!isJsonObject(command)) {
+    throw new CatalogProviderProfileSectionValidationError("Profile section update command must be a JSON object.");
+  }
+
+  switch (command.section) {
+    case "basics":
+      assertOptionalString(command.displayName, "displayName");
+      assertOptionalEnum(command.status, ["active", "planned"], "status");
+      assertOptionalEnum(command.lifecycle, ["draft", "test"], "lifecycle");
+      assertOptionalEnum(
+        command.compatibilityMode,
+        ["executable-mapping-contract", "transitional-static-profile"],
+        "compatibilityMode",
+      );
+      assertOptionalStringArray(command.capabilities, "capabilities");
+      assertOptionalStringArray(command.supportedScopes, "supportedScopes");
+      assertOptionalStringArray(command.languageOptions, "languageOptions");
+      break;
+    case "source-contract":
+      assertSourceContract(command.sourceContract);
+      break;
+    case "fixtures":
+      assertFixtureContract(command.fixtures);
+      break;
+    case "retirement-plan":
+      if (command.retirementPlan !== null) {
+        assertRetirementPlan(command.retirementPlan);
+      }
+      break;
+    case "migration-evidence":
+      if (command.migrationEvidence !== null) {
+        assertMigrationEvidence(command.migrationEvidence);
+      }
+      break;
+    default:
+      throw new CatalogProviderProfileSectionValidationError("Unsupported profile section update command.");
+  }
+}
+
+function assertOptionalString(value: unknown, path: string): void {
+  if (value !== undefined && typeof value !== "string") {
+    throw new CatalogProviderProfileSectionValidationError(`${path} must be a string when provided.`);
+  }
+}
+
+function assertOptionalStringArray(value: unknown, path: string): void {
+  if (value === undefined) {
+    return;
+  }
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
+    throw new CatalogProviderProfileSectionValidationError(`${path} must be an array of strings when provided.`);
+  }
+}
+
+function assertOptionalEnum(value: unknown, allowed: readonly string[], path: string): void {
+  if (value !== undefined && (typeof value !== "string" || !allowed.includes(value))) {
+    throw new CatalogProviderProfileSectionValidationError(`${path} is not a supported value.`);
+  }
+}
+
+function assertRequiredString(value: unknown, path: string): void {
+  if (typeof value !== "string" || value.trim().length === 0) {
+    throw new CatalogProviderProfileSectionValidationError(`${path} must be a non-empty string.`);
+  }
+}
+
+function assertSourceContract(value: CatalogProviderMappingSourceContract): void {
+  if (!isJsonObject(value)) {
+    throw new CatalogProviderProfileSectionValidationError("sourceContract must be a JSON object.");
+  }
+  assertRequiredString(value.owner, "sourceContract.owner");
+  if (value.repository !== null && typeof value.repository !== "string") {
+    throw new CatalogProviderProfileSectionValidationError("sourceContract.repository must be a string or null.");
+  }
+  if (value.commit !== null && typeof value.commit !== "string") {
+    throw new CatalogProviderProfileSectionValidationError("sourceContract.commit must be a string or null.");
+  }
+  assertRequiredString(value.documentPath, "sourceContract.documentPath");
+  assertRequiredString(value.fixtureSetVersion, "sourceContract.fixtureSetVersion");
+}
+
+function assertFixtureContract(value: CatalogProviderProfileFixtureContract): void {
+  if (!isJsonObject(value)) {
+    throw new CatalogProviderProfileSectionValidationError("fixtures must be a JSON object.");
+  }
+  assertRequiredString(value.fixtureRoot, "fixtures.fixtureRoot");
+  assertOptionalStringArray(value.coveredFlows, "fixtures.coveredFlows");
+  if (value.liveProviderCallsAllowed !== false) {
+    throw new CatalogProviderProfileSectionValidationError("fixtures.liveProviderCallsAllowed must remain false.");
+  }
+}
+
+function assertRetirementPlan(value: CatalogProviderIntegrationProfileRetirementPlan): void {
+  if (!isJsonObject(value)) {
+    throw new CatalogProviderProfileSectionValidationError("retirementPlan must be a JSON object or null.");
+  }
+  if (typeof value.trackingIssue !== "number") {
+    throw new CatalogProviderProfileSectionValidationError("retirementPlan.trackingIssue must be a number.");
+  }
+  if (value.removeAfter !== "executable-mapping-contract-activated") {
+    throw new CatalogProviderProfileSectionValidationError("retirementPlan.removeAfter is not supported.");
+  }
+  assertRequiredString(value.diagnosticText, "retirementPlan.diagnosticText");
+}
+
+function assertMigrationEvidence(value: CatalogProviderIntegrationProfileMigrationEvidence): void {
+  if (!isJsonObject(value)) {
+    throw new CatalogProviderProfileSectionValidationError("migrationEvidence must be a JSON object or null.");
+  }
+  assertRequiredString(value.evidenceText, "migrationEvidence.evidenceText");
+  assertRequiredString(value.recordedAt, "migrationEvidence.recordedAt");
 }
 
 function assertProfileVersionIdentity(

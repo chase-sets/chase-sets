@@ -118,6 +118,34 @@ data: ${JSON.stringify(jobSnapshot({ status: "completed", result: completedResul
     );
   });
 
+  it("updates source observation provider profile sections through the typed admin route", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(
+      new Response(JSON.stringify({ providerKey: "tcgdex", profileVersion: "2026.06.04" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const client = createCatalogApiClient({ baseUrl: "/api/catalog", fetch });
+
+    await expect(
+      client.updateSourceObservationProviderProfileSection("tcgdex", "2026.06.04", "basics", {
+        displayName: "TCGdex Admin Candidate",
+      }),
+    ).resolves.toEqual({ providerKey: "tcgdex", profileVersion: "2026.06.04" });
+
+    expect(String(fetch.mock.calls[0][0])).toBe(
+      "/api/catalog/source-observations/provider-profiles/tcgdex/2026.06.04/sections/basics",
+    );
+    expect(fetch.mock.calls[0][1]?.method).toBe("PATCH");
+    expect(fetch.mock.calls[0][1]?.body).toBe(
+      JSON.stringify({
+        command: {
+          displayName: "TCGdex Admin Candidate",
+        },
+      }),
+    );
+  });
+
   it("retries retryable durable job stream overload responses", async () => {
     const completedResult = {
       requested: 1,

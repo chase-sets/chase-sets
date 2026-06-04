@@ -155,6 +155,51 @@ export interface CatalogProviderProfileVersionReview {
   };
 }
 
+export type CatalogProviderProfileEditableSectionKey =
+  | "basics"
+  | "source-contract"
+  | "fixtures"
+  | "retirement-plan"
+  | "migration-evidence";
+
+export interface CatalogProviderProfileBasicsUpdateCommand {
+  section: "basics";
+  lifecycle?: "draft" | "test";
+  displayName?: string;
+  status?: "active" | "planned";
+  compatibilityMode?: "executable-mapping-contract" | "transitional-static-profile";
+  capabilities?: string[];
+  supportedScopes?: string[];
+  languageOptions?: string[];
+}
+
+export interface CatalogProviderProfileSourceContractUpdateCommand {
+  section: "source-contract";
+  sourceContract: CatalogProviderProfileVersionReview["sourceContract"];
+}
+
+export interface CatalogProviderProfileFixturesUpdateCommand {
+  section: "fixtures";
+  fixtures: CatalogProviderProfileVersionReview["fixtures"];
+}
+
+export interface CatalogProviderProfileRetirementPlanUpdateCommand {
+  section: "retirement-plan";
+  retirementPlan: JsonValue;
+}
+
+export interface CatalogProviderProfileMigrationEvidenceUpdateCommand {
+  section: "migration-evidence";
+  migrationEvidence: CatalogProviderProfileVersionReview["migrationEvidence"];
+}
+
+export type CatalogProviderProfileSectionUpdateCommand =
+  | CatalogProviderProfileBasicsUpdateCommand
+  | CatalogProviderProfileSourceContractUpdateCommand
+  | CatalogProviderProfileFixturesUpdateCommand
+  | CatalogProviderProfileRetirementPlanUpdateCommand
+  | CatalogProviderProfileMigrationEvidenceUpdateCommand;
+
 export interface CatalogProviderProfileDryRunEvidence {
   path: string;
   owner: string;

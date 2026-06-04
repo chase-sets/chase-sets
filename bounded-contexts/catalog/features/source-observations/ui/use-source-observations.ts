@@ -17,7 +17,9 @@ import type {
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
   SourceObservationReapplyPreview,
+  CatalogProviderProfileEditableSectionKey,
   CatalogProviderProfileDryRunResult,
+  CatalogProviderProfileSectionUpdateCommand,
   CatalogProviderProfileVersionReview,
   SourceObservationDetail,
   SourceObservationListItem,
@@ -105,6 +107,20 @@ export function updateSourceObservationProviderProfile(providerKey: string, prof
     providerKey,
     profileVersion,
     patch,
+  );
+}
+
+export function updateSourceObservationProviderProfileSection(
+  providerKey: string,
+  profileVersion: string,
+  section: CatalogProviderProfileEditableSectionKey,
+  command: CatalogProviderProfileSectionUpdateCommand,
+) {
+  return api.updateSourceObservationProviderProfileSection<CatalogProviderProfileVersionReview>(
+    providerKey,
+    profileVersion,
+    section,
+    command,
   );
 }
 

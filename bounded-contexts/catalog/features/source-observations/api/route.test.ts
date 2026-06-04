@@ -351,6 +351,73 @@ describe("source observation routes", () => {
     });
   });
 
+  it("updates provider profile sections through typed admin commands", async () => {
+    const services = {} as SourceObservationServices;
+    const store = mutableProfileStore([
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/sections/basics", {
+      method: "PATCH",
+      body: JSON.stringify({
+        command: {
+          displayName: "TCGdex Admin Candidate",
+          lifecycle: "test",
+          languageOptions: ["en", "fr"],
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      displayName: "TCGdex Admin Candidate",
+      lifecycle: "test",
+      languageOptions: ["en", "fr"],
+      authoringAudit: {
+        updatedByUserId: "usr_test",
+        updatedForAccountId: "acc_test",
+      },
+    });
+  });
+
+  it("returns structured bad requests for invalid profile section commands", async () => {
+    const services = {} as SourceObservationServices;
+    const store = mutableProfileStore([
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/sections/fixtures", {
+      method: "PATCH",
+      body: JSON.stringify({
+        fixtures: {
+          fixtureRoot: "bounded-contexts/catalog/fixtures/source-observations/tcgdex",
+          coveredFlows: ["normal"],
+          liveProviderCallsAllowed: true,
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_profile_section_command",
+        message: "fixtures.liveProviderCallsAllowed must remain false.",
+      },
+    });
+  });
+
   it("returns a structured bad request for invalid provider profile authoring JSON", async () => {
     const services = {} as SourceObservationServices;
     const app = buildApp(services, mutableProfileStore());
@@ -980,8 +1047,10 @@ describe("source observation routes", () => {
   });
 });
 
-function mutableProfileStore(): CatalogProviderIntegrationProfileVersionStore {
-  let records: CatalogProviderIntegrationProfileVersionRecord[] = [...catalogProviderIntegrationProfileVersions];
+function mutableProfileStore(
+  initialRecords: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): CatalogProviderIntegrationProfileVersionStore {
+  let records: CatalogProviderIntegrationProfileVersionRecord[] = [...initialRecords];
   return {
     seedProfileVersions: async () => records,
     upsertProfileVersion: async (version) => {
@@ -1038,6 +1107,33 @@ function mutableProfileStore(): CatalogProviderIntegrationProfileVersionStore {
     records = current.map((candidate) => (candidate === version ? updated : candidate));
     return updated;
   }
+}
+
+function profileVersion(
+  providerKey: string,
+  overrides: Partial<CatalogProviderIntegrationProfileVersionRecord>,
+): CatalogProviderIntegrationProfileVersionRecord {
+  const base = catalogProviderIntegrationProfileVersions.find((version) => version.providerKey === providerKey);
+  if (!base) {
+    throw new Error(`Expected seeded ${providerKey} provider profile version.`);
+  }
+
+  const nextProfileVersion = overrides.profileVersion ?? base.profileVersion;
+  const nextLifecycle = overrides.lifecycle ?? base.lifecycle;
+
+  return {
+    ...base,
+    ...overrides,
+    profileVersion: nextProfileVersion,
+    lifecycle: nextLifecycle,
+    executableMappingContract: base.executableMappingContract
+      ? {
+          ...base.executableMappingContract,
+          profileVersion: nextProfileVersion,
+          lifecycle: nextLifecycle,
+        }
+      : undefined,
+  };
 }
 
 function jobEvent<TJob>(job: TJob, sequence = 1) {
