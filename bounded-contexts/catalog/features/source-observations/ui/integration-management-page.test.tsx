@@ -368,6 +368,75 @@ describe("IntegrationManagementPage", () => {
     expect((screen.getAllByRole("button", { name: /^Sync promoted$/i })[0] as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("opens activation readiness before activating a profile", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfileAuthoringModel.mockReturnValue({
+      data: profileAuthoringModel({
+        activationReadiness: {
+          status: "ready",
+          checks: [
+            {
+              checkKey: "fixture-harness",
+              status: "passed",
+              path: "fixtures.coveredFlows",
+              diagnosticText: "Fixture harness passed.",
+              severity: "warning",
+            },
+          ],
+          requiresMigrationEvidence: false,
+          referenceCount: 0,
+        },
+        semanticDiff: {
+          ...profileAuthoringModel().semanticDiff,
+          mappingFingerprint: {
+            candidate: "candidate_fingerprint",
+            active: "candidate_fingerprint",
+            changed: false,
+          },
+        },
+      }),
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockActivateSourceObservationProviderProfile.mockResolvedValue(
+      profileReview({ active: true, lifecycle: "active" }),
+    );
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Activate$/i })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Activate profile" });
+    expect(within(dialog).getByText("Ready to activate")).toBeTruthy();
+    expect(within(dialog).getByText("Mapping unchanged")).toBeTruthy();
+    expect(within(dialog).getByText("Readiness Checks")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Confirm activation$/i }));
+
+    await waitFor(() =>
+      expect(mockActivateSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03"),
+    );
+  });
+
+  it("blocks activation confirmation when readiness has blocking checks", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Activate$/i })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Activate profile" });
+    expect(within(dialog).getByText("Activation blocked")).toBeTruthy();
+    expect(
+      within(dialog).getAllByText("Source Observation mapping fingerprint changes require explicit migration evidence.")
+        .length,
+    ).toBeGreaterThan(0);
+    expect((within(dialog).getByRole("button", { name: /^Confirm activation$/i }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect(mockActivateSourceObservationProviderProfile).not.toHaveBeenCalled();
+  });
+
   it("clones provider profiles and records migration evidence from the review table", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);

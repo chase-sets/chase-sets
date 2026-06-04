@@ -509,6 +509,7 @@ export function IntegrationManagementPage({
   const [profileActionKey, setProfileActionKey] = useState<string | null>(null);
   const [cloneProfile, setCloneProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [cloneProfileVersion, setCloneProfileVersion] = useState(nextProfileVersion());
+  const [activationProfile, setActivationProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [migrationProfile, setMigrationProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [migrationEvidenceForm, setMigrationEvidenceForm] =
     useState<MigrationEvidenceForm>(emptyMigrationEvidenceForm());
@@ -579,6 +580,11 @@ export function IntegrationManagementPage({
     compareProfile?.profileVersion ?? "",
     Boolean(compareProfile),
   );
+  const activationAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
+    activationProfile?.providerKey ?? "",
+    activationProfile?.profileVersion ?? "",
+    Boolean(activationProfile),
+  );
   const migrationAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
     migrationProfile?.providerKey ?? "",
     migrationProfile?.profileVersion ?? "",
@@ -592,7 +598,7 @@ export function IntegrationManagementPage({
         onEditJson: openEditProfileDialog,
         onCompareActive: setCompareProfile,
         onMigrationEvidence: openMigrationEvidenceDialog,
-        onActivate: (profile) => void handleActivateProfile(profile),
+        onActivate: setActivationProfile,
         onDeprecate: (profile) => void handleDeprecateProfile(profile),
         onRollback: setRollbackProfile,
         onRetire: setRetireProfile,
@@ -1075,13 +1081,19 @@ export function IntegrationManagementPage({
     }
   }
 
-  async function handleActivateProfile(profile: CatalogProviderProfileVersionReview) {
+  async function handleActivateProfile() {
+    if (!activationProfile) {
+      return;
+    }
+
+    const profile = activationProfile;
     const key = profileActionIdentity(profile);
     setProfileActionKey(key);
 
     try {
       await activateSourceObservationProviderProfile(profile.providerKey, profile.profileVersion);
       addToast(t("catalog.features.sourceObservations.ui.integrations.profile.review.activated"), "success");
+      setActivationProfile(null);
       providerProfiles.refresh();
       revalidator.revalidate();
     } catch (error) {
@@ -1552,6 +1564,50 @@ export function IntegrationManagementPage({
               authoringModel={migrationAuthoringModel.data ?? null}
               onChange={setMigrationEvidenceForm}
             />
+          </Stack>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={Boolean(activationProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setActivationProfile(null);
+          }
+        }}
+        title="Activate profile"
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setActivationProfile(null)} disabled={Boolean(profileActionKey)}>
+              {t("catalog.features.sourceObservations.ui.list.cancel")}
+            </Button>
+            <Button
+              leadingIcon="badgeCheck"
+              onClick={handleActivateProfile}
+              disabled={activationConfirmationBlocked(activationAuthoringModel.data, activationAuthoringModel.loading)}
+              loading={Boolean(activationProfile && profileActionKey === profileActionIdentity(activationProfile))}
+            >
+              Confirm activation
+            </Button>
+          </Inline>
+        }
+      >
+        {activationProfile ? (
+          <Stack gap={4}>
+            <KeyValueList
+              items={[
+                { key: "Provider", value: activationProfile.displayName },
+                { key: "Version", value: activationProfile.profileVersion },
+                { key: "Lifecycle", value: activationProfile.lifecycle },
+                { key: "Validation", value: activationProfile.validation.status },
+                { key: "Reference count", value: String(activationProfile.referenceCount) },
+              ]}
+            />
+            {activationAuthoringModel.loading ? <p>Loading activation readiness...</p> : null}
+            {activationAuthoringModel.error ? <p>{activationAuthoringModel.error}</p> : null}
+            {activationAuthoringModel.data ? (
+              <ActivationConfirmationReadiness model={activationAuthoringModel.data} />
+            ) : null}
           </Stack>
         ) : null}
       </Dialog>
@@ -2318,6 +2374,45 @@ function ProfileAuthoringCompare({ model }: Readonly<{ model: CatalogProviderPro
           density="compact"
         />
       </Stack>
+    </Stack>
+  );
+}
+
+function ActivationConfirmationReadiness({ model }: Readonly<{ model: CatalogProviderProfileAuthoringModel }>) {
+  const readiness = model.activationReadiness;
+  const blockedChecks = readiness.checks.filter((check) => check.status === "blocked");
+
+  return (
+    <Stack gap={3}>
+      <Inline gap={2}>
+        <StatusPill tone={readiness.status === "ready" ? "success" : "danger"}>
+          {readiness.status === "ready" ? "Ready to activate" : "Activation blocked"}
+        </StatusPill>
+        <StatusPill tone={model.semanticDiff.mappingFingerprint.changed ? "warning" : "success"}>
+          {model.semanticDiff.mappingFingerprint.changed ? "Mapping changed" : "Mapping unchanged"}
+        </StatusPill>
+      </Inline>
+      <MigrationReadinessSummary model={model} />
+      <Stack gap={2}>
+        <h3>Readiness Checks</h3>
+        <DataTable
+          rows={blockedChecks.length > 0 ? blockedChecks : readiness.checks}
+          columns={activationReadinessColumns}
+          getRowId={(row, index) => `${row.checkKey}:${row.path}:${index}`}
+          emptyTitle="No readiness checks"
+          density="compact"
+        />
+      </Stack>
+      {readiness.status === "blocked" ? (
+        <p className="text-sm text-secondary">
+          Resolve the blocking checks or record the required migration evidence before activating this profile.
+        </p>
+      ) : (
+        <p className="text-sm text-secondary">
+          Activation will make this profile version the default for new provider imports. Queued jobs keep their
+          existing profile snapshot.
+        </p>
+      )}
     </Stack>
   );
 }
@@ -6716,6 +6811,10 @@ function migrationEvidenceReady(form: MigrationEvidenceForm): boolean {
   return Boolean(
     form.fixtureRunId.trim() && form.replayScope.trim() && form.observedImpact.trim() && form.operatorNote.trim(),
   );
+}
+
+function activationConfirmationBlocked(model: CatalogProviderProfileAuthoringModel | null, loading: boolean): boolean {
+  return loading || !model || model.activationReadiness.status !== "ready";
 }
 
 function migrationEvidenceFromForm(
