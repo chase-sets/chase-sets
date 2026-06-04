@@ -505,6 +505,7 @@ export async function activateCatalogProviderProfileVersionForReview(input: {
   repositoryRoot?: string;
   observedAt?: string;
 }): Promise<CatalogProviderProfileVersionReview> {
+  await assertImportEligibilityForActivation(input);
   await assertFixtureHarnessForActivation(input);
   await assertMigrationEvidenceForActivation(input);
   const activated = await input.store.activateProfileVersion(input.providerKey, input.profileVersion);
@@ -1065,6 +1066,20 @@ function toActivationReadiness(input: {
     );
   } else {
     addPassed("executable-mapping-contract", "executableMappingContract", "Executable mapping contract is present.");
+  }
+
+  if (!input.version.profile.capabilities.includes("source-observation-import")) {
+    addBlocked(
+      "import-eligibility",
+      "profile.capabilities",
+      "Activation requires the source-observation-import capability so new provider imports can use this profile.",
+    );
+  } else {
+    addPassed(
+      "import-eligibility",
+      "profile.capabilities",
+      "Profile is eligible for new Source Observation imports.",
+    );
   }
 
   if (input.version.fixtures.liveProviderCallsAllowed) {
@@ -1724,6 +1739,30 @@ async function assertMigrationEvidenceForActivation(input: {
         path: "migrationEvidence.evidenceText",
         diagnosticText:
           "Source Observation mapping fingerprint changes require explicit migration evidence before activation.",
+        severity: "error",
+      },
+    ],
+  );
+}
+
+async function assertImportEligibilityForActivation(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  providerKey: string;
+  profileVersion: string;
+}) {
+  const target = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  if (target.profile.capabilities.includes("source-observation-import")) {
+    return;
+  }
+
+  throw new CatalogProviderProfileActivationValidationError(
+    `Activating ${target.providerKey}@${target.profileVersion} requires the source-observation-import capability so new provider imports can use this profile.`,
+    [
+      {
+        code: "import-eligibility",
+        path: "profile.capabilities",
+        diagnosticText:
+          "Activation requires the source-observation-import capability so new provider imports can use this profile.",
         severity: "error",
       },
     ],

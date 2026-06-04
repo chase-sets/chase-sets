@@ -356,6 +356,45 @@ describe("Catalog provider profile review", () => {
     ).rejects.toThrow("failed fixture harness validation");
   });
 
+  it("blocks activation when the profile is not eligible for imports", async () => {
+    const version = tcgdexVersion("2026.06.04", "test", false);
+    const importIneligibleVersion = {
+      ...version,
+      profile: {
+        ...version.profile,
+        capabilities: version.profile.capabilities.filter((capability) => capability !== "source-observation-import"),
+      },
+    };
+    const store = mutableProfileStore([importIneligibleVersion]);
+
+    const model = await getCatalogProviderProfileAuthoringModel({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      repositoryRoot: repositoryRoot(),
+    });
+
+    expect(model.activationReadiness).toMatchObject({
+      status: "blocked",
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          checkKey: "import-eligibility",
+          status: "blocked",
+          path: "profile.capabilities",
+        }),
+      ]),
+    });
+    await expect(
+      activateCatalogProviderProfileVersionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        fixtureCases: fixtureCasesForProfileVersion("tcgdex", "2026.06.04"),
+        repositoryRoot: repositoryRoot(),
+      }),
+    ).rejects.toThrow("requires the source-observation-import capability");
+  });
+
   it("rejects edits to immutable active profile versions", async () => {
     await expect(
       updateCatalogProviderProfileVersionForReview({

@@ -2480,10 +2480,37 @@ function MigrationReadinessSummary({ model }: Readonly<{ model: CatalogProviderP
           { key: "Active fingerprint", value: model.semanticDiff.mappingFingerprint.active ?? "None" },
           { key: "Reference count", value: String(readiness.referenceCount) },
           { key: "Blocking checks", value: String(blockedChecks.length) },
+          {
+            key: "Fixture readiness",
+            value: readinessCheckSummary(readiness, [
+              "fixture-live-calls",
+              "fixture-covered-flow",
+              "fixture-case",
+              "fixture-coverage",
+            ]),
+          },
+          { key: "Import eligibility", value: readinessCheckSummary(readiness, ["import-eligibility"]) },
+          { key: "Profile validation", value: readinessCheckSummary(readiness, ["profile-validation"], "Valid") },
+          { key: "Lifecycle gate", value: readinessCheckSummary(readiness, ["mutable-lifecycle"]) },
+          { key: "Mapping contract", value: readinessCheckSummary(readiness, ["executable-mapping-contract"]) },
         ]}
       />
     </Stack>
   );
+}
+
+function readinessCheckSummary(
+  readiness: CatalogProviderProfileAuthoringModel["activationReadiness"],
+  checkKeys: readonly string[],
+  passedText = "Ready",
+): string {
+  const checks = readiness.checks.filter((check) => checkKeys.includes(check.checkKey));
+  const blockedChecks = checks.filter((check) => check.status === "blocked");
+  if (blockedChecks.length > 0) {
+    return `Blocked: ${blockedChecks.length}`;
+  }
+
+  return checks.length > 0 ? passedText : "Not reported";
 }
 
 function MigrationEvidenceEditor({

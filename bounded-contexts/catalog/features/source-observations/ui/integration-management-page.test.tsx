@@ -499,6 +499,66 @@ describe("IntegrationManagementPage", () => {
     expect(mockActivateSourceObservationProviderProfile).not.toHaveBeenCalled();
   });
 
+  it("surfaces fixture and import eligibility blockers in activation readiness", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfileAuthoringModel.mockReturnValue({
+      data: profileAuthoringModel({
+        activationReadiness: {
+          status: "blocked",
+          checks: [
+            {
+              checkKey: "fixture-live-calls",
+              status: "blocked",
+              path: "fixtures.liveProviderCallsAllowed",
+              diagnosticText: "Fixture validation must not require live provider calls.",
+              severity: "error",
+            },
+            {
+              checkKey: "import-eligibility",
+              status: "blocked",
+              path: "profile.capabilities",
+              diagnosticText:
+                "Activation requires the source-observation-import capability so new provider imports can use this profile.",
+              severity: "error",
+            },
+            {
+              checkKey: "profile-validation",
+              status: "blocked",
+              path: "profile.status",
+              diagnosticText: "Profile status must be activation-ready.",
+              severity: "error",
+            },
+          ],
+          requiresMigrationEvidence: false,
+          referenceCount: 0,
+        },
+      }),
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Activate$/i })[0]);
+    const dialog = screen.getByRole("dialog", { name: "Activate profile" });
+    expect(within(dialog).getByText("Fixture readiness")).toBeTruthy();
+    expect(within(dialog).getByText("Import eligibility")).toBeTruthy();
+    expect(within(dialog).getByText("Profile validation")).toBeTruthy();
+    expect(within(dialog).getAllByText("Fixture validation must not require live provider calls.").length).toBeGreaterThan(
+      0,
+    );
+    expect(
+      within(dialog).getAllByText(
+        "Activation requires the source-observation-import capability so new provider imports can use this profile.",
+      ).length,
+    ).toBeGreaterThan(0);
+    expect((within(dialog).getByRole("button", { name: /^Confirm activation$/i }) as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
   it("confirms deprecation rollback and retirement with lifecycle context", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
@@ -533,6 +593,24 @@ describe("IntegrationManagementPage", () => {
     await waitFor(() =>
       expect(mockRetireSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03"),
     );
+  });
+
+  it("blocks retirement from the review table while profile references remain", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: { items: [profileReview({ referenceCount: 3 })], total: 1, count: 1 },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    expect(
+      screen.getAllByRole("button", { name: /^Retire$/i }).every((button) => (button as HTMLButtonElement).disabled),
+    ).toBe(true);
+    expect(screen.getAllByText("3 refs").length).toBeGreaterThan(0);
   });
 
   it("clones provider profiles and records migration evidence from the review table", async () => {
