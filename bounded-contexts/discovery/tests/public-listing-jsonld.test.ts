@@ -33,6 +33,33 @@ describe("public listing Product JSON-LD", () => {
     expect(serializePublicListingProductJsonLd(jsonLd!)).toContain('"@type":"Product"');
   });
 
+  it("keeps schema.org availability and condition aligned with the Merchant payload", () => {
+    const jsonLd = buildPublicListingProductJsonLd({
+      listing: publicListing({
+        google_shopping_structured_data_payload: {
+          ...publicListing().google_shopping_structured_data_payload!,
+          availability: "out of stock",
+          condition: "new",
+        },
+      }),
+      canonicalUrl: "https://marketplace.chasesets.com/listings/charizard-lst_1",
+    });
+
+    expect(jsonLd?.offers).toMatchObject({
+      availability: "https://schema.org/OutOfStock",
+      itemCondition: "https://schema.org/NewCondition",
+    });
+  });
+
+  it("does not emit offer markup for inactive public listings even with an eligible feed payload", () => {
+    expect(
+      buildPublicListingProductJsonLd({
+        listing: publicListing({ status: "paused" }),
+        canonicalUrl: "https://marketplace.chasesets.com/listings/charizard-lst_1",
+      }),
+    ).toBeNull();
+  });
+
   it("does not emit offer markup for unavailable or non-production listing pages", () => {
     expect(
       buildPublicListingProductJsonLd({
