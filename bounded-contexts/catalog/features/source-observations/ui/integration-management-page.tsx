@@ -34,6 +34,7 @@ import {
 import type { CatalogBulkActionProgress } from "../../../support/shell-support/api/client";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type {
+  CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileDryRunResult,
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationOption,
@@ -57,6 +58,7 @@ import {
   rollbackSourceObservationProviderProfile,
   updateSourceObservationProviderProfile,
   useActiveSourceObservationIntegrationJobs,
+  useSourceObservationProviderProfileAuthoringModel,
   useSourceObservationProviderProfiles,
   useSourceObservationIntegrationOptions,
   watchSourceObservationIntegrationJob,
@@ -124,6 +126,11 @@ export function IntegrationManagementPage({
   const [promoteAllProgress, setPromoteAllProgress] = useState<CatalogBulkActionProgress | null>(null);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const activeIntegrationJobs = useActiveSourceObservationIntegrationJobs();
+  const compareAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
+    compareProfile?.providerKey ?? "",
+    compareProfile?.profileVersion ?? "",
+    Boolean(compareProfile),
+  );
   const profileColumns = useMemo(
     () =>
       buildProfileColumns({
@@ -1013,22 +1020,9 @@ export function IntegrationManagementPage({
                 activeProfileFor(compareProfile, providerProfiles.data?.items ?? []),
               )}
             />
-            <Textarea
-              label={t("catalog.features.sourceObservations.ui.integrations.profile.review.candidate.profile.json")}
-              value={formatJson(profileEditableJson(compareProfile))}
-              rows={12}
-              readOnly
-              spellCheck={false}
-            />
-            <Textarea
-              label={t("catalog.features.sourceObservations.ui.integrations.profile.review.active.profile.json")}
-              value={formatJson(
-                profileEditableJson(activeProfileFor(compareProfile, providerProfiles.data?.items ?? [])),
-              )}
-              rows={12}
-              readOnly
-              spellCheck={false}
-            />
+            {compareAuthoringModel.loading ? <p>Loading profile authoring model...</p> : null}
+            {compareAuthoringModel.error ? <p>{compareAuthoringModel.error}</p> : null}
+            {compareAuthoringModel.data ? <ProfileAuthoringCompare model={compareAuthoringModel.data} /> : null}
           </Stack>
         ) : null}
       </Dialog>
@@ -1493,6 +1487,127 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
   ];
 }
 
+function ProfileAuthoringCompare({ model }: Readonly<{ model: CatalogProviderProfileAuthoringModel }>) {
+  const readiness = model.activationReadiness;
+  const blockedChecks = readiness.checks.filter((check) => check.status === "blocked");
+  const changedDiffs = model.semanticDiff.changes.filter((change) => change.changed);
+
+  return (
+    <Stack gap={4}>
+      <Stack gap={2}>
+        <Inline gap={2}>
+          <StatusPill tone={readiness.status === "ready" ? "success" : "danger"}>
+            {readiness.status === "ready" ? "Ready to activate" : "Activation blocked"}
+          </StatusPill>
+          <StatusPill tone={model.semanticDiff.mappingFingerprint.changed ? "warning" : "success"}>
+            {model.semanticDiff.mappingFingerprint.changed ? "Mapping changed" : "Mapping unchanged"}
+          </StatusPill>
+        </Inline>
+        <KeyValueList
+          density="compact"
+          variant="plain"
+          items={[
+            {
+              key: "Candidate",
+              value: model.semanticDiff.candidateProfileVersion,
+            },
+            {
+              key: "Active",
+              value: model.semanticDiff.activeProfileVersion ?? "None",
+            },
+            {
+              key: "Editable sections",
+              value: String(model.editableSections.length),
+            },
+            {
+              key: "Fixture templates",
+              value: `${model.fixtureCases.filter((fixtureCase) => fixtureCase.samplePayloadAvailable).length}/${model.fixtureCases.length}`,
+            },
+            {
+              key: "Migration evidence",
+              value: readiness.requiresMigrationEvidence ? "Required" : "Not required",
+            },
+          ]}
+        />
+      </Stack>
+
+      <Stack gap={2}>
+        <h3>Activation Readiness</h3>
+        <DataTable
+          rows={blockedChecks.length > 0 ? blockedChecks : readiness.checks}
+          columns={activationReadinessColumns}
+          getRowId={(row, index) => `${row.checkKey}:${row.path}:${index}`}
+          emptyTitle="No readiness checks"
+          density="compact"
+        />
+      </Stack>
+
+      <Stack gap={2}>
+        <h3>Semantic Changes</h3>
+        <DataTable
+          rows={changedDiffs.length > 0 ? changedDiffs : model.semanticDiff.changes}
+          columns={semanticDiffColumns}
+          getRowId={(row) => row.path}
+          emptyTitle="No semantic changes"
+          density="compact"
+        />
+      </Stack>
+    </Stack>
+  );
+}
+
+const activationReadinessColumns: DataColumn<
+  CatalogProviderProfileAuthoringModel["activationReadiness"]["checks"][number]
+>[] = [
+  {
+    key: "status",
+    header: "Status",
+    cell: (row) => (
+      <StatusPill tone={row.status === "passed" ? "success" : "danger"}>
+        {row.status === "passed" ? "Passed" : "Blocked"}
+      </StatusPill>
+    ),
+  },
+  {
+    key: "check",
+    header: "Check",
+    cell: (row) => row.checkKey,
+  },
+  {
+    key: "path",
+    header: "Path",
+    cell: (row) => row.path,
+  },
+  {
+    key: "detail",
+    header: "Detail",
+    cell: (row) => row.diagnosticText,
+  },
+];
+
+const semanticDiffColumns: DataColumn<CatalogProviderProfileAuthoringModel["semanticDiff"]["changes"][number]>[] = [
+  {
+    key: "change",
+    header: "Change",
+    cell: (row) => (
+      <Stack gap={1}>
+        <span>{row.label}</span>
+        <StatusPill tone={row.changed ? "warning" : "success"}>{row.changed ? "Changed" : "Unchanged"}</StatusPill>
+      </Stack>
+    ),
+  },
+  {
+    key: "candidate",
+    header: "Candidate",
+    cell: (row) => summarizeDiffValue(row.candidate),
+  },
+  {
+    key: "active",
+    header: "Active",
+    cell: (row) => summarizeDiffValue(row.active),
+  },
+];
+
 function buildColumns(actions: IntegrationRowActions): DataColumn<SourceObservationIntegrationScope>[] {
   return [
     {
@@ -1701,6 +1816,21 @@ function profileComparisonItems(
     { key: "Active output", value: active?.mappingOutputKind ?? "None" },
     { key: "Candidate output", value: candidate.mappingOutputKind },
   ];
+}
+
+function summarizeDiffValue(
+  value: CatalogProviderProfileAuthoringModel["semanticDiff"]["changes"][number]["candidate"],
+): string {
+  if (value === null || value === undefined) {
+    return "None";
+  }
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "None" : value.map((entry) => summarizeDiffValue(entry)).join(", ");
+  }
+  if (typeof value === "object") {
+    return Object.keys(value).length === 0 ? "None" : `${Object.keys(value).length} fields`;
+  }
+  return String(value);
 }
 
 function defaultDryRunPayload(providerKey = "scrydex"): string {

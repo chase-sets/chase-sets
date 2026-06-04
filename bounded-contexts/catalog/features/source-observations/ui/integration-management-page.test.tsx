@@ -3,7 +3,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import { IntegrationManagementPage } from "./integration-management-page";
-import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "./contracts";
+import type {
+  CatalogProviderProfileAuthoringModel,
+  CatalogProviderProfileVersionReview,
+  SourceObservationIntegrationScope,
+} from "./contracts";
 
 const {
   mockActivateSourceObservationProviderProfile,
@@ -18,6 +22,7 @@ const {
   mockRollbackSourceObservationProviderProfile,
   mockUpdateSourceObservationProviderProfile,
   mockRevalidate,
+  mockUseSourceObservationProviderProfileAuthoringModel,
   mockUseSourceObservationProviderProfiles,
   mockUseSourceObservationIntegrationOptions,
   mockUseActiveSourceObservationIntegrationJobs,
@@ -38,6 +43,7 @@ const {
   mockRollbackSourceObservationProviderProfile: vi.fn(),
   mockUpdateSourceObservationProviderProfile: vi.fn(),
   mockRevalidate: vi.fn(),
+  mockUseSourceObservationProviderProfileAuthoringModel: vi.fn(),
   mockUseSourceObservationProviderProfiles: vi.fn(),
   mockUseSourceObservationIntegrationOptions: vi.fn(),
   mockUseActiveSourceObservationIntegrationJobs: vi.fn(),
@@ -66,6 +72,7 @@ vi.mock("./use-source-observations", () => ({
   rollbackSourceObservationProviderProfile: mockRollbackSourceObservationProviderProfile,
   updateSourceObservationProviderProfile: mockUpdateSourceObservationProviderProfile,
   useActiveSourceObservationIntegrationJobs: mockUseActiveSourceObservationIntegrationJobs,
+  useSourceObservationProviderProfileAuthoringModel: mockUseSourceObservationProviderProfileAuthoringModel,
   useSourceObservationProviderProfiles: mockUseSourceObservationProviderProfiles,
   useSourceObservationIntegrationOptions: mockUseSourceObservationIntegrationOptions,
   watchSourceObservationIntegrationJob: mockWatchSourceObservationIntegrationJob,
@@ -116,6 +123,12 @@ describe("IntegrationManagementPage", () => {
     });
     mockUseSourceObservationProviderProfiles.mockReturnValue({
       data: { items: [profileReview()], total: 1, count: 1 },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseSourceObservationProviderProfileAuthoringModel.mockReturnValue({
+      data: profileAuthoringModel(),
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -353,9 +366,13 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Compare$/i })[0]);
     dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("2026.06.02")).toBeTruthy();
-    expect(within(dialog).getByLabelText("Candidate profile JSON")).toBeTruthy();
-    expect(within(dialog).getByLabelText("Active profile JSON")).toBeTruthy();
+    expect(within(dialog).getAllByText("2026.06.02").length).toBeGreaterThan(0);
+    expect(within(dialog).getByText("Activation blocked")).toBeTruthy();
+    expect(within(dialog).getByText("Mapping changed")).toBeTruthy();
+    expect(within(dialog).getByText("Semantic Changes")).toBeTruthy();
+    expect(within(dialog).getAllByText("Source Mapping Fingerprint").length).toBeGreaterThan(0);
+    expect(within(dialog).queryByLabelText("Candidate profile JSON")).toBeNull();
+    expect(within(dialog).queryByLabelText("Active profile JSON")).toBeNull();
   });
 
   it("enqueues a TCGdex pull for the selected language and optional series", async () => {
@@ -848,6 +865,90 @@ function profileReview(
     validation: {
       status: "valid",
       diagnostics: [],
+    },
+    ...overrides,
+  };
+}
+
+function profileAuthoringModel(
+  overrides: Partial<CatalogProviderProfileAuthoringModel> = {},
+): CatalogProviderProfileAuthoringModel {
+  return {
+    review: profileReview(),
+    editableSections: [
+      {
+        section: "basics",
+        displayName: "Basics",
+        requiredPermission: "catalog.manage",
+        rawJsonBacked: false,
+      },
+      {
+        section: "provider-options",
+        displayName: "Provider Options",
+        requiredPermission: "catalog.manage",
+        rawJsonBacked: false,
+      },
+    ],
+    fixtureCases: [
+      {
+        flow: "normal",
+        payloadFile: "normal.json",
+        payloadPath: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/scrydex/normal.json",
+        expectedStatus: "completed",
+        expectedDiagnosticPaths: [],
+        expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+        expectedMergeEvidencePaths: ["duplicatePrevention.mergeCandidateEvidence.0"],
+        expectedPromotionCommands: [],
+        expectedObservation: { normalizedKind: "provider-product" },
+        samplePayload: { id: "fixture_1" },
+        samplePayloadAvailable: true,
+      },
+    ],
+    dryRunInputTemplate: {
+      observedAt: "1970-01-01T00:00:00.000Z",
+      defaultFlow: "normal",
+      payload: { id: "fixture_1" },
+      fixturePayloads: [],
+    },
+    semanticDiff: {
+      providerKey: "scrydex",
+      candidateProfileVersion: "2026.06.03",
+      activeProfileVersion: "2026.06.02",
+      mappingFingerprint: {
+        candidate: "candidate_fingerprint",
+        active: "active_fingerprint",
+        changed: true,
+      },
+      changes: [
+        {
+          path: "sourceMappingFingerprint",
+          label: "Source Mapping Fingerprint",
+          candidate: "candidate_fingerprint",
+          active: "active_fingerprint",
+          changed: true,
+        },
+        {
+          path: "profile.capabilities",
+          label: "Capabilities",
+          candidate: ["source-observation-import", "external-reference-extraction"],
+          active: ["source-observation-import"],
+          changed: true,
+        },
+      ],
+    },
+    activationReadiness: {
+      status: "blocked",
+      checks: [
+        {
+          checkKey: "migration-evidence",
+          status: "blocked",
+          path: "migrationEvidence.evidenceText",
+          diagnosticText: "Source Observation mapping fingerprint changes require explicit migration evidence.",
+          severity: "error",
+        },
+      ],
+      requiresMigrationEvidence: true,
+      referenceCount: 0,
     },
     ...overrides,
   };
