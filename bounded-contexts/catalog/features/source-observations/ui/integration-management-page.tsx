@@ -238,6 +238,15 @@ type DryRunSafeOverrides = Readonly<{
   sourceUpdatedAt: string;
 }>;
 
+type MigrationEvidenceForm = Readonly<{
+  mappingFingerprintBefore: string;
+  mappingFingerprintAfter: string;
+  fixtureRunId: string;
+  replayScope: string;
+  observedImpact: string;
+  operatorNote: string;
+}>;
+
 type ProfileSourceContractForm = Readonly<{
   owner: string;
   repository: string;
@@ -481,7 +490,8 @@ export function IntegrationManagementPage({
   const [cloneProfile, setCloneProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [cloneProfileVersion, setCloneProfileVersion] = useState(nextProfileVersion());
   const [migrationProfile, setMigrationProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
-  const [migrationEvidenceText, setMigrationEvidenceText] = useState("");
+  const [migrationEvidenceForm, setMigrationEvidenceForm] =
+    useState<MigrationEvidenceForm>(emptyMigrationEvidenceForm());
   const [editProfile, setEditProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [editBasicsForm, setEditBasicsForm] = useState<ProfileBasicsForm | null>(null);
   const [editProfileError, setEditProfileError] = useState<string | null>(null);
@@ -521,6 +531,11 @@ export function IntegrationManagementPage({
     compareProfile?.providerKey ?? "",
     compareProfile?.profileVersion ?? "",
     Boolean(compareProfile),
+  );
+  const migrationAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
+    migrationProfile?.providerKey ?? "",
+    migrationProfile?.profileVersion ?? "",
+    Boolean(migrationProfile),
   );
   const profileColumns = useMemo(
     () =>
@@ -705,7 +720,7 @@ export function IntegrationManagementPage({
 
   function openMigrationEvidenceDialog(profile: CatalogProviderProfileVersionReview) {
     setMigrationProfile(profile);
-    setMigrationEvidenceText(profile.migrationEvidence?.evidenceText ?? "");
+    setMigrationEvidenceForm(migrationEvidenceFormFromProfile(profile));
   }
 
   function openEditProfileDialog(profile: CatalogProviderProfileVersionReview) {
@@ -744,9 +759,10 @@ export function IntegrationManagementPage({
     setProfileActionKey(key);
 
     try {
+      const migrationEvidence = migrationEvidenceFromForm(migrationEvidenceForm, migrationAuthoringModel.data);
       await updateSourceObservationProviderProfile(migrationProfile.providerKey, migrationProfile.profileVersion, {
         migrationEvidence: {
-          evidenceText: migrationEvidenceText.trim(),
+          ...migrationEvidence,
           recordedAt: new Date().toISOString(),
         },
       });
@@ -1454,7 +1470,7 @@ export function IntegrationManagementPage({
             <Button
               leadingIcon="badgeCheck"
               onClick={handleSaveMigrationEvidence}
-              disabled={!migrationEvidenceText.trim()}
+              disabled={!migrationEvidenceReady(migrationEvidenceForm)}
               loading={Boolean(migrationProfile && profileActionKey === profileActionIdentity(migrationProfile))}
             >
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.save.evidence")}
@@ -1469,13 +1485,22 @@ export function IntegrationManagementPage({
                 { key: "Provider", value: migrationProfile.displayName },
                 { key: "Version", value: migrationProfile.profileVersion },
                 { key: "Current evidence", value: migrationProfile.migrationEvidence?.evidenceText ?? "None" },
+                {
+                  key: "Recorded at",
+                  value: migrationProfile.migrationEvidence?.recordedAt ?? "Not recorded",
+                },
+                {
+                  key: "Recorded by",
+                  value: migrationProfile.migrationEvidence?.recordedByUserId ?? "Not recorded",
+                },
               ]}
             />
-            <Textarea
-              label={t("catalog.features.sourceObservations.ui.integrations.profile.review.evidence")}
-              rows={6}
-              value={migrationEvidenceText}
-              onChange={(event) => setMigrationEvidenceText(event.currentTarget.value)}
+            {migrationAuthoringModel.loading ? <p>Loading activation readiness...</p> : null}
+            {migrationAuthoringModel.data ? <MigrationReadinessSummary model={migrationAuthoringModel.data} /> : null}
+            <MigrationEvidenceEditor
+              form={migrationEvidenceForm}
+              authoringModel={migrationAuthoringModel.data ?? null}
+              onChange={setMigrationEvidenceForm}
             />
           </Stack>
         ) : null}
@@ -2081,6 +2106,86 @@ function ProfileAuthoringCompare({ model }: Readonly<{ model: CatalogProviderPro
           density="compact"
         />
       </Stack>
+    </Stack>
+  );
+}
+
+function MigrationReadinessSummary({ model }: Readonly<{ model: CatalogProviderProfileAuthoringModel }>) {
+  const readiness = model.activationReadiness;
+  const blockedChecks = readiness.checks.filter((check) => check.status === "blocked");
+
+  return (
+    <Stack gap={2}>
+      <h3>Activation Readiness</h3>
+      <KeyValueList
+        density="compact"
+        variant="plain"
+        items={[
+          { key: "Status", value: readiness.status === "ready" ? "Ready" : "Blocked" },
+          { key: "Migration evidence", value: readiness.requiresMigrationEvidence ? "Required" : "Not required" },
+          { key: "Candidate fingerprint", value: model.semanticDiff.mappingFingerprint.candidate ?? "None" },
+          { key: "Active fingerprint", value: model.semanticDiff.mappingFingerprint.active ?? "None" },
+          { key: "Reference count", value: String(readiness.referenceCount) },
+          { key: "Blocking checks", value: String(blockedChecks.length) },
+        ]}
+      />
+    </Stack>
+  );
+}
+
+function MigrationEvidenceEditor({
+  form,
+  authoringModel,
+  onChange,
+}: Readonly<{
+  form: MigrationEvidenceForm;
+  authoringModel: CatalogProviderProfileAuthoringModel | null;
+  onChange: (form: MigrationEvidenceForm) => void;
+}>) {
+  const fingerprints = authoringModel?.semanticDiff.mappingFingerprint;
+  const effectiveBefore = form.mappingFingerprintBefore || fingerprints?.active || "";
+  const effectiveAfter = form.mappingFingerprintAfter || fingerprints?.candidate || "";
+  const setForm = (patch: Partial<MigrationEvidenceForm>) => onChange({ ...form, ...patch });
+
+  return (
+    <Stack gap={3}>
+      <h3>Migration Evidence</h3>
+      <Inline gap={2}>
+        <TextInput
+          label="Before fingerprint"
+          value={effectiveBefore}
+          onChange={(event) => setForm({ mappingFingerprintBefore: event.currentTarget.value })}
+        />
+        <TextInput
+          label="After fingerprint"
+          value={effectiveAfter}
+          onChange={(event) => setForm({ mappingFingerprintAfter: event.currentTarget.value })}
+        />
+      </Inline>
+      <Inline gap={2}>
+        <TextInput
+          label="Fixture run id"
+          value={form.fixtureRunId}
+          onChange={(event) => setForm({ fixtureRunId: event.currentTarget.value })}
+        />
+        <TextInput
+          label="Replay scope"
+          value={form.replayScope}
+          onChange={(event) => setForm({ replayScope: event.currentTarget.value })}
+        />
+      </Inline>
+      <Textarea
+        label="Observed impact"
+        rows={3}
+        value={form.observedImpact}
+        onChange={(event) => setForm({ observedImpact: event.currentTarget.value })}
+      />
+      <Textarea
+        label="Operator note"
+        rows={4}
+        value={form.operatorNote}
+        onChange={(event) => setForm({ operatorNote: event.currentTarget.value })}
+      />
     </Stack>
   );
 }
@@ -6262,6 +6367,54 @@ function insertItem<T>(items: readonly T[], index: number, item: T): readonly T[
 
 function newFormRowId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function emptyMigrationEvidenceForm(): MigrationEvidenceForm {
+  return {
+    mappingFingerprintBefore: "",
+    mappingFingerprintAfter: "",
+    fixtureRunId: "",
+    replayScope: "",
+    observedImpact: "",
+    operatorNote: "",
+  };
+}
+
+function migrationEvidenceFormFromProfile(profile: CatalogProviderProfileVersionReview): MigrationEvidenceForm {
+  return {
+    ...emptyMigrationEvidenceForm(),
+    mappingFingerprintBefore: profile.migrationEvidence?.mappingFingerprintBefore ?? "",
+    mappingFingerprintAfter: profile.migrationEvidence?.mappingFingerprintAfter ?? "",
+    fixtureRunId: profile.migrationEvidence?.fixtureRunId ?? "",
+    operatorNote: profile.migrationEvidence?.evidenceText ?? "",
+  };
+}
+
+function migrationEvidenceReady(form: MigrationEvidenceForm): boolean {
+  return Boolean(
+    form.fixtureRunId.trim() && form.replayScope.trim() && form.observedImpact.trim() && form.operatorNote.trim(),
+  );
+}
+
+function migrationEvidenceFromForm(
+  form: MigrationEvidenceForm,
+  authoringModel: CatalogProviderProfileAuthoringModel | null,
+) {
+  const fingerprints = authoringModel?.semanticDiff.mappingFingerprint;
+  const mappingFingerprintBefore = nullableTrimmedValue(form.mappingFingerprintBefore) ?? fingerprints?.active ?? null;
+  const mappingFingerprintAfter = nullableTrimmedValue(form.mappingFingerprintAfter) ?? fingerprints?.candidate ?? null;
+
+  return {
+    evidenceText: [
+      `Fixture run: ${form.fixtureRunId.trim()}`,
+      `Replay scope: ${form.replayScope.trim()}`,
+      `Observed impact: ${form.observedImpact.trim()}`,
+      `Operator note: ${form.operatorNote.trim()}`,
+    ].join("\n"),
+    mappingFingerprintBefore,
+    mappingFingerprintAfter,
+    fixtureRunId: nullableTrimmedValue(form.fixtureRunId),
+  };
 }
 
 function dryRunFixtureItems(model: CatalogProviderProfileAuthoringModel): SelectItem[] {

@@ -337,7 +337,18 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Evidence$/i })[0]);
     dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Evidence"), {
+    expect(within(dialog).getByText("Activation Readiness")).toBeTruthy();
+    expect(within(dialog).getByText("Candidate fingerprint")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText("Fixture run id"), {
+      target: { value: "fixture-run-20260604" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Replay scope"), {
+      target: { value: "scrydex changed observations" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Observed impact"), {
+      target: { value: "Replay changed only expected hash material for Scrydex fixtures." },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Operator note"), {
       target: { value: "Fixture harness passed and replay diff was reviewed." },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save evidence$/i }));
@@ -345,7 +356,10 @@ describe("IntegrationManagementPage", () => {
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03", {
         migrationEvidence: expect.objectContaining({
-          evidenceText: "Fixture harness passed and replay diff was reviewed.",
+          evidenceText: expect.stringContaining("Fixture run: fixture-run-20260604"),
+          fixtureRunId: "fixture-run-20260604",
+          mappingFingerprintBefore: "active_fingerprint",
+          mappingFingerprintAfter: "candidate_fingerprint",
         }),
       }),
     );
