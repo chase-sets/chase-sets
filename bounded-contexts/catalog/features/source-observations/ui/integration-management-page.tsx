@@ -1,5 +1,6 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ListResponse } from "@chase-sets/http/responses";
+import type { JsonValue } from "@chase-sets/primitives/json";
 import { useEffect, useMemo, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
@@ -229,6 +230,12 @@ type ProfileBasicsForm = Readonly<{
   referenceHierarchy: ProfileReferenceHierarchyForm;
   duplicatePrevention: ProfileDuplicatePreventionForm;
   promotionPlan: ProfilePromotionPlanForm;
+}>;
+
+type DryRunSafeOverrides = Readonly<{
+  name: string;
+  language: string;
+  sourceUpdatedAt: string;
 }>;
 
 type ProfileSourceContractForm = Readonly<{
@@ -462,6 +469,11 @@ export function IntegrationManagementPage({
   const providerProfiles = useSourceObservationProviderProfiles(profileReviews);
   const [dryRunProfile, setDryRunProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [dryRunFlow, setDryRunFlow] = useState("normal");
+  const [dryRunOverrides, setDryRunOverrides] = useState<DryRunSafeOverrides>({
+    name: "",
+    language: "",
+    sourceUpdatedAt: "",
+  });
   const [dryRunResult, setDryRunResult] = useState<CatalogProviderProfileDryRunResult | null>(null);
   const [dryRunError, setDryRunError] = useState<string | null>(null);
   const [dryRunning, setDryRunning] = useState(false);
@@ -681,6 +693,7 @@ export function IntegrationManagementPage({
   function openDryRunDialog(profile: CatalogProviderProfileVersionReview) {
     setDryRunProfile(profile);
     setDryRunFlow("normal");
+    setDryRunOverrides({ name: "", language: "", sourceUpdatedAt: "" });
     setDryRunResult(null);
     setDryRunError(null);
   }
@@ -971,7 +984,10 @@ export function IntegrationManagementPage({
     setDryRunError(null);
 
     try {
-      const payload = selectedDryRunPayload(dryRunAuthoringModel.data, dryRunFlow);
+      const payload = applyDryRunSafeOverrides(
+        selectedDryRunPayload(dryRunAuthoringModel.data, dryRunFlow),
+        dryRunOverrides,
+      );
       if (!payload) {
         throw new Error("Select a fixture flow with an available sample payload.");
       }
@@ -1325,6 +1341,7 @@ export function IntegrationManagementPage({
         onOpenChange={(open) => {
           if (!open) {
             setDryRunProfile(null);
+            setDryRunOverrides({ name: "", language: "", sourceUpdatedAt: "" });
             setDryRunResult(null);
             setDryRunError(null);
           }
@@ -1356,14 +1373,24 @@ export function IntegrationManagementPage({
               <Select
                 label="Fixture flow"
                 value={dryRunFlow}
-                onValueChange={setDryRunFlow}
+                onValueChange={(flow) => {
+                  setDryRunFlow(flow);
+                  setDryRunResult(null);
+                }}
                 items={dryRunFixtureItems(dryRunAuthoringModel.data)}
               />
               <DryRunFixtureSummary model={dryRunAuthoringModel.data} flow={dryRunFlow} />
+              <DryRunSafeOverrideEditor
+                overrides={dryRunOverrides}
+                onChange={(overrides) => {
+                  setDryRunOverrides(overrides);
+                  setDryRunResult(null);
+                }}
+              />
             </Stack>
           ) : null}
           {dryRunError ? <p>{dryRunError}</p> : null}
-          {dryRunResult ? <ProfileDryRunResultPanels result={dryRunResult} /> : null}
+          {dryRunResult ? <ProfileDryRunResultPanels result={dryRunResult} flow={dryRunFlow} /> : null}
         </Stack>
       </Dialog>
 
@@ -4116,7 +4143,46 @@ function DryRunFixtureSummary({
   );
 }
 
-function ProfileDryRunResultPanels({ result }: Readonly<{ result: CatalogProviderProfileDryRunResult }>) {
+function DryRunSafeOverrideEditor({
+  overrides,
+  onChange,
+}: Readonly<{
+  overrides: DryRunSafeOverrides;
+  onChange: (overrides: DryRunSafeOverrides) => void;
+}>) {
+  const setOverride = (patch: Partial<DryRunSafeOverrides>) => onChange({ ...overrides, ...patch });
+
+  return (
+    <Stack gap={2}>
+      <h3>Safe Payload Overrides</h3>
+      <Inline gap={2}>
+        <TextInput
+          label="Override name"
+          value={overrides.name}
+          onChange={(event) => setOverride({ name: event.currentTarget.value })}
+        />
+        <TextInput
+          label="Override language"
+          value={overrides.language}
+          onChange={(event) => setOverride({ language: event.currentTarget.value })}
+        />
+        <TextInput
+          label="Override source updated at"
+          value={overrides.sourceUpdatedAt}
+          onChange={(event) => setOverride({ sourceUpdatedAt: event.currentTarget.value })}
+        />
+      </Inline>
+    </Stack>
+  );
+}
+
+function ProfileDryRunResultPanels({
+  result,
+  flow,
+}: Readonly<{ result: CatalogProviderProfileDryRunResult; flow: string }>) {
+  const diagnosticGroups = dryRunDiagnosticGroups(result.diagnostics, flow);
+  const redactionSummary = dryRunRedactionSummary(result);
+
   return (
     <Stack gap={4}>
       <Stack gap={2}>
@@ -4131,7 +4197,19 @@ function ProfileDryRunResultPanels({ result }: Readonly<{ result: CatalogProvide
             { key: "Normalized kind", value: result.observation?.normalized.kind ?? "None" },
             { key: "Redacted payload", value: summarizeJsonValue(result.redactedPayload) },
             { key: "Diagnostics", value: String(result.diagnostics.length) },
+            { key: "Fixture flow", value: flow },
           ]}
+        />
+      </Stack>
+
+      <Stack gap={2}>
+        <h3>Diagnostic Groups</h3>
+        <DataTable
+          rows={diagnosticGroups}
+          columns={dryRunDiagnosticGroupColumns}
+          getRowId={(row, index) => `${row.path}:${index}`}
+          emptyTitle="No diagnostic groups"
+          density="compact"
         />
       </Stack>
 
@@ -4144,6 +4222,11 @@ function ProfileDryRunResultPanels({ result }: Readonly<{ result: CatalogProvide
           emptyTitle="No diagnostics"
           density="compact"
         />
+      </Stack>
+
+      <Stack gap={2}>
+        <h3>Redaction Summary</h3>
+        <KeyValueList density="compact" variant="plain" items={redactionSummary} />
       </Stack>
 
       <Stack gap={2}>
@@ -4311,6 +4394,29 @@ const dryRunDiagnosticColumns: DataColumn<CatalogProviderProfileDryRunResult["di
     key: "detail",
     header: "Detail",
     cell: (row) => row.diagnosticText,
+  },
+];
+
+const dryRunDiagnosticGroupColumns: DataColumn<ReturnType<typeof dryRunDiagnosticGroups>[number]>[] = [
+  {
+    key: "flow",
+    header: "Fixture Flow",
+    cell: (row) => row.flow,
+  },
+  {
+    key: "section",
+    header: "Profile Section",
+    cell: (row) => row.section,
+  },
+  {
+    key: "count",
+    header: "Diagnostics",
+    cell: (row) => String(row.count),
+  },
+  {
+    key: "path",
+    header: "Example Path",
+    cell: (row) => row.path,
   },
 ];
 
@@ -6166,6 +6272,44 @@ function dryRunFixtureItems(model: CatalogProviderProfileAuthoringModel): Select
   }));
 }
 
+function applyDryRunSafeOverrides(payload: JsonValue | null, overrides: DryRunSafeOverrides): JsonValue | null {
+  if (!isRecord(payload)) {
+    return payload;
+  }
+
+  const next: Record<string, JsonValue> = { ...(payload as Record<string, JsonValue>) };
+  const name = overrides.name.trim();
+  const language = overrides.language.trim();
+  const sourceUpdatedAt = overrides.sourceUpdatedAt.trim();
+
+  if (name) {
+    setFirstExistingOrDefault(next, ["name", "productName", "cardName"], "name", name);
+  }
+  if (language) {
+    setFirstExistingOrDefault(next, ["languageCode", "language", "lang"], "languageCode", language);
+  }
+  if (sourceUpdatedAt) {
+    setFirstExistingOrDefault(
+      next,
+      ["sourceUpdatedAt", "source_updated_at", "updatedAt", "updated_at"],
+      "sourceUpdatedAt",
+      sourceUpdatedAt,
+    );
+  }
+
+  return next;
+}
+
+function setFirstExistingOrDefault(
+  target: Record<string, JsonValue>,
+  candidates: readonly string[],
+  fallback: string,
+  value: string,
+) {
+  const key = candidates.find((candidate) => Object.prototype.hasOwnProperty.call(target, candidate)) ?? fallback;
+  target[key] = value;
+}
+
 function selectedDryRunFixture(model: CatalogProviderProfileAuthoringModel | null, flow: string) {
   return model?.fixtureCases.find((fixtureCase) => fixtureCase.flow === flow) ?? null;
 }
@@ -6173,6 +6317,78 @@ function selectedDryRunFixture(model: CatalogProviderProfileAuthoringModel | nul
 function selectedDryRunPayload(model: CatalogProviderProfileAuthoringModel | null, flow: string) {
   const fixture = selectedDryRunFixture(model, flow);
   return fixture?.samplePayload ?? model?.dryRunInputTemplate.payload ?? null;
+}
+
+function dryRunDiagnosticGroups(
+  diagnostics: CatalogProviderProfileDryRunResult["diagnostics"],
+  flow: string,
+): { flow: string; section: string; count: number; path: string }[] {
+  const groups = new Map<string, { flow: string; section: string; count: number; path: string }>();
+  for (const diagnostic of diagnostics) {
+    const section = dryRunDiagnosticSection(diagnostic.path);
+    const existing = groups.get(section);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      groups.set(section, { flow, section, count: 1, path: diagnostic.path });
+    }
+  }
+  return [...groups.values()];
+}
+
+function dryRunDiagnosticSection(pathValue: string): string {
+  const root = pathValue.split(/[.[\]]/).find((part) => part.trim());
+  if (!root) {
+    return "Profile";
+  }
+  return humanizeIdentifier(root);
+}
+
+function dryRunRedactionSummary(result: CatalogProviderProfileDryRunResult) {
+  const evidence = [
+    ...result.hashMaterial,
+    ...result.mergeCandidateEvidence,
+    ...result.duplicatePreventionRules.flatMap((rule) => rule.evidence),
+    ...result.promotionCommandPlan.commands.flatMap((command) => command.inputs),
+  ];
+  const counts = new Map<string, number>();
+  for (const item of evidence) {
+    counts.set(item.redaction, (counts.get(item.redaction) ?? 0) + 1);
+  }
+  const payloadRedactionCount = countRedactedPayloadValues(result.redactedPayload);
+  return [
+    { key: "Payload redacted fields", value: String(payloadRedactionCount) },
+    {
+      key: "Evidence redaction categories",
+      value:
+        counts.size > 0
+          ? [...counts.entries()].map(([redaction, count]) => `${redaction}: ${count}`).join(", ")
+          : "None",
+    },
+  ];
+}
+
+function countRedactedPayloadValues(value: JsonValue): number {
+  if (typeof value === "string") {
+    return value.toLowerCase().includes("redacted") ? 1 : 0;
+  }
+  if (Array.isArray(value)) {
+    return value.reduce<number>((count, item) => count + countRedactedPayloadValues(item), 0);
+  }
+  if (isRecord(value)) {
+    return Object.values(value).reduce<number>(
+      (count, item) => count + countRedactedPayloadValues(item as JsonValue),
+      0,
+    );
+  }
+  return 0;
+}
+
+function humanizeIdentifier(value: string): string {
+  return value
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[-_]/g, " ")
+    .replace(/\b\w/g, (character) => character.toUpperCase());
 }
 
 function summarizeDiffValue(

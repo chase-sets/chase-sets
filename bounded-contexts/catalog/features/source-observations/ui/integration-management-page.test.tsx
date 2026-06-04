@@ -174,8 +174,24 @@ describe("IntegrationManagementPage", () => {
           externalCatalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
         },
       },
-      diagnostics: [],
-      hashMaterial: [],
+      diagnostics: [
+        {
+          code: "required",
+          path: "normalizedObservation.fields.name",
+          diagnosticText: "Name was overridden for dry-run review.",
+          redaction: "none",
+        },
+      ],
+      hashMaterial: [
+        {
+          path: "normalizedObservation.hashMaterial.0",
+          owner: "catalog-truth",
+          uses: ["hash-material"],
+          redaction: "none",
+          value: "Fury Sliver",
+          diagnostics: [],
+        },
+      ],
       externalReferences: {
         catalogItemReferences: [{ providerKey: "tcgplayer", externalKey: "product:14240" }],
         productReferences: [],
@@ -279,16 +295,23 @@ describe("IntegrationManagementPage", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByLabelText("Fixture flow")).toBeTruthy();
     expect(within(dialog).queryByLabelText("Fixture Payload JSON")).toBeNull();
+    expect(within(dialog).getByText("Safe Payload Overrides")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText("Override name"), { target: { value: "Fury Sliver Override" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Dry run$/i }));
 
     await waitFor(() =>
       expect(mockDryRunSourceObservationProviderProfile).toHaveBeenCalledWith(
         "scrydex",
         "2026.06.03",
-        expect.objectContaining({ tcgplayer_id: 14240 }),
+        expect.objectContaining({ tcgplayer_id: 14240, name: "Fury Sliver Override" }),
       ),
     );
     expect(await within(dialog).findByText("Dry-Run Summary")).toBeTruthy();
+    expect(within(dialog).getByText("Diagnostic Groups")).toBeTruthy();
+    expect(within(dialog).getAllByText("Normalized Observation").length).toBeGreaterThan(0);
+    expect(within(dialog).getByText("Redaction Summary")).toBeTruthy();
+    expect(within(dialog).getByText("Payload redacted fields")).toBeTruthy();
+    expect(within(dialog).getByText("Evidence redaction categories")).toBeTruthy();
     expect(within(dialog).getByText("External References")).toBeTruthy();
     expect(within(dialog).getByText("Mapping Evidence")).toBeTruthy();
     expect(within(dialog).getAllByText("product:14240").length).toBeGreaterThan(0);
