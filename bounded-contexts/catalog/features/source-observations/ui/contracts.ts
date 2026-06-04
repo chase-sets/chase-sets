@@ -157,10 +157,22 @@ export interface CatalogProviderProfileVersionReview {
 
 export type CatalogProviderProfileEditableSectionKey =
   | "basics"
+  | "provider-options"
+  | "connector"
+  | "catalog-field-mapping"
   | "source-contract"
   | "fixtures"
+  | "source-observation"
+  | "normalized-observation"
+  | "external-references"
+  | "selected-options"
+  | "reference-hierarchy"
+  | "duplicate-prevention"
+  | "promotion-plan"
   | "retirement-plan"
   | "migration-evidence";
+
+export type CatalogProviderProfileSectionObject = Record<string, JsonValue>;
 
 export interface CatalogProviderProfileBasicsUpdateCommand {
   section: "basics";
@@ -173,6 +185,22 @@ export interface CatalogProviderProfileBasicsUpdateCommand {
   languageOptions?: string[];
 }
 
+export interface CatalogProviderProfileProviderOptionsUpdateCommand {
+  section: "provider-options";
+  optionQueries: CatalogProviderProfileSectionObject[];
+}
+
+export interface CatalogProviderProfileConnectorUpdateCommand {
+  section: "connector";
+  connector: CatalogProviderProfileSectionObject;
+  mappingConnector?: CatalogProviderProfileSectionObject;
+}
+
+export interface CatalogProviderProfileCatalogFieldMappingUpdateCommand {
+  section: "catalog-field-mapping";
+  catalogFieldMapping: CatalogProviderProfileSectionObject;
+}
+
 export interface CatalogProviderProfileSourceContractUpdateCommand {
   section: "source-contract";
   sourceContract: CatalogProviderProfileVersionReview["sourceContract"];
@@ -181,6 +209,46 @@ export interface CatalogProviderProfileSourceContractUpdateCommand {
 export interface CatalogProviderProfileFixturesUpdateCommand {
   section: "fixtures";
   fixtures: CatalogProviderProfileVersionReview["fixtures"];
+}
+
+export interface CatalogProviderProfileSourceObservationUpdateCommand {
+  section: "source-observation";
+  sourceObservation: CatalogProviderProfileSectionObject | null;
+}
+
+export interface CatalogProviderProfileNormalizedObservationUpdateCommand {
+  section: "normalized-observation";
+  normalizedObservationMapping?: CatalogProviderProfileSectionObject;
+  normalizedObservationContract?: CatalogProviderProfileSectionObject;
+}
+
+export interface CatalogProviderProfileExternalReferencesUpdateCommand {
+  section: "external-references";
+  externalReferenceExtractionRules?: CatalogProviderProfileSectionObject;
+  externalReferenceContracts?: CatalogProviderProfileSectionObject[];
+}
+
+export interface CatalogProviderProfileSelectedOptionsUpdateCommand {
+  section: "selected-options";
+  selectedOptionMapping: CatalogProviderProfileSectionObject | null;
+}
+
+export interface CatalogProviderProfileReferenceHierarchyUpdateCommand {
+  section: "reference-hierarchy";
+  referenceHierarchyMapping?: CatalogProviderProfileSectionObject;
+  referenceHierarchyContracts?: CatalogProviderProfileSectionObject[];
+}
+
+export interface CatalogProviderProfileDuplicatePreventionUpdateCommand {
+  section: "duplicate-prevention";
+  duplicatePreventionMapping?: CatalogProviderProfileSectionObject;
+  ambiguityRules?: CatalogProviderProfileSectionObject;
+  duplicatePreventionContract?: CatalogProviderProfileSectionObject;
+}
+
+export interface CatalogProviderProfilePromotionPlanUpdateCommand {
+  section: "promotion-plan";
+  promotionCommandPlan: CatalogProviderProfileSectionObject;
 }
 
 export interface CatalogProviderProfileRetirementPlanUpdateCommand {
@@ -195,8 +263,18 @@ export interface CatalogProviderProfileMigrationEvidenceUpdateCommand {
 
 export type CatalogProviderProfileSectionUpdateCommand =
   | CatalogProviderProfileBasicsUpdateCommand
+  | CatalogProviderProfileProviderOptionsUpdateCommand
+  | CatalogProviderProfileConnectorUpdateCommand
+  | CatalogProviderProfileCatalogFieldMappingUpdateCommand
   | CatalogProviderProfileSourceContractUpdateCommand
   | CatalogProviderProfileFixturesUpdateCommand
+  | CatalogProviderProfileSourceObservationUpdateCommand
+  | CatalogProviderProfileNormalizedObservationUpdateCommand
+  | CatalogProviderProfileExternalReferencesUpdateCommand
+  | CatalogProviderProfileSelectedOptionsUpdateCommand
+  | CatalogProviderProfileReferenceHierarchyUpdateCommand
+  | CatalogProviderProfileDuplicatePreventionUpdateCommand
+  | CatalogProviderProfilePromotionPlanUpdateCommand
   | CatalogProviderProfileRetirementPlanUpdateCommand
   | CatalogProviderProfileMigrationEvidenceUpdateCommand;
 

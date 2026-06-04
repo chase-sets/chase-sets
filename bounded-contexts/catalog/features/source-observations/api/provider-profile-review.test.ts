@@ -190,6 +190,71 @@ describe("Catalog provider profile review", () => {
     });
   });
 
+  it("updates provider option queries through typed section commands", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const base = await store.getProfileVersion("tcgdex", "2026.06.04");
+    if (!base) {
+      throw new Error("Expected draft TCGdex profile version.");
+    }
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      command: {
+        section: "provider-options",
+        optionQueries: [
+          ...base.profile.optionQueries,
+          {
+            ...base.profile.optionQueries[0],
+            queryKind: "language-audit",
+            displayName: "Language Audit",
+          },
+        ],
+      },
+    });
+
+    expect(review.profile.optionQueries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          queryKind: "language-audit",
+          displayName: "Language Audit",
+        }),
+      ]),
+    );
+  });
+
+  it("updates executable promotion plans while preserving profile identity", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const base = await store.getProfileVersion("tcgdex", "2026.06.04");
+    if (!base?.executableMappingContract) {
+      throw new Error("Expected draft TCGdex executable mapping contract.");
+    }
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      command: {
+        section: "promotion-plan",
+        promotionCommandPlan: {
+          ...base.executableMappingContract.promotionCommandPlan,
+          commands: [],
+        },
+      },
+    });
+
+    expect(review.executableMappingContract).toMatchObject({
+      providerKey: "tcgdex",
+      profileKey: "pokemon-tcg",
+      profileVersion: "2026.06.04",
+      lifecycle: "draft",
+      promotionCommandPlan: {
+        commands: [],
+      },
+    });
+  });
+
   it("rejects fixture section commands that allow live provider calls", async () => {
     await expect(
       updateCatalogProviderProfileSectionForReview({

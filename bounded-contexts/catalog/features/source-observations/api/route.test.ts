@@ -418,6 +418,35 @@ describe("source observation routes", () => {
     });
   });
 
+  it("returns structured bad requests for empty deep profile section commands", async () => {
+    const services = {} as SourceObservationServices;
+    const store = mutableProfileStore([
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request(
+      "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/normalized-observation",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ command: {} }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_profile_section_command",
+        message: "Profile section 'normalized-observation' must include at least one editable field.",
+      },
+    });
+  });
+
   it("returns a structured bad request for invalid provider profile authoring JSON", async () => {
     const services = {} as SourceObservationServices;
     const app = buildApp(services, mutableProfileStore());

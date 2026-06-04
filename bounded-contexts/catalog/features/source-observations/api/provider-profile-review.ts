@@ -16,9 +16,16 @@ import { validateCatalogProviderIntegrationProfileVersion } from "./provider-int
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import type {
   CatalogProviderExecutableMappingContract,
+  CatalogProviderDuplicatePreventionContract,
+  CatalogProviderExternalReferenceContract,
+  CatalogProviderMappingConnectorContract,
   CatalogProviderMappingSourceContract,
   CatalogProviderMappingValueExpression,
+  CatalogProviderNormalizedObservationContract,
   CatalogProviderProfileFixtureContract,
+  CatalogProviderPromotionCommandPlanContract,
+  CatalogProviderReferenceHierarchyContract,
+  CatalogProviderSourceObservationContract,
 } from "./provider-integration-mapping-contract";
 import { evaluateCatalogProviderMappingExpression } from "./provider-mapping-interpreter";
 import type { CatalogProviderMappingInterpreterDiagnostic } from "./provider-mapping-interpreter";
@@ -101,8 +108,18 @@ export type CatalogProviderProfileVersionUpdatePatch = Readonly<{
 
 export type CatalogProviderProfileEditableSectionKey =
   | "basics"
+  | "provider-options"
+  | "connector"
+  | "catalog-field-mapping"
   | "source-contract"
   | "fixtures"
+  | "source-observation"
+  | "normalized-observation"
+  | "external-references"
+  | "selected-options"
+  | "reference-hierarchy"
+  | "duplicate-prevention"
+  | "promotion-plan"
   | "retirement-plan"
   | "migration-evidence";
 
@@ -122,9 +139,65 @@ export type CatalogProviderProfileSourceContractUpdateCommand = Readonly<{
   sourceContract: CatalogProviderMappingSourceContract;
 }>;
 
+export type CatalogProviderProfileProviderOptionsUpdateCommand = Readonly<{
+  section: "provider-options";
+  optionQueries: CatalogProviderIntegrationProfile["optionQueries"];
+}>;
+
+export type CatalogProviderProfileConnectorUpdateCommand = Readonly<{
+  section: "connector";
+  connector: CatalogProviderIntegrationProfile["connector"];
+  mappingConnector?: CatalogProviderMappingConnectorContract;
+}>;
+
+export type CatalogProviderProfileCatalogFieldMappingUpdateCommand = Readonly<{
+  section: "catalog-field-mapping";
+  catalogFieldMapping: CatalogProviderIntegrationProfile["catalogFieldMapping"];
+}>;
+
 export type CatalogProviderProfileFixturesUpdateCommand = Readonly<{
   section: "fixtures";
   fixtures: CatalogProviderProfileFixtureContract;
+}>;
+
+export type CatalogProviderProfileSourceObservationUpdateCommand = Readonly<{
+  section: "source-observation";
+  sourceObservation: CatalogProviderSourceObservationContract | null;
+}>;
+
+export type CatalogProviderProfileNormalizedObservationUpdateCommand = Readonly<{
+  section: "normalized-observation";
+  normalizedObservationMapping?: CatalogProviderIntegrationProfile["normalizedObservationMapping"];
+  normalizedObservationContract?: CatalogProviderNormalizedObservationContract;
+}>;
+
+export type CatalogProviderProfileExternalReferencesUpdateCommand = Readonly<{
+  section: "external-references";
+  externalReferenceExtractionRules?: CatalogProviderIntegrationProfile["externalReferenceExtractionRules"];
+  externalReferenceContracts?: readonly CatalogProviderExternalReferenceContract[];
+}>;
+
+export type CatalogProviderProfileSelectedOptionsUpdateCommand = Readonly<{
+  section: "selected-options";
+  selectedOptionMapping: CatalogProviderIntegrationProfile["selectedOptionMapping"] | null;
+}>;
+
+export type CatalogProviderProfileReferenceHierarchyUpdateCommand = Readonly<{
+  section: "reference-hierarchy";
+  referenceHierarchyMapping?: CatalogProviderIntegrationProfile["referenceHierarchyMapping"];
+  referenceHierarchyContracts?: readonly CatalogProviderReferenceHierarchyContract[];
+}>;
+
+export type CatalogProviderProfileDuplicatePreventionUpdateCommand = Readonly<{
+  section: "duplicate-prevention";
+  duplicatePreventionMapping?: CatalogProviderIntegrationProfile["duplicatePreventionMapping"];
+  ambiguityRules?: CatalogProviderIntegrationProfile["ambiguityRules"];
+  duplicatePreventionContract?: CatalogProviderDuplicatePreventionContract;
+}>;
+
+export type CatalogProviderProfilePromotionPlanUpdateCommand = Readonly<{
+  section: "promotion-plan";
+  promotionCommandPlan: CatalogProviderPromotionCommandPlanContract;
 }>;
 
 export type CatalogProviderProfileRetirementPlanUpdateCommand = Readonly<{
@@ -139,8 +212,18 @@ export type CatalogProviderProfileMigrationEvidenceUpdateCommand = Readonly<{
 
 export type CatalogProviderProfileSectionUpdateCommand =
   | CatalogProviderProfileBasicsUpdateCommand
+  | CatalogProviderProfileProviderOptionsUpdateCommand
+  | CatalogProviderProfileConnectorUpdateCommand
+  | CatalogProviderProfileCatalogFieldMappingUpdateCommand
   | CatalogProviderProfileSourceContractUpdateCommand
   | CatalogProviderProfileFixturesUpdateCommand
+  | CatalogProviderProfileSourceObservationUpdateCommand
+  | CatalogProviderProfileNormalizedObservationUpdateCommand
+  | CatalogProviderProfileExternalReferencesUpdateCommand
+  | CatalogProviderProfileSelectedOptionsUpdateCommand
+  | CatalogProviderProfileReferenceHierarchyUpdateCommand
+  | CatalogProviderProfileDuplicatePreventionUpdateCommand
+  | CatalogProviderProfilePromotionPlanUpdateCommand
   | CatalogProviderProfileRetirementPlanUpdateCommand
   | CatalogProviderProfileMigrationEvidenceUpdateCommand;
 
@@ -487,6 +570,33 @@ function toProfileSectionPatch(
             }
           : undefined,
       };
+    case "provider-options":
+      return {
+        profile: {
+          ...existing.profile,
+          optionQueries: command.optionQueries,
+        },
+      };
+    case "connector":
+      return {
+        profile: {
+          ...existing.profile,
+          connector: command.connector,
+        },
+        executableMappingContract: existing.executableMappingContract
+          ? {
+              ...existing.executableMappingContract,
+              ...(command.mappingConnector ? { connector: command.mappingConnector } : {}),
+            }
+          : undefined,
+      };
+    case "catalog-field-mapping":
+      return {
+        profile: {
+          ...existing.profile,
+          catalogFieldMapping: command.catalogFieldMapping,
+        },
+      };
     case "source-contract":
       return {
         sourceContract: command.sourceContract,
@@ -507,11 +617,112 @@ function toProfileSectionPatch(
             }
           : undefined,
       };
+    case "source-observation": {
+      const executableMappingContract = requireExecutableMappingContractForSection(existing, command.section);
+      return {
+        executableMappingContract: {
+          ...executableMappingContract,
+          sourceObservation: command.sourceObservation ?? undefined,
+        },
+      };
+    }
+    case "normalized-observation":
+      return {
+        profile: command.normalizedObservationMapping
+          ? {
+              ...existing.profile,
+              normalizedObservationMapping: command.normalizedObservationMapping,
+            }
+          : undefined,
+        executableMappingContract: command.normalizedObservationContract
+          ? {
+              ...requireExecutableMappingContractForSection(existing, command.section),
+              normalizedObservation: command.normalizedObservationContract,
+            }
+          : undefined,
+      };
+    case "external-references":
+      return {
+        profile: command.externalReferenceExtractionRules
+          ? {
+              ...existing.profile,
+              externalReferenceExtractionRules: command.externalReferenceExtractionRules,
+            }
+          : undefined,
+        executableMappingContract: command.externalReferenceContracts
+          ? {
+              ...requireExecutableMappingContractForSection(existing, command.section),
+              externalReferences: command.externalReferenceContracts,
+            }
+          : undefined,
+      };
+    case "selected-options":
+      return {
+        profile: {
+          ...existing.profile,
+          ...(command.selectedOptionMapping
+            ? { selectedOptionMapping: command.selectedOptionMapping }
+            : { selectedOptionMapping: undefined }),
+        },
+      };
+    case "reference-hierarchy":
+      return {
+        profile: command.referenceHierarchyMapping
+          ? {
+              ...existing.profile,
+              referenceHierarchyMapping: command.referenceHierarchyMapping,
+            }
+          : undefined,
+        executableMappingContract: command.referenceHierarchyContracts
+          ? {
+              ...requireExecutableMappingContractForSection(existing, command.section),
+              referenceHierarchy: command.referenceHierarchyContracts,
+            }
+          : undefined,
+      };
+    case "duplicate-prevention":
+      return {
+        profile:
+          command.duplicatePreventionMapping || command.ambiguityRules
+            ? {
+                ...existing.profile,
+                duplicatePreventionMapping:
+                  command.duplicatePreventionMapping ?? existing.profile.duplicatePreventionMapping,
+                ambiguityRules: command.ambiguityRules ?? existing.profile.ambiguityRules,
+              }
+            : undefined,
+        executableMappingContract: command.duplicatePreventionContract
+          ? {
+              ...requireExecutableMappingContractForSection(existing, command.section),
+              duplicatePrevention: command.duplicatePreventionContract,
+            }
+          : undefined,
+      };
+    case "promotion-plan":
+      return {
+        executableMappingContract: {
+          ...requireExecutableMappingContractForSection(existing, command.section),
+          promotionCommandPlan: command.promotionCommandPlan,
+        },
+      };
     case "retirement-plan":
       return { retirementPlan: command.retirementPlan };
     case "migration-evidence":
       return { migrationEvidence: command.migrationEvidence };
   }
+}
+
+function requireExecutableMappingContractForSection(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+  section: CatalogProviderProfileEditableSectionKey,
+): CatalogProviderExecutableMappingContract {
+  if (!version.executableMappingContract) {
+    throw new CatalogProviderProfileSectionValidationError(
+      `Profile section '${section}' requires an executable mapping contract.`,
+    );
+  }
+
+  return version.executableMappingContract;
 }
 
 function toProfileVersionReview(
@@ -598,11 +809,63 @@ function assertProfileSectionCommand(command: CatalogProviderProfileSectionUpdat
       assertOptionalStringArray(command.supportedScopes, "supportedScopes");
       assertOptionalStringArray(command.languageOptions, "languageOptions");
       break;
+    case "provider-options":
+      assertRequiredArray(command.optionQueries, "optionQueries");
+      break;
+    case "connector":
+      assertRequiredObject(command.connector, "connector");
+      assertOptionalObject(command.mappingConnector, "mappingConnector");
+      break;
+    case "catalog-field-mapping":
+      assertRequiredObject(command.catalogFieldMapping, "catalogFieldMapping");
+      break;
     case "source-contract":
       assertSourceContract(command.sourceContract);
       break;
     case "fixtures":
       assertFixtureContract(command.fixtures);
+      break;
+    case "source-observation":
+      if (command.sourceObservation !== null) {
+        assertRequiredObject(command.sourceObservation, "sourceObservation");
+      }
+      break;
+    case "normalized-observation":
+      assertAtLeastOneSectionField(command, ["normalizedObservationMapping", "normalizedObservationContract"]);
+      assertOptionalObject(command.normalizedObservationMapping, "normalizedObservationMapping");
+      assertOptionalObject(command.normalizedObservationContract, "normalizedObservationContract");
+      break;
+    case "external-references":
+      assertAtLeastOneSectionField(command, ["externalReferenceExtractionRules", "externalReferenceContracts"]);
+      assertOptionalObject(command.externalReferenceExtractionRules, "externalReferenceExtractionRules");
+      if (command.externalReferenceContracts !== undefined) {
+        assertRequiredArray(command.externalReferenceContracts, "externalReferenceContracts");
+      }
+      break;
+    case "selected-options":
+      if (command.selectedOptionMapping !== null) {
+        assertRequiredObject(command.selectedOptionMapping, "selectedOptionMapping");
+      }
+      break;
+    case "reference-hierarchy":
+      assertAtLeastOneSectionField(command, ["referenceHierarchyMapping", "referenceHierarchyContracts"]);
+      assertOptionalObject(command.referenceHierarchyMapping, "referenceHierarchyMapping");
+      if (command.referenceHierarchyContracts !== undefined) {
+        assertRequiredArray(command.referenceHierarchyContracts, "referenceHierarchyContracts");
+      }
+      break;
+    case "duplicate-prevention":
+      assertAtLeastOneSectionField(command, [
+        "duplicatePreventionMapping",
+        "ambiguityRules",
+        "duplicatePreventionContract",
+      ]);
+      assertOptionalObject(command.duplicatePreventionMapping, "duplicatePreventionMapping");
+      assertOptionalObject(command.ambiguityRules, "ambiguityRules");
+      assertOptionalObject(command.duplicatePreventionContract, "duplicatePreventionContract");
+      break;
+    case "promotion-plan":
+      assertRequiredObject(command.promotionCommandPlan, "promotionCommandPlan");
       break;
     case "retirement-plan":
       if (command.retirementPlan !== null) {
@@ -619,6 +882,14 @@ function assertProfileSectionCommand(command: CatalogProviderProfileSectionUpdat
   }
 }
 
+function assertAtLeastOneSectionField(command: Record<string, unknown>, fields: readonly string[]): void {
+  if (!fields.some((field) => Object.prototype.hasOwnProperty.call(command, field))) {
+    throw new CatalogProviderProfileSectionValidationError(
+      `Profile section '${String(command.section)}' must include at least one editable field.`,
+    );
+  }
+}
+
 function assertOptionalString(value: unknown, path: string): void {
   if (value !== undefined && typeof value !== "string") {
     throw new CatalogProviderProfileSectionValidationError(`${path} must be a string when provided.`);
@@ -631,6 +902,24 @@ function assertOptionalStringArray(value: unknown, path: string): void {
   }
   if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
     throw new CatalogProviderProfileSectionValidationError(`${path} must be an array of strings when provided.`);
+  }
+}
+
+function assertRequiredArray(value: unknown, path: string): void {
+  if (!Array.isArray(value)) {
+    throw new CatalogProviderProfileSectionValidationError(`${path} must be an array.`);
+  }
+}
+
+function assertRequiredObject(value: unknown, path: string): void {
+  if (!isJsonObject(value)) {
+    throw new CatalogProviderProfileSectionValidationError(`${path} must be a JSON object.`);
+  }
+}
+
+function assertOptionalObject(value: unknown, path: string): void {
+  if (value !== undefined && !isJsonObject(value)) {
+    throw new CatalogProviderProfileSectionValidationError(`${path} must be a JSON object when provided.`);
   }
 }
 
