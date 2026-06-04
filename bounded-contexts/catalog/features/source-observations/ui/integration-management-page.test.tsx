@@ -264,7 +264,7 @@ describe("IntegrationManagementPage", () => {
     expect((screen.getByRole("combobox", { name: "Expansion" }) as HTMLInputElement).value).toBe("me04");
   });
 
-  it("runs a provider profile fixture dry-run and displays redacted output", async () => {
+  it("runs a provider profile fixture dry-run from a fixture flow and displays evidence panels", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
 
@@ -272,6 +272,8 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Dry run$/i })[0]);
     const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByLabelText("Fixture flow")).toBeTruthy();
+    expect(within(dialog).queryByLabelText("Fixture Payload JSON")).toBeNull();
     fireEvent.click(within(dialog).getByRole("button", { name: /^Dry run$/i }));
 
     await waitFor(() =>
@@ -281,8 +283,11 @@ describe("IntegrationManagementPage", () => {
         expect.objectContaining({ tcgplayer_id: 14240 }),
       ),
     );
-    expect(await within(dialog).findByDisplayValue(/product:14240/)).toBeTruthy();
-    expect(within(dialog).getByDisplayValue(/\[redacted\]/)).toBeTruthy();
+    expect(await within(dialog).findByText("Dry-Run Summary")).toBeTruthy();
+    expect(within(dialog).getByText("External References")).toBeTruthy();
+    expect(within(dialog).getByText("Mapping Evidence")).toBeTruthy();
+    expect(within(dialog).getAllByText("product:14240").length).toBeGreaterThan(0);
+    expect(within(dialog).queryByLabelText("Dry-run output JSON")).toBeNull();
   });
 
   it("clones provider profiles and records migration evidence from the review table", async () => {
@@ -900,14 +905,14 @@ function profileAuthoringModel(
         expectedMergeEvidencePaths: ["duplicatePrevention.mergeCandidateEvidence.0"],
         expectedPromotionCommands: [],
         expectedObservation: { normalizedKind: "provider-product" },
-        samplePayload: { id: "fixture_1" },
+        samplePayload: { id: "fixture_1", tcgplayer_id: 14240 },
         samplePayloadAvailable: true,
       },
     ],
     dryRunInputTemplate: {
       observedAt: "1970-01-01T00:00:00.000Z",
       defaultFlow: "normal",
-      payload: { id: "fixture_1" },
+      payload: { id: "fixture_1", tcgplayer_id: 14240 },
       fixturePayloads: [],
     },
     semanticDiff: {

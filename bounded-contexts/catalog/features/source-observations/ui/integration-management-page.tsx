@@ -87,7 +87,7 @@ export function IntegrationManagementPage({
   const { addToast } = useToasts();
   const providerProfiles = useSourceObservationProviderProfiles(profileReviews);
   const [dryRunProfile, setDryRunProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
-  const [dryRunPayload, setDryRunPayload] = useState(defaultDryRunPayload());
+  const [dryRunFlow, setDryRunFlow] = useState("normal");
   const [dryRunResult, setDryRunResult] = useState<CatalogProviderProfileDryRunResult | null>(null);
   const [dryRunError, setDryRunError] = useState<string | null>(null);
   const [dryRunning, setDryRunning] = useState(false);
@@ -126,6 +126,11 @@ export function IntegrationManagementPage({
   const [promoteAllProgress, setPromoteAllProgress] = useState<CatalogBulkActionProgress | null>(null);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const activeIntegrationJobs = useActiveSourceObservationIntegrationJobs();
+  const dryRunAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
+    dryRunProfile?.providerKey ?? "",
+    dryRunProfile?.profileVersion ?? "",
+    Boolean(dryRunProfile),
+  );
   const compareAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
     compareProfile?.providerKey ?? "",
     compareProfile?.profileVersion ?? "",
@@ -301,7 +306,7 @@ export function IntegrationManagementPage({
 
   function openDryRunDialog(profile: CatalogProviderProfileVersionReview) {
     setDryRunProfile(profile);
-    setDryRunPayload(defaultDryRunPayload(profile.providerKey));
+    setDryRunFlow("normal");
     setDryRunResult(null);
     setDryRunError(null);
   }
@@ -445,7 +450,10 @@ export function IntegrationManagementPage({
     setDryRunError(null);
 
     try {
-      const payload = JSON.parse(dryRunPayload) as unknown;
+      const payload = selectedDryRunPayload(dryRunAuthoringModel.data, dryRunFlow);
+      if (!payload) {
+        throw new Error("Select a fixture flow with an available sample payload.");
+      }
       const result = await dryRunSourceObservationProviderProfile(
         dryRunProfile.providerKey,
         dryRunProfile.profileVersion,
@@ -820,47 +828,21 @@ export function IntegrationManagementPage({
         }
       >
         <Stack gap={3}>
-          <Textarea
-            label={t("catalog.features.sourceObservations.ui.integrations.profile.review.fixture.payload")}
-            value={dryRunPayload}
-            onChange={(event) => setDryRunPayload(event.target.value)}
-            rows={12}
-            spellCheck={false}
-          />
-          {dryRunError ? <p>{dryRunError}</p> : null}
-          {dryRunResult ? (
+          {dryRunAuthoringModel.loading ? <p>Loading fixture templates...</p> : null}
+          {dryRunAuthoringModel.error ? <p>{dryRunAuthoringModel.error}</p> : null}
+          {dryRunAuthoringModel.data ? (
             <Stack gap={3}>
-              <KeyValueList
-                density="compact"
-                variant="plain"
-                items={[
-                  {
-                    key: t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.status"),
-                    value: dryRunResult.status,
-                  },
-                  {
-                    key: t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.hash"),
-                    value: dryRunResult.observation?.sourceRecordHash ?? "—",
-                  },
-                  {
-                    key: t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.external.key"),
-                    value: dryRunResult.observation?.externalKey ?? "—",
-                  },
-                  {
-                    key: t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.diagnostics"),
-                    value: String(dryRunResult.diagnostics.length),
-                  },
-                ]}
+              <Select
+                label="Fixture flow"
+                value={dryRunFlow}
+                onValueChange={setDryRunFlow}
+                items={dryRunFixtureItems(dryRunAuthoringModel.data)}
               />
-              <Textarea
-                label={t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.output")}
-                value={formatJson(dryRunResult)}
-                rows={18}
-                readOnly
-                spellCheck={false}
-              />
+              <DryRunFixtureSummary model={dryRunAuthoringModel.data} flow={dryRunFlow} />
             </Stack>
           ) : null}
+          {dryRunError ? <p>{dryRunError}</p> : null}
+          {dryRunResult ? <ProfileDryRunResultPanels result={dryRunResult} /> : null}
         </Stack>
       </Dialog>
 
@@ -1556,6 +1538,119 @@ function ProfileAuthoringCompare({ model }: Readonly<{ model: CatalogProviderPro
   );
 }
 
+function DryRunFixtureSummary({
+  model,
+  flow,
+}: Readonly<{ model: CatalogProviderProfileAuthoringModel; flow: string }>) {
+  const fixture = selectedDryRunFixture(model, flow);
+  if (!fixture) {
+    return <p>No fixture template is available for this flow.</p>;
+  }
+
+  return (
+    <KeyValueList
+      density="compact"
+      variant="plain"
+      items={[
+        { key: "Payload file", value: fixture.payloadFile },
+        { key: "Expected status", value: fixture.expectedStatus },
+        { key: "Sample payload", value: fixture.samplePayloadAvailable ? "Available" : "Missing" },
+        { key: "Expected hash evidence", value: String(fixture.expectedHashEvidencePaths.length) },
+        { key: "Expected merge evidence", value: String(fixture.expectedMergeEvidencePaths.length) },
+        { key: "Expected commands", value: String(fixture.expectedPromotionCommands.length) },
+      ]}
+    />
+  );
+}
+
+function ProfileDryRunResultPanels({ result }: Readonly<{ result: CatalogProviderProfileDryRunResult }>) {
+  return (
+    <Stack gap={4}>
+      <Stack gap={2}>
+        <h3>Dry-Run Summary</h3>
+        <KeyValueList
+          density="compact"
+          variant="plain"
+          items={[
+            { key: "Status", value: result.status },
+            { key: "External key", value: result.observation?.externalKey ?? "None" },
+            { key: "Source hash", value: result.observation?.sourceRecordHash ?? "None" },
+            { key: "Normalized kind", value: result.observation?.normalized.kind ?? "None" },
+            { key: "Redacted payload", value: summarizeJsonValue(result.redactedPayload) },
+            { key: "Diagnostics", value: String(result.diagnostics.length) },
+          ]}
+        />
+      </Stack>
+
+      <Stack gap={2}>
+        <h3>Diagnostics</h3>
+        <DataTable
+          rows={result.diagnostics}
+          columns={dryRunDiagnosticColumns}
+          getRowId={(row, index) => `${row.path}:${index}`}
+          emptyTitle="No diagnostics"
+          density="compact"
+        />
+      </Stack>
+
+      <Stack gap={2}>
+        <h3>Mapping Evidence</h3>
+        <DataTable
+          rows={[...result.hashMaterial, ...result.mergeCandidateEvidence]}
+          columns={dryRunEvidenceColumns}
+          getRowId={(row) => row.path}
+          emptyTitle="No mapping evidence"
+          density="compact"
+        />
+      </Stack>
+
+      <Stack gap={2}>
+        <h3>External References</h3>
+        <KeyValueList
+          density="compact"
+          variant="plain"
+          items={[
+            {
+              key: "Catalog item references",
+              value: summarizeJsonValue(result.externalReferences.catalogItemReferences),
+            },
+            {
+              key: "Product references",
+              value: summarizeJsonValue(result.externalReferences.productReferences),
+            },
+            {
+              key: "Selected options",
+              value: summarizeJsonValue(result.selectedOptions),
+            },
+          ]}
+        />
+      </Stack>
+
+      <Stack gap={2}>
+        <h3>Duplicate Prevention</h3>
+        <DataTable
+          rows={result.duplicatePreventionRules}
+          columns={dryRunDuplicatePreventionColumns}
+          getRowId={(row) => row.ruleKey}
+          emptyTitle="No duplicate-prevention decisions"
+          density="compact"
+        />
+      </Stack>
+
+      <Stack gap={2}>
+        <h3>Promotion Command Plan</h3>
+        <DataTable
+          rows={result.promotionCommandPlan.commands}
+          columns={dryRunPromotionCommandColumns}
+          getRowId={(row, index) => `${row.commandName}:${index}`}
+          emptyTitle="No promotion commands"
+          density="compact"
+        />
+      </Stack>
+    </Stack>
+  );
+}
+
 const activationReadinessColumns: DataColumn<
   CatalogProviderProfileAuthoringModel["activationReadiness"]["checks"][number]
 >[] = [
@@ -1605,6 +1700,92 @@ const semanticDiffColumns: DataColumn<CatalogProviderProfileAuthoringModel["sema
     key: "active",
     header: "Active",
     cell: (row) => summarizeDiffValue(row.active),
+  },
+];
+
+const dryRunDiagnosticColumns: DataColumn<CatalogProviderProfileDryRunResult["diagnostics"][number]>[] = [
+  {
+    key: "path",
+    header: "Path",
+    cell: (row) => row.path,
+  },
+  {
+    key: "code",
+    header: "Code",
+    cell: (row) => row.code,
+  },
+  {
+    key: "detail",
+    header: "Detail",
+    cell: (row) => row.diagnosticText,
+  },
+];
+
+const dryRunEvidenceColumns: DataColumn<CatalogProviderProfileDryRunResult["hashMaterial"][number]>[] = [
+  {
+    key: "path",
+    header: "Path",
+    cell: (row) => row.path,
+  },
+  {
+    key: "owner",
+    header: "Owner",
+    cell: (row) => row.owner,
+  },
+  {
+    key: "uses",
+    header: "Uses",
+    cell: (row) => row.uses.join(", "),
+  },
+  {
+    key: "redaction",
+    header: "Redaction",
+    cell: (row) => row.redaction,
+  },
+  {
+    key: "value",
+    header: "Value",
+    cell: (row) => summarizeJsonValue(row.value),
+  },
+];
+
+const dryRunDuplicatePreventionColumns: DataColumn<
+  CatalogProviderProfileDryRunResult["duplicatePreventionRules"][number]
+>[] = [
+  {
+    key: "rule",
+    header: "Rule",
+    cell: (row) => row.ruleKey,
+  },
+  {
+    key: "kind",
+    header: "Kind",
+    cell: (row) => row.ruleKind,
+  },
+  {
+    key: "policy",
+    header: "Policy",
+    cell: (row) => row.candidatePolicy,
+  },
+  {
+    key: "evidence",
+    header: "Evidence",
+    cell: (row) => String(row.evidence.length),
+  },
+];
+
+const dryRunPromotionCommandColumns: DataColumn<
+  CatalogProviderProfileDryRunResult["promotionCommandPlan"]["commands"][number]
+>[] = [
+  {
+    key: "command",
+    header: "Command",
+    cell: (row) => row.commandName,
+  },
+  {
+    key: "inputs",
+    header: "Inputs",
+    cell: (row) => String(row.inputs.length),
   },
 ];
 
@@ -1818,16 +1999,48 @@ function profileComparisonItems(
   ];
 }
 
+function dryRunFixtureItems(model: CatalogProviderProfileAuthoringModel): SelectItem[] {
+  return model.fixtureCases.map((fixtureCase) => ({
+    value: fixtureCase.flow,
+    label: `${fixtureCase.flow}${fixtureCase.samplePayloadAvailable ? "" : " (missing sample)"}`,
+    disabled: !fixtureCase.samplePayloadAvailable,
+  }));
+}
+
+function selectedDryRunFixture(model: CatalogProviderProfileAuthoringModel | null, flow: string) {
+  return model?.fixtureCases.find((fixtureCase) => fixtureCase.flow === flow) ?? null;
+}
+
+function selectedDryRunPayload(model: CatalogProviderProfileAuthoringModel | null, flow: string) {
+  const fixture = selectedDryRunFixture(model, flow);
+  return fixture?.samplePayload ?? model?.dryRunInputTemplate.payload ?? null;
+}
+
 function summarizeDiffValue(
+  value: CatalogProviderProfileAuthoringModel["semanticDiff"]["changes"][number]["candidate"],
+): string {
+  return summarizeJsonValue(value);
+}
+
+function summarizeJsonValue(
   value: CatalogProviderProfileAuthoringModel["semanticDiff"]["changes"][number]["candidate"],
 ): string {
   if (value === null || value === undefined) {
     return "None";
   }
   if (Array.isArray(value)) {
-    return value.length === 0 ? "None" : value.map((entry) => summarizeDiffValue(entry)).join(", ");
+    return value.length === 0 ? "None" : value.map((entry) => summarizeJsonValue(entry)).join(", ");
   }
   if (typeof value === "object") {
+    if ("externalKey" in value && typeof value.externalKey === "string") {
+      return value.externalKey;
+    }
+    if ("optionKey" in value && typeof value.optionKey === "string") {
+      return value.optionKey;
+    }
+    if ("dimensionKey" in value && typeof value.dimensionKey === "string") {
+      return value.dimensionKey;
+    }
     return Object.keys(value).length === 0 ? "None" : `${Object.keys(value).length} fields`;
   }
   return String(value);
