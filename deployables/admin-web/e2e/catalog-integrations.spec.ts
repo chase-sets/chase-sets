@@ -1,9 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
+const configuredCatalogAdminEmail = process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() ?? "";
+const configuredCatalogAdminPassword = process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() ?? "";
 const catalogAdminAccount = {
-  email: process.env.CATALOG_ADMIN_E2E_EMAIL?.trim() || "demo@chasesets.test",
-  password: process.env.CATALOG_ADMIN_E2E_PASSWORD?.trim() || "demo1234",
+  email: configuredCatalogAdminEmail || "demo@chasesets.test",
+  password: configuredCatalogAdminPassword || "demo1234",
 };
+const skipDeployedAdminE2e =
+  process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true" &&
+  (configuredCatalogAdminEmail.length === 0 || configuredCatalogAdminPassword.length === 0);
 const authApiTimeoutMs = 90_000;
 const pageReadyTimeoutMs = 90_000;
 
@@ -108,6 +113,10 @@ test.describe("catalog admin integrations", () => {
     page,
   }) => {
     test.setTimeout(120_000);
+    test.skip(
+      skipDeployedAdminE2e,
+      "CATALOG_ADMIN_E2E_EMAIL and CATALOG_ADMIN_E2E_PASSWORD are required for deployed admin-web e2e.",
+    );
 
     await authenticateCatalogAdmin(page);
     await expectPageOk(page, "/catalog/integrations");

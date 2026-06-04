@@ -39,11 +39,13 @@ Playwright can run against an already deployed marketplace without starting the 
 ```bash
 PLAYWRIGHT_SKIP_WEB_SERVER=true \
 ADMIN_WEB_URL=https://admin.staging.chasesets.com \
+CATALOG_ADMIN_E2E_EMAIL=admin@example.com \
+CATALOG_ADMIN_E2E_PASSWORD=... \
 MARKETPLACE_WEB_URL=https://marketplace.staging.chasesets.com \
 pnpm run test:e2e:deployed
 ```
 
-Use `MARKETPLACE_E2E_EMAIL`, `MARKETPLACE_E2E_PASSWORD`, and `MARKETPLACE_E2E_SEARCH_QUERY` to override the default synthetic account and search term. When no account is configured, the suite registers a throwaway account against the target before checking signed-in commerce surfaces. Use `CATALOG_ADMIN_E2E_EMAIL` and `CATALOG_ADMIN_E2E_PASSWORD` when running admin-web suites against a deployed target. Staging production promotion runs this mode after staging smoke checks and before production deployment can start.
+Use `MARKETPLACE_E2E_EMAIL`, `MARKETPLACE_E2E_PASSWORD`, and `MARKETPLACE_E2E_SEARCH_QUERY` to override the default synthetic account and search term. When no account is configured, the suite registers a throwaway account against the target before checking signed-in commerce surfaces. Use `CATALOG_ADMIN_E2E_EMAIL` and `CATALOG_ADMIN_E2E_PASSWORD` when running admin-web suites against a deployed target; deployed admin-web checks are skipped when either admin credential is missing. Staging production promotion runs this mode after staging smoke checks and before production deployment can start.
 
 ## CI
 
