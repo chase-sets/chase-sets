@@ -6,6 +6,23 @@ const adminWebBaseUrl = process.env.ADMIN_WEB_URL ?? sandbox.urls.adminWeb;
 const marketplaceBaseUrl = process.env.MARKETPLACE_WEB_URL ?? sandbox.urls.marketplaceWeb;
 const isCi = Boolean(process.env.CI);
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
+const includeAdminWebProject = !skipWebServer || Boolean(process.env.ADMIN_WEB_URL);
+const projects = [
+  {
+    name: "marketplace-chromium",
+    testMatch: "deployables/marketplace/e2e/**/*.spec.ts",
+    use: { ...devices["Desktop Chrome"], baseURL: marketplaceBaseUrl },
+  },
+  ...(includeAdminWebProject
+    ? [
+        {
+          name: "admin-web-chromium",
+          testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
+          use: { ...devices["Desktop Chrome"], baseURL: adminWebBaseUrl },
+        },
+      ]
+    : []),
+];
 
 export default defineConfig({
   testDir: ".",
@@ -28,16 +45,5 @@ export default defineConfig({
         reuseExistingServer: !isCi,
         timeout: 300_000,
       },
-  projects: [
-    {
-      name: "marketplace-chromium",
-      testMatch: "deployables/marketplace/e2e/**/*.spec.ts",
-      use: { ...devices["Desktop Chrome"], baseURL: marketplaceBaseUrl },
-    },
-    {
-      name: "admin-web-chromium",
-      testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
-      use: { ...devices["Desktop Chrome"], baseURL: adminWebBaseUrl },
-    },
-  ],
+  projects,
 });
