@@ -45,6 +45,7 @@ export interface MappingExpressionEditorProps {
   label: string;
   value: MappingExpressionValue;
   onChange: (value: MappingExpressionValue) => void;
+  previewPayload?: JsonValue | null;
 }
 
 const SELECTOR_KIND_OPTIONS = [
@@ -133,8 +134,14 @@ const RUNTIME_FUNCTION_OPTIONS = [
   { value: "scrydex-tcgplayer-id-reference-extractor", label: "Scrydex TCGplayer ID reference extractor" },
 ] satisfies SelectItem[];
 
-export function MappingExpressionEditor({ label, value, onChange }: Readonly<MappingExpressionEditorProps>) {
+export function MappingExpressionEditor({
+  label,
+  value,
+  onChange,
+  previewPayload,
+}: Readonly<MappingExpressionEditorProps>) {
   const diagnostics = validateMappingExpression(value);
+  const preview = previewPayload ? previewMappingExpression(value, previewPayload) : null;
   const setExpression = (patch: Partial<MappingExpressionValue>) => onChange({ ...value, ...patch });
 
   return (
@@ -172,6 +179,19 @@ export function MappingExpressionEditor({ label, value, onChange }: Readonly<Map
         transforms={value.transforms ?? []}
         onChange={(transforms) => setExpression({ transforms: transforms.length > 0 ? transforms : undefined })}
       />
+      {preview ? (
+        <Stack gap={1}>
+          <h4 className="text-sm font-semibold text-foreground">Fixture Preview</h4>
+          <p className="text-sm text-foreground">{summarizePreviewValue(preview.value)}</p>
+          {preview.diagnostics.length > 0 ? (
+            <ul className="text-sm text-danger">
+              {preview.diagnostics.map((diagnostic) => (
+                <li key={diagnostic}>{diagnostic}</li>
+              ))}
+            </ul>
+          ) : null}
+        </Stack>
+      ) : null}
     </Stack>
   );
 }
@@ -870,6 +890,151 @@ function validateSelector(selector: MappingExpressionSelector, path: string, dia
 
 function templateKeys(template: string): readonly string[] {
   return Array.from(template.matchAll(/\{([^}]+)\}/g), (match) => match[1]);
+}
+
+function previewMappingExpression(expression: MappingExpressionValue, payload: JsonValue) {
+  const diagnostics: string[] = [];
+  let value = previewSelector(expression.selector, payload, payload, diagnostics);
+  for (const transform of expression.transforms ?? []) {
+    value = previewTransform(transform, value, diagnostics);
+  }
+  return { value, diagnostics };
+}
+
+function previewSelector(
+  selector: MappingExpressionSelector,
+  payload: JsonValue,
+  item: JsonValue,
+  diagnostics: string[],
+): JsonValue {
+  switch (selector.kind) {
+    case "path": {
+      const value = valueAtPath(item, selector.path) ?? valueAtPath(payload, selector.path);
+      if (value === undefined && selector.required) {
+        diagnostics.push(`Preview path '${selector.path}' was not found.`);
+      }
+      return value === undefined ? null : value;
+    }
+    case "constant":
+      return selector.value;
+    case "coalesce": {
+      for (const candidate of selector.selectors) {
+        const value = previewSelector(candidate, payload, item, diagnostics);
+        if (value !== null && value !== undefined && value !== "") {
+          return value;
+        }
+      }
+      if (selector.required) {
+        diagnostics.push("Preview coalesce did not find a value.");
+      }
+      return null;
+    }
+    case "template":
+      return templateKeys(selector.template).reduce(
+        (preview, key) =>
+          preview.replace(
+            `{${key}}`,
+            summarizePreviewValue(previewMappingExpression(selector.values[key] ?? defaultExpression(), payload).value),
+          ),
+        selector.template,
+      );
+    case "array":
+      return selector.items.map((entry) => previewMappingExpression(entry, payload).value);
+    case "object":
+      return Object.fromEntries(
+        Object.entries(selector.fields).map(([key, entry]) => [key, previewMappingExpression(entry, payload).value]),
+      ) as JsonValue;
+    case "array-map": {
+      const source = valueAtPath(payload, selector.path);
+      if (!Array.isArray(source)) {
+        if (selector.emptyPolicy === "diagnostic") {
+          diagnostics.push(`Preview array path '${selector.path}' did not resolve to an array.`);
+        }
+        return [];
+      }
+      return source.map((entry) => previewSelector(selector.item.selector, payload, entry as JsonValue, diagnostics));
+    }
+    case "named-runtime-selector":
+      diagnostics.push(`Preview for runtime selector '${selector.functionKey}' requires server dry-run context.`);
+      return null;
+  }
+}
+
+function previewTransform(transform: MappingExpressionTransform, value: JsonValue, diagnostics: string[]): JsonValue {
+  if (transform.kind === "named-transform") {
+    diagnostics.push(`Preview for transform '${transform.functionKey}' requires server dry-run context.`);
+    return value;
+  }
+  if (transform.kind === "lookup") {
+    diagnostics.push(`Preview for lookup table '${transform.tableKey || "unknown"}' requires Catalog option context.`);
+    return value;
+  }
+  if (transform.kind === "coerce") {
+    return coercePreviewValue(value, transform.to);
+  }
+  const text = value === null || value === undefined ? "" : String(value);
+  switch (transform.operation) {
+    case "trim":
+      return text.trim();
+    case "lowercase":
+      return text.toLowerCase();
+    case "uppercase":
+      return text.toUpperCase();
+    case "slug":
+    case "normalize-provider-option":
+      return text
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+  }
+}
+
+function coercePreviewValue(value: JsonValue, target: Extract<MappingExpressionTransform, { kind: "coerce" }>["to"]) {
+  switch (target) {
+    case "number": {
+      const numericValue = Number(value);
+      return Number.isFinite(numericValue) ? numericValue : null;
+    }
+    case "boolean":
+      return value === true || value === "true";
+    case "json-object":
+      return isRecord(value) ? value : null;
+    case "json-array":
+      return Array.isArray(value) ? value : [];
+    default:
+      return value === null || value === undefined ? "" : String(value);
+  }
+}
+
+function valueAtPath(value: JsonValue, path: string): JsonValue | undefined {
+  if (!path.trim()) {
+    return value;
+  }
+  return path.split(".").reduce<JsonValue | undefined>((current, segment) => {
+    if (current === undefined || current === null) {
+      return undefined;
+    }
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      return Number.isInteger(index) ? current[index] : undefined;
+    }
+    return isRecord(current) ? current[segment] : undefined;
+  }, value);
+}
+
+function summarizePreviewValue(value: JsonValue): string {
+  if (value === null || value === undefined) {
+    return "null";
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  return JSON.stringify(value);
+}
+
+function isRecord(value: JsonValue | undefined): value is Record<string, JsonValue> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function parseJsonInput(value: string): JsonValue {

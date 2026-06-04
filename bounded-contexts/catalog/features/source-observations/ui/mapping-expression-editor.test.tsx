@@ -129,6 +129,51 @@ describe("MappingExpressionEditor", () => {
     expect(latest.transforms).toEqual([{ kind: "lookup", tableKey: "catalog-language", unknownPolicy: "diagnostic" }]);
     expect(latest.uses).toEqual(expect.arrayContaining(["source-payload", "hash-material"]));
   });
+
+  it("previews expression output against a fixture payload", () => {
+    render(
+      <MappingExpressionEditor
+        label="Previewed expression"
+        value={{
+          ...expression({
+            kind: "template",
+            template: "product:{productId}",
+            required: true,
+            values: {
+              productId: expression({ kind: "path", path: "product.id", required: true, nullPolicy: "diagnostic" }),
+            },
+          }),
+          transforms: [{ kind: "string", operation: "uppercase" }],
+        }}
+        onChange={vi.fn()}
+        previewPayload={{ product: { id: 14240 } }}
+      />,
+    );
+
+    expect(screen.getByText("Fixture Preview")).toBeTruthy();
+    expect(screen.getByText("PRODUCT:14240")).toBeTruthy();
+  });
+
+  it("shows preview diagnostics for server-context expressions", () => {
+    render(
+      <MappingExpressionEditor
+        label="Runtime expression"
+        value={expression({
+          kind: "named-runtime-selector",
+          functionKey: "tcgplayer-sku-selected-option-resolver",
+          reason: "Resolve selected options.",
+        })}
+        onChange={vi.fn()}
+        previewPayload={{ skuId: 1 }}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        "Preview for runtime selector 'tcgplayer-sku-selected-option-resolver' requires server dry-run context.",
+      ),
+    ).toBeTruthy();
+  });
 });
 
 function StatefulEditor({
