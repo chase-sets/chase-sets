@@ -4,6 +4,11 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { sourceObservationRoutes } from "./route";
 import type { SourceObservationServices } from "./runtime";
+import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
+import {
+  catalogProviderIntegrationProfileVersions,
+  type CatalogProviderIntegrationProfileVersionRecord,
+} from "./provider-integration-profiles";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -13,14 +18,17 @@ const context: EventStoreContext = {
   },
 };
 
-function buildApp(services: SourceObservationServices) {
+function buildApp(
+  services: SourceObservationServices,
+  profileVersions?: CatalogProviderIntegrationProfileVersionStore,
+) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.use("/source-observations/*", async (c, next) => {
     c.set("context", context);
     await next();
   });
-  app.route("/source-observations", sourceObservationRoutes(services));
+  app.route("/source-observations", sourceObservationRoutes(services, profileVersions));
 
   return app;
 }
@@ -313,6 +321,84 @@ describe("source observation routes", () => {
     });
   });
 
+  it("clones provider profile versions through the admin API", async () => {
+    const services = {} as SourceObservationServices;
+    const store = mutableProfileStore();
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.03/clone", {
+      method: "POST",
+      body: JSON.stringify({ targetProfileVersion: "2026.06.04" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(201);
+    await expect(response.json()).resolves.toMatchObject({
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      lifecycle: "draft",
+      active: false,
+      authoringAudit: {
+        createdByUserId: "usr_test",
+        createdForAccountId: "acc_test",
+      },
+    });
+    await expect(store.getProfileVersion("tcgdex", "2026.06.04")).resolves.toMatchObject({
+      executableMappingContract: {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+      },
+    });
+  });
+
+  it("returns a structured bad request for invalid provider profile authoring JSON", async () => {
+    const services = {} as SourceObservationServices;
+    const app = buildApp(services, mutableProfileStore());
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.03/clone", {
+      method: "POST",
+      body: "{",
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_json_body",
+        message: "Expected a valid JSON object request body.",
+      },
+    });
+  });
+
+  it("returns structured diagnostics when provider profile activation is blocked", async () => {
+    const services = {} as SourceObservationServices;
+    const store = mutableProfileStore();
+    const app = buildApp(services, store);
+    await app.request("/source-observations/provider-profiles/tcgdex/2026.06.03/clone", {
+      method: "POST",
+      body: JSON.stringify({ targetProfileVersion: "2026.06.04" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/activate", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "profile_activation_blocked",
+        diagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            code: "fixture-harness-failure",
+            path: "fixtures.coveredFlows.normal",
+            severity: "error",
+          }),
+        ]),
+      },
+    });
+  });
+
   it("enqueues provider integration jobs with normalized scope aliases", async () => {
     const job = integrationJob({ status: "queued" });
     const enqueueIntegrationJob = vi.fn(async () => job);
@@ -377,6 +463,42 @@ describe("source observation routes", () => {
         productLineId: "3",
         setName: "Base Set",
         productId: "12345",
+      },
+      context,
+    });
+  });
+
+  it("returns a validation error when a provider integration job is not importable", async () => {
+    const enqueueIntegrationJob = vi.fn(async () => {
+      throw new Error("Provider 'tcgplayer' does not support background import.");
+    });
+    const services = {
+      enqueueIntegrationJob,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs", {
+      method: "POST",
+      body: JSON.stringify({
+        action: "import",
+        scope: { source: "tcgplayer", categoryId: "3", cleanSetName: "Base Set" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_scope",
+        message: "Provider 'tcgplayer' does not support background import.",
+      },
+    });
+    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
+      action: "import",
+      scope: {
+        provider: "tcgplayer",
+        productLineId: "3",
+        setName: "Base Set",
       },
       context,
     });
@@ -857,6 +979,66 @@ describe("source observation routes", () => {
     expect(listActiveBulkReviewJobs).toHaveBeenCalledWith({ context });
   });
 });
+
+function mutableProfileStore(): CatalogProviderIntegrationProfileVersionStore {
+  let records = [...catalogProviderIntegrationProfileVersions];
+  return {
+    seedProfileVersions: async () => records,
+    upsertProfileVersion: async (version) => {
+      records = records.filter(
+        (candidate) =>
+          !(
+            candidate.providerKey === version.providerKey &&
+            candidate.profileKey === version.profileKey &&
+            candidate.profileVersion === version.profileVersion
+          ),
+      );
+      records = [...records, version];
+      return version;
+    },
+    listProfileVersions: async (providerKey) =>
+      records.filter((version) => !providerKey || version.providerKey === providerKey),
+    getProfileVersion: async (providerKey, profileVersion) =>
+      records.find((version) => version.providerKey === providerKey && version.profileVersion === profileVersion) ??
+      null,
+    getActiveProfileVersion: async (providerKey) =>
+      records.find(
+        (version) => version.providerKey === providerKey && version.active && version.lifecycle === "active",
+      ) ?? null,
+    activateProfileVersion: async (providerKey, profileVersion) =>
+      updateProfileVersion(records, providerKey, profileVersion, "active", true),
+    deprecateProfileVersion: async (providerKey, profileVersion) =>
+      updateProfileVersion(records, providerKey, profileVersion, "deprecated", false),
+    rollbackProfileVersion: async (providerKey, profileVersion) =>
+      updateProfileVersion(records, providerKey, profileVersion, "active", true),
+    countProfileVersionReferences: async () => 0,
+  };
+
+  function updateProfileVersion(
+    current: CatalogProviderIntegrationProfileVersionRecord[],
+    providerKey: string,
+    profileVersion: string,
+    lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
+    active: boolean,
+  ): CatalogProviderIntegrationProfileVersionRecord {
+    const version = current.find(
+      (candidate) => candidate.providerKey === providerKey && candidate.profileVersion === profileVersion,
+    );
+    if (!version) {
+      throw new Error("Profile version not found.");
+    }
+    const updated = {
+      ...version,
+      lifecycle,
+      active,
+      executableMappingContract: version.executableMappingContract
+        ? { ...version.executableMappingContract, lifecycle }
+        : undefined,
+    };
+    records = current.map((candidate) => (candidate === version ? updated : candidate));
+    return updated;
+  }
+}
 
 function jobEvent<TJob>(job: TJob, sequence = 1) {
   return {

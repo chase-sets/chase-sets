@@ -1,15 +1,22 @@
 import { t } from "@chase-sets/localization";
 import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durable-job-events";
 import type { JsonValue } from "@chase-sets/primitives/json";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import {
   activateCatalogProviderProfileVersionForReview,
+  CatalogProviderProfileActivationValidationError,
+  cloneCatalogProviderProfileVersionForReview,
+  createCatalogProviderProfileVersionForReview,
   deprecateCatalogProviderProfileVersionForReview,
   dryRunCatalogProviderProfileVersion,
   listCatalogProviderProfileVersionReviews,
+  retireCatalogProviderProfileVersionForReview,
+  rollbackCatalogProviderProfileVersionForReview,
+  updateCatalogProviderProfileVersionForReview,
 } from "./provider-profile-review";
+import type { CatalogProviderIntegrationProfileVersionRecord } from "./provider-integration-profiles";
 import type { SourceObservationServices } from "./runtime";
 import type { SourceObservationFilterScope } from "../read-model/queries";
 
@@ -60,12 +67,53 @@ export function sourceObservationRoutes(
     return c.json({ items, total: items.length, count: items.length });
   });
 
+  app.post("/provider-profiles", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const body = await readJsonObject(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const result = await createCatalogProviderProfileVersionForReview({
+      store: profileVersions,
+      version: body.version as CatalogProviderIntegrationProfileVersionRecord,
+      audit: authoringAuditFromContext(c.get("context")),
+    });
+
+    return c.json(result, 201);
+  });
+
+  app.patch("/provider-profiles/:providerKey/:profileVersion", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const body = await readJsonObject(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const result = await updateCatalogProviderProfileVersionForReview({
+      store: profileVersions,
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+      patch: (body.patch ?? body) as never,
+      audit: authoringAuditFromContext(c.get("context")),
+    });
+
+    return c.json(result);
+  });
+
   app.post("/provider-profiles/:providerKey/:profileVersion/dry-run", async (c) => {
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
 
-    const body = (await c.req.json().catch(() => ({}))) as { payload?: unknown };
+    const body = await readJsonObject(c);
+    if (body instanceof Response) {
+      return body;
+    }
     const result = await dryRunCatalogProviderProfileVersion({
       store: profileVersions,
       providerKey: c.req.param("providerKey"),
@@ -82,10 +130,78 @@ export function sourceObservationRoutes(
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
 
-    const result = await activateCatalogProviderProfileVersionForReview({
+    let result;
+    try {
+      result = await activateCatalogProviderProfileVersionForReview({
+        store: profileVersions,
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+      });
+    } catch (error) {
+      if (!(error instanceof CatalogProviderProfileActivationValidationError)) {
+        throw error;
+      }
+
+      return c.json(
+        {
+          error: {
+            code: "profile_activation_blocked",
+            message: error.message,
+            diagnostics: error.diagnostics,
+          },
+        },
+        400,
+      );
+    }
+
+    return c.json(result);
+  });
+
+  app.post("/provider-profiles/:providerKey/:profileVersion/clone", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const body = await readJsonObject(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const result = await cloneCatalogProviderProfileVersionForReview({
       store: profileVersions,
       providerKey: c.req.param("providerKey"),
       profileVersion: c.req.param("profileVersion"),
+      targetProfileVersion: String(body.targetProfileVersion ?? ""),
+      lifecycle: body.lifecycle === "test" ? "test" : "draft",
+      audit: authoringAuditFromContext(c.get("context")),
+    });
+
+    return c.json(result, 201);
+  });
+
+  app.post("/provider-profiles/:providerKey/:profileVersion/rollback", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const result = await rollbackCatalogProviderProfileVersionForReview({
+      store: profileVersions,
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/provider-profiles/:providerKey/:profileVersion/retire", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const result = await retireCatalogProviderProfileVersionForReview({
+      store: profileVersions,
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+      audit: authoringAuditFromContext(c.get("context")),
     });
 
     return c.json(result);
@@ -334,11 +450,28 @@ export function sourceObservationRoutes(
       );
     }
 
-    const job = await services.enqueueIntegrationJob({
-      action,
-      scope: parseIntegrationJobScope(body.scope),
-      context: c.get("context"),
-    });
+    let job;
+    try {
+      job = await services.enqueueIntegrationJob({
+        action,
+        scope: parseIntegrationJobScope(body.scope),
+        context: c.get("context"),
+      });
+    } catch (error) {
+      if (!isIntegrationJobValidationError(error)) {
+        throw error;
+      }
+
+      return c.json(
+        {
+          error: {
+            code: "invalid_scope",
+            message: error.message,
+          },
+        },
+        400,
+      );
+    }
 
     return c.json(job, 202);
   });
@@ -484,12 +617,60 @@ function promotionScopeToIntegrationScope(scope: SourceObservationFilterScope) {
   };
 }
 
+function isIntegrationJobValidationError(error: unknown): error is Error {
+  return (
+    error instanceof Error &&
+    (error.message.includes("does not support background import") ||
+      error.message.includes("No active Catalog source observation import provider is configured"))
+  );
+}
+
+async function readJsonObject(c: Context<CatalogAuthoringEnv>): Promise<Record<string, unknown> | Response> {
+  try {
+    const body = (await c.req.json()) as unknown;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return c.json(
+        {
+          error: {
+            code: "invalid_json_body",
+            message: "Expected a JSON object request body.",
+          },
+        },
+        400,
+      );
+    }
+    return body as Record<string, unknown>;
+  } catch {
+    return c.json(
+      {
+        error: {
+          code: "invalid_json_body",
+          message: "Expected a valid JSON object request body.",
+        },
+      },
+      400,
+    );
+  }
+}
+
 function stringField(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
 function toJsonValue(value: unknown): JsonValue {
   return value === undefined ? null : (value as JsonValue);
+}
+
+function authoringAuditFromContext(context: CatalogAuthoringEnv["Variables"]["context"]) {
+  const now = new Date().toISOString();
+  return {
+    createdAt: now,
+    createdByUserId: context.audit.performedByUserId,
+    createdForAccountId: context.audit.forAccountId,
+    updatedAt: now,
+    updatedByUserId: context.audit.performedByUserId,
+    updatedForAccountId: context.audit.forAccountId,
+  };
 }
 
 function parseObservationIds(input: unknown): string[] {

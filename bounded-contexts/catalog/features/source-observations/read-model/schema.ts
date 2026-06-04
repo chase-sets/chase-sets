@@ -63,6 +63,8 @@ CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
   compatibility_mode text NOT NULL,
   retirement_plan_json jsonb NULL,
   executable_mapping_contract_json jsonb NULL,
+  migration_evidence_json jsonb NULL,
+  authoring_audit_json jsonb NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
   activated_at timestamptz NULL,
   deprecated_at timestamptz NULL,
@@ -74,6 +76,10 @@ CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
   CONSTRAINT catalog_provider_profile_compatibility_mode_check
     CHECK (compatibility_mode IN ('executable-mapping-contract', 'transitional-static-profile'))
 );
+
+ALTER TABLE catalog_provider_integration_profile_versions
+  ADD COLUMN IF NOT EXISTS migration_evidence_json jsonb NULL,
+  ADD COLUMN IF NOT EXISTS authoring_audit_json jsonb NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS catalog_provider_integration_profile_versions_active_idx
   ON catalog_provider_integration_profile_versions (provider_key)

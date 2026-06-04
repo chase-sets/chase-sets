@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import { module as authModule } from "@chase-sets/auth";
 import { module as identityModule } from "@chase-sets/identity";
 import {
@@ -15,6 +15,7 @@ import {
 } from "@chase-sets/platform-runtime/health";
 import { createApiHost, resolveApiHostMounts, type ApiHostRuntime } from "@chase-sets/platform-runtime/api";
 import { createProjectionOperationsRoutes } from "@chase-sets/platform-runtime/projection-operations-routes";
+import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import { apiContextRegistry } from "./generated/api-context-registry";
 import {
   createIdentityAuthMiddleware,
@@ -103,10 +104,31 @@ export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildA
       .map((mount) => mount.mountPath),
     platformActorMiddleware,
   );
+  attachApiMountMiddleware(
+    app,
+    apiMounts.filter((mount) => mount.contextName === "catalog" && mount.requiresAuth).map((mount) => mount.mountPath),
+    catalogApiPermissionMiddleware,
+  );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
   attachReadConsistencyMiddleware(app, apiMounts, runtime.projectionGroups);
   mountApiRouters(app, apiMounts);
 
   return app;
+}
+
+async function catalogApiPermissionMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
+  const actor = c.get("actor");
+  if (!actor) {
+    return c.json(authenticationRequiredResponse(), 401);
+  }
+
+  const method = c.req.method.toUpperCase();
+  const requiredPermission =
+    method === "GET" || method === "HEAD" || method === "OPTIONS" ? "catalog.view" : "catalog.manage";
+  if (!actor.permissions.includes(requiredPermission)) {
+    return c.json(forbiddenResponse(), 403);
+  }
+
+  await next();
 }

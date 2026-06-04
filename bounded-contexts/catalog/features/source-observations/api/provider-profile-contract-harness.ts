@@ -455,6 +455,7 @@ function profileStore(
       }
       return { ...version, lifecycle: "active", active: true };
     },
+    countProfileVersionReferences: async () => 0,
   };
 }
 

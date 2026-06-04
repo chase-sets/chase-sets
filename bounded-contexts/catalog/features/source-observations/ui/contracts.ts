@@ -111,6 +111,7 @@ export interface CatalogProviderProfileVersionReview {
   status: string;
   compatibilityMode: string;
   connectorKind: string;
+  profile: JsonValue;
   sourceContract: {
     owner: string;
     repository: string | null;
@@ -123,11 +124,31 @@ export interface CatalogProviderProfileVersionReview {
     coveredFlows: string[];
     liveProviderCallsAllowed: false;
   };
+  retirementPlan: JsonValue;
+  executableMappingContract: JsonValue;
+  referenceCount: number;
   capabilities: string[];
   supportedScopes: string[];
   languageOptions: string[];
   mappingOutputKind: string;
   hasExecutableMappingContract: boolean;
+  migrationEvidence: {
+    evidenceText: string;
+    mappingFingerprintBefore?: string | null;
+    mappingFingerprintAfter?: string | null;
+    fixtureRunId?: string | null;
+    recordedAt: string;
+    recordedByUserId?: string | null;
+    recordedForAccountId?: string | null;
+  } | null;
+  authoringAudit: {
+    createdAt?: string | null;
+    createdByUserId?: string | null;
+    createdForAccountId?: string | null;
+    updatedAt?: string | null;
+    updatedByUserId?: string | null;
+    updatedForAccountId?: string | null;
+  } | null;
   validation: {
     status: "valid" | "invalid";
     diagnostics: CatalogProviderProfileReviewDiagnostic[];

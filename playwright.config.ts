@@ -2,12 +2,13 @@ import { defineConfig, devices } from "@playwright/test";
 import { resolveWorktreeSandbox } from "./scripts/lib/sandbox.mjs";
 
 const sandbox = resolveWorktreeSandbox();
+const adminWebBaseUrl = process.env.ADMIN_WEB_URL ?? sandbox.urls.adminWeb;
 const marketplaceBaseUrl = process.env.MARKETPLACE_WEB_URL ?? sandbox.urls.marketplaceWeb;
 const isCi = Boolean(process.env.CI);
 const skipWebServer = process.env.PLAYWRIGHT_SKIP_WEB_SERVER === "true";
 
 export default defineConfig({
-  testDir: "./deployables/marketplace/e2e",
+  testDir: ".",
   outputDir: "artifacts/playwright/test-results",
   fullyParallel: true,
   forbidOnly: isCi,
@@ -15,7 +16,6 @@ export default defineConfig({
   workers: isCi ? 1 : undefined,
   reporter: [["list"], ["html", { open: "never", outputFolder: "artifacts/playwright/report" }]],
   use: {
-    baseURL: marketplaceBaseUrl,
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
@@ -23,15 +23,21 @@ export default defineConfig({
   webServer: skipWebServer
     ? undefined
     : {
-        command: "pnpm run dev:marketplace-full",
+        command: "pnpm run dev:browser-e2e",
         url: `${marketplaceBaseUrl}/health/ready`,
         reuseExistingServer: !isCi,
-        timeout: 180_000,
+        timeout: 300_000,
       },
   projects: [
     {
-      name: "chromium",
-      use: { ...devices["Desktop Chrome"] },
+      name: "marketplace-chromium",
+      testMatch: "deployables/marketplace/e2e/**/*.spec.ts",
+      use: { ...devices["Desktop Chrome"], baseURL: marketplaceBaseUrl },
+    },
+    {
+      name: "admin-web-chromium",
+      testMatch: "deployables/admin-web/e2e/**/*.spec.ts",
+      use: { ...devices["Desktop Chrome"], baseURL: adminWebBaseUrl },
     },
   ],
 });

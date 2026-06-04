@@ -96,8 +96,36 @@ export function dryRunSourceObservationProviderProfile(providerKey: string, prof
   );
 }
 
+export function createSourceObservationProviderProfile(version: unknown) {
+  return api.createSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(version);
+}
+
+export function updateSourceObservationProviderProfile(providerKey: string, profileVersion: string, patch: unknown) {
+  return api.updateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+    providerKey,
+    profileVersion,
+    patch,
+  );
+}
+
+export function cloneSourceObservationProviderProfile(providerKey: string, profileVersion: string, body: unknown) {
+  return api.cloneSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+    providerKey,
+    profileVersion,
+    body,
+  );
+}
+
 export function activateSourceObservationProviderProfile(providerKey: string, profileVersion: string) {
   return api.activateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
+}
+
+export function rollbackSourceObservationProviderProfile(providerKey: string, profileVersion: string) {
+  return api.rollbackSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
+}
+
+export function retireSourceObservationProviderProfile(providerKey: string, profileVersion: string) {
+  return api.retireSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(providerKey, profileVersion);
 }
 
 export function deprecateSourceObservationProviderProfile(providerKey: string, profileVersion: string) {

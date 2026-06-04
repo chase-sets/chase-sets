@@ -7,7 +7,11 @@ import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { ReferenceRecordCommand, ReferenceTypeCommand } from "../../reference-data/domain/domain";
 import type { SourceObservationNormalized, SourceObservationPokemonCardNormalized } from "../domain/domain";
 import { createSourceObservationRuntime, ensurePokemonReferenceHierarchy } from "./runtime";
-import { tcgdexPokemonTcgProviderProfile } from "./provider-integration-profiles";
+import {
+  catalogProviderIntegrationProfileVersions,
+  tcgdexPokemonTcgProviderProfile,
+  type CatalogProviderIntegrationProfileVersionRecord,
+} from "./provider-integration-profiles";
 import type {
   TcgplayerAutomationCatalogClient,
   TcgplayerAutomationProductDetail,
@@ -32,6 +36,129 @@ type ReferenceRecordRow = {
   key: string;
   attributes: Readonly<Record<string, JsonValue>>;
 };
+
+function createActiveTcgplayerProfileVersions(): {
+  listProfileVersions: (
+    providerKey?: string | null,
+  ) => Promise<readonly CatalogProviderIntegrationProfileVersionRecord[]>;
+  getActiveProfileVersion: (providerKey: string) => Promise<CatalogProviderIntegrationProfileVersionRecord | null>;
+} {
+  const versions = catalogProviderIntegrationProfileVersions.map((version) =>
+    version.providerKey === "tcgplayer"
+      ? {
+          ...version,
+          lifecycle: "active" as const,
+          active: true,
+          profile: {
+            ...version.profile,
+            status: "active" as const,
+          },
+        }
+      : version,
+  );
+  return {
+    listProfileVersions: async (providerKey?: string | null) => {
+      const normalizedProviderKey = providerKey?.trim().toLowerCase() ?? "";
+      return normalizedProviderKey
+        ? versions.filter((version) => version.providerKey === normalizedProviderKey)
+        : versions;
+    },
+    getActiveProfileVersion: async (providerKey: string) => {
+      const normalizedProviderKey = providerKey.trim().toLowerCase();
+      return (
+        versions.find(
+          (version) =>
+            version.providerKey === normalizedProviderKey && version.active && version.lifecycle === "active",
+        ) ?? null
+      );
+    },
+  };
+}
+
+function createMutableProfileVersionReader(initialVersions: readonly CatalogProviderIntegrationProfileVersionRecord[]) {
+  let versions = [...initialVersions];
+  return {
+    listProfileVersions: async (providerKey?: string | null) => {
+      const normalizedProviderKey = providerKey?.trim().toLowerCase() ?? "";
+      return normalizedProviderKey
+        ? versions.filter((version) => version.providerKey === normalizedProviderKey)
+        : versions;
+    },
+    getActiveProfileVersion: async (providerKey: string) => {
+      const normalizedProviderKey = providerKey.trim().toLowerCase();
+      return (
+        versions.find(
+          (version) =>
+            version.providerKey === normalizedProviderKey && version.active && version.lifecycle === "active",
+        ) ?? null
+      );
+    },
+    activate: (providerKey: string, profileVersion: string) => {
+      const normalizedProviderKey = providerKey.trim().toLowerCase();
+      versions = versions.map((version) => {
+        if (version.providerKey !== normalizedProviderKey) {
+          return version;
+        }
+        const active = version.profileVersion === profileVersion;
+        return {
+          ...version,
+          lifecycle: active ? ("active" as const) : ("deprecated" as const),
+          active,
+          executableMappingContract: version.executableMappingContract
+            ? {
+                ...version.executableMappingContract,
+                lifecycle: active ? ("active" as const) : ("deprecated" as const),
+              }
+            : undefined,
+        };
+      });
+    },
+  };
+}
+
+function tcgdexProfileVersion(input: {
+  profileVersion: string;
+  lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"];
+  active: boolean;
+  displayName: string;
+}): CatalogProviderIntegrationProfileVersionRecord {
+  const base = currentTcgdexProfileVersion();
+  return {
+    ...base,
+    profileVersion: input.profileVersion,
+    lifecycle: input.lifecycle,
+    active: input.active,
+    profile: {
+      ...base.profile,
+      displayName: input.displayName,
+    },
+    executableMappingContract: base.executableMappingContract
+      ? {
+          ...base.executableMappingContract,
+          profileVersion: input.profileVersion,
+          lifecycle: input.lifecycle,
+        }
+      : undefined,
+  };
+}
+
+function tcgdexProfileSnapshot(profileVersion: string): Record<string, unknown> {
+  return {
+    providerKey: "tcgdex",
+    profileKey: "pokemon-tcg",
+    profileVersion,
+    lifecycle: "active",
+    sourceMappingFingerprint: `fingerprint:${profileVersion}`,
+  };
+}
+
+function currentTcgdexProfileVersion(): CatalogProviderIntegrationProfileVersionRecord {
+  const version = catalogProviderIntegrationProfileVersions.find((candidate) => candidate.providerKey === "tcgdex");
+  if (!version) {
+    throw new Error("Expected seeded TCGdex profile version.");
+  }
+  return version;
+}
 
 describe("source observation runtime", () => {
   it("preloads and reuses TCGdex reference records by provider attributes", async () => {
@@ -892,6 +1019,7 @@ describe("source observation runtime", () => {
         jobId: "job_existing",
         action: "import",
         scope: { provider: "tcgdex", language: "en" },
+        profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
         eventContext: context,
       }),
     });
@@ -912,12 +1040,31 @@ describe("source observation runtime", () => {
     expect(harness.activeLookupValues[0]).toEqual(["import"]);
   });
 
+  it("rejects production import jobs for inactive provider profile versions before enqueue", async () => {
+    const harness = createIntegrationJobDedupeHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    await expect(
+      services.enqueueIntegrationJob({
+        action: "import",
+        scope: { provider: "tcgplayer", productLineId: "3", setName: "Prismatic Evolutions" },
+        context,
+      }),
+    ).rejects.toThrow("Provider 'tcgplayer' does not support background import.");
+    expect(harness.insertedJobs).toEqual([]);
+  });
+
   it("does not reuse active provider integration jobs from a different account context", async () => {
     const harness = createIntegrationJobDedupeHarness({
       existingJob: integrationJobRow({
         jobId: "job_other_account",
         action: "import",
         scope: { provider: "tcgdex", language: "en" },
+        profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
         eventContext: {
           ...context,
           audit: {
@@ -940,6 +1087,13 @@ describe("source observation runtime", () => {
     });
 
     expect(job.jobId).not.toBe("job_other_account");
+    expect(job.profileSnapshot).toMatchObject({
+      providerKey: "tcgdex",
+      profileKey: "pokemon-tcg",
+      profileVersion: "2026.06.03",
+      lifecycle: "active",
+    });
+    expect(job.profileSnapshot?.sourceMappingFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(harness.insertedJobs).toHaveLength(1);
   });
 
@@ -970,7 +1124,54 @@ describe("source observation runtime", () => {
     ]);
   });
 
-  it("lists active and planned provider connector options for Catalog integration discovery", async () => {
+  it("snapshots reapply profile mode on integration jobs and work units", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      reapplyObservationIds: ["obs_promoted_1", "obs_promoted_2"],
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const job = await services.enqueueIntegrationJob({
+      action: "reapply",
+      scope: { provider: "tcgdex", language: "en", setId: "base1" },
+      context,
+    });
+
+    expect(job).toMatchObject({
+      action: "reapply",
+      reapplyProfileMode: "current-active-profile",
+      profileSnapshot: {
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.03",
+      },
+      progress: {
+        total: 2,
+      },
+    });
+    expect(harness.insertedWorkUnits.map((unit) => unit.payload)).toEqual([
+      expect.objectContaining({
+        observationId: "obs_promoted_1",
+        reapplyProfileMode: "current-active-profile",
+        profileSnapshot: expect.objectContaining({
+          providerKey: "tcgdex",
+          profileVersion: "2026.06.03",
+        }),
+      }),
+      expect.objectContaining({
+        observationId: "obs_promoted_2",
+        reapplyProfileMode: "current-active-profile",
+        profileSnapshot: expect.objectContaining({
+          providerKey: "tcgdex",
+          profileVersion: "2026.06.03",
+        }),
+      }),
+    ]);
+  });
+
+  it("lists active provider connector options for Catalog integration discovery", async () => {
     const services = createSourceObservationRuntime(
       { db: {} } as CatalogRuntimeDeps,
       {} as CatalogItemServices,
@@ -984,15 +1185,6 @@ describe("source observation runtime", () => {
 
     expect(providers).toEqual([
       expect.objectContaining({
-        providerKey: "scrydex",
-        value: "scrydex",
-        label: "Scrydex",
-        metadata: expect.objectContaining({
-          status: "planned",
-          connectorKind: "scrydex-scryfall-json",
-        }),
-      }),
-      expect.objectContaining({
         providerKey: "tcgdex",
         value: "tcgdex",
         label: "TCGdex",
@@ -1001,19 +1193,44 @@ describe("source observation runtime", () => {
           connectorKind: "tcgdex-json",
         }),
       }),
-      expect.objectContaining({
-        providerKey: "tcgplayer",
-        value: "tcgplayer",
-        label: "TCGplayer",
-        metadata: expect.objectContaining({
-          status: "planned",
-          connectorKind: "tcgplayer-automation-client",
-        }),
-      }),
     ]);
   });
 
-  it("does not run option queries against planned provider connectors before their adapter is installed", async () => {
+  it("uses newly activated persisted profile versions for subsequent option queries", async () => {
+    const profileVersions = createMutableProfileVersionReader([
+      currentTcgdexProfileVersion(),
+      tcgdexProfileVersion({
+        profileVersion: "2026.06.04",
+        lifecycle: "test",
+        active: false,
+        displayName: "TCGdex Candidate",
+      }),
+    ]);
+    const services = createSourceObservationRuntime(
+      { db: {} } as CatalogRuntimeDeps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      profileVersions,
+    );
+
+    await expect(
+      services.listIntegrationOptions({
+        providerKey: "tcgdex",
+        queryKind: "providers",
+      }),
+    ).resolves.toEqual([expect.objectContaining({ providerKey: "tcgdex", label: "TCGdex" })]);
+
+    profileVersions.activate("tcgdex", "2026.06.04");
+
+    await expect(
+      services.listIntegrationOptions({
+        providerKey: "tcgdex",
+        queryKind: "providers",
+      }),
+    ).resolves.toEqual([expect.objectContaining({ providerKey: "tcgdex", label: "TCGdex Candidate" })]);
+  });
+
+  it("does not run option queries against inactive provider profile versions", async () => {
     const services = createSourceObservationRuntime(
       { db: {} } as CatalogRuntimeDeps,
       {} as CatalogItemServices,
@@ -1025,7 +1242,7 @@ describe("source observation runtime", () => {
         providerKey: "tcgplayer",
         queryKind: "languages",
       }),
-    ).rejects.toThrow("Unsupported Catalog integration query 'languages' for provider 'tcgplayer'.");
+    ).rejects.toThrow("Unsupported Catalog integration provider: tcgplayer.");
   });
 
   it("lists TCGplayer product-line and set-name options through the automation client", async () => {
@@ -1034,6 +1251,7 @@ describe("source observation runtime", () => {
       harness.deps,
       {} as CatalogItemServices,
       {} as ReferenceDataServices,
+      createActiveTcgplayerProfileVersions(),
     );
 
     const productLines = await services.listIntegrationOptions({
@@ -1080,6 +1298,7 @@ describe("source observation runtime", () => {
       harness.deps,
       {} as CatalogItemServices,
       {} as ReferenceDataServices,
+      createActiveTcgplayerProfileVersions(),
     );
 
     const result = await services.importTcgplayerScope({
@@ -1140,6 +1359,7 @@ describe("source observation runtime", () => {
       harness.deps,
       {} as CatalogItemServices,
       {} as ReferenceDataServices,
+      createActiveTcgplayerProfileVersions(),
     );
 
     const result = await services.importTcgplayerScope({
@@ -1174,7 +1394,12 @@ describe("source observation runtime", () => {
       renewSucceeds: true,
       tcgplayerAutomationCatalogClient: tcgplayerHarness.client,
     });
-    const services = createSourceObservationRuntime(harness.deps, {} as CatalogItemServices, harness.referenceData);
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      createActiveTcgplayerProfileVersions(),
+    );
 
     await expect(
       services.processNextIntegrationJob({
@@ -1196,6 +1421,74 @@ describe("source observation runtime", () => {
       failed: 0,
     });
     expect(harness.appendedSourceEvents).toHaveLength(2);
+  });
+
+  it("processes queued imports with the snapshotted profile version after a newer version is activated", async () => {
+    const harness = createIntegrationJobClaimHandoffHarness({
+      profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
+      renewSucceeds: true,
+    });
+    const profileVersions = createMutableProfileVersionReader([
+      tcgdexProfileVersion({
+        profileVersion: "2026.06.03",
+        lifecycle: "deprecated",
+        active: false,
+        displayName: "TCGdex",
+      }),
+      tcgdexProfileVersion({
+        profileVersion: "2026.06.04",
+        lifecycle: "active",
+        active: true,
+        displayName: "TCGdex Candidate",
+      }),
+    ]);
+    const originalFetch = globalThis.fetch;
+    let fetchCount = 0;
+    globalThis.fetch = (async () => {
+      fetchCount += 1;
+      const body =
+        fetchCount === 1
+          ? {
+              id: "base1",
+              name: "Base Set",
+              serie: { id: "base", name: "Base" },
+              cardCount: { official: 102, total: 102 },
+              cards: [{ id: "base1-1", localId: "1", name: "Abra" }],
+            }
+          : {
+              id: "base1-1",
+              localId: "1",
+              name: "Abra",
+              category: "Pokemon",
+              rarity: "Common",
+              set: { id: "base1", name: "Base Set" },
+              variants: { normal: true },
+            };
+      return new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+    }) as typeof globalThis.fetch;
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      harness.referenceData,
+      profileVersions,
+    );
+
+    try {
+      await expect(
+        services.processNextIntegrationJob({
+          claimOwnerId: "worker-1",
+          claimTtlMs: 120_000,
+        }),
+      ).resolves.toBe(1);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(harness.job.status).toBe("completed");
+    expect(harness.appendedSourceEvents[0]?.payload).toMatchObject({
+      providerKey: "tcgdex",
+      sourceProfileVersion: "2026.06.03",
+    });
   });
 
   it("hands off provider integration imports when the durable claim is lost before recording observations", async () => {
@@ -1452,8 +1745,11 @@ function tcgplayerProductDetail(input: {
   };
 }
 
-function createIntegrationJobDedupeHarness(input: { existingJob?: Record<string, unknown> } = {}) {
+function createIntegrationJobDedupeHarness(
+  input: { existingJob?: Record<string, unknown>; reapplyObservationIds?: readonly string[] } = {},
+) {
   const insertedJobs: Record<string, unknown>[] = [];
+  const insertedWorkUnits: Array<Readonly<{ unitId: string; unitKind: string; payload: Record<string, unknown> }>> = [];
   const jobEvents: Record<string, unknown>[] = [];
   let queryCount = 0;
   let activeLookupValues: readonly unknown[] = [];
@@ -1474,17 +1770,42 @@ function createIntegrationJobDedupeHarness(input: { existingJob?: Record<string,
           };
         }
 
+        if (sql.includes("SELECT observation_id FROM catalog_source_observations")) {
+          const rows = (input.reapplyObservationIds ?? []).map((observationId) => ({
+            observation_id: observationId,
+          }));
+          return { rowCount: rows.length, rows: rows as T[] };
+        }
+
         if (sql.includes("INSERT INTO catalog_source_observation_integration_durable_jobs")) {
           const payload = JSON.parse(String(values[2])) as Record<string, unknown>;
           const row = integrationJobRow({
             jobId: String(values[0]),
             action: String(values[1]),
             scope: payload.scope as Record<string, unknown>,
+            profileSnapshot: payload.profileSnapshot as Record<string, unknown> | null,
+            reapplyProfileMode: payload.reapplyProfileMode as string | null,
             eventContext: JSON.parse(String(values[4])) as EventStoreContext,
             progress: JSON.parse(String(values[3])) as Record<string, unknown>,
           });
           insertedJobs.push(row);
           return { rowCount: 1, rows: [row] as T[] };
+        }
+
+        if (sql.includes("INSERT INTO catalog_source_observation_integration_work_units")) {
+          const units = JSON.parse(String(values[1])) as Array<{
+            unit_id: string;
+            unit_kind: string;
+            payload: Record<string, unknown>;
+          }>;
+          insertedWorkUnits.push(
+            ...units.map((unit) => ({
+              unitId: unit.unit_id,
+              unitKind: unit.unit_kind,
+              payload: unit.payload,
+            })),
+          );
+          return { rowCount: units.length, rows: [] as T[] };
         }
 
         if (sql.includes("INSERT INTO catalog_source_observation_integration_job_events")) {
@@ -1528,6 +1849,7 @@ function createIntegrationJobDedupeHarness(input: { existingJob?: Record<string,
   return {
     deps,
     insertedJobs,
+    insertedWorkUnits,
     jobEvents,
     get activeLookupValues() {
       return activeLookupValues;
@@ -1542,6 +1864,8 @@ function integrationJobRow(input: {
   jobId: string;
   action: string;
   scope: Record<string, unknown>;
+  profileSnapshot?: Record<string, unknown> | null;
+  reapplyProfileMode?: string | null;
   eventContext: EventStoreContext;
   progress?: Record<string, unknown>;
 }) {
@@ -1551,6 +1875,8 @@ function integrationJobRow(input: {
     payload: {
       action: input.action,
       scope: input.scope,
+      profileSnapshot: input.profileSnapshot ?? null,
+      reapplyProfileMode: input.reapplyProfileMode ?? null,
     },
     event_context: input.eventContext,
     status: "queued",
@@ -1577,6 +1903,7 @@ function integrationJobRow(input: {
 function createIntegrationJobClaimHandoffHarness(
   input: {
     scope?: Record<string, unknown>;
+    profileSnapshot?: Record<string, unknown> | null;
     renewSucceeds?: boolean;
     tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient;
   } = {},
@@ -1593,6 +1920,7 @@ function createIntegrationJobClaimHandoffHarness(
         language: "en",
         setId: "base1",
       },
+      profileSnapshot: input.profileSnapshot ?? null,
     },
     event_context: context,
     status: "queued",

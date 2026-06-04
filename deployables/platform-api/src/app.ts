@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context, type Next } from "hono";
 import { module as authModule } from "@chase-sets/auth";
 import { createUcpOAuthMetadataRoutes, createUcpOAuthRoutes } from "@chase-sets/auth/server";
 import { createCheckoutUcpHandlers } from "@chase-sets/checkout/server";
@@ -53,6 +53,7 @@ import {
   type PlatformActorResolver,
   type TenantContextEnv,
 } from "./middleware/auth-context";
+import { authenticationRequiredResponse, forbiddenResponse } from "@chase-sets/http/responses";
 import { errorHandler } from "./middleware/error-handler";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
@@ -301,12 +302,33 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
       .map((mount) => mount.mountPath),
     platformActorMiddleware,
   );
+  attachApiMountMiddleware(
+    app,
+    apiMounts.filter((mount) => mount.contextName === "catalog" && mount.requiresAuth).map((mount) => mount.mountPath),
+    catalogApiPermissionMiddleware,
+  );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
   attachReadConsistencyMiddleware(app, apiMounts, runtime.projectionGroups);
   mountApiRouters(app, apiMounts);
 
   return app;
+}
+
+async function catalogApiPermissionMiddleware(c: Context<TenantContextEnv>, next: Next): Promise<Response | void> {
+  const actor = c.get("actor");
+  if (!actor) {
+    return c.json(authenticationRequiredResponse(), 401);
+  }
+
+  const method = c.req.method.toUpperCase();
+  const requiredPermission =
+    method === "GET" || method === "HEAD" || method === "OPTIONS" ? "catalog.view" : "catalog.manage";
+  if (!actor.permissions.includes(requiredPermission)) {
+    return c.json(forbiddenResponse(), 403);
+  }
+
+  await next();
 }
 
 function isPaymentProcessorPublicConfig(value: unknown): value is Parameters<typeof createPaymentsUcpHandoff>[0] {

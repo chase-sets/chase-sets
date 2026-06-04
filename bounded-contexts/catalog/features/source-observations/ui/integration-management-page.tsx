@@ -47,11 +47,15 @@ import type {
 import {
   activateSourceObservationProviderProfile,
   bulkPromoteSourceObservationsByScope,
+  cloneSourceObservationProviderProfile,
   deprecateSourceObservationProviderProfile,
   dryRunSourceObservationProviderProfile,
   enqueueSourceObservationIntegrationJob,
   previewBulkPromoteSourceObservations,
   previewReapplySourceObservations,
+  retireSourceObservationProviderProfile,
+  rollbackSourceObservationProviderProfile,
+  updateSourceObservationProviderProfile,
   useActiveSourceObservationIntegrationJobs,
   useSourceObservationProviderProfiles,
   useSourceObservationIntegrationOptions,
@@ -67,6 +71,7 @@ const TCGDEX_PROVIDER = "tcgdex";
 const TCGPLAYER_PROVIDER = "tcgplayer";
 const TCGPLAYER_PRODUCT_LINE_SCOPE = "product-line";
 const TCGPLAYER_PRODUCT_SCOPE = "product";
+const ALL_TCGPLAYER_SETS = "__all_tcgplayer_sets__";
 
 export function IntegrationManagementPage({
   data,
@@ -85,6 +90,16 @@ export function IntegrationManagementPage({
   const [dryRunError, setDryRunError] = useState<string | null>(null);
   const [dryRunning, setDryRunning] = useState(false);
   const [profileActionKey, setProfileActionKey] = useState<string | null>(null);
+  const [cloneProfile, setCloneProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
+  const [cloneProfileVersion, setCloneProfileVersion] = useState(nextProfileVersion());
+  const [migrationProfile, setMigrationProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
+  const [migrationEvidenceText, setMigrationEvidenceText] = useState("");
+  const [editProfile, setEditProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
+  const [editProfileJson, setEditProfileJson] = useState("");
+  const [editProfileError, setEditProfileError] = useState<string | null>(null);
+  const [compareProfile, setCompareProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
+  const [rollbackProfile, setRollbackProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
+  const [retireProfile, setRetireProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [showImport, setShowImport] = useState(false);
   const [languageCode, setLanguageCode] = useState("en");
   const [seriesId, setSeriesId] = useState("");
@@ -113,8 +128,14 @@ export function IntegrationManagementPage({
     () =>
       buildProfileColumns({
         onDryRun: openDryRunDialog,
+        onClone: openCloneDialog,
+        onEditJson: openEditProfileDialog,
+        onCompareActive: setCompareProfile,
+        onMigrationEvidence: openMigrationEvidenceDialog,
         onActivate: (profile) => void handleActivateProfile(profile),
         onDeprecate: (profile) => void handleDeprecateProfile(profile),
+        onRollback: setRollbackProfile,
+        onRetire: setRetireProfile,
         busyKey: profileActionKey,
       }),
     [profileActionKey],
@@ -142,6 +163,20 @@ export function IntegrationManagementPage({
     queryKind: "series",
     languageCode,
   });
+  const tcgplayerProductLines = useSourceObservationIntegrationOptions({
+    providerKey: TCGPLAYER_PROVIDER,
+    queryKind: "product-lines",
+    enabled: importProviderKey === TCGPLAYER_PROVIDER,
+  });
+  const tcgplayerSetNames = useSourceObservationIntegrationOptions({
+    providerKey: TCGPLAYER_PROVIDER,
+    queryKind: "set-names",
+    parentValue: tcgplayerProductLineId,
+    enabled:
+      importProviderKey === TCGPLAYER_PROVIDER &&
+      tcgplayerScopeKind === TCGPLAYER_PRODUCT_LINE_SCOPE &&
+      positiveIntegerText(tcgplayerProductLineId),
+  });
   const filterExpansionLanguage = listControls.language || languageCode || "en";
   const filterExpansions = useSourceObservationIntegrationOptions({
     providerKey: listControls.source || TCGDEX_PROVIDER,
@@ -158,6 +193,14 @@ export function IntegrationManagementPage({
     [importLanguages.data],
   );
   const seriesOptions = useMemo(() => toSelectItems(importSeries.data?.items ?? []), [importSeries.data]);
+  const tcgplayerProductLineOptions = useMemo(
+    () => toSelectItems(tcgplayerProductLines.data?.items ?? []),
+    [tcgplayerProductLines.data],
+  );
+  const tcgplayerSetNameOptions = useMemo(
+    () => toSelectItems(tcgplayerSetNames.data?.items ?? []),
+    [tcgplayerSetNames.data],
+  );
   const filterExpansionOptions = useMemo(
     () => toSelectItems(filterExpansions.data?.items ?? []),
     [filterExpansions.data],
@@ -204,6 +247,26 @@ export function IntegrationManagementPage({
     }
   }, [seriesOptions, seriesId]);
 
+  useEffect(() => {
+    if (
+      importProviderKey === TCGPLAYER_PROVIDER &&
+      tcgplayerProductLineOptions.length > 0 &&
+      !tcgplayerProductLineOptions.some((item) => item.value === tcgplayerProductLineId)
+    ) {
+      setTcgplayerProductLineId(tcgplayerProductLineOptions[0].value);
+    }
+  }, [importProviderKey, tcgplayerProductLineId, tcgplayerProductLineOptions]);
+
+  useEffect(() => {
+    if (
+      tcgplayerSetName &&
+      tcgplayerSetNameOptions.length > 0 &&
+      !tcgplayerSetNameOptions.some((item) => item.value === tcgplayerSetName)
+    ) {
+      setTcgplayerSetName("");
+    }
+  }, [tcgplayerSetName, tcgplayerSetNameOptions]);
+
   async function handleImport() {
     if (importProviderKey === TCGPLAYER_PROVIDER) {
       await runIntegrationJob("import", tcgplayerImportScope());
@@ -234,6 +297,136 @@ export function IntegrationManagementPage({
     setDryRunPayload(defaultDryRunPayload(profile.providerKey));
     setDryRunResult(null);
     setDryRunError(null);
+  }
+
+  function openCloneDialog(profile: CatalogProviderProfileVersionReview) {
+    setCloneProfile(profile);
+    setCloneProfileVersion(nextProfileVersion(profile.profileVersion));
+  }
+
+  function openMigrationEvidenceDialog(profile: CatalogProviderProfileVersionReview) {
+    setMigrationProfile(profile);
+    setMigrationEvidenceText(profile.migrationEvidence?.evidenceText ?? "");
+  }
+
+  function openEditProfileDialog(profile: CatalogProviderProfileVersionReview) {
+    setEditProfile(profile);
+    setEditProfileJson(formatJson(profileEditableJson(profile)));
+    setEditProfileError(null);
+  }
+
+  async function handleCloneProfile() {
+    if (!cloneProfile) {
+      return;
+    }
+    const key = profileActionIdentity(cloneProfile);
+    setProfileActionKey(key);
+
+    try {
+      await cloneSourceObservationProviderProfile(cloneProfile.providerKey, cloneProfile.profileVersion, {
+        targetProfileVersion: cloneProfileVersion.trim(),
+      });
+      addToast("Profile version cloned.", "success");
+      setCloneProfile(null);
+      providerProfiles.refresh();
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "Profile clone failed.", "danger");
+    } finally {
+      setProfileActionKey(null);
+    }
+  }
+
+  async function handleSaveMigrationEvidence() {
+    if (!migrationProfile) {
+      return;
+    }
+    const key = profileActionIdentity(migrationProfile);
+    setProfileActionKey(key);
+
+    try {
+      await updateSourceObservationProviderProfile(migrationProfile.providerKey, migrationProfile.profileVersion, {
+        migrationEvidence: {
+          evidenceText: migrationEvidenceText.trim(),
+          recordedAt: new Date().toISOString(),
+        },
+      });
+      addToast("Migration evidence saved.", "success");
+      setMigrationProfile(null);
+      providerProfiles.refresh();
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "Migration evidence save failed.", "danger");
+    } finally {
+      setProfileActionKey(null);
+    }
+  }
+
+  async function handleSaveProfileJson() {
+    if (!editProfile) {
+      return;
+    }
+    const key = profileActionIdentity(editProfile);
+    setProfileActionKey(key);
+    setEditProfileError(null);
+
+    try {
+      const patch = JSON.parse(editProfileJson) as unknown;
+      if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+        throw new Error("Profile JSON must be an object.");
+      }
+      await updateSourceObservationProviderProfile(editProfile.providerKey, editProfile.profileVersion, patch);
+      addToast("Profile JSON saved.", "success");
+      setEditProfile(null);
+      providerProfiles.refresh();
+      revalidator.revalidate();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Profile JSON save failed.";
+      setEditProfileError(message);
+      addToast(message, "danger");
+    } finally {
+      setProfileActionKey(null);
+    }
+  }
+
+  async function handleRollbackProfile() {
+    if (!rollbackProfile) {
+      return;
+    }
+    const key = profileActionIdentity(rollbackProfile);
+    setProfileActionKey(key);
+
+    try {
+      await rollbackSourceObservationProviderProfile(rollbackProfile.providerKey, rollbackProfile.profileVersion);
+      addToast("Profile version rolled back.", "success");
+      setRollbackProfile(null);
+      providerProfiles.refresh();
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "Profile rollback failed.", "danger");
+    } finally {
+      setProfileActionKey(null);
+    }
+  }
+
+  async function handleRetireProfile() {
+    if (!retireProfile) {
+      return;
+    }
+    const key = profileActionIdentity(retireProfile);
+    setProfileActionKey(key);
+
+    try {
+      await retireSourceObservationProviderProfile(retireProfile.providerKey, retireProfile.profileVersion);
+      addToast("Profile version retired.", "success");
+      setRetireProfile(null);
+      providerProfiles.refresh();
+      revalidator.revalidate();
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "Profile retirement failed.", "danger");
+    } finally {
+      setProfileActionKey(null);
+    }
   }
 
   async function handleDryRunProfile() {
@@ -665,6 +858,247 @@ export function IntegrationManagementPage({
       </Dialog>
 
       <Dialog
+        open={Boolean(cloneProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCloneProfile(null);
+          }
+        }}
+        title="Clone profile version"
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setCloneProfile(null)} disabled={Boolean(profileActionKey)}>
+              Cancel
+            </Button>
+            <Button
+              leadingIcon="plus"
+              onClick={handleCloneProfile}
+              disabled={!cloneProfileVersion.trim()}
+              loading={Boolean(cloneProfile && profileActionKey === profileActionIdentity(cloneProfile))}
+            >
+              Clone
+            </Button>
+          </Inline>
+        }
+      >
+        {cloneProfile ? (
+          <Stack gap={4}>
+            <KeyValueList
+              items={[
+                { key: "Provider", value: cloneProfile.displayName },
+                { key: "Source version", value: cloneProfile.profileVersion },
+              ]}
+            />
+            <TextInput
+              label="Target profile version"
+              value={cloneProfileVersion}
+              onChange={(event) => setCloneProfileVersion(event.currentTarget.value)}
+            />
+          </Stack>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={Boolean(migrationProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMigrationProfile(null);
+          }
+        }}
+        title="Migration evidence"
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setMigrationProfile(null)} disabled={Boolean(profileActionKey)}>
+              Cancel
+            </Button>
+            <Button
+              leadingIcon="badgeCheck"
+              onClick={handleSaveMigrationEvidence}
+              disabled={!migrationEvidenceText.trim()}
+              loading={Boolean(migrationProfile && profileActionKey === profileActionIdentity(migrationProfile))}
+            >
+              Save evidence
+            </Button>
+          </Inline>
+        }
+      >
+        {migrationProfile ? (
+          <Stack gap={4}>
+            <KeyValueList
+              items={[
+                { key: "Provider", value: migrationProfile.displayName },
+                { key: "Version", value: migrationProfile.profileVersion },
+                { key: "Current evidence", value: migrationProfile.migrationEvidence?.evidenceText ?? "None" },
+              ]}
+            />
+            <Textarea
+              label="Evidence"
+              rows={6}
+              value={migrationEvidenceText}
+              onChange={(event) => setMigrationEvidenceText(event.currentTarget.value)}
+            />
+          </Stack>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={Boolean(editProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setEditProfile(null);
+            setEditProfileError(null);
+          }
+        }}
+        title="Edit profile JSON"
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setEditProfile(null)} disabled={Boolean(profileActionKey)}>
+              Cancel
+            </Button>
+            <Button
+              leadingIcon="settings"
+              onClick={handleSaveProfileJson}
+              loading={Boolean(editProfile && profileActionKey === profileActionIdentity(editProfile))}
+            >
+              Save JSON
+            </Button>
+          </Inline>
+        }
+      >
+        {editProfile ? (
+          <Stack gap={3}>
+            <KeyValueList
+              items={[
+                { key: "Provider", value: editProfile.displayName },
+                { key: "Version", value: editProfile.profileVersion },
+                { key: "Lifecycle", value: editProfile.lifecycle },
+              ]}
+            />
+            <Textarea
+              label="Profile JSON"
+              value={editProfileJson}
+              onChange={(event) => setEditProfileJson(event.currentTarget.value)}
+              rows={22}
+              spellCheck={false}
+            />
+            {editProfileError ? <p>{editProfileError}</p> : null}
+          </Stack>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={Boolean(compareProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCompareProfile(null);
+          }
+        }}
+        title="Compare active profile"
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setCompareProfile(null)}>
+              Close
+            </Button>
+          </Inline>
+        }
+      >
+        {compareProfile ? (
+          <Stack gap={3}>
+            <KeyValueList
+              items={profileComparisonItems(
+                compareProfile,
+                activeProfileFor(compareProfile, providerProfiles.data?.items ?? []),
+              )}
+            />
+            <Textarea
+              label="Candidate profile JSON"
+              value={formatJson(profileEditableJson(compareProfile))}
+              rows={12}
+              readOnly
+              spellCheck={false}
+            />
+            <Textarea
+              label="Active profile JSON"
+              value={formatJson(
+                profileEditableJson(activeProfileFor(compareProfile, providerProfiles.data?.items ?? [])),
+              )}
+              rows={12}
+              readOnly
+              spellCheck={false}
+            />
+          </Stack>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={Boolean(rollbackProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRollbackProfile(null);
+          }
+        }}
+        title="Rollback active profile"
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setRollbackProfile(null)} disabled={Boolean(profileActionKey)}>
+              Cancel
+            </Button>
+            <Button
+              leadingIcon="refreshCcw"
+              onClick={handleRollbackProfile}
+              loading={Boolean(rollbackProfile && profileActionKey === profileActionIdentity(rollbackProfile))}
+            >
+              Roll back
+            </Button>
+          </Inline>
+        }
+      >
+        {rollbackProfile ? (
+          <p>
+            Activate {rollbackProfile.displayName} {rollbackProfile.profileVersion} and deprecate the current active
+            version.
+          </p>
+        ) : null}
+      </Dialog>
+
+      <Dialog
+        open={Boolean(retireProfile)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRetireProfile(null);
+          }
+        }}
+        title="Retire profile version"
+        footer={
+          <Inline gap={2} align="end">
+            <Button tone="secondary" onClick={() => setRetireProfile(null)} disabled={Boolean(profileActionKey)}>
+              Cancel
+            </Button>
+            <Button
+              tone="danger"
+              leadingIcon="trash"
+              onClick={handleRetireProfile}
+              loading={Boolean(retireProfile && profileActionKey === profileActionIdentity(retireProfile))}
+            >
+              Retire
+            </Button>
+          </Inline>
+        }
+      >
+        {retireProfile ? (
+          <Stack gap={3}>
+            <p>
+              Retire {retireProfile.displayName} {retireProfile.profileVersion}. Retired versions remain visible for
+              historical review but cannot be activated for imports.
+            </p>
+            <KeyValueList
+              items={[{ key: "Source Observation references", value: String(retireProfile.referenceCount) }]}
+            />
+          </Stack>
+        ) : null}
+      </Dialog>
+
+      <Dialog
         open={showImport}
         onOpenChange={setShowImport}
         title={t("catalog.features.sourceObservations.ui.integrations.pull.provider.data")}
@@ -679,7 +1113,10 @@ export function IntegrationManagementPage({
               disabled={
                 !canImportCurrentScope() ||
                 importing ||
-                (importProviderKey === TCGDEX_PROVIDER && (importLanguages.loading || importSeries.loading))
+                (importProviderKey === TCGDEX_PROVIDER && (importLanguages.loading || importSeries.loading)) ||
+                (importProviderKey === TCGPLAYER_PROVIDER &&
+                  tcgplayerScopeKind === TCGPLAYER_PRODUCT_LINE_SCOPE &&
+                  (tcgplayerProductLines.loading || tcgplayerSetNames.loading))
               }
             >
               {t("catalog.features.sourceObservations.ui.list.import")}
@@ -723,16 +1160,27 @@ export function IntegrationManagementPage({
                 />
               ) : (
                 <>
-                  <TextInput
-                    label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.product.line.id")}
+                  <Select
+                    label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.product.line")}
                     value={tcgplayerProductLineId}
-                    onChange={(event) => setTcgplayerProductLineId(event.target.value)}
-                    inputMode="numeric"
+                    onValueChange={setTcgplayerProductLineId}
+                    items={withSelectedFallback(tcgplayerProductLineOptions, tcgplayerProductLineId)}
+                    disabled={tcgplayerProductLines.loading || tcgplayerProductLineOptions.length === 0}
+                    error={tcgplayerProductLines.error ?? undefined}
                   />
-                  <TextInput
+                  <Select
                     label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.set.name")}
-                    value={tcgplayerSetName}
-                    onChange={(event) => setTcgplayerSetName(event.target.value)}
+                    value={tcgplayerSetName || ALL_TCGPLAYER_SETS}
+                    onValueChange={(value) => setTcgplayerSetName(value === ALL_TCGPLAYER_SETS ? "" : value)}
+                    items={[
+                      {
+                        label: t("catalog.features.sourceObservations.ui.integrations.all.sets"),
+                        value: ALL_TCGPLAYER_SETS,
+                      },
+                      ...withSelectedFallback(tcgplayerSetNameOptions, tcgplayerSetName),
+                    ]}
+                    disabled={!positiveIntegerText(tcgplayerProductLineId) || tcgplayerSetNames.loading}
+                    error={tcgplayerSetNames.error ?? undefined}
                   />
                 </>
               )}
@@ -870,8 +1318,14 @@ type IntegrationRowActions = Readonly<{
 
 type ProfileRowActions = Readonly<{
   onDryRun: (profile: CatalogProviderProfileVersionReview) => void;
+  onClone: (profile: CatalogProviderProfileVersionReview) => void;
+  onEditJson: (profile: CatalogProviderProfileVersionReview) => void;
+  onCompareActive: (profile: CatalogProviderProfileVersionReview) => void;
+  onMigrationEvidence: (profile: CatalogProviderProfileVersionReview) => void;
   onActivate: (profile: CatalogProviderProfileVersionReview) => void;
   onDeprecate: (profile: CatalogProviderProfileVersionReview) => void;
+  onRollback: (profile: CatalogProviderProfileVersionReview) => void;
+  onRetire: (profile: CatalogProviderProfileVersionReview) => void;
   busyKey: string | null;
 }>;
 
@@ -898,6 +1352,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               : row.lifecycle}
           </StatusPill>
           <span>{row.compatibilityMode}</span>
+          <span>{row.referenceCount} refs</span>
         </Inline>
       ),
     },
@@ -956,6 +1411,29 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
             <Button size="sm" tone="secondary" leadingIcon="play" onClick={() => actions.onDryRun(row)}>
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run")}
             </Button>
+            <Button size="sm" tone="secondary" leadingIcon="plus" onClick={() => actions.onClone(row)}>
+              Clone
+            </Button>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="settings"
+              disabled={row.lifecycle !== "draft" && row.lifecycle !== "test"}
+              onClick={() => actions.onEditJson(row)}
+            >
+              Edit JSON
+            </Button>
+            <Button size="sm" tone="secondary" leadingIcon="search" onClick={() => actions.onCompareActive(row)}>
+              Compare
+            </Button>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="badgeCheck"
+              onClick={() => actions.onMigrationEvidence(row)}
+            >
+              Evidence
+            </Button>
             <Button
               size="sm"
               tone="secondary"
@@ -975,6 +1453,24 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               onClick={() => actions.onDeprecate(row)}
             >
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.deprecate")}
+            </Button>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="refreshCcw"
+              disabled={busy || row.active || row.lifecycle === "retired"}
+              onClick={() => actions.onRollback(row)}
+            >
+              Rollback
+            </Button>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="trash"
+              disabled={busy || row.active || row.lifecycle === "retired" || row.referenceCount > 0}
+              onClick={() => actions.onRetire(row)}
+            >
+              Retire
             </Button>
           </Inline>
         );
@@ -1138,6 +1634,59 @@ function withSelectedFallback(options: readonly SelectItem[], selectedValue: str
 
 function profileActionIdentity(profile: Pick<CatalogProviderProfileVersionReview, "providerKey" | "profileVersion">) {
   return `${profile.providerKey}:${profile.profileVersion}`;
+}
+
+function nextProfileVersion(currentVersion = ""): string {
+  const match = currentVersion.match(/^(\d{4})\.(\d{2})\.(\d{2})(?:\.(\d+))?$/);
+  if (!match) {
+    return new Date().toISOString().slice(0, 10).replaceAll("-", ".");
+  }
+
+  return `${match[1]}.${match[2]}.${match[3]}.${match[4] ? Number(match[4]) + 1 : 1}`;
+}
+
+function profileEditableJson(profile: CatalogProviderProfileVersionReview | null) {
+  if (!profile) {
+    return {
+      profile: null,
+      sourceContract: null,
+      fixtures: null,
+      compatibilityMode: null,
+      retirementPlan: null,
+      executableMappingContract: null,
+    };
+  }
+
+  return {
+    profile: profile.profile,
+    sourceContract: profile.sourceContract,
+    fixtures: profile.fixtures,
+    compatibilityMode: profile.compatibilityMode,
+    retirementPlan: profile.retirementPlan,
+    executableMappingContract: profile.executableMappingContract,
+  };
+}
+
+function activeProfileFor(
+  profile: CatalogProviderProfileVersionReview,
+  profiles: readonly CatalogProviderProfileVersionReview[],
+): CatalogProviderProfileVersionReview | null {
+  return profiles.find((candidate) => candidate.providerKey === profile.providerKey && candidate.active) ?? null;
+}
+
+function profileComparisonItems(
+  candidate: CatalogProviderProfileVersionReview,
+  active: CatalogProviderProfileVersionReview | null,
+) {
+  return [
+    { key: "Provider", value: candidate.displayName },
+    { key: "Active version", value: active?.profileVersion ?? "None" },
+    { key: "Candidate version", value: candidate.profileVersion },
+    { key: "Active lifecycle", value: active?.lifecycle ?? "None" },
+    { key: "Candidate lifecycle", value: candidate.lifecycle },
+    { key: "Active output", value: active?.mappingOutputKind ?? "None" },
+    { key: "Candidate output", value: candidate.mappingOutputKind },
+  ];
 }
 
 function defaultDryRunPayload(providerKey = "scrydex"): string {

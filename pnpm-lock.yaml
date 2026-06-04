@@ -1640,6 +1640,9 @@ importers:
       '@chase-sets/payments':
         specifier: workspace:*
         version: link:../../bounded-contexts/payments
+      '@chase-sets/platform-operations':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/platform-operations
       '@chase-sets/platform-runtime':
         specifier: workspace:*
         version: link:../../infrastructure/platform-runtime
