@@ -535,7 +535,27 @@ describe("IntegrationManagementPage", () => {
               profileKey: "tcgplayer-automation-client",
               displayName: "TCGplayer",
               status: "planned",
-              connector: { kind: "tcgplayer-automation-client" },
+              connector: {
+                kind: "tcgplayer-automation-client",
+                sourceRepository: {
+                  owner: "todd-skelton",
+                  name: "tcgplayer-automation-app",
+                  commit: "bf42aa8",
+                },
+                sourceContractDocument: "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
+                authentication: {
+                  scheme: "tcgplayer-production-cookie",
+                  cookieName: "TCGAuthTicket_Production",
+                  userAgentRequired: true,
+                },
+                domains: {
+                  search: "mp-search-api.tcgplayer.com",
+                  marketplaceApi: "mpapi.tcgplayer.com",
+                  infiniteApi: "infinite-api.tcgplayer.com",
+                  marketplaceGateway: "mpgateway.tcgplayer.com",
+                },
+                retryStatusCodes: [403, 429, 502, 503, 504],
+              },
               capabilities: ["provider-option-query", "source-observation-import"],
               supportedScopes: ["product-line/category", "set-name"],
               languageOptions: ["en"],
@@ -797,6 +817,231 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText("Series: value path and label path are required.")).toBeTruthy();
     expect(within(dialog).getByText("Series: query kind and aliases must be unique.")).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("edits TCGdex connector metadata and fixture coverage", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgdex",
+            profileKey: "tcgdex-pokemon-card",
+            displayName: "TCGdex",
+            lifecycle: "draft",
+            connectorKind: "tcgdex-json",
+            profile: {
+              providerKey: "tcgdex",
+              profileKey: "tcgdex-pokemon-card",
+              displayName: "TCGdex",
+              status: "planned",
+              connector: {
+                kind: "tcgdex-json",
+                baseUrl: "https://api.tcgdex.net/v2",
+                highQualityAssetVariant: "high.webp",
+                endpoints: {
+                  seriesList: "/{language}/series",
+                  seriesDetail: "/{language}/series/{seriesId}",
+                  expansionList: "/{language}/sets",
+                  expansionDetail: "/{language}/sets/{expansionId}",
+                  productDetail: "/{language}/cards/{cardId}",
+                },
+              },
+              capabilities: ["provider-option-query", "source-observation-import"],
+              supportedScopes: ["language", "series", "expansion"],
+              languageOptions: ["en"],
+              optionQueries: [],
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByLabelText(/^Cookie name/i)).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText(/^Base URL/i), { target: { value: "https://api.tcgdex.dev/v2" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Product detail endpoint/i), {
+      target: { value: "/{language}/cards/{cardId}/details" },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/^Fixture root/i), {
+      target: { value: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex-dev" },
+    });
+    expect(within(dialog).getByText("Live provider calls allowed")).toBeTruthy();
+    expect(within(dialog).getAllByText("No").length).toBeGreaterThan(0);
+    fireEvent.click(within(dialog).getByRole("checkbox", { name: /^unknown-option$/i }));
+    expect(within(dialog).getByText("Missing required fixture flows: unknown-option")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "tcgdex",
+        "2026.06.03",
+        "connector",
+        {
+          section: "connector",
+          connector: expect.objectContaining({
+            kind: "tcgdex-json",
+            baseUrl: "https://api.tcgdex.dev/v2",
+            highQualityAssetVariant: "high.webp",
+            endpoints: expect.objectContaining({
+              productDetail: "/{language}/cards/{cardId}/details",
+            }),
+          }),
+        },
+      ),
+    );
+    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith("tcgdex", "2026.06.03", "fixtures", {
+      section: "fixtures",
+      fixtures: {
+        fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex-dev",
+        coveredFlows: expect.not.arrayContaining(["unknown-option"]),
+        liveProviderCallsAllowed: false,
+      },
+    });
+  });
+
+  it("edits TCGplayer automation connector metadata", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgplayer",
+            profileKey: "tcgplayer-automation-client",
+            displayName: "TCGplayer",
+            lifecycle: "draft",
+            connectorKind: "tcgplayer-automation-client",
+            profile: {
+              providerKey: "tcgplayer",
+              profileKey: "tcgplayer-automation-client",
+              displayName: "TCGplayer",
+              status: "planned",
+              connector: {
+                kind: "tcgplayer-automation-client",
+                sourceRepository: {
+                  owner: "todd-skelton",
+                  name: "tcgplayer-automation-app",
+                  commit: "bf42aa8",
+                },
+                sourceContractDocument: "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
+                authentication: {
+                  scheme: "tcgplayer-production-cookie",
+                  cookieName: "TCGAuthTicket_Production",
+                  userAgentRequired: true,
+                },
+                domains: {
+                  search: "mp-search-api.tcgplayer.com",
+                  marketplaceApi: "mpapi.tcgplayer.com",
+                  infiniteApi: "infinite-api.tcgplayer.com",
+                  marketplaceGateway: "mpgateway.tcgplayer.com",
+                },
+                retryStatusCodes: [403, 429, 502],
+              },
+              capabilities: ["provider-option-query", "source-observation-import"],
+              supportedScopes: ["product-line/category", "set-name"],
+              languageOptions: ["en"],
+              optionQueries: [],
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByLabelText(/^Base URL/i)).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText(/^Repository commit/i), { target: { value: "commit-2026" } });
+    fireEvent.change(within(dialog).getByLabelText(/^Retry status codes/i), { target: { value: "403, 429, 503" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "tcgplayer",
+        "2026.06.03",
+        "connector",
+        {
+          section: "connector",
+          connector: expect.objectContaining({
+            kind: "tcgplayer-automation-client",
+            sourceRepository: {
+              owner: "todd-skelton",
+              name: "tcgplayer-automation-app",
+              commit: "commit-2026",
+            },
+            authentication: expect.objectContaining({
+              scheme: "tcgplayer-production-cookie",
+              cookieName: "TCGAuthTicket_Production",
+              userAgentRequired: true,
+            }),
+            retryStatusCodes: [403, 429, 503],
+          }),
+        },
+      ),
+    );
+  });
+
+  it("edits Scrydex connector evidence metadata without exposing transport fields", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [profileReview({ lifecycle: "draft" })],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByLabelText(/^Repository commit/i)).toBeNull();
+    expect(within(dialog).getByText("Fixture backed only")).toBeTruthy();
+    fireEvent.change(within(dialog).getByLabelText(/^Accepted evidence/i), {
+      target: { value: "scryfall-id, set-code, collector-number" },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/^Excluded evidence/i), {
+      target: { value: "price\nseller" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "scrydex",
+        "2026.06.03",
+        "connector",
+        {
+          section: "connector",
+          connector: {
+            kind: "scrydex-scryfall-json",
+            sourceContractDocument: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+            fixtureBackedOnly: true,
+            acceptedEvidence: ["scryfall-id", "set-code", "collector-number"],
+            excludedEvidence: ["price", "seller"],
+          },
+        },
+      ),
+    );
   });
 
   it("enqueues a TCGdex pull for the selected language and optional series", async () => {

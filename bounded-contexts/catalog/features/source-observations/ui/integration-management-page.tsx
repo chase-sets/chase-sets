@@ -36,7 +36,9 @@ import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type {
   CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileBasicsUpdateCommand,
+  CatalogProviderProfileConnectorUpdateCommand,
   CatalogProviderProfileDryRunResult,
+  CatalogProviderProfileFixturesUpdateCommand,
   CatalogProviderProfileProviderOptionsUpdateCommand,
   CatalogProviderProfileRetirementPlanUpdateCommand,
   CatalogProviderProfileSourceContractUpdateCommand,
@@ -95,6 +97,16 @@ const CATALOG_PROVIDER_SCOPE_OPTIONS = [
   "product",
   "sku",
 ] as const;
+const REQUIRED_FIXTURE_FLOW_OPTIONS = [
+  "normal",
+  "partial",
+  "stale",
+  "changed",
+  "ambiguous",
+  "replay",
+  "sealed-product",
+  "unknown-option",
+] as const;
 const PROFILE_COMPATIBILITY_MODE_OPTIONS = [
   { value: "executable-mapping-contract", label: "Executable mapping contract" },
   { value: "transitional-static-profile", label: "Transitional static profile" },
@@ -127,6 +139,11 @@ const OPTION_QUERY_DESCRIPTION_KIND_OPTIONS = [
   { value: "tcgdex-expansion-card-count", label: "TCGdex expansion card count" },
   { value: "tcgplayer-set-name", label: "TCGplayer set name" },
 ] satisfies SelectItem[];
+const CONNECTOR_KIND_OPTIONS = [
+  { value: "tcgdex-json", label: "TCGdex JSON" },
+  { value: "tcgplayer-automation-client", label: "TCGplayer automation client" },
+  { value: "scrydex-scryfall-json", label: "Scrydex Scryfall JSON" },
+] satisfies SelectItem[];
 
 type ProfileBasicsForm = Readonly<{
   displayName: string;
@@ -139,6 +156,8 @@ type ProfileBasicsForm = Readonly<{
   sourceContract: ProfileSourceContractForm;
   retirementPlan: ProfileRetirementPlanForm;
   optionQueries: readonly ProfileOptionQueryForm[];
+  connector: ProfileConnectorForm;
+  fixtures: ProfileFixturesForm;
 }>;
 
 type ProfileSourceContractForm = Readonly<{
@@ -174,6 +193,35 @@ type ProfileOptionQueryForm = Readonly<{
   imageUrlPath: string;
   imageUrlCoalescePathsText: string;
   metadataPathsText: string;
+}>;
+
+type ProfileConnectorForm = Readonly<{
+  kind: string;
+  tcgdexBaseUrl: string;
+  tcgdexHighQualityAssetVariant: string;
+  tcgdexSeriesListEndpoint: string;
+  tcgdexSeriesDetailEndpoint: string;
+  tcgdexExpansionListEndpoint: string;
+  tcgdexExpansionDetailEndpoint: string;
+  tcgdexProductDetailEndpoint: string;
+  tcgplayerRepositoryOwner: string;
+  tcgplayerRepositoryName: string;
+  tcgplayerRepositoryCommit: string;
+  tcgplayerSourceContractDocument: string;
+  tcgplayerCookieName: string;
+  tcgplayerSearchDomain: string;
+  tcgplayerMarketplaceApiDomain: string;
+  tcgplayerInfiniteApiDomain: string;
+  tcgplayerMarketplaceGatewayDomain: string;
+  tcgplayerRetryStatusCodesText: string;
+  scrydexSourceContractDocument: string;
+  scrydexAcceptedEvidenceText: string;
+  scrydexExcludedEvidenceText: string;
+}>;
+
+type ProfileFixturesForm = Readonly<{
+  fixtureRoot: string;
+  coveredFlows: readonly string[];
 }>;
 
 export function IntegrationManagementPage({
@@ -518,6 +566,18 @@ export function IntegrationManagementPage({
         section: "provider-options",
         optionQueries: editBasicsForm.optionQueries.map(optionQueryFormToCommand),
       };
+      const connectorCommand: CatalogProviderProfileConnectorUpdateCommand = {
+        section: "connector",
+        connector: connectorFormToCommand(editBasicsForm.connector),
+      };
+      const fixturesCommand: CatalogProviderProfileFixturesUpdateCommand = {
+        section: "fixtures",
+        fixtures: {
+          fixtureRoot: editBasicsForm.fixtures.fixtureRoot.trim(),
+          coveredFlows: [...editBasicsForm.fixtures.coveredFlows],
+          liveProviderCallsAllowed: false,
+        },
+      };
       await updateSourceObservationProviderProfileSection(
         editProfile.providerKey,
         editProfile.profileVersion,
@@ -541,6 +601,18 @@ export function IntegrationManagementPage({
         editProfile.profileVersion,
         "provider-options",
         providerOptionsCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "connector",
+        connectorCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "fixtures",
+        fixturesCommand,
       );
       addToast("Profile basics saved.", "success");
       setEditProfile(null);
@@ -1703,10 +1775,17 @@ function ProfileBasicsEditor({
   const setOptionQueries = (optionQueries: readonly ProfileOptionQueryForm[]) => setForm({ optionQueries });
   const setOptionQuery = (id: string, patch: Partial<ProfileOptionQueryForm>) =>
     setOptionQueries(form.optionQueries.map((query) => (query.id === id ? { ...query, ...patch } : query)));
+  const setConnector = (patch: Partial<ProfileConnectorForm>) =>
+    setForm({ connector: { ...form.connector, ...patch } });
+  const setFixtures = (patch: Partial<ProfileFixturesForm>) => setForm({ fixtures: { ...form.fixtures, ...patch } });
   const editable = profileLifecycleEditable(profile);
   const retirementTrackingIssueInvalid =
     form.retirementPlan.enabled && !positiveIntegerText(form.retirementPlan.trackingIssueText);
   const optionQueryDiagnostics = validateOptionQueryForms(form.optionQueries);
+  const connectorDiagnostics = validateConnectorForm(form.connector);
+  const missingFixtureFlows = REQUIRED_FIXTURE_FLOW_OPTIONS.filter(
+    (flow) => !form.fixtures.coveredFlows.includes(flow),
+  );
 
   return (
     <Stack gap={4}>
@@ -1883,6 +1962,212 @@ function ProfileBasicsEditor({
             rows={3}
           />
         ) : null}
+      </Stack>
+
+      <Stack gap={3}>
+        <h3 className="text-sm font-semibold text-foreground">Connector</h3>
+        {connectorDiagnostics.length > 0 ? (
+          <ul className="text-sm text-danger">
+            {connectorDiagnostics.map((diagnostic) => (
+              <li key={diagnostic}>{diagnostic}</li>
+            ))}
+          </ul>
+        ) : null}
+        <Select
+          label="Connector kind"
+          value={form.connector.kind}
+          disabled={!editable}
+          items={CONNECTOR_KIND_OPTIONS}
+          onValueChange={(value) => setConnector({ kind: value })}
+        />
+        {form.connector.kind === "tcgdex-json" ? (
+          <Stack gap={3}>
+            <Inline gap={3}>
+              <TextInput
+                label="Base URL"
+                value={form.connector.tcgdexBaseUrl}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgdexBaseUrl: event.currentTarget.value })}
+              />
+              <TextInput
+                label="High quality asset variant"
+                value={form.connector.tcgdexHighQualityAssetVariant}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgdexHighQualityAssetVariant: event.currentTarget.value })}
+              />
+            </Inline>
+            <Inline gap={3}>
+              <TextInput
+                label="Series list endpoint"
+                value={form.connector.tcgdexSeriesListEndpoint}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgdexSeriesListEndpoint: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Series detail endpoint"
+                value={form.connector.tcgdexSeriesDetailEndpoint}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgdexSeriesDetailEndpoint: event.currentTarget.value })}
+              />
+            </Inline>
+            <Inline gap={3}>
+              <TextInput
+                label="Expansion list endpoint"
+                value={form.connector.tcgdexExpansionListEndpoint}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgdexExpansionListEndpoint: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Expansion detail endpoint"
+                value={form.connector.tcgdexExpansionDetailEndpoint}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgdexExpansionDetailEndpoint: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Product detail endpoint"
+                value={form.connector.tcgdexProductDetailEndpoint}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgdexProductDetailEndpoint: event.currentTarget.value })}
+              />
+            </Inline>
+          </Stack>
+        ) : null}
+        {form.connector.kind === "tcgplayer-automation-client" ? (
+          <Stack gap={3}>
+            <Inline gap={3}>
+              <TextInput
+                label="Repository owner"
+                value={form.connector.tcgplayerRepositoryOwner}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgplayerRepositoryOwner: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Repository name"
+                value={form.connector.tcgplayerRepositoryName}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgplayerRepositoryName: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Repository commit"
+                value={form.connector.tcgplayerRepositoryCommit}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgplayerRepositoryCommit: event.currentTarget.value })}
+              />
+            </Inline>
+            <Inline gap={3}>
+              <TextInput
+                label="Source contract document"
+                value={form.connector.tcgplayerSourceContractDocument}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgplayerSourceContractDocument: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Cookie name"
+                value={form.connector.tcgplayerCookieName}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgplayerCookieName: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Retry status codes"
+                value={form.connector.tcgplayerRetryStatusCodesText}
+                disabled={!editable}
+                onChange={(event) => setConnector({ tcgplayerRetryStatusCodesText: event.currentTarget.value })}
+              />
+            </Inline>
+            <Inline gap={3}>
+              <TextInput
+                label="Search domain"
+                value={form.connector.tcgplayerSearchDomain}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgplayerSearchDomain: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Marketplace API domain"
+                value={form.connector.tcgplayerMarketplaceApiDomain}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgplayerMarketplaceApiDomain: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Infinite API domain"
+                value={form.connector.tcgplayerInfiniteApiDomain}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgplayerInfiniteApiDomain: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Marketplace gateway domain"
+                value={form.connector.tcgplayerMarketplaceGatewayDomain}
+                disabled={!editable}
+                required
+                onChange={(event) => setConnector({ tcgplayerMarketplaceGatewayDomain: event.currentTarget.value })}
+              />
+            </Inline>
+          </Stack>
+        ) : null}
+        {form.connector.kind === "scrydex-scryfall-json" ? (
+          <Stack gap={3}>
+            <TextInput
+              label="Scrydex contract document"
+              value={form.connector.scrydexSourceContractDocument}
+              disabled={!editable}
+              required
+              onChange={(event) => setConnector({ scrydexSourceContractDocument: event.currentTarget.value })}
+            />
+            <KeyValueList items={[{ key: "Fixture backed only", value: "Yes" }]} />
+            <Textarea
+              label="Accepted evidence"
+              description="Comma or line separated evidence keys."
+              value={form.connector.scrydexAcceptedEvidenceText}
+              disabled={!editable}
+              rows={3}
+              onChange={(event) => setConnector({ scrydexAcceptedEvidenceText: event.currentTarget.value })}
+            />
+            <Textarea
+              label="Excluded evidence"
+              description="Comma or line separated evidence keys."
+              value={form.connector.scrydexExcludedEvidenceText}
+              disabled={!editable}
+              rows={3}
+              onChange={(event) => setConnector({ scrydexExcludedEvidenceText: event.currentTarget.value })}
+            />
+          </Stack>
+        ) : null}
+      </Stack>
+
+      <Stack gap={3}>
+        <h3 className="text-sm font-semibold text-foreground">Fixtures</h3>
+        <TextInput
+          label="Fixture root"
+          value={form.fixtures.fixtureRoot}
+          disabled={!editable}
+          required
+          onChange={(event) => setFixtures({ fixtureRoot: event.currentTarget.value })}
+        />
+        <KeyValueList items={[{ key: "Live provider calls allowed", value: "No" }]} />
+        {missingFixtureFlows.length > 0 ? (
+          <p className="text-sm text-danger">Missing required fixture flows: {missingFixtureFlows.join(", ")}</p>
+        ) : null}
+        <CheckboxSet
+          legend="Covered fixture flows"
+          options={REQUIRED_FIXTURE_FLOW_OPTIONS}
+          selected={form.fixtures.coveredFlows}
+          disabled={!editable}
+          onChange={(coveredFlows) => setFixtures({ coveredFlows })}
+        />
       </Stack>
 
       <Stack gap={3}>
@@ -2648,6 +2933,11 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
       diagnosticText,
     },
     optionQueries,
+    connector: profileConnectorForm(isRecord(profile.profile) ? profile.profile.connector : null),
+    fixtures: {
+      fixtureRoot: profile.fixtures.fixtureRoot,
+      coveredFlows: [...profile.fixtures.coveredFlows],
+    },
   };
 }
 
@@ -2672,7 +2962,9 @@ function profileBasicsSaveDisabled(
   return (
     (form.retirementPlan.enabled &&
       (!positiveIntegerText(form.retirementPlan.trackingIssueText) || !form.retirementPlan.diagnosticText.trim())) ||
-    validateOptionQueryForms(form.optionQueries).length > 0
+    validateOptionQueryForms(form.optionQueries).length > 0 ||
+    validateConnectorForm(form.connector).length > 0 ||
+    !form.fixtures.fixtureRoot.trim()
   );
 }
 
@@ -2687,9 +2979,155 @@ function parseListInput(value: string): string[] {
     .filter(Boolean);
 }
 
+function parseNumberListInput(value: string): number[] {
+  return parseListInput(value)
+    .map((entry) => Number(entry))
+    .filter((entry) => Number.isInteger(entry));
+}
+
 function nullableTrimmedValue(value: string): string | null {
   const trimmed = value.trim();
   return trimmed.length === 0 ? null : trimmed;
+}
+
+function profileConnectorForm(value: unknown): ProfileConnectorForm {
+  const connector = isRecord(value) ? value : {};
+  const tcgdexEndpoints = isRecord(connector.endpoints) ? connector.endpoints : {};
+  const tcgplayerRepository = isRecord(connector.sourceRepository) ? connector.sourceRepository : {};
+  const tcgplayerAuthentication = isRecord(connector.authentication) ? connector.authentication : {};
+  const tcgplayerDomains = isRecord(connector.domains) ? connector.domains : {};
+
+  return {
+    kind: stringValue(connector.kind) || "scrydex-scryfall-json",
+    tcgdexBaseUrl: stringValue(connector.baseUrl) || "https://api.tcgdex.net/v2",
+    tcgdexHighQualityAssetVariant: stringValue(connector.highQualityAssetVariant) || "high.webp",
+    tcgdexSeriesListEndpoint: stringValue(tcgdexEndpoints.seriesList) || "/{language}/series",
+    tcgdexSeriesDetailEndpoint: stringValue(tcgdexEndpoints.seriesDetail) || "/{language}/series/{seriesId}",
+    tcgdexExpansionListEndpoint: stringValue(tcgdexEndpoints.expansionList) || "/{language}/sets",
+    tcgdexExpansionDetailEndpoint: stringValue(tcgdexEndpoints.expansionDetail) || "/{language}/sets/{expansionId}",
+    tcgdexProductDetailEndpoint: stringValue(tcgdexEndpoints.productDetail) || "/{language}/cards/{cardId}",
+    tcgplayerRepositoryOwner: stringValue(tcgplayerRepository.owner) || "todd-skelton",
+    tcgplayerRepositoryName: stringValue(tcgplayerRepository.name) || "tcgplayer-automation-app",
+    tcgplayerRepositoryCommit: stringValue(tcgplayerRepository.commit),
+    tcgplayerSourceContractDocument:
+      stringValue(connector.sourceContractDocument) ||
+      "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
+    tcgplayerCookieName: stringValue(tcgplayerAuthentication.cookieName) || "TCGAuthTicket_Production",
+    tcgplayerSearchDomain: stringValue(tcgplayerDomains.search) || "mp-search-api.tcgplayer.com",
+    tcgplayerMarketplaceApiDomain: stringValue(tcgplayerDomains.marketplaceApi) || "mpapi.tcgplayer.com",
+    tcgplayerInfiniteApiDomain: stringValue(tcgplayerDomains.infiniteApi) || "infinite-api.tcgplayer.com",
+    tcgplayerMarketplaceGatewayDomain: stringValue(tcgplayerDomains.marketplaceGateway) || "mpgateway.tcgplayer.com",
+    tcgplayerRetryStatusCodesText: Array.isArray(connector.retryStatusCodes)
+      ? connector.retryStatusCodes.map(String).join(", ")
+      : "403, 429, 502, 503, 504",
+    scrydexSourceContractDocument:
+      stringValue(connector.sourceContractDocument) || "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+    scrydexAcceptedEvidenceText: arrayText(connector.acceptedEvidence),
+    scrydexExcludedEvidenceText: arrayText(connector.excludedEvidence),
+  };
+}
+
+function connectorFormToCommand(
+  connector: ProfileConnectorForm,
+): CatalogProviderProfileConnectorUpdateCommand["connector"] {
+  if (connector.kind === "tcgdex-json") {
+    return {
+      kind: "tcgdex-json",
+      baseUrl: connector.tcgdexBaseUrl.trim(),
+      highQualityAssetVariant: connector.tcgdexHighQualityAssetVariant.trim(),
+      endpoints: {
+        seriesList: connector.tcgdexSeriesListEndpoint.trim(),
+        seriesDetail: connector.tcgdexSeriesDetailEndpoint.trim(),
+        expansionList: connector.tcgdexExpansionListEndpoint.trim(),
+        expansionDetail: connector.tcgdexExpansionDetailEndpoint.trim(),
+        productDetail: connector.tcgdexProductDetailEndpoint.trim(),
+      },
+    };
+  }
+
+  if (connector.kind === "tcgplayer-automation-client") {
+    return {
+      kind: "tcgplayer-automation-client",
+      sourceRepository: {
+        owner: connector.tcgplayerRepositoryOwner.trim(),
+        name: connector.tcgplayerRepositoryName.trim(),
+        commit: connector.tcgplayerRepositoryCommit.trim(),
+      },
+      sourceContractDocument: connector.tcgplayerSourceContractDocument.trim(),
+      authentication: {
+        scheme: "tcgplayer-production-cookie",
+        cookieName: connector.tcgplayerCookieName.trim(),
+        userAgentRequired: true,
+      },
+      domains: {
+        search: connector.tcgplayerSearchDomain.trim(),
+        marketplaceApi: connector.tcgplayerMarketplaceApiDomain.trim(),
+        infiniteApi: connector.tcgplayerInfiniteApiDomain.trim(),
+        marketplaceGateway: connector.tcgplayerMarketplaceGatewayDomain.trim(),
+      },
+      retryStatusCodes: parseNumberListInput(connector.tcgplayerRetryStatusCodesText),
+      throttling: {
+        strategy: "domain-adaptive",
+        controls: ["request-delay", "cooldown", "max-concurrency", "learned-min-delay"],
+      },
+      catalogFlow: {
+        productLineScope: "product-lines",
+        setScope: "catalog-set-names-by-product-line",
+        productScope: "product-search-by-set",
+        detailScope: "product-detail-with-skus",
+        detectsProductSetReclassification: true,
+      },
+      externalReferencePolicy: {
+        catalogItemReferencePrefix: "product:",
+        productReferencePrefix: "sku:",
+        productConditionIdSource: "sku-product-condition-id",
+      },
+      catalogBoundary: {
+        acceptedEvidence: ["product-id", "sku-id", "product-condition-id", "set-name", "product-line"],
+        excludedEvidence: ["listing-price", "sales-history", "order", "message", "seller-inventory"],
+      },
+    };
+  }
+
+  return {
+    kind: "scrydex-scryfall-json",
+    sourceContractDocument: connector.scrydexSourceContractDocument.trim(),
+    fixtureBackedOnly: true,
+    acceptedEvidence: parseListInput(connector.scrydexAcceptedEvidenceText),
+    excludedEvidence: parseListInput(connector.scrydexExcludedEvidenceText),
+  };
+}
+
+function validateConnectorForm(connector: ProfileConnectorForm): string[] {
+  if (connector.kind === "tcgdex-json") {
+    return requiredConnectorFields("TCGdex connector", [
+      connector.tcgdexBaseUrl,
+      connector.tcgdexHighQualityAssetVariant,
+      connector.tcgdexSeriesListEndpoint,
+      connector.tcgdexSeriesDetailEndpoint,
+      connector.tcgdexExpansionListEndpoint,
+      connector.tcgdexExpansionDetailEndpoint,
+      connector.tcgdexProductDetailEndpoint,
+    ]);
+  }
+  if (connector.kind === "tcgplayer-automation-client") {
+    return requiredConnectorFields("TCGplayer connector", [
+      connector.tcgplayerRepositoryOwner,
+      connector.tcgplayerRepositoryName,
+      connector.tcgplayerRepositoryCommit,
+      connector.tcgplayerSourceContractDocument,
+      connector.tcgplayerCookieName,
+      connector.tcgplayerSearchDomain,
+      connector.tcgplayerMarketplaceApiDomain,
+      connector.tcgplayerInfiniteApiDomain,
+      connector.tcgplayerMarketplaceGatewayDomain,
+    ]);
+  }
+  return requiredConnectorFields("Scrydex connector", [connector.scrydexSourceContractDocument]);
+}
+
+function requiredConnectorFields(label: string, values: readonly string[]): string[] {
+  return values.some((value) => !value.trim()) ? [`${label}: required connector fields are missing.`] : [];
 }
 
 function profileOptionQueryForm(value: unknown, index: number): ProfileOptionQueryForm {
