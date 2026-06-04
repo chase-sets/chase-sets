@@ -39,9 +39,11 @@ import type {
   CatalogProviderProfileConnectorUpdateCommand,
   CatalogProviderProfileDryRunResult,
   CatalogProviderProfileFixturesUpdateCommand,
+  CatalogProviderProfileExternalReferencesUpdateCommand,
   CatalogProviderProfileNormalizedObservationUpdateCommand,
   CatalogProviderProfileProviderOptionsUpdateCommand,
   CatalogProviderProfileRetirementPlanUpdateCommand,
+  CatalogProviderProfileSelectedOptionsUpdateCommand,
   CatalogProviderProfileSourceContractUpdateCommand,
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationOption,
@@ -155,6 +157,23 @@ const NORMALIZED_OUTPUT_KIND_OPTIONS = [
   { value: "pokemon-card", label: "Pokemon card" },
   { value: "provider-product", label: "Provider product" },
 ] satisfies SelectItem[];
+const EXTERNAL_REFERENCE_TARGET_OPTIONS = [
+  { value: "catalog-item-reference", label: "Catalog Item reference" },
+  { value: "product-reference", label: "Product reference" },
+] satisfies SelectItem[];
+const EXTERNAL_REFERENCE_AMBIGUITY_OPTIONS = [
+  { value: "skip-reference", label: "Skip reference" },
+  { value: "diagnostic", label: "Diagnostic" },
+  { value: "review-evidence", label: "Review evidence" },
+] satisfies SelectItem[];
+const SELECTED_OPTION_UNKNOWN_POLICY_OPTIONS = [
+  { value: "leave-unmapped-review-evidence", label: "Leave unmapped as review evidence" },
+  { value: "diagnostic", label: "Diagnostic" },
+] satisfies SelectItem[];
+const SELECTED_OPTION_PROVIDER_VALUE_SOURCE_OPTIONS = [
+  { value: "record", label: "Record" },
+  { value: "payload", label: "Payload" },
+] satisfies SelectItem[];
 
 type ProfileBasicsForm = Readonly<{
   displayName: string;
@@ -170,6 +189,7 @@ type ProfileBasicsForm = Readonly<{
   connector: ProfileConnectorForm;
   fixtures: ProfileFixturesForm;
   normalizedObservation: ProfileNormalizedObservationForm;
+  externalReferences: ProfileExternalReferencesForm;
 }>;
 
 type ProfileSourceContractForm = Readonly<{
@@ -254,6 +274,54 @@ type ProfileExpressionFieldForm = Readonly<{
 type ProfileExpressionListItemForm = Readonly<{
   id: string;
   expression: MappingExpressionValue;
+}>;
+
+type ProfileExternalReferencesForm = Readonly<{
+  extractionRules: Record<string, unknown>;
+  contracts: readonly ProfileExternalReferenceForm[];
+  selectedOptionMapping: ProfileSelectedOptionMappingForm | null;
+}>;
+
+type ProfileExternalReferenceForm = Readonly<{
+  id: string;
+  target: "catalog-item-reference" | "product-reference";
+  providerKey: string;
+  externalKeyPrefix: string;
+  source: MappingExpressionValue;
+  ambiguityPolicy: "skip-reference" | "diagnostic" | "review-evidence";
+  selectedOptions: ProfileExternalSelectedOptionsForm | null;
+}>;
+
+type ProfileExternalSelectedOptionsForm = Readonly<{
+  missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence" | "diagnostic";
+  dimensions: readonly ProfileExternalSelectedOptionDimensionForm[];
+}>;
+
+type ProfileExternalSelectedOptionDimensionForm = Readonly<{
+  id: string;
+  dimensionKey: string;
+  providerValue: MappingExpressionValue;
+  optionLookupTableKey: string;
+  required: boolean;
+}>;
+
+type ProfileSelectedOptionMappingForm = Readonly<{
+  source: string;
+  providerKey: string;
+  externalKeyPrefix: string;
+  requiredSourceKeysText: string;
+  missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence";
+  dimensions: readonly ProfileSelectedOptionMappingDimensionForm[];
+}>;
+
+type ProfileSelectedOptionMappingDimensionForm = Readonly<{
+  id: string;
+  dimensionKey: string;
+  providerValueSource: "payload" | "record";
+  providerValuePath: string;
+  required: boolean;
+  optionAliasesText: string;
+  valueMappingsText: string;
 }>;
 
 export function IntegrationManagementPage({
@@ -615,6 +683,19 @@ export function IntegrationManagementPage({
         normalizedObservationMapping: normalizedObservationMappingFormToCommand(editBasicsForm.normalizedObservation),
         normalizedObservationContract: normalizedObservationContractFormToCommand(editBasicsForm.normalizedObservation),
       };
+      const externalReferencesCommand: CatalogProviderProfileExternalReferencesUpdateCommand = {
+        section: "external-references",
+        externalReferenceExtractionRules: externalReferenceExtractionRulesFormToCommand(
+          editBasicsForm.externalReferences,
+        ),
+        externalReferenceContracts: externalReferenceContractsFormToCommand(editBasicsForm.externalReferences),
+      };
+      const selectedOptionsCommand: CatalogProviderProfileSelectedOptionsUpdateCommand = {
+        section: "selected-options",
+        selectedOptionMapping: selectedOptionMappingFormToCommand(
+          editBasicsForm.externalReferences.selectedOptionMapping,
+        ),
+      };
       await updateSourceObservationProviderProfileSection(
         editProfile.providerKey,
         editProfile.profileVersion,
@@ -656,6 +737,18 @@ export function IntegrationManagementPage({
         editProfile.profileVersion,
         "normalized-observation",
         normalizedObservationCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "external-references",
+        externalReferencesCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "selected-options",
+        selectedOptionsCommand,
       );
       addToast("Profile basics saved.", "success");
       setEditProfile(null);
@@ -1823,12 +1916,14 @@ function ProfileBasicsEditor({
   const setFixtures = (patch: Partial<ProfileFixturesForm>) => setForm({ fixtures: { ...form.fixtures, ...patch } });
   const setNormalizedObservation = (normalizedObservation: ProfileNormalizedObservationForm) =>
     setForm({ normalizedObservation });
+  const setExternalReferences = (externalReferences: ProfileExternalReferencesForm) => setForm({ externalReferences });
   const editable = profileLifecycleEditable(profile);
   const retirementTrackingIssueInvalid =
     form.retirementPlan.enabled && !positiveIntegerText(form.retirementPlan.trackingIssueText);
   const optionQueryDiagnostics = validateOptionQueryForms(form.optionQueries);
   const connectorDiagnostics = validateConnectorForm(form.connector);
   const normalizedObservationDiagnostics = validateNormalizedObservationForm(form.normalizedObservation);
+  const externalReferenceDiagnostics = validateExternalReferencesForm(form.externalReferences);
   const missingFixtureFlows = REQUIRED_FIXTURE_FLOW_OPTIONS.filter(
     (flow) => !form.fixtures.coveredFlows.includes(flow),
   );
@@ -2220,6 +2315,13 @@ function ProfileBasicsEditor({
         form={form.normalizedObservation}
         onChange={setNormalizedObservation}
         diagnostics={normalizedObservationDiagnostics}
+        editable={editable}
+      />
+
+      <ExternalReferencesEditor
+        form={form.externalReferences}
+        onChange={setExternalReferences}
+        diagnostics={externalReferenceDiagnostics}
         editable={editable}
       />
 
@@ -2652,6 +2754,429 @@ function NormalizedExpressionListEditor({
           />
         </Stack>
       ))}
+    </Stack>
+  );
+}
+
+function ExternalReferencesEditor({
+  form,
+  onChange,
+  diagnostics,
+  editable,
+}: Readonly<{
+  form: ProfileExternalReferencesForm;
+  onChange: (form: ProfileExternalReferencesForm) => void;
+  diagnostics: readonly string[];
+  editable: boolean;
+}>) {
+  const setForm = (patch: Partial<ProfileExternalReferencesForm>) => onChange({ ...form, ...patch });
+  const setContract = (id: string, patch: Partial<ProfileExternalReferenceForm>) =>
+    setForm({
+      contracts: form.contracts.map((contract) => (contract.id === id ? { ...contract, ...patch } : contract)),
+    });
+  const setSelectedOptionMapping = (selectedOptionMapping: ProfileSelectedOptionMappingForm | null) =>
+    setForm({ selectedOptionMapping });
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-foreground">External References and Selected Options</h3>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => setForm({ contracts: [...form.contracts, emptyExternalReferenceForm()] })}
+        >
+          Add reference
+        </Button>
+      </div>
+      {diagnostics.length > 0 ? (
+        <ul className="text-sm text-danger">
+          {diagnostics.map((diagnostic) => (
+            <li key={diagnostic}>{diagnostic}</li>
+          ))}
+        </ul>
+      ) : null}
+      <Stack gap={4}>
+        {form.contracts.map((contract, index) => (
+          <Stack key={contract.id} gap={3}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold text-foreground">
+                {contract.providerKey || `External Reference ${index + 1}`}
+              </h4>
+              <Inline gap={2}>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === 0}
+                  onClick={() => setForm({ contracts: moveItem(form.contracts, index, index - 1) })}
+                >
+                  Up
+                </Button>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === form.contracts.length - 1}
+                  onClick={() => setForm({ contracts: moveItem(form.contracts, index, index + 1) })}
+                >
+                  Down
+                </Button>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable}
+                  onClick={() =>
+                    setForm({
+                      contracts: insertItem(form.contracts, index + 1, {
+                        ...contract,
+                        id: newFormRowId("external-reference"),
+                      }),
+                    })
+                  }
+                >
+                  Duplicate
+                </Button>
+                <Button
+                  size="sm"
+                  tone="danger"
+                  disabled={!editable}
+                  onClick={() =>
+                    setForm({ contracts: form.contracts.filter((candidate) => candidate.id !== contract.id) })
+                  }
+                >
+                  Remove
+                </Button>
+              </Inline>
+            </div>
+            <Inline gap={3}>
+              <Select
+                label="Reference target"
+                value={contract.target}
+                disabled={!editable}
+                items={EXTERNAL_REFERENCE_TARGET_OPTIONS}
+                onValueChange={(value) =>
+                  setContract(contract.id, {
+                    target: value === "product-reference" ? "product-reference" : "catalog-item-reference",
+                    selectedOptions:
+                      value === "product-reference"
+                        ? (contract.selectedOptions ?? emptyExternalSelectedOptionsForm())
+                        : null,
+                  })
+                }
+              />
+              <TextInput
+                label="Reference provider key"
+                value={contract.providerKey}
+                disabled={!editable}
+                required
+                onChange={(event) => setContract(contract.id, { providerKey: event.currentTarget.value })}
+              />
+              <TextInput
+                label="External key prefix"
+                value={contract.externalKeyPrefix}
+                disabled={!editable}
+                required
+                onChange={(event) => setContract(contract.id, { externalKeyPrefix: event.currentTarget.value })}
+              />
+              <Select
+                label="Ambiguity policy"
+                value={contract.ambiguityPolicy}
+                disabled={!editable}
+                items={EXTERNAL_REFERENCE_AMBIGUITY_OPTIONS}
+                onValueChange={(value) =>
+                  setContract(contract.id, {
+                    ambiguityPolicy: externalReferenceAmbiguityPolicyValue(value),
+                  })
+                }
+              />
+            </Inline>
+            <MappingExpressionEditor
+              label="Reference source expression"
+              value={contract.source}
+              onChange={(source) => setContract(contract.id, { source })}
+            />
+            {contract.target === "product-reference" && contract.selectedOptions ? (
+              <ExternalSelectedOptionsEditor
+                form={contract.selectedOptions}
+                onChange={(selectedOptions) => setContract(contract.id, { selectedOptions })}
+                editable={editable}
+              />
+            ) : null}
+          </Stack>
+        ))}
+      </Stack>
+      <SelectedOptionMappingEditor
+        form={form.selectedOptionMapping}
+        onChange={setSelectedOptionMapping}
+        editable={editable}
+      />
+    </Stack>
+  );
+}
+
+function ExternalSelectedOptionsEditor({
+  form,
+  onChange,
+  editable,
+}: Readonly<{
+  form: ProfileExternalSelectedOptionsForm;
+  onChange: (form: ProfileExternalSelectedOptionsForm) => void;
+  editable: boolean;
+}>) {
+  const setForm = (patch: Partial<ProfileExternalSelectedOptionsForm>) => onChange({ ...form, ...patch });
+  const setDimension = (id: string, patch: Partial<ProfileExternalSelectedOptionDimensionForm>) =>
+    setForm({
+      dimensions: form.dimensions.map((dimension) => (dimension.id === id ? { ...dimension, ...patch } : dimension)),
+    });
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h5 className="text-sm font-semibold text-foreground">Product Reference Selected Options</h5>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => setForm({ dimensions: [...form.dimensions, emptyExternalSelectedOptionDimensionForm()] })}
+        >
+          Add dimension
+        </Button>
+      </div>
+      <Select
+        label="Missing or unknown option policy"
+        value={form.missingOrUnknownOptionPolicy}
+        disabled={!editable}
+        items={SELECTED_OPTION_UNKNOWN_POLICY_OPTIONS}
+        onValueChange={(value) =>
+          setForm({
+            missingOrUnknownOptionPolicy: value === "diagnostic" ? "diagnostic" : "leave-unmapped-review-evidence",
+          })
+        }
+      />
+      {form.dimensions.map((dimension, index) => (
+        <Stack key={dimension.id} gap={3}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h6 className="text-sm font-semibold text-foreground">
+              {dimension.dimensionKey || `Selected Option Dimension ${index + 1}`}
+            </h6>
+            <Inline gap={2}>
+              <Button
+                size="sm"
+                tone="secondary"
+                disabled={!editable || index === 0}
+                onClick={() => setForm({ dimensions: moveItem(form.dimensions, index, index - 1) })}
+              >
+                Up
+              </Button>
+              <Button
+                size="sm"
+                tone="secondary"
+                disabled={!editable || index === form.dimensions.length - 1}
+                onClick={() => setForm({ dimensions: moveItem(form.dimensions, index, index + 1) })}
+              >
+                Down
+              </Button>
+              <Button
+                size="sm"
+                tone="danger"
+                disabled={!editable}
+                onClick={() =>
+                  setForm({ dimensions: form.dimensions.filter((candidate) => candidate.id !== dimension.id) })
+                }
+              >
+                Remove
+              </Button>
+            </Inline>
+          </div>
+          <Inline gap={3}>
+            <TextInput
+              label="Option dimension key"
+              value={dimension.dimensionKey}
+              disabled={!editable}
+              required
+              onChange={(event) => setDimension(dimension.id, { dimensionKey: event.currentTarget.value })}
+            />
+            <TextInput
+              label="Option lookup table key"
+              value={dimension.optionLookupTableKey}
+              disabled={!editable}
+              required
+              onChange={(event) => setDimension(dimension.id, { optionLookupTableKey: event.currentTarget.value })}
+            />
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={dimension.required}
+                disabled={!editable}
+                onChange={() => setDimension(dimension.id, { required: !dimension.required })}
+                className="h-4 w-4 rounded border-border accent-accent"
+              />
+              <span>Selected option required</span>
+            </label>
+          </Inline>
+          <MappingExpressionEditor
+            label={`Selected option value expression: ${dimension.dimensionKey || index + 1}`}
+            value={dimension.providerValue}
+            onChange={(providerValue) => setDimension(dimension.id, { providerValue })}
+          />
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
+function SelectedOptionMappingEditor({
+  form,
+  onChange,
+  editable,
+}: Readonly<{
+  form: ProfileSelectedOptionMappingForm | null;
+  onChange: (form: ProfileSelectedOptionMappingForm | null) => void;
+  editable: boolean;
+}>) {
+  const setForm = (patch: Partial<ProfileSelectedOptionMappingForm>) => {
+    if (form) {
+      onChange({ ...form, ...patch });
+    }
+  };
+  const setDimension = (id: string, patch: Partial<ProfileSelectedOptionMappingDimensionForm>) => {
+    if (!form) {
+      return;
+    }
+    setForm({
+      dimensions: form.dimensions.map((dimension) => (dimension.id === id ? { ...dimension, ...patch } : dimension)),
+    });
+  };
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h4 className="text-sm font-semibold text-foreground">Selected Option Mapping</h4>
+        <Button
+          size="sm"
+          tone="secondary"
+          disabled={!editable}
+          onClick={() => onChange(form ? null : emptySelectedOptionMappingForm())}
+        >
+          {form ? "Disable mapping" : "Enable mapping"}
+        </Button>
+      </div>
+      {form ? (
+        <Stack gap={3}>
+          <Inline gap={3}>
+            <TextInput label="Selected option source" value={form.source} disabled />
+            <TextInput
+              label="Product reference provider key"
+              value={form.providerKey}
+              disabled={!editable}
+              required
+              onChange={(event) => setForm({ providerKey: event.currentTarget.value })}
+            />
+            <TextInput
+              label="Product reference prefix"
+              value={form.externalKeyPrefix}
+              disabled={!editable}
+              required
+              onChange={(event) => setForm({ externalKeyPrefix: event.currentTarget.value })}
+            />
+          </Inline>
+          <Textarea
+            label="Required source keys"
+            description="Comma or line separated."
+            value={form.requiredSourceKeysText}
+            disabled={!editable}
+            rows={2}
+            onChange={(event) => setForm({ requiredSourceKeysText: event.currentTarget.value })}
+          />
+          <KeyValueList items={[{ key: "Unknown option policy", value: form.missingOrUnknownOptionPolicy }]} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h5 className="text-sm font-semibold text-foreground">Selected Option Dimensions</h5>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="plus"
+              disabled={!editable}
+              onClick={() => setForm({ dimensions: [...form.dimensions, emptySelectedOptionMappingDimensionForm()] })}
+            >
+              Add mapping dimension
+            </Button>
+          </div>
+          {form.dimensions.map((dimension, index) => (
+            <Stack key={dimension.id} gap={3}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h6 className="text-sm font-semibold text-foreground">
+                  {dimension.dimensionKey || `Mapping Dimension ${index + 1}`}
+                </h6>
+                <Button
+                  size="sm"
+                  tone="danger"
+                  disabled={!editable}
+                  onClick={() =>
+                    setForm({ dimensions: form.dimensions.filter((candidate) => candidate.id !== dimension.id) })
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+              <Inline gap={3}>
+                <TextInput
+                  label="Mapping dimension key"
+                  value={dimension.dimensionKey}
+                  disabled={!editable}
+                  required
+                  onChange={(event) => setDimension(dimension.id, { dimensionKey: event.currentTarget.value })}
+                />
+                <Select
+                  label="Provider value source"
+                  value={dimension.providerValueSource}
+                  disabled={!editable}
+                  items={SELECTED_OPTION_PROVIDER_VALUE_SOURCE_OPTIONS}
+                  onValueChange={(value) =>
+                    setDimension(dimension.id, { providerValueSource: value === "payload" ? "payload" : "record" })
+                  }
+                />
+                <TextInput
+                  label="Provider value path"
+                  value={dimension.providerValuePath}
+                  disabled={!editable}
+                  required
+                  onChange={(event) => setDimension(dimension.id, { providerValuePath: event.currentTarget.value })}
+                />
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={dimension.required}
+                    disabled={!editable}
+                    onChange={() => setDimension(dimension.id, { required: !dimension.required })}
+                    className="h-4 w-4 rounded border-border accent-accent"
+                  />
+                  <span>Mapping dimension required</span>
+                </label>
+              </Inline>
+              <Textarea
+                label="Option aliases"
+                description="One optionKey=value,value mapping per line."
+                value={dimension.optionAliasesText}
+                disabled={!editable}
+                rows={3}
+                onChange={(event) => setDimension(dimension.id, { optionAliasesText: event.currentTarget.value })}
+              />
+              <Textarea
+                label="Value mappings"
+                description="One source=value mapping per line."
+                value={dimension.valueMappingsText}
+                disabled={!editable}
+                rows={3}
+                onChange={(event) => setDimension(dimension.id, { valueMappingsText: event.currentTarget.value })}
+              />
+            </Stack>
+          ))}
+        </Stack>
+      ) : (
+        <p className="text-sm text-secondary">No selected option mapping is configured for this provider profile.</p>
+      )}
     </Stack>
   );
 }
@@ -3212,6 +3737,7 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
       coveredFlows: [...profile.fixtures.coveredFlows],
     },
     normalizedObservation: profileNormalizedObservationForm(profile),
+    externalReferences: profileExternalReferencesForm(profile),
   };
 }
 
@@ -3239,6 +3765,7 @@ function profileBasicsSaveDisabled(
     validateOptionQueryForms(form.optionQueries).length > 0 ||
     validateConnectorForm(form.connector).length > 0 ||
     validateNormalizedObservationForm(form.normalizedObservation).length > 0 ||
+    validateExternalReferencesForm(form.externalReferences).length > 0 ||
     !form.fixtures.fixtureRoot.trim()
   );
 }
@@ -3489,6 +4016,328 @@ function selectorEvidencePath(selector: MappingExpressionValue["selector"]): str
     return `${selector.functionKey} ${selector.reason}`;
   }
   return "";
+}
+
+function profileExternalReferencesForm(profile: CatalogProviderProfileVersionReview): ProfileExternalReferencesForm {
+  const profileRecord = isRecord(profile.profile) ? profile.profile : {};
+  const contractRoot = isRecord(profile.executableMappingContract) ? profile.executableMappingContract : {};
+  const externalReferences = Array.isArray(contractRoot.externalReferences) ? contractRoot.externalReferences : [];
+  return {
+    extractionRules: isRecord(profileRecord.externalReferenceExtractionRules)
+      ? { ...profileRecord.externalReferenceExtractionRules }
+      : {},
+    contracts: externalReferences.map(externalReferenceForm),
+    selectedOptionMapping: selectedOptionMappingForm(profileRecord.selectedOptionMapping),
+  };
+}
+
+function externalReferenceForm(value: unknown, index: number): ProfileExternalReferenceForm {
+  const reference = isRecord(value) ? value : {};
+  const target = reference.target === "product-reference" ? "product-reference" : "catalog-item-reference";
+  return {
+    id: `external-reference-${index}`,
+    target,
+    providerKey: stringValue(reference.providerKey),
+    externalKeyPrefix: stringValue(reference.externalKeyPrefix),
+    source: mappingExpressionFromUnknown(
+      reference.source,
+      defaultPathExpression("", "external-reference", ["external-reference"]),
+    ),
+    ambiguityPolicy: externalReferenceAmbiguityPolicyValue(reference.ambiguityPolicy),
+    selectedOptions: target === "product-reference" ? externalSelectedOptionsForm(reference.selectedOptions) : null,
+  };
+}
+
+function externalSelectedOptionsForm(value: unknown): ProfileExternalSelectedOptionsForm {
+  const selectedOptions = isRecord(value) ? value : {};
+  const dimensions = Array.isArray(selectedOptions.dimensions) ? selectedOptions.dimensions : [];
+  return {
+    missingOrUnknownOptionPolicy:
+      selectedOptions.missingOrUnknownOptionPolicy === "diagnostic" ? "diagnostic" : "leave-unmapped-review-evidence",
+    dimensions: dimensions.map(externalSelectedOptionDimensionForm),
+  };
+}
+
+function externalSelectedOptionDimensionForm(
+  value: unknown,
+  index: number,
+): ProfileExternalSelectedOptionDimensionForm {
+  const dimension = isRecord(value) ? value : {};
+  return {
+    id: `external-option-dimension-${index}`,
+    dimensionKey: stringValue(dimension.dimensionKey),
+    providerValue: mappingExpressionFromUnknown(
+      dimension.providerValue,
+      defaultPathExpression("", "external-reference", ["selected-option"]),
+    ),
+    optionLookupTableKey: stringValue(dimension.optionLookupTableKey),
+    required: dimension.required === true,
+  };
+}
+
+function selectedOptionMappingForm(value: unknown): ProfileSelectedOptionMappingForm | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const productReferenceRule = isRecord(value.productReferenceRule) ? value.productReferenceRule : {};
+  const dimensions = Array.isArray(value.dimensions) ? value.dimensions : [];
+  return {
+    source: stringValue(value.source) || "tcgplayer-sku-condition-variant-language",
+    providerKey: stringValue(productReferenceRule.providerKey) || "tcgplayer",
+    externalKeyPrefix: stringValue(productReferenceRule.externalKeyPrefix) || "sku:",
+    requiredSourceKeysText: arrayText(productReferenceRule.requiredSourceKeys),
+    missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+    dimensions: dimensions.map(selectedOptionMappingDimensionForm),
+  };
+}
+
+function selectedOptionMappingDimensionForm(value: unknown, index: number): ProfileSelectedOptionMappingDimensionForm {
+  const dimension = isRecord(value) ? value : {};
+  const providerValue = isRecord(dimension.providerValue) ? dimension.providerValue : {};
+  return {
+    id: `selected-option-mapping-${index}`,
+    dimensionKey: stringValue(dimension.dimensionKey),
+    providerValueSource: providerValue.source === "payload" ? "payload" : "record",
+    providerValuePath: stringValue(providerValue.path),
+    required: dimension.required === true,
+    optionAliasesText: selectedOptionAliasesText(dimension.optionAliases),
+    valueMappingsText: selectedOptionValueMappingsText(dimension.valueMappings),
+  };
+}
+
+function emptyExternalReferenceForm(): ProfileExternalReferenceForm {
+  return {
+    id: newFormRowId("external-reference"),
+    target: "catalog-item-reference",
+    providerKey: "",
+    externalKeyPrefix: "",
+    source: defaultPathExpression("", "external-reference", ["external-reference"]),
+    ambiguityPolicy: "review-evidence",
+    selectedOptions: null,
+  };
+}
+
+function emptyExternalSelectedOptionsForm(): ProfileExternalSelectedOptionsForm {
+  return {
+    missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+    dimensions: [emptyExternalSelectedOptionDimensionForm()],
+  };
+}
+
+function emptyExternalSelectedOptionDimensionForm(): ProfileExternalSelectedOptionDimensionForm {
+  return {
+    id: newFormRowId("external-option-dimension"),
+    dimensionKey: "",
+    providerValue: defaultPathExpression("", "external-reference", ["selected-option"]),
+    optionLookupTableKey: "",
+    required: true,
+  };
+}
+
+function emptySelectedOptionMappingForm(): ProfileSelectedOptionMappingForm {
+  return {
+    source: "tcgplayer-sku-condition-variant-language",
+    providerKey: "tcgplayer",
+    externalKeyPrefix: "sku:",
+    requiredSourceKeysText: "sku\ncondition\nvariant\nlanguage",
+    missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+    dimensions: [emptySelectedOptionMappingDimensionForm()],
+  };
+}
+
+function emptySelectedOptionMappingDimensionForm(): ProfileSelectedOptionMappingDimensionForm {
+  return {
+    id: newFormRowId("selected-option-mapping"),
+    dimensionKey: "",
+    providerValueSource: "record",
+    providerValuePath: "",
+    required: true,
+    optionAliasesText: "",
+    valueMappingsText: "",
+  };
+}
+
+function externalReferenceExtractionRulesFormToCommand(
+  form: ProfileExternalReferencesForm,
+): CatalogProviderProfileExternalReferencesUpdateCommand["externalReferenceExtractionRules"] {
+  return form.extractionRules as CatalogProviderProfileExternalReferencesUpdateCommand["externalReferenceExtractionRules"];
+}
+
+function externalReferenceContractsFormToCommand(
+  form: ProfileExternalReferencesForm,
+): CatalogProviderProfileExternalReferencesUpdateCommand["externalReferenceContracts"] {
+  return form.contracts.map((contract) => ({
+    target: contract.target,
+    providerKey: contract.providerKey.trim(),
+    externalKeyPrefix: contract.externalKeyPrefix.trim(),
+    source: contract.source,
+    ...(contract.target === "product-reference" && contract.selectedOptions
+      ? { selectedOptions: externalSelectedOptionsFormToCommand(contract.selectedOptions) }
+      : {}),
+    ambiguityPolicy: contract.ambiguityPolicy,
+  })) as CatalogProviderProfileExternalReferencesUpdateCommand["externalReferenceContracts"];
+}
+
+function externalSelectedOptionsFormToCommand(form: ProfileExternalSelectedOptionsForm) {
+  return {
+    dimensions: form.dimensions.map((dimension) => ({
+      dimensionKey: dimension.dimensionKey.trim(),
+      providerValue: dimension.providerValue,
+      optionLookupTableKey: dimension.optionLookupTableKey.trim(),
+      required: dimension.required,
+    })),
+    missingOrUnknownOptionPolicy: form.missingOrUnknownOptionPolicy,
+  };
+}
+
+function selectedOptionMappingFormToCommand(
+  form: ProfileSelectedOptionMappingForm | null,
+): CatalogProviderProfileSelectedOptionsUpdateCommand["selectedOptionMapping"] {
+  if (!form) {
+    return null;
+  }
+  return {
+    source: form.source,
+    dimensions: form.dimensions.map(selectedOptionMappingDimensionFormToCommand),
+    productReferenceRule: {
+      providerKey: form.providerKey.trim(),
+      externalKeyPrefix: form.externalKeyPrefix.trim(),
+      requiredSourceKeys: parseListInput(form.requiredSourceKeysText),
+      missingOrUnknownOptionPolicy: form.missingOrUnknownOptionPolicy,
+    },
+  } as CatalogProviderProfileSelectedOptionsUpdateCommand["selectedOptionMapping"];
+}
+
+function selectedOptionMappingDimensionFormToCommand(dimension: ProfileSelectedOptionMappingDimensionForm) {
+  const command: Record<string, unknown> = {
+    dimensionKey: dimension.dimensionKey.trim(),
+    providerValue: {
+      source: dimension.providerValueSource,
+      path: dimension.providerValuePath.trim(),
+    },
+    required: dimension.required,
+    unknownPolicy: "review-evidence",
+  };
+  const optionAliases = selectedOptionAliasesObject(dimension.optionAliasesText);
+  const valueMappings = selectedOptionValueMappingsObject(dimension.valueMappingsText);
+  if (optionAliases.length > 0) {
+    command.optionAliases = optionAliases;
+  }
+  if (valueMappings.length > 0) {
+    command.valueMappings = valueMappings;
+  }
+  return command;
+}
+
+function validateExternalReferencesForm(form: ProfileExternalReferencesForm): string[] {
+  const diagnostics: string[] = [];
+  form.contracts.forEach((contract, index) => {
+    const label = `${contract.target === "product-reference" ? "Product reference" : "Catalog Item reference"} ${index + 1}`;
+    if (!contract.providerKey.trim() || !contract.externalKeyPrefix.trim()) {
+      diagnostics.push(`${label}: provider key and external key prefix are required.`);
+    }
+    diagnostics.push(...prefixedExpressionDiagnostics(`${label} source`, contract.source));
+    if (contract.target === "product-reference") {
+      if (!contract.selectedOptions || contract.selectedOptions.dimensions.length === 0) {
+        diagnostics.push(`${label}: product references require selected option dimensions.`);
+      }
+      contract.selectedOptions?.dimensions.forEach((dimension, dimensionIndex) => {
+        const dimensionLabel = `${label} selected option ${dimensionIndex + 1}`;
+        if (!dimension.dimensionKey.trim() || !dimension.optionLookupTableKey.trim()) {
+          diagnostics.push(`${dimensionLabel}: dimension key and option lookup table key are required.`);
+        }
+        diagnostics.push(...prefixedExpressionDiagnostics(`${dimensionLabel} value`, dimension.providerValue));
+      });
+    }
+  });
+
+  if (form.selectedOptionMapping) {
+    if (!form.selectedOptionMapping.providerKey.trim() || !form.selectedOptionMapping.externalKeyPrefix.trim()) {
+      diagnostics.push("Selected option mapping: product reference provider key and prefix are required.");
+    }
+    if (parseListInput(form.selectedOptionMapping.requiredSourceKeysText).length === 0) {
+      diagnostics.push("Selected option mapping: at least one required source key is required.");
+    }
+    form.selectedOptionMapping.dimensions.forEach((dimension, index) => {
+      const label = `Selected option mapping dimension ${index + 1}`;
+      if (!dimension.dimensionKey.trim() || !dimension.providerValuePath.trim()) {
+        diagnostics.push(`${label}: dimension key and provider value path are required.`);
+      }
+    });
+  }
+
+  return diagnostics;
+}
+
+function externalReferenceAmbiguityPolicyValue(value: unknown): "skip-reference" | "diagnostic" | "review-evidence" {
+  return value === "skip-reference" || value === "diagnostic" ? value : "review-evidence";
+}
+
+function selectedOptionAliasesText(value: unknown): string {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => {
+          const alias = isRecord(entry) ? entry : {};
+          return `${stringValue(alias.optionKey)}=${Array.isArray(alias.providerValues) ? alias.providerValues.join(",") : ""}`;
+        })
+        .join("\n")
+    : "";
+}
+
+function selectedOptionAliasesObject(value: string): readonly Record<string, unknown>[] {
+  return value
+    .split(/\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [optionKey, ...providerValueParts] = entry.split("=");
+      return {
+        optionKey: optionKey.trim(),
+        providerValues: providerValueParts
+          .join("=")
+          .split(",")
+          .map((providerValue) => providerValue.trim())
+          .filter(Boolean),
+      };
+    })
+    .filter((entry) => entry.optionKey.length > 0 && entry.providerValues.length > 0);
+}
+
+function selectedOptionValueMappingsText(value: unknown): string {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => {
+          const mapping = isRecord(entry) ? entry : {};
+          return `${String(mapping.from ?? "")}=${stringValue(mapping.value)}`;
+        })
+        .join("\n")
+    : "";
+}
+
+function selectedOptionValueMappingsObject(value: string): readonly Record<string, unknown>[] {
+  return value
+    .split(/\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [from, ...valueParts] = entry.split("=");
+      return { from: parseJsonLiteral(from.trim()), value: valueParts.join("=").trim() };
+    })
+    .filter((entry) => entry.value.length > 0);
+}
+
+function parseJsonLiteral(value: string): unknown {
+  if (value === "true") {
+    return true;
+  }
+  if (value === "false") {
+    return false;
+  }
+  if (value === "null") {
+    return null;
+  }
+  const numberValue = Number(value);
+  return Number.isFinite(numberValue) && value.trim() !== "" ? numberValue : value;
 }
 
 function profileConnectorForm(value: unknown): ProfileConnectorForm {

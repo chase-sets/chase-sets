@@ -8,6 +8,7 @@ import type {
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationScope,
 } from "./contracts";
+import type { JsonValue } from "@chase-sets/primitives/json";
 
 const {
   mockActivateSourceObservationProviderProfile,
@@ -530,6 +531,151 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/hash material cannot use secret, pricing, inventory/i)).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("edits external product references and selected option mappings through typed controls", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgplayer",
+            profileKey: "tcgplayer-product",
+            displayName: "TCGplayer",
+            profile: {
+              providerKey: "tcgplayer",
+              profileKey: "tcgplayer-product",
+              displayName: "TCGplayer",
+              status: "planned",
+              connector: tcgplayerConnectorFixture(),
+              capabilities: ["source-observation-import", "external-reference-extraction"],
+              supportedScopes: ["product"],
+              languageOptions: ["en"],
+              optionQueries: [],
+              normalizedObservationMapping: { kind: "provider-product" },
+              selectedOptionMapping: selectedOptionMappingFixture(),
+              externalReferenceExtractionRules: { referenceTarget: "mixed", rules: [] },
+            },
+            executableMappingContract: executableMappingContract({
+              externalReferences: externalReferenceContractsFixture(),
+            }),
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("External References and Selected Options")).toBeTruthy();
+    expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
+
+    expect(within(dialog).getByText("Product reference")).toBeTruthy();
+    fireEvent.change(within(dialog).getAllByDisplayValue("tcgplayer")[1], {
+      target: { value: "tcgplayer-marketplace" },
+    });
+    fireEvent.change(within(dialog).getByDisplayValue("catalog-condition"), {
+      target: { value: "catalog-condition-v2" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Option aliases"), {
+      target: { value: "near-mint=Near Mint,NM\nlightly-played=Lightly Played,LP" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "tcgplayer",
+        "2026.06.03",
+        "external-references",
+        expect.objectContaining({
+          section: "external-references",
+          externalReferenceContracts: expect.arrayContaining([
+            expect.objectContaining({
+              target: "product-reference",
+              providerKey: "tcgplayer-marketplace",
+              selectedOptions: expect.objectContaining({
+                dimensions: [
+                  expect.objectContaining({
+                    dimensionKey: "condition",
+                    optionLookupTableKey: "catalog-condition-v2",
+                  }),
+                ],
+              }),
+            }),
+          ]),
+        }),
+      ),
+    );
+    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "tcgplayer",
+      "2026.06.03",
+      "selected-options",
+      expect.objectContaining({
+        section: "selected-options",
+        selectedOptionMapping: expect.objectContaining({
+          dimensions: [
+            expect.objectContaining({
+              dimensionKey: "condition",
+              providerValue: { source: "record", path: "condition" },
+              optionAliases: [
+                { optionKey: "near-mint", providerValues: ["Near Mint", "NM"] },
+                { optionKey: "lightly-played", providerValues: ["Lightly Played", "LP"] },
+              ],
+            }),
+          ],
+        }),
+      }),
+    );
+  });
+
+  it("blocks product reference mappings without selected option dimensions", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            executableMappingContract: executableMappingContract({
+              externalReferences: [
+                {
+                  target: "product-reference",
+                  providerKey: "tcgplayer",
+                  externalKeyPrefix: "sku:",
+                  source: mappingExpression("externalProductReferences", "external-reference", [
+                    "external-reference",
+                    "selected-option",
+                  ]),
+                  selectedOptions: {
+                    dimensions: [],
+                    missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+                  },
+                  ambiguityPolicy: "review-evidence",
+                },
+              ],
+            }),
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/product references require selected option dimensions/i)).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -1664,8 +1810,9 @@ function executableMappingContract(
     fields: Record<string, ReturnType<typeof mappingExpression>>;
     hashMaterial: ReturnType<typeof mappingExpression>[];
     mergeIdentity: ReturnType<typeof mappingExpression>[];
+    externalReferences: JsonValue[];
   }> = {},
-) {
+): JsonValue {
   return {
     normalizedObservation: {
       outputKind: overrides.outputKind ?? "provider-product",
@@ -1677,6 +1824,7 @@ function executableMappingContract(
       hashMaterial: overrides.hashMaterial ?? [mappingExpression("name", "catalog-truth", ["hash-material"])],
       mergeIdentity: overrides.mergeIdentity ?? [mappingExpression("id", "catalog-merge-evidence", ["merge-identity"])],
     },
+    externalReferences: overrides.externalReferences ?? [],
   };
 }
 
@@ -1712,6 +1860,84 @@ function mappingExpression(
     owner,
     uses,
     redaction: options.redaction ?? "none",
+  };
+}
+
+function externalReferenceContractsFixture(): JsonValue[] {
+  return [
+    {
+      target: "catalog-item-reference",
+      providerKey: "tcgplayer",
+      externalKeyPrefix: "product:",
+      source: mappingExpression("externalCatalogItemReferences", "external-reference", ["external-reference"]),
+      ambiguityPolicy: "skip-reference",
+    },
+    {
+      target: "product-reference",
+      providerKey: "tcgplayer",
+      externalKeyPrefix: "sku:",
+      source: mappingExpression("externalProductReferences", "external-reference", [
+        "external-reference",
+        "selected-option",
+      ]),
+      selectedOptions: {
+        dimensions: [
+          {
+            dimensionKey: "condition",
+            providerValue: mappingExpression("condition", "external-reference", ["selected-option"]),
+            optionLookupTableKey: "catalog-condition",
+            required: true,
+          },
+        ],
+        missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+      },
+      ambiguityPolicy: "review-evidence",
+    },
+  ];
+}
+
+function tcgplayerConnectorFixture() {
+  return {
+    kind: "tcgplayer-automation-client",
+    sourceRepository: {
+      owner: "todd-skelton",
+      name: "tcgplayer-automation-app",
+      commit: "abc123",
+    },
+    sourceContractDocument: "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
+    authentication: {
+      scheme: "tcgplayer-production-cookie",
+      cookieName: "TCGAuthTicket_Production",
+      userAgentRequired: true,
+    },
+    domains: {
+      search: "mp-search-api.tcgplayer.com",
+      marketplaceApi: "mpapi.tcgplayer.com",
+      infiniteApi: "infinite-api.tcgplayer.com",
+      marketplaceGateway: "mpgateway.tcgplayer.com",
+    },
+    retryStatusCodes: [403, 429, 502, 503, 504],
+  };
+}
+
+function selectedOptionMappingFixture() {
+  return {
+    source: "tcgplayer-sku-condition-variant-language",
+    dimensions: [
+      {
+        dimensionKey: "condition",
+        providerValue: { source: "record", path: "condition" },
+        required: true,
+        unknownPolicy: "review-evidence",
+        optionAliases: [{ optionKey: "near-mint", providerValues: ["Near Mint", "NM"] }],
+      },
+    ],
+    productReferenceRule: {
+      providerKey: "tcgplayer",
+      externalKeyPrefix: "sku:",
+      requiredSourceKeys: ["sku", "condition"],
+      missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+    },
   };
 }
 
