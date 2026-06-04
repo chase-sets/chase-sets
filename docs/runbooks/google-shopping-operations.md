@@ -30,6 +30,9 @@ Platform Worker reads these environment variables:
 | `GOOGLE_MERCHANT_CONTENT_LANGUAGE` | Yes | Language code, such as `en`. |
 | `GOOGLE_MERCHANT_FEED_LABEL` | Yes | Feed label aligned with Merchant Center setup. |
 | `GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME` | Yes | Secret reference name only; never inline JSON. The worker reads the service-account JSON from the environment variable named by this value. |
+| `GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS` | No | Defaults to 24 hours. Set to `0` to disable scheduled refresh/cleanup scans. |
+| `GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE` | No | Defaults to 100 rows per scheduled scan. |
+| `GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS` | No | Defaults to 25 days so accepted/submitted products refresh before the 30-day Merchant freshness window. |
 
 Startup fails when sync is enabled without complete required config.
 
@@ -134,6 +137,41 @@ Quota/rate-limit posture:
 - The worker processes a bounded batch of due listing requests per incremental job.
 - HTTP 429 and transient Google responses use the Merchant client retry/backoff path and are recorded as row failures if exhausted.
 - If incremental jobs fall behind, keep writes in dry-run or disable sync, investigate provider errors, then run a full dry-run sync to re-baseline row state before returning to live writes.
+
+## Scheduled Refresh And Cleanup
+
+The Platform Worker schedules Google Shopping maintenance only when `GOOGLE_MERCHANT_SYNC_ENABLED=true`. If `GOOGLE_MERCHANT_DRY_RUN=true`, scheduled maintenance enqueues dry-run jobs; if dry-run is false, scheduled maintenance can enqueue live jobs.
+
+Maintenance scans select:
+
+- eligible live rows with a previous submission whose `last_accepted_at` or `last_submitted_at` is older than the refresh cutoff;
+- rows with a previous submission that are now tombstoned or ineligible and have not yet recorded `delete_submitted_at`.
+
+Cleanup candidates are prioritized ahead of refresh candidates within the batch. Scheduled refresh uses a full product input submission even when the payload hash is unchanged, so Merchant Center receives a freshness update before the 30-day window. Cleanup uses `productInputs.delete` through the same row processor used by full and incremental sync.
+
+Operators with `security.manage` can preview exact candidates before enqueueing maintenance:
+
+```http
+GET /google-shopping/maintenance/preview?mode=dry-run&refreshWindowDays=25&limit=100
+```
+
+The preview response includes `refresh` and `cleanup` arrays with row ids, listing ids, Merchant offer ids, eligibility/tombstone state, payload hashes, and last submitted/accepted/delete timestamps.
+
+To enqueue the current maintenance set:
+
+```http
+POST /google-shopping/maintenance/sync-jobs
+Content-Type: application/json
+
+{ "mode": "dry-run", "refreshWindowDays": 25, "limit": 100 }
+```
+
+Use live mode only after launch evidence gates pass and `GOOGLE_MERCHANT_DRY_RUN=false` is deployed. A request with no candidates returns the same summary and no job.
+
+Retention decision:
+
+- Durable Google Shopping sync job/event history follows the shared 7-day terminal job retention task.
+- Google Shopping row sync state and diagnostics should remain available for 90 days after a Merchant withdrawal so Ops can correlate policy, crawl, and product issue evidence before later pruning work removes historical row state.
 
 ## Incident Response
 

@@ -87,6 +87,39 @@ export type GoogleShoppingIncrementalSyncJobPayload = Readonly<{
   requestedForAccountId: string | null;
 }>;
 
+export type GoogleShoppingMaintenanceAction = "refresh" | "cleanup";
+
+export type GoogleShoppingMaintenanceCandidate = Readonly<{
+  action: GoogleShoppingMaintenanceAction;
+  rowId: string;
+  listingId: string;
+  merchantOfferId: string;
+  eligibilityStatus: string;
+  tombstoneStatus: string;
+  syncStatus: string;
+  payloadHash: string | null;
+  lastSubmittedPayloadHash: string | null;
+  lastSubmittedAt: string | null;
+  lastAcceptedAt: string | null;
+  deleteSubmittedAt: string | null;
+}>;
+
+export type GoogleShoppingMaintenancePreview = Readonly<{
+  mode: GoogleShoppingSyncMode;
+  refreshWindowDays: number;
+  refreshCutoff: string;
+  limit: number;
+  retentionDays: number;
+  refresh: readonly GoogleShoppingMaintenanceCandidate[];
+  cleanup: readonly GoogleShoppingMaintenanceCandidate[];
+  total: number;
+}>;
+
+export type GoogleShoppingMaintenanceEnqueueResult = Readonly<{
+  summary: GoogleShoppingMaintenancePreview;
+  job: GoogleShoppingFullSyncJob | null;
+}>;
+
 export type GoogleShoppingFullSyncJobProgress = Readonly<{
   phase: "queued" | "processing" | "completed" | "failed";
   completed: number;
@@ -145,6 +178,21 @@ export type GoogleShoppingFeedRowForSync = Readonly<{
   deleteSubmittedAt: string | null;
 }>;
 
+type GoogleShoppingMaintenanceCandidateRow = Readonly<{
+  action: GoogleShoppingMaintenanceAction;
+  row_id: string;
+  listing_id: string;
+  merchant_offer_id: string;
+  eligibility_status: string;
+  tombstone_status: string;
+  sync_status: string;
+  payload_hash: string | null;
+  last_submitted_payload_hash: string | null;
+  last_submitted_at: Date | string | null;
+  last_accepted_at: Date | string | null;
+  delete_submitted_at: Date | string | null;
+}>;
+
 type GoogleShoppingSyncRuntimeDeps = Readonly<{
   db: PgQueryable;
 }>;
@@ -154,6 +202,9 @@ const INCREMENTAL_SYNC_JOB_KIND = "incremental-sync";
 const DEFAULT_BATCH_SIZE = 100;
 const MAX_BATCH_SIZE = 500;
 const DEFAULT_INCREMENTAL_BATCH_SIZE = 100;
+const DEFAULT_MAINTENANCE_BATCH_SIZE = 100;
+const DEFAULT_REFRESH_WINDOW_DAYS = 25;
+const GOOGLE_SHOPPING_SYNC_STATE_RETENTION_DAYS = 90;
 
 const GOOGLE_SHOPPING_SYSTEM_CONTEXT: EventStoreContext = {
   tenantId: "tnt_discovery" as never,
@@ -168,6 +219,21 @@ export type GoogleShoppingSyncServices = Readonly<{
     params: Readonly<{ mode: GoogleShoppingSyncMode; batchSize?: number }>,
     context: EventStoreContext,
   ) => Promise<GoogleShoppingFullSyncJob>;
+  previewMaintenanceSync: (
+    params?: Readonly<{
+      mode?: GoogleShoppingSyncMode;
+      refreshWindowDays?: number;
+      limit?: number;
+      now?: string | Date;
+    }>,
+  ) => Promise<GoogleShoppingMaintenancePreview>;
+  enqueueMaintenanceSyncJob: (
+    params: Readonly<{ mode: GoogleShoppingSyncMode; refreshWindowDays?: number; limit?: number }>,
+    context: EventStoreContext,
+  ) => Promise<GoogleShoppingMaintenanceEnqueueResult>;
+  processScheduledMaintenanceSync: (
+    params: Readonly<{ mode: GoogleShoppingSyncMode; refreshWindowDays?: number; limit?: number }>,
+  ) => Promise<number>;
   getFullSyncJob: (jobId: string) => Promise<GoogleShoppingFullSyncJob | null>;
   listFullSyncJobEvents: (
     jobId: string,
@@ -232,6 +298,31 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
         eventContext: context,
       })) as GoogleShoppingFullSyncJob;
     },
+    previewMaintenanceSync: async (params = {}) =>
+      previewGoogleShoppingMaintenanceSync(deps.db, {
+        mode: params.mode ?? "dry-run",
+        refreshWindowDays: params.refreshWindowDays,
+        limit: params.limit,
+        now: params.now,
+      }),
+    enqueueMaintenanceSyncJob: async (params, context) => {
+      const summary = await previewGoogleShoppingMaintenanceSync(deps.db, {
+        mode: params.mode,
+        refreshWindowDays: params.refreshWindowDays,
+        limit: params.limit,
+      });
+      if (summary.total === 0) {
+        return { summary, job: null };
+      }
+
+      const job = await enqueueIncrementalSyncJob(jobStore, {
+        mode: params.mode,
+        requests: googleShoppingMaintenanceRequests(summary),
+        context,
+        message: "Google Shopping maintenance sync queued.",
+      });
+      return { summary, job };
+    },
     getFullSyncJob: async (jobId) => (await jobStore.get(jobId)) as GoogleShoppingFullSyncJob | null,
     listFullSyncJobEvents: async (jobId, afterSequence = 0) =>
       (await jobStore.listEvents(jobId, afterSequence)) as readonly DurableJobEvent<
@@ -245,6 +336,24 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
         completedBefore: input.completedBefore ?? retentionCutoff(7),
         limit: input.limit,
       }),
+    processScheduledMaintenanceSync: async (params) => {
+      const summary = await previewGoogleShoppingMaintenanceSync(deps.db, {
+        mode: params.mode,
+        refreshWindowDays: params.refreshWindowDays,
+        limit: params.limit,
+      });
+      if (summary.total === 0) {
+        return 0;
+      }
+
+      await enqueueIncrementalSyncJob(jobStore, {
+        mode: params.mode,
+        requests: googleShoppingMaintenanceRequests(summary),
+        context: GOOGLE_SHOPPING_SYSTEM_CONTEXT,
+        message: "Google Shopping scheduled maintenance sync queued.",
+      });
+      return 1;
+    },
     processNextFullSyncJob: async (input) => {
       const claimed = await jobStore.claimNext({
         claimOwnerId: input.claimOwnerId,
@@ -426,6 +535,7 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
         for (const listingId of payload.listingIds) {
           throwIfGoogleShoppingSyncCancelled(input);
           const row = rowsByListingId.get(listingId);
+          const reasons = payload.reasonsByListingId[listingId] ?? [];
           if (!row) {
             progress = addGoogleShoppingSyncOutcome(progress, listingId, "excluded");
             await progressCheckpoint.checkpoint(progress, toGoogleShoppingSyncResult(payload.mode, progress));
@@ -439,9 +549,8 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
             merchantClient,
             signal: input.signal,
             jobContext,
-            preferredOperation: shouldPatchPriceAndAvailability(payload.reasonsByListingId[listingId] ?? [])
-              ? "patch-price-availability"
-              : "full",
+            forceSubmit: shouldForceScheduledRefresh(reasons),
+            preferredOperation: shouldPatchPriceAndAvailability(reasons) ? "patch-price-availability" : "full",
           });
           progress = addGoogleShoppingSyncOutcome(progress, row.rowId, outcome);
           await progressCheckpoint.checkpoint(progress, toGoogleShoppingSyncResult(payload.mode, progress));
@@ -490,13 +599,55 @@ export function toGoogleShoppingFullSyncJobStatus(job: GoogleShoppingFullSyncJob
   return toDurableJobPublicSnapshot(job);
 }
 
+export async function previewGoogleShoppingMaintenanceSync(
+  db: PgQueryable,
+  input: Readonly<{
+    mode?: GoogleShoppingSyncMode;
+    refreshWindowDays?: number;
+    limit?: number;
+    now?: string | Date;
+  }> = {},
+): Promise<GoogleShoppingMaintenancePreview> {
+  const refreshWindowDays = normalizePositiveInteger(input.refreshWindowDays, DEFAULT_REFRESH_WINDOW_DAYS);
+  const limit = normalizeBatchSize(input.limit ?? DEFAULT_MAINTENANCE_BATCH_SIZE);
+  const refreshCutoff = refreshCutoffFor(input.now, refreshWindowDays).toISOString();
+  const candidates = await listGoogleShoppingMaintenanceCandidates(db, { refreshCutoff, limit });
+  const refresh = candidates.filter((candidate) => candidate.action === "refresh");
+  const cleanup = candidates.filter((candidate) => candidate.action === "cleanup");
+
+  return {
+    mode: input.mode ?? "dry-run",
+    refreshWindowDays,
+    refreshCutoff,
+    limit,
+    retentionDays: GOOGLE_SHOPPING_SYNC_STATE_RETENTION_DAYS,
+    refresh,
+    cleanup,
+    total: candidates.length,
+  };
+}
+
+export async function listGoogleShoppingMaintenanceCandidates(
+  db: PgQueryable,
+  input: Readonly<{ refreshCutoff: string; limit: number }>,
+): Promise<GoogleShoppingMaintenanceCandidate[]> {
+  const limit = normalizeBatchSize(input.limit);
+  const cleanup = await listGoogleShoppingCleanupCandidates(db, limit);
+  const remaining = Math.max(0, limit - cleanup.length);
+  const refresh = remaining > 0 ? await listGoogleShoppingRefreshCandidates(db, { ...input, limit: remaining }) : [];
+
+  return [...cleanup, ...refresh];
+}
+
 async function enqueueIncrementalSyncJob(
   jobStore: GoogleShoppingSyncJobStore,
   input: Readonly<{
     mode: GoogleShoppingSyncMode;
     requests: readonly GoogleShoppingIncrementalSyncRequest[];
+    context?: EventStoreContext;
+    message?: string;
   }>,
-) {
+): Promise<GoogleShoppingFullSyncJob> {
   const listingIds = [...new Set(input.requests.map((request) => request.listingId))];
   const reasonsByListingId = Object.fromEntries(
     listingIds.map((listingId) => [
@@ -508,8 +659,9 @@ async function enqueueIncrementalSyncJob(
       ],
     ]),
   );
+  const context = input.context ?? GOOGLE_SHOPPING_SYSTEM_CONTEXT;
 
-  await jobStore.enqueue({
+  return (await jobStore.enqueue({
     jobId: createJobId(),
     jobKind: INCREMENTAL_SYNC_JOB_KIND,
     payload: {
@@ -517,24 +669,39 @@ async function enqueueIncrementalSyncJob(
       batchSize: listingIds.length,
       listingIds,
       reasonsByListingId,
-      requestedByUserId: GOOGLE_SHOPPING_SYSTEM_CONTEXT.audit.performedByUserId,
-      requestedForAccountId: GOOGLE_SHOPPING_SYSTEM_CONTEXT.audit.forAccountId,
+      requestedByUserId: context.audit.performedByUserId,
+      requestedForAccountId: context.audit.forAccountId,
     },
     progress: googleShoppingSyncProgress({
       phase: "queued",
       completed: 0,
       total: listingIds.length,
       currentRowId: null,
-      message: "Google Shopping incremental sync queued.",
+      message: input.message ?? "Google Shopping incremental sync queued.",
     }),
-    eventContext: GOOGLE_SHOPPING_SYSTEM_CONTEXT,
-  });
+    eventContext: context,
+  })) as GoogleShoppingFullSyncJob;
+}
+
+function googleShoppingMaintenanceRequests(
+  summary: GoogleShoppingMaintenancePreview,
+): readonly GoogleShoppingIncrementalSyncRequest[] {
+  return [
+    ...summary.cleanup.map((candidate) => ({
+      listingId: candidate.listingId,
+      reasons: ["stale-cleanup" as const],
+    })),
+    ...summary.refresh.map((candidate) => ({
+      listingId: candidate.listingId,
+      reasons: ["scheduled-refresh" as const],
+    })),
+  ];
 }
 
 export function classifyGoogleShoppingSyncRow(
   row: GoogleShoppingFeedRowForSync,
 ):
-  | Readonly<{ action: "submit"; reason: "changed" | "resubmit-after-delete" }>
+  | Readonly<{ action: "submit"; reason: "changed" | "resubmit-after-delete" | "scheduled-refresh" }>
   | Readonly<{ action: "delete"; reason: "tombstone" | "no-longer-eligible" }>
   | Readonly<{ action: "skip"; reason: "unchanged" }>
   | Readonly<{ action: "exclude"; reason: "not-eligible" | "tombstone-never-submitted" }>
@@ -577,9 +744,14 @@ export async function processGoogleShoppingSyncRow(input: {
   signal?: AbortSignal;
   jobContext: DurableJobExecutionContext<GoogleShoppingFullSyncJobProgress, GoogleShoppingFullSyncJobResult>;
   preferredOperation?: "full" | "patch-price-availability";
+  forceSubmit?: boolean;
 }): Promise<"submitted" | "skipped" | "deleted" | "failed" | "excluded"> {
-  const classification = classifyGoogleShoppingSyncRow(input.row);
+  let classification = classifyGoogleShoppingSyncRow(input.row);
   const attemptedAt = new Date().toISOString();
+
+  if (classification.action === "skip" && input.forceSubmit) {
+    classification = { action: "submit", reason: "scheduled-refresh" };
+  }
 
   if (classification.action === "skip") {
     return "skipped";
@@ -778,6 +950,69 @@ async function listGoogleShoppingFeedRowsByListingIds(
   }));
 }
 
+async function listGoogleShoppingCleanupCandidates(
+  db: PgQueryable,
+  limit: number,
+): Promise<GoogleShoppingMaintenanceCandidate[]> {
+  const result = await db.query<GoogleShoppingMaintenanceCandidateRow>(
+    `SELECT 'cleanup' AS action,
+            row_id,
+            listing_id,
+            merchant_offer_id,
+            eligibility_status,
+            tombstone_status,
+            sync_status,
+            payload_hash,
+            last_submitted_payload_hash,
+            last_submitted_at,
+            last_accepted_at,
+            delete_submitted_at
+     FROM discovery_google_shopping_feed_rows
+     WHERE last_submitted_payload_hash IS NOT NULL
+       AND delete_submitted_at IS NULL
+       AND (tombstone_status <> 'live' OR eligibility_status <> 'eligible')
+     ORDER BY updated_at ASC, row_id ASC
+     LIMIT $1`,
+    [limit],
+  );
+
+  return result.rows.map(toGoogleShoppingMaintenanceCandidate);
+}
+
+async function listGoogleShoppingRefreshCandidates(
+  db: PgQueryable,
+  input: Readonly<{ refreshCutoff: string; limit: number }>,
+): Promise<GoogleShoppingMaintenanceCandidate[]> {
+  const result = await db.query<GoogleShoppingMaintenanceCandidateRow>(
+    `SELECT 'refresh' AS action,
+            row_id,
+            listing_id,
+            merchant_offer_id,
+            eligibility_status,
+            tombstone_status,
+            sync_status,
+            payload_hash,
+            last_submitted_payload_hash,
+            last_submitted_at,
+            last_accepted_at,
+            delete_submitted_at
+     FROM discovery_google_shopping_feed_rows
+     WHERE eligibility_status = 'eligible'
+       AND tombstone_status = 'live'
+       AND payload IS NOT NULL
+       AND payload_hash IS NOT NULL
+       AND last_submitted_payload_hash IS NOT NULL
+       AND delete_submitted_at IS NULL
+       AND COALESCE(last_accepted_at, last_submitted_at) IS NOT NULL
+       AND COALESCE(last_accepted_at, last_submitted_at) <= $1::timestamptz
+     ORDER BY COALESCE(last_accepted_at, last_submitted_at) ASC, row_id ASC
+     LIMIT $2`,
+    [input.refreshCutoff, input.limit],
+  );
+
+  return result.rows.map(toGoogleShoppingMaintenanceCandidate);
+}
+
 async function countGoogleShoppingFeedRows(db: PgQueryable): Promise<number> {
   const result = await db.query<{ total: number | string }>(
     `SELECT COUNT(*)::integer AS total FROM discovery_google_shopping_feed_rows`,
@@ -936,6 +1171,47 @@ function shouldPatchPriceAndAvailability(reasons: readonly GoogleShoppingIncreme
     reasons.length > 0 &&
     reasons.every((reason) => reason === "price" || reason === "availability" || reason === "seller-availability")
   );
+}
+
+function shouldForceScheduledRefresh(reasons: readonly GoogleShoppingIncrementalSyncReason[]) {
+  return reasons.includes("scheduled-refresh");
+}
+
+function toGoogleShoppingMaintenanceCandidate(
+  row: GoogleShoppingMaintenanceCandidateRow,
+): GoogleShoppingMaintenanceCandidate {
+  return {
+    action: row.action,
+    rowId: row.row_id,
+    listingId: row.listing_id,
+    merchantOfferId: row.merchant_offer_id,
+    eligibilityStatus: row.eligibility_status,
+    tombstoneStatus: row.tombstone_status,
+    syncStatus: row.sync_status,
+    payloadHash: row.payload_hash,
+    lastSubmittedPayloadHash: row.last_submitted_payload_hash,
+    lastSubmittedAt: row.last_submitted_at == null ? null : formatTimestamp(row.last_submitted_at),
+    lastAcceptedAt: row.last_accepted_at == null ? null : formatTimestamp(row.last_accepted_at),
+    deleteSubmittedAt: row.delete_submitted_at == null ? null : formatTimestamp(row.delete_submitted_at),
+  };
+}
+
+function refreshCutoffFor(value: string | Date | undefined, refreshWindowDays: number): Date {
+  const now = value ? new Date(value) : new Date();
+  if (!Number.isFinite(now.getTime())) {
+    return refreshCutoffFor(undefined, refreshWindowDays);
+  }
+
+  return new Date(now.getTime() - refreshWindowDays * 24 * 60 * 60 * 1000);
+}
+
+function normalizePositiveInteger(value: number | undefined, defaultValue: number) {
+  const parsed = Math.floor(value ?? defaultValue);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return defaultValue;
+  }
+
+  return parsed;
 }
 
 function normalizeBatchSize(value: number | undefined) {

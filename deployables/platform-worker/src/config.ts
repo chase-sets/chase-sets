@@ -46,6 +46,9 @@ export type PlatformWorkerConfig = Readonly<{
   paymentReconciliationIntervalMs: number | null;
   sellerFundsReleaseIntervalMs: number | null;
   payoutReconciliationIntervalMs: number | null;
+  googleShoppingMaintenanceIntervalMs: number | null;
+  googleShoppingMaintenanceBatchSize: number;
+  googleShoppingRefreshWindowDays: number;
   paymentProcessor: PlatformWorkerPaymentProcessorConfig;
   moneyMovement: PlatformWorkerMoneyMovementConfig;
   mobileMessaging: PlatformWorkerMobileMessagingConfig;
@@ -331,6 +334,12 @@ export function loadConfig(): PlatformWorkerConfig {
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_RECONCILIATION_INTERVAL_MS", 300_000),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),
     payoutReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYOUT_RECONCILIATION_INTERVAL_MS", 300_000),
+    googleShoppingMaintenanceIntervalMs: getOptionalPositiveNumberEnv(
+      "GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS",
+      86_400_000,
+    ),
+    googleShoppingMaintenanceBatchSize: getPositiveNumberEnv("GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE", 100),
+    googleShoppingRefreshWindowDays: getPositiveNumberEnv("GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS", 25),
     paymentProcessor:
       stripeSecretKey && stripePublishableKey && stripeWebhookSecret
         ? {

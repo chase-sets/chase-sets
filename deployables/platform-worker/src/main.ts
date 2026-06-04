@@ -457,12 +457,29 @@ function createScheduledJobRunners(
   services: Readonly<Record<string, unknown>>,
   input: Pick<
     ReturnType<typeof loadConfig>,
-    "paymentReconciliationIntervalMs" | "sellerFundsReleaseIntervalMs" | "payoutReconciliationIntervalMs"
+    | "paymentReconciliationIntervalMs"
+    | "sellerFundsReleaseIntervalMs"
+    | "payoutReconciliationIntervalMs"
+    | "googleMerchant"
+    | "googleShoppingMaintenanceIntervalMs"
+    | "googleShoppingMaintenanceBatchSize"
+    | "googleShoppingRefreshWindowDays"
   >,
   controlPlane: PlatformControlPlane,
 ): readonly WorkerRunner[] {
   const payments = services.payments as PaymentsServices | undefined;
   const settlement = services.settlement as SettlementServices | undefined;
+  const discovery = services.discovery as
+    | {
+        googleShoppingSync?: {
+          processScheduledMaintenanceSync?: (input: {
+            mode: GoogleShoppingSyncMode;
+            limit?: number;
+            refreshWindowDays?: number;
+          }) => Promise<number>;
+        };
+      }
+    | undefined;
   const durableJobRetention = createDurableJobRetentionTask(services);
   const runners: WorkerRunner[] = [];
 
@@ -537,6 +554,33 @@ function createScheduledJobRunners(
           return typeof result === "object" && result && "checked" in result
             ? Number((result as { checked: unknown }).checked)
             : 0;
+        },
+      ),
+    );
+  }
+
+  if (
+    discovery?.googleShoppingSync?.processScheduledMaintenanceSync &&
+    input.googleMerchant.syncEnabled &&
+    input.googleShoppingMaintenanceIntervalMs
+  ) {
+    runners.push(
+      createScheduledJobRunner(
+        "discovery.google-shopping-maintenance",
+        input.googleShoppingMaintenanceIntervalMs,
+        controlPlane,
+        async () => {
+          const processed = await discovery.googleShoppingSync!.processScheduledMaintenanceSync!({
+            mode: input.googleMerchant.dryRun ? "dry-run" : "live",
+            limit: input.googleShoppingMaintenanceBatchSize,
+            refreshWindowDays: input.googleShoppingRefreshWindowDays,
+          });
+          logger.info("Google Shopping maintenance scan completed.", {
+            type: "google-shopping.maintenance",
+            processed,
+            mode: input.googleMerchant.dryRun ? "dry-run" : "live",
+          });
+          return processed;
         },
       ),
     );
