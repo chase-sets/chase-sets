@@ -1689,11 +1689,43 @@ describe("IntegrationManagementPage", () => {
   it("enqueues a TCGdex pull for the selected language and optional series", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgdex",
+            profileKey: "tcgdex-pokemon-card",
+            profileVersion: "2026.06.02",
+            lifecycle: "active",
+            active: true,
+            mappingOutputKind: "pokemon-card",
+            capabilities: ["source-observation-import", "catalog-item-promotion"],
+            supportedScopes: ["language", "series", "expansion"],
+            sourceContract: {
+              owner: "chase-sets/catalog",
+              repository: "chase-sets/chase-sets",
+              commit: null,
+              documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+              fixtureSetVersion: "tcgdex-pokemon-card-proof-v1",
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
     fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
     expect(screen.queryByLabelText("TCGdex Expansion ID")).toBeNull();
+    expect(screen.getByText("Active Profile Snapshot")).toBeTruthy();
+    expect(screen.getByText("tcgdex-pokemon-card")).toBeTruthy();
+    expect(screen.getAllByText("2026.06.02").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("tcgdex-pokemon-card-proof-v1").length).toBeGreaterThan(0);
     const importButton = screen.getByRole("button", { name: /^Import$/i });
     await waitFor(() => expect((importButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(importButton);
@@ -1708,6 +1740,9 @@ describe("IntegrationManagementPage", () => {
     expect(mockWatchSourceObservationIntegrationJob).toHaveBeenCalledWith("job_integration", {
       onProgress: expect.any(Function),
     });
+    expect(await screen.findByText("Last Job Result")).toBeTruthy();
+    expect(screen.getByText("Imported")).toBeTruthy();
+    expect(screen.getByText("No grouped failures")).toBeTruthy();
     expect(mockSetSearchParams).toHaveBeenCalled();
     expect(mockRevalidate).toHaveBeenCalled();
   });

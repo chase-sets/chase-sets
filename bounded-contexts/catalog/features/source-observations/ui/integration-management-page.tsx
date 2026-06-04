@@ -508,6 +508,10 @@ export function IntegrationManagementPage({
   const [tcgplayerProductId, setTcgplayerProductId] = useState("");
   const [importing, setImporting] = useState(false);
   const [integrationProgress, setIntegrationProgress] = useState<CatalogBulkActionProgress | null>(null);
+  const [lastIntegrationJobResult, setLastIntegrationJobResult] = useState<{
+    action: "import" | "reapply";
+    result: SourceObservationIntegrationJobResult;
+  } | null>(null);
   const [showReapply, setShowReapply] = useState(false);
   const [reapplyScope, setReapplyScope] = useState<SourceObservationPromotionScope>({});
   const [reapplyPreview, setReapplyPreview] = useState<SourceObservationReapplyPreview | null>(null);
@@ -1220,6 +1224,7 @@ export function IntegrationManagementPage({
         },
       });
       addIntegrationJobCompletionToast(action, result, addToast);
+      setLastIntegrationJobResult({ action, result });
       revalidator.revalidate();
       activeIntegrationJobs.refresh();
       return result;
@@ -1289,6 +1294,8 @@ export function IntegrationManagementPage({
             value={formatCount(summary.promoted)}
           />
         </StatGrid>
+
+        {lastIntegrationJobResult ? <IntegrationJobResultSummary summary={lastIntegrationJobResult} /> : null}
 
         <FilterBar sticky={false}>
           <Select
@@ -1685,6 +1692,10 @@ export function IntegrationManagementPage({
             onValueChange={setImportProviderKey}
             items={importProviderOptions}
             fullWidth
+          />
+          <ImportActiveProfileSnapshot
+            profile={activeProviderProfile(providerProfiles.data?.items ?? [], importProviderKey)}
+            providerKey={importProviderKey}
           />
           {importProviderKey === TCGPLAYER_PROVIDER ? (
             <>
@@ -2185,6 +2196,70 @@ function MigrationEvidenceEditor({
         rows={4}
         value={form.operatorNote}
         onChange={(event) => setForm({ operatorNote: event.currentTarget.value })}
+      />
+    </Stack>
+  );
+}
+
+function ImportActiveProfileSnapshot({
+  profile,
+  providerKey,
+}: Readonly<{
+  profile: CatalogProviderProfileVersionReview | null;
+  providerKey: string;
+}>) {
+  if (!profile) {
+    return (
+      <Stack gap={2}>
+        <h3>Active Profile Snapshot</h3>
+        <p className="text-sm text-secondary">No active profile is available for {providerKey}.</p>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack gap={2}>
+      <h3>Active Profile Snapshot</h3>
+      <KeyValueList
+        density="compact"
+        variant="plain"
+        items={[
+          { key: "Provider key", value: profile.providerKey },
+          { key: "Profile key", value: profile.profileKey },
+          { key: "Profile version", value: profile.profileVersion },
+          { key: "Lifecycle", value: profile.lifecycle },
+          { key: "Output kind", value: profile.mappingOutputKind },
+          { key: "Capabilities", value: profile.capabilities.join(", ") || "None" },
+          { key: "Supported scopes", value: profile.supportedScopes.join(", ") || "None" },
+          { key: "Fixture set", value: profile.sourceContract.fixtureSetVersion },
+        ]}
+      />
+    </Stack>
+  );
+}
+
+function IntegrationJobResultSummary({
+  summary,
+}: Readonly<{ summary: { action: "import" | "reapply"; result: SourceObservationIntegrationJobResult } }>) {
+  const failureGroups = integrationFailureGroups(summary.result);
+
+  return (
+    <Stack gap={3}>
+      <h3>Last Job Result</h3>
+      <StatGrid columns={{ base: 2, md: 3 }}>
+        <Stat label="Requested" value={formatCount(summary.result.requested)} />
+        <Stat label="Imported" value={formatCount(summary.result.imported)} />
+        <Stat label="Observed" value={formatCount(summary.result.observed)} />
+        <Stat label="Reapplied" value={formatCount(summary.result.reapplied)} />
+        <Stat label="Skipped" value={formatCount(summary.result.skipped)} />
+        <Stat label="Failed" value={formatCount(summary.result.failed)} />
+      </StatGrid>
+      <DataTable
+        rows={failureGroups}
+        columns={integrationFailureGroupColumns}
+        getRowId={(row) => row.reason}
+        emptyTitle="No grouped failures"
+        density="compact"
       />
     </Stack>
   );
@@ -4484,6 +4559,24 @@ const profileValidationColumns: DataColumn<CatalogProviderProfileVersionReview["
     },
   ];
 
+const integrationFailureGroupColumns: DataColumn<ReturnType<typeof integrationFailureGroups>[number]>[] = [
+  {
+    key: "reason",
+    header: "Reason",
+    cell: (row) => row.reason,
+  },
+  {
+    key: "count",
+    header: "Failures",
+    cell: (row) => String(row.count),
+  },
+  {
+    key: "examples",
+    header: "Example scopes",
+    cell: (row) => row.examples.join(", "),
+  },
+];
+
 const dryRunDiagnosticColumns: DataColumn<CatalogProviderProfileDryRunResult["diagnostics"][number]>[] = [
   {
     key: "path",
@@ -4699,6 +4792,34 @@ function rowIntegrationScope(scope: SourceObservationIntegrationScope): SourceOb
     language: scope.language_code,
     setId: scope.expansion_id,
   };
+}
+
+function activeProviderProfile(
+  profiles: readonly CatalogProviderProfileVersionReview[],
+  providerKey: string,
+): CatalogProviderProfileVersionReview | null {
+  return profiles.find((profile) => profile.providerKey === providerKey && profile.active) ?? null;
+}
+
+function integrationFailureGroups(result: SourceObservationIntegrationJobResult) {
+  const groups = new Map<string, { reason: string; count: number; examples: string[] }>();
+  for (const outcome of result.outcomes) {
+    if (outcome.status !== "failed") {
+      continue;
+    }
+    const reason = outcome.reason?.trim() || "Unknown failure";
+    const example = [outcome.providerKey, outcome.languageCode, outcome.expansionId].filter(Boolean).join("/");
+    const existing = groups.get(reason);
+    if (existing) {
+      existing.count += 1;
+      if (existing.examples.length < 3) {
+        existing.examples.push(example);
+      }
+    } else {
+      groups.set(reason, { reason, count: 1, examples: [example] });
+    }
+  }
+  return [...groups.values()];
 }
 
 function summarizeScopes(scopes: readonly SourceObservationIntegrationScope[]) {
