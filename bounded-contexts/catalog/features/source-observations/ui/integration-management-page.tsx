@@ -35,6 +35,7 @@ import type { CatalogBulkActionProgress } from "../../../support/shell-support/a
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type {
   CatalogProviderProfileAuthoringModel,
+  CatalogProviderProfileBasicsUpdateCommand,
   CatalogProviderProfileDryRunResult,
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationOption,
@@ -57,6 +58,7 @@ import {
   retireSourceObservationProviderProfile,
   rollbackSourceObservationProviderProfile,
   updateSourceObservationProviderProfile,
+  updateSourceObservationProviderProfileSection,
   useActiveSourceObservationIntegrationJobs,
   useSourceObservationProviderProfileAuthoringModel,
   useSourceObservationProviderProfiles,
@@ -74,6 +76,44 @@ const TCGPLAYER_PROVIDER = "tcgplayer";
 const TCGPLAYER_PRODUCT_LINE_SCOPE = "product-line";
 const TCGPLAYER_PRODUCT_SCOPE = "product";
 const ALL_TCGPLAYER_SETS = "__all_tcgplayer_sets__";
+const CATALOG_PROVIDER_CAPABILITY_OPTIONS = [
+  "provider-option-query",
+  "source-observation-import",
+  "catalog-item-promotion",
+  "external-reference-extraction",
+] as const;
+const CATALOG_PROVIDER_SCOPE_OPTIONS = [
+  "language",
+  "series",
+  "expansion",
+  "product/card",
+  "product-line/category",
+  "set-name",
+  "product",
+  "sku",
+] as const;
+const PROFILE_COMPATIBILITY_MODE_OPTIONS = [
+  { value: "executable-mapping-contract", label: "Executable mapping contract" },
+  { value: "transitional-static-profile", label: "Transitional static profile" },
+] satisfies SelectItem[];
+const PROFILE_STATUS_OPTIONS = [
+  { value: "active", label: "Active" },
+  { value: "planned", label: "Planned" },
+] satisfies SelectItem[];
+const PROFILE_LIFECYCLE_OPTIONS = [
+  { value: "draft", label: "Draft" },
+  { value: "test", label: "Test" },
+] satisfies SelectItem[];
+
+type ProfileBasicsForm = Readonly<{
+  displayName: string;
+  lifecycle: "draft" | "test";
+  status: "active" | "planned";
+  compatibilityMode: "executable-mapping-contract" | "transitional-static-profile";
+  capabilities: readonly string[];
+  supportedScopes: readonly string[];
+  languageOptionsText: string;
+}>;
 
 export function IntegrationManagementPage({
   data,
@@ -97,7 +137,7 @@ export function IntegrationManagementPage({
   const [migrationProfile, setMigrationProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [migrationEvidenceText, setMigrationEvidenceText] = useState("");
   const [editProfile, setEditProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
-  const [editProfileJson, setEditProfileJson] = useState("");
+  const [editBasicsForm, setEditBasicsForm] = useState<ProfileBasicsForm | null>(null);
   const [editProfileError, setEditProfileError] = useState<string | null>(null);
   const [compareProfile, setCompareProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [rollbackProfile, setRollbackProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
@@ -323,7 +363,7 @@ export function IntegrationManagementPage({
 
   function openEditProfileDialog(profile: CatalogProviderProfileVersionReview) {
     setEditProfile(profile);
-    setEditProfileJson(formatJson(profileEditableJson(profile)));
+    setEditBasicsForm(profileBasicsForm(profile));
     setEditProfileError(null);
   }
 
@@ -374,8 +414,8 @@ export function IntegrationManagementPage({
     }
   }
 
-  async function handleSaveProfileJson() {
-    if (!editProfile) {
+  async function handleSaveProfileBasics() {
+    if (!editProfile || !editBasicsForm) {
       return;
     }
     const key = profileActionIdentity(editProfile);
@@ -383,17 +423,29 @@ export function IntegrationManagementPage({
     setEditProfileError(null);
 
     try {
-      const patch = JSON.parse(editProfileJson) as unknown;
-      if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
-        throw new Error("Profile JSON must be an object.");
-      }
-      await updateSourceObservationProviderProfile(editProfile.providerKey, editProfile.profileVersion, patch);
-      addToast("Profile JSON saved.", "success");
+      const command: CatalogProviderProfileBasicsUpdateCommand = {
+        section: "basics",
+        displayName: editBasicsForm.displayName.trim(),
+        lifecycle: editBasicsForm.lifecycle,
+        status: editBasicsForm.status,
+        compatibilityMode: editBasicsForm.compatibilityMode,
+        capabilities: [...editBasicsForm.capabilities],
+        supportedScopes: [...editBasicsForm.supportedScopes],
+        languageOptions: parseListInput(editBasicsForm.languageOptionsText),
+      };
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "basics",
+        command,
+      );
+      addToast("Profile basics saved.", "success");
       setEditProfile(null);
+      setEditBasicsForm(null);
       providerProfiles.refresh();
       revalidator.revalidate();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Profile JSON save failed.";
+      const message = error instanceof Error ? error.message : "Profile basics save failed.";
       setEditProfileError(message);
       addToast(message, "danger");
     } finally {
@@ -938,10 +990,11 @@ export function IntegrationManagementPage({
         onOpenChange={(open) => {
           if (!open) {
             setEditProfile(null);
+            setEditBasicsForm(null);
             setEditProfileError(null);
           }
         }}
-        title={t("catalog.features.sourceObservations.ui.integrations.profile.review.edit.json.title")}
+        title="Edit Profile Basics"
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setEditProfile(null)} disabled={Boolean(profileActionKey)}>
@@ -949,32 +1002,22 @@ export function IntegrationManagementPage({
             </Button>
             <Button
               leadingIcon="settings"
-              onClick={handleSaveProfileJson}
+              onClick={handleSaveProfileBasics}
+              disabled={!editBasicsForm?.displayName.trim() || editBasicsForm.capabilities.length === 0}
               loading={Boolean(editProfile && profileActionKey === profileActionIdentity(editProfile))}
             >
-              {t("catalog.features.sourceObservations.ui.integrations.profile.review.save.json")}
+              Save Basics
             </Button>
           </Inline>
         }
       >
-        {editProfile ? (
-          <Stack gap={3}>
-            <KeyValueList
-              items={[
-                { key: "Provider", value: editProfile.displayName },
-                { key: "Version", value: editProfile.profileVersion },
-                { key: "Lifecycle", value: editProfile.lifecycle },
-              ]}
-            />
-            <Textarea
-              label={t("catalog.features.sourceObservations.ui.integrations.profile.review.profile.json")}
-              value={editProfileJson}
-              onChange={(event) => setEditProfileJson(event.currentTarget.value)}
-              rows={22}
-              spellCheck={false}
-            />
-            {editProfileError ? <p>{editProfileError}</p> : null}
-          </Stack>
+        {editProfile && editBasicsForm ? (
+          <ProfileBasicsEditor
+            profile={editProfile}
+            form={editBasicsForm}
+            onChange={setEditBasicsForm}
+            error={editProfileError}
+          />
         ) : null}
       </Dialog>
 
@@ -1411,7 +1454,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               disabled={row.lifecycle !== "draft" && row.lifecycle !== "test"}
               onClick={() => actions.onEditJson(row)}
             >
-              {t("catalog.features.sourceObservations.ui.integrations.profile.review.edit.json")}
+              Edit Profile
             </Button>
             <Button size="sm" tone="secondary" leadingIcon="search" onClick={() => actions.onCompareActive(row)}>
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.compare")}
@@ -1535,6 +1578,130 @@ function ProfileAuthoringCompare({ model }: Readonly<{ model: CatalogProviderPro
         />
       </Stack>
     </Stack>
+  );
+}
+
+function ProfileBasicsEditor({
+  profile,
+  form,
+  onChange,
+  error,
+}: Readonly<{
+  profile: CatalogProviderProfileVersionReview;
+  form: ProfileBasicsForm;
+  onChange: (form: ProfileBasicsForm) => void;
+  error: string | null;
+}>) {
+  const setForm = (patch: Partial<ProfileBasicsForm>) => onChange({ ...form, ...patch });
+
+  return (
+    <Stack gap={4}>
+      <KeyValueList
+        items={[
+          { key: "Provider key", value: profile.providerKey },
+          { key: "Profile key", value: profile.profileKey },
+          { key: "Profile version", value: profile.profileVersion },
+          { key: "Active", value: profile.active ? "Yes" : "No" },
+          { key: "Authoring audit", value: profile.authoringAudit?.updatedAt ?? "Not recorded" },
+        ]}
+      />
+
+      <TextInput
+        label="Display name"
+        value={form.displayName}
+        onChange={(event) => setForm({ displayName: event.currentTarget.value })}
+      />
+
+      <Inline gap={3}>
+        <Select
+          label="Lifecycle"
+          value={form.lifecycle}
+          onValueChange={(value) => setForm({ lifecycle: value === "test" ? "test" : "draft" })}
+          items={PROFILE_LIFECYCLE_OPTIONS}
+        />
+        <Select
+          label="Status"
+          value={form.status}
+          onValueChange={(value) => setForm({ status: value === "active" ? "active" : "planned" })}
+          items={PROFILE_STATUS_OPTIONS}
+        />
+        <Select
+          label="Compatibility"
+          value={form.compatibilityMode}
+          onValueChange={(value) =>
+            setForm({
+              compatibilityMode:
+                value === "transitional-static-profile" ? "transitional-static-profile" : "executable-mapping-contract",
+            })
+          }
+          items={PROFILE_COMPATIBILITY_MODE_OPTIONS}
+        />
+      </Inline>
+
+      <CheckboxSet
+        legend="Capabilities"
+        options={CATALOG_PROVIDER_CAPABILITY_OPTIONS}
+        selected={form.capabilities}
+        onChange={(capabilities) => setForm({ capabilities })}
+      />
+
+      <CheckboxSet
+        legend="Supported scopes"
+        options={CATALOG_PROVIDER_SCOPE_OPTIONS}
+        selected={form.supportedScopes}
+        onChange={(supportedScopes) => setForm({ supportedScopes })}
+      />
+
+      <Textarea
+        label="Language options"
+        description="Comma or line separated language codes."
+        value={form.languageOptionsText}
+        onChange={(event) => setForm({ languageOptionsText: event.currentTarget.value })}
+        rows={4}
+      />
+
+      {profile.validation.diagnostics.length > 0 ? (
+        <DataTable
+          rows={profile.validation.diagnostics}
+          columns={profileValidationColumns}
+          getRowId={(row, index) => `${row.path}:${index}`}
+          emptyTitle="No validation diagnostics"
+          density="compact"
+        />
+      ) : null}
+      {error ? <p>{error}</p> : null}
+    </Stack>
+  );
+}
+
+function CheckboxSet({
+  legend,
+  options,
+  selected,
+  onChange,
+}: Readonly<{
+  legend: string;
+  options: readonly string[];
+  selected: readonly string[];
+  onChange: (selected: readonly string[]) => void;
+}>) {
+  return (
+    <fieldset className="space-y-2">
+      <legend className="text-sm font-semibold text-foreground">{legend}</legend>
+      <div className="grid gap-2 md:grid-cols-2">
+        {options.map((option) => (
+          <label key={option} className="flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={selected.includes(option)}
+              onChange={() => onChange(toggleStringSelection(selected, option))}
+              className="h-4 w-4 rounded border-border accent-accent"
+            />
+            <span>{option}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }
 
@@ -1702,6 +1869,25 @@ const semanticDiffColumns: DataColumn<CatalogProviderProfileAuthoringModel["sema
     cell: (row) => summarizeDiffValue(row.active),
   },
 ];
+
+const profileValidationColumns: DataColumn<CatalogProviderProfileVersionReview["validation"]["diagnostics"][number]>[] =
+  [
+    {
+      key: "path",
+      header: "Path",
+      cell: (row) => row.path,
+    },
+    {
+      key: "severity",
+      header: "Severity",
+      cell: (row) => <StatusPill tone={row.severity === "error" ? "danger" : "warning"}>{row.severity}</StatusPill>,
+    },
+    {
+      key: "detail",
+      header: "Detail",
+      cell: (row) => row.diagnosticText,
+    },
+  ];
 
 const dryRunDiagnosticColumns: DataColumn<CatalogProviderProfileDryRunResult["diagnostics"][number]>[] = [
   {
@@ -1997,6 +2183,32 @@ function profileComparisonItems(
     { key: "Active output", value: active?.mappingOutputKind ?? "None" },
     { key: "Candidate output", value: candidate.mappingOutputKind },
   ];
+}
+
+function profileBasicsForm(profile: CatalogProviderProfileVersionReview): ProfileBasicsForm {
+  return {
+    displayName: profile.displayName,
+    lifecycle: profile.lifecycle === "test" ? "test" : "draft",
+    status: profile.status === "active" ? "active" : "planned",
+    compatibilityMode:
+      profile.compatibilityMode === "transitional-static-profile"
+        ? "transitional-static-profile"
+        : "executable-mapping-contract",
+    capabilities: [...profile.capabilities],
+    supportedScopes: [...profile.supportedScopes],
+    languageOptionsText: profile.languageOptions.join("\n"),
+  };
+}
+
+function parseListInput(value: string): string[] {
+  return value
+    .split(/[\n,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+function toggleStringSelection(selected: readonly string[], option: string): readonly string[] {
+  return selected.includes(option) ? selected.filter((entry) => entry !== option) : [...selected, option];
 }
 
 function dryRunFixtureItems(model: CatalogProviderProfileAuthoringModel): SelectItem[] {

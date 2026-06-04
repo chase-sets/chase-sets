@@ -21,6 +21,7 @@ const {
   mockRetireSourceObservationProviderProfile,
   mockRollbackSourceObservationProviderProfile,
   mockUpdateSourceObservationProviderProfile,
+  mockUpdateSourceObservationProviderProfileSection,
   mockRevalidate,
   mockUseSourceObservationProviderProfileAuthoringModel,
   mockUseSourceObservationProviderProfiles,
@@ -42,6 +43,7 @@ const {
   mockRetireSourceObservationProviderProfile: vi.fn(),
   mockRollbackSourceObservationProviderProfile: vi.fn(),
   mockUpdateSourceObservationProviderProfile: vi.fn(),
+  mockUpdateSourceObservationProviderProfileSection: vi.fn(),
   mockRevalidate: vi.fn(),
   mockUseSourceObservationProviderProfileAuthoringModel: vi.fn(),
   mockUseSourceObservationProviderProfiles: vi.fn(),
@@ -71,6 +73,7 @@ vi.mock("./use-source-observations", () => ({
   retireSourceObservationProviderProfile: mockRetireSourceObservationProviderProfile,
   rollbackSourceObservationProviderProfile: mockRollbackSourceObservationProviderProfile,
   updateSourceObservationProviderProfile: mockUpdateSourceObservationProviderProfile,
+  updateSourceObservationProviderProfileSection: mockUpdateSourceObservationProviderProfileSection,
   useActiveSourceObservationIntegrationJobs: mockUseActiveSourceObservationIntegrationJobs,
   useSourceObservationProviderProfileAuthoringModel: mockUseSourceObservationProviderProfileAuthoringModel,
   useSourceObservationProviderProfiles: mockUseSourceObservationProviderProfiles,
@@ -135,6 +138,7 @@ describe("IntegrationManagementPage", () => {
     });
     mockCloneSourceObservationProviderProfile.mockResolvedValue(profileReview({ profileVersion: "2026.06.03.1" }));
     mockUpdateSourceObservationProviderProfile.mockResolvedValue(profileReview());
+    mockUpdateSourceObservationProviderProfileSection.mockResolvedValue(profileReview());
     mockRollbackSourceObservationProviderProfile.mockResolvedValue(profileReview());
     mockRetireSourceObservationProviderProfile.mockResolvedValue(profileReview({ lifecycle: "retired" }));
     mockDryRunSourceObservationProviderProfile.mockResolvedValue({
@@ -323,7 +327,7 @@ describe("IntegrationManagementPage", () => {
     );
   });
 
-  it("edits profile JSON and opens an active comparison from the review table", async () => {
+  it("edits profile basics and opens an active comparison from the review table", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
     const activeProfile = profileReview({
@@ -347,26 +351,28 @@ describe("IntegrationManagementPage", () => {
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
-    fireEvent.click(screen.getAllByRole("button", { name: /^Edit JSON$/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     let dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Profile JSON"), {
-      target: {
-        value: JSON.stringify({
-          profile: {
-            ...(draftProfile.profile as Record<string, unknown>),
-            displayName: "Scrydex Draft",
-          },
-        }),
-      },
-    });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save JSON$/i }));
+    expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
+    fireEvent.change(within(dialog).getByLabelText("Display name"), { target: { value: "Scrydex Draft" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
 
     await waitFor(() =>
-      expect(mockUpdateSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03", {
-        profile: expect.objectContaining({
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "scrydex",
+        "2026.06.03",
+        "basics",
+        expect.objectContaining({
+          section: "basics",
           displayName: "Scrydex Draft",
+          lifecycle: "draft",
+          status: "planned",
+          compatibilityMode: "executable-mapping-contract",
+          capabilities: expect.arrayContaining(["source-observation-import"]),
+          supportedScopes: expect.arrayContaining(["product/card"]),
+          languageOptions: ["en"],
         }),
-      }),
+      ),
     );
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Compare$/i })[0]);
