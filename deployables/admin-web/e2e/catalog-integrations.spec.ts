@@ -91,7 +91,7 @@ async function openProfileDialog(page: Page, buttonName: RegExp, dialogName: str
   for (let attempt = 0; attempt < 5; attempt += 1) {
     await button.click();
     try {
-      await expect(dialog).toBeVisible({ timeout: 1_000 });
+      await expect(dialog).toBeVisible({ timeout: 3_000 });
       return;
     } catch (error) {
       if (attempt === 4) {
@@ -120,6 +120,7 @@ test.describe("catalog admin integrations", () => {
 
     await authenticateCatalogAdmin(page);
     await expectPageOk(page, "/catalog/integrations");
+    await page.waitForLoadState("networkidle");
 
     await expect(page).toHaveURL(/\/catalog\/integrations$/);
     await expect(page.getByRole("heading", { name: "Catalog Integrations" }).first()).toBeVisible();
@@ -130,7 +131,7 @@ test.describe("catalog admin integrations", () => {
 
     await expectProfileAction(page, /^Dry run$/i);
     await expectProfileAction(page, /^Clone$/i);
-    await expectProfileAction(page, /^Edit JSON$/i);
+    await expectProfileAction(page, /^Edit Profile$/i);
     await expectProfileAction(page, /^Compare$/i);
     await expectProfileAction(page, /^Evidence$/i);
     await expectProfileAction(page, /^Activate$/i);
@@ -139,19 +140,30 @@ test.describe("catalog admin integrations", () => {
     await expectProfileAction(page, /^Retire$/i);
 
     await openProfileDialog(page, /^Compare$/i, "Compare active profile");
-    await expect(page.getByRole("textbox", { name: "Candidate profile JSON" })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Active profile JSON" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Activation Readiness" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Semantic Changes" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Candidate profile JSON" })).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "Active profile JSON" })).toHaveCount(0);
     await clickDialogFooterButton(page, "Compare active profile", "Close");
 
-    await openProfileDialog(page, /^Edit JSON$/i, "Edit profile JSON");
-    await expect(page.getByRole("textbox", { name: "Profile JSON" })).toBeVisible();
-    await clickDialogFooterButton(page, "Edit profile JSON", "Cancel");
+    await openProfileDialog(page, /^Edit Profile$/i, "Edit Profile Basics");
+    await expect(page.getByLabel("Display name")).toBeVisible();
+    await expect(page.getByLabel("Contract owner")).toBeVisible();
+    await expect(page.getByText("Provider Options")).toBeVisible();
+    await expect(page.getByText("Promotion Command Plan")).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
+    await clickDialogFooterButton(page, "Edit Profile Basics", "Cancel");
 
     await openProfileDialog(page, /^Evidence$/i, "Migration evidence");
-    await expect(page.getByRole("textbox", { name: "Evidence" })).toBeVisible();
+    await expect(page.getByLabel("Before fingerprint")).toBeVisible();
+    await expect(page.getByLabel("After fingerprint")).toBeVisible();
+    await expect(page.getByLabel("Fixture run id")).toBeVisible();
+    await expect(page.getByLabel("Operator note")).toBeVisible();
     await clickDialogFooterButton(page, "Migration evidence", "Cancel");
 
     await openProfileDialog(page, /^Dry run$/i, /dry-run$/i);
-    await expect(page.getByRole("textbox", { name: "Fixture Payload JSON" })).toBeVisible();
+    await expect(page.getByLabel("Fixture flow")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Safe Payload Overrides" })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Fixture Payload JSON" })).toHaveCount(0);
   });
 });
