@@ -1,9 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
-import { refreshGoogleShoppingFeedRowForListing } from "../support/google-shopping-support/feed-row-projection";
+import {
+  isGoogleShoppingListingLandingPageCrawlable,
+  refreshGoogleShoppingFeedRowForListing,
+} from "../support/google-shopping-support/feed-row-projection";
 
 describe("google shopping feed row projection", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("materializes a changed listing row and queues a debounced incremental price sync", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "true");
     const db = projectionDb(listingFacts({ price_amount: "51.25" }));
 
     const row = await refreshGoogleShoppingFeedRowForListing(db, "lst_1", {
@@ -25,7 +33,57 @@ describe("google shopping feed row projection", () => {
     expect(db.queries[2]?.values[3]).toBe(5_000);
   });
 
+  it("excludes rows from live Merchant eligibility when marketplace indexing is disabled", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "false");
+    const db = projectionDb(listingFacts());
+
+    const row = await refreshGoogleShoppingFeedRowForListing(db, "lst_1", {
+      reason: "eligibility",
+      requestedAt: "2026-06-03T10:00:00.000Z",
+      debounceMs: 0,
+    });
+
+    expect(row?.payload).toBeNull();
+    expect(row?.eligibility).toEqual({
+      status: "excluded",
+      reasons: ["not-crawlable"],
+    });
+    expect(JSON.parse(String(db.queries[1]?.values[11]))).toEqual(["not-crawlable"]);
+  });
+
+  it("requires active listings, stable slugs, and indexing before treating landing pages as crawlable", () => {
+    expect(
+      isGoogleShoppingListingLandingPageCrawlable({
+        listingStatus: "active",
+        listingSlug: "charizard-lst_1",
+        indexingEnabled: true,
+      }),
+    ).toBe(true);
+    expect(
+      isGoogleShoppingListingLandingPageCrawlable({
+        listingStatus: "active",
+        listingSlug: "charizard-lst_1",
+        indexingEnabled: false,
+      }),
+    ).toBe(false);
+    expect(
+      isGoogleShoppingListingLandingPageCrawlable({
+        listingStatus: "paused",
+        listingSlug: "charizard-lst_1",
+        indexingEnabled: true,
+      }),
+    ).toBe(false);
+    expect(
+      isGoogleShoppingListingLandingPageCrawlable({
+        listingStatus: "active",
+        listingSlug: "",
+        indexingEnabled: true,
+      }),
+    ).toBe(false);
+  });
+
   it("records image exclusion reasons and queues affected listing image sync", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "true");
     const db = projectionDb(
       listingFacts({
         product_asset_sets: [

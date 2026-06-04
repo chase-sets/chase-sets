@@ -906,6 +906,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "CHASE_SETS_MARKETPLACE_INDEXING"
+          value = local.is_production && local.marketplace_public_enabled ? "true" : "false"
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "DATABASE_POOL_MAX"
           value = local.worker_database_pool_max
           scope = "RUN_TIME"

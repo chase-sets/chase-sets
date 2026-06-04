@@ -1,14 +1,12 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { requireMarketplaceProofAccess } from "../proof-access.server";
-import { shouldIndexMarketplace } from "../seo";
+import { buildMarketplaceRobotsTxt, shouldIndexMarketplace } from "../seo";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireMarketplaceProofAccess(request);
 
   const origin = new URL(request.url).origin;
-  const body = shouldIndexMarketplace()
-    ? ["User-agent: *", "Allow: /", `Sitemap: ${origin}/sitemap.xml`].join("\n")
-    : ["User-agent: *", "Disallow: /"].join("\n");
+  const body = buildMarketplaceRobotsTxt({ origin, shouldIndex: shouldIndexMarketplace() });
 
   return new Response(body, {
     headers: {

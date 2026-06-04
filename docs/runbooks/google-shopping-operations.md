@@ -51,6 +51,8 @@ Before enabling production writes, collect a private evidence record with:
 - tombstoned rows waiting for delete,
 - rows missing title, description, image, price, condition, shipping policy, returns policy, or crawlability,
 - sampled eligible listing URLs,
+- sampled eligible listing URLs are present in `https://marketplace.chasesets.com/sitemap.xml`,
+- sampled eligible listing pages return matching canonical URLs,
 - sampled production-public image URLs and crawlability checks,
 - sampled seller external ids,
 - public returns policy URL and Merchant Center return policy label,
@@ -58,6 +60,26 @@ Before enabling production writes, collect a private evidence record with:
 - Tax readiness evidence reference confirming Google-facing tax posture does not contradict checkout,
 - payload hash freshness,
 - dry-run sync result.
+
+## Crawl Posture Evidence
+
+Before live Merchant writes, run the focused crawl posture proof against the public marketplace origin with a small sample of eligible feed links:
+
+```bash
+pnpm run google-shopping:crawl-posture-evidence -- \
+  --base-url https://marketplace.chasesets.com \
+  --expect-indexing true \
+  --sample-url https://marketplace.chasesets.com/listings/<listing-slug>
+```
+
+The proof records:
+
+- `robots.txt` allows crawlers and declares the marketplace sitemap;
+- `sitemap.xml` contains each sampled eligible feed link;
+- each sampled listing page returns HTTP 200 and renders a canonical URL equal to the feed `link`;
+- `merchantFeedSubmissionAllowed=true` only for `https://marketplace.chasesets.com` with indexing enabled.
+
+For staging/proof, run the same command with `--expect-indexing false` and the staging base URL. A passing noindex proof requires `Disallow: /` and records `merchantFeedSubmissionAllowed=false`; do not use that environment as evidence for live Merchant submission.
 
 ## Staging And Proof
 
