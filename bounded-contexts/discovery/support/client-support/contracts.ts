@@ -191,9 +191,26 @@ export interface DiscoveryMarketListing {
   seller_display_name: string | null;
   seller_average_rating?: string | null;
   seller_review_count?: number;
+  google_shopping_structured_data_payload?: DiscoveryGoogleShoppingStructuredDataPayload | null;
   visible_quantity: number;
   created_at: string;
   updated_at: string;
+}
+
+export interface DiscoveryGoogleShoppingStructuredDataPayload {
+  offerId: string;
+  title: string;
+  description: string;
+  link: string;
+  imageLink: string;
+  priceAmount: string;
+  currencyCode: string;
+  availability: "in stock" | "out of stock";
+  condition: string;
+  brand?: string;
+  gtin?: string;
+  mpn?: string;
+  productType?: string;
 }
 
 export interface DiscoveryPublicListing extends DiscoveryMarketListing {
