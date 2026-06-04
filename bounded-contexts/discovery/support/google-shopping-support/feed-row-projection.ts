@@ -17,6 +17,8 @@ export type GoogleShoppingIncrementalSyncReason =
   | "image"
   | "canonical"
   | "eligibility"
+  | "scheduled-refresh"
+  | "stale-cleanup"
   | "manual";
 
 export type GoogleShoppingIncrementalSyncRequest = Readonly<{

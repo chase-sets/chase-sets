@@ -25,6 +25,9 @@ const envNames = [
   "GOOGLE_MERCHANT_CONTENT_LANGUAGE",
   "GOOGLE_MERCHANT_FEED_LABEL",
   "GOOGLE_MERCHANT_CREDENTIAL_SECRET_NAME",
+  "GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS",
+  "GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE",
+  "GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS",
   "NOTIFICATION_EMAIL_PROVIDER",
   "SES_AWS_REGION",
   "SES_AWS_ACCESS_KEY_ID",
@@ -220,6 +223,9 @@ describe("platform worker config", () => {
       settlementPayoutReconciliationJobLaneCount: 1,
       settlementPayoutReconciliationJobWorkflowMaxActiveClaims: 1,
       settlementPayoutReconciliationJobMaxActiveClaimsPerJob: 1,
+      googleShoppingMaintenanceIntervalMs: 86_400_000,
+      googleShoppingMaintenanceBatchSize: 100,
+      googleShoppingRefreshWindowDays: 25,
     });
   });
 
@@ -247,6 +253,9 @@ describe("platform worker config", () => {
     process.env.SETTLEMENT_PAYOUT_RECONCILIATION_JOB_LANE_COUNT = "2";
     process.env.SETTLEMENT_PAYOUT_RECONCILIATION_JOB_WORKFLOW_MAX_ACTIVE_CLAIMS = "2";
     process.env.SETTLEMENT_PAYOUT_RECONCILIATION_JOB_MAX_ACTIVE_CLAIMS_PER_JOB = "1";
+    process.env.GOOGLE_SHOPPING_MAINTENANCE_INTERVAL_MS = "3600000";
+    process.env.GOOGLE_SHOPPING_MAINTENANCE_BATCH_SIZE = "250";
+    process.env.GOOGLE_SHOPPING_REFRESH_WINDOW_DAYS = "20";
 
     expect(loadConfig()).toMatchObject({
       projectionMaxConcurrentRunners: 6,
@@ -271,6 +280,9 @@ describe("platform worker config", () => {
       settlementPayoutReconciliationJobLaneCount: 2,
       settlementPayoutReconciliationJobWorkflowMaxActiveClaims: 2,
       settlementPayoutReconciliationJobMaxActiveClaimsPerJob: 1,
+      googleShoppingMaintenanceIntervalMs: 3_600_000,
+      googleShoppingMaintenanceBatchSize: 250,
+      googleShoppingRefreshWindowDays: 20,
     });
   });
 

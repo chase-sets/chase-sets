@@ -40,6 +40,65 @@ export function createGoogleShoppingSyncRoutes(services: GoogleShoppingSyncServi
     }
   });
 
+  app.get("/maintenance/preview", async (c) => {
+    const access = requireGoogleShoppingSyncAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const mode = parseSyncMode(c.req.query("mode"));
+    const limit = parseBatchSize(c.req.query("limit"));
+    const refreshWindowDays = parsePositiveInteger(c.req.query("refreshWindowDays"));
+
+    try {
+      const summary = await services.previewMaintenanceSync({ mode, limit, refreshWindowDays });
+      return c.json(summary);
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Google Shopping maintenance preview failed.",
+          },
+        },
+        400,
+      );
+    }
+  });
+
+  app.post("/maintenance/sync-jobs", async (c) => {
+    const access = requireGoogleShoppingSyncAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const mode = parseSyncMode((body as { mode?: unknown }).mode);
+    const limit = parseBatchSize((body as { limit?: unknown }).limit);
+    const refreshWindowDays = parsePositiveInteger((body as { refreshWindowDays?: unknown }).refreshWindowDays);
+
+    try {
+      const result = await services.enqueueMaintenanceSyncJob({ mode, limit, refreshWindowDays }, access.context);
+      return c.json(
+        {
+          summary: result.summary,
+          job: result.job ? toGoogleShoppingFullSyncJobStatus(result.job) : null,
+        },
+        result.job ? 202 : 200,
+      );
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Google Shopping maintenance sync request failed.",
+          },
+        },
+        400,
+      );
+    }
+  });
+
   app.get("/sync-jobs/:jobId", async (c) => {
     const access = requireGoogleShoppingSyncAccess(c);
     if (access.response) {
@@ -133,6 +192,11 @@ function parseSyncMode(value: unknown): GoogleShoppingSyncMode {
 }
 
 function parseBatchSize(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
+}
+
+function parsePositiveInteger(value: unknown): number | undefined {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.floor(parsed) : undefined;
 }
