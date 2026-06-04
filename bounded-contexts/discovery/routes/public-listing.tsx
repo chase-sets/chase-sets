@@ -115,6 +115,101 @@ function checkoutStartHref(listing: DiscoveryPublicListing) {
   return `/checkout/start?${params.toString()}`;
 }
 
+type ProductJsonLd = Readonly<{
+  "@context": "https://schema.org";
+  "@type": "Product";
+  name: string;
+  description: string;
+  image: string;
+  sku: string;
+  brand?: Readonly<{ "@type": "Brand"; name: string }>;
+  gtin?: string;
+  mpn?: string;
+  category?: string;
+  offers: Readonly<{
+    "@type": "Offer";
+    url: string;
+    priceCurrency: string;
+    price: string;
+    availability: "https://schema.org/InStock" | "https://schema.org/OutOfStock";
+    itemCondition: "https://schema.org/NewCondition" | "https://schema.org/UsedCondition";
+    seller?: Readonly<{ "@type": "Organization"; name: string }>;
+  }>;
+}>;
+
+export function buildPublicListingProductJsonLd(input: {
+  listing: DiscoveryPublicListing;
+  canonicalUrl: string | null;
+}): ProductJsonLd | null {
+  const payload = input.listing.google_shopping_structured_data_payload;
+  if (
+    !payload ||
+    input.listing.status !== "active" ||
+    (input.listing.seller_listing_availability_status ?? "available") !== "available" ||
+    !input.canonicalUrl ||
+    !isProductionMarketplaceUrl(input.canonicalUrl) ||
+    payload.link !== input.canonicalUrl ||
+    !isValidGoogleShoppingPayloadForJsonLd(payload)
+  ) {
+    return null;
+  }
+
+  return {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: payload.title,
+    description: payload.description,
+    image: payload.imageLink,
+    sku: payload.offerId,
+    ...(payload.brand ? { brand: { "@type": "Brand" as const, name: payload.brand } } : {}),
+    ...(payload.gtin ? { gtin: payload.gtin } : {}),
+    ...(payload.mpn ? { mpn: payload.mpn } : {}),
+    ...(payload.productType ? { category: payload.productType } : {}),
+    offers: {
+      "@type": "Offer",
+      url: payload.link,
+      priceCurrency: payload.currencyCode,
+      price: payload.priceAmount,
+      availability:
+        payload.availability === "in stock" ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      itemCondition:
+        payload.condition === "new" ? "https://schema.org/NewCondition" : "https://schema.org/UsedCondition",
+      ...(input.listing.seller_display_name
+        ? { seller: { "@type": "Organization" as const, name: input.listing.seller_display_name } }
+        : {}),
+    },
+  };
+}
+
+export function serializePublicListingProductJsonLd(jsonLd: ProductJsonLd) {
+  return JSON.stringify(jsonLd).replace(/</g, "\\u003c");
+}
+
+function isValidGoogleShoppingPayloadForJsonLd(
+  payload: DiscoveryPublicListing["google_shopping_structured_data_payload"],
+) {
+  return Boolean(
+    payload?.offerId &&
+    payload.title &&
+    payload.description &&
+    payload.link &&
+    payload.imageLink &&
+    payload.priceAmount &&
+    payload.currencyCode &&
+    (payload.availability === "in stock" || payload.availability === "out of stock") &&
+    (payload.condition === "new" || payload.condition === "used"),
+  );
+}
+
+function isProductionMarketplaceUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === "marketplace.chasesets.com";
+  } catch {
+    return false;
+  }
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const slug = params.listingSlug;
 
@@ -195,9 +290,16 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
   const limitLabel = purchaseLimitLabel(listing);
   const fulfillment = buyerFulfillmentLabel(listing.ship_from_code);
   const sellerRating = parseRating(listing.seller_average_rating);
+  const productJsonLd = buildPublicListingProductJsonLd({ listing, canonicalUrl: data.canonicalUrl });
 
   return (
     <Container width="content">
+      {productJsonLd ? (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: serializePublicListingProductJsonLd(productJsonLd) }}
+        />
+      ) : null}
       <Stack gap={6}>
         <Stack gap={3}>
           <Badge tone={listing.status === "active" && sellerListingsAvailable ? "success" : "neutral"}>

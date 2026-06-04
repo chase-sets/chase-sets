@@ -12,6 +12,7 @@ export type DiscoveryPublicListingRow = Readonly<{
   seller_listing_available_again_on: string | null;
   seller_average_rating: string | null;
   seller_review_count: number;
+  google_shopping_structured_data_payload: unknown | null;
   inventory_item_id: string;
   catalog_catalog_item_id: string;
   catalog_item_slug: string | null;
@@ -61,6 +62,7 @@ function mapListing(row: DiscoveryPublicListingRow): DiscoveryPublicListingRow {
   return {
     ...row,
     selected_options: Array.isArray(row.selected_options) ? row.selected_options : [],
+    google_shopping_structured_data_payload: objectValue(row.google_shopping_structured_data_payload),
   };
 }
 
@@ -78,12 +80,19 @@ export async function getDiscoveryPublicListingBySlug(
        account.seller_listing_availability_reason_category,
        account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
        account.average_rating::text AS seller_average_rating,
-       COALESCE(account.review_count, 0)::integer AS seller_review_count
+       COALESCE(account.review_count, 0)::integer AS seller_review_count,
+       google_feed.payload AS google_shopping_structured_data_payload
      FROM discovery_market_listings AS listing
      LEFT JOIN discovery_market_accounts AS account
        ON account.account_id = listing.account_id
      LEFT JOIN discovery_item_detail_pages AS item
        ON item.catalog_item_id = listing.catalog_catalog_item_id
+     LEFT JOIN discovery_google_shopping_feed_rows AS google_feed
+       ON google_feed.listing_id = listing.listing_id
+      AND google_feed.eligibility_status = 'eligible'
+      AND google_feed.tombstone_status = 'live'
+      AND google_feed.payload IS NOT NULL
+      AND google_feed.payload <> '{}'::jsonb
      LEFT JOIN discovery_slug_redirects AS redirect
        ON redirect.entity_kind = 'listing'
       AND redirect.slug = $1
@@ -147,7 +156,8 @@ export async function getDiscoveryPublicAccountBySlug(
          account.seller_listing_availability_reason_category,
          account.seller_listing_available_again_on::text AS seller_listing_available_again_on,
          account.average_rating::text AS seller_average_rating,
-         COALESCE(account.review_count, 0)::integer AS seller_review_count
+         COALESCE(account.review_count, 0)::integer AS seller_review_count,
+         NULL::jsonb AS google_shopping_structured_data_payload
        FROM discovery_market_listings AS listing
        LEFT JOIN discovery_market_accounts AS account
          ON account.account_id = listing.account_id
@@ -240,4 +250,12 @@ export async function listDiscoveryPublicSitemapUrls(
     ...sellers.rows.map((row) => ({ path: `/accounts/${row.seller_slug}`, updated_at: row.updated_at })),
     ...listings.rows.map((row) => ({ path: `/listings/${row.listing_slug}`, updated_at: row.updated_at })),
   ];
+}
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = typeof value === "string" ? JSON.parse(value) : value;
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null;
 }
