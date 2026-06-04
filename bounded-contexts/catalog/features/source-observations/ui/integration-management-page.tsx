@@ -4278,12 +4278,20 @@ export function externalReferencePreview(form: ProfileExternalReferencesForm, pa
     };
     if (contract.target === "product-reference") {
       const options =
-        contract.selectedOptions?.dimensions.map((dimension) => ({
-          dimension: dimension.dimensionKey,
-          providerValue: previewMappingExpression(dimension.providerValue, payload).value,
-          required: dimension.required,
-          lookupTable: dimension.optionLookupTableKey,
-        })) ?? [];
+        contract.selectedOptions?.dimensions.map((dimension) => {
+          const providerValue = previewMappingExpression(dimension.providerValue, payload).value;
+          return {
+            dimension: dimension.dimensionKey,
+            providerValue,
+            required: dimension.required,
+            lookupTable: dimension.optionLookupTableKey,
+            unknownOptionPolicy: contract.selectedOptions?.missingOrUnknownOptionPolicy,
+            previewDisposition: selectedOptionPreviewDisposition(
+              providerValue,
+              contract.selectedOptions?.missingOrUnknownOptionPolicy,
+            ),
+          };
+        }) ?? [];
       productReferences.push({ ...reference, selectedOptions: options });
       selectedOptions.push(...options);
     } else {
@@ -4298,10 +4306,26 @@ export function externalReferencePreview(form: ProfileExternalReferencesForm, pa
       providerValue,
       required: dimension.required,
       source: dimension.providerValueSource,
+      unknownOptionPolicy: form.selectedOptionMapping?.missingOrUnknownOptionPolicy,
+      previewDisposition: selectedOptionPreviewDisposition(
+        providerValue,
+        form.selectedOptionMapping?.missingOrUnknownOptionPolicy,
+      ),
     });
   }
 
   return { catalogItemReferences, productReferences, selectedOptions };
+}
+
+function selectedOptionPreviewDisposition(
+  providerValue: JsonValue,
+  policy: ProfileExternalSelectedOptionsForm["missingOrUnknownOptionPolicy"] | "leave-unmapped-review-evidence" | undefined,
+): string {
+  const missing = providerValue === null || providerValue === "" || providerValue === undefined;
+  if (policy === "diagnostic") {
+    return missing ? "diagnostic-missing-provider-value" : "diagnostic-if-catalog-option-unknown";
+  }
+  return missing ? "review-evidence-missing-provider-value" : "review-evidence-if-catalog-option-unknown";
 }
 
 function previewSelectedOptionMappingValue(

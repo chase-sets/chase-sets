@@ -366,6 +366,60 @@ describe("IntegrationManagementPage", () => {
     );
   });
 
+  it("previews unknown selected options as review evidence unless policy is diagnostic", () => {
+    const preview = externalReferencePreview(
+      {
+        extractionRules: {},
+        contracts: [
+          {
+            id: "product-reference",
+            target: "product-reference",
+            providerKey: "tcgplayer",
+            externalKeyPrefix: "sku:",
+            source: mappingExpression("sku", "external-reference", ["external-reference"]) as MappingExpressionValue,
+            ambiguityPolicy: "review-evidence",
+            selectedOptions: {
+              missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+              dimensions: [
+                {
+                  id: "printing",
+                  dimensionKey: "printing",
+                  providerValue: mappingExpression("printing", "external-reference", [
+                    "selected-option",
+                  ]) as MappingExpressionValue,
+                  optionLookupTableKey: "catalog-printing",
+                  required: true,
+                },
+              ],
+            },
+          },
+        ],
+        selectedOptionMapping: null,
+      },
+      { sku: 610001, printing: "Confetti Galaxy Foil" },
+    );
+
+    expect(preview.productReferences).toEqual([
+      expect.objectContaining({
+        selectedOptions: [
+          expect.objectContaining({
+            dimension: "printing",
+            providerValue: "Confetti Galaxy Foil",
+            unknownOptionPolicy: "leave-unmapped-review-evidence",
+            previewDisposition: "review-evidence-if-catalog-option-unknown",
+          }),
+        ],
+      }),
+    ]);
+    expect(preview.selectedOptions).toEqual([
+      expect.objectContaining({
+        dimension: "printing",
+        providerValue: "Confetti Galaxy Foil",
+        previewDisposition: "review-evidence-if-catalog-option-unknown",
+      }),
+    ]);
+  });
+
   it("builds reference hierarchy previews from fixture payloads", () => {
     const preview = referenceHierarchyPreview(
       {
