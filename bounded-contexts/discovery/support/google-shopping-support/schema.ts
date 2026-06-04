@@ -109,6 +109,25 @@ CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_sync_error_idx
   ON discovery_google_shopping_feed_rows (last_sync_attempted_at DESC)
   WHERE sync_status = 'failed';
 
+CREATE TABLE IF NOT EXISTS discovery_google_shopping_incremental_sync_requests (
+  listing_id text PRIMARY KEY,
+  reasons jsonb NOT NULL DEFAULT '[]'::jsonb,
+  requested_at timestamptz NOT NULL DEFAULT now(),
+  not_before timestamptz NOT NULL DEFAULT now(),
+  last_job_id text NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+ALTER TABLE discovery_google_shopping_incremental_sync_requests
+  ADD COLUMN IF NOT EXISTS reasons jsonb NOT NULL DEFAULT '[]'::jsonb,
+  ADD COLUMN IF NOT EXISTS requested_at timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS not_before timestamptz NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS last_job_id text NULL,
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();
+
+CREATE INDEX IF NOT EXISTS discovery_google_shopping_incremental_sync_requests_due_idx
+  ON discovery_google_shopping_incremental_sync_requests (not_before, requested_at);
+
 ${durableJobSchemaSql({
   jobsTable: "discovery_google_shopping_sync_jobs",
   eventsTable: "discovery_google_shopping_sync_job_events",

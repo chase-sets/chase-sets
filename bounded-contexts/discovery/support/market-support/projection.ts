@@ -8,6 +8,10 @@ import {
   createDiscoveryOfferPatch,
 } from "../realtime-support/patches";
 import { discoveryRealtimeTopics } from "../realtime-support/topics";
+import {
+  refreshGoogleShoppingFeedRowForListing,
+  type GoogleShoppingIncrementalSyncReason,
+} from "../google-shopping-support/feed-row-projection";
 import { createMarketplaceSlug, rememberSlugRedirect } from "../runtime-support/slugs";
 
 const ACCOUNT_STREAM_PREFIX = "identity.account-";
@@ -186,6 +190,34 @@ async function emitListingPatch(db: PgQueryable, event: Parameters<ProjectorHand
   const summary = await loadRealtimeMarketSummary(db, listing.catalog_catalog_item_id);
 
   await emitRealtimeChanges(db, event, `listing:${listingId}`, createDiscoveryListingPatch(topics, listing, summary));
+}
+
+async function refreshGoogleShoppingListing(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  listingId: string,
+  reason: GoogleShoppingIncrementalSyncReason,
+) {
+  await refreshGoogleShoppingFeedRowForListing(db, listingId, {
+    reason,
+    requestedAt: event.timing.recordedAt,
+  });
+}
+
+async function refreshGoogleShoppingSellerListings(
+  db: PgQueryable,
+  event: Parameters<ProjectorHandlerMap[string]>[0],
+  accountId: string,
+  reason: GoogleShoppingIncrementalSyncReason,
+) {
+  const result = await db.query<{ listing_id: string }>(
+    `SELECT listing_id
+     FROM discovery_market_listings
+     WHERE account_id = $1`,
+    [accountId],
+  );
+
+  await Promise.all(result.rows.map((row) => refreshGoogleShoppingListing(db, event, row.listing_id, reason)));
 }
 
 async function emitSellerListingPatches(
@@ -498,6 +530,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
         nextSlug: productSlug,
         updatedAt: event.timing.recordedAt,
       });
+      await refreshGoogleShoppingListing(db, event, data.listingId, "listing-created");
       await emitListingPatch(db, event, data.listingId);
     },
     "marketplace.listing.price-updated": async (event) => {
@@ -514,7 +547,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           event.timing.recordedAt,
         ],
       );
-      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
+      const listingId = event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, "");
+      await refreshGoogleShoppingListing(db, event, listingId, "price");
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.quantity-cap-updated": async (event) => {
       const purchaseLimits = (
@@ -547,7 +582,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           event.timing.recordedAt,
         ],
       );
-      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
+      const listingId = event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, "");
+      await refreshGoogleShoppingListing(db, event, listingId, "availability");
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.purchase-limits-updated": async (event) => {
       const { purchaseLimits } = event.data as {
@@ -572,7 +609,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
           event.timing.recordedAt,
         ],
       );
-      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
+      const listingId = event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, "");
+      await refreshGoogleShoppingListing(db, event, listingId, "eligibility");
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.published": async (event) => {
       await db.query(
@@ -582,7 +621,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
          WHERE listing_id = $1`,
         [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
       );
-      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
+      const listingId = event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, "");
+      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.paused": async (event) => {
       await db.query(
@@ -592,7 +633,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
          WHERE listing_id = $1`,
         [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
       );
-      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
+      const listingId = event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, "");
+      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.listing.withdrawn": async (event) => {
       await db.query(
@@ -602,7 +645,9 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
          WHERE listing_id = $1`,
         [event.streamId.replace("marketplace.listing-", ""), event.timing.recordedAt],
       );
-      await emitListingPatch(db, event, event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, ""));
+      const listingId = event.streamId.replace(MARKETPLACE_LISTING_STREAM_PREFIX, "");
+      await refreshGoogleShoppingListing(db, event, listingId, "visibility");
+      await emitListingPatch(db, event, listingId);
     },
     "marketplace.seller-listing-availability.disabled": async (event) => {
       const data = event.data as {
@@ -626,6 +671,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
            updated_at = EXCLUDED.updated_at`,
         [data.accountId, data.reasonCategory, data.availableAgainOn, event.timing.recordedAt],
       );
+      await refreshGoogleShoppingSellerListings(db, event, data.accountId, "seller-availability");
       await emitSellerListingPatches(db, event, data.accountId);
     },
     "marketplace.seller-listing-availability.enabled": async (event) => {
@@ -646,6 +692,7 @@ export function buildDiscoveryMarketProjectionHandlers(db: PgQueryable): Project
            updated_at = EXCLUDED.updated_at`,
         [data.accountId, event.timing.recordedAt],
       );
+      await refreshGoogleShoppingSellerListings(db, event, data.accountId, "seller-availability");
       await emitSellerListingPatches(db, event, data.accountId);
     },
     "marketplace.offer.submitted": async (event) => {

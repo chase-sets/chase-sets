@@ -14,6 +14,7 @@ import { buildDiscoveryCategoryProjectionHandlers } from "./features/categories/
 import { buildDiscoveryItemDetailProjectionHandlers } from "./features/item-detail/read-model/projection";
 import { buildProductAlertNotificationProjectionHandlers } from "./features/product-alerts/integrations/notifications/notification-projector";
 import { buildProductAlertPageProjectionHandlers } from "./features/product-alerts/read-model/projection";
+import { buildGoogleShoppingFeedRowProjectionHandlers } from "./support/google-shopping-support/projection";
 import { buildDiscoveryMarketProjectionHandlers } from "./support/market-support/projection";
 import { buildDiscoverySearchItemProjectionHandlers } from "./features/search/read-model/projection";
 import { createDiscoveryServices, type DiscoveryHostPorts } from "./support/runtime-support/services";
@@ -68,6 +69,10 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
     const productAlertPageSubscription = getEventSubscription("discovery", "discovery-product-alert-page-projection");
     const searchSubscription = getEventSubscription("catalog", "discovery-search-item-projection");
     const detailSubscription = getEventSubscription("catalog", "discovery-item-detail-projection");
+    const googleShoppingFeedRowSubscription = getEventSubscription(
+      "catalog",
+      "discovery-google-shopping-feed-row-projection",
+    );
     const identitySubscription = getEventSubscription("identity", "discovery-market-projection");
     const marketplaceSubscription = getEventSubscription("marketplace", "discovery-market-projection");
     const reputationSubscription = getEventSubscription("reputation", "discovery-market-projection");
@@ -118,6 +123,16 @@ export const module: BcApiModule<DiscoveryServices, PgTransactionalPool, Discove
         eventTypes: detailSubscription.eventTypes,
         streamPrefixes: detailSubscription.streamPrefixes,
         order: detailSubscription.order,
+      },
+      {
+        subscriptionName: "discovery.catalog-google-shopping-feed-row-projection",
+        sourceContextName: "catalog",
+        projectionName: googleShoppingFeedRowSubscription.projectionName,
+        subscriptionVersion: googleShoppingFeedRowSubscription.subscriptionVersion,
+        handlers: buildGoogleShoppingFeedRowProjectionHandlers(services.db),
+        eventTypes: googleShoppingFeedRowSubscription.eventTypes,
+        streamPrefixes: googleShoppingFeedRowSubscription.streamPrefixes,
+        order: googleShoppingFeedRowSubscription.order,
       },
       {
         subscriptionName: "discovery.identity-market-projection",

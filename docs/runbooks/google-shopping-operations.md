@@ -115,6 +115,26 @@ Progress and final results include:
 
 In live mode, row sync metadata records the last attempted time, sync status, submitted hash/time, delete time, provider operation, provider request id when available, a redacted provider response summary, and redacted failure code/message. Live jobs fail fast if the worker is still globally configured with `GOOGLE_MERCHANT_DRY_RUN=true`.
 
+## Incremental Sync
+
+Discovery refreshes the Google Shopping feed row and queues targeted sync when Marketplace or Catalog facts that affect a listing change:
+
+- listing creation, publish, pause, and withdrawal;
+- listing price, quantity cap, and purchase-limit facts;
+- seller listing availability enable/disable;
+- catalog title, description, selected option, image URL, product asset set, and fallback image changes that affect listing rows.
+
+Incremental requests are stored in `discovery_google_shopping_incremental_sync_requests` with one row per listing id. Repeated changes before the debounce window expires merge their reasons into the same request instead of creating provider work for every event. The worker drains due requests into durable `incremental-sync` jobs and submits only those listing rows.
+
+Price-only and availability-only incremental jobs prefer Merchant API `productInputs.patch` with an update mask for price and availability when the row was previously submitted. Broader changes, first submissions, resubmits after delete, tombstones, and newly ineligible rows use the same full insert/delete behavior as full sync.
+
+Quota/rate-limit posture:
+
+- Default debounce is 30 seconds per listing.
+- The worker processes a bounded batch of due listing requests per incremental job.
+- HTTP 429 and transient Google responses use the Merchant client retry/backoff path and are recorded as row failures if exhausted.
+- If incremental jobs fall behind, keep writes in dry-run or disable sync, investigate provider errors, then run a full dry-run sync to re-baseline row state before returning to live writes.
+
 ## Incident Response
 
 If Google disapproves rows or reports seller-level issues:
