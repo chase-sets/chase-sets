@@ -3460,6 +3460,7 @@ function ProfileBasicsEditor({
         onChange={setExternalReferences}
         diagnostics={externalReferenceDiagnostics}
         editable={editable}
+        previewPayload={previewPayload}
       />
 
       <ReferenceHierarchyEditor
@@ -4003,11 +4004,13 @@ function ExternalReferencesEditor({
   onChange,
   diagnostics,
   editable,
+  previewPayload,
 }: Readonly<{
   form: ProfileExternalReferencesForm;
   onChange: (form: ProfileExternalReferencesForm) => void;
   diagnostics: readonly string[];
   editable: boolean;
+  previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileExternalReferencesForm>) => onChange({ ...form, ...patch });
   const setContract = (id: string, patch: Partial<ProfileExternalReferenceForm>) =>
@@ -4038,6 +4041,7 @@ function ExternalReferencesEditor({
           ))}
         </ul>
       ) : null}
+      <ExternalReferencePreview form={form} previewPayload={previewPayload} />
       <Stack gap={4}>
         {form.contracts.map((contract, index) => (
           <Stack key={contract.id} gap={3}>
@@ -4135,12 +4139,14 @@ function ExternalReferencesEditor({
               label="Reference source expression"
               value={contract.source}
               onChange={(source) => setContract(contract.id, { source })}
+              previewPayload={previewPayload}
             />
             {contract.target === "product-reference" && contract.selectedOptions ? (
               <ExternalSelectedOptionsEditor
                 form={contract.selectedOptions}
                 onChange={(selectedOptions) => setContract(contract.id, { selectedOptions })}
                 editable={editable}
+                previewPayload={previewPayload}
               />
             ) : null}
           </Stack>
@@ -4150,19 +4156,128 @@ function ExternalReferencesEditor({
         form={form.selectedOptionMapping}
         onChange={setSelectedOptionMapping}
         editable={editable}
+        previewPayload={previewPayload}
       />
     </Stack>
   );
+}
+
+function ExternalReferencePreview({
+  form,
+  previewPayload,
+}: Readonly<{
+  form: ProfileExternalReferencesForm;
+  previewPayload: JsonValue | null;
+}>) {
+  const preview = previewPayload ? externalReferencePreview(form, previewPayload) : null;
+
+  return (
+    <TaskSummary
+      title="External Reference Preview"
+      items={[
+        {
+          label: "Catalog Item references",
+          value: preview ? summarizeJsonValue(preview.catalogItemReferences) : "No fixture sample",
+        },
+        {
+          label: "Product references",
+          value: preview ? summarizeJsonValue(preview.productReferences) : "No fixture sample",
+        },
+        {
+          label: "Selected option evidence",
+          value: preview ? summarizeJsonValue(preview.selectedOptions) : "No fixture sample",
+        },
+        {
+          label: "Unknown option policy",
+          value:
+            form.contracts
+              .map((contract) => contract.selectedOptions?.missingOrUnknownOptionPolicy)
+              .filter(Boolean)
+              .join(", ") ||
+            form.selectedOptionMapping?.missingOrUnknownOptionPolicy ||
+            "Not configured",
+        },
+      ]}
+    />
+  );
+}
+
+export function externalReferencePreview(form: ProfileExternalReferencesForm, payload: JsonValue) {
+  const catalogItemReferences: JsonValue[] = [];
+  const productReferences: JsonValue[] = [];
+  const selectedOptions: JsonValue[] = [];
+
+  for (const contract of form.contracts) {
+    const externalKey = `${contract.externalKeyPrefix}${summarizeJsonValue(
+      previewMappingExpression(contract.source, payload).value,
+    )}`;
+    const reference = {
+      providerKey: contract.providerKey,
+      externalKey,
+      ambiguityPolicy: contract.ambiguityPolicy,
+    };
+    if (contract.target === "product-reference") {
+      const options =
+        contract.selectedOptions?.dimensions.map((dimension) => ({
+          dimension: dimension.dimensionKey,
+          providerValue: previewMappingExpression(dimension.providerValue, payload).value,
+          required: dimension.required,
+          lookupTable: dimension.optionLookupTableKey,
+        })) ?? [];
+      productReferences.push({ ...reference, selectedOptions: options });
+      selectedOptions.push(...options);
+    } else {
+      catalogItemReferences.push(reference);
+    }
+  }
+
+  for (const dimension of form.selectedOptionMapping?.dimensions ?? []) {
+    const providerValue = previewSelectedOptionMappingValue(dimension, payload);
+    selectedOptions.push({
+      dimension: dimension.dimensionKey,
+      providerValue,
+      required: dimension.required,
+      source: dimension.providerValueSource,
+    });
+  }
+
+  return { catalogItemReferences, productReferences, selectedOptions };
+}
+
+function previewSelectedOptionMappingValue(
+  dimension: ProfileSelectedOptionMappingDimensionForm,
+  payload: JsonValue,
+): JsonValue {
+  if (!dimension.providerValuePath.trim()) {
+    return null;
+  }
+
+  return previewMappingExpression(
+    {
+      selector: {
+        kind: "path",
+        path: dimension.providerValuePath,
+        required: dimension.required,
+        nullPolicy: dimension.required ? "diagnostic" : "allow-null",
+      },
+      owner: "external-reference",
+      uses: ["selected-option"],
+      redaction: "none",
+    },
+    payload,
+  ).value;
 }
 
 function ExternalSelectedOptionsEditor({
   form,
   onChange,
   editable,
+  previewPayload,
 }: Readonly<{
   form: ProfileExternalSelectedOptionsForm;
   onChange: (form: ProfileExternalSelectedOptionsForm) => void;
   editable: boolean;
+  previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileExternalSelectedOptionsForm>) => onChange({ ...form, ...patch });
   const setDimension = (id: string, patch: Partial<ProfileExternalSelectedOptionDimensionForm>) =>
@@ -4260,6 +4375,7 @@ function ExternalSelectedOptionsEditor({
             label={`Selected option value expression: ${dimension.dimensionKey || index + 1}`}
             value={dimension.providerValue}
             onChange={(providerValue) => setDimension(dimension.id, { providerValue })}
+            previewPayload={previewPayload}
           />
         </Stack>
       ))}
@@ -4271,10 +4387,12 @@ function SelectedOptionMappingEditor({
   form,
   onChange,
   editable,
+  previewPayload: _previewPayload,
 }: Readonly<{
   form: ProfileSelectedOptionMappingForm | null;
   onChange: (form: ProfileSelectedOptionMappingForm | null) => void;
   editable: boolean;
+  previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileSelectedOptionMappingForm>) => {
     if (form) {

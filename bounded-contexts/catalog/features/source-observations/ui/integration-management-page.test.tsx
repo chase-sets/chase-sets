@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import {
   IntegrationManagementPage,
+  externalReferencePreview,
   providerOptionImportSurface,
   providerOptionMetadataPreview,
   providerOptionOutputPreview,
@@ -14,6 +15,7 @@ import type {
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationScope,
 } from "./contracts";
+import type { MappingExpressionValue } from "./mapping-expression-editor";
 import type { JsonValue } from "@chase-sets/primitives/json";
 
 const {
@@ -283,6 +285,84 @@ describe("IntegrationManagementPage", () => {
         metadataPathsText: "languageCode=$languageCode\nseriesId=seriesId",
       }),
     ).toBe("Pull Provider Data: TCGdex series selector after language.");
+  });
+
+  it("builds external reference previews from fixture payloads", () => {
+    const preview = externalReferencePreview(
+      {
+        extractionRules: {},
+        contracts: [
+          {
+            id: "catalog-item-reference",
+            target: "catalog-item-reference",
+            providerKey: "tcgplayer",
+            externalKeyPrefix: "product:",
+            source: mappingExpression("externalCatalogItemReferences", "external-reference", [
+              "external-reference",
+            ]) as MappingExpressionValue,
+            ambiguityPolicy: "skip-reference",
+            selectedOptions: null,
+          },
+          {
+            id: "product-reference",
+            target: "product-reference",
+            providerKey: "tcgplayer",
+            externalKeyPrefix: "sku:",
+            source: mappingExpression("externalProductReferences", "external-reference", [
+              "external-reference",
+            ]) as MappingExpressionValue,
+            ambiguityPolicy: "review-evidence",
+            selectedOptions: {
+              missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+              dimensions: [
+                {
+                  id: "condition",
+                  dimensionKey: "condition",
+                  providerValue: mappingExpression("condition", "external-reference", [
+                    "selected-option",
+                  ]) as MappingExpressionValue,
+                  optionLookupTableKey: "catalog-condition",
+                  required: true,
+                },
+              ],
+            },
+          },
+        ],
+        selectedOptionMapping: {
+          source: "tcgplayer-sku-condition",
+          providerKey: "tcgplayer",
+          externalKeyPrefix: "sku:",
+          requiredSourceKeysText: "sku, condition",
+          missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+          dimensions: [
+            {
+              id: "condition-record",
+              dimensionKey: "condition",
+              providerValueSource: "record",
+              providerValuePath: "condition",
+              required: true,
+              optionAliasesText: "near-mint=Near Mint,NM",
+              valueMappingsText: "",
+            },
+          ],
+        },
+      },
+      { externalCatalogItemReferences: 14240, externalProductReferences: 610001, condition: "Near Mint" },
+    );
+
+    expect(preview.catalogItemReferences).toEqual([
+      expect.objectContaining({ providerKey: "tcgplayer", externalKey: "product:14240" }),
+    ]);
+    expect(preview.productReferences).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        externalKey: "sku:610001",
+        selectedOptions: [expect.objectContaining({ dimension: "condition", providerValue: "Near Mint" })],
+      }),
+    ]);
+    expect(preview.selectedOptions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ dimension: "condition", providerValue: "Near Mint" })]),
+    );
   });
 
   it("shows pulled provider scopes with language expansion series and review counts", () => {
@@ -968,12 +1048,52 @@ describe("IntegrationManagementPage", () => {
       error: null,
       refresh: vi.fn(),
     });
+    mockUseSourceObservationProviderProfileAuthoringModel.mockReturnValue({
+      data: profileAuthoringModel({
+        fixtureCases: [
+          {
+            flow: "normal",
+            payloadFile: "normal.json",
+            payloadPath: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgplayer/normal.json",
+            expectedStatus: "completed",
+            expectedDiagnosticPaths: [],
+            expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+            expectedMergeEvidencePaths: ["duplicatePrevention.mergeCandidateEvidence.0"],
+            expectedPromotionCommands: [],
+            expectedObservation: { normalizedKind: "provider-product" },
+            samplePayload: {
+              externalCatalogItemReferences: 14240,
+              externalProductReferences: 610001,
+              condition: "Near Mint",
+            },
+            samplePayloadAvailable: true,
+          },
+        ],
+        dryRunInputTemplate: {
+          observedAt: "1970-01-01T00:00:00.000Z",
+          defaultFlow: "normal",
+          payload: {
+            externalCatalogItemReferences: 14240,
+            externalProductReferences: 610001,
+            condition: "Near Mint",
+          },
+          fixturePayloads: [],
+        },
+      }),
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("External References and Selected Options")).toBeTruthy();
+    expect(within(dialog).getByText("External Reference Preview")).toBeTruthy();
+    expect(within(dialog).getByText(/product:14240/i)).toBeTruthy();
+    expect(within(dialog).getByText(/sku:610001/i)).toBeTruthy();
+    expect(within(dialog).getAllByText(/Near Mint/i).length).toBeGreaterThan(0);
     expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
 
     expect(within(dialog).getByText("Product reference")).toBeTruthy();
