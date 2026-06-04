@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import {
+  drainDueGoogleShoppingIncrementalSyncRequests,
   isGoogleShoppingListingLandingPageCrawlable,
   refreshGoogleShoppingFeedRowForListing,
 } from "../support/google-shopping-support/feed-row-projection";
@@ -49,6 +50,54 @@ describe("google shopping feed row projection", () => {
       reasons: ["not-crawlable"],
     });
     expect(JSON.parse(String(db.queries[1]?.values[11]))).toEqual(["not-crawlable"]);
+  });
+
+  it("persists noindex rows without a Merchant payload or payload hash", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "false");
+    const db = projectionDb(listingFacts());
+
+    await refreshGoogleShoppingFeedRowForListing(db, "lst_1", {
+      reason: "eligibility",
+      requestedAt: "2026-06-03T10:00:00.000Z",
+      debounceMs: 0,
+    });
+
+    expect(JSON.parse(String(db.queries[1]?.values[8]))).toEqual({});
+    expect(db.queries[1]?.values[9]).toBeNull();
+    expect(db.queries[1]?.values[10]).toBe("excluded");
+    expect(db.queries[1]?.values[17]).toBe("live");
+  });
+
+  it("marks withdrawn listings as tombstones while retaining explainable exclusion state", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "true");
+    const db = projectionDb(listingFacts({ status: "withdrawn" }));
+
+    const row = await refreshGoogleShoppingFeedRowForListing(db, "lst_1", {
+      reason: "visibility",
+      requestedAt: "2026-06-03T10:00:00.000Z",
+      debounceMs: 0,
+    });
+
+    expect(row?.payload).toBeNull();
+    expect(row?.eligibility.reasons).toEqual(expect.arrayContaining(["listing-not-active", "not-crawlable"]));
+    expect(db.queries[1]?.values[17]).toBe("withdrawn");
+    expect(JSON.parse(String(db.queries[2]?.values[1]))).toEqual(["visibility"]);
+  });
+
+  it("uses encoded Marketplace canonical URLs in the persisted Merchant payload", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "true");
+    const db = projectionDb(listingFacts({ listing_slug: "charizard holo/lst 1" }));
+
+    const row = await refreshGoogleShoppingFeedRowForListing(db, "lst_1", {
+      reason: "canonical",
+      requestedAt: "2026-06-03T10:00:00.000Z",
+      debounceMs: 0,
+    });
+
+    expect(row?.payload?.link).toBe("https://marketplace.chasesets.com/listings/charizard%20holo%2Flst%201");
+    expect(JSON.parse(String(db.queries[1]?.values[8]))).toMatchObject({
+      link: "https://marketplace.chasesets.com/listings/charizard%20holo%2Flst%201",
+    });
   });
 
   it("requires active listings, stable slugs, and indexing before treating landing pages as crawlable", () => {
@@ -114,6 +163,28 @@ describe("google shopping feed row projection", () => {
     expect(row?.eligibility.reasons).toContain("image-too-small");
     expect(JSON.parse(String(db.queries[2]?.values[1]))).toEqual(["image"]);
   });
+
+  it("drains due incremental sync requests in stable order and ignores unknown reasons", async () => {
+    const db = incrementalRequestDb();
+
+    const requests = await drainDueGoogleShoppingIncrementalSyncRequests(db, {
+      limit: 2,
+      now: "2026-06-03T10:00:00.000Z",
+    });
+
+    expect(db.queries[0]?.sql).toContain("FOR UPDATE SKIP LOCKED");
+    expect(db.queries[0]?.values).toEqual([2, "2026-06-03T10:00:00.000Z"]);
+    expect(requests).toEqual([
+      {
+        listingId: "lst_1",
+        reasons: ["price", "seller-availability"],
+      },
+      {
+        listingId: "lst_2",
+        reasons: ["catalog", "image"],
+      },
+    ]);
+  });
 });
 
 function projectionDb(facts: Record<string, unknown>): PgQueryable & {
@@ -128,6 +199,25 @@ function projectionDb(facts: Record<string, unknown>): PgQueryable & {
         return { rows: [facts], rowCount: 1 };
       }
       return { rows: [], rowCount: 1 };
+    },
+  };
+}
+
+function incrementalRequestDb(): PgQueryable & {
+  queries: Array<{ sql: string; values: readonly unknown[] }>;
+} {
+  const queries: Array<{ sql: string; values: readonly unknown[] }> = [];
+  return {
+    queries,
+    query: async (sql: string, values: readonly unknown[] = []) => {
+      queries.push({ sql, values });
+      return {
+        rows: [
+          { listing_id: "lst_1", reasons: JSON.stringify(["price", "seller-availability", "unknown"]) },
+          { listing_id: "lst_2", reasons: ["catalog", "image"] },
+        ],
+        rowCount: 2,
+      };
     },
   };
 }

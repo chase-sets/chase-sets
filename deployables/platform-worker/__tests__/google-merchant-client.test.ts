@@ -106,6 +106,38 @@ describe("google merchant api client", () => {
     expect(sleep).toHaveBeenCalledWith(10);
   });
 
+  it("returns transient failure after exhausting retryable responses", async () => {
+    const fetchMock = vi.fn<TestFetch>(async () =>
+      jsonResponse(503, { error: { status: "UNAVAILABLE", message: "try again later" } }),
+    );
+    const sleep = vi.fn(async () => undefined);
+    const client = createGoogleMerchantApiClient({
+      config: enabledConfig,
+      accessTokenProvider: async () => "token",
+      fetch: fetchMock,
+      maxAttempts: 3,
+      retryBaseDelayMs: 10,
+      sleep,
+    });
+
+    const result = await client.insertOrUpdateProductInput(payload);
+
+    expect(result).toMatchObject({
+      status: "transient-failure",
+      operation: "insert-product-input",
+      attempts: 3,
+      error: {
+        code: "unavailable",
+        httpStatus: 503,
+        retryable: true,
+        providerRequestId: "req_123",
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenNthCalledWith(1, 10);
+    expect(sleep).toHaveBeenNthCalledWith(2, 20);
+  });
+
   it("surfaces permanent validation failures without leaking configured account data", async () => {
     const logger = { warn: vi.fn() };
     const client = createGoogleMerchantApiClient({
@@ -183,6 +215,33 @@ describe("google merchant api client", () => {
     });
     expect(result.request.url).toContain("accounts/[account]");
     expect(result.request.url).toContain("dataSources%2F%5Bdata-source%5D");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(tokenProvider).not.toHaveBeenCalled();
+  });
+
+  it("serializes dry-run deletes without requesting credentials or calling Google", async () => {
+    const fetchMock = vi.fn<TestFetch>();
+    const tokenProvider = vi.fn(async () => "token");
+    const client = createGoogleMerchantApiClient({
+      config: { ...enabledConfig, dryRun: true },
+      accessTokenProvider: tokenProvider,
+      fetch: fetchMock,
+    });
+
+    const result = await client.deleteProductInput("cs-listing-lst_123");
+
+    expect(result).toMatchObject({
+      status: "dry-run",
+      operation: "delete-product-input",
+      attempts: 0,
+      request: {
+        method: "DELETE",
+        operation: "delete-product-input",
+      },
+    });
+    expect(result.request.url).toContain("accounts/[account]/productInputs/");
+    expect(result.request.url).toContain("dataSources%2F%5Bdata-source%5D");
+    expect("body" in result.request).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
     expect(tokenProvider).not.toHaveBeenCalled();
   });
@@ -279,6 +338,32 @@ describe("google merchant api client", () => {
         issues: [{ code: "invalid_gtin", severity: "DISAPPROVED", applicableCountries: ["US"] }],
       },
     });
+  });
+
+  it("serializes dry-run processed-product diagnostics without requesting credentials", async () => {
+    const fetchMock = vi.fn<TestFetch>();
+    const tokenProvider = vi.fn(async () => "token");
+    const client = createGoogleMerchantApiClient({
+      config: { ...enabledConfig, dryRun: true },
+      accessTokenProvider: tokenProvider,
+      fetch: fetchMock,
+    });
+
+    const result = await client.getProcessedProductStatus("cs-listing-lst_123");
+
+    expect(result).toMatchObject({
+      status: "dry-run",
+      operation: "get-processed-product",
+      attempts: 0,
+      request: {
+        method: "GET",
+        operation: "get-processed-product",
+      },
+    });
+    expect(result.request.url).toContain("accounts/[account]/products/");
+    expect("body" in result.request).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(tokenProvider).not.toHaveBeenCalled();
   });
 });
 

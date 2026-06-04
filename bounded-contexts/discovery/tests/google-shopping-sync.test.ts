@@ -6,6 +6,7 @@ import type { DiscoveryApiEnv } from "../api";
 import { createGoogleShoppingSyncRoutes } from "../support/google-shopping-support/route";
 import {
   classifyGoogleShoppingSyncRow,
+  createGoogleShoppingSyncRuntime,
   normalizeGoogleShoppingDiagnostics,
   previewGoogleShoppingMaintenanceSync,
   processGoogleShoppingDiagnosticsRow,
@@ -210,6 +211,33 @@ describe("google shopping sync row processing", () => {
     expect(client.deleteProductInput).toHaveBeenCalledWith("cs-listing-lst_1", expect.any(Object));
   });
 
+  it("prepares dry-run deletes without mutating submitted row state", async () => {
+    const db = recordingDb();
+    const client: GoogleShoppingSyncMerchantClient = {
+      insertOrUpdateProductInput: vi.fn(),
+      deleteProductInput: vi.fn(
+        async (): Promise<GoogleShoppingSyncProviderResult> => ({
+          status: "dry-run",
+          operation: "delete-product-input",
+          attempts: 0,
+          request: { method: "DELETE" },
+        }),
+      ),
+    };
+
+    const outcome = await processGoogleShoppingSyncRow({
+      db,
+      row: row({ tombstoneStatus: "withdrawn", lastSubmittedPayloadHash: "hash_1" }),
+      mode: "dry-run",
+      merchantClient: client,
+      jobContext: testJobContext(),
+    });
+
+    expect(outcome).toBe("deleted");
+    expect(client.deleteProductInput).toHaveBeenCalledWith("cs-listing-lst_1", expect.any(Object));
+    expect(db.queries).toHaveLength(0);
+  });
+
   it("patches price and availability for incremental price-only changes", async () => {
     const db = recordingDb();
     const client: GoogleShoppingSyncMerchantClient = {
@@ -276,6 +304,40 @@ describe("google shopping sync row processing", () => {
     expect(db.queries.at(-1)?.sql).toContain("SET sync_status = 'failed'");
     expect(db.queries.at(-1)?.values).toContain("invalid_argument");
     expect(db.queries.at(-1)?.values).toContain("req_1");
+  });
+
+  it("records exhausted transient provider failures for retry visibility", async () => {
+    const db = recordingDb();
+    const client: GoogleShoppingSyncMerchantClient = {
+      insertOrUpdateProductInput: vi.fn(
+        async (): Promise<GoogleShoppingSyncProviderResult> => ({
+          status: "transient-failure",
+          operation: "insert-product-input",
+          attempts: 3,
+          error: {
+            code: "unavailable",
+            message: "Google Merchant API retries were exhausted.",
+            httpStatus: 503,
+            retryable: true,
+            providerRequestId: "req_retry",
+          },
+        }),
+      ),
+      deleteProductInput: vi.fn(),
+    };
+
+    const outcome = await processGoogleShoppingSyncRow({
+      db,
+      row: row({ payloadHash: "hash_2", lastSubmittedPayloadHash: "hash_1" }),
+      mode: "live",
+      merchantClient: client,
+      jobContext: testJobContext(),
+    });
+
+    expect(outcome).toBe("failed");
+    expect(db.queries.at(-1)?.sql).toContain("SET sync_status = 'failed'");
+    expect(db.queries.at(-1)?.values).toContain("unavailable");
+    expect(db.queries.at(-1)?.values).toContain("req_retry");
   });
 
   it("previews cleanup before refresh candidates with an explicit refresh cutoff", async () => {
@@ -397,6 +459,69 @@ describe("google shopping diagnostics", () => {
     expect(JSON.parse(String(db.queries.at(-1)?.values[3]))).toEqual([
       expect.objectContaining({ code: "invalid_gtin", firstSeenAt: expect.any(String), resolvedAt: null }),
     ]);
+  });
+
+  it("skips dry-run diagnostics without mutating row state", async () => {
+    const db = recordingDb();
+    const client: GoogleShoppingSyncMerchantClient = {
+      insertOrUpdateProductInput: vi.fn(),
+      deleteProductInput: vi.fn(),
+      getProcessedProductStatus: vi.fn(
+        async (): Promise<GoogleShoppingSyncProviderResult> => ({
+          status: "dry-run",
+          operation: "get-processed-product",
+          attempts: 0,
+          request: { method: "GET" },
+        }),
+      ),
+    };
+
+    const outcome = await processGoogleShoppingDiagnosticsRow({
+      db,
+      row: diagnosticsRow(),
+      mode: "dry-run",
+      merchantClient: client,
+      jobContext: testJobContext(),
+    });
+
+    expect(outcome).toEqual({
+      outcome: "skipped",
+      status: "unknown",
+      activeIssues: 0,
+      unknownIssueCodes: 0,
+      resolvedIssues: 0,
+    });
+    expect(client.getProcessedProductStatus).toHaveBeenCalledWith("cs-listing-lst_1", expect.any(Object));
+    expect(db.queries).toHaveLength(0);
+  });
+
+  it("builds launch-impact snapshots from persisted diagnostic issue state", async () => {
+    const runtime = createGoogleShoppingSyncRuntime({
+      db: diagnosticsSnapshotDb(),
+    });
+
+    const snapshot = await runtime.getDiagnosticsSnapshot({ limit: 10 });
+
+    expect(snapshot).toMatchObject({
+      totals: {
+        rows: 2,
+        disapproved: 1,
+        approvedWithIssues: 1,
+      },
+      activeIssueSeverityCounts: {
+        DISAPPROVED: 1,
+        WARNING: 1,
+      },
+      unknownIssueCodeCount: 1,
+      launchImpact: {
+        p0: true,
+        p1: true,
+        reasons: [
+          "1 submitted Google Shopping row(s) are disapproved.",
+          "1 active provider issue code(s) are unknown.",
+        ],
+      },
+    });
   });
 });
 
@@ -616,6 +741,77 @@ function maintenanceDb(): PgQueryable & { queries: Array<{ sql: string; values: 
       }
       return { rows: [], rowCount: 0 };
     },
+  };
+}
+
+function diagnosticsSnapshotDb(): PgQueryable {
+  return {
+    query: async () => ({
+      rows: [
+        diagnosticsSnapshotRow({
+          row_id: "google-shopping:listing:lst_1",
+          listing_id: "lst_1",
+          diagnostic_status: "disapproved",
+          diagnostic_issues: [
+            {
+              code: "invalid_gtin",
+              severity: "DISAPPROVED",
+              resolution: "merchant_action",
+              attribute: "gtins",
+              reportingContext: "FREE_LISTINGS",
+              description: "Invalid GTIN",
+              detail: "Fix the GTIN.",
+              documentation: "https://support.google.com/merchants/answer/6324461",
+              applicableCountries: ["US"],
+              firstSeenAt: now,
+              lastSeenAt: now,
+              resolvedAt: null,
+              known: true,
+            },
+          ],
+        }),
+        diagnosticsSnapshotRow({
+          row_id: "google-shopping:listing:lst_2",
+          listing_id: "lst_2",
+          diagnostic_status: "approved_with_issues",
+          diagnostic_issues: [
+            {
+              code: "brand_new_policy_code",
+              severity: "WARNING",
+              resolution: "merchant_action",
+              attribute: "image_link",
+              reportingContext: "FREE_LISTINGS",
+              description: "New provider warning",
+              detail: "Review the warning.",
+              documentation: null,
+              applicableCountries: ["US"],
+              firstSeenAt: now,
+              lastSeenAt: now,
+              resolvedAt: null,
+              known: false,
+            },
+          ],
+        }),
+      ],
+      rowCount: 2,
+    }),
+  };
+}
+
+function diagnosticsSnapshotRow(overrides: Record<string, unknown>) {
+  return {
+    row_id: "google-shopping:listing:lst_1",
+    listing_id: "lst_1",
+    account_id: "acc_1",
+    catalog_catalog_item_id: "cit_1",
+    product_id: "prd_1",
+    merchant_offer_id: "cs-listing-lst_1",
+    external_seller_id: "cs-account-acc_1",
+    diagnostic_status: "unknown",
+    diagnostic_destination_statuses: [{ reportingContext: "FREE_LISTINGS" }],
+    last_diagnostic_at: now,
+    diagnostic_issues: [],
+    ...overrides,
   };
 }
 

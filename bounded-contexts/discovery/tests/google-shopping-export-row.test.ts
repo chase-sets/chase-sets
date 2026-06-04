@@ -6,9 +6,11 @@ import {
   buildGoogleShoppingRowId,
   evaluateGoogleShoppingEligibility,
   hashGoogleShoppingPayload,
+  mapGoogleShoppingOfferAttributes,
   mapGoogleShoppingPolicyAttributes,
   mapGoogleShoppingProductAttributes,
   selectGoogleShoppingImage,
+  type GoogleShoppingFeedRowInput,
 } from "../support/google-shopping-support/export-row";
 import { discoveryGoogleShoppingSchemaSql } from "../support/google-shopping-support/schema";
 
@@ -77,6 +79,31 @@ describe("google shopping export rows", () => {
       ],
     });
   });
+
+  it.each([
+    ["inactive listings", { listingStatus: "paused" }, ["listing-not-active"]],
+    ["unavailable sellers", { sellerListingAvailabilityStatus: "unavailable" }, ["seller-unavailable"]],
+    ["suspended seller accounts", { sellerAccountStatus: "suspended" }, ["seller-not-active"]],
+    ["sold-out quantity", { quantityCap: 0 }, ["sold-out"]],
+    ["missing landing-page links", { canonicalUrl: "" }, ["missing-link", "not-crawlable"]],
+    ["missing titles", { title: "" }, ["missing-title"]],
+    ["missing descriptions", { description: "" }, ["missing-description"]],
+    ["missing images", { imageUrl: null }, ["missing-image"]],
+    ["missing prices", { priceAmount: "0.00" }, ["missing-price"]],
+    ["missing card conditions", { condition: null }, ["missing-condition"]],
+    ["missing shipping policy", { shippingPolicyReady: false }, ["missing-shipping-policy"]],
+    ["missing product measure evidence", { productMeasureReady: false }, ["missing-product-measure"]],
+    ["missing returns policy", { returnsPolicyReady: false }, ["missing-returns-policy"]],
+    ["noindex crawl posture", { crawlable: false }, ["not-crawlable"]],
+  ] satisfies Array<[string, Partial<GoogleShoppingFeedRowInput>, readonly string[]]>)(
+    "isolates exclusion reasons for %s",
+    (_label, overrides, expectedReasons) => {
+      expect(evaluateGoogleShoppingEligibility(eligibleFeedRowInput(overrides))).toEqual({
+        status: "excluded",
+        reasons: expectedReasons,
+      });
+    },
+  );
 
   it("hashes payload content independently of object key order", () => {
     const first = hashGoogleShoppingPayload({
@@ -224,6 +251,47 @@ describe("google shopping export rows", () => {
 
     expect(product.condition).toBe("new");
     expect(product.exclusionReasons).toEqual([]);
+  });
+
+  it("maps Marketplace offer facts into Merchant offer identifiers, price, availability, and crawl reasons", () => {
+    expect(
+      mapGoogleShoppingOfferAttributes({
+        listingId: "lst_offer",
+        listingStatus: "active",
+        sellerListingAvailabilityStatus: "available",
+        sellerAccountStatus: "active",
+        accountId: "acc_seller",
+        canonicalUrl: "https://marketplace.chasesets.com/listings/charizard-lst_offer",
+        priceAmount: "17.5",
+        quantityCap: 3,
+        crawlable: true,
+      }),
+    ).toEqual({
+      offerId: "cs-listing-lst_offer",
+      externalSellerId: "cs-account-acc_seller",
+      link: "https://marketplace.chasesets.com/listings/charizard-lst_offer",
+      priceAmount: "17.50",
+      currencyCode: "USD",
+      availability: "in stock",
+      exclusionReasons: [],
+    });
+
+    expect(
+      mapGoogleShoppingOfferAttributes({
+        listingId: "lst_sold",
+        listingStatus: "active",
+        sellerListingAvailabilityStatus: "available",
+        sellerAccountStatus: "active",
+        accountId: "acc_seller",
+        canonicalUrl: "https://marketplace.chasesets.com/listings/sold-lst_sold",
+        priceAmount: "17.50",
+        quantityCap: 0,
+        crawlable: true,
+      }),
+    ).toMatchObject({
+      availability: "out of stock",
+      exclusionReasons: ["sold-out"],
+    });
   });
 
   it("excludes rows with ambiguous or missing trading-card condition facts", () => {
@@ -387,6 +455,30 @@ describe("google shopping export rows", () => {
     });
   });
 });
+
+function eligibleFeedRowInput(overrides: Partial<GoogleShoppingFeedRowInput> = {}): GoogleShoppingFeedRowInput {
+  return {
+    listingId: "lst_123",
+    listingStatus: "active",
+    sellerListingAvailabilityStatus: "available",
+    sellerAccountStatus: "active",
+    accountId: "acc_456",
+    catalogItemId: "cat_789",
+    productId: "cat_789::raw",
+    canonicalUrl: "https://marketplace.chasesets.com/listings/charizard-lst_123",
+    title: "Charizard 4/102",
+    description: "Pokemon trading card listing with verified condition.",
+    imageUrl: "https://assets.chasesets.com/catalog/charizard.webp",
+    priceAmount: "19.99",
+    condition: "used",
+    shippingPolicyReady: true,
+    returnsPolicyReady: true,
+    crawlable: true,
+    quantityCap: 1,
+    productMeasureReady: true,
+    ...overrides,
+  };
+}
 
 function productAssetSet(publicUrl: string, width: number, height: number) {
   return {
