@@ -145,6 +145,7 @@
     "dev:platform-api": "node ./scripts/dev-system.mjs dev platform-api",
     "dev:platform-worker": "node ./scripts/dev-system.mjs dev platform-worker",
     "dev:admin-web": "node ./scripts/dev-system.mjs dev admin-web",
+    "dev:browser-e2e": "node ./scripts/dev-system.mjs dev browser-e2e",
     "dev:reseed": "pnpm run dev:db:refresh",
     "dev:marketplace": "node ./scripts/dev-system.mjs dev marketplace",
     "dev:public-web": "node ./scripts/dev-system.mjs dev public-web",

@@ -27,10 +27,19 @@ export const e2eSuites = Object.freeze([
     journeys: ["listings", "offers", "seller operations"],
     grep: "@marketplace-seller",
   },
+  {
+    id: "catalog_admin_integrations",
+    label: "Catalog Admin Integrations",
+    deployable: "admin-web",
+    journeys: ["provider profile management", "catalog integrations"],
+    grep: "@catalog-admin-integrations",
+  },
 ]);
 
 const suiteOrder = new Map(e2eSuites.map((suite, index) => [suite.id, index]));
 const allMarketplaceSuiteIds = e2eSuites.filter((suite) => suite.deployable === "marketplace").map((suite) => suite.id);
+const allAdminWebSuiteIds = e2eSuites.filter((suite) => suite.deployable === "admin-web").map((suite) => suite.id);
+const allBrowserSuiteIds = e2eSuites.map((suite) => suite.id);
 const defaultSuiteBatchSize = 2;
 
 const browserRuntimePatterns = [
@@ -50,7 +59,7 @@ const browserRuntimePatterns = [
 
 const contextSuiteOwnership = new Map([
   ["auth", ["marketplace_account"]],
-  ["catalog", ["marketplace_browse"]],
+  ["catalog", ["marketplace_browse", "catalog_admin_integrations"]],
   ["checkout", ["marketplace_checkout"]],
   ["commercial-terms", ["marketplace_browse", "marketplace_seller"]],
   ["discovery", ["marketplace_browse"]],
@@ -111,6 +120,14 @@ const marketplaceRouteSuiteOwnership = [
 ];
 
 const boundedContextRouteSuiteOwnership = [
+  {
+    pattern: /^bounded-contexts\/catalog\/routes\/admin\/integrations\./,
+    suites: ["catalog_admin_integrations"],
+  },
+  {
+    pattern: /^bounded-contexts\/catalog\/routes\/admin\/source-observations/,
+    suites: ["catalog_admin_integrations"],
+  },
   {
     pattern: /^bounded-contexts\/[^/]+\/routes\/admin\//,
     suites: [],
@@ -221,15 +238,19 @@ export function e2eSuiteIdsForChangedFile(filePath) {
   const normalized = normalizeFilePath(filePath);
 
   if (isBrowserRuntimeFile(normalized)) {
-    return allMarketplaceSuiteIds;
+    return allBrowserSuiteIds;
   }
 
   if (normalized.startsWith("deployables/marketplace/")) {
     return marketplaceDeployableSuiteIdsForChangedFile(normalized);
   }
 
+  if (normalized.startsWith("deployables/admin-web/")) {
+    return isTestOnlyOrDocumentationFile(normalized) ? [] : allAdminWebSuiteIds;
+  }
+
   if (normalized.startsWith("deployables/platform-api/")) {
-    return isTestOnlyOrDocumentationFile(normalized) ? [] : allMarketplaceSuiteIds;
+    return isTestOnlyOrDocumentationFile(normalized) ? [] : allBrowserSuiteIds;
   }
 
   if (normalized.startsWith("packages/design-system/")) {

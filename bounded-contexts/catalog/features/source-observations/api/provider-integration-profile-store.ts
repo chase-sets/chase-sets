@@ -3,7 +3,9 @@ import {
   activateCatalogProviderIntegrationProfileVersion,
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfile,
+  type CatalogProviderIntegrationProfileAuthoringAudit,
   type CatalogProviderIntegrationProfileCompatibilityMode,
+  type CatalogProviderIntegrationProfileMigrationEvidence,
   type CatalogProviderIntegrationProfileRetirementPlan,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
@@ -26,6 +28,8 @@ type CatalogProviderIntegrationProfileVersionRow = Readonly<{
   compatibility_mode: CatalogProviderIntegrationProfileCompatibilityMode;
   retirement_plan_json: CatalogProviderIntegrationProfileRetirementPlan | string | null;
   executable_mapping_contract_json: CatalogProviderExecutableMappingContract | string | null;
+  migration_evidence_json: CatalogProviderIntegrationProfileMigrationEvidence | string | null;
+  authoring_audit_json: CatalogProviderIntegrationProfileAuthoringAudit | string | null;
 }>;
 
 export type CatalogProviderIntegrationProfileVersionStore = Readonly<{
@@ -55,6 +59,7 @@ export type CatalogProviderIntegrationProfileVersionStore = Readonly<{
     providerKey: string,
     rollbackToProfileVersion: string,
   ) => Promise<CatalogProviderIntegrationProfileVersionRecord>;
+  countProfileVersionReferences: (providerKey: string, profileVersion: string) => Promise<number>;
 }>;
 
 export function createCatalogProviderIntegrationProfileVersionStore(
@@ -64,8 +69,14 @@ export function createCatalogProviderIntegrationProfileVersionStore(
     seedProfileVersions: async (versions = catalogProviderIntegrationProfileVersions) => {
       const seeded: CatalogProviderIntegrationProfileVersionRecord[] = [];
       for (const version of versions) {
+        const existing = await getProfileVersion(db, version.providerKey, version.profileVersion);
+        if (isAdminAuthoredProfileVersion(existing)) {
+          seeded.push(existing);
+          continue;
+        }
         seeded.push(await upsertProfileVersion(db, version));
       }
+      await assertSeededActiveProfileVersions(db, versions);
       return seeded;
     },
     upsertProfileVersion: (version) => upsertProfileVersion(db, version),
@@ -76,7 +87,15 @@ export function createCatalogProviderIntegrationProfileVersionStore(
     deprecateProfileVersion: (providerKey, profileVersion) => deprecateProfileVersion(db, providerKey, profileVersion),
     rollbackProfileVersion: (providerKey, rollbackToProfileVersion) =>
       activateProfileVersion(db, providerKey, rollbackToProfileVersion),
+    countProfileVersionReferences: (providerKey, profileVersion) =>
+      countProfileVersionReferences(db, providerKey, profileVersion),
   };
+}
+
+function isAdminAuthoredProfileVersion(
+  version: CatalogProviderIntegrationProfileVersionRecord | null,
+): version is CatalogProviderIntegrationProfileVersionRecord {
+  return Boolean(version?.authoringAudit || version?.migrationEvidence);
 }
 
 export async function seedCatalogProviderIntegrationProfileVersions(
@@ -105,8 +124,10 @@ async function upsertProfileVersion(
        fixture_contract_json,
        compatibility_mode,
        retirement_plan_json,
-       executable_mapping_contract_json
-     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::jsonb, $11::jsonb)
+       executable_mapping_contract_json,
+       migration_evidence_json,
+       authoring_audit_json
+     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb)
      ON CONFLICT (provider_key, profile_key, profile_version) DO UPDATE SET
        lifecycle = EXCLUDED.lifecycle,
        active = EXCLUDED.active,
@@ -116,6 +137,8 @@ async function upsertProfileVersion(
        compatibility_mode = EXCLUDED.compatibility_mode,
        retirement_plan_json = EXCLUDED.retirement_plan_json,
        executable_mapping_contract_json = EXCLUDED.executable_mapping_contract_json,
+       migration_evidence_json = EXCLUDED.migration_evidence_json,
+       authoring_audit_json = EXCLUDED.authoring_audit_json,
        activated_at = CASE WHEN EXCLUDED.active THEN COALESCE(catalog_provider_integration_profile_versions.activated_at, now()) ELSE catalog_provider_integration_profile_versions.activated_at END,
        deprecated_at = CASE WHEN EXCLUDED.lifecycle = 'deprecated' THEN COALESCE(catalog_provider_integration_profile_versions.deprecated_at, now()) ELSE catalog_provider_integration_profile_versions.deprecated_at END,
        retired_at = CASE WHEN EXCLUDED.lifecycle = 'retired' THEN COALESCE(catalog_provider_integration_profile_versions.retired_at, now()) ELSE catalog_provider_integration_profile_versions.retired_at END,
@@ -133,6 +156,8 @@ async function upsertProfileVersion(
       version.compatibilityMode,
       version.retirementPlan === null ? null : JSON.stringify(version.retirementPlan),
       version.executableMappingContract ? JSON.stringify(version.executableMappingContract) : null,
+      version.migrationEvidence ? JSON.stringify(version.migrationEvidence) : null,
+      version.authoringAudit ? JSON.stringify(version.authoringAudit) : null,
     ],
   );
 
@@ -155,6 +180,28 @@ async function deactivateOtherActiveProfileVersions(
        AND lifecycle = 'active'`,
     [version.providerKey, version.profileVersion],
   );
+}
+
+async function assertSeededActiveProfileVersions(
+  db: PgQueryable,
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+): Promise<void> {
+  const providersRequiringActiveRows = Array.from(
+    new Set(
+      versions
+        .filter((version) => version.active && version.lifecycle === "active")
+        .map((version) => version.providerKey),
+    ),
+  );
+
+  for (const providerKey of providersRequiringActiveRows) {
+    const active = await getActiveProfileVersion(db, providerKey);
+    if (!active) {
+      throw new Error(
+        `Catalog provider integration bootstrap requires an active profile row for provider '${providerKey}'. Restore or activate a provider profile version before imports can run.`,
+      );
+    }
+  }
 }
 
 async function listProfileVersions(
@@ -270,6 +317,25 @@ async function deprecateProfileVersion(
   return upsertProfileVersion(db, deprecated);
 }
 
+async function countProfileVersionReferences(
+  db: PgQueryable,
+  providerKey: string,
+  profileVersion: string,
+): Promise<number> {
+  const result = await db.query<{ reference_count: number | string }>(
+    `SELECT COUNT(*) AS reference_count
+     FROM catalog_source_observations
+     WHERE provider_key = $1
+       AND (
+         source_profile_version = $2
+         OR promotion_profile_version = $2
+       )`,
+    [providerKey.trim().toLowerCase(), profileVersion.trim()],
+  );
+
+  return Number(result.rows[0]?.reference_count ?? 0);
+}
+
 function rowToProfileVersion(
   row: CatalogProviderIntegrationProfileVersionRow,
 ): CatalogProviderIntegrationProfileVersionRecord {
@@ -289,6 +355,12 @@ function rowToProfileVersion(
     executableMappingContract: row.executable_mapping_contract_json
       ? parseJsonField<CatalogProviderExecutableMappingContract>(row.executable_mapping_contract_json)
       : undefined,
+    migrationEvidence: row.migration_evidence_json
+      ? parseJsonField<CatalogProviderIntegrationProfileMigrationEvidence>(row.migration_evidence_json)
+      : null,
+    authoringAudit: row.authoring_audit_json
+      ? parseJsonField<CatalogProviderIntegrationProfileAuthoringAudit>(row.authoring_audit_json)
+      : null,
   };
 }
 
@@ -307,6 +379,8 @@ function rowFromVersion(
     compatibility_mode: version.compatibilityMode,
     retirement_plan_json: version.retirementPlan,
     executable_mapping_contract_json: version.executableMappingContract ?? null,
+    migration_evidence_json: version.migrationEvidence ?? null,
+    authoring_audit_json: version.authoringAudit ?? null,
   };
 }
 

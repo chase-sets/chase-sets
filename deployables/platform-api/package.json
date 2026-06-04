@@ -45,6 +45,7 @@
     "@chase-sets/ordering": "workspace:*",
     "@chase-sets/payment-processing-testing": "workspace:*",
     "@chase-sets/payments": "workspace:*",
+    "@chase-sets/platform-operations": "workspace:*",
     "@chase-sets/platform-runtime": "workspace:*",
     "@chase-sets/postage-labels-testing": "workspace:*",
     "@chase-sets/pricing": "workspace:*",

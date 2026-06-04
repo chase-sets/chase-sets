@@ -59,7 +59,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
   const items = createCatalogItemRuntime(deps);
   const productMeasures = createProductMeasureRuntime(deps);
   const providerIntegrationProfiles = createCatalogProviderIntegrationProfileVersionStore(db);
-  const sourceObservations = createSourceObservationRuntime(deps, items, referenceData);
+  const sourceObservations = createSourceObservationRuntime(deps, items, referenceData, providerIntegrationProfiles);
   const authoringBulkJobs = createCatalogAuthoringBulkJobServices(db);
 
   return {

@@ -7,6 +7,7 @@ describe("run e2e suite", () => {
     const suites = parseSuiteArgs([
       "marketplace_browse,marketplace_account",
       "marketplace_checkout marketplace_seller",
+      "catalog_admin_integrations",
     ]);
 
     expect(suites.map((suite) => suite.id)).toEqual([
@@ -14,6 +15,7 @@ describe("run e2e suite", () => {
       "marketplace_account",
       "marketplace_checkout",
       "marketplace_seller",
+      "catalog_admin_integrations",
     ]);
   });
 
@@ -25,11 +27,27 @@ describe("run e2e suite", () => {
 
   it("batches selected suites for CI without changing suite order", () => {
     expect(
-      batchE2eSuiteIds(["marketplace_seller", "marketplace_browse", "marketplace_checkout", "marketplace_account"]),
-    ).toEqual(["marketplace_browse,marketplace_account", "marketplace_checkout,marketplace_seller"]);
+      batchE2eSuiteIds([
+        "catalog_admin_integrations",
+        "marketplace_seller",
+        "marketplace_browse",
+        "marketplace_checkout",
+        "marketplace_account",
+      ]),
+    ).toEqual([
+      "marketplace_browse,marketplace_account",
+      "marketplace_checkout,marketplace_seller",
+      "catalog_admin_integrations",
+    ]);
   });
 
   it("routes the marketplace index route to browse coverage", () => {
     expect(e2eSuiteIdsForChangedFile("deployables/marketplace/app/routes/index.tsx")).toEqual(["marketplace_browse"]);
+  });
+
+  it("routes catalog admin integration routes to admin coverage", () => {
+    expect(e2eSuiteIdsForChangedFile("bounded-contexts/catalog/routes/admin/integrations.tsx")).toEqual([
+      "catalog_admin_integrations",
+    ]);
   });
 });

@@ -1,5 +1,9 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type {
+  CatalogProviderIntegrationProfileAuthoringAudit,
+  CatalogProviderIntegrationProfileMigrationEvidence,
   CatalogProviderIntegrationProfileVersionDiagnostic,
   CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
@@ -16,6 +20,12 @@ import {
   normalizeCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
+import {
+  formatCatalogProviderProfileFixtureFailures,
+  validateCatalogProviderProfileFixtures,
+  type CatalogProviderProfileFixtureCase,
+} from "./provider-profile-contract-harness";
+import { catalogProviderProfileFixtureCases } from "./provider-profile-fixture-cases";
 
 type SourceObservationProfileVersionRecord = CatalogProviderIntegrationProfileVersionRecord &
   Readonly<{ executableMappingContract: CatalogProviderSourceObservationMappingContract }>;
@@ -27,6 +37,21 @@ export type CatalogProviderProfileReviewDiagnostic = Readonly<{
   severity: "error" | "warning";
 }>;
 
+export type CatalogProviderProfileActivationDiagnostic = CatalogProviderProfileReviewDiagnostic &
+  Readonly<{
+    flow?: string;
+  }>;
+
+export class CatalogProviderProfileActivationValidationError extends Error {
+  readonly diagnostics: readonly CatalogProviderProfileActivationDiagnostic[];
+
+  constructor(message: string, diagnostics: readonly CatalogProviderProfileActivationDiagnostic[]) {
+    super(message);
+    this.name = "CatalogProviderProfileActivationValidationError";
+    this.diagnostics = diagnostics;
+  }
+}
+
 export type CatalogProviderProfileVersionReview = Readonly<{
   providerKey: string;
   profileKey: string;
@@ -37,17 +62,34 @@ export type CatalogProviderProfileVersionReview = Readonly<{
   status: string;
   compatibilityMode: string;
   connectorKind: string;
+  profile: CatalogProviderIntegrationProfileVersionRecord["profile"];
   sourceContract: CatalogProviderIntegrationProfileVersionRecord["sourceContract"];
   fixtures: CatalogProviderIntegrationProfileVersionRecord["fixtures"];
+  retirementPlan: CatalogProviderIntegrationProfileVersionRecord["retirementPlan"];
+  executableMappingContract: CatalogProviderIntegrationProfileVersionRecord["executableMappingContract"];
+  referenceCount: number;
   capabilities: readonly string[];
   supportedScopes: readonly string[];
   languageOptions: readonly string[];
   mappingOutputKind: string;
   hasExecutableMappingContract: boolean;
+  migrationEvidence: CatalogProviderIntegrationProfileMigrationEvidence | null;
+  authoringAudit: CatalogProviderIntegrationProfileAuthoringAudit | null;
   validation: Readonly<{
     status: "valid" | "invalid";
     diagnostics: readonly CatalogProviderProfileReviewDiagnostic[];
   }>;
+}>;
+
+export type CatalogProviderProfileVersionUpdatePatch = Readonly<{
+  lifecycle?: "draft" | "test";
+  profile?: CatalogProviderIntegrationProfileVersionRecord["profile"];
+  sourceContract?: CatalogProviderIntegrationProfileVersionRecord["sourceContract"];
+  fixtures?: CatalogProviderIntegrationProfileVersionRecord["fixtures"];
+  compatibilityMode?: CatalogProviderIntegrationProfileVersionRecord["compatibilityMode"];
+  retirementPlan?: CatalogProviderIntegrationProfileVersionRecord["retirementPlan"];
+  executableMappingContract?: CatalogProviderIntegrationProfileVersionRecord["executableMappingContract"] | null;
+  migrationEvidence?: CatalogProviderIntegrationProfileMigrationEvidence | null;
 }>;
 
 export type CatalogProviderProfileDryRunEvidence = Readonly<{
@@ -93,7 +135,14 @@ export async function listCatalogProviderProfileVersionReviews(
   store: CatalogProviderIntegrationProfileVersionStore,
 ): Promise<readonly CatalogProviderProfileVersionReview[]> {
   const versions = await store.listProfileVersions();
-  return versions.map(toProfileVersionReview);
+  return Promise.all(
+    versions.map(async (version) =>
+      toProfileVersionReview(
+        version,
+        await store.countProfileVersionReferences(version.providerKey, version.profileVersion),
+      ),
+    ),
+  );
 }
 
 export async function dryRunCatalogProviderProfileVersion(input: {
@@ -191,7 +240,11 @@ export async function activateCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  fixtureCases?: readonly CatalogProviderProfileFixtureCase[];
+  repositoryRoot?: string;
+  observedAt?: string;
 }): Promise<CatalogProviderProfileVersionReview> {
+  await assertFixtureHarnessForActivation(input);
   await assertMigrationEvidenceForActivation(input);
   const activated = await input.store.activateProfileVersion(input.providerKey, input.profileVersion);
   return toProfileVersionReview(activated);
@@ -206,8 +259,133 @@ export async function deprecateCatalogProviderProfileVersionForReview(input: {
   return toProfileVersionReview(deprecated);
 }
 
+export async function createCatalogProviderProfileVersionForReview(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  version: CatalogProviderIntegrationProfileVersionRecord;
+  audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
+}): Promise<CatalogProviderProfileVersionReview> {
+  assertMutableLifecycle(input.version.lifecycle);
+  const saved = await input.store.upsertProfileVersion({
+    ...assertProfileVersionIdentity(input.version),
+    active: false,
+    authoringAudit: mergeAuthoringAudit(null, input.audit),
+  });
+  return toProfileVersionReview(saved);
+}
+
+export async function cloneCatalogProviderProfileVersionForReview(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  providerKey: string;
+  profileVersion: string;
+  targetProfileVersion: string;
+  lifecycle?: "draft" | "test";
+  audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
+}): Promise<CatalogProviderProfileVersionReview> {
+  const source = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  const cloned = assertProfileVersionIdentity({
+    ...source,
+    profileVersion: input.targetProfileVersion,
+    lifecycle: input.lifecycle ?? "draft",
+    active: false,
+    executableMappingContract: source.executableMappingContract
+      ? {
+          ...source.executableMappingContract,
+          profileVersion: input.targetProfileVersion,
+          lifecycle: input.lifecycle ?? "draft",
+        }
+      : undefined,
+    migrationEvidence: null,
+    authoringAudit: mergeAuthoringAudit(null, input.audit),
+  });
+  assertMutableLifecycle(cloned.lifecycle);
+  const saved = await input.store.upsertProfileVersion(cloned);
+  return toProfileVersionReview(saved);
+}
+
+export async function updateCatalogProviderProfileVersionForReview(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  providerKey: string;
+  profileVersion: string;
+  patch: CatalogProviderProfileVersionUpdatePatch;
+  audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
+}): Promise<CatalogProviderProfileVersionReview> {
+  const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  assertMutableLifecycle(existing.lifecycle);
+  const nextLifecycle = input.patch.lifecycle ?? existing.lifecycle;
+  assertMutableLifecycle(nextLifecycle);
+  const updated = assertProfileVersionIdentity({
+    ...existing,
+    lifecycle: nextLifecycle,
+    active: false,
+    profile: input.patch.profile ?? existing.profile,
+    sourceContract: input.patch.sourceContract ?? existing.sourceContract,
+    fixtures: input.patch.fixtures ?? existing.fixtures,
+    compatibilityMode: input.patch.compatibilityMode ?? existing.compatibilityMode,
+    retirementPlan: Object.prototype.hasOwnProperty.call(input.patch, "retirementPlan")
+      ? (input.patch.retirementPlan ?? null)
+      : existing.retirementPlan,
+    executableMappingContract: Object.prototype.hasOwnProperty.call(input.patch, "executableMappingContract")
+      ? (input.patch.executableMappingContract ?? undefined)
+      : existing.executableMappingContract
+        ? {
+            ...existing.executableMappingContract,
+            lifecycle: nextLifecycle,
+          }
+        : undefined,
+    migrationEvidence: Object.prototype.hasOwnProperty.call(input.patch, "migrationEvidence")
+      ? (input.patch.migrationEvidence ?? null)
+      : (existing.migrationEvidence ?? null),
+    authoringAudit: mergeAuthoringAudit(existing.authoringAudit ?? null, input.audit),
+  });
+  const saved = await input.store.upsertProfileVersion(updated);
+  return toProfileVersionReview(saved);
+}
+
+export async function rollbackCatalogProviderProfileVersionForReview(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  providerKey: string;
+  profileVersion: string;
+}): Promise<CatalogProviderProfileVersionReview> {
+  const rolledBack = await input.store.rollbackProfileVersion(input.providerKey, input.profileVersion);
+  return toProfileVersionReview(rolledBack);
+}
+
+export async function retireCatalogProviderProfileVersionForReview(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  providerKey: string;
+  profileVersion: string;
+  audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
+}): Promise<CatalogProviderProfileVersionReview> {
+  const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  if (existing.active) {
+    throw new Error(
+      `Catalog provider profile version ${input.providerKey}@${input.profileVersion} must be deactivated before retirement.`,
+    );
+  }
+  const referenceCount = await input.store.countProfileVersionReferences(input.providerKey, input.profileVersion);
+  if (referenceCount > 0) {
+    throw new Error(
+      `Catalog provider profile version ${input.providerKey}@${input.profileVersion} is referenced by ${referenceCount} Source Observations and cannot be retired.`,
+    );
+  }
+  const retired = await input.store.upsertProfileVersion({
+    ...existing,
+    lifecycle: "retired",
+    active: false,
+    executableMappingContract: existing.executableMappingContract
+      ? {
+          ...existing.executableMappingContract,
+          lifecycle: "retired",
+        }
+      : undefined,
+    authoringAudit: mergeAuthoringAudit(existing.authoringAudit ?? null, input.audit),
+  });
+  return toProfileVersionReview(retired);
+}
+
 function toProfileVersionReview(
   version: CatalogProviderIntegrationProfileVersionRecord,
+  referenceCount = 0,
 ): CatalogProviderProfileVersionReview {
   const diagnostics = validateCatalogProviderIntegrationProfileVersion(version).map(toReviewDiagnostic);
   return {
@@ -220,13 +398,19 @@ function toProfileVersionReview(
     status: version.profile.status,
     compatibilityMode: version.compatibilityMode,
     connectorKind: version.profile.connector.kind,
+    profile: version.profile,
     sourceContract: version.sourceContract,
     fixtures: version.fixtures,
+    retirementPlan: version.retirementPlan,
+    executableMappingContract: version.executableMappingContract,
+    referenceCount,
     capabilities: version.profile.capabilities,
     supportedScopes: version.profile.supportedScopes,
     languageOptions: version.profile.languageOptions,
     mappingOutputKind: version.executableMappingContract?.normalizedObservation.outputKind ?? "unknown",
     hasExecutableMappingContract: Boolean(version.executableMappingContract),
+    migrationEvidence: version.migrationEvidence ?? null,
+    authoringAudit: version.authoringAudit ?? null,
     validation: {
       status: diagnostics.length === 0 ? "valid" : "invalid",
       diagnostics,
@@ -242,6 +426,67 @@ function toReviewDiagnostic(
     path: diagnostic.mappingDiagnostic?.path ?? diagnostic.path,
     diagnosticText: diagnostic.mappingDiagnostic?.diagnosticText ?? diagnostic.diagnosticText,
     severity: "error",
+  };
+}
+
+async function requireProfileVersion(
+  store: CatalogProviderIntegrationProfileVersionStore,
+  providerKey: string,
+  profileVersion: string,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  const version = await store.getProfileVersion(providerKey, profileVersion);
+  if (!version) {
+    throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not found.`);
+  }
+
+  return version;
+}
+
+function assertMutableLifecycle(lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"]): void {
+  if (lifecycle !== "draft" && lifecycle !== "test") {
+    throw new Error(`Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`);
+  }
+}
+
+function assertProfileVersionIdentity(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): CatalogProviderIntegrationProfileVersionRecord {
+  if (version.profile.providerKey !== version.providerKey) {
+    throw new Error(
+      `Profile providerKey '${version.profile.providerKey}' must match version providerKey '${version.providerKey}'.`,
+    );
+  }
+  if (version.executableMappingContract) {
+    if (
+      version.executableMappingContract.providerKey !== version.providerKey ||
+      version.executableMappingContract.profileKey !== version.profileKey ||
+      version.executableMappingContract.profileVersion !== version.profileVersion ||
+      version.executableMappingContract.lifecycle !== version.lifecycle
+    ) {
+      throw new Error(
+        "Executable mapping contract identity must match providerKey, profileKey, profileVersion, and lifecycle.",
+      );
+    }
+  }
+
+  return version;
+}
+
+function mergeAuthoringAudit(
+  existing: CatalogProviderIntegrationProfileAuthoringAudit | null,
+  next: CatalogProviderIntegrationProfileAuthoringAudit | null | undefined,
+): CatalogProviderIntegrationProfileAuthoringAudit | null {
+  if (!existing && !next) {
+    return null;
+  }
+
+  return {
+    createdAt: existing?.createdAt ?? next?.createdAt ?? null,
+    createdByUserId: existing?.createdByUserId ?? next?.createdByUserId ?? null,
+    createdForAccountId: existing?.createdForAccountId ?? next?.createdForAccountId ?? null,
+    updatedAt: next?.updatedAt ?? existing?.updatedAt ?? null,
+    updatedByUserId: next?.updatedByUserId ?? existing?.updatedByUserId ?? null,
+    updatedForAccountId: next?.updatedForAccountId ?? existing?.updatedForAccountId ?? null,
   };
 }
 
@@ -335,18 +580,79 @@ async function assertMigrationEvidenceForActivation(input: {
     return;
   }
 
-  throw new Error(
+  throw new CatalogProviderProfileActivationValidationError(
     `Activating ${target.providerKey}@${target.profileVersion} changes Source Observation mapping fingerprint and requires explicit migration evidence before activation.`,
+    [
+      {
+        code: "missing-migration-evidence",
+        path: "migrationEvidence.evidenceText",
+        diagnosticText:
+          "Source Observation mapping fingerprint changes require explicit migration evidence before activation.",
+        severity: "error",
+      },
+    ],
   );
 }
 
+async function assertFixtureHarnessForActivation(input: {
+  store: CatalogProviderIntegrationProfileVersionStore;
+  providerKey: string;
+  profileVersion: string;
+  fixtureCases?: readonly CatalogProviderProfileFixtureCase[];
+  repositoryRoot?: string;
+  observedAt?: string;
+}) {
+  const target = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
+  if (!target.executableMappingContract) {
+    throw new Error(
+      `Activating ${target.providerKey}@${target.profileVersion} requires an executable Source Observation mapping contract.`,
+    );
+  }
+
+  const fixtureResults = await validateCatalogProviderProfileFixtures({
+    versions: [target],
+    fixtureCases: input.fixtureCases ?? catalogProviderProfileFixtureCases(),
+    repositoryRoot: input.repositoryRoot ?? defaultRepositoryRoot(),
+    observedAt: input.observedAt ?? "2026-06-03T00:00:00.000Z",
+  });
+  const failureText = formatCatalogProviderProfileFixtureFailures(fixtureResults);
+  if (failureText) {
+    throw new CatalogProviderProfileActivationValidationError(
+      `Activating ${target.providerKey}@${target.profileVersion} failed fixture harness validation:\n${failureText}`,
+      fixtureResults.flatMap((result) =>
+        result.failures.map((failure) => ({
+          code: "fixture-harness-failure",
+          path: failure.path,
+          diagnosticText: failure.diagnosticText,
+          severity: "error" as const,
+          flow: failure.flow,
+        })),
+      ),
+    );
+  }
+}
+
 function hasMigrationEvidence(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
-  const evidence = (version as { migrationEvidence?: unknown }).migrationEvidence;
+  const evidence = version.migrationEvidence;
   if (!isJsonObject(evidence)) {
     return false;
   }
 
   return typeof evidence.evidenceText === "string" && evidence.evidenceText.trim().length > 0;
+}
+
+function defaultRepositoryRoot(): string {
+  let candidate = process.cwd();
+  while (true) {
+    if (existsSync(path.join(candidate, "bounded-contexts", "catalog", "README.md"))) {
+      return candidate;
+    }
+    const parent = path.dirname(candidate);
+    if (parent === candidate) {
+      return process.cwd();
+    }
+    candidate = parent;
+  }
 }
 
 function redactJson(value: JsonValue, redaction: string = "none"): JsonValue {

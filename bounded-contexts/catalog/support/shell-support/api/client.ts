@@ -72,6 +72,14 @@ export type CatalogIntegrationJob<T = unknown> = Readonly<{
   jobId: string;
   action: "import" | "reapply";
   scope: Readonly<Record<string, string | undefined>>;
+  profileSnapshot: Readonly<{
+    providerKey: string;
+    profileKey: string;
+    profileVersion: string;
+    lifecycle: string;
+    sourceMappingFingerprint: string;
+  }> | null;
+  reapplyProfileMode: "original-source-profile" | "current-active-profile" | null;
   status: "queued" | "running" | "completed" | "failed";
   progress: CatalogBulkActionProgress;
   result: T | null;
@@ -1052,6 +1060,35 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async createSourceObservationProviderProfile<T>(version: unknown): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify({ version }),
+      });
+      return parseJsonResponse<T>(response);
+    },
+    async updateSourceObservationProviderProfile<T>(
+      providerKey: string,
+      profileVersion: string,
+      patch: unknown,
+    ): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}`,
+        {
+          method: "PATCH",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify({ patch }),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async dryRunSourceObservationProviderProfile<T>(
       providerKey: string,
       profileVersion: string,
@@ -1070,9 +1107,47 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async cloneSourceObservationProviderProfile<T>(
+      providerKey: string,
+      profileVersion: string,
+      body: unknown,
+    ): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/clone`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(body),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async activateSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/activate`,
+        {
+          method: "POST",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async rollbackSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/rollback`,
+        {
+          method: "POST",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
+    async retireSourceObservationProviderProfile<T>(providerKey: string, profileVersion: string): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}/retire`,
         {
           method: "POST",
           headers: headersToRecord(headers),

@@ -55,6 +55,45 @@ function createAuthRuntime(): ApiHostRuntime {
   } as unknown as ApiHostRuntime;
 }
 
+function createCatalogRuntime(): ApiHostRuntime {
+  const catalogRouter = new Hono();
+  catalogRouter.get("/source-observations/provider-profiles", (c) => c.json({ items: [] }));
+  catalogRouter.post("/source-observations/provider-profiles", (c) => c.json({ created: true }, 201));
+  const catalogModule = {
+    contextName: "catalog",
+    apiMounts: [
+      {
+        mountPath: "/api/catalog",
+        kind: "primary",
+        requiresAuth: true,
+      },
+    ],
+    buildApis: () => [catalogRouter],
+    projectionHandlerSets: () => [],
+  };
+
+  return {
+    mountedContexts: [
+      {
+        contextName: "catalog",
+        mountRole: "active",
+        module: catalogModule,
+        services: {},
+        pool: {},
+        projectionHandlerSets: [],
+      },
+    ],
+    mountedModules: [{ module: catalogModule, services: {} }],
+    services: {
+      auth: {},
+      catalog: {},
+      identity: {},
+    },
+    projectionGroups: [],
+    subscriptionRunners: [],
+  } as unknown as ApiHostRuntime;
+}
+
 describe("admin-support API app", () => {
   it("serves readiness under the same-origin API prefix", async () => {
     const app = buildAdminSupportApiApp(createEmptyRuntime(), {
@@ -148,6 +187,46 @@ describe("admin-support API app", () => {
       projectionStatusSource: "runtime-memory",
       workers: [],
       runners: [],
+    });
+  });
+
+  it("requires catalog manage permission for Catalog API mutations", async () => {
+    const app = buildAdminSupportApiApp(createCatalogRuntime(), {
+      resolveActor: async () => ({
+        sessionId: "ses_test",
+        tenantId: "tnt_test",
+        userId: "usr_test",
+        accountId: "acc_test",
+        membershipId: "mem_test",
+        roleKey: "catalog-viewer",
+        permissions: ["catalog.view"],
+      }),
+    });
+
+    const readResponse = await app.request("/api/catalog/source-observations/provider-profiles");
+    expect(readResponse.status).toBe(200);
+
+    const writeResponse = await app.request("/api/catalog/source-observations/provider-profiles", {
+      method: "POST",
+      body: JSON.stringify({ version: {} }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(writeResponse.status).toBe(403);
+    await expect(writeResponse.json()).resolves.toMatchObject({
+      error: { code: "authorization_forbidden" },
+    });
+  });
+
+  it("rejects unauthenticated Catalog API requests before mounted Catalog routes run", async () => {
+    const app = buildAdminSupportApiApp(createCatalogRuntime(), {
+      resolveActor: async () => null,
+    });
+
+    const response = await app.request("/api/catalog/source-observations/provider-profiles");
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "authentication_required" },
     });
   });
 });

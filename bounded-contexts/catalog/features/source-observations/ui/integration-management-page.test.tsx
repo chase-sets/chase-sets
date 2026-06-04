@@ -8,11 +8,15 @@ import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationS
 const {
   mockActivateSourceObservationProviderProfile,
   mockBulkPromoteSourceObservationsByScope,
+  mockCloneSourceObservationProviderProfile,
   mockDeprecateSourceObservationProviderProfile,
   mockDryRunSourceObservationProviderProfile,
   mockEnqueueSourceObservationIntegrationJob,
   mockPreviewBulkPromoteSourceObservations,
   mockPreviewReapplySourceObservations,
+  mockRetireSourceObservationProviderProfile,
+  mockRollbackSourceObservationProviderProfile,
+  mockUpdateSourceObservationProviderProfile,
   mockRevalidate,
   mockUseSourceObservationProviderProfiles,
   mockUseSourceObservationIntegrationOptions,
@@ -24,11 +28,15 @@ const {
 } = vi.hoisted(() => ({
   mockActivateSourceObservationProviderProfile: vi.fn(),
   mockBulkPromoteSourceObservationsByScope: vi.fn(),
+  mockCloneSourceObservationProviderProfile: vi.fn(),
   mockDeprecateSourceObservationProviderProfile: vi.fn(),
   mockDryRunSourceObservationProviderProfile: vi.fn(),
   mockEnqueueSourceObservationIntegrationJob: vi.fn(),
   mockPreviewBulkPromoteSourceObservations: vi.fn(),
   mockPreviewReapplySourceObservations: vi.fn(),
+  mockRetireSourceObservationProviderProfile: vi.fn(),
+  mockRollbackSourceObservationProviderProfile: vi.fn(),
+  mockUpdateSourceObservationProviderProfile: vi.fn(),
   mockRevalidate: vi.fn(),
   mockUseSourceObservationProviderProfiles: vi.fn(),
   mockUseSourceObservationIntegrationOptions: vi.fn(),
@@ -48,11 +56,15 @@ vi.mock("react-router", () => ({
 vi.mock("./use-source-observations", () => ({
   activateSourceObservationProviderProfile: mockActivateSourceObservationProviderProfile,
   bulkPromoteSourceObservationsByScope: mockBulkPromoteSourceObservationsByScope,
+  cloneSourceObservationProviderProfile: mockCloneSourceObservationProviderProfile,
   deprecateSourceObservationProviderProfile: mockDeprecateSourceObservationProviderProfile,
   dryRunSourceObservationProviderProfile: mockDryRunSourceObservationProviderProfile,
   enqueueSourceObservationIntegrationJob: mockEnqueueSourceObservationIntegrationJob,
   previewBulkPromoteSourceObservations: mockPreviewBulkPromoteSourceObservations,
   previewReapplySourceObservations: mockPreviewReapplySourceObservations,
+  retireSourceObservationProviderProfile: mockRetireSourceObservationProviderProfile,
+  rollbackSourceObservationProviderProfile: mockRollbackSourceObservationProviderProfile,
+  updateSourceObservationProviderProfile: mockUpdateSourceObservationProviderProfile,
   useActiveSourceObservationIntegrationJobs: mockUseActiveSourceObservationIntegrationJobs,
   useSourceObservationProviderProfiles: mockUseSourceObservationProviderProfiles,
   useSourceObservationIntegrationOptions: mockUseSourceObservationIntegrationOptions,
@@ -108,6 +120,10 @@ describe("IntegrationManagementPage", () => {
       error: null,
       refresh: vi.fn(),
     });
+    mockCloneSourceObservationProviderProfile.mockResolvedValue(profileReview({ profileVersion: "2026.06.03.1" }));
+    mockUpdateSourceObservationProviderProfile.mockResolvedValue(profileReview());
+    mockRollbackSourceObservationProviderProfile.mockResolvedValue(profileReview());
+    mockRetireSourceObservationProviderProfile.mockResolvedValue(profileReview({ lifecycle: "retired" }));
     mockDryRunSourceObservationProviderProfile.mockResolvedValue({
       providerKey: "scrydex",
       profileKey: "scryfall-card-fixture",
@@ -256,6 +272,92 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByDisplayValue(/\[redacted\]/)).toBeTruthy();
   });
 
+  it("clones provider profiles and records migration evidence from the review table", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Clone$/i })[0]);
+    let dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByDisplayValue("2026.06.03.1")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Clone$/i }));
+
+    await waitFor(() =>
+      expect(mockCloneSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03", {
+        targetProfileVersion: "2026.06.03.1",
+      }),
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Evidence$/i })[0]);
+    dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Evidence"), {
+      target: { value: "Fixture harness passed and replay diff was reviewed." },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save evidence$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03", {
+        migrationEvidence: expect.objectContaining({
+          evidenceText: "Fixture harness passed and replay diff was reviewed.",
+        }),
+      }),
+    );
+  });
+
+  it("edits profile JSON and opens an active comparison from the review table", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    const activeProfile = profileReview({
+      providerKey: "scrydex",
+      profileVersion: "2026.06.02",
+      lifecycle: "active",
+      active: true,
+    });
+    const draftProfile = profileReview({
+      providerKey: "scrydex",
+      profileVersion: "2026.06.03",
+      lifecycle: "draft",
+      active: false,
+    });
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: { items: [draftProfile, activeProfile], total: 2, count: 2 },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit JSON$/i })[0]);
+    let dialog = screen.getByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("Profile JSON"), {
+      target: {
+        value: JSON.stringify({
+          profile: {
+            ...(draftProfile.profile as Record<string, unknown>),
+            displayName: "Scrydex Draft",
+          },
+        }),
+      },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save JSON$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03", {
+        profile: expect.objectContaining({
+          displayName: "Scrydex Draft",
+        }),
+      }),
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Compare$/i })[0]);
+    dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("2026.06.02")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Candidate profile JSON")).toBeTruthy();
+    expect(within(dialog).getByLabelText("Active profile JSON")).toBeTruthy();
+  });
+
   it("enqueues a TCGdex pull for the selected language and optional series", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
@@ -371,7 +473,7 @@ describe("IntegrationManagementPage", () => {
     expect(await screen.findByText("64 of 100 processed.")).toBeTruthy();
   });
 
-  it("enqueues a TCGplayer product-line import scope from explicit automation identifiers", async () => {
+  it("enqueues a TCGplayer product-line import scope from profile-backed options", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
 
@@ -380,11 +482,8 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("tab", { name: "TCGplayer" }));
-    fireEvent.change(await within(dialog).findByLabelText("TCGplayer Product Line ID"), {
+    fireEvent.change(await within(dialog).findByLabelText("Product Line"), {
       target: { value: "3" },
-    });
-    fireEvent.change(within(dialog).getByLabelText("Set Name"), {
-      target: { value: "Prismatic Evolutions" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Import$/i }));
 
@@ -393,7 +492,19 @@ describe("IntegrationManagementPage", () => {
         provider: "tcgplayer",
         language: "en",
         productLineId: "3",
-        setName: "Prismatic Evolutions",
+        setName: undefined,
+      }),
+    );
+    expect(mockUseSourceObservationIntegrationOptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        queryKind: "product-lines",
+      }),
+    );
+    expect(mockUseSourceObservationIntegrationOptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        queryKind: "set-names",
       }),
     );
     expect(mockSetSearchParams).toHaveBeenCalled();
@@ -598,6 +709,54 @@ function integrationOptionsResult(queryKind: string) {
     };
   }
 
+  if (queryKind === "product-lines") {
+    return {
+      data: {
+        items: [
+          {
+            providerKey: "tcgplayer",
+            queryKind: "product-lines",
+            value: "3",
+            label: "Pokemon",
+            description: "TCGplayer category 3",
+            parentValue: null,
+            imageUrl: null,
+            metadata: { productLineId: 3 },
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    };
+  }
+
+  if (queryKind === "set-names") {
+    return {
+      data: {
+        items: [
+          {
+            providerKey: "tcgplayer",
+            queryKind: "set-names",
+            value: "Prismatic Evolutions",
+            label: "Prismatic Evolutions",
+            description: "PRE",
+            parentValue: "3",
+            imageUrl: null,
+            metadata: { cleanSetName: "Prismatic Evolutions" },
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    };
+  }
+
   return {
     data: {
       items: [
@@ -631,7 +790,9 @@ function integrationOptionsResult(queryKind: string) {
   };
 }
 
-function profileReview(): CatalogProviderProfileVersionReview {
+function profileReview(
+  overrides: Partial<CatalogProviderProfileVersionReview> = {},
+): CatalogProviderProfileVersionReview {
   return {
     providerKey: "scrydex",
     profileKey: "scryfall-card-fixture",
@@ -642,6 +803,17 @@ function profileReview(): CatalogProviderProfileVersionReview {
     status: "planned",
     compatibilityMode: "executable-mapping-contract",
     connectorKind: "scrydex-scryfall-json",
+    profile: {
+      providerKey: "scrydex",
+      profileKey: "scryfall-card-fixture",
+      displayName: "Scrydex",
+      status: "planned",
+      connector: { kind: "scrydex-scryfall-json" },
+      capabilities: ["source-observation-import", "external-reference-extraction"],
+      supportedScopes: ["product/card"],
+      languageOptions: ["en"],
+      normalizedObservationMapping: { kind: "provider-product" },
+    },
     sourceContract: {
       owner: "chase-sets/catalog",
       repository: "chase-sets/chase-sets",
@@ -663,15 +835,21 @@ function profileReview(): CatalogProviderProfileVersionReview {
       ],
       liveProviderCallsAllowed: false,
     },
+    retirementPlan: null,
+    executableMappingContract: null,
+    referenceCount: 0,
     capabilities: ["source-observation-import", "external-reference-extraction"],
     supportedScopes: ["product/card"],
     languageOptions: ["en"],
     mappingOutputKind: "provider-product",
     hasExecutableMappingContract: true,
+    migrationEvidence: null,
+    authoringAudit: null,
     validation: {
       status: "valid",
       diagnostics: [],
     },
+    ...overrides,
   };
 }
 

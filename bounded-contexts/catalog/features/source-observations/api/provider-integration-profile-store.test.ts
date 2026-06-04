@@ -113,6 +113,106 @@ describe("catalog provider integration profile version store", () => {
     });
     expect(await store.getActiveProfileVersion("tcgdex")).toBeNull();
   });
+
+  it("persists migration evidence and authoring audit metadata", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    await store.upsertProfileVersion({
+      ...tcgdexVersion("2026.06.04", "draft", false),
+      migrationEvidence: {
+        evidenceText: "Replay compared against the prior active TCGdex mapping.",
+        mappingFingerprintBefore: "before",
+        mappingFingerprintAfter: "after",
+        fixtureRunId: "fixture-run-1",
+        recordedAt: "2026-06-03T00:00:00.000Z",
+        recordedByUserId: "usr_test",
+        recordedForAccountId: "acc_test",
+      },
+      authoringAudit: {
+        createdAt: "2026-06-03T00:00:00.000Z",
+        createdByUserId: "usr_test",
+        createdForAccountId: "acc_test",
+        updatedAt: "2026-06-03T00:01:00.000Z",
+        updatedByUserId: "usr_test",
+        updatedForAccountId: "acc_test",
+      },
+    });
+
+    await expect(store.getProfileVersion("tcgdex", "2026.06.04")).resolves.toMatchObject({
+      migrationEvidence: {
+        evidenceText: "Replay compared against the prior active TCGdex mapping.",
+        fixtureRunId: "fixture-run-1",
+      },
+      authoringAudit: {
+        createdByUserId: "usr_test",
+        updatedByUserId: "usr_test",
+      },
+    });
+  });
+
+  it("does not clobber admin-authored profile rows during seed reconciliation", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    await store.upsertProfileVersion({
+      ...tcgdexVersion("2026.06.03", "test", false),
+      profile: {
+        ...tcgdexPokemonTcgProviderProfile,
+        displayName: "Admin edited TCGdex",
+      },
+      authoringAudit: {
+        createdAt: "2026-06-03T00:00:00.000Z",
+        createdByUserId: "usr_test",
+        createdForAccountId: "acc_test",
+      },
+    });
+    await store.upsertProfileVersion({
+      ...tcgdexVersion("2026.06.04", "active", true),
+      authoringAudit: {
+        createdAt: "2026-06-03T00:01:00.000Z",
+        createdByUserId: "usr_test",
+        createdForAccountId: "acc_test",
+      },
+    });
+
+    await seedCatalogProviderIntegrationProfileVersions(db);
+
+    await expect(store.getProfileVersion("tcgdex", "2026.06.03")).resolves.toMatchObject({
+      lifecycle: "test",
+      active: false,
+      profile: {
+        displayName: "Admin edited TCGdex",
+      },
+      authoringAudit: {
+        createdByUserId: "usr_test",
+      },
+    });
+  });
+
+  it("fails seed reconciliation when a seeded provider is left without an active profile row", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    await store.upsertProfileVersion({
+      ...tcgdexVersion("2026.06.03", "test", false),
+      authoringAudit: {
+        createdAt: "2026-06-03T00:00:00.000Z",
+        createdByUserId: "usr_test",
+        createdForAccountId: "acc_test",
+      },
+    });
+
+    await expect(seedCatalogProviderIntegrationProfileVersions(db)).rejects.toThrow(
+      "requires an active profile row for provider 'tcgdex'",
+    );
+  });
+
+  it("counts Source Observation references to a provider profile version", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+    db.setProfileVersionReferenceCount("tcgdex", "2026.06.03", 2);
+
+    await expect(store.countProfileVersionReferences("TCGDEX", "2026.06.03")).resolves.toBe(2);
+    expect(db.statements.some((statement) => statement.includes("FROM catalog_source_observations"))).toBe(true);
+  });
 });
 
 function tcgdexVersion(
@@ -169,6 +269,11 @@ function currentTcgdexVersion(): CatalogProviderIntegrationProfileVersionRecord 
 class InMemoryProfileVersionDb {
   readonly statements: string[] = [];
   private rows = new Map<string, PersistedProfileVersionRow>();
+  private referenceCounts = new Map<string, number>();
+
+  setProfileVersionReferenceCount(providerKey: string, profileVersion: string, count: number): void {
+    this.referenceCounts.set(referenceKey(providerKey, profileVersion), count);
+  }
 
   async query<T>(sql: string, params: readonly unknown[] = []): QueryResult<T> {
     this.statements.push(sql);
@@ -196,6 +301,18 @@ class InMemoryProfileVersionDb {
         }
       }
       return { rows: [] as T[] };
+    }
+
+    if (sql.includes("FROM catalog_source_observations") && sql.includes("COUNT(*) AS reference_count")) {
+      const providerKey = String(params[0]);
+      const profileVersion = String(params[1]);
+      return {
+        rows: [
+          {
+            reference_count: this.referenceCounts.get(referenceKey(providerKey, profileVersion)) ?? 0,
+          },
+        ] as T[],
+      };
     }
 
     if (sql.includes("INSERT INTO catalog_provider_integration_profile_versions")) {
@@ -249,6 +366,8 @@ type PersistedProfileVersionRow = Readonly<{
   compatibility_mode: CatalogProviderIntegrationProfileVersionRecord["compatibilityMode"];
   retirement_plan_json: string | null;
   executable_mapping_contract_json: string | null;
+  migration_evidence_json: string | null;
+  authoring_audit_json: string | null;
 }>;
 
 function rowFromInsertParams(params: readonly unknown[]): PersistedProfileVersionRow {
@@ -264,11 +383,17 @@ function rowFromInsertParams(params: readonly unknown[]): PersistedProfileVersio
     compatibility_mode: params[8] as CatalogProviderIntegrationProfileVersionRecord["compatibilityMode"],
     retirement_plan_json: typeof params[9] === "string" ? params[9] : null,
     executable_mapping_contract_json: typeof params[10] === "string" ? params[10] : null,
+    migration_evidence_json: typeof params[11] === "string" ? params[11] : null,
+    authoring_audit_json: typeof params[12] === "string" ? params[12] : null,
   };
 }
 
 function rowKey(row: PersistedProfileVersionRow): string {
   return `${row.provider_key}:${row.profile_key}:${row.profile_version}`;
+}
+
+function referenceKey(providerKey: string, profileVersion: string): string {
+  return `${providerKey.trim().toLowerCase()}:${profileVersion.trim()}`;
 }
 
 function compareRows(left: PersistedProfileVersionRow, right: PersistedProfileVersionRow): number {

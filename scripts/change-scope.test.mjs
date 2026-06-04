@@ -237,7 +237,7 @@ describe("change-scope", () => {
     expect(deployableUtilityScope.e2eSuiteIds).toEqual([]);
   });
 
-  it("routes root browser runtime changes to marketplace E2E suites", () => {
+  it("routes root browser runtime changes to browser E2E suites", () => {
     const baseDir = path.join(process.cwd(), "repo");
     const scope = classifyChanges({
       baseDir,
@@ -251,6 +251,7 @@ describe("change-scope", () => {
       "marketplace_account",
       "marketplace_checkout",
       "marketplace_seller",
+      "catalog_admin_integrations",
     ]);
   });
 
@@ -317,6 +318,7 @@ describe("change-scope", () => {
     expect(JSON.parse(toOutputMap(scope).e2e_suite_batches_json)).toEqual([
       "marketplace_browse,marketplace_account",
       "marketplace_checkout,marketplace_seller",
+      "catalog_admin_integrations",
     ]);
     expect(toOutputMap(scope).coverage_fast).toBe("true");
     expect(toOutputMap(scope).coverage_summary).toBe("true");
@@ -341,6 +343,24 @@ describe("change-scope", () => {
 
     expect(scope.e2eTestsRequired).toBe(true);
     expect(scope.e2eSuiteIds).toEqual(["marketplace_browse", "marketplace_checkout", "marketplace_seller"]);
+  });
+
+  it("routes catalog admin integration routes to admin E2E", () => {
+    const baseDir = path.join(process.cwd(), "repo");
+    const scope = classifyChanges({
+      baseDir,
+      changedFiles: [
+        "bounded-contexts/catalog/routes/admin/integrations.tsx",
+        "deployables/admin-web/app/routes/catalog-layout.tsx",
+      ],
+      workspaces: [
+        workspace(baseDir, "bounded-contexts", "catalog", "@test/catalog"),
+        workspace(baseDir, "deployables", "admin-web", "@test/admin-web"),
+      ],
+    });
+
+    expect(scope.e2eTestsRequired).toBe(true);
+    expect(scope.e2eSuiteIds).toEqual(["catalog_admin_integrations"]);
   });
 
   it("keeps current non-marketplace bounded-context routes out of marketplace E2E", () => {

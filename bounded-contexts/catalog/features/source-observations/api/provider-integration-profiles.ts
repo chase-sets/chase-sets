@@ -395,6 +395,25 @@ export type CatalogProviderIntegrationProfileRetirementPlan = Readonly<{
   diagnosticText: string;
 }>;
 
+export type CatalogProviderIntegrationProfileMigrationEvidence = Readonly<{
+  evidenceText: string;
+  mappingFingerprintBefore?: string | null;
+  mappingFingerprintAfter?: string | null;
+  fixtureRunId?: string | null;
+  recordedAt: string;
+  recordedByUserId?: string | null;
+  recordedForAccountId?: string | null;
+}>;
+
+export type CatalogProviderIntegrationProfileAuthoringAudit = Readonly<{
+  createdAt?: string | null;
+  createdByUserId?: string | null;
+  createdForAccountId?: string | null;
+  updatedAt?: string | null;
+  updatedByUserId?: string | null;
+  updatedForAccountId?: string | null;
+}>;
+
 export type CatalogProviderIntegrationProfileVersionRecord = Readonly<{
   providerKey: string;
   profileKey: string;
@@ -407,6 +426,8 @@ export type CatalogProviderIntegrationProfileVersionRecord = Readonly<{
   compatibilityMode: CatalogProviderIntegrationProfileCompatibilityMode;
   retirementPlan: CatalogProviderIntegrationProfileRetirementPlan | null;
   executableMappingContract?: CatalogProviderExecutableMappingContract;
+  migrationEvidence?: CatalogProviderIntegrationProfileMigrationEvidence | null;
+  authoringAudit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
 }>;
 
 export type CatalogProviderIntegrationProfileVersionDiagnostic = Readonly<{

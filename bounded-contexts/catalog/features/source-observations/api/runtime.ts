@@ -78,13 +78,17 @@ import {
   type TcgplayerAutomationProductDetail,
 } from "./tcgplayer-automation-catalog-client";
 import {
-  getCatalogProviderIntegrationProfile,
   getActiveCatalogProviderIntegrationProfileVersion,
-  listCatalogProviderIntegrationProfiles,
-  requireCatalogProviderSourceObservationMappingContract,
+  listCatalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfile,
+  type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
-import { requireCatalogProviderSourceObservation } from "./provider-source-observation-normalizer";
+import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
+import {
+  catalogProviderSourceMappingFingerprint,
+  requireCatalogProviderSourceObservation,
+  type CatalogProviderSourceObservationMappingContract,
+} from "./provider-source-observation-normalizer";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
 import {
   planCatalogProviderPromotionCommands,
@@ -96,6 +100,23 @@ import { provisionCatalogProviderReferenceHierarchy } from "./provider-reference
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
 const INTEGRATION_REAPPLY_JOB_BATCH_SIZE = 10;
+
+type CatalogProviderIntegrationProfileVersionReader = Pick<
+  CatalogProviderIntegrationProfileVersionStore,
+  "listProfileVersions" | "getActiveProfileVersion"
+>;
+
+const staticCatalogProviderIntegrationProfileVersions: CatalogProviderIntegrationProfileVersionReader = {
+  listProfileVersions: async (providerKey?: string | null) => {
+    const normalizedProviderKey = providerKey?.trim().toLowerCase() ?? "";
+    const versions = listCatalogProviderIntegrationProfileVersions();
+    return normalizedProviderKey
+      ? versions.filter((version) => version.providerKey.trim().toLowerCase() === normalizedProviderKey)
+      : versions;
+  },
+  getActiveProfileVersion: async (providerKey: string) =>
+    getActiveCatalogProviderIntegrationProfileVersion(providerKey),
+};
 
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
@@ -198,6 +219,8 @@ export type SourceObservationJobRunContext = Readonly<{
 
 export type SourceObservationIntegrationJobAction = "import" | "reapply";
 
+export type SourceObservationReapplyProfileMode = "original-source-profile" | "current-active-profile";
+
 export type SourceObservationIntegrationJobScope = Readonly<{
   provider?: string;
   language?: string;
@@ -211,10 +234,22 @@ export type SourceObservationIntegrationJobScope = Readonly<{
 type SourceObservationIntegrationJobPayload = Readonly<{
   action: SourceObservationIntegrationJobAction;
   scope: SourceObservationIntegrationJobScope;
+  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
+}>;
+
+export type SourceObservationIntegrationProfileSnapshot = Readonly<{
+  providerKey: string;
+  profileKey: string;
+  profileVersion: string;
+  lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"];
+  sourceMappingFingerprint: string;
 }>;
 
 type SourceObservationIntegrationWorkUnitPayload = Readonly<{
   observationId: string;
+  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
 }>;
 
 type TcgplayerIntegrationImportTarget = Readonly<{
@@ -256,6 +291,8 @@ export type SourceObservationIntegrationJob = Readonly<{
   jobId: string;
   action: SourceObservationIntegrationJobAction;
   scope: SourceObservationIntegrationJobScope;
+  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode: SourceObservationReapplyProfileMode | null;
   status: SourceObservationBulkJobStatus;
   progress: BulkSourceObservationProgress;
   result: SourceObservationIntegrationJobResult | null;
@@ -422,6 +459,7 @@ export function createSourceObservationRuntime(
   deps: CatalogRuntimeDeps,
   items: CatalogItemServices,
   referenceData: ReferenceDataServices,
+  profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
 ): SourceObservationServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
@@ -530,7 +568,12 @@ export function createSourceObservationRuntime(
       input.observation.normalized,
       input.observation.provider_key,
     );
-    const providerProfile = requireCatalogPromotionProfile(input.observation.provider_key, normalized);
+    const providerProfileVersion = await requireCatalogPromotionProfileVersion(
+      profileVersions,
+      input.observation.provider_key,
+      normalized,
+    );
+    const providerProfile = providerProfileVersion.profile;
     requirePromotionAssetPorts({ deps, normalized });
 
     const existingCatalogItemId =
@@ -576,6 +619,7 @@ export function createSourceObservationRuntime(
           providerKey: input.observation.provider_key,
           externalKey: input.observation.external_key,
           providerProfile,
+          providerProfileVersion,
           catalogMapping,
           context: input.context,
         })
@@ -588,6 +632,7 @@ export function createSourceObservationRuntime(
           providerKey: input.observation.provider_key,
           externalKey: input.observation.external_key,
           providerProfile,
+          providerProfileVersion,
           catalogMapping,
           context: input.context,
         });
@@ -711,12 +756,21 @@ export function createSourceObservationRuntime(
   async function reapplyObservationFromRow(input: {
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode;
+    profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
     const normalized = requirePokemonCardPromotionObservation(
       input.observation.normalized,
       input.observation.provider_key,
     );
-    const providerProfile = requireCatalogPromotionProfile(input.observation.provider_key, normalized);
+    const providerProfileVersion = await requireCatalogPromotionProfileVersionForReapply(
+      profileVersions,
+      input.observation,
+      normalized,
+      input.reapplyProfileMode ?? "original-source-profile",
+      input.profileSnapshot ?? null,
+    );
+    const providerProfile = providerProfileVersion.profile;
     requirePromotionAssetPorts({ deps, normalized });
 
     if (input.observation.status !== "promoted") {
@@ -737,6 +791,7 @@ export function createSourceObservationRuntime(
       providerKey: input.observation.provider_key,
       externalKey: input.observation.external_key,
       providerProfile,
+      providerProfileVersion,
       catalogMapping: await loadPokemonTcgPromotionProfile(deps, providerProfile),
       context: input.context,
     });
@@ -761,6 +816,8 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
     runReapplyObservation?: DurableSideEffectRunner;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode;
+    profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   }): Promise<BulkSourceObservationReapplyResult> {
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationReapplyOutcome[] = [];
@@ -797,6 +854,8 @@ export function createSourceObservationRuntime(
           reapplyObservationFromRow({
             observation,
             context: input.context,
+            reapplyProfileMode: input.reapplyProfileMode,
+            profileSnapshot: input.profileSnapshot,
           }),
         );
         outcomes.push({
@@ -912,13 +971,16 @@ export function createSourceObservationRuntime(
   async function importTcgdexSetScope(input: {
     languageCode: string;
     setId: string;
+    providerProfileVersion?: CatalogProviderIntegrationProfileVersionRecord;
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
     runRecordObservation?: DurableSideEffectRunner;
   }): Promise<TcgdexSetImportResult> {
-    const profile = requireCatalogImportProfile("tcgdex");
-    const contract = requireCatalogProviderSourceObservationMappingContract(profile.providerKey);
+    const profileVersion =
+      input.providerProfileVersion ?? (await requireCatalogImportProfileVersion(profileVersions, "tcgdex"));
+    const profile = profileVersion.profile;
+    const contract = requireSourceObservationMappingContract(profileVersion);
     const observationPayloads = await fetchTcgdexSetObservationPayloads({
       profile,
       languageCode: input.languageCode,
@@ -1359,10 +1421,27 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const scope = normalizeIntegrationJobScope(input.scope);
+    const importProfileVersion =
+      input.action === "import" ? await requireCatalogImportProfileVersion(profileVersions, scope.provider) : null;
+    const reapplyProfileMode: SourceObservationReapplyProfileMode | null =
+      input.action === "reapply" ? "current-active-profile" : null;
+    const profileSnapshot =
+      importProfileVersion === null
+        ? reapplyProfileMode === null
+          ? null
+          : snapshotCatalogReapplyProfileVersion(
+              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider),
+            )
+        : snapshotCatalogProfileVersion(importProfileVersion);
+
     const existingJob = (await integrationJobStore.listActive({ jobKinds: [input.action] }))
       .filter((job) => jobMatchesContext(job, input.context))
       .map(toSourceObservationIntegrationJob)
-      .find((job) => JSON.stringify(job.scope) === JSON.stringify(scope));
+      .find(
+        (job) =>
+          JSON.stringify(job.scope) === JSON.stringify(scope) &&
+          integrationProfileSnapshotKey(job.profileSnapshot) === integrationProfileSnapshotKey(profileSnapshot),
+      );
     if (existingJob) {
       return existingJob;
     }
@@ -1377,7 +1456,7 @@ export function createSourceObservationRuntime(
     const job = await integrationJobStore.enqueue({
       jobId,
       jobKind: input.action,
-      payload: { action: input.action, scope },
+      payload: { action: input.action, scope, profileSnapshot, reapplyProfileMode },
       progress,
       eventContext: input.context,
     });
@@ -1387,7 +1466,7 @@ export function createSourceObservationRuntime(
         units: unitObservationIds.map((observationId) => ({
           unitId: observationId,
           unitKind: "reapply",
-          payload: { observationId },
+          payload: { observationId, profileSnapshot, reapplyProfileMode },
         })),
       });
     }
@@ -1526,11 +1605,15 @@ export function createSourceObservationRuntime(
         observationIds: [claim.unit.payload.observationId],
         context,
         runReapplyObservation,
+        reapplyProfileMode:
+          claim.unit.payload.reapplyProfileMode ?? job.reapplyProfileMode ?? "original-source-profile",
+        profileSnapshot: claim.unit.payload.profileSnapshot ?? job.profileSnapshot,
       });
       const outcome = integrationReapplyOutcomeFromBulkOutcome(
         job,
         claim.unit.payload.observationId,
         itemResult.outcomes[0],
+        await defaultSourceObservationImportProviderKey(profileVersions),
       );
       await requireSourceObservationJobClaim(
         integrationWorkUnitStore.recordTerminal({
@@ -1558,7 +1641,7 @@ export function createSourceObservationRuntime(
         return 0;
       }
       const outcome: SourceObservationIntegrationJobOutcome = {
-        providerKey: job.scope.provider || defaultSourceObservationImportProviderKey(),
+        providerKey: job.scope.provider || (await defaultSourceObservationImportProviderKey(profileVersions)),
         languageCode: job.scope.language || "",
         expansionId: claim.unit.payload.observationId,
         status: "failed",
@@ -1603,7 +1686,11 @@ export function createSourceObservationRuntime(
         units: observationIds.map((observationId) => ({
           unitId: observationId,
           unitKind: "reapply",
-          payload: { observationId },
+          payload: {
+            observationId,
+            profileSnapshot: job.profileSnapshot,
+            reapplyProfileMode: job.reapplyProfileMode ?? "original-source-profile",
+          },
         })),
       });
     }
@@ -1659,13 +1746,19 @@ export function createSourceObservationRuntime(
   > {
     throwIfJobRunCancelled(input.context);
     const scope = normalizeIntegrationJobScope(input.job.scope);
-    const providerProfile = requireCatalogImportProfile(scope.provider);
+    const providerProfileVersion = await requireCatalogImportProfileVersionForJob(
+      profileVersions,
+      scope.provider,
+      input.job.profileSnapshot,
+    );
+    const providerProfile = providerProfileVersion.profile;
 
     if (providerProfile.providerKey === "tcgplayer") {
       return processTcgplayerIntegrationImportJobTurn({
         job: input.job,
         scope,
         providerProfile,
+        providerProfileVersion,
         claimTtlMs: input.claimTtlMs,
         context: input.context,
       });
@@ -1724,6 +1817,7 @@ export function createSourceObservationRuntime(
       expansion: nextExpansion,
       languageCode,
       providerProfile,
+      providerProfileVersion,
       context: input.job.eventContext,
       beforeRecordObservation: async () => {
         throwIfJobRunCancelled(input.context);
@@ -1823,13 +1917,16 @@ export function createSourceObservationRuntime(
       context: input.job.eventContext,
       onProgress: progressHandler,
       runReapplyObservation: createSourceObservationSideEffectRunner(jobContext),
+      reapplyProfileMode: input.job.reapplyProfileMode ?? "original-source-profile",
+      profileSnapshot: input.job.profileSnapshot,
     });
     throwIfJobRunCancelled(input.context);
 
+    const defaultProviderKey = await defaultSourceObservationImportProviderKey(profileVersions);
     const outcomes: SourceObservationIntegrationJobOutcome[] = [
       ...previousResult.outcomes,
       ...batchResult.outcomes.map((outcome) => ({
-        providerKey: input.job.scope.provider || defaultSourceObservationImportProviderKey(),
+        providerKey: input.job.scope.provider || defaultProviderKey,
         languageCode: input.job.scope.language || "",
         expansionId: outcome.observationId,
         status: outcome.status,
@@ -1854,11 +1951,13 @@ export function createSourceObservationRuntime(
     onProgress?: SourceObservationProgressHandler;
   }): Promise<SourceObservationIntegrationJobResult> {
     const scope = normalizeIntegrationJobScope(input.scope);
-    const providerProfile = requireCatalogImportProfile(scope.provider);
+    const providerProfileVersion = await requireCatalogImportProfileVersion(profileVersions, scope.provider);
+    const providerProfile = providerProfileVersion.profile;
 
     if (providerProfile.providerKey === "tcgplayer") {
       return processTcgplayerIntegrationImportJob({
         scope,
+        providerProfileVersion,
         context: input.context,
         onProgress: input.onProgress,
       });
@@ -1885,6 +1984,7 @@ export function createSourceObservationRuntime(
         const result = await importTcgdexSetScope({
           languageCode,
           setId: expansion.expansionId,
+          providerProfileVersion,
           context: input.context,
           onProgress: (progress) =>
             input.onProgress?.(
@@ -1933,6 +2033,7 @@ export function createSourceObservationRuntime(
     expansion: Readonly<{ expansionId: string; name: string }>;
     languageCode: string;
     providerProfile: CatalogProviderIntegrationProfile;
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
     context: EventStoreContext;
     onProgress?: (progress: TcgdexSetImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
@@ -1942,6 +2043,7 @@ export function createSourceObservationRuntime(
       const result = await importTcgdexSetScope({
         languageCode: input.languageCode,
         setId: input.expansion.expansionId,
+        providerProfileVersion: input.providerProfileVersion,
         context: input.context,
         onProgress: input.onProgress,
         beforeRecordObservation: input.beforeRecordObservation,
@@ -1977,6 +2079,7 @@ export function createSourceObservationRuntime(
     job: ClaimedSourceObservationIntegrationJob;
     scope: SourceObservationIntegrationJobScope;
     providerProfile: CatalogProviderIntegrationProfile;
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
     claimTtlMs: number;
     context: SourceObservationJobRunContext;
   }): Promise<
@@ -2024,6 +2127,7 @@ export function createSourceObservationRuntime(
     const outcome = await importTcgplayerIntegrationTarget({
       target: nextTarget,
       providerProfile: input.providerProfile,
+      providerProfileVersion: input.providerProfileVersion,
       context: input.job.eventContext,
       beforeRecordObservation: async () => {
         throwIfJobRunCancelled(input.context);
@@ -2058,11 +2162,14 @@ export function createSourceObservationRuntime(
 
   async function processTcgplayerIntegrationImportJob(input: {
     scope: SourceObservationIntegrationJobScope;
+    providerProfileVersion?: CatalogProviderIntegrationProfileVersionRecord;
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
   }): Promise<SourceObservationIntegrationJobResult> {
     const scope = normalizeIntegrationJobScope(input.scope);
-    const providerProfile = requireCatalogImportProfile(scope.provider);
+    const providerProfileVersion =
+      input.providerProfileVersion ?? (await requireCatalogImportProfileVersion(profileVersions, scope.provider));
+    const providerProfile = providerProfileVersion.profile;
     if (providerProfile.providerKey !== "tcgplayer") {
       throw new Error(`Provider '${providerProfile.providerKey}' is not supported by the TCGplayer import worker.`);
     }
@@ -2074,6 +2181,7 @@ export function createSourceObservationRuntime(
       const outcome = await importTcgplayerIntegrationTarget({
         target,
         providerProfile,
+        providerProfileVersion,
         context: input.context,
         onProgress: (targetProgress) =>
           input.onProgress?.(
@@ -2149,6 +2257,7 @@ export function createSourceObservationRuntime(
   async function importTcgplayerIntegrationTarget(input: {
     target: TcgplayerIntegrationImportTarget;
     providerProfile: CatalogProviderIntegrationProfile;
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
     context: EventStoreContext;
     onProgress?: (progress: TcgplayerProductImportProgress) => void | Promise<void>;
     beforeRecordObservation?: () => Promise<void>;
@@ -2170,7 +2279,7 @@ export function createSourceObservationRuntime(
 
       let observed = 0;
       const observedAt = new Date().toISOString();
-      const contract = requireCatalogProviderSourceObservationMappingContract("tcgplayer");
+      const contract = requireSourceObservationMappingContract(input.providerProfileVersion);
       const selectedOptionMapping = input.providerProfile.selectedOptionMapping;
       if (!selectedOptionMapping) {
         throw new Error("TCGplayer import profile must define selected option mapping.");
@@ -2301,12 +2410,18 @@ export function createSourceObservationRuntime(
     onProgress?: SourceObservationProgressHandler;
   }): Promise<SourceObservationIntegrationJobResult> {
     const scope = integrationScopeToObservationScope(input.scope);
+    const profileSnapshot = snapshotCatalogReapplyProfileVersion(
+      await requireCatalogReapplyActiveProfileVersion(profileVersions, input.scope.provider),
+    );
     const result = await reapplyObservationIds({
       observationIds: await listSourceObservationIdsForReapply(deps.db, scope),
       context: input.context,
       onProgress: input.onProgress,
+      reapplyProfileMode: "current-active-profile",
+      profileSnapshot,
     });
 
+    const defaultProviderKey = await defaultSourceObservationImportProviderKey(profileVersions);
     return {
       requested: result.requested,
       imported: 0,
@@ -2315,7 +2430,7 @@ export function createSourceObservationRuntime(
       skipped: result.skipped,
       failed: result.failed,
       outcomes: result.outcomes.map((outcome) => ({
-        providerKey: input.scope.provider || defaultSourceObservationImportProviderKey(),
+        providerKey: input.scope.provider || defaultProviderKey,
         languageCode: input.scope.language || "",
         expansionId: input.scope.setId || null,
         status: outcome.status,
@@ -2330,12 +2445,21 @@ export function createSourceObservationRuntime(
     commandHandler,
     importTcgdexSet: importTcgdexSetScope,
     importTcgplayerScope: processTcgplayerIntegrationImportJob,
-    listTcgdexLanguages: async () => listTcgdexLanguageOptions(requireCatalogImportProfile("tcgdex")),
+    listTcgdexLanguages: async () =>
+      listTcgdexLanguageOptions((await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile),
     listTcgdexSeries: async ({ languageCode }) =>
-      fetchTcgdexSeriesOptions({ profile: requireCatalogImportProfile("tcgdex"), languageCode }),
+      fetchTcgdexSeriesOptions({
+        profile: (await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile,
+        languageCode,
+      }),
     listTcgdexExpansions: async ({ languageCode, seriesId }) =>
-      fetchTcgdexExpansionOptions({ profile: requireCatalogImportProfile("tcgdex"), languageCode, seriesId }),
-    listIntegrationOptions: (input) => listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient),
+      fetchTcgdexExpansionOptions({
+        profile: (await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile,
+        languageCode,
+        seriesId,
+      }),
+    listIntegrationOptions: (input) =>
+      listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient, profileVersions),
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -2470,20 +2594,30 @@ async function listProviderIntegrationOptions(
     parentValue?: string | null;
   },
   tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient,
+  profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
 ): Promise<readonly SourceObservationIntegrationOption[]> {
+  const versions = await profileVersions.listProfileVersions();
   return listCatalogProviderIntegrationOptionsFromProfiles({
-    profiles: listCatalogProviderIntegrationProfiles(),
+    profiles: versions.filter(isActiveProviderOptionQueryProfileVersion).map((version) => version.profile),
     providerKey: input.providerKey,
     queryKind: input.queryKind,
     languageCode: input.languageCode,
     parentValue: input.parentValue,
-    defaultProviderKey: defaultSourceObservationImportProviderKey(),
+    defaultProviderKey: await defaultSourceObservationImportProviderKey(profileVersions),
     transports: {
-      listTcgdexLanguages: async () => listTcgdexLanguageOptions(requireCatalogImportProfile("tcgdex")),
+      listTcgdexLanguages: async () =>
+        listTcgdexLanguageOptions((await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile),
       listTcgdexSeries: async ({ languageCode }) =>
-        fetchTcgdexSeriesOptions({ profile: requireCatalogImportProfile("tcgdex"), languageCode }),
+        fetchTcgdexSeriesOptions({
+          profile: (await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile,
+          languageCode,
+        }),
       listTcgdexExpansions: async ({ languageCode, seriesId }) =>
-        fetchTcgdexExpansionOptions({ profile: requireCatalogImportProfile("tcgdex"), languageCode, seriesId }),
+        fetchTcgdexExpansionOptions({
+          profile: (await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile,
+          languageCode,
+          seriesId,
+        }),
       listTcgplayerProductLines: async () =>
         requireTcgplayerAutomationCatalogClient(tcgplayerAutomationCatalogClient).listProductLines(),
       listTcgplayerSetNames: async ({ productLineId }) => {
@@ -2510,14 +2644,196 @@ function normalizeIntegrationKey(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function requireCatalogImportProfile(providerKey: string | null | undefined): CatalogProviderIntegrationProfile {
-  const normalizedProvider = normalizeIntegrationKey(providerKey || defaultSourceObservationImportProviderKey());
-  const profile = getCatalogProviderIntegrationProfile(normalizedProvider);
-  if (!profile || !profile.capabilities.includes("source-observation-import")) {
+async function requireCatalogImportProfileVersion(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  providerKey: string | null | undefined,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  const normalizedProvider = normalizeIntegrationKey(
+    providerKey || (await defaultSourceObservationImportProviderKey(profileVersions)),
+  );
+  const version = await profileVersions.getActiveProfileVersion(normalizedProvider);
+  if (!version || !isActiveSourceObservationImportProfileVersion(version)) {
     throw new Error(`Provider '${normalizedProvider}' does not support background import.`);
   }
 
-  return profile;
+  return version;
+}
+
+async function requireCatalogImportProfileVersionForJob(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  providerKey: string | null | undefined,
+  snapshot: SourceObservationIntegrationProfileSnapshot | null,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  if (!snapshot) {
+    return requireCatalogImportProfileVersion(profileVersions, providerKey);
+  }
+
+  const versions = await profileVersions.listProfileVersions(snapshot.providerKey);
+  const version = versions.find(
+    (candidate) =>
+      candidate.providerKey === snapshot.providerKey &&
+      candidate.profileKey === snapshot.profileKey &&
+      candidate.profileVersion === snapshot.profileVersion,
+  );
+  if (!version) {
+    throw new Error(
+      `Catalog provider profile version ${snapshot.providerKey}@${snapshot.profileVersion} from the integration job snapshot was not found.`,
+    );
+  }
+  if (!version.profile.capabilities.includes("source-observation-import")) {
+    throw new Error(`Provider '${snapshot.providerKey}' does not support background import.`);
+  }
+
+  return version;
+}
+
+async function requireCatalogReapplyActiveProfileVersion(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  providerKey: string | null | undefined,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  const normalizedProvider = normalizeIntegrationKey(
+    providerKey || (await defaultSourceObservationImportProviderKey(profileVersions)),
+  );
+  const providerProfile = await profileVersions.getActiveProfileVersion(normalizedProvider);
+  if (providerProfile && isActivePromotionProfileVersion(providerProfile)) {
+    return providerProfile;
+  }
+
+  const compatibleProfile = (await profileVersions.listProfileVersions()).find(isActivePromotionProfileVersion);
+  if (compatibleProfile) {
+    return compatibleProfile;
+  }
+
+  throw new Error(`Provider '${normalizedProvider}' does not support Catalog Item promotion.`);
+}
+
+async function requireCatalogPromotionProfileVersionForReapply(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  observation: SourceObservationDetailRow,
+  normalized: SourceObservationNormalized,
+  mode: SourceObservationReapplyProfileMode,
+  snapshot: SourceObservationIntegrationProfileSnapshot | null,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  if (mode === "current-active-profile") {
+    if (snapshot) {
+      return requireCatalogPromotionProfileVersionFromSnapshot(profileVersions, snapshot, normalized);
+    }
+    return requireCatalogPromotionProfileVersion(profileVersions, observation.provider_key, normalized);
+  }
+
+  const sourceProfileKey = observation.source_profile_key?.trim() || "legacy";
+  const sourceProfileVersion = observation.source_profile_version?.trim() || "legacy";
+  if (sourceProfileVersion === "legacy") {
+    return requireCatalogPromotionProfileVersion(profileVersions, observation.provider_key, normalized);
+  }
+
+  const version = (await profileVersions.listProfileVersions(observation.provider_key)).find(
+    (candidate) =>
+      candidate.providerKey === observation.provider_key &&
+      candidate.profileKey === sourceProfileKey &&
+      candidate.profileVersion === sourceProfileVersion,
+  );
+  if (!version) {
+    throw new Error(
+      `Catalog provider profile version ${observation.provider_key}@${sourceProfileVersion} from Source Observation ${observation.observation_id} was not found.`,
+    );
+  }
+
+  assertPromotionProfileCompatible(version, normalized);
+  return version;
+}
+
+async function requireCatalogPromotionProfileVersionFromSnapshot(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  snapshot: SourceObservationIntegrationProfileSnapshot,
+  normalized: SourceObservationNormalized,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  const version = await findCatalogProfileVersionFromSnapshot(profileVersions, snapshot);
+  if (!version) {
+    throw new Error(
+      `Catalog provider profile version ${snapshot.providerKey}@${snapshot.profileVersion} from the integration job snapshot was not found.`,
+    );
+  }
+
+  assertPromotionProfileCompatible(version, normalized);
+  return version;
+}
+
+async function findCatalogProfileVersionFromSnapshot(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+  snapshot: SourceObservationIntegrationProfileSnapshot,
+): Promise<CatalogProviderIntegrationProfileVersionRecord | null> {
+  const versions = await profileVersions.listProfileVersions(snapshot.providerKey);
+  return (
+    versions.find(
+      (candidate) =>
+        candidate.providerKey === snapshot.providerKey &&
+        candidate.profileKey === snapshot.profileKey &&
+        candidate.profileVersion === snapshot.profileVersion,
+    ) ?? null
+  );
+}
+
+function assertPromotionProfileCompatible(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+  normalized: SourceObservationNormalized,
+): void {
+  if (!version.profile.capabilities.includes("catalog-item-promotion")) {
+    throw new Error(`Provider '${version.providerKey}' does not support Catalog Item promotion.`);
+  }
+  if (version.profile.normalizedObservationMapping.kind !== normalized.kind) {
+    throw new Error(
+      `Provider '${version.providerKey}' promotion mapping '${version.profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
+    );
+  }
+}
+
+function snapshotCatalogProfileVersion(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): SourceObservationIntegrationProfileSnapshot {
+  return {
+    providerKey: version.providerKey,
+    profileKey: version.profileKey,
+    profileVersion: version.profileVersion,
+    lifecycle: version.lifecycle,
+    sourceMappingFingerprint: catalogProviderSourceMappingFingerprint(requireSourceObservationMappingContract(version)),
+  };
+}
+
+function snapshotCatalogReapplyProfileVersion(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): SourceObservationIntegrationProfileSnapshot {
+  return snapshotCatalogProfileVersion(version);
+}
+
+function integrationProfileSnapshotKey(snapshot: SourceObservationIntegrationProfileSnapshot | null): string {
+  return snapshot ? `${snapshot.providerKey}:${snapshot.profileKey}:${snapshot.profileVersion}` : "legacy";
+}
+
+function normalizeReapplyProfileMode(
+  mode: SourceObservationReapplyProfileMode | null | undefined,
+): SourceObservationReapplyProfileMode | null {
+  return mode === "current-active-profile" || mode === "original-source-profile" ? mode : null;
+}
+
+function isActiveSourceObservationImportProfileVersion(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): boolean {
+  return (
+    version.active &&
+    version.lifecycle === "active" &&
+    version.profile.status === "active" &&
+    version.profile.capabilities.includes("source-observation-import")
+  );
+}
+
+function isActiveProviderOptionQueryProfileVersion(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
+  return (
+    version.active &&
+    version.lifecycle === "active" &&
+    version.profile.status === "active" &&
+    version.profile.capabilities.includes("provider-option-query")
+  );
 }
 
 async function createCatalogDraftFromObservation(input: {
@@ -2529,11 +2845,11 @@ async function createCatalogDraftFromObservation(input: {
   providerKey: string;
   externalKey: string;
   providerProfile: CatalogProviderIntegrationProfile;
+  providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   context: EventStoreContext;
 }): Promise<SourceObservationPromotionProfileEvidence> {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const profileVersion = requireActivePromotionProfileVersion(input.providerProfile.providerKey);
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
@@ -2558,8 +2874,8 @@ async function createCatalogDraftFromObservation(input: {
     : null;
   const plan = planCatalogProviderPromotionCommands({
     profile: input.providerProfile,
-    profileKey: profileVersion.profileKey,
-    profileVersion: profileVersion.profileVersion,
+    profileKey: input.providerProfileVersion.profileKey,
+    profileVersion: input.providerProfileVersion.profileVersion,
     providerKey: input.providerKey,
     externalKey: input.externalKey,
     mode: "create",
@@ -2595,11 +2911,11 @@ async function refreshCatalogItemFromObservation(input: {
   providerKey: string;
   externalKey: string;
   providerProfile: CatalogProviderIntegrationProfile;
+  providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord;
   catalogMapping: CatalogProviderPromotionResolvedCatalogMapping;
   context: EventStoreContext;
 }): Promise<SourceObservationPromotionProfileEvidence> {
   const streamId = `catalog.item-${input.catalogItemId}`;
-  const profileVersion = requireActivePromotionProfileVersion(input.providerProfile.providerKey);
   const expansionReferenceId = await ensurePokemonReferenceHierarchy({
     deps: input.deps,
     referenceData: input.referenceData,
@@ -2624,8 +2940,8 @@ async function refreshCatalogItemFromObservation(input: {
     : null;
   const plan = planCatalogProviderPromotionCommands({
     profile: input.providerProfile,
-    profileKey: profileVersion.profileKey,
-    profileVersion: profileVersion.profileVersion,
+    profileKey: input.providerProfileVersion.profileKey,
+    profileVersion: input.providerProfileVersion.profileVersion,
     providerKey: input.providerKey,
     externalKey: input.externalKey,
     mode: "refresh",
@@ -2650,14 +2966,6 @@ async function refreshCatalogItemFromObservation(input: {
   });
 
   return promotionEvidenceFromPlan(plan);
-}
-
-function requireActivePromotionProfileVersion(providerKey: string) {
-  const version = getActiveCatalogProviderIntegrationProfileVersion(providerKey);
-  if (!version) {
-    throw new Error(`Catalog provider '${providerKey}' has no active profile version.`);
-  }
-  return version;
 }
 
 function promotionEvidenceFromPlan(
@@ -3025,41 +3333,64 @@ async function requireCatalogIdByKey<TId extends string>(
   return id as TId;
 }
 
-function requireCatalogPromotionProfile(
+async function requireCatalogPromotionProfileVersion(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
   providerKey: string,
   normalized: SourceObservationNormalized,
-): CatalogProviderIntegrationProfile {
-  const profile = getCatalogProviderIntegrationProfile(providerKey);
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  const profile = await profileVersions.getActiveProfileVersion(providerKey);
   if (
-    profile?.capabilities.includes("catalog-item-promotion") &&
-    profile.normalizedObservationMapping.kind === normalized.kind
+    profile &&
+    isActivePromotionProfileVersion(profile) &&
+    profile.profile.normalizedObservationMapping.kind === normalized.kind
   ) {
     return profile;
   }
 
-  const compatibleProfile = listCatalogProviderIntegrationProfiles().find(
+  const compatibleProfile = (await profileVersions.listProfileVersions()).find(
     (candidate) =>
-      candidate.status === "active" &&
-      candidate.capabilities.includes("catalog-item-promotion") &&
-      candidate.normalizedObservationMapping.kind === normalized.kind,
+      isActivePromotionProfileVersion(candidate) &&
+      candidate.profile.normalizedObservationMapping.kind === normalized.kind,
   );
   if (compatibleProfile) {
     return compatibleProfile;
   }
 
-  if (profile && profile.normalizedObservationMapping.kind !== normalized.kind) {
+  if (profile && profile.profile.normalizedObservationMapping.kind !== normalized.kind) {
     throw new Error(
-      `Provider '${providerKey}' promotion mapping '${profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
+      `Provider '${providerKey}' promotion mapping '${profile.profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
     );
   }
 
   throw new Error(`Provider '${providerKey}' does not support Catalog Item promotion.`);
 }
 
-function defaultSourceObservationImportProviderKey(): string {
-  const profile = listCatalogProviderIntegrationProfiles().find(
-    (profile) => profile.status === "active" && profile.capabilities.includes("source-observation-import"),
+function isActivePromotionProfileVersion(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
+  return (
+    version.active &&
+    version.lifecycle === "active" &&
+    version.profile.status === "active" &&
+    version.profile.capabilities.includes("catalog-item-promotion")
   );
+}
+
+function requireSourceObservationMappingContract(
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): CatalogProviderSourceObservationMappingContract {
+  const contract = version.executableMappingContract;
+  if (!contract?.sourceObservation) {
+    throw new Error(
+      `Catalog provider '${version.providerKey}' profile version '${version.profileVersion}' does not have a Source Observation mapping contract.`,
+    );
+  }
+
+  return contract as CatalogProviderSourceObservationMappingContract;
+}
+
+async function defaultSourceObservationImportProviderKey(
+  profileVersions: CatalogProviderIntegrationProfileVersionReader,
+): Promise<string> {
+  const profile = (await profileVersions.listProfileVersions()).find(isActiveSourceObservationImportProfileVersion);
   if (!profile) {
     throw new Error("No active Catalog source observation import provider is configured.");
   }
@@ -3177,6 +3508,8 @@ function toSourceObservationIntegrationJob(
     jobId: job.jobId,
     action: job.payload.action,
     scope: normalizeIntegrationJobScope(job.payload.scope),
+    profileSnapshot: job.payload.profileSnapshot ?? null,
+    reapplyProfileMode: normalizeReapplyProfileMode(job.payload.reapplyProfileMode),
     status: job.status,
     progress: job.progress,
     result: job.result,
@@ -3528,9 +3861,10 @@ function integrationReapplyOutcomeFromBulkOutcome(
   job: SourceObservationIntegrationJob,
   observationId: string,
   outcome: BulkSourceObservationReapplyOutcome | undefined,
+  defaultProviderKey: string,
 ): SourceObservationIntegrationJobOutcome {
   return {
-    providerKey: job.scope.provider || defaultSourceObservationImportProviderKey(),
+    providerKey: job.scope.provider || defaultProviderKey,
     languageCode: job.scope.language || "",
     expansionId: observationId,
     status: outcome?.status ?? "failed",

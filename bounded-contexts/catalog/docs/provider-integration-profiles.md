@@ -14,6 +14,7 @@ Executable mapping semantics are documented in [Provider Integration Mapping Con
 
 Catalog persists provider integration profiles in `catalog_provider_integration_profile_versions`.
 Each row carries the provider key, profile key, profile version, lifecycle, active flag, profile JSON, source contract metadata, fixture contract metadata, compatibility mode, optional executable mapping contract, and optional retirement plan.
+Admin-authored rows also carry migration evidence and authoring audit metadata so operators can see who cloned or changed a version and what replay or fixture evidence justified activation.
 
 The current TCGdex and TCGplayer profiles are seeded through this versioned data path during Catalog bootstrap. TCGdex is active as an executable mapping profile version. TCGplayer is fixture-backed as an executable `test` profile version while its automation-client import workflows remain planned. Transitional static profiles must carry fixture coverage and a retirement issue.
 
@@ -27,7 +28,15 @@ Profile lifecycle values are:
 
 Activating a profile version validates fixture coverage, profile identity, and the executable mapping contract when one is present. Transitional static fixtures are allowed only with an explicit retirement path. New executable profile versions should not rely on static mapping code once their mapping contract can express the required normalization, external reference extraction, selected Option resolution, Reference Record hierarchy, duplicate-prevention policy, and promotion command plan.
 
+Admin activation is guarded by the fixture harness and migration evidence. The activation request returns structured diagnostics when fixture coverage, mapping identity, redaction, or migration evidence is incomplete. Activation must not make live provider calls; fixtures and committed profile data are the only allowed evidence for this gate.
+
 Rollback means activating a prior validated profile version and deprecating the currently active version. It does not edit or delete historical profile rows. Source Observations should continue to record the profile version that produced their normalized data so replay can use the same version by default and operator-initiated reapply can explicitly choose the current active version.
+
+Retirement is stricter than deprecation. A profile version can be retired only after no Source Observations reference it as either their source profile version or promotion profile version. Retired versions remain readable for historical review but cannot be activated for new imports.
+
+Bootstrap seeds static profile rows only as initial or reconciliation data. It preserves admin-authored rows with migration evidence or authoring audit metadata, then verifies that each seeded active provider still has an active persisted row. If an operator edits or retires the seeded active version without activating a replacement, bootstrap fails loudly instead of letting imports fall back to static runtime config.
+
+Durable import jobs snapshot provider key, profile key, profile version, lifecycle, and source mapping fingerprint at enqueue time. Retries and worker handoff reload that snapshotted profile version, so activating a newer version while a job is queued does not change what the queued job writes. Integration reapply jobs snapshot `current-active-profile` mode and the active profile version; direct replay-style reapply uses the Source Observation's original source profile version when available, with legacy rows falling back to the active promotion profile.
 
 ## TCGdex Pokemon TCG Profile
 

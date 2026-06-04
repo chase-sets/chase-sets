@@ -31,7 +31,7 @@ const extensionContextNames = new Set(["discovery"]);
 const platformApiEnvExamplePath = path.join(rootDir, "deployables", "platform-api", ".env.example");
 const platformApiEnvLocalPath = path.join(rootDir, "deployables", "platform-api", ".env.local");
 const stripeReadyTimeoutMs = 20_000;
-const postgresReadyTimeoutMs = 30_000;
+const postgresReadyTimeoutMs = 90_000;
 const postgresReadyPollMs = 1_000;
 
 function createAdminCandidateUrls(databaseName = "postgres") {
@@ -226,6 +226,7 @@ const devTargets = {
   "platform-api": ["platform-api"],
   "platform-worker": ["platform-worker"],
   "admin-web": ["platform-api", "platform-worker", "admin-web"],
+  "browser-e2e": ["platform-api", "platform-worker", "admin-web", "marketplace"],
   marketplace: ["marketplace"],
   "marketplace-full": ["platform-api", "platform-worker", "marketplace"],
   "public-web": ["platform-api", "platform-worker", "public-web"],

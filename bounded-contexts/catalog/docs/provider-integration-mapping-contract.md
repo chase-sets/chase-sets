@@ -97,7 +97,11 @@ profile decides which operation and mapping are valid for each provider query.
 
 The interpreter evaluates provider payload evidence only. It returns evidence values with owner, use, and redaction metadata; it does not automatically make output Catalog truth. It supports nested paths, constants, coalescing, templated string assembly, fixed arrays, object selectors, array mapping, string transforms, coercion, lookup tables, and explicitly registered named selectors/transforms. Missing required fields, unresolved template values, unregistered named functions, lookup misses, empty arrays, and type coercion failures return diagnostics that identify the config path and redaction category without including raw provider values.
 
-Profile activation and import preparation should validate executable expressions against fixture payloads before import jobs run. Invalid configs fail at validation time, not halfway through a live provider import.
+Profile activation and import preparation validate executable expressions against fixture payloads before import jobs run. Invalid configs fail at validation time, not halfway through a live provider import.
+
+Admin-managed activation must run the local fixture harness for the target profile version. The harness covers the declared normal, partial, stale, changed, ambiguous, replay, sealed-product, and unknown-option flows and must not make live provider calls. Diagnostics must identify the safe config path, fixture flow, severity, and redacted message so operators can fix drafts without storing provider secrets or seller/listing/price/inventory facts.
+
+When a candidate profile changes the source mapping fingerprint from the currently active profile, activation requires durable migration evidence on the profile version. Evidence should summarize the compatibility review, replay policy, and observed before/after impact; it must not include raw provider payloads or sensitive provider material. Rollback reactivates a previously validated version and records fresh lifecycle audit metadata instead of editing historical rows.
 
 ## Lifecycle
 
@@ -108,6 +112,8 @@ Profile activation and import preparation should validate executable expressions
 - `retired`: retained only for historical Source Observation compatibility.
 
 Activating a profile version must validate the schema, fixture coverage, unsafe evidence use, required mappings, and redaction policy before import jobs run.
+
+Catalog API reads require `catalog.view`; profile authoring, lifecycle changes, production imports, promotion, reapply, rollback, and retirement require `catalog.manage` at the API host boundary. Profile rows persist authoring audit metadata for actor, account, and timestamp evidence. Lifecycle diagnostics and dry-run output must keep sensitive provider material redacted in API responses, logs, and UI.
 
 ## Replay Compatibility
 

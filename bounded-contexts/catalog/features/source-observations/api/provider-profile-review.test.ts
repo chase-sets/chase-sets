@@ -1,13 +1,21 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import {
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
+import type { CatalogProviderProfileFixtureCase } from "./provider-profile-contract-harness";
+import { catalogProviderProfileFixtureCases } from "./provider-profile-fixture-cases";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import {
+  activateCatalogProviderProfileVersionForReview,
+  cloneCatalogProviderProfileVersionForReview,
+  updateCatalogProviderProfileVersionForReview,
   dryRunCatalogProviderProfileVersion,
   listCatalogProviderProfileVersionReviews,
+  retireCatalogProviderProfileVersionForReview,
 } from "./provider-profile-review";
 
 describe("Catalog provider profile review", () => {
@@ -65,6 +73,122 @@ describe("Catalog provider profile review", () => {
     );
     expect(result.promotionCommandPlan.commands).toEqual([]);
   });
+
+  it("clones an existing profile version into an editable draft", async () => {
+    const store = mutableProfileStore();
+
+    const review = await cloneCatalogProviderProfileVersionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.03",
+      targetProfileVersion: "2026.06.04",
+      audit: {
+        createdAt: "2026-06-03T00:00:00.000Z",
+        createdByUserId: "usr_test",
+        createdForAccountId: "acc_test",
+        updatedAt: "2026-06-03T00:00:00.000Z",
+        updatedByUserId: "usr_test",
+        updatedForAccountId: "acc_test",
+      },
+    });
+
+    expect(review).toMatchObject({
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      lifecycle: "draft",
+      active: false,
+      authoringAudit: {
+        createdByUserId: "usr_test",
+      },
+    });
+    await expect(store.getProfileVersion("tcgdex", "2026.06.04")).resolves.toMatchObject({
+      executableMappingContract: {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+      },
+    });
+  });
+
+  it("updates draft profile versions with migration evidence for later activation", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+
+    const review = await updateCatalogProviderProfileVersionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      patch: {
+        lifecycle: "test",
+        migrationEvidence: {
+          evidenceText: "Fixture harness and replay diff passed.",
+          mappingFingerprintBefore: "before",
+          mappingFingerprintAfter: "after",
+          recordedAt: "2026-06-03T00:00:00.000Z",
+        },
+      },
+      audit: {
+        updatedAt: "2026-06-03T00:01:00.000Z",
+        updatedByUserId: "usr_test",
+        updatedForAccountId: "acc_test",
+      },
+    });
+
+    expect(review).toMatchObject({
+      lifecycle: "test",
+      migrationEvidence: {
+        evidenceText: "Fixture harness and replay diff passed.",
+      },
+      authoringAudit: {
+        updatedByUserId: "usr_test",
+      },
+    });
+    await expect(
+      activateCatalogProviderProfileVersionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        fixtureCases: fixtureCasesForProfileVersion("tcgdex", "2026.06.04"),
+        repositoryRoot: repositoryRoot(),
+      }),
+    ).resolves.toMatchObject({
+      active: true,
+      lifecycle: "active",
+    });
+  });
+
+  it("blocks activation when fixture harness validation fails", async () => {
+    await expect(
+      activateCatalogProviderProfileVersionForReview({
+        store: mutableProfileStore([tcgdexVersion("2026.06.04", "test", false)]),
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        fixtureCases: fixtureCasesForProfileVersion("tcgdex", "2026.06.04").filter(
+          (fixtureCase) => fixtureCase.flow !== "normal",
+        ),
+        repositoryRoot: repositoryRoot(),
+      }),
+    ).rejects.toThrow("failed fixture harness validation");
+  });
+
+  it("rejects edits to immutable active profile versions", async () => {
+    await expect(
+      updateCatalogProviderProfileVersionForReview({
+        store: mutableProfileStore(),
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.03",
+        patch: { lifecycle: "test" },
+      }),
+    ).rejects.toThrow("Only draft or test Catalog provider profile versions can be edited; 'active' is immutable.");
+  });
+
+  it("blocks retirement while Source Observations still reference the profile version", async () => {
+    await expect(
+      retireCatalogProviderProfileVersionForReview({
+        store: mutableProfileStore([tcgdexVersion("2026.06.04", "deprecated", false)], 3),
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+      }),
+    ).rejects.toThrow("tcgdex@2026.06.04 is referenced by 3 Source Observations and cannot be retired");
+  });
 });
 
 function profileStore(
@@ -107,7 +231,151 @@ function profileStore(
       }
       return { ...version, lifecycle: "active", active: true };
     },
+    countProfileVersionReferences: async () => 0,
   };
+}
+
+function mutableProfileStore(
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+  referenceCount = 0,
+): CatalogProviderIntegrationProfileVersionStore {
+  let records = [...versions];
+  return {
+    seedProfileVersions: async () => records,
+    upsertProfileVersion: async (version) => {
+      records = records.filter(
+        (candidate) =>
+          !(
+            candidate.providerKey === version.providerKey &&
+            candidate.profileKey === version.profileKey &&
+            candidate.profileVersion === version.profileVersion
+          ),
+      );
+      if (version.active && version.lifecycle === "active") {
+        records = records.map((candidate) =>
+          candidate.providerKey === version.providerKey
+            ? {
+                ...candidate,
+                active: false,
+                lifecycle: "deprecated",
+                executableMappingContract: candidate.executableMappingContract
+                  ? { ...candidate.executableMappingContract, lifecycle: "deprecated" }
+                  : undefined,
+              }
+            : candidate,
+        );
+      }
+      records = [...records, version];
+      return version;
+    },
+    listProfileVersions: async (providerKey) =>
+      records.filter((version) => !providerKey || version.providerKey === providerKey),
+    getProfileVersion: async (providerKey, profileVersion) =>
+      records.find((version) => version.providerKey === providerKey && version.profileVersion === profileVersion) ??
+      null,
+    getActiveProfileVersion: async (providerKey) =>
+      records.find((version) => version.providerKey === providerKey && version.active) ?? null,
+    activateProfileVersion: async (providerKey, profileVersion) => {
+      const version = records.find(
+        (candidate) => candidate.providerKey === providerKey && candidate.profileVersion === profileVersion,
+      );
+      if (!version) {
+        throw new Error("Profile version not found.");
+      }
+      const active = {
+        ...version,
+        lifecycle: "active" as const,
+        active: true,
+        executableMappingContract: version.executableMappingContract
+          ? { ...version.executableMappingContract, lifecycle: "active" as const }
+          : undefined,
+      };
+      records = records.map((candidate) =>
+        candidate.providerKey === providerKey
+          ? candidate.profileVersion === profileVersion
+            ? active
+            : {
+                ...candidate,
+                lifecycle: "deprecated" as const,
+                active: false,
+                executableMappingContract: candidate.executableMappingContract
+                  ? { ...candidate.executableMappingContract, lifecycle: "deprecated" as const }
+                  : undefined,
+              }
+          : candidate,
+      );
+      return active;
+    },
+    deprecateProfileVersion: async (providerKey, profileVersion) => {
+      const version = records.find(
+        (candidate) => candidate.providerKey === providerKey && candidate.profileVersion === profileVersion,
+      );
+      if (!version) {
+        throw new Error("Profile version not found.");
+      }
+      const deprecated = { ...version, lifecycle: "deprecated" as const, active: false };
+      records = records.map((candidate) => (candidate === version ? deprecated : candidate));
+      return deprecated;
+    },
+    rollbackProfileVersion: async (providerKey, profileVersion) => {
+      const version = records.find(
+        (candidate) => candidate.providerKey === providerKey && candidate.profileVersion === profileVersion,
+      );
+      if (!version) {
+        throw new Error("Profile version not found.");
+      }
+      const active = { ...version, lifecycle: "active" as const, active: true };
+      records = records.map((candidate) =>
+        candidate.providerKey === providerKey
+          ? candidate.profileVersion === profileVersion
+            ? active
+            : { ...candidate, lifecycle: "deprecated" as const, active: false }
+          : candidate,
+      );
+      return active;
+    },
+    countProfileVersionReferences: async () => referenceCount,
+  };
+}
+
+function tcgdexVersion(
+  profileVersion: string,
+  lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"],
+  active: boolean,
+): CatalogProviderIntegrationProfileVersionRecord {
+  const base = catalogProviderIntegrationProfileVersions.find((candidate) => candidate.providerKey === "tcgdex");
+  if (!base) {
+    throw new Error("Expected seeded TCGdex profile version.");
+  }
+  return {
+    ...base,
+    profileVersion,
+    lifecycle,
+    active,
+    executableMappingContract: base.executableMappingContract
+      ? {
+          ...base.executableMappingContract,
+          profileVersion,
+          lifecycle,
+        }
+      : undefined,
+  };
+}
+
+function fixtureCasesForProfileVersion(
+  providerKey: string,
+  profileVersion: string,
+): readonly CatalogProviderProfileFixtureCase[] {
+  return catalogProviderProfileFixtureCases()
+    .filter((fixtureCase) => fixtureCase.providerKey === providerKey)
+    .map((fixtureCase) => ({
+      ...fixtureCase,
+      profileVersion,
+    }));
+}
+
+function repositoryRoot(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
 }
 
 function scrydexPayload(): JsonValue {

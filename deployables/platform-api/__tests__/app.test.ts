@@ -16,6 +16,44 @@ function signedUcpHeaders(body: string) {
   };
 }
 
+function createCatalogRuntime() {
+  const catalogRouter = new Hono();
+  catalogRouter.get("/source-observations/provider-profiles", (c) => c.json({ items: [] }));
+  catalogRouter.post("/source-observations/provider-profiles", (c) => c.json({ created: true }, 201));
+  const catalogModule = {
+    contextName: "catalog",
+    apiMounts: [
+      {
+        mountPath: "/api/catalog",
+        kind: "primary",
+        requiresAuth: true,
+      },
+    ],
+    buildApis: () => [catalogRouter],
+    projectionHandlerSets: () => [],
+  };
+
+  return {
+    mountedContexts: [
+      {
+        contextName: "catalog",
+        module: catalogModule,
+        services: {},
+        pool: {},
+        projectionHandlerSets: [],
+      },
+    ],
+    mountedModules: [{ module: catalogModule, services: {} }],
+    services: {
+      auth: {},
+      catalog: {},
+      identity: {},
+    },
+    projectionGroups: [],
+    subscriptionRunners: [],
+  } as never;
+}
+
 describe("platform api app", () => {
   it("mounts the health route", async () => {
     const app = buildPlatformApiApp(
@@ -117,6 +155,46 @@ describe("platform api app", () => {
     await expect(response.json()).resolves.toEqual({
       status: "ok",
       checks: [{ name: "control.database", status: "ok" }],
+    });
+  });
+
+  it("requires catalog manage permission for direct Catalog API mutations", async () => {
+    const app = buildPlatformApiApp(createCatalogRuntime(), {
+      resolveActor: vi.fn(async () => ({
+        sessionId: "sess_1",
+        tenantId: "tenant_1",
+        userId: "user_1",
+        accountId: "account_1",
+        membershipId: "member_1",
+        roleKey: "catalog-viewer",
+        permissions: ["catalog.view"],
+      })),
+    });
+
+    const readResponse = await app.request("/api/catalog/source-observations/provider-profiles");
+    expect(readResponse.status).toBe(200);
+
+    const writeResponse = await app.request("/api/catalog/source-observations/provider-profiles", {
+      method: "POST",
+      body: JSON.stringify({ version: {} }),
+      headers: { "Content-Type": "application/json" },
+    });
+    expect(writeResponse.status).toBe(403);
+    await expect(writeResponse.json()).resolves.toMatchObject({
+      error: { code: "authorization_forbidden" },
+    });
+  });
+
+  it("rejects unauthenticated direct Catalog API requests before mounted Catalog routes run", async () => {
+    const app = buildPlatformApiApp(createCatalogRuntime(), {
+      resolveActor: vi.fn(async () => null),
+    });
+
+    const response = await app.request("/api/catalog/source-observations/provider-profiles");
+
+    expect(response.status).toBe(401);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: "authentication_required" },
     });
   });
 
