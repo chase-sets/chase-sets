@@ -447,7 +447,7 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getAllByText("Source Mapping Fingerprint").length).toBeGreaterThan(0);
     expect(within(dialog).queryByLabelText("Candidate profile JSON")).toBeNull();
     expect(within(dialog).queryByLabelText("Active profile JSON")).toBeNull();
-  });
+  }, 180000);
 
   it("edits normalized observation expressions through typed controls", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
@@ -676,6 +676,88 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/product references require selected option dimensions/i)).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("edits reference hierarchy chains through typed controls", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Reference Hierarchy")).toBeTruthy();
+    expect(within(dialog).getByText(/expansion > series > product-line/i)).toBeTruthy();
+
+    fireEvent.change(within(dialog).getByDisplayValue("ref_tcgdex"), {
+      target: { value: "ref_tcgdex_v2" },
+    });
+    fireEvent.change(within(dialog).getAllByDisplayValue("tcgdex-set-id")[1], {
+      target: { value: "tcgdex-expansion-id" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "scrydex",
+        "2026.06.03",
+        "reference-hierarchy",
+        expect.objectContaining({
+          section: "reference-hierarchy",
+          referenceHierarchyMapping: expect.objectContaining({
+            providerReferenceIdPrefix: "ref_tcgdex_v2",
+            targetRecordRuleKey: "expansion",
+          }),
+          referenceHierarchyContracts: [
+            expect.objectContaining({
+              targetTypeKey: "expansion",
+              providerAttributeKey: "tcgdex-expansion-id",
+              parent: expect.objectContaining({
+                targetTypeKey: "series",
+                parent: expect.objectContaining({ targetTypeKey: "product-line" }),
+              }),
+            }),
+          ],
+        }),
+      ),
+    );
+  });
+
+  it("blocks invalid reference hierarchy relationship rule keys", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            profile: {
+              referenceHierarchyMapping: {
+                ...referenceHierarchyMappingFixture(),
+                referenceRecords: [
+                  {
+                    ruleKey: "expansion",
+                    typeKey: "expansion",
+                    relationships: [{ relationshipType: "part-of", ruleKey: "missing-series" }],
+                  },
+                ],
+              },
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText(/relationship rule key 'missing-series' does not match/i)).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -1727,6 +1809,36 @@ function integrationOptionsResult(queryKind: string) {
 function profileReview(
   overrides: Partial<CatalogProviderProfileVersionReview> = {},
 ): CatalogProviderProfileVersionReview {
+  const defaultProfile = {
+    providerKey: "scrydex",
+    profileKey: "scryfall-card-fixture",
+    displayName: "Scrydex",
+    status: "planned",
+    connector: { kind: "scrydex-scryfall-json" },
+    capabilities: ["source-observation-import", "external-reference-extraction"],
+    supportedScopes: ["product/card"],
+    languageOptions: ["en"],
+    optionQueries: [
+      {
+        queryKind: "sets",
+        aliases: ["set"],
+        displayName: "Set",
+        scope: "set-name",
+        parentScope: null,
+        operation: "scrydex-list-sets",
+        output: {
+          valuePath: "set",
+          labelPath: "set_name",
+          description: { kind: "path", path: "released_at" },
+          metadataPaths: { set: "set", setName: "set_name" },
+        },
+      },
+    ],
+    normalizedObservationMapping: { kind: "provider-product" },
+    referenceHierarchyMapping: referenceHierarchyMappingFixture(),
+  };
+  const overrideProfile = isPlainObject(overrides.profile) ? overrides.profile : {};
+
   return {
     providerKey: "scrydex",
     profileKey: "scryfall-card-fixture",
@@ -1737,33 +1849,6 @@ function profileReview(
     status: "planned",
     compatibilityMode: "executable-mapping-contract",
     connectorKind: "scrydex-scryfall-json",
-    profile: {
-      providerKey: "scrydex",
-      profileKey: "scryfall-card-fixture",
-      displayName: "Scrydex",
-      status: "planned",
-      connector: { kind: "scrydex-scryfall-json" },
-      capabilities: ["source-observation-import", "external-reference-extraction"],
-      supportedScopes: ["product/card"],
-      languageOptions: ["en"],
-      optionQueries: [
-        {
-          queryKind: "sets",
-          aliases: ["set"],
-          displayName: "Set",
-          scope: "set-name",
-          parentScope: null,
-          operation: "scrydex-list-sets",
-          output: {
-            valuePath: "set",
-            labelPath: "set_name",
-            description: { kind: "path", path: "released_at" },
-            metadataPaths: { set: "set", setName: "set_name" },
-          },
-        },
-      ],
-      normalizedObservationMapping: { kind: "provider-product" },
-    },
     sourceContract: {
       owner: "chase-sets/catalog",
       repository: "chase-sets/chase-sets",
@@ -1800,6 +1885,7 @@ function profileReview(
       diagnostics: [],
     },
     ...overrides,
+    profile: { ...defaultProfile, ...overrideProfile },
   };
 }
 
@@ -1811,6 +1897,7 @@ function executableMappingContract(
     hashMaterial: ReturnType<typeof mappingExpression>[];
     mergeIdentity: ReturnType<typeof mappingExpression>[];
     externalReferences: JsonValue[];
+    referenceHierarchy: JsonValue[];
   }> = {},
 ): JsonValue {
   return {
@@ -1825,6 +1912,7 @@ function executableMappingContract(
       mergeIdentity: overrides.mergeIdentity ?? [mappingExpression("id", "catalog-merge-evidence", ["merge-identity"])],
     },
     externalReferences: overrides.externalReferences ?? [],
+    referenceHierarchy: overrides.referenceHierarchy ?? referenceHierarchyContractsFixture(),
   };
 }
 
@@ -1939,6 +2027,67 @@ function selectedOptionMappingFixture() {
       missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
     },
   };
+}
+
+function referenceHierarchyMappingFixture() {
+  return {
+    providerReferenceIdPrefix: "ref_tcgdex",
+    providerAttributes: [
+      { typeKey: "series", providerAttributeKey: "tcgdex-series-id" },
+      { typeKey: "expansion", providerAttributeKey: "tcgdex-set-id" },
+    ],
+    targetRecordRuleKey: "expansion",
+    referenceTypes: [],
+    referenceRecords: [
+      {
+        ruleKey: "product-line",
+        typeKey: "product-line",
+        requiredPaths: [],
+        relationships: [],
+      },
+      {
+        ruleKey: "series",
+        typeKey: "series",
+        requiredPaths: ["seriesName"],
+        relationships: [{ relationshipType: "part-of", ruleKey: "product-line" }],
+      },
+      {
+        ruleKey: "expansion",
+        typeKey: "expansion",
+        requiredPaths: ["expansionName"],
+        relationships: [{ relationshipType: "part-of", ruleKey: "series" }],
+      },
+    ],
+  };
+}
+
+function referenceHierarchyContractsFixture(): JsonValue[] {
+  return [
+    {
+      targetTypeKey: "expansion",
+      providerAttributeKey: "tcgdex-set-id",
+      referenceRecordKey: mappingExpression("expansionId", "external-reference", ["reference-hierarchy"]),
+      parent: {
+        targetTypeKey: "series",
+        providerAttributeKey: "tcgdex-series-id",
+        referenceRecordKey: mappingExpression("seriesId", "external-reference", ["reference-hierarchy"]),
+        parent: {
+          targetTypeKey: "product-line",
+          providerAttributeKey: "official-name",
+          referenceRecordKey: {
+            selector: { kind: "constant", value: "Pokemon Trading Card Game" },
+            owner: "catalog-truth",
+            uses: ["reference-hierarchy"],
+            redaction: "none",
+          },
+        },
+      },
+    },
+  ];
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
 function profileAuthoringModel(

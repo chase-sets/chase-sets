@@ -42,6 +42,7 @@ import type {
   CatalogProviderProfileExternalReferencesUpdateCommand,
   CatalogProviderProfileNormalizedObservationUpdateCommand,
   CatalogProviderProfileProviderOptionsUpdateCommand,
+  CatalogProviderProfileReferenceHierarchyUpdateCommand,
   CatalogProviderProfileRetirementPlanUpdateCommand,
   CatalogProviderProfileSelectedOptionsUpdateCommand,
   CatalogProviderProfileSourceContractUpdateCommand,
@@ -190,6 +191,7 @@ type ProfileBasicsForm = Readonly<{
   fixtures: ProfileFixturesForm;
   normalizedObservation: ProfileNormalizedObservationForm;
   externalReferences: ProfileExternalReferencesForm;
+  referenceHierarchy: ProfileReferenceHierarchyForm;
 }>;
 
 type ProfileSourceContractForm = Readonly<{
@@ -322,6 +324,44 @@ type ProfileSelectedOptionMappingDimensionForm = Readonly<{
   required: boolean;
   optionAliasesText: string;
   valueMappingsText: string;
+}>;
+
+type ProfileReferenceHierarchyForm = Readonly<{
+  rawMapping: Record<string, unknown>;
+  providerReferenceIdPrefix: string;
+  targetRecordRuleKey: string;
+  providerAttributes: readonly ProfileReferenceProviderAttributeForm[];
+  recordRules: readonly ProfileReferenceRecordRuleForm[];
+  contracts: readonly ProfileReferenceHierarchyContractForm[];
+}>;
+
+type ProfileReferenceProviderAttributeForm = Readonly<{
+  id: string;
+  typeKey: string;
+  providerAttributeKey: string;
+}>;
+
+type ProfileReferenceRecordRuleForm = Readonly<{
+  id: string;
+  ruleKey: string;
+  typeKey: string;
+  requiredPathsText: string;
+  relationshipsText: string;
+}>;
+
+type ProfileReferenceHierarchyContractForm = Readonly<{
+  id: string;
+  targetTypeKey: string;
+  providerAttributeKey: string;
+  referenceRecordKey: MappingExpressionValue;
+  parents: readonly ProfileReferenceHierarchyParentForm[];
+}>;
+
+type ProfileReferenceHierarchyParentForm = Readonly<{
+  id: string;
+  targetTypeKey: string;
+  providerAttributeKey: string;
+  referenceRecordKey: MappingExpressionValue;
 }>;
 
 export function IntegrationManagementPage({
@@ -696,6 +736,11 @@ export function IntegrationManagementPage({
           editBasicsForm.externalReferences.selectedOptionMapping,
         ),
       };
+      const referenceHierarchyCommand: CatalogProviderProfileReferenceHierarchyUpdateCommand = {
+        section: "reference-hierarchy",
+        referenceHierarchyMapping: referenceHierarchyMappingFormToCommand(editBasicsForm.referenceHierarchy),
+        referenceHierarchyContracts: referenceHierarchyContractsFormToCommand(editBasicsForm.referenceHierarchy),
+      };
       await updateSourceObservationProviderProfileSection(
         editProfile.providerKey,
         editProfile.profileVersion,
@@ -749,6 +794,12 @@ export function IntegrationManagementPage({
         editProfile.profileVersion,
         "selected-options",
         selectedOptionsCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "reference-hierarchy",
+        referenceHierarchyCommand,
       );
       addToast("Profile basics saved.", "success");
       setEditProfile(null);
@@ -1917,6 +1968,7 @@ function ProfileBasicsEditor({
   const setNormalizedObservation = (normalizedObservation: ProfileNormalizedObservationForm) =>
     setForm({ normalizedObservation });
   const setExternalReferences = (externalReferences: ProfileExternalReferencesForm) => setForm({ externalReferences });
+  const setReferenceHierarchy = (referenceHierarchy: ProfileReferenceHierarchyForm) => setForm({ referenceHierarchy });
   const editable = profileLifecycleEditable(profile);
   const retirementTrackingIssueInvalid =
     form.retirementPlan.enabled && !positiveIntegerText(form.retirementPlan.trackingIssueText);
@@ -1924,6 +1976,7 @@ function ProfileBasicsEditor({
   const connectorDiagnostics = validateConnectorForm(form.connector);
   const normalizedObservationDiagnostics = validateNormalizedObservationForm(form.normalizedObservation);
   const externalReferenceDiagnostics = validateExternalReferencesForm(form.externalReferences);
+  const referenceHierarchyDiagnostics = validateReferenceHierarchyForm(form.referenceHierarchy);
   const missingFixtureFlows = REQUIRED_FIXTURE_FLOW_OPTIONS.filter(
     (flow) => !form.fixtures.coveredFlows.includes(flow),
   );
@@ -2322,6 +2375,13 @@ function ProfileBasicsEditor({
         form={form.externalReferences}
         onChange={setExternalReferences}
         diagnostics={externalReferenceDiagnostics}
+        editable={editable}
+      />
+
+      <ReferenceHierarchyEditor
+        form={form.referenceHierarchy}
+        onChange={setReferenceHierarchy}
+        diagnostics={referenceHierarchyDiagnostics}
         editable={editable}
       />
 
@@ -3181,6 +3241,341 @@ function SelectedOptionMappingEditor({
   );
 }
 
+function ReferenceHierarchyEditor({
+  form,
+  onChange,
+  diagnostics,
+  editable,
+}: Readonly<{
+  form: ProfileReferenceHierarchyForm;
+  onChange: (form: ProfileReferenceHierarchyForm) => void;
+  diagnostics: readonly string[];
+  editable: boolean;
+}>) {
+  const setForm = (patch: Partial<ProfileReferenceHierarchyForm>) => onChange({ ...form, ...patch });
+  const setProviderAttribute = (id: string, patch: Partial<ProfileReferenceProviderAttributeForm>) =>
+    setForm({
+      providerAttributes: form.providerAttributes.map((attribute) =>
+        attribute.id === id ? { ...attribute, ...patch } : attribute,
+      ),
+    });
+  const setRecordRule = (id: string, patch: Partial<ProfileReferenceRecordRuleForm>) =>
+    setForm({
+      recordRules: form.recordRules.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
+    });
+  const setContract = (id: string, patch: Partial<ProfileReferenceHierarchyContractForm>) =>
+    setForm({
+      contracts: form.contracts.map((contract) => (contract.id === id ? { ...contract, ...patch } : contract)),
+    });
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-foreground">Reference Hierarchy</h3>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => setForm({ contracts: [...form.contracts, emptyReferenceHierarchyContractForm()] })}
+        >
+          Add hierarchy chain
+        </Button>
+      </div>
+      {diagnostics.length > 0 ? (
+        <ul className="text-sm text-danger">
+          {diagnostics.map((diagnostic) => (
+            <li key={diagnostic}>{diagnostic}</li>
+          ))}
+        </ul>
+      ) : null}
+      <Inline gap={3}>
+        <TextInput
+          label="Provider reference ID prefix"
+          value={form.providerReferenceIdPrefix}
+          disabled={!editable}
+          required
+          onChange={(event) => setForm({ providerReferenceIdPrefix: event.currentTarget.value })}
+        />
+        <TextInput
+          label="Target record rule key"
+          value={form.targetRecordRuleKey}
+          disabled={!editable}
+          required
+          onChange={(event) => setForm({ targetRecordRuleKey: event.currentTarget.value })}
+        />
+      </Inline>
+      <Stack gap={3}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-sm font-semibold text-foreground">Provider Attributes</h4>
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="plus"
+            disabled={!editable}
+            onClick={() => setForm({ providerAttributes: [...form.providerAttributes, emptyProviderAttributeForm()] })}
+          >
+            Add provider attribute
+          </Button>
+        </div>
+        {form.providerAttributes.map((attribute) => (
+          <Inline key={attribute.id} gap={3}>
+            <TextInput
+              label="Attribute type key"
+              value={attribute.typeKey}
+              disabled={!editable}
+              required
+              onChange={(event) => setProviderAttribute(attribute.id, { typeKey: event.currentTarget.value })}
+            />
+            <TextInput
+              label="Provider attribute key"
+              value={attribute.providerAttributeKey}
+              disabled={!editable}
+              required
+              onChange={(event) =>
+                setProviderAttribute(attribute.id, { providerAttributeKey: event.currentTarget.value })
+              }
+            />
+            <Button
+              size="sm"
+              tone="danger"
+              disabled={!editable}
+              onClick={() =>
+                setForm({
+                  providerAttributes: form.providerAttributes.filter((candidate) => candidate.id !== attribute.id),
+                })
+              }
+            >
+              Remove
+            </Button>
+          </Inline>
+        ))}
+      </Stack>
+      <Stack gap={3}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-sm font-semibold text-foreground">Reference Record Rules</h4>
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="plus"
+            disabled={!editable}
+            onClick={() => setForm({ recordRules: [...form.recordRules, emptyReferenceRecordRuleForm()] })}
+          >
+            Add record rule
+          </Button>
+        </div>
+        {form.recordRules.map((rule) => (
+          <Stack key={rule.id} gap={3}>
+            <Inline gap={3}>
+              <TextInput
+                label="Reference record rule key"
+                value={rule.ruleKey}
+                disabled={!editable}
+                required
+                onChange={(event) => setRecordRule(rule.id, { ruleKey: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Reference record type key"
+                value={rule.typeKey}
+                disabled={!editable}
+                required
+                onChange={(event) => setRecordRule(rule.id, { typeKey: event.currentTarget.value })}
+              />
+              <Button
+                size="sm"
+                tone="danger"
+                disabled={!editable}
+                onClick={() =>
+                  setForm({ recordRules: form.recordRules.filter((candidate) => candidate.id !== rule.id) })
+                }
+              >
+                Remove
+              </Button>
+            </Inline>
+            <Textarea
+              label="Required paths"
+              description="Comma or line separated."
+              value={rule.requiredPathsText}
+              disabled={!editable}
+              rows={2}
+              onChange={(event) => setRecordRule(rule.id, { requiredPathsText: event.currentTarget.value })}
+            />
+            <Textarea
+              label="Relationships"
+              description="One relationshipType=ruleKey mapping per line. Use relationshipType=ruleKey|fallbackRuleKey for fallback."
+              value={rule.relationshipsText}
+              disabled={!editable}
+              rows={3}
+              onChange={(event) => setRecordRule(rule.id, { relationshipsText: event.currentTarget.value })}
+            />
+          </Stack>
+        ))}
+      </Stack>
+      <Stack gap={4}>
+        {form.contracts.map((contract, index) => (
+          <Stack key={contract.id} gap={3}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold text-foreground">
+                Hierarchy Chain {index + 1}: {referenceHierarchyChainSummary(contract)}
+              </h4>
+              <Inline gap={2}>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === 0}
+                  onClick={() => setForm({ contracts: moveItem(form.contracts, index, index - 1) })}
+                >
+                  Up
+                </Button>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === form.contracts.length - 1}
+                  onClick={() => setForm({ contracts: moveItem(form.contracts, index, index + 1) })}
+                >
+                  Down
+                </Button>
+                <Button
+                  size="sm"
+                  tone="danger"
+                  disabled={!editable}
+                  onClick={() =>
+                    setForm({ contracts: form.contracts.filter((candidate) => candidate.id !== contract.id) })
+                  }
+                >
+                  Remove
+                </Button>
+              </Inline>
+            </div>
+            <ReferenceHierarchyNodeEditor
+              label="Target reference record"
+              node={contract}
+              editable={editable}
+              onChange={(patch) => setContract(contract.id, patch)}
+            />
+            <ReferenceHierarchyParentsEditor
+              parents={contract.parents}
+              editable={editable}
+              onChange={(parents) => setContract(contract.id, { parents })}
+            />
+          </Stack>
+        ))}
+      </Stack>
+    </Stack>
+  );
+}
+
+function ReferenceHierarchyNodeEditor({
+  label,
+  node,
+  editable,
+  onChange,
+}: Readonly<{
+  label: string;
+  node: Pick<ProfileReferenceHierarchyContractForm, "targetTypeKey" | "providerAttributeKey" | "referenceRecordKey">;
+  editable: boolean;
+  onChange: (patch: Partial<ProfileReferenceHierarchyContractForm>) => void;
+}>) {
+  return (
+    <Stack gap={3}>
+      <h5 className="text-sm font-semibold text-foreground">{label}</h5>
+      <Inline gap={3}>
+        <TextInput
+          label="Hierarchy target type key"
+          value={node.targetTypeKey}
+          disabled={!editable}
+          required
+          onChange={(event) => onChange({ targetTypeKey: event.currentTarget.value })}
+        />
+        <TextInput
+          label="Hierarchy provider attribute key"
+          value={node.providerAttributeKey}
+          disabled={!editable}
+          required
+          onChange={(event) => onChange({ providerAttributeKey: event.currentTarget.value })}
+        />
+      </Inline>
+      <MappingExpressionEditor
+        label={`${label} key expression`}
+        value={node.referenceRecordKey}
+        onChange={(referenceRecordKey) => onChange({ referenceRecordKey })}
+      />
+    </Stack>
+  );
+}
+
+function ReferenceHierarchyParentsEditor({
+  parents,
+  editable,
+  onChange,
+}: Readonly<{
+  parents: readonly ProfileReferenceHierarchyParentForm[];
+  editable: boolean;
+  onChange: (parents: readonly ProfileReferenceHierarchyParentForm[]) => void;
+}>) {
+  const setParent = (id: string, patch: Partial<ProfileReferenceHierarchyParentForm>) =>
+    onChange(parents.map((parent) => (parent.id === id ? { ...parent, ...patch } : parent)));
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h5 className="text-sm font-semibold text-foreground">Parent Chain</h5>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => onChange([...parents, emptyReferenceHierarchyParentForm()])}
+        >
+          Add parent
+        </Button>
+      </div>
+      {parents.length === 0 ? <p className="text-sm text-secondary">No parent reference records.</p> : null}
+      {parents.map((parent, index) => (
+        <Stack key={parent.id} gap={3}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h6 className="text-sm font-semibold text-foreground">
+              Parent {index + 1}: {parent.targetTypeKey || "Unconfigured"}
+            </h6>
+            <Inline gap={2}>
+              <Button
+                size="sm"
+                tone="secondary"
+                disabled={!editable || index === 0}
+                onClick={() => onChange(moveItem(parents, index, index - 1))}
+              >
+                Up
+              </Button>
+              <Button
+                size="sm"
+                tone="secondary"
+                disabled={!editable || index === parents.length - 1}
+                onClick={() => onChange(moveItem(parents, index, index + 1))}
+              >
+                Down
+              </Button>
+              <Button
+                size="sm"
+                tone="danger"
+                disabled={!editable}
+                onClick={() => onChange(parents.filter((candidate) => candidate.id !== parent.id))}
+              >
+                Remove
+              </Button>
+            </Inline>
+          </div>
+          <ReferenceHierarchyNodeEditor
+            label={`Parent reference record ${index + 1}`}
+            node={parent}
+            editable={editable}
+            onChange={(patch) => setParent(parent.id, patch as Partial<ProfileReferenceHierarchyParentForm>)}
+          />
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
 function CheckboxSet({
   legend,
   options,
@@ -3738,6 +4133,7 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
     },
     normalizedObservation: profileNormalizedObservationForm(profile),
     externalReferences: profileExternalReferencesForm(profile),
+    referenceHierarchy: profileReferenceHierarchyForm(profile),
   };
 }
 
@@ -3766,6 +4162,7 @@ function profileBasicsSaveDisabled(
     validateConnectorForm(form.connector).length > 0 ||
     validateNormalizedObservationForm(form.normalizedObservation).length > 0 ||
     validateExternalReferencesForm(form.externalReferences).length > 0 ||
+    validateReferenceHierarchyForm(form.referenceHierarchy).length > 0 ||
     !form.fixtures.fixtureRoot.trim()
   );
 }
@@ -4338,6 +4735,285 @@ function parseJsonLiteral(value: string): unknown {
   }
   const numberValue = Number(value);
   return Number.isFinite(numberValue) && value.trim() !== "" ? numberValue : value;
+}
+
+function profileReferenceHierarchyForm(profile: CatalogProviderProfileVersionReview): ProfileReferenceHierarchyForm {
+  const profileRecord = isRecord(profile.profile) ? profile.profile : {};
+  const mapping = isRecord(profileRecord.referenceHierarchyMapping) ? profileRecord.referenceHierarchyMapping : {};
+  const providerAttributes = Array.isArray(mapping.providerAttributes) ? mapping.providerAttributes : [];
+  const recordRules = Array.isArray(mapping.referenceRecords) ? mapping.referenceRecords : [];
+  const contractRoot = isRecord(profile.executableMappingContract) ? profile.executableMappingContract : {};
+  const contracts = Array.isArray(contractRoot.referenceHierarchy) ? contractRoot.referenceHierarchy : [];
+
+  return {
+    rawMapping: { ...mapping },
+    providerReferenceIdPrefix: stringValue(mapping.providerReferenceIdPrefix),
+    targetRecordRuleKey: stringValue(mapping.targetRecordRuleKey),
+    providerAttributes: providerAttributes.map(referenceProviderAttributeForm),
+    recordRules: recordRules.map(referenceRecordRuleForm),
+    contracts: contracts.map(referenceHierarchyContractForm),
+  };
+}
+
+function referenceProviderAttributeForm(value: unknown, index: number): ProfileReferenceProviderAttributeForm {
+  const attribute = isRecord(value) ? value : {};
+  return {
+    id: `reference-provider-attribute-${index}`,
+    typeKey: stringValue(attribute.typeKey),
+    providerAttributeKey: stringValue(attribute.providerAttributeKey),
+  };
+}
+
+function referenceRecordRuleForm(value: unknown, index: number): ProfileReferenceRecordRuleForm {
+  const rule = isRecord(value) ? value : {};
+  return {
+    id: `reference-record-rule-${index}`,
+    ruleKey: stringValue(rule.ruleKey),
+    typeKey: stringValue(rule.typeKey),
+    requiredPathsText: arrayText(rule.requiredPaths),
+    relationshipsText: referenceRelationshipsText(rule.relationships),
+  };
+}
+
+function referenceRelationshipsText(value: unknown): string {
+  if (!Array.isArray(value)) {
+    return "";
+  }
+  return value
+    .map((entry) => {
+      const relationship = isRecord(entry) ? entry : {};
+      const fallback = stringValue(relationship.fallbackRuleKey);
+      return `${stringValue(relationship.relationshipType)}=${stringValue(relationship.ruleKey)}${fallback ? `|${fallback}` : ""}`;
+    })
+    .join("\n");
+}
+
+function referenceHierarchyContractForm(value: unknown, index: number): ProfileReferenceHierarchyContractForm {
+  const contract = isRecord(value) ? value : {};
+  return {
+    id: `reference-hierarchy-${index}`,
+    targetTypeKey: stringValue(contract.targetTypeKey),
+    providerAttributeKey: stringValue(contract.providerAttributeKey),
+    referenceRecordKey: mappingExpressionFromUnknown(
+      contract.referenceRecordKey,
+      defaultPathExpression("", "external-reference", ["reference-hierarchy"]),
+    ),
+    parents: referenceHierarchyParentForms(contract.parent),
+  };
+}
+
+function referenceHierarchyParentForms(value: unknown): readonly ProfileReferenceHierarchyParentForm[] {
+  const parents: ProfileReferenceHierarchyParentForm[] = [];
+  let current: unknown = value;
+  let index = 0;
+  while (isRecord(current)) {
+    parents.push({
+      id: `reference-hierarchy-parent-${index}`,
+      targetTypeKey: stringValue(current.targetTypeKey),
+      providerAttributeKey: stringValue(current.providerAttributeKey),
+      referenceRecordKey: mappingExpressionFromUnknown(
+        current.referenceRecordKey,
+        defaultPathExpression("", "external-reference", ["reference-hierarchy"]),
+      ),
+    });
+    current = current.parent;
+    index += 1;
+  }
+  return parents;
+}
+
+function emptyProviderAttributeForm(): ProfileReferenceProviderAttributeForm {
+  return {
+    id: newFormRowId("reference-provider-attribute"),
+    typeKey: "",
+    providerAttributeKey: "",
+  };
+}
+
+function emptyReferenceRecordRuleForm(): ProfileReferenceRecordRuleForm {
+  return {
+    id: newFormRowId("reference-record-rule"),
+    ruleKey: "",
+    typeKey: "",
+    requiredPathsText: "",
+    relationshipsText: "",
+  };
+}
+
+function emptyReferenceHierarchyContractForm(): ProfileReferenceHierarchyContractForm {
+  return {
+    id: newFormRowId("reference-hierarchy"),
+    targetTypeKey: "",
+    providerAttributeKey: "",
+    referenceRecordKey: defaultPathExpression("", "external-reference", ["reference-hierarchy"]),
+    parents: [],
+  };
+}
+
+function emptyReferenceHierarchyParentForm(): ProfileReferenceHierarchyParentForm {
+  return {
+    id: newFormRowId("reference-hierarchy-parent"),
+    targetTypeKey: "",
+    providerAttributeKey: "",
+    referenceRecordKey: defaultPathExpression("", "external-reference", ["reference-hierarchy"]),
+  };
+}
+
+function referenceHierarchyMappingFormToCommand(
+  form: ProfileReferenceHierarchyForm,
+): CatalogProviderProfileReferenceHierarchyUpdateCommand["referenceHierarchyMapping"] {
+  return {
+    ...form.rawMapping,
+    providerReferenceIdPrefix: form.providerReferenceIdPrefix.trim(),
+    providerAttributes: form.providerAttributes.map((attribute) => ({
+      typeKey: attribute.typeKey.trim(),
+      providerAttributeKey: attribute.providerAttributeKey.trim(),
+    })),
+    targetRecordRuleKey: form.targetRecordRuleKey.trim(),
+    referenceRecords: mergeReferenceRecordRuleCommands(form.rawMapping.referenceRecords, form.recordRules),
+  } as CatalogProviderProfileReferenceHierarchyUpdateCommand["referenceHierarchyMapping"];
+}
+
+function mergeReferenceRecordRuleCommands(
+  existingRules: unknown,
+  rules: readonly ProfileReferenceRecordRuleForm[],
+): readonly Record<string, unknown>[] {
+  const existingById = new Map(
+    (Array.isArray(existingRules) ? existingRules : [])
+      .filter(isRecord)
+      .map((rule) => [stringValue(rule.ruleKey), rule]),
+  );
+  return rules.map((rule) => referenceRecordRuleFormToCommand(rule, existingById.get(rule.ruleKey)));
+}
+
+function referenceRecordRuleFormToCommand(
+  rule: ProfileReferenceRecordRuleForm,
+  existingRule: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  const relationships = referenceRelationshipsObject(rule.relationshipsText);
+  return {
+    ...existingRule,
+    ruleKey: rule.ruleKey.trim(),
+    typeKey: rule.typeKey.trim(),
+    requiredPaths: parseListInput(rule.requiredPathsText),
+    relationships,
+  };
+}
+
+function referenceRelationshipsObject(value: string): readonly Record<string, string>[] {
+  return value
+    .split(/\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [relationshipType, ...ruleParts] = entry.split("=");
+      const [ruleKey, fallbackRuleKey] = ruleParts.join("=").split("|");
+      return {
+        relationshipType: relationshipType.trim(),
+        ruleKey: (ruleKey ?? "").trim(),
+        ...(fallbackRuleKey?.trim() ? { fallbackRuleKey: fallbackRuleKey.trim() } : {}),
+      };
+    })
+    .filter((relationship) => relationship.relationshipType.length > 0 && relationship.ruleKey.length > 0);
+}
+
+function referenceHierarchyContractsFormToCommand(
+  form: ProfileReferenceHierarchyForm,
+): CatalogProviderProfileReferenceHierarchyUpdateCommand["referenceHierarchyContracts"] {
+  return form.contracts.map(
+    referenceHierarchyContractFormToCommand,
+  ) as CatalogProviderProfileReferenceHierarchyUpdateCommand["referenceHierarchyContracts"];
+}
+
+function referenceHierarchyContractFormToCommand(
+  contract: ProfileReferenceHierarchyContractForm,
+): Record<string, unknown> {
+  const node: Record<string, unknown> = {
+    targetTypeKey: contract.targetTypeKey.trim(),
+    providerAttributeKey: contract.providerAttributeKey.trim(),
+    referenceRecordKey: contract.referenceRecordKey,
+  };
+  const parent = referenceHierarchyParentsToCommand(contract.parents);
+  if (parent) {
+    node.parent = parent;
+  }
+  return node;
+}
+
+function referenceHierarchyParentsToCommand(
+  parents: readonly ProfileReferenceHierarchyParentForm[],
+): Record<string, unknown> | null {
+  let child: Record<string, unknown> | null = null;
+  for (const parent of [...parents].reverse()) {
+    const node: Record<string, unknown> = {
+      targetTypeKey: parent.targetTypeKey.trim(),
+      providerAttributeKey: parent.providerAttributeKey.trim(),
+      referenceRecordKey: parent.referenceRecordKey,
+    };
+    if (child) {
+      node.parent = child;
+    }
+    child = node;
+  }
+  return child;
+}
+
+function validateReferenceHierarchyForm(form: ProfileReferenceHierarchyForm): string[] {
+  const diagnostics: string[] = [];
+  const ruleKeys = new Set(form.recordRules.map((rule) => rule.ruleKey.trim()).filter(Boolean));
+
+  if (!form.providerReferenceIdPrefix.trim() || !form.targetRecordRuleKey.trim()) {
+    diagnostics.push("Reference hierarchy: provider reference ID prefix and target record rule key are required.");
+  }
+  if (form.targetRecordRuleKey.trim() && !ruleKeys.has(form.targetRecordRuleKey.trim())) {
+    diagnostics.push("Reference hierarchy: target record rule key must match a reference record rule.");
+  }
+
+  form.providerAttributes.forEach((attribute, index) => {
+    if (!attribute.typeKey.trim() || !attribute.providerAttributeKey.trim()) {
+      diagnostics.push(`Provider attribute ${index + 1}: type key and provider attribute key are required.`);
+    }
+  });
+
+  form.recordRules.forEach((rule, index) => {
+    const label = rule.ruleKey.trim() || `Reference record rule ${index + 1}`;
+    if (!rule.ruleKey.trim() || !rule.typeKey.trim()) {
+      diagnostics.push(`${label}: rule key and type key are required.`);
+    }
+    for (const relationship of referenceRelationshipsObject(rule.relationshipsText)) {
+      if (!ruleKeys.has(relationship.ruleKey)) {
+        diagnostics.push(`${label}: relationship rule key '${relationship.ruleKey}' does not match a record rule.`);
+      }
+      if (relationship.fallbackRuleKey && !ruleKeys.has(relationship.fallbackRuleKey)) {
+        diagnostics.push(
+          `${label}: relationship fallback rule key '${relationship.fallbackRuleKey}' does not match a record rule.`,
+        );
+      }
+    }
+  });
+
+  form.contracts.forEach((contract, index) => {
+    const label = `Reference hierarchy chain ${index + 1}`;
+    if (!contract.targetTypeKey.trim() || !contract.providerAttributeKey.trim()) {
+      diagnostics.push(`${label}: target type key and provider attribute key are required.`);
+    }
+    diagnostics.push(...prefixedExpressionDiagnostics(`${label} reference key`, contract.referenceRecordKey));
+    contract.parents.forEach((parent, parentIndex) => {
+      const parentLabel = `${label} parent ${parentIndex + 1}`;
+      if (!parent.targetTypeKey.trim() || !parent.providerAttributeKey.trim()) {
+        diagnostics.push(`${parentLabel}: target type key and provider attribute key are required.`);
+      }
+      diagnostics.push(...prefixedExpressionDiagnostics(`${parentLabel} reference key`, parent.referenceRecordKey));
+    });
+  });
+
+  return diagnostics;
+}
+
+function referenceHierarchyChainSummary(contract: ProfileReferenceHierarchyContractForm): string {
+  return [contract.targetTypeKey, ...contract.parents.map((parent) => parent.targetTypeKey)]
+    .filter(Boolean)
+    .join(" > ");
 }
 
 function profileConnectorForm(value: unknown): ProfileConnectorForm {
