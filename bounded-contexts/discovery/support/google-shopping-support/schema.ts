@@ -32,6 +32,7 @@ export const discoveryGoogleShoppingSchemaSql = `CREATE TABLE IF NOT EXISTS disc
   last_provider_operation text NULL,
   last_provider_response jsonb NULL,
   diagnostic_status text NULL,
+  diagnostic_destination_statuses jsonb NOT NULL DEFAULT '[]'::jsonb,
   diagnostic_issues jsonb NOT NULL DEFAULT '[]'::jsonb,
   last_diagnostic_at timestamptz NULL,
   tombstone_status text NOT NULL DEFAULT 'live',
@@ -64,6 +65,7 @@ ALTER TABLE discovery_google_shopping_feed_rows
   ADD COLUMN IF NOT EXISTS last_provider_operation text NULL,
   ADD COLUMN IF NOT EXISTS last_provider_response jsonb NULL,
   ADD COLUMN IF NOT EXISTS diagnostic_status text NULL,
+  ADD COLUMN IF NOT EXISTS diagnostic_destination_statuses jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS diagnostic_issues jsonb NOT NULL DEFAULT '[]'::jsonb,
   ADD COLUMN IF NOT EXISTS last_diagnostic_at timestamptz NULL,
   ADD COLUMN IF NOT EXISTS tombstone_status text NOT NULL DEFAULT 'live',
@@ -108,6 +110,9 @@ CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_full_sync_scan_id
 CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_sync_error_idx
   ON discovery_google_shopping_feed_rows (last_sync_attempted_at DESC)
   WHERE sync_status = 'failed';
+
+CREATE INDEX IF NOT EXISTS discovery_google_shopping_feed_rows_diagnostics_idx
+  ON discovery_google_shopping_feed_rows (diagnostic_status, last_diagnostic_at DESC);
 
 CREATE TABLE IF NOT EXISTS discovery_google_shopping_incremental_sync_requests (
   listing_id text PRIMARY KEY,

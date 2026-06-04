@@ -27,6 +27,24 @@ export type GoogleShoppingSyncProviderOperation =
   | "delete-product-input"
   | "get-processed-product";
 
+export type GoogleShoppingProductIssue = Readonly<{
+  code: string | null;
+  severity: string | null;
+  resolution: string | null;
+  attribute: string | null;
+  reportingContext: string | null;
+  description: string | null;
+  detail: string | null;
+  documentation: string | null;
+  applicableCountries: readonly string[];
+}>;
+
+export type GoogleShoppingProductDiagnostics = Readonly<{
+  productName: string;
+  destinationStatuses: readonly unknown[];
+  issues: readonly GoogleShoppingProductIssue[];
+}>;
+
 export type GoogleShoppingSyncProviderResult =
   | Readonly<{
       status: "success" | "dry-run";
@@ -35,6 +53,7 @@ export type GoogleShoppingSyncProviderResult =
       request?: unknown;
       productInputName?: string | null;
       productName?: string | null;
+      diagnostics?: GoogleShoppingProductDiagnostics;
     }>
   | Readonly<{
       status: "permanent-failure" | "transient-failure";
@@ -69,6 +88,10 @@ export type GoogleShoppingSyncMerchantClient = Readonly<{
     offerId: string,
     options?: Readonly<{ signal?: AbortSignal }>,
   ) => Promise<GoogleShoppingSyncProviderResult>;
+  getProcessedProductStatus?: (
+    offerId: string,
+    options?: Readonly<{ signal?: AbortSignal }>,
+  ) => Promise<GoogleShoppingSyncProviderResult>;
 }>;
 
 export type GoogleShoppingFullSyncJobPayload = Readonly<{
@@ -83,6 +106,13 @@ export type GoogleShoppingIncrementalSyncJobPayload = Readonly<{
   batchSize: number;
   listingIds: readonly string[];
   reasonsByListingId: Readonly<Record<string, readonly GoogleShoppingIncrementalSyncReason[]>>;
+  requestedByUserId: string | null;
+  requestedForAccountId: string | null;
+}>;
+
+export type GoogleShoppingDiagnosticsRefreshJobPayload = Readonly<{
+  mode: GoogleShoppingSyncMode;
+  batchSize: number;
   requestedByUserId: string | null;
   requestedForAccountId: string | null;
 }>;
@@ -120,6 +150,76 @@ export type GoogleShoppingMaintenanceEnqueueResult = Readonly<{
   job: GoogleShoppingFullSyncJob | null;
 }>;
 
+export type GoogleShoppingDiagnosticIssueSnapshot = Readonly<{
+  code: string;
+  severity: string;
+  resolution: string | null;
+  attribute: string | null;
+  reportingContext: string | null;
+  description: string | null;
+  detail: string | null;
+  documentation: string | null;
+  applicableCountries: readonly string[];
+  firstSeenAt: string;
+  lastSeenAt: string;
+  resolvedAt: string | null;
+  known: boolean;
+}>;
+
+export type GoogleShoppingDiagnosticStatus =
+  | "approved"
+  | "approved_with_issues"
+  | "disapproved"
+  | "pending"
+  | "unknown";
+
+export type GoogleShoppingDiagnosticsSnapshotRow = Readonly<{
+  rowId: string;
+  listingId: string;
+  accountId: string;
+  catalogItemId: string;
+  productId: string;
+  merchantOfferId: string;
+  externalSellerId: string;
+  diagnosticStatus: GoogleShoppingDiagnosticStatus | null;
+  destinationStatuses: readonly unknown[];
+  lastDiagnosticAt: string | null;
+  issues: readonly GoogleShoppingDiagnosticIssueSnapshot[];
+}>;
+
+export type GoogleShoppingDiagnosticsSnapshot = Readonly<{
+  generatedAt: string;
+  totals: Readonly<{
+    rows: number;
+    approved: number;
+    disapproved: number;
+    pending: number;
+    approvedWithIssues: number;
+    unknown: number;
+  }>;
+  activeIssueSeverityCounts: Readonly<Record<string, number>>;
+  unknownIssueCodeCount: number;
+  launchImpact: Readonly<{
+    p0: boolean;
+    p1: boolean;
+    reasons: readonly string[];
+  }>;
+  rows: readonly GoogleShoppingDiagnosticsSnapshotRow[];
+}>;
+
+export type GoogleShoppingDiagnosticsRefreshResult = Readonly<{
+  mode: GoogleShoppingSyncMode;
+  checked: number;
+  approved: number;
+  disapproved: number;
+  pending: number;
+  approvedWithIssues: number;
+  failed: number;
+  unknownIssueCodes: number;
+  resolvedIssues: number;
+  total: number;
+}>;
+
 export type GoogleShoppingFullSyncJobProgress = Readonly<{
   phase: "queued" | "processing" | "completed" | "failed";
   completed: number;
@@ -141,6 +241,7 @@ export type GoogleShoppingFullSyncJobResult = Readonly<{
   failed: number;
   excluded: number;
   total: number;
+  diagnostics?: GoogleShoppingDiagnosticsRefreshResult;
 }>;
 
 export type GoogleShoppingFullSyncJob = DurableJobRecord<
@@ -154,7 +255,10 @@ export type GoogleShoppingFullSyncJobStatus = DurableJobPublicSnapshot<
   GoogleShoppingFullSyncJobResult
 >;
 
-type GoogleShoppingSyncJobPayload = GoogleShoppingFullSyncJobPayload | GoogleShoppingIncrementalSyncJobPayload;
+type GoogleShoppingSyncJobPayload =
+  | GoogleShoppingFullSyncJobPayload
+  | GoogleShoppingIncrementalSyncJobPayload
+  | GoogleShoppingDiagnosticsRefreshJobPayload;
 
 type GoogleShoppingSyncJobStore = ReturnType<
   typeof createPostgresDurableJobStore<
@@ -178,6 +282,25 @@ export type GoogleShoppingFeedRowForSync = Readonly<{
   deleteSubmittedAt: string | null;
 }>;
 
+type GoogleShoppingFeedRowForDiagnostics = Readonly<{
+  rowId: string;
+  listingId: string;
+  accountId: string;
+  catalogItemId: string;
+  productId: string;
+  merchantOfferId: string;
+  externalSellerId: string;
+  diagnosticIssues: unknown;
+}>;
+
+type GoogleShoppingDiagnosticsRowOutcome = Readonly<{
+  outcome: "checked" | "failed" | "skipped";
+  status: GoogleShoppingDiagnosticStatus;
+  activeIssues: number;
+  unknownIssueCodes: number;
+  resolvedIssues: number;
+}>;
+
 type GoogleShoppingMaintenanceCandidateRow = Readonly<{
   action: GoogleShoppingMaintenanceAction;
   row_id: string;
@@ -199,10 +322,12 @@ type GoogleShoppingSyncRuntimeDeps = Readonly<{
 
 const FULL_SYNC_JOB_KIND = "full-sync";
 const INCREMENTAL_SYNC_JOB_KIND = "incremental-sync";
+const DIAGNOSTICS_REFRESH_JOB_KIND = "diagnostics-refresh";
 const DEFAULT_BATCH_SIZE = 100;
 const MAX_BATCH_SIZE = 500;
 const DEFAULT_INCREMENTAL_BATCH_SIZE = 100;
 const DEFAULT_MAINTENANCE_BATCH_SIZE = 100;
+const DEFAULT_DIAGNOSTICS_BATCH_SIZE = 100;
 const DEFAULT_REFRESH_WINDOW_DAYS = 25;
 const GOOGLE_SHOPPING_SYNC_STATE_RETENTION_DAYS = 90;
 
@@ -231,8 +356,16 @@ export type GoogleShoppingSyncServices = Readonly<{
     params: Readonly<{ mode: GoogleShoppingSyncMode; refreshWindowDays?: number; limit?: number }>,
     context: EventStoreContext,
   ) => Promise<GoogleShoppingMaintenanceEnqueueResult>;
+  enqueueDiagnosticsRefreshJob: (
+    params: Readonly<{ mode: GoogleShoppingSyncMode; batchSize?: number }>,
+    context: EventStoreContext,
+  ) => Promise<GoogleShoppingFullSyncJob>;
+  getDiagnosticsSnapshot: (input?: { limit?: number }) => Promise<GoogleShoppingDiagnosticsSnapshot>;
   processScheduledMaintenanceSync: (
     params: Readonly<{ mode: GoogleShoppingSyncMode; refreshWindowDays?: number; limit?: number }>,
+  ) => Promise<number>;
+  processScheduledDiagnosticsRefresh: (
+    params: Readonly<{ mode: GoogleShoppingSyncMode; batchSize?: number }>,
   ) => Promise<number>;
   getFullSyncJob: (jobId: string) => Promise<GoogleShoppingFullSyncJob | null>;
   listFullSyncJobEvents: (
@@ -259,6 +392,13 @@ export type GoogleShoppingSyncServices = Readonly<{
     claimTtlMs: number;
     mode: GoogleShoppingSyncMode;
     batchSize?: number;
+    merchantClientForMode: (mode: GoogleShoppingSyncMode) => GoogleShoppingSyncMerchantClient;
+    signal?: AbortSignal;
+    throwIfLeaseLost?: () => void;
+  }) => Promise<number>;
+  processNextDiagnosticsRefreshJob: (input: {
+    claimOwnerId: string;
+    claimTtlMs: number;
     merchantClientForMode: (mode: GoogleShoppingSyncMode) => GoogleShoppingSyncMerchantClient;
     signal?: AbortSignal;
     throwIfLeaseLost?: () => void;
@@ -323,6 +463,31 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
       });
       return { summary, job };
     },
+    enqueueDiagnosticsRefreshJob: async (params, context) => {
+      const total = await countGoogleShoppingDiagnosticsCandidates(deps.db);
+      return (await jobStore.enqueue({
+        jobId: createJobId(),
+        jobKind: DIAGNOSTICS_REFRESH_JOB_KIND,
+        payload: {
+          mode: params.mode,
+          batchSize: normalizeBatchSize(params.batchSize ?? DEFAULT_DIAGNOSTICS_BATCH_SIZE),
+          requestedByUserId: context.audit.performedByUserId,
+          requestedForAccountId: context.audit.forAccountId,
+        },
+        progress: googleShoppingSyncProgress({
+          phase: "queued",
+          completed: 0,
+          total,
+          currentRowId: null,
+          message: "Google Shopping diagnostics refresh queued.",
+        }),
+        eventContext: context,
+      })) as GoogleShoppingFullSyncJob;
+    },
+    getDiagnosticsSnapshot: (input = {}) =>
+      getGoogleShoppingDiagnosticsSnapshot(deps.db, {
+        limit: normalizeBatchSize(input.limit ?? DEFAULT_DIAGNOSTICS_BATCH_SIZE),
+      }),
     getFullSyncJob: async (jobId) => (await jobStore.get(jobId)) as GoogleShoppingFullSyncJob | null,
     listFullSyncJobEvents: async (jobId, afterSequence = 0) =>
       (await jobStore.listEvents(jobId, afterSequence)) as readonly DurableJobEvent<
@@ -351,6 +516,32 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
         requests: googleShoppingMaintenanceRequests(summary),
         context: GOOGLE_SHOPPING_SYSTEM_CONTEXT,
         message: "Google Shopping scheduled maintenance sync queued.",
+      });
+      return 1;
+    },
+    processScheduledDiagnosticsRefresh: async (params) => {
+      const total = await countGoogleShoppingDiagnosticsCandidates(deps.db);
+      if (total === 0) {
+        return 0;
+      }
+
+      await jobStore.enqueue({
+        jobId: createJobId(),
+        jobKind: DIAGNOSTICS_REFRESH_JOB_KIND,
+        payload: {
+          mode: params.mode,
+          batchSize: normalizeBatchSize(params.batchSize ?? DEFAULT_DIAGNOSTICS_BATCH_SIZE),
+          requestedByUserId: GOOGLE_SHOPPING_SYSTEM_CONTEXT.audit.performedByUserId,
+          requestedForAccountId: GOOGLE_SHOPPING_SYSTEM_CONTEXT.audit.forAccountId,
+        },
+        progress: googleShoppingSyncProgress({
+          phase: "queued",
+          completed: 0,
+          total,
+          currentRowId: null,
+          message: "Google Shopping scheduled diagnostics refresh queued.",
+        }),
+        eventContext: GOOGLE_SHOPPING_SYSTEM_CONTEXT,
       });
       return 1;
     },
@@ -587,6 +778,130 @@ export function createGoogleShoppingSyncRuntime(deps: GoogleShoppingSyncRuntimeD
               message: error instanceof Error ? error.message : "Google Shopping incremental sync job failed.",
             },
             errorMessage: error instanceof Error ? error.message : "Google Shopping incremental sync job failed.",
+          }),
+        );
+        return 1;
+      }
+    },
+    processNextDiagnosticsRefreshJob: async (input) => {
+      const claimed = await jobStore.claimNext({
+        claimOwnerId: input.claimOwnerId,
+        claimTtlMs: input.claimTtlMs,
+        jobKinds: [DIAGNOSTICS_REFRESH_JOB_KIND],
+      });
+      if (!claimed) {
+        return 0;
+      }
+
+      try {
+        throwIfGoogleShoppingSyncCancelled(input);
+        const payload = claimed.payload as GoogleShoppingDiagnosticsRefreshJobPayload;
+        const jobContext = createDurableJobExecutionContext(jobStore, {
+          jobId: claimed.jobId,
+          claimOwnerId: input.claimOwnerId,
+          claimTtlMs: input.claimTtlMs,
+          signal: input.signal,
+          throwIfLeaseLost: input.throwIfLeaseLost,
+          cancelledMessage: "Google Shopping diagnostics refresh job was cancelled.",
+          claimLostMessage:
+            "Google Shopping diagnostics refresh job claim was lost before the status update completed.",
+        });
+        const progressCheckpoint = createDurableJobProgressCheckpoint(jobContext, {
+          minIntervalMs: 1_000,
+          minCompletedDelta: Math.max(1, Math.floor(payload.batchSize / 2)),
+          minRenewIntervalMs: 5_000,
+          completed: (progress) => progress.completed,
+          isTerminal: (progress) => progress.phase === "completed" || progress.phase === "failed",
+        });
+        const total = await countGoogleShoppingDiagnosticsCandidates(deps.db);
+        let progress = googleShoppingSyncProgress({
+          ...claimed.progress,
+          phase: "processing",
+          total,
+          message: "Processing Google Shopping diagnostics refresh.",
+        });
+        await requireGoogleShoppingSyncClaim(
+          jobStore.updateProgress({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            claimTtlMs: input.claimTtlMs,
+            progress,
+          }),
+        );
+
+        const merchantClient = input.merchantClientForMode(payload.mode);
+        let cursor: string | null = null;
+        let diagnosticsResult = emptyGoogleShoppingDiagnosticsRefreshResult(payload.mode, total);
+
+        for (;;) {
+          throwIfGoogleShoppingSyncCancelled(input);
+          const rows = await listGoogleShoppingDiagnosticsRowsAfter(deps.db, {
+            afterRowId: cursor,
+            limit: payload.batchSize,
+          });
+          if (rows.length === 0) {
+            break;
+          }
+
+          for (const row of rows) {
+            throwIfGoogleShoppingSyncCancelled(input);
+            const outcome = await processGoogleShoppingDiagnosticsRow({
+              db: deps.db,
+              row,
+              mode: payload.mode,
+              merchantClient,
+              signal: input.signal,
+              jobContext,
+            });
+            diagnosticsResult = addGoogleShoppingDiagnosticsOutcome(diagnosticsResult, outcome);
+            progress = addGoogleShoppingSyncOutcome(
+              progress,
+              row.rowId,
+              outcome.outcome === "failed" ? "failed" : outcome.status === "disapproved" ? "excluded" : "submitted",
+            );
+            await progressCheckpoint.checkpoint(progress, {
+              ...toGoogleShoppingSyncResult(payload.mode, progress),
+              diagnostics: diagnosticsResult,
+            });
+          }
+
+          cursor = rows[rows.length - 1]?.rowId ?? cursor;
+        }
+
+        const finalProgress = googleShoppingSyncProgress({
+          ...progress,
+          phase: "completed",
+          completed: progress.completed,
+          total: Math.max(progress.total, progress.completed),
+          message: "Google Shopping diagnostics refresh completed.",
+        });
+        const result = {
+          ...toGoogleShoppingSyncResult(payload.mode, finalProgress),
+          diagnostics: diagnosticsResult,
+        };
+        await requireGoogleShoppingSyncClaim(
+          jobStore.complete({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: finalProgress,
+            result,
+          }),
+        );
+        return 1;
+      } catch (error) {
+        if (isDurableJobHandoffError(error, input)) {
+          return 0;
+        }
+        await requireGoogleShoppingSyncClaim(
+          jobStore.fail({
+            jobId: claimed.jobId,
+            claimOwnerId: input.claimOwnerId,
+            progress: {
+              ...claimed.progress,
+              phase: "failed",
+              message: error instanceof Error ? error.message : "Google Shopping diagnostics refresh job failed.",
+            },
+            errorMessage: error instanceof Error ? error.message : "Google Shopping diagnostics refresh job failed.",
           }),
         );
         return 1;
@@ -1013,6 +1328,191 @@ async function listGoogleShoppingRefreshCandidates(
   return result.rows.map(toGoogleShoppingMaintenanceCandidate);
 }
 
+async function listGoogleShoppingDiagnosticsRowsAfter(
+  db: PgQueryable,
+  input: Readonly<{ afterRowId: string | null; limit: number }>,
+): Promise<GoogleShoppingFeedRowForDiagnostics[]> {
+  const result = await db.query<{
+    row_id: string;
+    listing_id: string;
+    account_id: string;
+    catalog_catalog_item_id: string;
+    product_id: string;
+    merchant_offer_id: string;
+    external_seller_id: string;
+    diagnostic_issues: unknown;
+  }>(
+    `SELECT row_id,
+            listing_id,
+            account_id,
+            catalog_catalog_item_id,
+            product_id,
+            merchant_offer_id,
+            external_seller_id,
+            diagnostic_issues
+     FROM discovery_google_shopping_feed_rows
+     WHERE ($1::text IS NULL OR row_id > $1)
+       AND last_submitted_payload_hash IS NOT NULL
+       AND delete_submitted_at IS NULL
+     ORDER BY row_id ASC
+     LIMIT $2`,
+    [input.afterRowId, input.limit],
+  );
+
+  return result.rows.map((row) => ({
+    rowId: row.row_id,
+    listingId: row.listing_id,
+    accountId: row.account_id,
+    catalogItemId: row.catalog_catalog_item_id,
+    productId: row.product_id,
+    merchantOfferId: row.merchant_offer_id,
+    externalSellerId: row.external_seller_id,
+    diagnosticIssues: row.diagnostic_issues,
+  }));
+}
+
+async function countGoogleShoppingDiagnosticsCandidates(db: PgQueryable): Promise<number> {
+  const result = await db.query<{ total: number | string }>(
+    `SELECT COUNT(*)::integer AS total
+     FROM discovery_google_shopping_feed_rows
+     WHERE last_submitted_payload_hash IS NOT NULL
+       AND delete_submitted_at IS NULL`,
+  );
+  return Number(result.rows[0]?.total ?? 0);
+}
+
+export async function processGoogleShoppingDiagnosticsRow(input: {
+  db: PgQueryable;
+  row: GoogleShoppingFeedRowForDiagnostics;
+  mode: GoogleShoppingSyncMode;
+  merchantClient: GoogleShoppingSyncMerchantClient;
+  signal?: AbortSignal;
+  jobContext: DurableJobExecutionContext<GoogleShoppingFullSyncJobProgress, GoogleShoppingFullSyncJobResult>;
+}): Promise<GoogleShoppingDiagnosticsRowOutcome> {
+  const attemptedAt = new Date().toISOString();
+  if (!input.merchantClient.getProcessedProductStatus) {
+    if (input.mode === "live") {
+      await recordGoogleShoppingDiagnosticsFailure(input.db, input.row.rowId, {
+        attemptedAt,
+        code: "google_shopping_diagnostics_unavailable",
+        message: "Google Merchant client does not support processed product diagnostics.",
+        response: { operation: "get-processed-product" },
+        providerRequestId: null,
+      });
+    }
+    return failedGoogleShoppingDiagnosticsOutcome();
+  }
+
+  try {
+    const result = await runGoogleShoppingSyncSideEffect(input.jobContext, (signal) =>
+      input.merchantClient.getProcessedProductStatus!(input.row.merchantOfferId, { signal }),
+    );
+
+    if (result.status === "dry-run") {
+      return { outcome: "skipped", status: "unknown", activeIssues: 0, unknownIssueCodes: 0, resolvedIssues: 0 };
+    }
+
+    if (result.status === "success" && result.diagnostics) {
+      const normalized = normalizeGoogleShoppingDiagnostics(
+        input.row.diagnosticIssues,
+        result.diagnostics,
+        attemptedAt,
+      );
+      if (input.mode === "live") {
+        await recordGoogleShoppingDiagnosticsResult(input.db, input.row.rowId, {
+          attemptedAt,
+          result,
+          normalized,
+        });
+      }
+      return {
+        outcome: "checked",
+        status: normalized.status,
+        activeIssues: normalized.activeIssues.length,
+        unknownIssueCodes: normalized.activeIssues.filter((issue) => !issue.known).length,
+        resolvedIssues: normalized.resolvedIssues,
+      };
+    }
+
+    if (isGoogleShoppingSyncProviderFailure(result) && input.mode === "live") {
+      await recordGoogleShoppingDiagnosticsFailure(input.db, input.row.rowId, {
+        attemptedAt,
+        code: result.error.code,
+        message: result.error.message,
+        response: result,
+        providerRequestId: result.error.providerRequestId,
+      });
+    }
+    return failedGoogleShoppingDiagnosticsOutcome();
+  } catch (error) {
+    if (isDurableJobHandoffError(error, { signal: input.signal })) {
+      throw error;
+    }
+    if (input.mode === "live") {
+      await recordGoogleShoppingDiagnosticsFailure(input.db, input.row.rowId, {
+        attemptedAt,
+        code: "google_shopping_diagnostics_exception",
+        message: error instanceof Error ? error.message : "Google Shopping diagnostics refresh failed.",
+        response: { error: error instanceof Error ? error.message : String(error) },
+        providerRequestId: null,
+      });
+    }
+    return failedGoogleShoppingDiagnosticsOutcome();
+  }
+}
+
+async function getGoogleShoppingDiagnosticsSnapshot(
+  db: PgQueryable,
+  input: Readonly<{ limit: number }>,
+): Promise<GoogleShoppingDiagnosticsSnapshot> {
+  const result = await db.query<{
+    row_id: string;
+    listing_id: string;
+    account_id: string;
+    catalog_catalog_item_id: string;
+    product_id: string;
+    merchant_offer_id: string;
+    external_seller_id: string;
+    diagnostic_status: string | null;
+    diagnostic_destination_statuses: unknown;
+    diagnostic_issues: unknown;
+    last_diagnostic_at: Date | string | null;
+  }>(
+    `SELECT row_id,
+            listing_id,
+            account_id,
+            catalog_catalog_item_id,
+            product_id,
+            merchant_offer_id,
+            external_seller_id,
+            diagnostic_status,
+            diagnostic_destination_statuses,
+            diagnostic_issues,
+            last_diagnostic_at
+     FROM discovery_google_shopping_feed_rows
+     WHERE last_submitted_payload_hash IS NOT NULL
+       AND delete_submitted_at IS NULL
+     ORDER BY COALESCE(last_diagnostic_at, 'epoch'::timestamptz) DESC, row_id ASC
+     LIMIT $1`,
+    [input.limit],
+  );
+  const rows = result.rows.map((row) => ({
+    rowId: row.row_id,
+    listingId: row.listing_id,
+    accountId: row.account_id,
+    catalogItemId: row.catalog_catalog_item_id,
+    productId: row.product_id,
+    merchantOfferId: row.merchant_offer_id,
+    externalSellerId: row.external_seller_id,
+    diagnosticStatus: readGoogleShoppingDiagnosticStatus(row.diagnostic_status),
+    destinationStatuses: readJsonValue<readonly unknown[]>(row.diagnostic_destination_statuses),
+    lastDiagnosticAt: row.last_diagnostic_at == null ? null : formatTimestamp(row.last_diagnostic_at),
+    issues: diagnosticIssueSnapshots(row.diagnostic_issues),
+  }));
+
+  return buildGoogleShoppingDiagnosticsSnapshot(rows, new Date().toISOString());
+}
+
 async function countGoogleShoppingFeedRows(db: PgQueryable): Promise<number> {
   const result = await db.query<{ total: number | string }>(
     `SELECT COUNT(*)::integer AS total FROM discovery_google_shopping_feed_rows`,
@@ -1100,6 +1600,73 @@ async function recordGoogleShoppingRowFailure(
       input.message.slice(0, 1_000),
       input.providerRequestId,
       input.operation,
+      JSON.stringify(safeProviderResponse(input.response)),
+    ],
+  );
+}
+
+async function recordGoogleShoppingDiagnosticsResult(
+  db: PgQueryable,
+  rowId: string,
+  input: Readonly<{
+    attemptedAt: string;
+    result: GoogleShoppingSyncProviderResult;
+    normalized: ReturnType<typeof normalizeGoogleShoppingDiagnostics>;
+  }>,
+) {
+  await db.query(
+    `UPDATE discovery_google_shopping_feed_rows
+     SET diagnostic_status = $2,
+         diagnostic_destination_statuses = $3::jsonb,
+         diagnostic_issues = $4::jsonb,
+         last_diagnostic_at = $5::timestamptz,
+         last_sync_error_code = NULL,
+         last_sync_error_message = NULL,
+         last_provider_request_id = NULL,
+         last_provider_operation = $6,
+         last_provider_response = $7::jsonb,
+         updated_at = now()
+     WHERE row_id = $1`,
+    [
+      rowId,
+      input.normalized.status,
+      JSON.stringify(input.normalized.destinationStatuses),
+      JSON.stringify(input.normalized.issues),
+      input.attemptedAt,
+      input.result.operation,
+      JSON.stringify(safeProviderResponse(input.result)),
+    ],
+  );
+}
+
+async function recordGoogleShoppingDiagnosticsFailure(
+  db: PgQueryable,
+  rowId: string,
+  input: Readonly<{
+    attemptedAt: string;
+    code: string;
+    message: string;
+    providerRequestId: string | null;
+    response: unknown;
+  }>,
+) {
+  await db.query(
+    `UPDATE discovery_google_shopping_feed_rows
+     SET diagnostic_status = COALESCE(diagnostic_status, 'unknown'),
+         last_diagnostic_at = $2::timestamptz,
+         last_sync_error_code = $3,
+         last_sync_error_message = $4,
+         last_provider_request_id = $5,
+         last_provider_operation = 'get-processed-product',
+         last_provider_response = $6::jsonb,
+         updated_at = now()
+     WHERE row_id = $1`,
+    [
+      rowId,
+      input.attemptedAt,
+      input.code.slice(0, 200),
+      input.message.slice(0, 1_000),
+      input.providerRequestId,
       JSON.stringify(safeProviderResponse(input.response)),
     ],
   );
@@ -1196,6 +1763,229 @@ function toGoogleShoppingMaintenanceCandidate(
   };
 }
 
+export function normalizeGoogleShoppingDiagnostics(
+  previousIssuesValue: unknown,
+  diagnostics: GoogleShoppingProductDiagnostics,
+  observedAt: string,
+) {
+  const previousIssues = diagnosticIssueSnapshots(previousIssuesValue);
+  const previousByKey = new Map(previousIssues.map((issue) => [diagnosticIssueKey(issue), issue]));
+  const activeIssues = diagnostics.issues.map((issue) => {
+    const key = diagnosticIssueKey(issue);
+    const previous = previousByKey.get(key);
+    return {
+      code: normalizedIssueText(issue.code, "unknown_issue"),
+      severity: normalizedIssueText(issue.severity, "UNKNOWN"),
+      resolution: issue.resolution,
+      attribute: issue.attribute,
+      reportingContext: issue.reportingContext,
+      description: issue.description,
+      detail: issue.detail,
+      documentation: issue.documentation,
+      applicableCountries: issue.applicableCountries,
+      firstSeenAt: previous?.resolvedAt ? observedAt : (previous?.firstSeenAt ?? observedAt),
+      lastSeenAt: observedAt,
+      resolvedAt: null,
+      known: isKnownGoogleShoppingIssueCode(issue.code),
+    } satisfies GoogleShoppingDiagnosticIssueSnapshot;
+  });
+  const activeKeys = new Set(activeIssues.map((issue) => diagnosticIssueKey(issue)));
+  const resolvedIssues = previousIssues
+    .filter((issue) => !issue.resolvedAt && !activeKeys.has(diagnosticIssueKey(issue)))
+    .map((issue) => ({ ...issue, resolvedAt: observedAt }));
+  const retainedResolvedIssues = previousIssues.filter(
+    (issue) => issue.resolvedAt && !activeKeys.has(diagnosticIssueKey(issue)),
+  );
+  const status = googleShoppingDiagnosticStatus(diagnostics.destinationStatuses, activeIssues);
+
+  return {
+    status,
+    destinationStatuses: diagnostics.destinationStatuses,
+    activeIssues,
+    resolvedIssues: resolvedIssues.length,
+    issues: [...activeIssues, ...resolvedIssues, ...retainedResolvedIssues],
+  };
+}
+
+function googleShoppingDiagnosticStatus(
+  destinationStatuses: readonly unknown[],
+  activeIssues: readonly GoogleShoppingDiagnosticIssueSnapshot[],
+): GoogleShoppingDiagnosticStatus {
+  if (activeIssues.some((issue) => issue.severity.toUpperCase().includes("DISAPPROVED"))) {
+    return "disapproved";
+  }
+  if (activeIssues.length > 0) {
+    return "approved_with_issues";
+  }
+  if (destinationStatuses.length === 0) {
+    return "unknown";
+  }
+  if (JSON.stringify(destinationStatuses).toLowerCase().includes("pending")) {
+    return "pending";
+  }
+
+  return "approved";
+}
+
+function readGoogleShoppingDiagnosticStatus(value: string | null): GoogleShoppingDiagnosticStatus | null {
+  return value === "approved" ||
+    value === "approved_with_issues" ||
+    value === "disapproved" ||
+    value === "pending" ||
+    value === "unknown"
+    ? value
+    : null;
+}
+
+function buildGoogleShoppingDiagnosticsSnapshot(
+  rows: readonly GoogleShoppingDiagnosticsSnapshotRow[],
+  generatedAt: string,
+): GoogleShoppingDiagnosticsSnapshot {
+  const totals = {
+    rows: rows.length,
+    approved: rows.filter((row) => row.diagnosticStatus === "approved").length,
+    disapproved: rows.filter((row) => row.diagnosticStatus === "disapproved").length,
+    pending: rows.filter((row) => row.diagnosticStatus === "pending").length,
+    approvedWithIssues: rows.filter((row) => row.diagnosticStatus === "approved_with_issues").length,
+    unknown: rows.filter((row) => !row.diagnosticStatus || row.diagnosticStatus === "unknown").length,
+  };
+  const activeIssues = rows.flatMap((row) => row.issues.filter((issue) => !issue.resolvedAt));
+  const activeIssueSeverityCounts = countBy(activeIssues.map((issue) => issue.severity));
+  const unknownIssueCodeCount = activeIssues.filter((issue) => !issue.known).length;
+  const reasons = [
+    ...(totals.disapproved > 0 ? [`${totals.disapproved} submitted Google Shopping row(s) are disapproved.`] : []),
+    ...(unknownIssueCodeCount > 0 ? [`${unknownIssueCodeCount} active provider issue code(s) are unknown.`] : []),
+    ...(totals.approvedWithIssues >= 5 ? [`${totals.approvedWithIssues} row(s) have active Merchant issues.`] : []),
+  ];
+
+  return {
+    generatedAt,
+    totals,
+    activeIssueSeverityCounts,
+    unknownIssueCodeCount,
+    launchImpact: {
+      p0: totals.disapproved > 0,
+      p1: unknownIssueCodeCount > 0 || totals.approvedWithIssues >= 5,
+      reasons,
+    },
+    rows,
+  };
+}
+
+function emptyGoogleShoppingDiagnosticsRefreshResult(
+  mode: GoogleShoppingSyncMode,
+  total: number,
+): GoogleShoppingDiagnosticsRefreshResult {
+  return {
+    mode,
+    checked: 0,
+    approved: 0,
+    disapproved: 0,
+    pending: 0,
+    approvedWithIssues: 0,
+    failed: 0,
+    unknownIssueCodes: 0,
+    resolvedIssues: 0,
+    total,
+  };
+}
+
+function addGoogleShoppingDiagnosticsOutcome(
+  result: GoogleShoppingDiagnosticsRefreshResult,
+  outcome: GoogleShoppingDiagnosticsRowOutcome,
+): GoogleShoppingDiagnosticsRefreshResult {
+  return {
+    ...result,
+    checked: result.checked + (outcome.outcome === "checked" ? 1 : 0),
+    approved: result.approved + (outcome.status === "approved" ? 1 : 0),
+    disapproved: result.disapproved + (outcome.status === "disapproved" ? 1 : 0),
+    pending: result.pending + (outcome.status === "pending" ? 1 : 0),
+    approvedWithIssues: result.approvedWithIssues + (outcome.status === "approved_with_issues" ? 1 : 0),
+    failed: result.failed + (outcome.outcome === "failed" ? 1 : 0),
+    unknownIssueCodes: result.unknownIssueCodes + outcome.unknownIssueCodes,
+    resolvedIssues: result.resolvedIssues + outcome.resolvedIssues,
+  };
+}
+
+function failedGoogleShoppingDiagnosticsOutcome(): GoogleShoppingDiagnosticsRowOutcome {
+  return { outcome: "failed", status: "unknown", activeIssues: 0, unknownIssueCodes: 0, resolvedIssues: 0 };
+}
+
+function diagnosticIssueSnapshots(value: unknown): GoogleShoppingDiagnosticIssueSnapshot[] {
+  const parsed = readJsonValue<unknown>(value);
+  if (!Array.isArray(parsed)) {
+    return [];
+  }
+
+  return parsed.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") {
+      return [];
+    }
+    const record = entry as Record<string, unknown>;
+    return [
+      {
+        code: normalizedIssueText(record.code, "unknown_issue"),
+        severity: normalizedIssueText(record.severity, "UNKNOWN"),
+        resolution: stringOrNull(record.resolution),
+        attribute: stringOrNull(record.attribute),
+        reportingContext: stringOrNull(record.reportingContext),
+        description: stringOrNull(record.description),
+        detail: stringOrNull(record.detail),
+        documentation: stringOrNull(record.documentation),
+        applicableCountries: Array.isArray(record.applicableCountries)
+          ? record.applicableCountries.flatMap((country) => (typeof country === "string" ? [country] : []))
+          : [],
+        firstSeenAt: stringOrNull(record.firstSeenAt) ?? new Date(0).toISOString(),
+        lastSeenAt: stringOrNull(record.lastSeenAt) ?? new Date(0).toISOString(),
+        resolvedAt: stringOrNull(record.resolvedAt),
+        known: typeof record.known === "boolean" ? record.known : isKnownGoogleShoppingIssueCode(record.code),
+      },
+    ];
+  });
+}
+
+function diagnosticIssueKey(issue: GoogleShoppingProductIssue | GoogleShoppingDiagnosticIssueSnapshot) {
+  return [
+    normalizedIssueText(issue.code, "unknown_issue"),
+    issue.attribute ?? "",
+    issue.reportingContext ?? "",
+    [...issue.applicableCountries].sort().join(","),
+  ].join("|");
+}
+
+function normalizedIssueText(value: unknown, fallback: string) {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function isKnownGoogleShoppingIssueCode(value: unknown) {
+  const code = normalizedIssueText(value, "unknown_issue").toLowerCase();
+  return knownGoogleShoppingIssueCodes.has(code);
+}
+
+const knownGoogleShoppingIssueCodes = new Set([
+  "account_disapproved",
+  "adult_oriented_content",
+  "image_link_pending_crawl",
+  "image_too_small",
+  "invalid_gtin",
+  "invalid_image",
+  "invalid_price",
+  "landing_page_not_crawlable",
+  "missing_image_link",
+  "missing_price",
+  "missing_shipping",
+  "policy_violation",
+  "price_mismatch",
+  "product_unavailable",
+]);
+
+function countBy(values: readonly string[]): Record<string, number> {
+  return values.reduce<Record<string, number>>((counts, value) => {
+    counts[value] = (counts[value] ?? 0) + 1;
+    return counts;
+  }, {});
+}
+
 function refreshCutoffFor(value: string | Date | undefined, refreshWindowDays: number): Date {
   const now = value ? new Date(value) : new Date();
   if (!Number.isFinite(now.getTime())) {
@@ -1229,6 +2019,10 @@ function createJobId(): string {
 
 function readJsonValue<T>(value: unknown): T {
   return typeof value === "string" ? (JSON.parse(value) as T) : (value as T);
+}
+
+function stringOrNull(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : null;
 }
 
 function formatTimestamp(value: Date | string): string {

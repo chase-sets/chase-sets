@@ -99,6 +99,55 @@ export function createGoogleShoppingSyncRoutes(services: GoogleShoppingSyncServi
     }
   });
 
+  app.get("/diagnostics/snapshot", async (c) => {
+    const access = requireGoogleShoppingSyncAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const limit = parseBatchSize(c.req.query("limit"));
+
+    try {
+      return c.json(await services.getDiagnosticsSnapshot({ limit }));
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Google Shopping diagnostics snapshot failed.",
+          },
+        },
+        400,
+      );
+    }
+  });
+
+  app.post("/diagnostics/refresh-jobs", async (c) => {
+    const access = requireGoogleShoppingSyncAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const mode = parseSyncMode((body as { mode?: unknown }).mode);
+    const batchSize = parseBatchSize((body as { batchSize?: unknown }).batchSize);
+
+    try {
+      const job = await services.enqueueDiagnosticsRefreshJob({ mode, batchSize }, access.context);
+      return c.json(toGoogleShoppingFullSyncJobStatus(job), 202);
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Google Shopping diagnostics refresh request failed.",
+          },
+        },
+        400,
+      );
+    }
+  });
+
   app.get("/sync-jobs/:jobId", async (c) => {
     const access = requireGoogleShoppingSyncAccess(c);
     if (access.response) {
@@ -107,7 +156,7 @@ export function createGoogleShoppingSyncRoutes(services: GoogleShoppingSyncServi
 
     const job = await services.getFullSyncJob(c.req.param("jobId"));
     if (!job) {
-      return c.json({ error: { code: "not_found", message: "Google Shopping full sync job not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: "Google Shopping sync job not found." } }, 404);
     }
 
     return c.json(toGoogleShoppingFullSyncJobStatus(job));
@@ -122,7 +171,7 @@ export function createGoogleShoppingSyncRoutes(services: GoogleShoppingSyncServi
     const jobId = c.req.param("jobId");
     const job = await services.getFullSyncJob(jobId);
     if (!job) {
-      return c.json({ error: { code: "not_found", message: "Google Shopping full sync job not found." } }, 404);
+      return c.json({ error: { code: "not_found", message: "Google Shopping sync job not found." } }, 404);
     }
 
     return createDurableJobEventStream({

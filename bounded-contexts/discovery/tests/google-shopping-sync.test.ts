@@ -6,10 +6,13 @@ import type { DiscoveryApiEnv } from "../api";
 import { createGoogleShoppingSyncRoutes } from "../support/google-shopping-support/route";
 import {
   classifyGoogleShoppingSyncRow,
+  normalizeGoogleShoppingDiagnostics,
   previewGoogleShoppingMaintenanceSync,
+  processGoogleShoppingDiagnosticsRow,
   processGoogleShoppingSyncRow,
   type GoogleShoppingFeedRowForSync,
   type GoogleShoppingMaintenancePreview,
+  type GoogleShoppingProductDiagnostics,
   type GoogleShoppingSyncMerchantClient,
   type GoogleShoppingSyncProviderResult,
   type GoogleShoppingSyncServices,
@@ -38,6 +41,7 @@ const payload = {
   contentLanguage: "en",
   feedLabel: "US",
 } as const;
+const now = "2026-06-03T12:00:00.000Z";
 
 describe("google shopping sync row processing", () => {
   it("classifies unchanged eligible rows as skipped", () => {
@@ -299,6 +303,103 @@ describe("google shopping sync row processing", () => {
   });
 });
 
+describe("google shopping diagnostics", () => {
+  it("normalizes provider issues with first and last seen timestamps", () => {
+    const normalized = normalizeGoogleShoppingDiagnostics([], diagnostics([issue({ code: "invalid_gtin" })]), now);
+
+    expect(normalized).toMatchObject({
+      status: "disapproved",
+      resolvedIssues: 0,
+      activeIssues: [
+        {
+          code: "invalid_gtin",
+          severity: "DISAPPROVED",
+          firstSeenAt: now,
+          lastSeenAt: now,
+          resolvedAt: null,
+          known: true,
+        },
+      ],
+    });
+  });
+
+  it("marks missing previous issues as resolved", () => {
+    const normalized = normalizeGoogleShoppingDiagnostics(
+      [
+        {
+          code: "invalid_gtin",
+          severity: "DISAPPROVED",
+          resolution: "merchant_action",
+          attribute: "gtins",
+          reportingContext: "FREE_LISTINGS",
+          description: "Invalid GTIN",
+          detail: "Fix the GTIN.",
+          documentation: "https://support.google.com/merchants/answer/6324461",
+          applicableCountries: ["US"],
+          firstSeenAt: "2026-06-01T00:00:00.000Z",
+          lastSeenAt: "2026-06-02T00:00:00.000Z",
+          resolvedAt: null,
+          known: true,
+        },
+      ],
+      diagnostics([]),
+      now,
+    );
+
+    expect(normalized).toMatchObject({
+      status: "approved",
+      resolvedIssues: 1,
+      issues: [{ code: "invalid_gtin", resolvedAt: now }],
+    });
+  });
+
+  it("preserves unknown provider issue codes for launch evidence", () => {
+    const normalized = normalizeGoogleShoppingDiagnostics(
+      [],
+      diagnostics([issue({ code: "brand_new_policy_code", severity: "WARNING" })]),
+      now,
+    );
+
+    expect(normalized.status).toBe("approved_with_issues");
+    expect(normalized.activeIssues).toEqual([
+      expect.objectContaining({ code: "brand_new_policy_code", known: false, severity: "WARNING" }),
+    ]);
+  });
+
+  it("persists live diagnostics without mutating sync submission state", async () => {
+    const db = recordingDb();
+    const client: GoogleShoppingSyncMerchantClient = {
+      insertOrUpdateProductInput: vi.fn(),
+      deleteProductInput: vi.fn(),
+      getProcessedProductStatus: vi.fn(
+        async (): Promise<GoogleShoppingSyncProviderResult> => ({
+          status: "success",
+          operation: "get-processed-product",
+          attempts: 1,
+          diagnostics: diagnostics([issue({ code: "invalid_gtin" })]),
+          request: { method: "GET" },
+        }),
+      ),
+    };
+
+    const outcome = await processGoogleShoppingDiagnosticsRow({
+      db,
+      row: diagnosticsRow(),
+      mode: "live",
+      merchantClient: client,
+      jobContext: testJobContext(),
+    });
+
+    expect(outcome).toMatchObject({ outcome: "checked", status: "disapproved", activeIssues: 1 });
+    expect(client.getProcessedProductStatus).toHaveBeenCalledWith("cs-listing-lst_1", expect.any(Object));
+    expect(db.queries.at(-1)?.sql).toContain("diagnostic_destination_statuses");
+    expect(db.queries.at(-1)?.sql).not.toContain("last_submitted_payload_hash");
+    expect(JSON.parse(String(db.queries.at(-1)?.values[3]))).toEqual([
+      expect.objectContaining({ code: "invalid_gtin", firstSeenAt: expect.any(String), resolvedAt: null }),
+    ]);
+  });
+});
+
 describe("google shopping sync routes", () => {
   it("requires security.manage to enqueue a sync job", async () => {
     const enqueueFullSyncJob = vi.fn();
@@ -376,6 +477,36 @@ describe("google shopping sync routes", () => {
       context,
     );
   });
+
+  it("returns diagnostics snapshots for security operators", async () => {
+    const getDiagnosticsSnapshot = vi.fn(async () => diagnosticsSnapshot());
+    const app = createAuthenticatedApp({ getDiagnosticsSnapshot }, ["security.manage"]);
+
+    const response = await app.request("/diagnostics/snapshot?limit=50");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      totals: { rows: 1, disapproved: 1 },
+      launchImpact: { p0: true },
+      rows: [{ listingId: "lst_1", accountId: "acc_1" }],
+    });
+    expect(getDiagnosticsSnapshot).toHaveBeenCalledWith({ limit: 50 });
+  });
+
+  it("enqueues diagnostics refresh jobs for security operators", async () => {
+    const enqueueDiagnosticsRefreshJob = vi.fn(async () => jobSnapshot("job_diagnostics"));
+    const app = createAuthenticatedApp({ enqueueDiagnosticsRefreshJob }, ["security.manage"]);
+
+    const response = await app.request("/diagnostics/refresh-jobs", {
+      method: "POST",
+      body: JSON.stringify({ mode: "dry-run", batchSize: 25 }),
+      headers: { "Content-Type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toMatchObject({ jobId: "job_diagnostics", status: "queued" });
+    expect(enqueueDiagnosticsRefreshJob).toHaveBeenCalledWith({ mode: "dry-run", batchSize: 25 }, context);
+  });
 });
 
 function row(overrides: Partial<GoogleShoppingFeedRowForSync> = {}): GoogleShoppingFeedRowForSync {
@@ -391,6 +522,45 @@ function row(overrides: Partial<GoogleShoppingFeedRowForSync> = {}): GoogleShopp
     lastSubmittedPayloadHash: null,
     tombstoneStatus: "live",
     deleteSubmittedAt: null,
+    ...overrides,
+  };
+}
+
+function diagnosticsRow(overrides: Record<string, unknown> = {}) {
+  return {
+    rowId: "google-shopping:listing:lst_1",
+    listingId: "lst_1",
+    accountId: "acc_1",
+    catalogItemId: "cit_1",
+    productId: "prd_1",
+    merchantOfferId: "cs-listing-lst_1",
+    externalSellerId: "cs-account-acc_1",
+    diagnosticIssues: [],
+    ...overrides,
+  };
+}
+
+function diagnostics(
+  issues: readonly GoogleShoppingProductDiagnostics["issues"][number][],
+): GoogleShoppingProductDiagnostics {
+  return {
+    productName: "accounts/[account]/products/product",
+    destinationStatuses: [{ reportingContext: "FREE_LISTINGS", approvedCountries: ["US"] }],
+    issues,
+  };
+}
+
+function issue(overrides: Partial<GoogleShoppingProductDiagnostics["issues"][number]> = {}) {
+  return {
+    code: "invalid_gtin",
+    severity: "DISAPPROVED",
+    resolution: "merchant_action",
+    attribute: "gtins",
+    reportingContext: "FREE_LISTINGS",
+    description: "Invalid GTIN",
+    detail: "The value provided for the gtin attribute is not a valid GTIN.",
+    documentation: "https://support.google.com/merchants/answer/6324461",
+    applicableCountries: ["US"],
     ...overrides,
   };
 }
@@ -521,6 +691,58 @@ function maintenanceSummary(): GoogleShoppingMaintenancePreview {
       },
     ],
     total: 2,
+  };
+}
+
+function diagnosticsSnapshot() {
+  return {
+    generatedAt: now,
+    totals: {
+      rows: 1,
+      approved: 0,
+      disapproved: 1,
+      pending: 0,
+      approvedWithIssues: 0,
+      unknown: 0,
+    },
+    activeIssueSeverityCounts: { DISAPPROVED: 1 },
+    unknownIssueCodeCount: 0,
+    launchImpact: {
+      p0: true,
+      p1: false,
+      reasons: ["1 submitted Google Shopping row(s) are disapproved."],
+    },
+    rows: [
+      {
+        rowId: "google-shopping:listing:lst_1",
+        listingId: "lst_1",
+        accountId: "acc_1",
+        catalogItemId: "cit_1",
+        productId: "prd_1",
+        merchantOfferId: "cs-listing-lst_1",
+        externalSellerId: "cs-account-acc_1",
+        diagnosticStatus: "disapproved",
+        destinationStatuses: [{ reportingContext: "FREE_LISTINGS" }],
+        lastDiagnosticAt: now,
+        issues: [
+          {
+            code: "invalid_gtin",
+            severity: "DISAPPROVED",
+            resolution: "merchant_action",
+            attribute: "gtins",
+            reportingContext: "FREE_LISTINGS",
+            description: "Invalid GTIN",
+            detail: "Fix the GTIN.",
+            documentation: "https://support.google.com/merchants/answer/6324461",
+            applicableCountries: ["US"],
+            firstSeenAt: now,
+            lastSeenAt: now,
+            resolvedAt: null,
+            known: true,
+          },
+        ],
+      },
+    ],
   };
 }
 
