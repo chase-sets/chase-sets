@@ -1896,10 +1896,51 @@ describe("IntegrationManagementPage", () => {
       onProgress: expect.any(Function),
     });
     expect(await screen.findByText("Last Job Result")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Review Matching Observations" }).getAttribute("href")).toBe(
+      "/catalog/source-observations?source=tcgdex&language=en",
+    );
+    expect(screen.getAllByText("Scope").length).toBeGreaterThan(0);
+    expect(screen.getByText("provider: tcgdex, language: en")).toBeTruthy();
     expect(screen.getByText("Imported")).toBeTruthy();
     expect(screen.getByText("No grouped failures")).toBeTruthy();
     expect(mockSetSearchParams).toHaveBeenCalled();
     expect(mockRevalidate).toHaveBeenCalled();
+  });
+
+  it("links failed job result groups to filtered source observation review", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockWatchSourceObservationIntegrationJob.mockResolvedValue({
+      requested: 1,
+      imported: 0,
+      observed: 0,
+      reapplied: 0,
+      skipped: 0,
+      failed: 1,
+      outcomes: [
+        {
+          providerKey: "tcgdex",
+          languageCode: "en",
+          expansionId: "base1",
+          status: "failed",
+          observed: 0,
+          reapplied: 0,
+          reason: "Mapping failed",
+        },
+      ],
+    });
+
+    render(<IntegrationManagementPage data={{ items: [integrationScope()], total: 1, count: 1 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Resync set$/i })[0]);
+
+    await waitFor(() => expect(screen.getAllByText("Mapping failed").length).toBeGreaterThan(0));
+    expect(screen.getByRole("link", { name: "Review Matching Observations" }).getAttribute("href")).toBe(
+      "/catalog/source-observations?source=tcgdex&language=en&setId=base1",
+    );
+    for (const link of screen.getAllByRole("link", { name: "tcgdex/en/base1" })) {
+      expect(link.getAttribute("href")).toBe("/catalog/source-observations?source=tcgdex&language=en&setId=base1");
+    }
   });
 
   it("shows active integration jobs with profile snapshot scope and progress", () => {

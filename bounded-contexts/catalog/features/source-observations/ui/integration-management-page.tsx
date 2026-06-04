@@ -7,6 +7,7 @@ import { useRevalidator } from "react-router";
 import {
   Button,
   ActionBar,
+  Cluster,
   Combobox,
   DataTable,
   Dialog,
@@ -55,6 +56,7 @@ import type {
   CatalogProviderProfileSourceContractUpdateCommand,
   CatalogProviderProfileVersionReview,
   SourceObservationIntegrationOption,
+  SourceObservationIntegrationJobOutcome,
   SourceObservationIntegrationJobResult,
   SourceObservationIntegrationJobScope,
   SourceObservationIntegrationScope,
@@ -99,6 +101,18 @@ const TCGPLAYER_PROVIDER = "tcgplayer";
 const TCGPLAYER_PRODUCT_LINE_SCOPE = "product-line";
 const TCGPLAYER_PRODUCT_SCOPE = "product";
 const ALL_TCGPLAYER_SETS = "__all_tcgplayer_sets__";
+
+type LastIntegrationJobResultSummary = {
+  action: "import" | "reapply";
+  scope: SourceObservationIntegrationJobScope;
+  result: SourceObservationIntegrationJobResult;
+};
+
+type IntegrationFailureGroup = {
+  reason: string;
+  count: number;
+  examples: readonly { label: string; href: string }[];
+};
 const CATALOG_PROVIDER_CAPABILITY_OPTIONS = [
   "provider-option-query",
   "source-observation-import",
@@ -530,10 +544,9 @@ export function IntegrationManagementPage({
   const [tcgplayerProductId, setTcgplayerProductId] = useState("");
   const [importing, setImporting] = useState(false);
   const [integrationProgress, setIntegrationProgress] = useState<CatalogBulkActionProgress | null>(null);
-  const [lastIntegrationJobResult, setLastIntegrationJobResult] = useState<{
-    action: "import" | "reapply";
-    result: SourceObservationIntegrationJobResult;
-  } | null>(null);
+  const [lastIntegrationJobResult, setLastIntegrationJobResult] = useState<LastIntegrationJobResultSummary | null>(
+    null,
+  );
   const [showReapply, setShowReapply] = useState(false);
   const [reapplyScope, setReapplyScope] = useState<SourceObservationPromotionScope>({});
   const [reapplyPreview, setReapplyPreview] = useState<SourceObservationReapplyPreview | null>(null);
@@ -1288,7 +1301,7 @@ export function IntegrationManagementPage({
         },
       });
       addIntegrationJobCompletionToast(action, result, addToast);
-      setLastIntegrationJobResult({ action, result });
+      setLastIntegrationJobResult({ action, scope, result });
       revalidator.revalidate();
       activeIntegrationJobs.refresh();
       return result;
@@ -2699,14 +2712,19 @@ const activeIntegrationJobColumns: DataColumn<CatalogIntegrationJob<SourceObserv
   },
 ];
 
-function IntegrationJobResultSummary({
-  summary,
-}: Readonly<{ summary: { action: "import" | "reapply"; result: SourceObservationIntegrationJobResult } }>) {
+function IntegrationJobResultSummary({ summary }: Readonly<{ summary: LastIntegrationJobResultSummary }>) {
   const failureGroups = integrationFailureGroups(summary.result);
+  const reviewHref = sourceObservationIntegrationJobScopeHref(summary.scope);
 
   return (
     <Stack gap={3}>
-      <h3>Last Job Result</h3>
+      <Cluster gap={3} align="center" justify="between">
+        <h3>Last Job Result</h3>
+        <LinkButton href={reviewHref} size="sm" tone="secondary">
+          Review Matching Observations
+        </LinkButton>
+      </Cluster>
+      <KeyValueList items={[{ key: "Scope", value: formatIntegrationJobScope(summary.scope) }]} />
       <StatGrid columns={{ base: 2, md: 3 }}>
         <Stat label="Requested" value={formatCount(summary.result.requested)} />
         <Stat label="Imported" value={formatCount(summary.result.imported)} />
@@ -5020,7 +5038,7 @@ const profileValidationColumns: DataColumn<CatalogProviderProfileVersionReview["
     },
   ];
 
-const integrationFailureGroupColumns: DataColumn<ReturnType<typeof integrationFailureGroups>[number]>[] = [
+const integrationFailureGroupColumns: DataColumn<IntegrationFailureGroup>[] = [
   {
     key: "reason",
     header: "Reason",
@@ -5034,7 +5052,18 @@ const integrationFailureGroupColumns: DataColumn<ReturnType<typeof integrationFa
   {
     key: "examples",
     header: "Example scopes",
-    cell: (row) => row.examples.join(", "),
+    cell: (row) =>
+      row.examples.length > 0 ? (
+        <Inline gap={2}>
+          {row.examples.map((example) => (
+            <LinkButton key={`${row.reason}-${example.label}`} href={example.href} size="sm" tone="secondary">
+              {example.label}
+            </LinkButton>
+          ))}
+        </Inline>
+      ) : (
+        "No example scopes"
+      ),
   },
 ];
 
@@ -5262,8 +5291,8 @@ function activeProviderProfile(
   return profiles.find((profile) => profile.providerKey === providerKey && profile.active) ?? null;
 }
 
-function integrationFailureGroups(result: SourceObservationIntegrationJobResult) {
-  const groups = new Map<string, { reason: string; count: number; examples: string[] }>();
+function integrationFailureGroups(result: SourceObservationIntegrationJobResult): IntegrationFailureGroup[] {
+  const groups = new Map<string, { reason: string; count: number; examples: { label: string; href: string }[] }>();
   for (const outcome of result.outcomes) {
     if (outcome.status !== "failed") {
       continue;
@@ -5274,10 +5303,14 @@ function integrationFailureGroups(result: SourceObservationIntegrationJobResult)
     if (existing) {
       existing.count += 1;
       if (existing.examples.length < 3) {
-        existing.examples.push(example);
+        existing.examples.push({ label: example, href: sourceObservationOutcomeHref(outcome) });
       }
     } else {
-      groups.set(reason, { reason, count: 1, examples: [example] });
+      groups.set(reason, {
+        reason,
+        count: 1,
+        examples: [{ label: example, href: sourceObservationOutcomeHref(outcome) }],
+      });
     }
   }
   return [...groups.values()];
@@ -7252,6 +7285,33 @@ function sourceObservationScopeHref(scope: SourceObservationIntegrationScope) {
   return `/catalog/source-observations?${params.toString()}`;
 }
 
+function sourceObservationIntegrationJobScopeHref(scope: SourceObservationIntegrationJobScope) {
+  const params = new URLSearchParams();
+
+  if (scope.provider) {
+    params.set("source", scope.provider);
+  }
+
+  if (scope.language) {
+    params.set("language", scope.language);
+  }
+
+  if (scope.setId) {
+    params.set("setId", scope.setId);
+  }
+
+  const query = params.toString();
+  return query ? `/catalog/source-observations?${query}` : "/catalog/source-observations";
+}
+
+function sourceObservationOutcomeHref(outcome: SourceObservationIntegrationJobOutcome) {
+  return sourceObservationIntegrationJobScopeHref({
+    provider: outcome.providerKey,
+    language: outcome.languageCode,
+    setId: outcome.expansionId ?? undefined,
+  });
+}
+
 function positiveIntegerText(value: string): boolean {
   return /^[1-9]\d*$/.test(value.trim());
 }
@@ -7344,9 +7404,9 @@ function formatReapplyScope(scope: Required<SourceObservationPromotionScope>): s
     : t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.all");
 }
 
-function formatIntegrationJobScope(scope: Readonly<Record<string, string | undefined>>): string {
+function formatIntegrationJobScope(scope: SourceObservationIntegrationJobScope): string {
   const parts = Object.entries(scope)
-    .filter(([, value]) => Boolean(value))
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
     .map(([key, value]) => `${key}: ${value}`);
 
   return parts.length > 0 ? parts.join(", ") : "All provider scopes";
