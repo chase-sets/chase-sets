@@ -1243,6 +1243,139 @@ describe("IntegrationManagementPage", () => {
     expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("edits promotion command plans through structured controls", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgdex",
+            profileKey: "tcgdex-pokemon-card",
+            displayName: "TCGdex",
+            lifecycle: "draft",
+            capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
+            mappingOutputKind: "pokemon-card",
+            executableMappingContract: executableMappingContract({
+              outputKind: "pokemon-card",
+              promotionCommandPlan: {
+                requiresReview: true,
+                commands: [
+                  {
+                    commandName: "CreateCatalogItem",
+                    inputs: {
+                      title: mappingExpression("card.name", "catalog-truth", ["promotion-command"]),
+                    },
+                  },
+                ],
+              },
+            }),
+            profile: {
+              providerKey: "tcgdex",
+              profileKey: "tcgdex-pokemon-card",
+              displayName: "TCGdex",
+              status: "planned",
+              connector: { kind: "tcgdex-json" },
+              capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
+              supportedScopes: ["language", "series", "expansion", "product/card"],
+              languageOptions: ["en"],
+              optionQueries: [],
+              normalizedObservationMapping: { kind: "pokemon-card" },
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Promotion Command Plan")).toBeTruthy();
+    expect(within(dialog).getByText("Command 1: CreateCatalogItem")).toBeTruthy();
+    fireEvent.change(within(dialog).getByDisplayValue("card.name"), { target: { value: "card.printedName" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "tcgdex",
+        "2026.06.03",
+        "promotion-plan",
+        {
+          section: "promotion-plan",
+          promotionCommandPlan: expect.objectContaining({
+            planKind: "catalog-item-promotion",
+            requiresReview: true,
+            commands: [
+              {
+                commandName: "CreateCatalogItem",
+                inputs: {
+                  title: expect.objectContaining({
+                    selector: expect.objectContaining({ kind: "path", path: "card.printedName" }),
+                    uses: ["promotion-command"],
+                  }),
+                },
+              },
+            ],
+          }),
+        },
+      ),
+    );
+  });
+
+  it("blocks provider-product promotion commands without promotion capability", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgplayer",
+            profileKey: "tcgplayer-provider-product",
+            displayName: "TCGplayer",
+            lifecycle: "draft",
+            capabilities: ["source-observation-import", "external-reference-extraction"],
+            mappingOutputKind: "provider-product",
+            profile: {
+              providerKey: "tcgplayer",
+              profileKey: "tcgplayer-provider-product",
+              displayName: "TCGplayer",
+              status: "planned",
+              connector: { kind: "tcgplayer-automation-client" },
+              capabilities: ["source-observation-import", "external-reference-extraction"],
+              supportedScopes: ["product-line/category", "set-name", "product"],
+              languageOptions: ["en"],
+              optionQueries: [],
+              normalizedObservationMapping: { kind: "provider-product" },
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Add command$/i }));
+    expect(
+      within(dialog).getByText(
+        "Promotion command plan: provider-product profiles need the catalog-item-promotion capability before commands can be configured.",
+      ),
+    ).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("edits TCGdex connector metadata and fixture coverage", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
@@ -1998,6 +2131,7 @@ function executableMappingContract(
     externalReferences: JsonValue[];
     referenceHierarchy: JsonValue[];
     duplicatePrevention: JsonValue;
+    promotionCommandPlan: JsonValue;
   }> = {},
 ): JsonValue {
   return {
@@ -2014,6 +2148,10 @@ function executableMappingContract(
     externalReferences: overrides.externalReferences ?? [],
     referenceHierarchy: overrides.referenceHierarchy ?? referenceHierarchyContractsFixture(),
     duplicatePrevention: overrides.duplicatePrevention ?? duplicatePreventionContractFixture(),
+    promotionCommandPlan: overrides.promotionCommandPlan ?? {
+      requiresReview: true,
+      commands: [],
+    },
   };
 }
 

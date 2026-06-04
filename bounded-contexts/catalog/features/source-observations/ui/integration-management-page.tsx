@@ -43,6 +43,7 @@ import type {
   CatalogProviderProfileExternalReferencesUpdateCommand,
   CatalogProviderProfileNormalizedObservationUpdateCommand,
   CatalogProviderProfileProviderOptionsUpdateCommand,
+  CatalogProviderProfilePromotionPlanUpdateCommand,
   CatalogProviderProfileReferenceHierarchyUpdateCommand,
   CatalogProviderProfileRetirementPlanUpdateCommand,
   CatalogProviderProfileSelectedOptionsUpdateCommand,
@@ -196,6 +197,19 @@ const DUPLICATE_PREVENTION_REPLAY_POLICY_OPTIONS = [
   { value: "same-profile-version", label: "Same profile version" },
   { value: "operator-reapply-active-version", label: "Operator reapplies active version" },
 ] satisfies SelectItem[];
+const PROMOTION_COMMAND_NAME_OPTIONS = [
+  { value: "CreateCatalogItem", label: "Create Catalog Item" },
+  { value: "RefreshCatalogItem", label: "Refresh Catalog Item" },
+  { value: "ReviseCatalogItemMetadata", label: "Revise Catalog Item Metadata" },
+  { value: "AssignBlueprintToCatalogItem", label: "Assign Blueprint" },
+  { value: "AssignCatalogItemToCategory", label: "Assign Category" },
+  { value: "SetCatalogItemFieldValue", label: "Set Field Value" },
+  { value: "SetCatalogItemTags", label: "Set Tags" },
+  { value: "SetCatalogItemImageUrls", label: "Set Image URLs" },
+  { value: "SetCatalogItemProductAssetSets", label: "Set Product Asset Sets" },
+  { value: "LinkExternalCatalogItemReference", label: "Link External Catalog Item Reference" },
+  { value: "LinkExternalProductReference", label: "Link External Product Reference" },
+] satisfies SelectItem[];
 
 type ProfileBasicsForm = Readonly<{
   displayName: string;
@@ -214,6 +228,7 @@ type ProfileBasicsForm = Readonly<{
   externalReferences: ProfileExternalReferencesForm;
   referenceHierarchy: ProfileReferenceHierarchyForm;
   duplicatePrevention: ProfileDuplicatePreventionForm;
+  promotionPlan: ProfilePromotionPlanForm;
 }>;
 
 type ProfileSourceContractForm = Readonly<{
@@ -408,6 +423,30 @@ type ProfileDuplicatePreventionRuleForm = Readonly<{
     | "future-provider-bridge-match";
   candidatePolicy: "reuse" | "review-only";
   evidence: readonly ProfileExpressionListItemForm[];
+}>;
+
+type ProfilePromotionPlanForm = Readonly<{
+  planKind: "catalog-item-promotion";
+  requiresReview: true;
+  commands: readonly ProfilePromotionCommandForm[];
+}>;
+
+type ProfilePromotionCommandForm = Readonly<{
+  id: string;
+  unsupportedCommandName: string | null;
+  commandName:
+    | "CreateCatalogItem"
+    | "RefreshCatalogItem"
+    | "ReviseCatalogItemMetadata"
+    | "AssignBlueprintToCatalogItem"
+    | "AssignCatalogItemToCategory"
+    | "SetCatalogItemFieldValue"
+    | "SetCatalogItemTags"
+    | "SetCatalogItemImageUrls"
+    | "SetCatalogItemProductAssetSets"
+    | "LinkExternalCatalogItemReference"
+    | "LinkExternalProductReference";
+  inputs: readonly ProfileExpressionFieldForm[];
 }>;
 
 export function IntegrationManagementPage({
@@ -793,6 +832,10 @@ export function IntegrationManagementPage({
         ambiguityRules: duplicatePreventionAmbiguityRulesFormToCommand(editBasicsForm.duplicatePrevention),
         duplicatePreventionContract: duplicatePreventionContractFormToCommand(editBasicsForm.duplicatePrevention),
       };
+      const promotionPlanCommand: CatalogProviderProfilePromotionPlanUpdateCommand = {
+        section: "promotion-plan",
+        promotionCommandPlan: promotionPlanFormToCommand(editBasicsForm.promotionPlan),
+      };
       await updateSourceObservationProviderProfileSection(
         editProfile.providerKey,
         editProfile.profileVersion,
@@ -858,6 +901,12 @@ export function IntegrationManagementPage({
         editProfile.profileVersion,
         "duplicate-prevention",
         duplicatePreventionCommand,
+      );
+      await updateSourceObservationProviderProfileSection(
+        editProfile.providerKey,
+        editProfile.profileVersion,
+        "promotion-plan",
+        promotionPlanCommand,
       );
       addToast("Profile basics saved.", "success");
       setEditProfile(null);
@@ -2029,6 +2078,7 @@ function ProfileBasicsEditor({
   const setReferenceHierarchy = (referenceHierarchy: ProfileReferenceHierarchyForm) => setForm({ referenceHierarchy });
   const setDuplicatePrevention = (duplicatePrevention: ProfileDuplicatePreventionForm) =>
     setForm({ duplicatePrevention });
+  const setPromotionPlan = (promotionPlan: ProfilePromotionPlanForm) => setForm({ promotionPlan });
   const editable = profileLifecycleEditable(profile);
   const retirementTrackingIssueInvalid =
     form.retirementPlan.enabled && !positiveIntegerText(form.retirementPlan.trackingIssueText);
@@ -2038,6 +2088,7 @@ function ProfileBasicsEditor({
   const externalReferenceDiagnostics = validateExternalReferencesForm(form.externalReferences);
   const referenceHierarchyDiagnostics = validateReferenceHierarchyForm(form.referenceHierarchy);
   const duplicatePreventionDiagnostics = validateDuplicatePreventionForm(form.duplicatePrevention);
+  const promotionPlanDiagnostics = validatePromotionPlanForm(form.promotionPlan, form);
   const missingFixtureFlows = REQUIRED_FIXTURE_FLOW_OPTIONS.filter(
     (flow) => !form.fixtures.coveredFlows.includes(flow),
   );
@@ -2450,6 +2501,13 @@ function ProfileBasicsEditor({
         form={form.duplicatePrevention}
         onChange={setDuplicatePrevention}
         diagnostics={duplicatePreventionDiagnostics}
+        editable={editable}
+      />
+
+      <PromotionPlanEditor
+        form={form.promotionPlan}
+        onChange={setPromotionPlan}
+        diagnostics={promotionPlanDiagnostics}
         editable={editable}
       />
 
@@ -3815,6 +3873,182 @@ function DuplicatePreventionEditor({
   );
 }
 
+function PromotionPlanEditor({
+  form,
+  onChange,
+  diagnostics,
+  editable,
+}: Readonly<{
+  form: ProfilePromotionPlanForm;
+  onChange: (form: ProfilePromotionPlanForm) => void;
+  diagnostics: readonly string[];
+  editable: boolean;
+}>) {
+  const setForm = (patch: Partial<ProfilePromotionPlanForm>) => onChange({ ...form, ...patch });
+  const setCommand = (id: string, patch: Partial<ProfilePromotionCommandForm>) =>
+    setForm({ commands: form.commands.map((command) => (command.id === id ? { ...command, ...patch } : command)) });
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h3 className="text-sm font-semibold text-foreground">Promotion Command Plan</h3>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => setForm({ commands: [...form.commands, emptyPromotionCommandForm()] })}
+        >
+          Add command
+        </Button>
+      </div>
+      {diagnostics.length > 0 ? (
+        <ul className="text-sm text-danger">
+          {diagnostics.map((diagnostic) => (
+            <li key={diagnostic}>{diagnostic}</li>
+          ))}
+        </ul>
+      ) : null}
+      <KeyValueList
+        items={[
+          { key: "Plan kind", value: form.planKind },
+          { key: "Requires review", value: "Yes" },
+        ]}
+      />
+      <Stack gap={4}>
+        {form.commands.map((command, index) => (
+          <Stack key={command.id} gap={3}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h4 className="text-sm font-semibold text-foreground">
+                Command {index + 1}: {command.commandName}
+              </h4>
+              <Inline gap={2}>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === 0}
+                  onClick={() => setForm({ commands: moveItem(form.commands, index, index - 1) })}
+                >
+                  Up
+                </Button>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable || index === form.commands.length - 1}
+                  onClick={() => setForm({ commands: moveItem(form.commands, index, index + 1) })}
+                >
+                  Down
+                </Button>
+                <Button
+                  size="sm"
+                  tone="secondary"
+                  disabled={!editable}
+                  onClick={() =>
+                    setForm({
+                      commands: insertItem(form.commands, index + 1, {
+                        ...command,
+                        id: newFormRowId("promotion-command"),
+                      }),
+                    })
+                  }
+                >
+                  Duplicate
+                </Button>
+                <Button
+                  size="sm"
+                  tone="danger"
+                  disabled={!editable}
+                  onClick={() =>
+                    setForm({ commands: form.commands.filter((candidate) => candidate.id !== command.id) })
+                  }
+                >
+                  Remove
+                </Button>
+              </Inline>
+            </div>
+            <Select
+              label="Promotion command name"
+              value={command.commandName}
+              disabled={!editable}
+              items={PROMOTION_COMMAND_NAME_OPTIONS}
+              onValueChange={(value) =>
+                setCommand(command.id, {
+                  commandName: promotionCommandNameValue(value),
+                  unsupportedCommandName: null,
+                })
+              }
+            />
+            <PromotionCommandInputsEditor
+              command={command}
+              editable={editable}
+              onChange={(inputs) => setCommand(command.id, { inputs })}
+            />
+          </Stack>
+        ))}
+      </Stack>
+    </Stack>
+  );
+}
+
+function PromotionCommandInputsEditor({
+  command,
+  editable,
+  onChange,
+}: Readonly<{
+  command: ProfilePromotionCommandForm;
+  editable: boolean;
+  onChange: (inputs: readonly ProfileExpressionFieldForm[]) => void;
+}>) {
+  const setInput = (id: string, patch: Partial<ProfileExpressionFieldForm>) =>
+    onChange(command.inputs.map((input) => (input.id === id ? { ...input, ...patch } : input)));
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h5 className="text-sm font-semibold text-foreground">Command Inputs</h5>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => onChange([...command.inputs, emptyPromotionCommandInputForm()])}
+        >
+          Add input
+        </Button>
+      </div>
+      {command.inputs.map((input, index) => (
+        <Stack key={input.id} gap={3}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h6 className="text-sm font-semibold text-foreground">
+              Input {index + 1}: {input.fieldKey || "Unnamed"}
+            </h6>
+            <Button
+              size="sm"
+              tone="danger"
+              disabled={!editable}
+              onClick={() => onChange(command.inputs.filter((candidate) => candidate.id !== input.id))}
+            >
+              Remove
+            </Button>
+          </div>
+          <TextInput
+            label="Promotion input key"
+            value={input.fieldKey}
+            disabled={!editable}
+            required
+            onChange={(event) => setInput(input.id, { fieldKey: event.currentTarget.value })}
+          />
+          <MappingExpressionEditor
+            label={`Promotion input expression: ${input.fieldKey || index + 1}`}
+            value={input.expression}
+            onChange={(expression) => setInput(input.id, { expression })}
+          />
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
 function CheckboxSet({
   legend,
   options,
@@ -4374,6 +4608,7 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
     externalReferences: profileExternalReferencesForm(profile),
     referenceHierarchy: profileReferenceHierarchyForm(profile),
     duplicatePrevention: profileDuplicatePreventionForm(profile),
+    promotionPlan: profilePromotionPlanForm(profile),
   };
 }
 
@@ -4404,6 +4639,7 @@ function profileBasicsSaveDisabled(
     validateExternalReferencesForm(form.externalReferences).length > 0 ||
     validateReferenceHierarchyForm(form.referenceHierarchy).length > 0 ||
     validateDuplicatePreventionForm(form.duplicatePrevention).length > 0 ||
+    validatePromotionPlanForm(form.promotionPlan, form).length > 0 ||
     !form.fixtures.fixtureRoot.trim()
   );
 }
@@ -5407,6 +5643,158 @@ function duplicatePreventionProfileMatchKind(ruleKind: ProfileDuplicatePreventio
     return "deterministic-pokemon-card-field-match";
   }
   return ruleKind;
+}
+
+function profilePromotionPlanForm(profile: CatalogProviderProfileVersionReview): ProfilePromotionPlanForm {
+  const contractRoot = isRecord(profile.executableMappingContract) ? profile.executableMappingContract : {};
+  const promotionCommandPlan = isRecord(contractRoot.promotionCommandPlan) ? contractRoot.promotionCommandPlan : {};
+  const commands = Array.isArray(promotionCommandPlan.commands) ? promotionCommandPlan.commands : [];
+  return {
+    planKind: "catalog-item-promotion",
+    requiresReview: true,
+    commands: commands.map(promotionCommandForm),
+  };
+}
+
+function promotionCommandForm(value: unknown, index: number): ProfilePromotionCommandForm {
+  const command = isRecord(value) ? value : {};
+  const inputs = isRecord(command.inputs) ? command.inputs : {};
+  const commandName = promotionCommandNameValue(command.commandName);
+  const rawCommandName = stringValue(command.commandName);
+  return {
+    id: `promotion-command-${index}`,
+    unsupportedCommandName: rawCommandName && rawCommandName !== commandName ? rawCommandName : null,
+    commandName,
+    inputs: Object.entries(inputs).map(([fieldKey, expression], inputIndex) => ({
+      id: `promotion-command-${index}-input-${inputIndex}`,
+      fieldKey,
+      expression: mappingExpressionFromUnknown(
+        expression,
+        defaultPathExpression("", "catalog-truth", ["promotion-command"]),
+      ),
+    })),
+  };
+}
+
+function emptyPromotionCommandForm(): ProfilePromotionCommandForm {
+  return {
+    id: newFormRowId("promotion-command"),
+    unsupportedCommandName: null,
+    commandName: "SetCatalogItemFieldValue",
+    inputs: [emptyPromotionCommandInputForm()],
+  };
+}
+
+function emptyPromotionCommandInputForm(): ProfileExpressionFieldForm {
+  return {
+    id: newFormRowId("promotion-input"),
+    fieldKey: "",
+    expression: defaultPathExpression("", "catalog-truth", ["promotion-command"]),
+  };
+}
+
+function promotionPlanFormToCommand(
+  form: ProfilePromotionPlanForm,
+): CatalogProviderProfilePromotionPlanUpdateCommand["promotionCommandPlan"] {
+  return {
+    planKind: "catalog-item-promotion",
+    requiresReview: true,
+    commands: form.commands.map((command) => ({
+      commandName: command.commandName,
+      inputs: Object.fromEntries(
+        command.inputs.map((input) => [input.fieldKey.trim(), input.expression]).filter(([inputKey]) => inputKey),
+      ),
+    })),
+  } as CatalogProviderProfilePromotionPlanUpdateCommand["promotionCommandPlan"];
+}
+
+function validatePromotionPlanForm(form: ProfilePromotionPlanForm, basics?: ProfileBasicsForm): string[] {
+  const diagnostics: string[] = [];
+  const hasPromotionCapability = basics?.capabilities.includes("catalog-item-promotion") ?? true;
+  const outputKind = basics?.normalizedObservation.outputKind;
+  if (form.commands.length > 0 && outputKind === "provider-product" && !hasPromotionCapability) {
+    diagnostics.push(
+      "Promotion command plan: provider-product profiles need the catalog-item-promotion capability before commands can be configured.",
+    );
+  }
+  form.commands.forEach((command, commandIndex) => {
+    const label = `Promotion command ${commandIndex + 1}`;
+    if (command.unsupportedCommandName) {
+      diagnostics.push(`${label}: unsupported command name "${command.unsupportedCommandName}".`);
+    }
+    if (command.inputs.length === 0) {
+      diagnostics.push(`${label}: at least one input is required.`);
+    }
+    const seenInputs = new Set<string>();
+    command.inputs.forEach((input, inputIndex) => {
+      const inputKey = input.fieldKey.trim();
+      if (!inputKey) {
+        diagnostics.push(`${label} input ${inputIndex + 1}: input key is required.`);
+      }
+      if (seenInputs.has(inputKey)) {
+        diagnostics.push(`${label}: input keys must be unique.`);
+      }
+      seenInputs.add(inputKey);
+      diagnostics.push(
+        ...prefixedExpressionDiagnostics(`${label} input ${inputKey || inputIndex + 1}`, input.expression),
+      );
+      diagnostics.push(
+        ...unsafePromotionCommandDiagnostics(`${label} input ${inputKey || inputIndex + 1}`, input.expression),
+      );
+    });
+  });
+  return diagnostics;
+}
+
+function promotionCommandNameValue(value: unknown): ProfilePromotionCommandForm["commandName"] {
+  switch (value) {
+    case "CreateCatalogItem":
+    case "RefreshCatalogItem":
+    case "ReviseCatalogItemMetadata":
+    case "AssignBlueprintToCatalogItem":
+    case "AssignCatalogItemToCategory":
+    case "SetCatalogItemFieldValue":
+    case "SetCatalogItemTags":
+    case "SetCatalogItemImageUrls":
+    case "SetCatalogItemProductAssetSets":
+    case "LinkExternalCatalogItemReference":
+    case "LinkExternalProductReference":
+      return value;
+    default:
+      return "SetCatalogItemFieldValue";
+  }
+}
+
+function unsafePromotionCommandDiagnostics(label: string, expression: MappingExpressionValue): string[] {
+  const diagnostics: string[] = [];
+  for (const candidate of expressionTree(expression)) {
+    const selectorPath = selectorEvidencePath(candidate.selector).toLowerCase();
+    const unsafePath = [
+      "price",
+      "pricing",
+      "inventory",
+      "seller",
+      "listing",
+      "order",
+      "message",
+      "auth",
+      "cookie",
+    ].some((token) => selectorPath.includes(token));
+    const unsafeOwner =
+      candidate.owner === "pricing-signal" ||
+      candidate.owner === "inventory-signal" ||
+      candidate.owner === "operations";
+    const unsafeRedaction = candidate.redaction !== "none";
+    const drivesPromotion = candidate.uses.includes("promotion-command");
+
+    if ((unsafeOwner || unsafeRedaction || unsafePath) && drivesPromotion) {
+      diagnostics.push(
+        `${label}: promotion command cannot use secret, pricing, inventory, operations, seller, listing, order, or message evidence.`,
+      );
+      break;
+    }
+  }
+  return diagnostics;
 }
 
 function profileConnectorForm(value: unknown): ProfileConnectorForm {
