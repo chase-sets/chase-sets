@@ -38,6 +38,7 @@ Playwright can run against an already deployed marketplace without starting the 
 
 ```bash
 PLAYWRIGHT_SKIP_WEB_SERVER=true \
+ADMIN_WEB_URL=https://admin.staging.chasesets.com \
 MARKETPLACE_WEB_URL=https://marketplace.staging.chasesets.com \
 pnpm run test:e2e:deployed
 ```

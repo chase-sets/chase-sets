@@ -791,6 +791,8 @@ describe("DigitalOcean platform configuration", () => {
 
     expect(platformProductionWorkflow).toContain("Install Playwright Chromium for staging critical flows");
     expect(stagingCriticalFlowStep).toContain("PLAYWRIGHT_SKIP_WEB_SERVER");
+    expect(stagingCriticalFlowStep).toContain('admin_domain="$(terraform output -raw admin_domain)"');
+    expect(stagingCriticalFlowStep).toContain('ADMIN_WEB_URL="https://${admin_domain}"');
     expect(stagingCriticalFlowStep).toContain('MARKETPLACE_WEB_URL="https://${marketplace_domain}"');
     expect(stagingCriticalFlowStep).toContain("pnpm run test:e2e:deployed");
     expect(stagingCriticalFlowStep).toContain("MARKETPLACE_E2E_EMAIL");
