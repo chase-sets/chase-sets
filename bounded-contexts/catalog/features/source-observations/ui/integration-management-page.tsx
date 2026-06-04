@@ -3596,6 +3596,7 @@ function ProfileBasicsEditor({
                 rows={4}
                 onChange={(event) => setOptionQuery(query.id, { metadataPathsText: event.currentTarget.value })}
               />
+              <ProviderOptionQueryPreview providerKey={profile.providerKey} query={query} />
             </Stack>
           ))}
         </Stack>
@@ -3612,6 +3613,27 @@ function ProfileBasicsEditor({
       ) : null}
       {error ? <p>{error}</p> : null}
     </Stack>
+  );
+}
+
+function ProviderOptionQueryPreview({
+  providerKey,
+  query,
+}: Readonly<{
+  providerKey: string;
+  query: ProfileOptionQueryForm;
+}>) {
+  return (
+    <TaskSummary
+      title="Import Surface Preview"
+      items={[
+        { label: "Used by", value: providerOptionImportSurface(providerKey, query) },
+        { label: "Parent behavior", value: providerOptionParentPreview(query) },
+        { label: "Output option", value: providerOptionOutputPreview(query) },
+        { label: "Aliases", value: parseListInput(query.aliasesText).join(", ") || "None" },
+        { label: "Metadata", value: providerOptionMetadataPreview(query) },
+      ]}
+    />
   );
 }
 
@@ -7096,6 +7118,77 @@ function optionQueryFormToCommand(
   }
 
   return command;
+}
+
+export function providerOptionImportSurface(providerKey: string, query: ProfileOptionQueryForm): string {
+  const operation = query.operation.trim();
+  if (providerKey === TCGDEX_PROVIDER || operation.startsWith("tcgdex-")) {
+    if (operation === "tcgdex-list-languages") {
+      return "Pull Provider Data: TCGdex language selector.";
+    }
+    if (operation === "tcgdex-list-series") {
+      return "Pull Provider Data: TCGdex series selector after language.";
+    }
+    if (operation === "tcgdex-list-expansions") {
+      return "Source Observations: expansion filter and expansion-backed review scopes.";
+    }
+    return "TCGdex option surface.";
+  }
+
+  if (providerKey === TCGPLAYER_PROVIDER || operation.startsWith("tcgplayer-")) {
+    if (operation === "tcgplayer-list-product-lines") {
+      return "Pull Provider Data: TCGplayer product-line selector.";
+    }
+    if (operation === "tcgplayer-list-set-names") {
+      return "Pull Provider Data: TCGplayer set selector after product line.";
+    }
+    if (operation === "tcgplayer-list-products") {
+      return "Pull Provider Data: TCGplayer product import scope.";
+    }
+    if (operation === "tcgplayer-list-skus") {
+      return "Future TCGplayer SKU option surface.";
+    }
+    return "TCGplayer option surface.";
+  }
+
+  if (operation === "scrydex-list-sets") {
+    return "Scrydex set selector for provider review scopes.";
+  }
+
+  return query.scope.trim() ? `Provider option surface for ${query.scope.trim()}.` : "Provider option surface.";
+}
+
+export function providerOptionParentPreview(query: ProfileOptionQueryForm): string {
+  if (query.parentScope === "__none__") {
+    return "No parent scope required.";
+  }
+
+  const requirement = query.parentRequired ? "requires" : "uses";
+  const valueKind = query.parentValueKind.trim() || "parent value";
+  const path = query.parentValuePath.trim() || "no output parent path";
+  return `${query.parentScope} ${requirement} ${valueKind}; parent output path: ${path}.`;
+}
+
+export function providerOptionOutputPreview(query: ProfileOptionQueryForm): string {
+  const valuePath = query.valuePath.trim() || "missing value path";
+  const labelPath = query.labelPath.trim() || "missing label path";
+  const description =
+    query.descriptionKind === "path"
+      ? `description path: ${query.descriptionPath.trim() || "missing"}`
+      : query.descriptionKind === "__none__"
+        ? "no description"
+        : `description kind: ${query.descriptionKind}`;
+  const image =
+    query.imageUrlPath.trim() || parseListInput(query.imageUrlCoalescePathsText).length > 0
+      ? "image configured"
+      : "no image";
+  return `value: ${valuePath}; label: ${labelPath}; ${description}; ${image}.`;
+}
+
+export function providerOptionMetadataPreview(query: ProfileOptionQueryForm): string {
+  const metadata = metadataPathsObject(query.metadataPathsText);
+  const entries = Object.entries(metadata).map(([key, path]) => `${key}=${path}`);
+  return entries.length > 0 ? entries.join(", ") : "No metadata paths.";
 }
 
 function validateOptionQueryForms(queries: readonly ProfileOptionQueryForm[]): string[] {

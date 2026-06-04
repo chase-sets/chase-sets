@@ -2,7 +2,13 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
-import { IntegrationManagementPage } from "./integration-management-page";
+import {
+  IntegrationManagementPage,
+  providerOptionImportSurface,
+  providerOptionMetadataPreview,
+  providerOptionOutputPreview,
+  providerOptionParentPreview,
+} from "./integration-management-page";
 import type {
   CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileVersionReview,
@@ -216,6 +222,62 @@ describe("IntegrationManagementPage", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("builds provider option import surface preview text", () => {
+    const tcgplayerSetQuery = {
+      id: "set-names-1",
+      queryKind: "set-names",
+      aliasesText: "set-name, sets",
+      displayName: "Set Name",
+      scope: "set-name",
+      parentScope: "product-line/category",
+      parentRequired: true,
+      parentValueKind: "product-line-id",
+      parentDiagnosticText: "Choose a product line first.",
+      operation: "tcgplayer-list-set-names",
+      valuePath: "cleanSetName",
+      labelPath: "name",
+      descriptionKind: "tcgplayer-set-name",
+      descriptionPath: "",
+      parentValuePath: "$parentValue",
+      imageUrlPath: "",
+      imageUrlCoalescePathsText: "",
+      metadataPathsText: "productLineId=$parentValueNumber\ncleanSetName=cleanSetName",
+    };
+
+    expect(providerOptionImportSurface("tcgplayer", tcgplayerSetQuery)).toBe(
+      "Pull Provider Data: TCGplayer set selector after product line.",
+    );
+    expect(providerOptionParentPreview(tcgplayerSetQuery)).toBe(
+      "product-line/category requires product-line-id; parent output path: $parentValue.",
+    );
+    expect(providerOptionOutputPreview(tcgplayerSetQuery)).toBe(
+      "value: cleanSetName; label: name; description kind: tcgplayer-set-name; no image.",
+    );
+    expect(providerOptionMetadataPreview(tcgplayerSetQuery)).toBe(
+      "productLineId=$parentValueNumber, cleanSetName=cleanSetName",
+    );
+
+    expect(
+      providerOptionImportSurface("tcgdex", {
+        ...tcgplayerSetQuery,
+        id: "series-1",
+        queryKind: "series",
+        aliasesText: "serie",
+        displayName: "Series",
+        scope: "series",
+        parentScope: "language",
+        parentRequired: false,
+        parentValueKind: "language-code",
+        operation: "tcgdex-list-series",
+        valuePath: "seriesId",
+        labelPath: "name",
+        descriptionKind: "__none__",
+        parentValuePath: "$languageCode",
+        metadataPathsText: "languageCode=$languageCode\nseriesId=seriesId",
+      }),
+    ).toBe("Pull Provider Data: TCGdex series selector after language.");
   });
 
   it("shows pulled provider scopes with language expansion series and review counts", () => {
