@@ -246,6 +246,15 @@ const PROMOTION_COMMAND_NAME_OPTIONS = [
   { value: "LinkExternalCatalogItemReference", label: "Link External Catalog Item Reference" },
   { value: "LinkExternalProductReference", label: "Link External Product Reference" },
 ] satisfies SelectItem[];
+const REFERENCE_RECORD_ID_KIND_OPTIONS = [
+  { value: "static", label: "Static record ID" },
+  { value: "provider", label: "Provider-derived ID" },
+] satisfies SelectItem[];
+const REFERENCE_VALUE_RULE_KIND_OPTIONS = [
+  { value: "static", label: "Static value" },
+  { value: "path", label: "Payload path" },
+  { value: "template", label: "Template" },
+] satisfies SelectItem[];
 
 type ProfileBasicsForm = Readonly<{
   displayName: string;
@@ -420,6 +429,7 @@ type ProfileReferenceHierarchyForm = Readonly<{
   providerReferenceIdPrefix: string;
   targetRecordRuleKey: string;
   providerAttributes: readonly ProfileReferenceProviderAttributeForm[];
+  referenceTypes: readonly ProfileReferenceTypeRuleForm[];
   recordRules: readonly ProfileReferenceRecordRuleForm[];
   contracts: readonly ProfileReferenceHierarchyContractForm[];
 }>;
@@ -430,12 +440,44 @@ type ProfileReferenceProviderAttributeForm = Readonly<{
   providerAttributeKey: string;
 }>;
 
+type ProfileReferenceTypeRuleForm = Readonly<{
+  id: string;
+  referenceTypeId: string;
+  typeKey: string;
+  name: string;
+  descriptionText: string;
+  attributeKeysText: string;
+}>;
+
 type ProfileReferenceRecordRuleForm = Readonly<{
   id: string;
   ruleKey: string;
   typeKey: string;
+  recordIdKind: "static" | "provider";
+  staticReferenceRecordId: string;
+  providerRecordTypeKey: string;
+  providerValuePathsText: string;
+  keyRule: ProfileReferenceValueRuleForm;
+  nameRule: ProfileReferenceValueRuleForm;
+  descriptionRule: ProfileReferenceValueRuleForm;
+  attributes: readonly ProfileReferenceAttributeRuleForm[];
   requiredPathsText: string;
   relationshipsText: string;
+}>;
+
+type ProfileReferenceValueRuleForm = Readonly<{
+  kind: "static" | "path" | "template";
+  staticValue: string;
+  path: string;
+  template: string;
+  templateValuesText: string;
+}>;
+
+type ProfileReferenceAttributeRuleForm = Readonly<{
+  id: string;
+  attributeKey: string;
+  valueRule: ProfileReferenceValueRuleForm;
+  optional: boolean;
 }>;
 
 type ProfileReferenceHierarchyContractForm = Readonly<{
@@ -4577,6 +4619,10 @@ function ReferenceHierarchyEditor({
         attribute.id === id ? { ...attribute, ...patch } : attribute,
       ),
     });
+  const setReferenceType = (id: string, patch: Partial<ProfileReferenceTypeRuleForm>) =>
+    setForm({
+      referenceTypes: form.referenceTypes.map((type) => (type.id === id ? { ...type, ...patch } : type)),
+    });
   const setRecordRule = (id: string, patch: Partial<ProfileReferenceRecordRuleForm>) =>
     setForm({
       recordRules: form.recordRules.map((rule) => (rule.id === id ? { ...rule, ...patch } : rule)),
@@ -4672,6 +4718,72 @@ function ReferenceHierarchyEditor({
       </Stack>
       <Stack gap={3}>
         <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-sm font-semibold text-foreground">Reference Types</h4>
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="plus"
+            disabled={!editable}
+            onClick={() => setForm({ referenceTypes: [...form.referenceTypes, emptyReferenceTypeRuleForm()] })}
+          >
+            Add reference type
+          </Button>
+        </div>
+        {form.referenceTypes.map((type) => (
+          <Stack key={type.id} gap={3}>
+            <Inline gap={3}>
+              <TextInput
+                label="Reference type ID"
+                value={type.referenceTypeId}
+                disabled={!editable}
+                required
+                onChange={(event) => setReferenceType(type.id, { referenceTypeId: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Reference type key"
+                value={type.typeKey}
+                disabled={!editable}
+                required
+                onChange={(event) => setReferenceType(type.id, { typeKey: event.currentTarget.value })}
+              />
+              <TextInput
+                label="Reference type name"
+                value={type.name}
+                disabled={!editable}
+                required
+                onChange={(event) => setReferenceType(type.id, { name: event.currentTarget.value })}
+              />
+              <Button
+                size="sm"
+                tone="danger"
+                disabled={!editable}
+                onClick={() =>
+                  setForm({ referenceTypes: form.referenceTypes.filter((candidate) => candidate.id !== type.id) })
+                }
+              >
+                Remove
+              </Button>
+            </Inline>
+            <Textarea
+              label="Reference type description"
+              value={type.descriptionText}
+              disabled={!editable}
+              rows={2}
+              onChange={(event) => setReferenceType(type.id, { descriptionText: event.currentTarget.value })}
+            />
+            <Textarea
+              label="Reference type attribute keys"
+              description="Comma or line separated."
+              value={type.attributeKeysText}
+              disabled={!editable}
+              rows={2}
+              onChange={(event) => setReferenceType(type.id, { attributeKeysText: event.currentTarget.value })}
+            />
+          </Stack>
+        ))}
+      </Stack>
+      <Stack gap={3}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h4 className="text-sm font-semibold text-foreground">Reference Record Rules</h4>
           <Button
             size="sm"
@@ -4726,6 +4838,36 @@ function ReferenceHierarchyEditor({
               disabled={!editable}
               rows={3}
               onChange={(event) => setRecordRule(rule.id, { relationshipsText: event.currentTarget.value })}
+            />
+            <ReferenceRecordIdRuleEditor
+              form={rule}
+              editable={editable}
+              onChange={(patch) => setRecordRule(rule.id, patch)}
+            />
+            <Inline gap={3}>
+              <ReferenceValueRuleEditor
+                label="Record key"
+                value={rule.keyRule}
+                editable={editable}
+                onChange={(keyRule) => setRecordRule(rule.id, { keyRule })}
+              />
+              <ReferenceValueRuleEditor
+                label="Record name"
+                value={rule.nameRule}
+                editable={editable}
+                onChange={(nameRule) => setRecordRule(rule.id, { nameRule })}
+              />
+            </Inline>
+            <ReferenceValueRuleEditor
+              label="Record description"
+              value={rule.descriptionRule}
+              editable={editable}
+              onChange={(descriptionRule) => setRecordRule(rule.id, { descriptionRule })}
+            />
+            <ReferenceAttributeRulesEditor
+              attributes={rule.attributes}
+              editable={editable}
+              onChange={(attributes) => setRecordRule(rule.id, { attributes })}
             />
           </Stack>
         ))}
@@ -4782,6 +4924,202 @@ function ReferenceHierarchyEditor({
           </Stack>
         ))}
       </Stack>
+    </Stack>
+  );
+}
+
+function ReferenceRecordIdRuleEditor({
+  form,
+  editable,
+  onChange,
+}: Readonly<{
+  form: ProfileReferenceRecordRuleForm;
+  editable: boolean;
+  onChange: (patch: Partial<ProfileReferenceRecordRuleForm>) => void;
+}>) {
+  return (
+    <Stack gap={3}>
+      <h5 className="text-sm font-semibold text-foreground">Reference Record ID</h5>
+      <Inline gap={3}>
+        <Select
+          label="Record ID strategy"
+          value={form.recordIdKind}
+          disabled={!editable}
+          items={REFERENCE_RECORD_ID_KIND_OPTIONS}
+          onValueChange={(recordIdKind) =>
+            onChange({ recordIdKind: recordIdKind === "static" ? "static" : "provider" })
+          }
+        />
+        {form.recordIdKind === "static" ? (
+          <TextInput
+            label="Static reference record ID"
+            value={form.staticReferenceRecordId}
+            disabled={!editable}
+            required
+            onChange={(event) => onChange({ staticReferenceRecordId: event.currentTarget.value })}
+          />
+        ) : (
+          <>
+            <TextInput
+              label="Provider record type key"
+              value={form.providerRecordTypeKey}
+              disabled={!editable}
+              required
+              onChange={(event) => onChange({ providerRecordTypeKey: event.currentTarget.value })}
+            />
+            <Textarea
+              label="Provider value paths"
+              description="Comma or line separated. First available value becomes the deterministic record suffix."
+              value={form.providerValuePathsText}
+              disabled={!editable}
+              rows={2}
+              onChange={(event) => onChange({ providerValuePathsText: event.currentTarget.value })}
+            />
+          </>
+        )}
+      </Inline>
+    </Stack>
+  );
+}
+
+function ReferenceValueRuleEditor({
+  label,
+  value,
+  editable,
+  onChange,
+}: Readonly<{
+  label: string;
+  value: ProfileReferenceValueRuleForm;
+  editable: boolean;
+  onChange: (value: ProfileReferenceValueRuleForm) => void;
+}>) {
+  const setValue = (patch: Partial<ProfileReferenceValueRuleForm>) => onChange({ ...value, ...patch });
+
+  return (
+    <Stack gap={3}>
+      <h5 className="text-sm font-semibold text-foreground">{label}</h5>
+      <Inline gap={3}>
+        <Select
+          label={`${label} source`}
+          value={value.kind}
+          disabled={!editable}
+          items={REFERENCE_VALUE_RULE_KIND_OPTIONS}
+          onValueChange={(kind) =>
+            setValue({ kind: kind === "path" || kind === "template" ? kind : "static" })
+          }
+        />
+        {value.kind === "static" ? (
+          <TextInput
+            label="Static value"
+            value={value.staticValue}
+            disabled={!editable}
+            required
+            onChange={(event) => setValue({ staticValue: event.currentTarget.value })}
+          />
+        ) : null}
+        {value.kind === "path" ? (
+          <TextInput
+            label="Payload path"
+            value={value.path}
+            disabled={!editable}
+            required
+            onChange={(event) => setValue({ path: event.currentTarget.value })}
+          />
+        ) : null}
+      </Inline>
+      {value.kind === "template" ? (
+        <>
+          <Textarea
+            label="Template"
+            description="Use {name} tokens sourced by the template values below."
+            value={value.template}
+            disabled={!editable}
+            rows={2}
+            onChange={(event) => setValue({ template: event.currentTarget.value })}
+          />
+          <Textarea
+            label="Template values"
+            description="One token=path:path.to.value or token=static:Text mapping per line."
+            value={value.templateValuesText}
+            disabled={!editable}
+            rows={3}
+            onChange={(event) => setValue({ templateValuesText: event.currentTarget.value })}
+          />
+        </>
+      ) : null}
+    </Stack>
+  );
+}
+
+function ReferenceAttributeRulesEditor({
+  attributes,
+  editable,
+  onChange,
+}: Readonly<{
+  attributes: readonly ProfileReferenceAttributeRuleForm[];
+  editable: boolean;
+  onChange: (attributes: readonly ProfileReferenceAttributeRuleForm[]) => void;
+}>) {
+  const setAttribute = (id: string, patch: Partial<ProfileReferenceAttributeRuleForm>) =>
+    onChange(attributes.map((attribute) => (attribute.id === id ? { ...attribute, ...patch } : attribute)));
+
+  return (
+    <Stack gap={3}>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h5 className="text-sm font-semibold text-foreground">Record Attributes</h5>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="plus"
+          disabled={!editable}
+          onClick={() => onChange([...attributes, emptyReferenceAttributeRuleForm()])}
+        >
+          Add attribute rule
+        </Button>
+      </div>
+      {attributes.length === 0 ? <p className="text-sm text-secondary">No attribute rules.</p> : null}
+      {attributes.map((attribute, index) => (
+        <Stack key={attribute.id} gap={3}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h6 className="text-sm font-semibold text-foreground">
+              Attribute {index + 1}: {attribute.attributeKey || "Unconfigured"}
+            </h6>
+            <Button
+              size="sm"
+              tone="danger"
+              disabled={!editable}
+              onClick={() => onChange(attributes.filter((candidate) => candidate.id !== attribute.id))}
+            >
+              Remove
+            </Button>
+          </div>
+          <Inline gap={3}>
+            <TextInput
+              label="Attribute key"
+              value={attribute.attributeKey}
+              disabled={!editable}
+              required
+              onChange={(event) => setAttribute(attribute.id, { attributeKey: event.currentTarget.value })}
+            />
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={attribute.optional}
+                disabled={!editable}
+                onChange={() => setAttribute(attribute.id, { optional: !attribute.optional })}
+                className="h-4 w-4 rounded border-border accent-accent"
+              />
+              <span>Optional attribute</span>
+            </label>
+          </Inline>
+          <ReferenceValueRuleEditor
+            label="Attribute value"
+            value={attribute.valueRule}
+            editable={editable}
+            onChange={(valueRule) => setAttribute(attribute.id, { valueRule })}
+          />
+        </Stack>
+      ))}
     </Stack>
   );
 }
@@ -6721,6 +7059,7 @@ function profileReferenceHierarchyForm(profile: CatalogProviderProfileVersionRev
   const profileRecord = isRecord(profile.profile) ? profile.profile : {};
   const mapping = isRecord(profileRecord.referenceHierarchyMapping) ? profileRecord.referenceHierarchyMapping : {};
   const providerAttributes = Array.isArray(mapping.providerAttributes) ? mapping.providerAttributes : [];
+  const referenceTypes = Array.isArray(mapping.referenceTypes) ? mapping.referenceTypes : [];
   const recordRules = Array.isArray(mapping.referenceRecords) ? mapping.referenceRecords : [];
   const contractRoot = isRecord(profile.executableMappingContract) ? profile.executableMappingContract : {};
   const contracts = Array.isArray(contractRoot.referenceHierarchy) ? contractRoot.referenceHierarchy : [];
@@ -6730,6 +7069,7 @@ function profileReferenceHierarchyForm(profile: CatalogProviderProfileVersionRev
     providerReferenceIdPrefix: stringValue(mapping.providerReferenceIdPrefix),
     targetRecordRuleKey: stringValue(mapping.targetRecordRuleKey),
     providerAttributes: providerAttributes.map(referenceProviderAttributeForm),
+    referenceTypes: referenceTypes.map(referenceTypeRuleForm),
     recordRules: recordRules.map(referenceRecordRuleForm),
     contracts: contracts.map(referenceHierarchyContractForm),
   };
@@ -6744,14 +7084,97 @@ function referenceProviderAttributeForm(value: unknown, index: number): ProfileR
   };
 }
 
+function referenceTypeRuleForm(value: unknown, index: number): ProfileReferenceTypeRuleForm {
+  const type = isRecord(value) ? value : {};
+  return {
+    id: `reference-type-rule-${index}`,
+    referenceTypeId: stringValue(type.referenceTypeId),
+    typeKey: stringValue(type.typeKey),
+    name: stringValue(type.name),
+    descriptionText: stringValue(type.descriptionText),
+    attributeKeysText: arrayText(type.attributeKeys),
+  };
+}
+
 function referenceRecordRuleForm(value: unknown, index: number): ProfileReferenceRecordRuleForm {
   const rule = isRecord(value) ? value : {};
+  const recordId = isRecord(rule.recordId) ? rule.recordId : {};
   return {
     id: `reference-record-rule-${index}`,
     ruleKey: stringValue(rule.ruleKey),
     typeKey: stringValue(rule.typeKey),
+    recordIdKind: recordId.kind === "static" ? "static" : "provider",
+    staticReferenceRecordId: stringValue(recordId.referenceRecordId),
+    providerRecordTypeKey: stringValue(recordId.typeKey),
+    providerValuePathsText: arrayText(recordId.providerValuePaths),
+    keyRule: referenceValueRuleForm(rule.key),
+    nameRule: referenceValueRuleForm(rule.name),
+    descriptionRule: referenceValueRuleForm(rule.description),
+    attributes: referenceAttributeRuleForms(rule.attributes),
     requiredPathsText: arrayText(rule.requiredPaths),
     relationshipsText: referenceRelationshipsText(rule.relationships),
+  };
+}
+
+function referenceValueRuleForm(value: unknown): ProfileReferenceValueRuleForm {
+  const rule = isRecord(value) ? value : {};
+  if (rule.kind === "path") {
+    return {
+      kind: "path",
+      staticValue: "",
+      path: stringValue(rule.path),
+      template: "",
+      templateValuesText: "",
+    };
+  }
+  if (rule.kind === "template") {
+    return {
+      kind: "template",
+      staticValue: "",
+      path: "",
+      template: stringValue(rule.template),
+      templateValuesText: referenceTemplateValuesText(rule.values),
+    };
+  }
+  return {
+    kind: "static",
+    staticValue: stringValue(rule.value),
+    path: "",
+    template: "",
+    templateValuesText: "",
+  };
+}
+
+function referenceTemplateValuesText(value: unknown): string {
+  if (!isRecord(value)) {
+    return "";
+  }
+  return Object.entries(value)
+    .map(([key, rule]) => `${key}=${referenceValueRuleInlineText(rule)}`)
+    .join("\n");
+}
+
+function referenceValueRuleInlineText(value: unknown): string {
+  const rule = isRecord(value) ? value : {};
+  if (rule.kind === "path") {
+    return `path:${stringValue(rule.path)}`;
+  }
+  return `static:${stringValue(rule.value)}`;
+}
+
+function referenceAttributeRuleForms(value: unknown): readonly ProfileReferenceAttributeRuleForm[] {
+  return Array.isArray(value)
+    ? value.map((attribute, index) => referenceAttributeRuleForm(attribute, index))
+    : [];
+}
+
+function referenceAttributeRuleForm(value: unknown, index: number): ProfileReferenceAttributeRuleForm {
+  const attribute = isRecord(value) ? value : {};
+  return {
+    id: `reference-attribute-rule-${index}`,
+    attributeKey: stringValue(attribute.attributeKey),
+    valueRule: referenceValueRuleForm(attribute.value),
+    optional: attribute.optional === true,
   };
 }
 
@@ -6810,13 +7233,51 @@ function emptyProviderAttributeForm(): ProfileReferenceProviderAttributeForm {
   };
 }
 
+function emptyReferenceTypeRuleForm(): ProfileReferenceTypeRuleForm {
+  return {
+    id: newFormRowId("reference-type-rule"),
+    referenceTypeId: "",
+    typeKey: "",
+    name: "",
+    descriptionText: "",
+    attributeKeysText: "",
+  };
+}
+
 function emptyReferenceRecordRuleForm(): ProfileReferenceRecordRuleForm {
   return {
     id: newFormRowId("reference-record-rule"),
     ruleKey: "",
     typeKey: "",
+    recordIdKind: "provider",
+    staticReferenceRecordId: "",
+    providerRecordTypeKey: "",
+    providerValuePathsText: "",
+    keyRule: emptyReferenceValueRuleForm("path"),
+    nameRule: emptyReferenceValueRuleForm("path"),
+    descriptionRule: emptyReferenceValueRuleForm("template"),
+    attributes: [],
     requiredPathsText: "",
     relationshipsText: "",
+  };
+}
+
+function emptyReferenceValueRuleForm(kind: ProfileReferenceValueRuleForm["kind"] = "static"): ProfileReferenceValueRuleForm {
+  return {
+    kind,
+    staticValue: "",
+    path: "",
+    template: "",
+    templateValuesText: "",
+  };
+}
+
+function emptyReferenceAttributeRuleForm(): ProfileReferenceAttributeRuleForm {
+  return {
+    id: newFormRowId("reference-attribute-rule"),
+    attributeKey: "",
+    valueRule: emptyReferenceValueRuleForm("path"),
+    optional: true,
   };
 }
 
@@ -6849,9 +7310,20 @@ function referenceHierarchyMappingFormToCommand(
       typeKey: attribute.typeKey.trim(),
       providerAttributeKey: attribute.providerAttributeKey.trim(),
     })),
+    referenceTypes: form.referenceTypes.map(referenceTypeRuleFormToCommand),
     targetRecordRuleKey: form.targetRecordRuleKey.trim(),
     referenceRecords: mergeReferenceRecordRuleCommands(form.rawMapping.referenceRecords, form.recordRules),
   } as CatalogProviderProfileReferenceHierarchyUpdateCommand["referenceHierarchyMapping"];
+}
+
+function referenceTypeRuleFormToCommand(type: ProfileReferenceTypeRuleForm): Record<string, unknown> {
+  return {
+    referenceTypeId: type.referenceTypeId.trim(),
+    typeKey: type.typeKey.trim(),
+    name: type.name.trim(),
+    descriptionText: type.descriptionText.trim(),
+    attributeKeys: parseListInput(type.attributeKeysText),
+  };
 }
 
 function mergeReferenceRecordRuleCommands(
@@ -6875,9 +7347,80 @@ function referenceRecordRuleFormToCommand(
     ...existingRule,
     ruleKey: rule.ruleKey.trim(),
     typeKey: rule.typeKey.trim(),
+    recordId: referenceRecordIdRuleToCommand(rule),
+    key: referenceValueRuleToCommand(rule.keyRule),
+    name: referenceValueRuleToCommand(rule.nameRule),
+    description: referenceValueRuleToCommand(rule.descriptionRule),
+    attributes: rule.attributes.map(referenceAttributeRuleToCommand),
     requiredPaths: parseListInput(rule.requiredPathsText),
     relationships,
   };
+}
+
+function referenceRecordIdRuleToCommand(rule: ProfileReferenceRecordRuleForm): Record<string, unknown> {
+  if (rule.recordIdKind === "static") {
+    return {
+      kind: "static",
+      referenceRecordId: rule.staticReferenceRecordId.trim(),
+    };
+  }
+  return {
+    kind: "provider",
+    typeKey: rule.providerRecordTypeKey.trim(),
+    providerValuePaths: parseListInput(rule.providerValuePathsText),
+  };
+}
+
+function referenceAttributeRuleToCommand(attribute: ProfileReferenceAttributeRuleForm): Record<string, unknown> {
+  return {
+    attributeKey: attribute.attributeKey.trim(),
+    value: referenceValueRuleToCommand(attribute.valueRule),
+    ...(attribute.optional ? { optional: true } : {}),
+  };
+}
+
+function referenceValueRuleToCommand(rule: ProfileReferenceValueRuleForm): Record<string, unknown> {
+  if (rule.kind === "path") {
+    return {
+      kind: "path",
+      path: rule.path.trim(),
+    };
+  }
+  if (rule.kind === "template") {
+    return {
+      kind: "template",
+      template: rule.template,
+      values: referenceTemplateValuesObject(rule.templateValuesText),
+    };
+  }
+  return {
+    kind: "static",
+    value: rule.staticValue,
+  };
+}
+
+function referenceTemplateValuesObject(value: string): Readonly<Record<string, Record<string, unknown>>> {
+  return Object.fromEntries(
+    value
+      .split(/\n/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .map((entry) => {
+        const [key, ...ruleParts] = entry.split("=");
+        return [key.trim(), referenceInlineValueRuleToCommand(ruleParts.join("=").trim())] as const;
+      })
+      .filter(([key]) => key.length > 0),
+  );
+}
+
+function referenceInlineValueRuleToCommand(value: string): Record<string, unknown> {
+  if (value.startsWith("path:")) {
+    return { kind: "path", path: value.slice("path:".length).trim() };
+  }
+  if (value.startsWith("static:")) {
+    return { kind: "static", value: value.slice("static:".length).trim() };
+  }
+  return { kind: "path", path: value.trim() };
 }
 
 function referenceRelationshipsObject(value: string): readonly Record<string, string>[] {
@@ -6941,6 +7484,7 @@ function referenceHierarchyParentsToCommand(
 function validateReferenceHierarchyForm(form: ProfileReferenceHierarchyForm): string[] {
   const diagnostics: string[] = [];
   const ruleKeys = new Set(form.recordRules.map((rule) => rule.ruleKey.trim()).filter(Boolean));
+  const typeKeys = new Set(form.referenceTypes.map((type) => type.typeKey.trim()).filter(Boolean));
 
   if (!form.providerReferenceIdPrefix.trim() || !form.targetRecordRuleKey.trim()) {
     diagnostics.push("Reference hierarchy: provider reference ID prefix and target record rule key are required.");
@@ -6953,6 +7497,16 @@ function validateReferenceHierarchyForm(form: ProfileReferenceHierarchyForm): st
     if (!attribute.typeKey.trim() || !attribute.providerAttributeKey.trim()) {
       diagnostics.push(`Provider attribute ${index + 1}: type key and provider attribute key are required.`);
     }
+    if (attribute.typeKey.trim() && typeKeys.size > 0 && !typeKeys.has(attribute.typeKey.trim())) {
+      diagnostics.push(`Provider attribute ${index + 1}: type key must match a reference type.`);
+    }
+  });
+
+  form.referenceTypes.forEach((type, index) => {
+    const label = type.typeKey.trim() || `Reference type ${index + 1}`;
+    if (!type.referenceTypeId.trim() || !type.typeKey.trim() || !type.name.trim() || !type.descriptionText.trim()) {
+      diagnostics.push(`${label}: reference type ID, key, name, and description are required.`);
+    }
   });
 
   form.recordRules.forEach((rule, index) => {
@@ -6960,6 +7514,28 @@ function validateReferenceHierarchyForm(form: ProfileReferenceHierarchyForm): st
     if (!rule.ruleKey.trim() || !rule.typeKey.trim()) {
       diagnostics.push(`${label}: rule key and type key are required.`);
     }
+    if (rule.typeKey.trim() && typeKeys.size > 0 && !typeKeys.has(rule.typeKey.trim())) {
+      diagnostics.push(`${label}: type key must match a reference type.`);
+    }
+    if (rule.recordIdKind === "static" && !rule.staticReferenceRecordId.trim()) {
+      diagnostics.push(`${label}: static reference record ID is required.`);
+    }
+    if (
+      rule.recordIdKind === "provider" &&
+      (!rule.providerRecordTypeKey.trim() || parseListInput(rule.providerValuePathsText).length === 0)
+    ) {
+      diagnostics.push(`${label}: provider record type key and provider value paths are required.`);
+    }
+    diagnostics.push(...validateReferenceValueRule(`${label} key`, rule.keyRule));
+    diagnostics.push(...validateReferenceValueRule(`${label} name`, rule.nameRule));
+    diagnostics.push(...validateReferenceValueRule(`${label} description`, rule.descriptionRule));
+    rule.attributes.forEach((attribute, attributeIndex) => {
+      const attributeLabel = `${label} attribute ${attributeIndex + 1}`;
+      if (!attribute.attributeKey.trim()) {
+        diagnostics.push(`${attributeLabel}: attribute key is required.`);
+      }
+      diagnostics.push(...validateReferenceValueRule(attributeLabel, attribute.valueRule));
+    });
     for (const relationship of referenceRelationshipsObject(rule.relationshipsText)) {
       if (!ruleKeys.has(relationship.ruleKey)) {
         diagnostics.push(`${label}: relationship rule key '${relationship.ruleKey}' does not match a record rule.`);
@@ -6987,6 +7563,28 @@ function validateReferenceHierarchyForm(form: ProfileReferenceHierarchyForm): st
     });
   });
 
+  return diagnostics;
+}
+
+function validateReferenceValueRule(label: string, rule: ProfileReferenceValueRuleForm): string[] {
+  const diagnostics: string[] = [];
+  if (rule.kind === "static" && !rule.staticValue.trim()) {
+    diagnostics.push(`${label}: static value is required.`);
+  }
+  if (rule.kind === "path" && !rule.path.trim()) {
+    diagnostics.push(`${label}: payload path is required.`);
+  }
+  if (rule.kind === "template") {
+    if (!rule.template.trim()) {
+      diagnostics.push(`${label}: template is required.`);
+    }
+    for (const token of rule.template.matchAll(/\{([^}]+)\}/g)) {
+      const tokenName = token[1]?.trim();
+      if (tokenName && !referenceTemplateValuesObject(rule.templateValuesText)[tokenName]) {
+        diagnostics.push(`${label}: template token '${tokenName}' needs a template value.`);
+      }
+    }
+  }
   return diagnostics;
 }
 

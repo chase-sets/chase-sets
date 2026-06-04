@@ -376,11 +376,30 @@ describe("IntegrationManagementPage", () => {
           { id: "series-attribute", typeKey: "series", providerAttributeKey: "tcgdex-series-id" },
           { id: "expansion-attribute", typeKey: "expansion", providerAttributeKey: "tcgdex-set-id" },
         ],
+        referenceTypes: [],
         recordRules: [
           {
             id: "series-rule",
             ruleKey: "series",
             typeKey: "series",
+            recordIdKind: "provider",
+            staticReferenceRecordId: "",
+            providerRecordTypeKey: "series",
+            providerValuePathsText: "seriesId, seriesName",
+            keyRule: referencePathValueRule("seriesName"),
+            nameRule: referencePathValueRule("seriesName"),
+            descriptionRule: referenceTemplateValueRule(
+              "{seriesName} Pokemon TCG series.",
+              "seriesName=path:seriesName",
+            ),
+            attributes: [
+              {
+                id: "series-id-attribute",
+                attributeKey: "tcgdex-series-id",
+                valueRule: referencePathValueRule("seriesId"),
+                optional: true,
+              },
+            ],
             requiredPathsText: "seriesName",
             relationshipsText: "part-of=product-line",
           },
@@ -388,6 +407,24 @@ describe("IntegrationManagementPage", () => {
             id: "expansion-rule",
             ruleKey: "expansion",
             typeKey: "expansion",
+            recordIdKind: "provider",
+            staticReferenceRecordId: "",
+            providerRecordTypeKey: "expansion",
+            providerValuePathsText: "expansionId",
+            keyRule: referencePathValueRule("expansionName"),
+            nameRule: referencePathValueRule("expansionName"),
+            descriptionRule: referenceTemplateValueRule(
+              "{expansionName} Pokemon TCG expansion.",
+              "expansionName=path:expansionName",
+            ),
+            attributes: [
+              {
+                id: "expansion-id-attribute",
+                attributeKey: "tcgdex-set-id",
+                valueRule: referencePathValueRule("expansionId"),
+                optional: true,
+              },
+            ],
             requiredPathsText: "expansionName",
             relationshipsText: "part-of=series",
           },
@@ -1300,9 +1337,6 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(within(dialog).getByDisplayValue("ref_tcgdex"), {
       target: { value: "ref_tcgdex_v2" },
     });
-    fireEvent.change(within(dialog).getAllByDisplayValue("tcgdex-set-id")[1], {
-      target: { value: "tcgdex-expansion-id" },
-    });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
 
     await waitFor(() =>
@@ -1315,11 +1349,40 @@ describe("IntegrationManagementPage", () => {
           referenceHierarchyMapping: expect.objectContaining({
             providerReferenceIdPrefix: "ref_tcgdex_v2",
             targetRecordRuleKey: "expansion",
+            referenceTypes: expect.arrayContaining([
+              expect.objectContaining({
+                referenceTypeId: "ref_type_expansion",
+                typeKey: "expansion",
+                attributeKeys: ["tcgdex-set-id"],
+              }),
+            ]),
+            referenceRecords: expect.arrayContaining([
+              expect.objectContaining({
+                ruleKey: "manufacturer",
+                recordId: { kind: "static", referenceRecordId: "ref_manufacturer_pokemon_company" },
+              }),
+              expect.objectContaining({
+                ruleKey: "product-line",
+                relationships: [{ relationshipType: "published-by", ruleKey: "manufacturer" }],
+              }),
+              expect.objectContaining({
+                ruleKey: "expansion",
+                recordId: { kind: "provider", typeKey: "expansion", providerValuePaths: ["expansionId"] },
+                key: { kind: "path", path: "expansionName" },
+                attributes: [
+                  {
+                    attributeKey: "tcgdex-set-id",
+                    value: { kind: "path", path: "expansionId" },
+                    optional: true,
+                  },
+                ],
+              }),
+            ]),
           }),
           referenceHierarchyContracts: [
             expect.objectContaining({
               targetTypeKey: "expansion",
-              providerAttributeKey: "tcgdex-expansion-id",
+              providerAttributeKey: "tcgdex-set-id",
               parent: expect.objectContaining({
                 targetTypeKey: "series",
                 parent: expect.objectContaining({ targetTypeKey: "product-line" }),
@@ -2994,6 +3057,26 @@ function mappingExpression(
   };
 }
 
+function referencePathValueRule(path: string) {
+  return {
+    kind: "path" as const,
+    staticValue: "",
+    path,
+    template: "",
+    templateValuesText: "",
+  };
+}
+
+function referenceTemplateValueRule(template: string, templateValuesText: string) {
+  return {
+    kind: "template" as const,
+    staticValue: "",
+    path: "",
+    template,
+    templateValuesText,
+  };
+}
+
 function externalReferenceContractsFixture(): JsonValue[] {
   return [
     {
@@ -3080,23 +3163,86 @@ function referenceHierarchyMappingFixture() {
       { typeKey: "expansion", providerAttributeKey: "tcgdex-set-id" },
     ],
     targetRecordRuleKey: "expansion",
-    referenceTypes: [],
+    referenceTypes: [
+      {
+        referenceTypeId: "ref_type_manufacturer",
+        typeKey: "manufacturer",
+        name: "Manufacturer",
+        descriptionText: "A company responsible for publishing catalog products.",
+        attributeKeys: ["homepage-url"],
+      },
+      {
+        referenceTypeId: "ref_type_product_line",
+        typeKey: "product-line",
+        name: "Product Line",
+        descriptionText: "A branded collectible product line.",
+        attributeKeys: ["official-name"],
+      },
+      {
+        referenceTypeId: "ref_type_series",
+        typeKey: "series",
+        name: "Series",
+        descriptionText: "An official Pokemon TCG series that groups expansions.",
+        attributeKeys: ["tcgdex-series-id"],
+      },
+      {
+        referenceTypeId: "ref_type_expansion",
+        typeKey: "expansion",
+        name: "Expansion",
+        descriptionText: "An official Pokemon TCG card expansion.",
+        attributeKeys: ["tcgdex-set-id"],
+      },
+    ],
     referenceRecords: [
       {
-        ruleKey: "product-line",
-        typeKey: "product-line",
+        ruleKey: "manufacturer",
+        typeKey: "manufacturer",
+        recordId: { kind: "static", referenceRecordId: "ref_manufacturer_pokemon_company" },
+        key: { kind: "static", value: "the-pokemon-company-international" },
+        name: { kind: "static", value: "The Pokemon Company International" },
+        description: { kind: "static", value: "Publisher of the English Pokemon Trading Card Game." },
+        attributes: [{ attributeKey: "homepage-url", value: { kind: "static", value: "https://www.pokemon.com/us" } }],
         requiredPaths: [],
         relationships: [],
       },
       {
+        ruleKey: "product-line",
+        typeKey: "product-line",
+        recordId: { kind: "static", referenceRecordId: "ref_product_line_pokemon_tcg" },
+        key: { kind: "static", value: "pokemon-trading-card-game" },
+        name: { kind: "static", value: "Pokemon Trading Card Game" },
+        description: { kind: "static", value: "The Pokemon Trading Card Game product line." },
+        attributes: [{ attributeKey: "official-name", value: { kind: "static", value: "Pokemon Trading Card Game" } }],
+        requiredPaths: [],
+        relationships: [{ relationshipType: "published-by", ruleKey: "manufacturer" }],
+      },
+      {
         ruleKey: "series",
         typeKey: "series",
+        recordId: { kind: "provider", typeKey: "series", providerValuePaths: ["seriesId", "seriesName"] },
+        key: { kind: "path", path: "seriesName" },
+        name: { kind: "path", path: "seriesName" },
+        description: {
+          kind: "template",
+          template: "{seriesName} Pokemon TCG series.",
+          values: { seriesName: { kind: "path", path: "seriesName" } },
+        },
+        attributes: [{ attributeKey: "tcgdex-series-id", value: { kind: "path", path: "seriesId" }, optional: true }],
         requiredPaths: ["seriesName"],
         relationships: [{ relationshipType: "part-of", ruleKey: "product-line" }],
       },
       {
         ruleKey: "expansion",
         typeKey: "expansion",
+        recordId: { kind: "provider", typeKey: "expansion", providerValuePaths: ["expansionId"] },
+        key: { kind: "path", path: "expansionName" },
+        name: { kind: "path", path: "expansionName" },
+        description: {
+          kind: "template",
+          template: "{expansionName} Pokemon TCG expansion.",
+          values: { expansionName: { kind: "path", path: "expansionName" } },
+        },
+        attributes: [{ attributeKey: "tcgdex-set-id", value: { kind: "path", path: "expansionId" }, optional: true }],
         requiredPaths: ["expansionName"],
         relationships: [{ relationshipType: "part-of", ruleKey: "series" }],
       },
