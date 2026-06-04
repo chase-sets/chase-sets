@@ -36,7 +36,7 @@ import {
   type CatalogListRouteData,
   useCatalogListQueryControls,
 } from "../../../support/shell-support/list-query-state";
-import type { CatalogBulkActionProgress } from "../../../support/shell-support/api/client";
+import type { CatalogBulkActionProgress, CatalogIntegrationJob } from "../../../support/shell-support/api/client";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import type {
   CatalogProviderProfileAuthoringModel,
@@ -1357,6 +1357,13 @@ export function IntegrationManagementPage({
           />
         </StatGrid>
 
+        <ActiveIntegrationJobsPanel
+          jobs={activeIntegrationJobs.data?.items ?? []}
+          loading={activeIntegrationJobs.loading}
+          error={activeIntegrationJobs.error}
+          onRefresh={activeIntegrationJobs.refresh}
+        />
+
         {lastIntegrationJobResult ? <IntegrationJobResultSummary summary={lastIntegrationJobResult} /> : null}
 
         <FilterBar sticky={false}>
@@ -2598,6 +2605,99 @@ function ImportActiveProfileSnapshot({
     </Stack>
   );
 }
+
+function ActiveIntegrationJobsPanel({
+  jobs,
+  loading,
+  error,
+  onRefresh,
+}: Readonly<{
+  jobs: readonly CatalogIntegrationJob<SourceObservationIntegrationJobResult>[];
+  loading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+}>) {
+  if (!loading && !error && jobs.length === 0) {
+    return null;
+  }
+
+  return (
+    <Stack gap={3}>
+      <Inline gap={3} align="center">
+        <Stack gap={1}>
+          <h3>Active Integration Jobs</h3>
+          <p className="text-sm text-secondary">
+            Queued and running provider imports or reapply jobs with their profile snapshots and progress.
+          </p>
+        </Stack>
+        <Button tone="secondary" leadingIcon="refreshCcw" onClick={onRefresh}>
+          Refresh jobs
+        </Button>
+      </Inline>
+      {error ? <p>{error}</p> : null}
+      {loading ? <p>Loading active jobs...</p> : null}
+      <DataTable
+        rows={[...jobs]}
+        columns={activeIntegrationJobColumns}
+        getRowId={(row) => row.jobId}
+        emptyTitle="No active integration jobs"
+        density="compact"
+      />
+    </Stack>
+  );
+}
+
+const activeIntegrationJobColumns: DataColumn<CatalogIntegrationJob<SourceObservationIntegrationJobResult>>[] = [
+  {
+    key: "job",
+    header: "Job",
+    cell: (row) => (
+      <Stack gap={1}>
+        <Inline gap={2}>
+          <StatusPill tone={row.status === "failed" ? "danger" : row.status === "completed" ? "success" : "info"}>
+            {row.status}
+          </StatusPill>
+          <span>{row.action}</span>
+        </Inline>
+        <span className="text-xs text-secondary">{row.jobId}</span>
+      </Stack>
+    ),
+  },
+  {
+    key: "profile",
+    header: "Profile Snapshot",
+    cell: (row) =>
+      row.profileSnapshot ? (
+        <Stack gap={1}>
+          <span>
+            {row.profileSnapshot.providerKey} {row.profileSnapshot.profileVersion}
+          </span>
+          <span className="text-xs text-secondary">
+            {row.profileSnapshot.profileKey} - {row.profileSnapshot.lifecycle}
+          </span>
+          <span className="text-xs text-secondary">{row.profileSnapshot.sourceMappingFingerprint}</span>
+        </Stack>
+      ) : (
+        "No snapshot"
+      ),
+  },
+  {
+    key: "scope",
+    header: "Scope",
+    cell: (row) => formatIntegrationJobScope(row.scope),
+  },
+  {
+    key: "progress",
+    header: "Progress",
+    cell: (row) => (
+      <ProgressBar
+        value={bulkActionProgressPercent(row.progress)}
+        tone={row.status === "failed" ? "danger" : row.status === "completed" ? "success" : "active"}
+        formatLabel={() => formatBulkActionProgress(row.progress)}
+      />
+    ),
+  },
+];
 
 function IntegrationJobResultSummary({
   summary,
@@ -7242,6 +7342,14 @@ function formatReapplyScope(scope: Required<SourceObservationPromotionScope>): s
   return parts.length > 0
     ? parts.join(", ")
     : t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.all");
+}
+
+function formatIntegrationJobScope(scope: Readonly<Record<string, string | undefined>>): string {
+  const parts = Object.entries(scope)
+    .filter(([, value]) => Boolean(value))
+    .map(([key, value]) => `${key}: ${value}`);
+
+  return parts.length > 0 ? parts.join(", ") : "All provider scopes";
 }
 
 function addIntegrationJobCompletionToast(

@@ -1902,6 +1902,61 @@ describe("IntegrationManagementPage", () => {
     expect(mockRevalidate).toHaveBeenCalled();
   });
 
+  it("shows active integration jobs with profile snapshot scope and progress", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    const refresh = vi.fn();
+    mockUseActiveSourceObservationIntegrationJobs.mockReturnValue({
+      data: {
+        items: [
+          {
+            jobId: "job_active_import",
+            action: "import",
+            scope: { provider: "tcgdex", language: "en", setId: "base1" },
+            profileSnapshot: {
+              providerKey: "tcgdex",
+              profileKey: "tcgdex-pokemon-card",
+              profileVersion: "2026.06.02",
+              lifecycle: "active",
+              sourceMappingFingerprint: "fingerprint_active",
+            },
+            reapplyProfileMode: null,
+            status: "running",
+            progress: {
+              phase: "processing",
+              completed: 2,
+              total: 5,
+              currentName: "Base Set",
+              status: "processing",
+            },
+            result: null,
+            errorMessage: null,
+            createdAt: "2026-06-04T20:00:00.000Z",
+            startedAt: "2026-06-04T20:00:05.000Z",
+            completedAt: null,
+            updatedAt: "2026-06-04T20:00:10.000Z",
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh,
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    expect(screen.getByText("Active Integration Jobs")).toBeTruthy();
+    expect(screen.getAllByText("job_active_import").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("tcgdex 2026.06.02").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("tcgdex-pokemon-card - active").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("provider: tcgdex, language: en, setId: base1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("2 of 5 processed.").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: /^Refresh jobs$/i }));
+    expect(refresh).toHaveBeenCalled();
+  });
+
   it("shows queued progress while an integration job waits for worker processing", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
