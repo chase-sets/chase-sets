@@ -319,6 +319,41 @@ describe("design system", () => {
     expect(onValueChange).toHaveBeenCalledWith("nm");
   });
 
+  it("renders secondary descriptions in combobox options", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ChaseRoot>
+        <Combobox
+          label="Expansion"
+          items={[
+            {
+              value: "me04",
+              label: "Mega Evolution",
+              description: "Mega Evolution Series - 217 official cards",
+            },
+            {
+              value: "base1",
+              label: "Base Set",
+              description: "Base - 102 official cards",
+            },
+          ]}
+        />
+      </ChaseRoot>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Expansion" }));
+
+    expect(await screen.findByText("Mega Evolution Series - 217 official cards")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Mega Evolution" })).toBeTruthy();
+
+    await user.type(screen.getByRole("combobox", { name: "Expansion" }), "base");
+
+    expect(screen.getByText("Base - 102 official cards")).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Base Set" })).toBeTruthy();
+    expect(screen.queryByText("Mega Evolution Series - 217 official cards")).toBeNull();
+  });
+
   it("uses shared control sizing for comparable controls", () => {
     const markup = renderToString(
       <ChaseRoot>
