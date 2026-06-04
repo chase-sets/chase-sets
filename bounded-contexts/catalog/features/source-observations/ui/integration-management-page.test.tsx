@@ -1878,6 +1878,9 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
     expect(screen.queryByLabelText("TCGdex Expansion ID")).toBeNull();
     expect(screen.getByText("Active Profile Snapshot")).toBeTruthy();
+    expect(screen.getByText("TCGdex Import Scope")).toBeTruthy();
+    expect(screen.getByText("TCGdex card catalog")).toBeTruthy();
+    expect(screen.getByText("provider: tcgdex, language: en")).toBeTruthy();
     expect(screen.getByText("tcgdex-pokemon-card")).toBeTruthy();
     expect(screen.getAllByText("2026.06.02").length).toBeGreaterThan(0);
     expect(screen.getAllByText("tcgdex-pokemon-card-proof-v1").length).toBeGreaterThan(0);
@@ -1905,6 +1908,63 @@ describe("IntegrationManagementPage", () => {
     expect(screen.getByText("No grouped failures")).toBeTruthy();
     expect(mockSetSearchParams).toHaveBeenCalled();
     expect(mockRevalidate).toHaveBeenCalled();
+  });
+
+  it("shows a TCGplayer import scope card and enqueues the selected product-line set scope", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgplayer",
+            profileKey: "tcgplayer-automation-client",
+            profileVersion: "2026.06.02",
+            lifecycle: "active",
+            active: true,
+            mappingOutputKind: "provider-product",
+            capabilities: ["source-observation-import"],
+            supportedScopes: ["product-line/category", "set-name", "product"],
+            sourceContract: {
+              owner: "chase-sets/catalog",
+              repository: "chase-sets/chase-sets",
+              commit: null,
+              documentPath: "bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md",
+              fixtureSetVersion: "tcgplayer-product-proof-v1",
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("tab", { name: /TCGplayer/i }));
+
+    expect(await within(dialog).findByText("TCGplayer Import Scope")).toBeTruthy();
+    expect(within(dialog).getByText("TCGplayer marketplace catalog")).toBeTruthy();
+    expect(within(dialog).getAllByText("Product line").length).toBeGreaterThan(0);
+    expect(await within(dialog).findByText("Pokemon (3)")).toBeTruthy();
+    expect(within(dialog).getByText("provider: tcgplayer, language: en, productLineId: 3")).toBeTruthy();
+    expect(within(dialog).getByText("All sets in product line")).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Import$/i }));
+
+    await waitFor(() =>
+      expect(mockEnqueueSourceObservationIntegrationJob).toHaveBeenCalledWith("import", {
+        provider: "tcgplayer",
+        language: "en",
+        productLineId: "3",
+        setName: undefined,
+      }),
+    );
   });
 
   it("links failed job result groups to filtered source observation review", async () => {

@@ -1878,83 +1878,35 @@ export function IntegrationManagementPage({
             providerKey={importProviderKey}
           />
           {importProviderKey === TCGPLAYER_PROVIDER ? (
-            <>
-              <SegmentedControl
-                value={tcgplayerScopeKind}
-                onValueChange={setTcgplayerScopeKind}
-                items={[
-                  {
-                    label: t("catalog.features.sourceObservations.ui.integrations.tcgplayer.scope.product.line"),
-                    value: TCGPLAYER_PRODUCT_LINE_SCOPE,
-                    icon: "grid",
-                  },
-                  {
-                    label: t("catalog.features.sourceObservations.ui.integrations.tcgplayer.scope.product"),
-                    value: TCGPLAYER_PRODUCT_SCOPE,
-                    icon: "package",
-                  },
-                ]}
-                fullWidth
-              />
-              {tcgplayerScopeKind === TCGPLAYER_PRODUCT_SCOPE ? (
-                <TextInput
-                  label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.product.id")}
-                  value={tcgplayerProductId}
-                  onChange={(event) => setTcgplayerProductId(event.target.value)}
-                  inputMode="numeric"
-                />
-              ) : (
-                <>
-                  <Select
-                    label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.product.line")}
-                    value={tcgplayerProductLineId}
-                    onValueChange={setTcgplayerProductLineId}
-                    items={withSelectedFallback(tcgplayerProductLineOptions, tcgplayerProductLineId)}
-                    disabled={tcgplayerProductLines.loading || tcgplayerProductLineOptions.length === 0}
-                    error={tcgplayerProductLines.error ?? undefined}
-                  />
-                  <Select
-                    label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.set.name")}
-                    value={tcgplayerSetName || ALL_TCGPLAYER_SETS}
-                    onValueChange={(value) => setTcgplayerSetName(value === ALL_TCGPLAYER_SETS ? "" : value)}
-                    items={[
-                      {
-                        label: t("catalog.features.sourceObservations.ui.integrations.all.sets"),
-                        value: ALL_TCGPLAYER_SETS,
-                      },
-                      ...withSelectedFallback(tcgplayerSetNameOptions, tcgplayerSetName),
-                    ]}
-                    disabled={!positiveIntegerText(tcgplayerProductLineId) || tcgplayerSetNames.loading}
-                    error={tcgplayerSetNames.error ?? undefined}
-                  />
-                </>
-              )}
-            </>
+            <TcgplayerImportScopeCard
+              scopeKind={tcgplayerScopeKind}
+              onScopeKindChange={setTcgplayerScopeKind}
+              productId={tcgplayerProductId}
+              onProductIdChange={setTcgplayerProductId}
+              productLineId={tcgplayerProductLineId}
+              onProductLineIdChange={setTcgplayerProductLineId}
+              setName={tcgplayerSetName}
+              onSetNameChange={setTcgplayerSetName}
+              productLineOptions={tcgplayerProductLineOptions}
+              setNameOptions={tcgplayerSetNameOptions}
+              productLinesLoading={tcgplayerProductLines.loading}
+              setNamesLoading={tcgplayerSetNames.loading}
+              productLinesError={tcgplayerProductLines.error}
+              setNamesError={tcgplayerSetNames.error}
+            />
           ) : (
-            <>
-              <Select
-                label={t("catalog.features.sourceObservations.ui.list.language")}
-                value={languageCode}
-                onValueChange={setLanguageCode}
-                items={languageOptions}
-                disabled={importLanguages.loading || languageOptions.length === 0}
-                error={importLanguages.error ?? undefined}
-              />
-              <Select
-                label={t("catalog.features.sourceObservations.ui.list.series")}
-                value={seriesId}
-                onValueChange={setSeriesId}
-                items={[
-                  {
-                    label: t("catalog.features.sourceObservations.ui.integrations.all.series"),
-                    value: ALL_SERIES,
-                  },
-                  ...seriesOptions,
-                ]}
-                disabled={importSeries.loading || seriesOptions.length === 0}
-                error={importSeries.error ?? undefined}
-              />
-            </>
+            <TcgdexImportScopeCard
+              languageCode={languageCode}
+              onLanguageCodeChange={setLanguageCode}
+              seriesId={seriesId}
+              onSeriesIdChange={setSeriesId}
+              languageOptions={languageOptions}
+              seriesOptions={seriesOptions}
+              languagesLoading={importLanguages.loading}
+              seriesLoading={importSeries.loading}
+              languagesError={importLanguages.error}
+              seriesError={importSeries.error}
+            />
           )}
           {integrationProgress ? (
             <ProgressBar
@@ -2624,6 +2576,219 @@ function ImportActiveProfileSnapshot({
           { key: "Fixture set", value: profile.sourceContract.fixtureSetVersion },
         ]}
       />
+    </Stack>
+  );
+}
+
+function TcgdexImportScopeCard({
+  languageCode,
+  onLanguageCodeChange,
+  seriesId,
+  onSeriesIdChange,
+  languageOptions,
+  seriesOptions,
+  languagesLoading,
+  seriesLoading,
+  languagesError,
+  seriesError,
+}: Readonly<{
+  languageCode: string;
+  onLanguageCodeChange: (value: string) => void;
+  seriesId: string;
+  onSeriesIdChange: (value: string) => void;
+  languageOptions: SelectItem[];
+  seriesOptions: SelectItem[];
+  languagesLoading: boolean;
+  seriesLoading: boolean;
+  languagesError: string | null;
+  seriesError: string | null;
+}>) {
+  const scope = {
+    provider: TCGDEX_PROVIDER,
+    language: languageCode,
+    seriesId: seriesId === ALL_SERIES ? undefined : seriesId,
+  };
+
+  return (
+    <Stack gap={3}>
+      <TaskSummary
+        title="TCGdex Import Scope"
+        items={[
+          { label: "Provider", value: "TCGdex card catalog" },
+          { label: "Language", value: selectedSelectItemLabel(languageOptions, languageCode) },
+          {
+            label: "Series",
+            value: seriesId === ALL_SERIES ? "All series" : selectedSelectItemLabel(seriesOptions, seriesId),
+          },
+          { label: "Job scope", value: formatIntegrationJobScope(scope) },
+          {
+            label: "Readiness",
+            value: languageCode ? (
+              <StatusPill tone="success">Ready</StatusPill>
+            ) : (
+              <StatusPill tone="warning">Needs language</StatusPill>
+            ),
+          },
+        ]}
+      />
+      <Inline gap={3} align="start">
+        <Select
+          label={t("catalog.features.sourceObservations.ui.list.language")}
+          value={languageCode}
+          onValueChange={onLanguageCodeChange}
+          items={languageOptions}
+          disabled={languagesLoading || languageOptions.length === 0}
+          error={languagesError ?? undefined}
+        />
+        <Select
+          label={t("catalog.features.sourceObservations.ui.list.series")}
+          value={seriesId}
+          onValueChange={onSeriesIdChange}
+          items={[
+            {
+              label: t("catalog.features.sourceObservations.ui.integrations.all.series"),
+              value: ALL_SERIES,
+            },
+            ...seriesOptions,
+          ]}
+          disabled={seriesLoading}
+          error={seriesError ?? undefined}
+        />
+      </Inline>
+      {languagesLoading || seriesLoading ? (
+        <p className="text-sm text-secondary">Loading TCGdex scope options...</p>
+      ) : null}
+    </Stack>
+  );
+}
+
+function TcgplayerImportScopeCard({
+  scopeKind,
+  onScopeKindChange,
+  productId,
+  onProductIdChange,
+  productLineId,
+  onProductLineIdChange,
+  setName,
+  onSetNameChange,
+  productLineOptions,
+  setNameOptions,
+  productLinesLoading,
+  setNamesLoading,
+  productLinesError,
+  setNamesError,
+}: Readonly<{
+  scopeKind: string;
+  onScopeKindChange: (value: string) => void;
+  productId: string;
+  onProductIdChange: (value: string) => void;
+  productLineId: string;
+  onProductLineIdChange: (value: string) => void;
+  setName: string;
+  onSetNameChange: (value: string) => void;
+  productLineOptions: SelectItem[];
+  setNameOptions: SelectItem[];
+  productLinesLoading: boolean;
+  setNamesLoading: boolean;
+  productLinesError: string | null;
+  setNamesError: string | null;
+}>) {
+  const productScope = scopeKind === TCGPLAYER_PRODUCT_SCOPE;
+  const scope = productScope
+    ? {
+        provider: TCGPLAYER_PROVIDER,
+        language: "en",
+        productId: productId.trim(),
+      }
+    : {
+        provider: TCGPLAYER_PROVIDER,
+        language: "en",
+        productLineId: productLineId.trim(),
+        setName: setName.trim() || undefined,
+      };
+  const ready = productScope ? positiveIntegerText(productId) : positiveIntegerText(productLineId);
+
+  return (
+    <Stack gap={3}>
+      <TaskSummary
+        title="TCGplayer Import Scope"
+        items={[
+          { label: "Provider", value: "TCGplayer marketplace catalog" },
+          { label: "Scope type", value: productScope ? "Product" : "Product line" },
+          {
+            label: productScope ? "Product ID" : "Product line",
+            value: productScope
+              ? productId.trim() || "Not selected"
+              : selectedSelectItemLabel(productLineOptions, productLineId),
+          },
+          {
+            label: "Set",
+            value: productScope ? "Single product import" : setName.trim() || "All sets in product line",
+          },
+          { label: "Job scope", value: formatIntegrationJobScope(scope) },
+          {
+            label: "Readiness",
+            value: ready ? (
+              <StatusPill tone="success">Ready</StatusPill>
+            ) : (
+              <StatusPill tone="warning">Needs scope</StatusPill>
+            ),
+          },
+        ]}
+      />
+      <SegmentedControl
+        value={scopeKind}
+        onValueChange={onScopeKindChange}
+        items={[
+          {
+            label: t("catalog.features.sourceObservations.ui.integrations.tcgplayer.scope.product.line"),
+            value: TCGPLAYER_PRODUCT_LINE_SCOPE,
+            icon: "grid",
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrations.tcgplayer.scope.product"),
+            value: TCGPLAYER_PRODUCT_SCOPE,
+            icon: "package",
+          },
+        ]}
+        fullWidth
+      />
+      {productScope ? (
+        <TextInput
+          label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.product.id")}
+          value={productId}
+          onChange={(event) => onProductIdChange(event.target.value)}
+          inputMode="numeric"
+        />
+      ) : (
+        <Inline gap={3} align="start">
+          <Select
+            label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.product.line")}
+            value={productLineId}
+            onValueChange={onProductLineIdChange}
+            items={withSelectedFallback(productLineOptions, productLineId)}
+            disabled={productLinesLoading || productLineOptions.length === 0}
+            error={productLinesError ?? undefined}
+          />
+          <Select
+            label={t("catalog.features.sourceObservations.ui.integrations.tcgplayer.set.name")}
+            value={setName || ALL_TCGPLAYER_SETS}
+            onValueChange={(value) => onSetNameChange(value === ALL_TCGPLAYER_SETS ? "" : value)}
+            items={[
+              {
+                label: t("catalog.features.sourceObservations.ui.integrations.all.sets"),
+                value: ALL_TCGPLAYER_SETS,
+              },
+              ...withSelectedFallback(setNameOptions, setName),
+            ]}
+            disabled={!positiveIntegerText(productLineId) || setNamesLoading}
+            error={setNamesError ?? undefined}
+          />
+        </Inline>
+      )}
+      {productLinesLoading || setNamesLoading ? (
+        <p className="text-sm text-secondary">Loading TCGplayer scope options...</p>
+      ) : null}
     </Stack>
   );
 }
@@ -5377,6 +5542,15 @@ function toSelectItems(options: readonly SourceObservationIntegrationOption[]): 
     value: option.value,
     description: option.description ?? undefined,
   }));
+}
+
+function selectedSelectItemLabel(options: readonly SelectItem[], value: string): string {
+  if (!value) {
+    return "Not selected";
+  }
+
+  const option = options.find((item) => item.value === value);
+  return option ? `${option.label} (${option.value})` : value;
 }
 
 function withSelectedFallback(options: readonly SelectItem[], selectedValue: string): SelectItem[] {
