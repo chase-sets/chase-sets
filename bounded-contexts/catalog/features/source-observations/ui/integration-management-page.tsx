@@ -469,13 +469,16 @@ export function IntegrationManagementPage({
   data,
   query,
   profileReviews,
+  permissions,
 }: CatalogListRouteData<SourceObservationIntegrationScope> & {
   profileReviews?: ListResponse<CatalogProviderProfileVersionReview> | null;
+  permissions?: { canManageCatalog?: boolean };
 }) {
   const listControls = useCatalogListQueryControls(query);
   const revalidator = useRevalidator();
   const { addToast } = useToasts();
   const providerProfiles = useSourceObservationProviderProfiles(profileReviews);
+  const canManageCatalog = permissions?.canManageCatalog ?? true;
   const [dryRunProfile, setDryRunProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [dryRunFlow, setDryRunFlow] = useState("normal");
   const [dryRunOverrides, setDryRunOverrides] = useState<DryRunSafeOverrides>({
@@ -554,8 +557,9 @@ export function IntegrationManagementPage({
         onRollback: setRollbackProfile,
         onRetire: setRetireProfile,
         busyKey: profileActionKey,
+        canManage: canManageCatalog,
       }),
-    [profileActionKey],
+    [canManageCatalog, profileActionKey],
   );
   const integrationProviders = useSourceObservationIntegrationOptions({
     providerKey: TCGDEX_PROVIDER,
@@ -568,8 +572,9 @@ export function IntegrationManagementPage({
         onResync: (scope) => void runIntegrationJob("import", scope),
         onReapply: (scope) => void handlePreviewReapply(scope),
         busy: importing || reapplying || promoteAllRunning || previewingPromoteAll || previewingReapply,
+        canManage: canManageCatalog,
       }),
-    [importing, previewingPromoteAll, previewingReapply, promoteAllRunning, reapplying],
+    [canManageCatalog, importing, previewingPromoteAll, previewingReapply, promoteAllRunning, reapplying],
   );
   const importLanguages = useSourceObservationIntegrationOptions({
     providerKey: TCGDEX_PROVIDER,
@@ -1263,14 +1268,14 @@ export function IntegrationManagementPage({
         </Stack>
 
         <ActionBar>
-          <Button leadingIcon="plus" onClick={() => setShowImport(true)}>
+          <Button leadingIcon="plus" onClick={() => setShowImport(true)} disabled={!canManageCatalog}>
             {t("catalog.features.sourceObservations.ui.integrations.pull.provider.data")}
           </Button>
           <Button
             tone="secondary"
             leadingIcon="badgeCheck"
             loading={previewingReapply}
-            disabled={previewingReapply || reapplying || summary.promoted === 0}
+            disabled={!canManageCatalog || previewingReapply || reapplying || summary.promoted === 0}
             onClick={() => void handlePreviewReapply()}
           >
             {t("catalog.features.sourceObservations.ui.integrations.reapply.promoted")}
@@ -1477,7 +1482,7 @@ export function IntegrationManagementPage({
             <Button
               leadingIcon="badgeCheck"
               onClick={handleSaveMigrationEvidence}
-              disabled={!migrationEvidenceReady(migrationEvidenceForm)}
+              disabled={!canManageCatalog || !migrationEvidenceReady(migrationEvidenceForm)}
               loading={Boolean(migrationProfile && profileActionKey === profileActionIdentity(migrationProfile))}
             >
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.save.evidence")}
@@ -1672,6 +1677,7 @@ export function IntegrationManagementPage({
               onClick={handleImport}
               loading={importing}
               disabled={
+                !canManageCatalog ||
                 !canImportCurrentScope() ||
                 importing ||
                 (importProviderKey === TCGDEX_PROVIDER && (importLanguages.loading || importSeries.loading)) ||
@@ -1879,6 +1885,7 @@ type IntegrationRowActions = Readonly<{
   onResync: (scope: SourceObservationIntegrationJobScope) => void;
   onReapply: (scope: SourceObservationPromotionScope) => void;
   busy: boolean;
+  canManage: boolean;
 }>;
 
 type ProfileRowActions = Readonly<{
@@ -1892,6 +1899,7 @@ type ProfileRowActions = Readonly<{
   onRollback: (profile: CatalogProviderProfileVersionReview) => void;
   onRetire: (profile: CatalogProviderProfileVersionReview) => void;
   busyKey: string | null;
+  canManage: boolean;
 }>;
 
 function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProviderProfileVersionReview>[] {
@@ -1976,14 +1984,20 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
             <Button size="sm" tone="secondary" leadingIcon="play" onClick={() => actions.onDryRun(row)}>
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run")}
             </Button>
-            <Button size="sm" tone="secondary" leadingIcon="plus" onClick={() => actions.onClone(row)}>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="plus"
+              disabled={!actions.canManage}
+              onClick={() => actions.onClone(row)}
+            >
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.clone")}
             </Button>
             <Button
               size="sm"
               tone="secondary"
               leadingIcon="settings"
-              disabled={row.lifecycle !== "draft" && row.lifecycle !== "test"}
+              disabled={!actions.canManage || (row.lifecycle !== "draft" && row.lifecycle !== "test")}
               onClick={() => actions.onEditJson(row)}
             >
               Edit Profile
@@ -1995,6 +2009,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               size="sm"
               tone="secondary"
               leadingIcon="badgeCheck"
+              disabled={!actions.canManage}
               onClick={() => actions.onMigrationEvidence(row)}
             >
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.evidence")}
@@ -2003,7 +2018,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               size="sm"
               tone="secondary"
               leadingIcon="badgeCheck"
-              disabled={busy || row.active || row.validation.status !== "valid"}
+              disabled={!actions.canManage || busy || row.active || row.validation.status !== "valid"}
               loading={busy && !row.active}
               onClick={() => actions.onActivate(row)}
             >
@@ -2013,7 +2028,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               size="sm"
               tone="secondary"
               leadingIcon="trash"
-              disabled={busy || row.lifecycle === "deprecated"}
+              disabled={!actions.canManage || busy || row.lifecycle === "deprecated"}
               loading={busy && row.lifecycle !== "deprecated"}
               onClick={() => actions.onDeprecate(row)}
             >
@@ -2023,7 +2038,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               size="sm"
               tone="secondary"
               leadingIcon="refreshCcw"
-              disabled={busy || row.active || row.lifecycle === "retired"}
+              disabled={!actions.canManage || busy || row.active || row.lifecycle === "retired"}
               onClick={() => actions.onRollback(row)}
             >
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback")}
@@ -2032,7 +2047,9 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               size="sm"
               tone="secondary"
               leadingIcon="trash"
-              disabled={busy || row.active || row.lifecycle === "retired" || row.referenceCount > 0}
+              disabled={
+                !actions.canManage || busy || row.active || row.lifecycle === "retired" || row.referenceCount > 0
+              }
               onClick={() => actions.onRetire(row)}
             >
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.retire")}
@@ -4737,7 +4754,7 @@ function buildColumns(actions: IntegrationRowActions): DataColumn<SourceObservat
             size="sm"
             tone="secondary"
             leadingIcon="badgeCheck"
-            disabled={actions.busy || reviewableObservationCount(row) === 0}
+            disabled={!actions.canManage || actions.busy || reviewableObservationCount(row) === 0}
             onClick={() => actions.onPromoteAll(rowPromotionScope(row))}
           >
             {t("catalog.features.sourceObservations.ui.integrations.promote.all")}
@@ -4746,7 +4763,7 @@ function buildColumns(actions: IntegrationRowActions): DataColumn<SourceObservat
             size="sm"
             tone="secondary"
             leadingIcon="refreshCcw"
-            disabled={actions.busy}
+            disabled={!actions.canManage || actions.busy}
             onClick={() => actions.onResync(rowIntegrationScope(row))}
           >
             {t("catalog.features.sourceObservations.ui.integrations.resync.set")}
@@ -4755,7 +4772,7 @@ function buildColumns(actions: IntegrationRowActions): DataColumn<SourceObservat
             size="sm"
             tone="secondary"
             leadingIcon="badgeCheck"
-            disabled={actions.busy || row.promoted_observations === 0}
+            disabled={!actions.canManage || actions.busy || row.promoted_observations === 0}
             onClick={() => actions.onReapply(rowPromotionScope(row))}
           >
             {t("catalog.features.sourceObservations.ui.integrations.sync.promoted")}

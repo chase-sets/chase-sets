@@ -318,6 +318,34 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).queryByLabelText("Dry-run output JSON")).toBeNull();
   });
 
+  it("keeps view-only operators on read workflows and disables writes", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(
+      <IntegrationManagementPage
+        data={{ items: [integrationScope()], total: 1, count: 1 }}
+        query={query}
+        permissions={{ canManageCatalog: false }}
+      />,
+    );
+
+    expect((screen.getByRole("button", { name: /Pull Provider Data/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Reapply promoted/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Dry run$/i })[0] as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getAllByRole("button", { name: /^Compare$/i })[0] as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getAllByRole("button", { name: /^Clone$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Edit Profile$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Evidence$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Activate$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Deprecate$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Rollback$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Retire$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Promote all$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Resync set$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getAllByRole("button", { name: /^Sync promoted$/i })[0] as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it("clones provider profiles and records migration evidence from the review table", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
