@@ -15,6 +15,7 @@
     "@chase-sets/catalog": "workspace:*",
     "@chase-sets/commercial-terms": "workspace:*",
     "@chase-sets/design-system": "workspace:*",
+    "@chase-sets/discovery": "workspace:*",
     "@chase-sets/experience": "workspace:*",
     "@chase-sets/identity": "workspace:*",
     "@chase-sets/localization": "workspace:*",

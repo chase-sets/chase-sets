@@ -4,7 +4,7 @@
   "ownedNouns": ["search", "browse", "item-detail", "product-alert"],
   "streamPrefix": "discovery.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["categories", "item-detail", "product-alerts", "search"],
+  "slices": ["categories", "google-shopping-operations", "item-detail", "product-alerts", "search"],
   "allowedSupportDirectories": [
     "client-support",
     "google-shopping-support",
@@ -389,6 +389,19 @@
           "sourceContext": "discovery"
         }
       ]
+    },
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "google-shopping-operations",
+          "routePath": "google-shopping",
+          "fileExport": "./routes/admin/google-shopping",
+          "routeType": "route",
+          "sourceContext": "discovery",
+          "placement": "root"
+        }
+      ]
     }
   ],
   "shellContributions": [
@@ -413,6 +426,17 @@
       "order": 10,
       "visibility": "always",
       "requiredPermissions": []
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "google-shopping-operations",
+      "label": "Google Shopping",
+      "icon": "bag",
+      "href": "/google-shopping",
+      "order": 40,
+      "visibility": "signed-in",
+      "requiredPermissions": ["security.manage"]
     }
   ],
   "directoryIntent": {
@@ -427,6 +451,13 @@
       "purpose": "Own item-detail feature behavior, read models, and UI contracts for the discovery context.",
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal discovery module composition"]
+    },
+    "google-shopping-operations": {
+      "classification": "slice",
+      "purpose": "Own the Discovery Google Shopping operator view, request client, filters, and route contracts for feed readiness diagnostics.",
+      "allowedWhen": "Allowed for admin-web operational surfaces that inspect Discovery-owned Google Shopping rows without exposing provider secrets.",
+      "expectedConsumers": ["Admin operations route", "Google Shopping operators"],
+      "createdFor": "Discovery Google Shopping Merchant Center integration milestone."
     },
     "search": {
       "classification": "slice",
@@ -453,7 +484,7 @@
       "classification": "support",
       "purpose": "Provide Discovery-owned Google Shopping export projection schema, row identity, eligibility, and payload hashing contracts.",
       "allowedWhen": "Allowed for public-discovery export behavior that projects Catalog and Marketplace facts into Google-facing rows without changing source ownership.",
-      "expectedConsumers": ["market-support", "platform-worker Merchant sync jobs", "operator diagnostics"],
+      "expectedConsumers": ["google-shopping-operations"],
       "justification": "Google Shopping rows are a provider-facing public discovery export and need stable contracts shared by projection, sync, and diagnostics slices.",
       "createdFor": "Discovery Google Shopping Merchant Center integration milestone.",
       "sunsetWhen": "Remove when Google Shopping export support is retired or moved into a dedicated provider integration context by ADR."

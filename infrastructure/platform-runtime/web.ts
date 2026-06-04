@@ -77,6 +77,10 @@ function resolveAdminWebSection(contextName: string, fileExportOrKey?: string): 
     return "operations";
   }
 
+  if (contextName === "discovery" && fileExportOrKey?.includes("google-shopping")) {
+    return "operations";
+  }
+
   if (contextName === "public-presence") {
     return "experience";
   }

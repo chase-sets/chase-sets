@@ -3,6 +3,7 @@ import { createDurableJobEventStream } from "@chase-sets/platform-runtime/durabl
 import type { DiscoveryApiEnv } from "../../api";
 import {
   toGoogleShoppingFullSyncJobStatus,
+  type GoogleShoppingFeedRowFilter,
   type GoogleShoppingSyncMode,
   type GoogleShoppingSyncServices,
 } from "./sync-job";
@@ -59,6 +60,32 @@ export function createGoogleShoppingSyncRoutes(services: GoogleShoppingSyncServi
           error: {
             code: "validation_failed",
             message: error instanceof Error ? error.message : "Google Shopping maintenance preview failed.",
+          },
+        },
+        400,
+      );
+    }
+  });
+
+  app.get("/feed-rows", async (c) => {
+    const access = requireGoogleShoppingSyncAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const filter = parseFeedRowFilter(c.req.query("filter"));
+    const search = c.req.query("search")?.trim();
+    const limit = parseBatchSize(c.req.query("limit"));
+    const refreshWindowDays = parsePositiveInteger(c.req.query("refreshWindowDays"));
+
+    try {
+      return c.json(await services.listFeedRows({ filter, search, limit, refreshWindowDays }));
+    } catch (error) {
+      return c.json(
+        {
+          error: {
+            code: "validation_failed",
+            message: error instanceof Error ? error.message : "Google Shopping feed row list failed.",
           },
         },
         400,
@@ -238,6 +265,19 @@ function requireGoogleShoppingSyncAccess(c: {
 
 function parseSyncMode(value: unknown): GoogleShoppingSyncMode {
   return value === "live" ? "live" : "dry-run";
+}
+
+function parseFeedRowFilter(value: unknown): GoogleShoppingFeedRowFilter {
+  return value === "eligible" ||
+    value === "excluded" ||
+    value === "failed" ||
+    value === "disapproved" ||
+    value === "pending-delete" ||
+    value === "nearing-refresh" ||
+    value === "stale" ||
+    value === "pending-diagnostics"
+    ? value
+    : "all";
 }
 
 function parseBatchSize(value: unknown): number | undefined {

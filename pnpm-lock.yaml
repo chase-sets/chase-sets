@@ -1367,6 +1367,9 @@ importers:
       '@chase-sets/design-system':
         specifier: workspace:*
         version: link:../../packages/design-system
+      '@chase-sets/discovery':
+        specifier: workspace:*
+        version: link:../../bounded-contexts/discovery
       '@chase-sets/experience':
         specifier: workspace:*
         version: link:../../bounded-contexts/experience
