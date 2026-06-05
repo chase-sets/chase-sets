@@ -3535,6 +3535,7 @@ function ProfileBasicsEditor({
         onChange={setDuplicatePrevention}
         diagnostics={duplicatePreventionDiagnostics}
         editable={editable}
+        previewPayload={previewPayload}
       />
 
       <PromotionPlanEditor
@@ -5364,11 +5365,13 @@ function DuplicatePreventionEditor({
   onChange,
   diagnostics,
   editable,
+  previewPayload,
 }: Readonly<{
   form: ProfileDuplicatePreventionForm;
   onChange: (form: ProfileDuplicatePreventionForm) => void;
   diagnostics: readonly string[];
   editable: boolean;
+  previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileDuplicatePreventionForm>) => onChange({ ...form, ...patch });
   const setRule = (id: string, patch: Partial<ProfileDuplicatePreventionRuleForm>) =>
@@ -5432,12 +5435,14 @@ function DuplicatePreventionEditor({
           <span>Exact external references first</span>
         </label>
       </Inline>
+      <DuplicatePreventionPreview form={form} previewPayload={previewPayload} />
       <NormalizedExpressionListEditor
         title="Merge Candidate Evidence"
         addLabel="Add merge evidence"
         items={form.mergeCandidateEvidence}
         onChange={(mergeCandidateEvidence) => setForm({ mergeCandidateEvidence })}
         editable={editable}
+        previewPayload={previewPayload}
       />
       <Stack gap={4}>
         {form.identityRules.map((rule, index) => (
@@ -5522,12 +5527,69 @@ function DuplicatePreventionEditor({
               items={rule.evidence}
               onChange={(evidence) => setRule(rule.id, { evidence })}
               editable={editable}
+              previewPayload={previewPayload}
             />
           </Stack>
         ))}
       </Stack>
     </Stack>
   );
+}
+
+function DuplicatePreventionPreview({
+  form,
+  previewPayload,
+}: Readonly<{
+  form: ProfileDuplicatePreventionForm;
+  previewPayload: JsonValue | null;
+}>) {
+  const preview = previewPayload ? duplicatePreventionPreview(form, previewPayload) : null;
+
+  return (
+    <TaskSummary
+      title="Duplicate Prevention Preview"
+      items={[
+        {
+          label: "Ambiguous candidates",
+          value: duplicatePreventionPolicyLabel(form.ambiguousCandidatePolicy),
+        },
+        {
+          label: "Rule order",
+          value: form.identityRules.map((rule, index) => `${index + 1}. ${rule.ruleKey || rule.ruleKind}`).join("; "),
+        },
+        {
+          label: "Merge evidence",
+          value: preview ? summarizeJsonValue(preview.mergeCandidateEvidence) : "No fixture sample",
+        },
+        {
+          label: "Identity evidence",
+          value: preview ? summarizeJsonValue(preview.identityRules) : "No fixture sample",
+        },
+      ]}
+    />
+  );
+}
+
+export function duplicatePreventionPreview(form: ProfileDuplicatePreventionForm, payload: JsonValue) {
+  return {
+    policy: {
+      ambiguousCandidatePolicy: form.ambiguousCandidatePolicy,
+      replayPolicy: form.replayPolicy,
+      exactExternalCatalogItemReferencesFirst: form.exactExternalCatalogItemReferencesFirst,
+    },
+    mergeCandidateEvidence: form.mergeCandidateEvidence.map((item) =>
+      previewMappingExpression(item.expression, payload).value,
+    ),
+    identityRules: form.identityRules.map((rule, index) => ({
+      order: index + 1,
+      ruleKey: rule.ruleKey,
+      ruleKind: rule.ruleKind,
+      candidatePolicy: rule.candidatePolicy,
+      ambiguousOutcome:
+        form.ambiguousCandidatePolicy === "block-promotion" ? "blocks-ambiguous-candidates" : "review-only",
+      evidence: rule.evidence.map((item) => previewMappingExpression(item.expression, payload).value),
+    })),
+  };
 }
 
 function PromotionPlanEditor({

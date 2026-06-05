@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CatalogListQuery } from "../../../support/shell-support/list-query-state";
 import {
   IntegrationManagementPage,
+  duplicatePreventionPreview,
   externalReferencePreview,
   providerOptionImportSurface,
   providerOptionMetadataPreview,
@@ -543,6 +544,73 @@ describe("IntegrationManagementPage", () => {
         ],
       }),
     ]);
+  });
+
+  it("builds duplicate-prevention fixture previews for each rule kind", () => {
+    const preview = duplicatePreventionPreview(
+      {
+        rawMapping: {},
+        rawAmbiguityRules: {},
+        exactExternalCatalogItemReferencesFirst: true,
+        ambiguousCandidatePolicy: "block-promotion",
+        replayPolicy: "same-profile-version",
+        mergeCandidateEvidence: [
+          {
+            id: "merge-name",
+            expression: mappingExpression("normalized.name", "catalog-truth", [
+              "merge-identity",
+            ]) as MappingExpressionValue,
+          },
+        ],
+        identityRules: [
+          duplicatePreviewRule(
+            "exact-external",
+            "exact-external-catalog-item-reference",
+            "externalCatalogItemReferences.0.externalKey",
+          ),
+          duplicatePreviewRule("observation-link", "source-observation-link", "externalKey"),
+          duplicatePreviewRule("deterministic-fields", "deterministic-field-match", "normalized.cardNumber"),
+          duplicatePreviewRule("sealed-product", "sealed-product-match", "normalized.productName"),
+          duplicatePreviewRule("barcode", "barcode-gtin-match", "normalized.barcode"),
+          duplicatePreviewRule("bridge", "future-provider-bridge-match", "providerBridgeKey"),
+        ],
+      },
+      {
+        externalKey: "tcgplayer:sku:610001",
+        externalCatalogItemReferences: [{ externalKey: "product:14240" }],
+        providerBridgeKey: "bridge:tcgplayer:14240",
+        normalized: {
+          name: "Charizard ex",
+          cardNumber: "223",
+          productName: "Prismatic Evolutions Elite Trainer Box",
+          barcode: "0082064551238",
+        },
+      },
+    );
+
+    expect(preview.policy).toMatchObject({
+      ambiguousCandidatePolicy: "block-promotion",
+      exactExternalCatalogItemReferencesFirst: true,
+    });
+    expect(preview.mergeCandidateEvidence).toEqual(["Charizard ex"]);
+    expect(preview.identityRules.map((rule) => rule.ruleKind)).toEqual([
+      "exact-external-catalog-item-reference",
+      "source-observation-link",
+      "deterministic-field-match",
+      "sealed-product-match",
+      "barcode-gtin-match",
+      "future-provider-bridge-match",
+    ]);
+    expect(preview.identityRules).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ ruleKey: "barcode", evidence: ["0082064551238"] }),
+        expect.objectContaining({
+          ruleKey: "bridge",
+          evidence: ["bridge:tcgplayer:14240"],
+          ambiguousOutcome: "blocks-ambiguous-candidates",
+        }),
+      ]),
+    );
   });
 
   it("shows pulled provider scopes with language expansion series and review counts", () => {
@@ -3128,6 +3196,31 @@ function referenceTemplateValueRule(template: string, templateValuesText: string
     path: "",
     template,
     templateValuesText,
+  };
+}
+
+function duplicatePreviewRule(
+  ruleKey: string,
+  ruleKind:
+    | "exact-external-catalog-item-reference"
+    | "source-observation-link"
+    | "deterministic-field-match"
+    | "sealed-product-match"
+    | "barcode-gtin-match"
+    | "future-provider-bridge-match",
+  path: string,
+) {
+  return {
+    id: `duplicate-${ruleKey}`,
+    ruleKey,
+    ruleKind,
+    candidatePolicy: "reuse" as const,
+    evidence: [
+      {
+        id: `${ruleKey}-evidence`,
+        expression: mappingExpression(path, "catalog-merge-evidence", ["merge-identity"]) as MappingExpressionValue,
+      },
+    ],
   };
 }
 
