@@ -914,6 +914,10 @@ describe("IntegrationManagementPage", () => {
     expect(screen.getAllByRole("heading", { name: "Module map" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Operations" }).length).toBeGreaterThan(0);
     expect(screen.getAllByText("Catalog manage enabled").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("tab", { name: "Authoring" }));
+    expect(screen.getByText("Authoring Workbench")).toBeTruthy();
+    expect(screen.getByText("Editable sections")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Edit selected profile" })).toBeTruthy();
   });
 
   it("searches and selects an integration expansion filter", async () => {

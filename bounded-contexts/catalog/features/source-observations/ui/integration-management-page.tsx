@@ -686,6 +686,11 @@ export function IntegrationManagementPage({
     migrationProfile?.profileVersion ?? "",
     Boolean(migrationProfile),
   );
+  const selectedProfileAuthoringModel = useSourceObservationProviderProfileAuthoringModel(
+    selectedProfile?.providerKey ?? "",
+    selectedProfile?.profileVersion ?? "",
+    Boolean(selectedProfile && moduleArea !== "health"),
+  );
   const profileColumns = useMemo(
     () =>
       buildProfileColumns({
@@ -1418,6 +1423,22 @@ export function IntegrationManagementPage({
           selectedProfileId={selectedProfileId || profileWorkspaceItems[0]?.value || NO_PROFILE_WORKSPACE}
           onSelectedProfileChange={(value) => setSelectedProfileId(value === NO_PROFILE_WORKSPACE ? "" : value)}
           onRefresh={providerProfiles.refresh}
+        />
+
+        <CatalogIntegrationAreaWorkbench
+          area={moduleArea}
+          selectedProfile={selectedProfile}
+          authoringModel={selectedProfileAuthoringModel.data ?? null}
+          loading={selectedProfileAuthoringModel.loading}
+          error={selectedProfileAuthoringModel.error}
+          canManageCatalog={canManageCatalog}
+          onEditProfile={openEditProfileDialog}
+          onDryRun={openDryRunDialog}
+          onCompare={setCompareProfile}
+          onMigrationEvidence={openMigrationEvidenceDialog}
+          onActivate={setActivationProfile}
+          onImport={() => setShowImport(true)}
+          onReapply={() => void handlePreviewReapply()}
         />
 
         <ActionBar>
@@ -2233,6 +2254,138 @@ function buildProfileWorkspaceItems(profiles: readonly CatalogProviderProfileVer
 
 function moduleAreaLabel(area: CatalogIntegrationModuleArea) {
   return CATALOG_INTEGRATION_MODULE_AREAS.find((item) => item.value === area)?.label ?? area;
+}
+
+function CatalogIntegrationAreaWorkbench({
+  area,
+  selectedProfile,
+  authoringModel,
+  loading,
+  error,
+  canManageCatalog,
+  onEditProfile,
+  onDryRun,
+  onCompare,
+  onMigrationEvidence,
+  onActivate,
+  onImport,
+  onReapply,
+}: Readonly<{
+  area: CatalogIntegrationModuleArea;
+  selectedProfile: CatalogProviderProfileVersionReview | null;
+  authoringModel: CatalogProviderProfileAuthoringModel | null;
+  loading: boolean;
+  error: string | null;
+  canManageCatalog: boolean;
+  onEditProfile: (profile: CatalogProviderProfileVersionReview) => void;
+  onDryRun: (profile: CatalogProviderProfileVersionReview) => void;
+  onCompare: (profile: CatalogProviderProfileVersionReview) => void;
+  onMigrationEvidence: (profile: CatalogProviderProfileVersionReview) => void;
+  onActivate: (profile: CatalogProviderProfileVersionReview) => void;
+  onImport: () => void;
+  onReapply: () => void;
+}>) {
+  if (area === "health") {
+    return null;
+  }
+
+  if (!selectedProfile) {
+    return (
+      <OperationalStatusBanner
+        tone="warning"
+        title={`${moduleAreaLabel(area)} workbench`}
+        description="Select a provider profile version to use this module area."
+      />
+    );
+  }
+
+  const readiness = authoringModel?.activationReadiness;
+  const areaItems =
+    area === "authoring"
+      ? [
+          { label: "Editable sections", value: authoringModel ? String(authoringModel.editableSections.length) : "Loading" },
+          { label: "Fixture flows", value: selectedProfile.fixtures.coveredFlows.join(", ") || "None" },
+          { label: "Mapping output", value: selectedProfile.mappingOutputKind },
+        ]
+      : area === "validation"
+        ? [
+            { label: "Validation", value: selectedProfile.validation.status },
+            { label: "Readiness", value: readiness?.status ?? "Loading" },
+            { label: "Readiness checks", value: readiness ? String(readiness.checks.length) : "Loading" },
+          ]
+        : area === "operations"
+          ? [
+              { label: "Provider", value: selectedProfile.providerKey },
+              { label: "Capabilities", value: selectedProfile.capabilities.join(", ") || "None" },
+              { label: "Supported scopes", value: selectedProfile.supportedScopes.join(", ") || "None" },
+            ]
+          : [
+              { label: "Lifecycle", value: selectedProfile.lifecycle },
+              { label: "Reference count", value: String(selectedProfile.referenceCount) },
+              { label: "Migration evidence", value: selectedProfile.migrationEvidence ? "Recorded" : "Not recorded" },
+            ];
+
+  return (
+    <Stack gap={3}>
+      <TaskSummary title={`${moduleAreaLabel(area)} Workbench`} items={areaItems} />
+      {loading ? <p className="text-sm text-secondary">Loading selected profile context...</p> : null}
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      <Inline gap={2}>
+        {area === "authoring" ? (
+          <Button
+            size="sm"
+            leadingIcon="settings"
+            disabled={!canManageCatalog}
+            onClick={() => onEditProfile(selectedProfile)}
+          >
+            Edit selected profile
+          </Button>
+        ) : null}
+        {area === "validation" ? (
+          <>
+            <Button size="sm" tone="secondary" leadingIcon="play" onClick={() => onDryRun(selectedProfile)}>
+              Dry run selected profile
+            </Button>
+            <Button size="sm" tone="secondary" leadingIcon="search" onClick={() => onCompare(selectedProfile)}>
+              Compare active
+            </Button>
+          </>
+        ) : null}
+        {area === "operations" ? (
+          <>
+            <Button size="sm" leadingIcon="plus" disabled={!canManageCatalog} onClick={onImport}>
+              Pull Provider Data
+            </Button>
+            <Button size="sm" tone="secondary" leadingIcon="badgeCheck" disabled={!canManageCatalog} onClick={onReapply}>
+              Reapply promoted
+            </Button>
+          </>
+        ) : null}
+        {area === "audit" ? (
+          <>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="badgeCheck"
+              disabled={!canManageCatalog}
+              onClick={() => onMigrationEvidence(selectedProfile)}
+            >
+              Evidence
+            </Button>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="badgeCheck"
+              disabled={!canManageCatalog}
+              onClick={() => onActivate(selectedProfile)}
+            >
+              Activate
+            </Button>
+          </>
+        ) : null}
+      </Inline>
+    </Stack>
+  );
 }
 
 function lifecycleProfileContextItems(profile: CatalogProviderProfileVersionReview) {
