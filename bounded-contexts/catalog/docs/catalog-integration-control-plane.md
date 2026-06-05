@@ -43,6 +43,8 @@ Provider profiles describe Catalog-facing semantics for one or more ingestion un
 
 Profiles may reference reviewed named runtime functions when the generic mapping interpreter cannot yet express a rule safely. Profiles must not execute arbitrary code, carry provider credentials, or move procedural provider transport behavior into Catalog config.
 
+Provider profile section assembly lives in the Source Observations API domain as a pure Catalog-facing boundary over versioned provider profile rows. It defines ingestion-unit identity, section value objects, activation readiness inputs, and lifecycle policies while keeping persistence and provider transport adapters unchanged.
+
 ## Architecture Fitness Gate
 
 A new provider can be integrated without provider-specific branches in Catalog runtime, API routes, admin page logic, promotion/reapply code, or raw JSON editor paths.

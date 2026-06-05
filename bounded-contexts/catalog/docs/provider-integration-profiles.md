@@ -40,6 +40,33 @@ Bootstrap seeds static profile rows only as initial or reconciliation data. It p
 
 Durable import jobs snapshot provider key, profile key, profile version, lifecycle, and source mapping fingerprint at enqueue time. Retries and worker handoff reload that snapshotted profile version, so activating a newer version while a job is queued does not change what the queued job writes. Integration reapply jobs snapshot `current-active-profile` mode and the active profile version; direct replay-style reapply uses the Source Observation's original source profile version when available, with legacy rows falling back to the active promotion profile.
 
+## Ingestion-Unit Profile Sections
+
+Catalog-facing profile authoring is organized around ingestion-unit profile sections. The section domain module assembles a versioned provider profile row into named value objects scoped to one ingestion unit:
+
+- ingestion-unit identity
+- profile identity and lifecycle
+- source contract and fixture contract
+- provider options
+- connector/adapter binding metadata
+- normalized observation mapping and Catalog field mapping
+- condition/certification mapping
+- external references
+- selected Options
+- Reference Record hierarchy
+- duplicate prevention and ambiguity policy
+- promotion plan
+- migration evidence
+- retirement plan
+
+Every section carries the ingestion-unit key and editability status so Admin Control Plane workflows can reason about a profile without falling back to raw JSON snapshots. The section model does not persist a new read model yet; it is an assembly boundary over the existing versioned profile row. Section-level persistence and projections can be added later without changing the semantic shape.
+
+Ingestion-unit identity uses `providerKey:productDomain:productForm:source-observation-import` for provider profile versions. Current seeded profiles assemble as `tcgdex:pokemon:single-card:source-observation-import`, `tcgplayer:pokemon:single-card:source-observation-import`, and `scrydex:mtg:single-card:source-observation-import`. Raw and graded card differences stay inside the `single-card` unit as condition/certification or selected Option semantics; they are not separate ingestion units unless a future profile proves a distinct aggregate target, lifecycle, promotion plan, or duplicate-prevention policy.
+
+Lifecycle policy is a Catalog domain decision. Draft and test profile versions are editable and can be evaluated for activation readiness. Active versions can be deprecated. Retirement is stricter: the profile must be inactive, not already retired, and unreferenced by Source Observations. Activation readiness evaluates executable mapping presence, Source Observation import capability, fixture isolation, required fixture coverage, profile validation diagnostics, and migration evidence when a mapping fingerprint change requires it.
+
+Connector binding sections expose metadata only. Provider adapters own auth, domains, endpoint paths, pagination, throttling, retries, cooldowns, raw provider parsing, and other transport behavior. Profile sections may record which transport concerns the adapter owns and which mapping concerns Catalog owns, but they must not move provider transport implementation into Catalog profile data.
+
 ## TCGdex Pokemon TCG Profile
 
 The TCGdex Pokemon TCG profile is seeded in Catalog config and installs the Pokemon card and sealed-product structure used by TCGdex Source Observations:
