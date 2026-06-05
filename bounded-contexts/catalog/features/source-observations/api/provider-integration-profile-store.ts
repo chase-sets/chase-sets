@@ -1,4 +1,4 @@
-import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import { type PgQueryable, type PgTransactionalPool, withPgTransaction } from "@chase-sets/event-core-postgres";
 import {
   activateCatalogProviderIntegrationProfileVersion,
   catalogProviderIntegrationProfileVersions,
@@ -15,6 +15,7 @@ import type {
   CatalogProviderProfileFixtureContract,
   CatalogProviderProfileLifecycle,
 } from "./provider-integration-mapping-contract";
+import { refreshCatalogProviderProfileVersionSectionProjections } from "./provider-profile-section-projection";
 
 type CatalogProviderIntegrationProfileVersionRow = Readonly<{
   provider_key: string;
@@ -108,6 +109,13 @@ async function upsertProfileVersion(
   db: PgQueryable,
   version: CatalogProviderIntegrationProfileVersionRecord,
 ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+  return withOptionalProfileVersionTransaction(db, (queryable) => upsertProfileVersionSnapshot(queryable, version));
+}
+
+async function upsertProfileVersionSnapshot(
+  db: PgQueryable,
+  version: CatalogProviderIntegrationProfileVersionRecord,
+): Promise<CatalogProviderIntegrationProfileVersionRecord> {
   if (version.active && version.lifecycle === "active") {
     await deactivateOtherActiveProfileVersions(db, version);
   }
@@ -161,14 +169,16 @@ async function upsertProfileVersion(
     ],
   );
 
-  return rowToProfileVersion(result.rows[0] ?? rowFromVersion(version));
+  const persisted = rowToProfileVersion(result.rows[0] ?? rowFromVersion(version));
+  await refreshCatalogProviderProfileVersionSectionProjections(db, persisted);
+  return persisted;
 }
 
 async function deactivateOtherActiveProfileVersions(
   db: PgQueryable,
   version: Pick<CatalogProviderIntegrationProfileVersionRecord, "providerKey" | "profileVersion">,
 ): Promise<void> {
-  await db.query(
+  const result = await db.query<CatalogProviderIntegrationProfileVersionRow>(
     `UPDATE catalog_provider_integration_profile_versions
      SET active = false,
          lifecycle = 'deprecated',
@@ -177,9 +187,14 @@ async function deactivateOtherActiveProfileVersions(
      WHERE provider_key = $1
        AND profile_version <> $2
        AND active = true
-       AND lifecycle = 'active'`,
+       AND lifecycle = 'active'
+     RETURNING *`,
     [version.providerKey, version.profileVersion],
   );
+
+  for (const row of result.rows) {
+    await refreshCatalogProviderProfileVersionSectionProjections(db, rowToProfileVersion(row));
+  }
 }
 
 async function assertSeededActiveProfileVersions(
@@ -386,4 +401,19 @@ function rowFromVersion(
 
 function parseJsonField<T>(value: T | string): T {
   return typeof value === "string" ? (JSON.parse(value) as T) : value;
+}
+
+async function withOptionalProfileVersionTransaction<T>(
+  db: PgQueryable,
+  work: (queryable: PgQueryable) => Promise<T>,
+): Promise<T> {
+  if (isTransactionalPool(db)) {
+    return withPgTransaction(db, work);
+  }
+
+  return work(db);
+}
+
+function isTransactionalPool(db: PgQueryable): db is PgTransactionalPool {
+  return "connect" in db && typeof db.connect === "function";
 }

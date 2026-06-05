@@ -59,13 +59,17 @@ Catalog-facing profile authoring is organized around ingestion-unit profile sect
 - migration evidence
 - retirement plan
 
-Every section carries the ingestion-unit key and editability status so Admin Control Plane workflows can reason about a profile without falling back to raw JSON snapshots. The section model does not persist a new read model yet; it is an assembly boundary over the existing versioned profile row. Section-level persistence and projections can be added later without changing the semantic shape.
+Every section carries the ingestion-unit key and editability status so Admin Control Plane workflows can reason about a profile without falling back to raw JSON snapshots. The section model is assembled from the existing versioned profile row, then persisted as a deterministic read-model projection for queryability and stale-edit detection.
 
 Ingestion-unit identity uses `providerKey:productDomain:productForm:source-observation-import` for provider profile versions. Current seeded profiles assemble as `tcgdex:pokemon:single-card:source-observation-import`, `tcgplayer:pokemon:single-card:source-observation-import`, and `scrydex:mtg:single-card:source-observation-import`. Raw and graded card differences stay inside the `single-card` unit as condition/certification or selected Option semantics; they are not separate ingestion units unless a future profile proves a distinct aggregate target, lifecycle, promotion plan, or duplicate-prevention policy.
 
 Lifecycle policy is a Catalog domain decision. Draft and test profile versions are editable and can be evaluated for activation readiness. Active versions can be deprecated. Retirement is stricter: the profile must be inactive, not already retired, and unreferenced by Source Observations. Activation readiness evaluates executable mapping presence, Source Observation import capability, fixture isolation, required fixture coverage, profile validation diagnostics, and migration evidence when a mapping fingerprint change requires it.
 
 Connector binding sections expose metadata only. Provider adapters own auth, domains, endpoint paths, pagination, throttling, retries, cooldowns, raw provider parsing, and other transport behavior. Profile sections may record which transport concerns the adapter owns and which mapping concerns Catalog owns, but they must not move provider transport implementation into Catalog profile data.
+
+Section rows are persisted as projections in `catalog_provider_profile_version_sections` with matching diagnostics in `catalog_provider_profile_version_section_diagnostics`. The canonical source of truth remains `catalog_provider_integration_profile_versions`; section rows are rebuilt from that snapshot whenever profile versions are seeded, created, updated, activated, deprecated, or retired through the profile version store. Each section row stores the section JSON, validation status, ingestion-unit key, editability flag, last-edit metadata from the authoring audit, and a deterministic `sha256:` fingerprint that Admin workflows can use as a section etag for stale-edit detection.
+
+The projection tables are query/read-model infrastructure, not a new profile authoring source. If a section projection is missing or stale, replaying the canonical provider profile version snapshot must recreate the same section rows and diagnostics.
 
 ## TCGdex Pokemon TCG Profile
 
