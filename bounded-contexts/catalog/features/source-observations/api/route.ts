@@ -180,7 +180,17 @@ export function sourceObservationRoutes(
       observedAt: new Date(0).toISOString(),
     });
 
-    return c.json(result);
+    const duplicatePreventionCandidatePreview = await services.previewDuplicatePreventionCandidates?.({
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+      payload: toJsonValue(body.payload),
+      observedAt: new Date(0).toISOString(),
+    });
+
+    return c.json({
+      ...result,
+      duplicatePreventionCandidatePreview: duplicatePreventionCandidatePreview ?? result.duplicatePreventionCandidatePreview,
+    });
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/activate", async (c) => {

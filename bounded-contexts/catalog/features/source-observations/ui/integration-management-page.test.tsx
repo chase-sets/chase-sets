@@ -217,6 +217,20 @@ describe("IntegrationManagementPage", () => {
         exactExternalCatalogItemReferencesFirst: true,
       },
       duplicatePreventionRules: [],
+      duplicatePreventionCandidatePreview: {
+        status: "blocked",
+        ruleKey: "exact-external-catalog-item-reference",
+        candidateCount: 2,
+        candidateCatalogItemIds: ["cat_existing_1", "cat_existing_2"],
+        diagnosticText: "Duplicate-prevention rule produced multiple reusable candidates.",
+        evidenceSummary: {
+          ruleKey: "exact-external-catalog-item-reference",
+          matchKind: "exact-external-catalog-item-reference",
+          evidenceText: "1 external Catalog Item reference(s)",
+          candidateCatalogItemIds: ["cat_existing_1", "cat_existing_2"],
+        },
+        evidenceSummaries: [],
+      },
       promotionCommandPlan: { requiresReview: true, commands: [] },
     });
     mockEnqueueSourceObservationIntegrationJob.mockResolvedValue({ jobId: "job_integration" });
@@ -981,6 +995,8 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText("Ambiguous candidates")).toBeTruthy();
     expect(within(dialog).getByText("Block promotion")).toBeTruthy();
     expect(within(dialog).getByText("Same profile version")).toBeTruthy();
+    expect(within(dialog).getByText("Candidate preview")).toBeTruthy();
+    expect(within(dialog).getByText(/cat_existing_1, cat_existing_2/i)).toBeTruthy();
     expect(within(dialog).getAllByText("product:14240").length).toBeGreaterThan(0);
     expect(within(dialog).queryByLabelText("Dry-run output JSON")).toBeNull();
   });
@@ -2453,6 +2469,7 @@ describe("IntegrationManagementPage", () => {
         exactExternalCatalogItemReferencesFirst: true,
       },
       duplicatePreventionRules: [],
+      duplicatePreventionCandidatePreview: null,
       promotionCommandPlan: {
         requiresReview: true,
         commands: [

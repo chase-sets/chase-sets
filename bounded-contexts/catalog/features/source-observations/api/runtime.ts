@@ -86,6 +86,7 @@ import {
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import {
   catalogProviderSourceMappingFingerprint,
+  normalizeCatalogProviderSourceObservation,
   requireCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
@@ -95,7 +96,10 @@ import {
   type CatalogProviderPromotionResolvedCatalogMapping,
   type CatalogProviderPromotionCommandPlanResult,
 } from "./provider-promotion-command-planner";
-import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
+import {
+  resolveCatalogProviderDuplicatePrevention,
+  type CatalogProviderDuplicatePreventionEvidenceSummary,
+} from "./provider-duplicate-prevention-resolver";
 import { provisionCatalogProviderReferenceHierarchy } from "./provider-reference-hierarchy-provisioner";
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
@@ -342,6 +346,16 @@ export type SourceObservationPromotionTargetAuthoringRecord = Readonly<{
   status: string;
 }>;
 
+export type SourceObservationDuplicatePreventionCandidatePreview = Readonly<{
+  status: "matched" | "none" | "blocked" | "review-only" | "not-evaluated";
+  ruleKey: string | null;
+  candidateCount: number;
+  candidateCatalogItemIds: readonly CatalogItemId[];
+  diagnosticText: string | null;
+  evidenceSummary: CatalogProviderDuplicatePreventionEvidenceSummary | null;
+  evidenceSummaries: readonly CatalogProviderDuplicatePreventionEvidenceSummary[];
+}>;
+
 export type SourceObservationServices = Readonly<{
   commandHandler: CommandHandler<SourceObservationCommand, SourceObservationState, SourceObservationEvent>;
   importTcgdexSet: (input: {
@@ -371,6 +385,12 @@ export type SourceObservationServices = Readonly<{
   }) => Promise<readonly SourceObservationIntegrationOption[]>;
   getSelectedOptionAuthoringSchema: () => Promise<SourceObservationSelectedOptionAuthoringSchema>;
   getPromotionTargetAuthoringSchema: () => Promise<SourceObservationPromotionTargetAuthoringSchema>;
+  previewDuplicatePreventionCandidates: (input: {
+    providerKey: string;
+    profileVersion: string;
+    payload: JsonValue;
+    observedAt?: string;
+  }) => Promise<SourceObservationDuplicatePreventionCandidatePreview>;
   promoteObservation: (input: {
     observationId: string;
     context: EventStoreContext;
@@ -588,6 +608,59 @@ export function createSourceObservationRuntime(
       },
       context,
     });
+  }
+
+  async function previewDuplicatePreventionCandidates(input: {
+    providerKey: string;
+    profileVersion: string;
+    payload: JsonValue;
+    observedAt?: string;
+  }): Promise<SourceObservationDuplicatePreventionCandidatePreview> {
+    const version =
+      (await profileVersions.listProfileVersions(input.providerKey)).find(
+        (candidate) => candidate.profileVersion === input.profileVersion,
+      ) ?? null;
+    if (!version) {
+      return notEvaluatedDuplicatePreventionPreview(
+        `Catalog provider profile version ${input.providerKey}@${input.profileVersion} was not found.`,
+      );
+    }
+
+    try {
+      const contract = requireSourceObservationMappingContract(version);
+      const normalization = normalizeCatalogProviderSourceObservation({
+        contract,
+        payload: input.payload,
+        observedAt: input.observedAt ?? new Date(0).toISOString(),
+      });
+      if (!normalization.observation) {
+        return notEvaluatedDuplicatePreventionPreview("Source Observation normalization did not complete.");
+      }
+
+      const normalized = requirePokemonCardPromotionObservation(
+        normalization.observation.normalized,
+        input.providerKey,
+      );
+      const catalogMapping = await loadPokemonTcgPromotionProfile(deps, version.profile);
+      const result = await resolveCatalogProviderDuplicatePrevention({
+        db: deps.db,
+        profile: version.profile,
+        providerKey: input.providerKey,
+        externalKey: normalization.observation.externalKey,
+        normalized,
+        catalog: {
+          blueprintId: catalogMapping.blueprintId,
+          categoryId: catalogMapping.categoryId,
+          fieldIds: catalogMapping.fieldIds,
+        },
+      });
+
+      return duplicatePreventionCandidatePreview(result);
+    } catch (error) {
+      return notEvaluatedDuplicatePreventionPreview(
+        error instanceof Error ? error.message : "Duplicate-prevention candidate preview failed.",
+      );
+    }
   }
 
   async function promoteObservationFromRow(input: {
@@ -2492,6 +2565,7 @@ export function createSourceObservationRuntime(
       listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient, profileVersions),
     getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
     getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),
+    previewDuplicatePreventionCandidates,
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -2968,6 +3042,48 @@ async function loadPromotionTargetAuthoringRecords(
     name: row.name,
     status: row.status,
   }));
+}
+
+function duplicatePreventionCandidatePreview(
+  result: Awaited<ReturnType<typeof resolveCatalogProviderDuplicatePrevention>>,
+): SourceObservationDuplicatePreventionCandidatePreview {
+  if (result.status === "none") {
+    return {
+      status: "none",
+      ruleKey: null,
+      candidateCount: 0,
+      candidateCatalogItemIds: [],
+      diagnosticText: null,
+      evidenceSummary: null,
+      evidenceSummaries: result.evidenceSummaries,
+    };
+  }
+
+  const candidateCatalogItemIds =
+    result.status === "matched" ? [result.catalogItemId] : result.candidateCatalogItemIds;
+  return {
+    status: result.status,
+    ruleKey: result.ruleKey,
+    candidateCount: candidateCatalogItemIds.length,
+    candidateCatalogItemIds,
+    diagnosticText: result.status === "blocked" ? result.diagnosticText : null,
+    evidenceSummary: result.evidenceSummary,
+    evidenceSummaries: [result.evidenceSummary],
+  };
+}
+
+function notEvaluatedDuplicatePreventionPreview(
+  diagnosticText: string,
+): SourceObservationDuplicatePreventionCandidatePreview {
+  return {
+    status: "not-evaluated",
+    ruleKey: null,
+    candidateCount: 0,
+    candidateCatalogItemIds: [],
+    diagnosticText,
+    evidenceSummary: null,
+    evidenceSummaries: [],
+  };
 }
 
 async function createCatalogDraftFromObservation(input: {

@@ -425,6 +425,15 @@ export interface CatalogProviderProfileDryRunResult {
     candidatePolicy: string;
     evidence: CatalogProviderProfileDryRunEvidence[];
   }[];
+  duplicatePreventionCandidatePreview: {
+    status: "matched" | "none" | "blocked" | "review-only" | "not-evaluated";
+    ruleKey: string | null;
+    candidateCount: number;
+    candidateCatalogItemIds: string[];
+    diagnosticText: string | null;
+    evidenceSummary: JsonValue;
+    evidenceSummaries: JsonValue;
+  } | null;
   promotionCommandPlan: {
     requiresReview: true;
     commands: {

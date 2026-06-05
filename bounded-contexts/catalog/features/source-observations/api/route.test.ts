@@ -463,6 +463,55 @@ describe("source observation routes", () => {
     expect(getPromotionTargetAuthoringSchema).toHaveBeenCalledOnce();
   });
 
+  it("enriches provider profile dry-runs with duplicate-prevention candidate previews", async () => {
+    const previewDuplicatePreventionCandidates = vi.fn(async () => ({
+      status: "blocked" as const,
+      ruleKey: "deterministic-card",
+      candidateCount: 2,
+      candidateCatalogItemIds: ["cat_existing_1", "cat_existing_2"],
+      diagnosticText: "Duplicate-prevention rule produced multiple reusable candidates.",
+      evidenceSummary: {
+        ruleKey: "deterministic-card",
+        matchKind: "deterministic-pokemon-card-field-match",
+        evidenceText: "deterministic Pokemon card field identity",
+        candidateCatalogItemIds: ["cat_existing_1", "cat_existing_2"],
+      },
+      evidenceSummaries: [],
+    }));
+    const services = { previewDuplicatePreventionCandidates } as unknown as SourceObservationServices;
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/dry-run", {
+      method: "POST",
+      body: JSON.stringify({ payload: { id: "fixture_1" } }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      duplicatePreventionCandidatePreview: {
+        status: "blocked",
+        ruleKey: "deterministic-card",
+        candidateCount: 2,
+        candidateCatalogItemIds: ["cat_existing_1", "cat_existing_2"],
+      },
+    });
+    expect(previewDuplicatePreventionCandidates).toHaveBeenCalledWith({
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      payload: { id: "fixture_1" },
+      observedAt: "1970-01-01T00:00:00.000Z",
+    });
+  });
+
   it("returns structured bad requests for invalid profile section commands", async () => {
     const services = {} as SourceObservationServices;
     const store = mutableProfileStore([

@@ -272,6 +272,7 @@ export type CatalogProviderProfileDryRunResult = Readonly<{
     candidatePolicy: string;
     evidence: readonly CatalogProviderProfileDryRunEvidence[];
   }>[];
+  duplicatePreventionCandidatePreview: CatalogProviderProfileDuplicatePreventionCandidatePreview | null;
   promotionCommandPlan: Readonly<{
     requiresReview: true;
     commands: readonly Readonly<{
@@ -279,6 +280,16 @@ export type CatalogProviderProfileDryRunResult = Readonly<{
       inputs: readonly CatalogProviderProfileDryRunEvidence[];
     }>[];
   }>;
+}>;
+
+export type CatalogProviderProfileDuplicatePreventionCandidatePreview = Readonly<{
+  status: "matched" | "none" | "blocked" | "review-only" | "not-evaluated";
+  ruleKey: string | null;
+  candidateCount: number;
+  candidateCatalogItemIds: readonly string[];
+  diagnosticText: string | null;
+  evidenceSummary: JsonValue;
+  evidenceSummaries: JsonValue;
 }>;
 
 export type CatalogProviderProfileEditableSection = Readonly<{
@@ -524,6 +535,7 @@ export async function dryRunCatalogProviderProfileVersion(input: {
         `duplicatePrevention.identityRules.${index}.evidence`,
       ),
     })),
+    duplicatePreventionCandidatePreview: null,
     promotionCommandPlan: {
       requiresReview: contract.promotionCommandPlan.requiresReview,
       commands: contract.promotionCommandPlan.commands.map((command, commandIndex) => ({
@@ -1692,6 +1704,7 @@ function blockedDryRun(
       exactExternalCatalogItemReferencesFirst: false,
     },
     duplicatePreventionRules: [],
+    duplicatePreventionCandidatePreview: null,
     promotionCommandPlan: {
       requiresReview: true,
       commands: [],

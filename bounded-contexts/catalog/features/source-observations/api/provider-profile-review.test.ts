@@ -78,6 +78,7 @@ describe("Catalog provider profile review", () => {
         }),
       ]),
     );
+    expect(result.duplicatePreventionCandidatePreview).toBeNull();
     expect(result.promotionCommandPlan.commands).toEqual([]);
   });
 

@@ -2633,6 +2633,18 @@ function duplicatePreventionPolicyLabel(policy: string): string {
   }
 }
 
+function duplicatePreventionCandidatePreviewLabel(
+  preview: CatalogProviderProfileDryRunResult["duplicatePreventionCandidatePreview"],
+): string {
+  if (!preview) {
+    return "Not evaluated";
+  }
+
+  const rule = preview.ruleKey ? ` via ${preview.ruleKey}` : "";
+  const diagnostic = preview.diagnosticText ? `; ${preview.diagnosticText}` : "";
+  return `${duplicatePreventionPolicyLabel(preview.status)}${rule}; ${preview.candidateCount} candidate(s)${diagnostic}`;
+}
+
 function MigrationEvidenceEditor({
   form,
   authoringModel,
@@ -6301,6 +6313,14 @@ function ProfileDryRunResultPanels({
             {
               key: "Exact external references first",
               value: result.duplicatePreventionPolicy.exactExternalCatalogItemReferencesFirst ? "Yes" : "No",
+            },
+            {
+              key: "Candidate preview",
+              value: duplicatePreventionCandidatePreviewLabel(result.duplicatePreventionCandidatePreview),
+            },
+            {
+              key: "Candidate IDs",
+              value: result.duplicatePreventionCandidatePreview?.candidateCatalogItemIds.join(", ") || "None",
             },
           ]}
         />
