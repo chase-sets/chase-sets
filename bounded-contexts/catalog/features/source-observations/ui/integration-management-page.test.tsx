@@ -1151,9 +1151,9 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText("Fixture readiness")).toBeTruthy();
     expect(within(dialog).getByText("Import eligibility")).toBeTruthy();
     expect(within(dialog).getByText("Profile validation")).toBeTruthy();
-    expect(within(dialog).getAllByText("Fixture validation must not require live provider calls.").length).toBeGreaterThan(
-      0,
-    );
+    expect(
+      within(dialog).getAllByText("Fixture validation must not require live provider calls.").length,
+    ).toBeGreaterThan(0);
     expect(
       within(dialog).getAllByText(
         "Activation requires the source-observation-import capability so new provider imports can use this profile.",

@@ -189,7 +189,8 @@ export function sourceObservationRoutes(
 
     return c.json({
       ...result,
-      duplicatePreventionCandidatePreview: duplicatePreventionCandidatePreview ?? result.duplicatePreventionCandidatePreview,
+      duplicatePreventionCandidatePreview:
+        duplicatePreventionCandidatePreview ?? result.duplicatePreventionCandidatePreview,
     });
   });
 

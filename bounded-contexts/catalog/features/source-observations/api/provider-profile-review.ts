@@ -1131,11 +1131,7 @@ function toActivationReadiness(input: {
       "Activation requires the source-observation-import capability so new provider imports can use this profile.",
     );
   } else {
-    addPassed(
-      "import-eligibility",
-      "profile.capabilities",
-      "Profile is eligible for new Source Observation imports.",
-    );
+    addPassed("import-eligibility", "profile.capabilities", "Profile is eligible for new Source Observation imports.");
   }
 
   if (input.version.fixtures.liveProviderCallsAllowed) {

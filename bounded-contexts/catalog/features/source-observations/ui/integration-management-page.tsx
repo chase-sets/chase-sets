@@ -246,7 +246,9 @@ const PROMOTION_COMMAND_NAME_OPTIONS = [
   { value: "LinkExternalCatalogItemReference", label: "Link External Catalog Item Reference" },
   { value: "LinkExternalProductReference", label: "Link External Product Reference" },
 ] satisfies SelectItem[];
-const PROMOTION_COMMAND_REQUIRED_INPUTS: Readonly<Record<ProfilePromotionCommandForm["commandName"], readonly string[]>> = {
+const PROMOTION_COMMAND_REQUIRED_INPUTS: Readonly<
+  Record<ProfilePromotionCommandForm["commandName"], readonly string[]>
+> = {
   CreateCatalogItem: ["title"],
   RefreshCatalogItem: ["title"],
   ReviseCatalogItemMetadata: ["title"],
@@ -2303,7 +2305,10 @@ function CatalogIntegrationAreaWorkbench({
   const areaItems =
     area === "authoring"
       ? [
-          { label: "Editable sections", value: authoringModel ? String(authoringModel.editableSections.length) : "Loading" },
+          {
+            label: "Editable sections",
+            value: authoringModel ? String(authoringModel.editableSections.length) : "Loading",
+          },
           { label: "Fixture flows", value: selectedProfile.fixtures.coveredFlows.join(", ") || "None" },
           { label: "Mapping output", value: selectedProfile.mappingOutputKind },
         ]
@@ -2356,7 +2361,13 @@ function CatalogIntegrationAreaWorkbench({
             <Button size="sm" leadingIcon="plus" disabled={!canManageCatalog} onClick={onImport}>
               Pull Provider Data
             </Button>
-            <Button size="sm" tone="secondary" leadingIcon="badgeCheck" disabled={!canManageCatalog} onClick={onReapply}>
+            <Button
+              size="sm"
+              tone="secondary"
+              leadingIcon="badgeCheck"
+              disabled={!canManageCatalog}
+              onClick={onReapply}
+            >
               Reapply promoted
             </Button>
           </>
@@ -4544,7 +4555,10 @@ export function externalReferencePreview(
 
 function selectedOptionPreviewDisposition(
   providerValue: JsonValue,
-  policy: ProfileExternalSelectedOptionsForm["missingOrUnknownOptionPolicy"] | "leave-unmapped-review-evidence" | undefined,
+  policy:
+    | ProfileExternalSelectedOptionsForm["missingOrUnknownOptionPolicy"]
+    | "leave-unmapped-review-evidence"
+    | undefined,
   selectedOptionSchema: CatalogProviderProfileAuthoringModel["selectedOptionSchema"] = null,
   dimensionKey?: string,
   optionAliasesText?: string,
@@ -4612,7 +4626,9 @@ function selectedOptionSchemaSummary(
   selectedOptionSchema: NonNullable<CatalogProviderProfileAuthoringModel["selectedOptionSchema"]>,
 ): string {
   const dimensionKeys = [
-    ...form.contracts.flatMap((contract) => contract.selectedOptions?.dimensions.map((dimension) => dimension.dimensionKey) ?? []),
+    ...form.contracts.flatMap(
+      (contract) => contract.selectedOptions?.dimensions.map((dimension) => dimension.dimensionKey) ?? [],
+    ),
     ...(form.selectedOptionMapping?.dimensions.map((dimension) => dimension.dimensionKey) ?? []),
   ].filter((dimensionKey) => dimensionKey.trim().length > 0);
   if (dimensionKeys.length === 0) {
@@ -4637,7 +4653,10 @@ function selectedOptionSchemaSummary(
 }
 
 function normalizeSelectedOptionKey(value: string): string {
-  return value.trim().toLowerCase().replace(/[\s_]+/g, "-");
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, "-");
 }
 
 function previewSelectedOptionMappingValue(
@@ -5340,9 +5359,7 @@ function ReferenceValueRuleEditor({
           value={value.kind}
           disabled={!editable}
           items={REFERENCE_VALUE_RULE_KIND_OPTIONS}
-          onValueChange={(kind) =>
-            setValue({ kind: kind === "path" || kind === "template" ? kind : "static" })
-          }
+          onValueChange={(kind) => setValue({ kind: kind === "path" || kind === "template" ? kind : "static" })}
         />
         {value.kind === "static" ? (
           <TextInput
@@ -5888,8 +5905,8 @@ export function duplicatePreventionPreview(form: ProfileDuplicatePreventionForm,
       replayPolicy: form.replayPolicy,
       exactExternalCatalogItemReferencesFirst: form.exactExternalCatalogItemReferencesFirst,
     },
-    mergeCandidateEvidence: form.mergeCandidateEvidence.map((item) =>
-      previewMappingExpression(item.expression, payload).value,
+    mergeCandidateEvidence: form.mergeCandidateEvidence.map(
+      (item) => previewMappingExpression(item.expression, payload).value,
     ),
     identityRules: form.identityRules.map((rule, index) => ({
       order: index + 1,
@@ -5934,7 +5951,11 @@ function PromotionPlanEditor({
     setServerDryRunning(true);
     setServerDryRunError(null);
     try {
-      const result = await dryRunSourceObservationProviderProfile(profile.providerKey, profile.profileVersion, previewPayload);
+      const result = await dryRunSourceObservationProviderProfile(
+        profile.providerKey,
+        profile.profileVersion,
+        previewPayload,
+      );
       setServerDryRunResult(result);
     } catch (error) {
       setServerDryRunResult(null);
@@ -6178,7 +6199,11 @@ function promotionCommandResolvedTargets(
       targetId: target?.id ?? null,
       targetName: target?.name ?? null,
       status: target?.status ?? "missing",
-      disposition: target ? (target.status === "active" ? "catalog-target-active" : "catalog-target-inactive") : "catalog-target-missing",
+      disposition: target
+        ? target.status === "active"
+          ? "catalog-target-active"
+          : "catalog-target-inactive"
+        : "catalog-target-missing",
     };
   });
 }
@@ -6462,7 +6487,10 @@ function ProfileDryRunResultPanels({
               key: "Ambiguous candidates",
               value: duplicatePreventionPolicyLabel(result.duplicatePreventionPolicy.ambiguousCandidatePolicy),
             },
-            { key: "Replay policy", value: duplicatePreventionPolicyLabel(result.duplicatePreventionPolicy.replayPolicy) },
+            {
+              key: "Replay policy",
+              value: duplicatePreventionPolicyLabel(result.duplicatePreventionPolicy.replayPolicy),
+            },
             {
               key: "Exact external references first",
               value: result.duplicatePreventionPolicy.exactExternalCatalogItemReferencesFirst ? "Yes" : "No",
@@ -7543,12 +7571,7 @@ function validateExternalReferencesForm(
           diagnostics.push(`${dimensionLabel}: dimension key and option lookup table key are required.`);
         }
         diagnostics.push(
-          ...selectedOptionSchemaDiagnostics(
-            dimensionLabel,
-            dimension.dimensionKey,
-            "",
-            selectedOptionSchema,
-          ),
+          ...selectedOptionSchemaDiagnostics(dimensionLabel, dimension.dimensionKey, "", selectedOptionSchema),
         );
         diagnostics.push(...prefixedExpressionDiagnostics(`${dimensionLabel} value`, dimension.providerValue));
       });
@@ -7799,9 +7822,7 @@ function referenceValueRuleInlineText(value: unknown): string {
 }
 
 function referenceAttributeRuleForms(value: unknown): readonly ProfileReferenceAttributeRuleForm[] {
-  return Array.isArray(value)
-    ? value.map((attribute, index) => referenceAttributeRuleForm(attribute, index))
-    : [];
+  return Array.isArray(value) ? value.map((attribute, index) => referenceAttributeRuleForm(attribute, index)) : [];
 }
 
 function referenceAttributeRuleForm(value: unknown, index: number): ProfileReferenceAttributeRuleForm {
@@ -7898,7 +7919,9 @@ function emptyReferenceRecordRuleForm(): ProfileReferenceRecordRuleForm {
   };
 }
 
-function emptyReferenceValueRuleForm(kind: ProfileReferenceValueRuleForm["kind"] = "static"): ProfileReferenceValueRuleForm {
+function emptyReferenceValueRuleForm(
+  kind: ProfileReferenceValueRuleForm["kind"] = "static",
+): ProfileReferenceValueRuleForm {
   return {
     kind,
     staticValue: "",
@@ -8882,12 +8905,7 @@ export function providerOptionSamplePreview(query: ProfileOptionQueryForm, paylo
   return { output, diagnostics };
 }
 
-function providerOptionPreviewPath(
-  path: string,
-  payload: JsonValue,
-  label: string,
-  diagnostics: string[],
-): JsonValue {
+function providerOptionPreviewPath(path: string, payload: JsonValue, label: string, diagnostics: string[]): JsonValue {
   if (!path.trim()) {
     diagnostics.push(`${label} is not configured.`);
     return null;

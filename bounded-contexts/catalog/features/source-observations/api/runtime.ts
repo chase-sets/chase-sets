@@ -3059,8 +3059,7 @@ function duplicatePreventionCandidatePreview(
     };
   }
 
-  const candidateCatalogItemIds =
-    result.status === "matched" ? [result.catalogItemId] : result.candidateCatalogItemIds;
+  const candidateCatalogItemIds = result.status === "matched" ? [result.catalogItemId] : result.candidateCatalogItemIds;
   return {
     status: result.status,
     ruleKey: result.ruleKey,
