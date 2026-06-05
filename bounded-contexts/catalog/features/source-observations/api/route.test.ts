@@ -321,6 +321,63 @@ describe("source observation routes", () => {
     });
   });
 
+  it("returns Catalog integration control-plane readiness grouped by ingestion unit", async () => {
+    const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
+      generatedAt: "2026-06-05T00:00:00.000Z",
+      units: [
+        {
+          unitKey: "reference-cards:pokemon:single-card:source-observation-proof",
+          providerKey: "reference-cards",
+          displayName: "Reference Pokemon single-card Source Observation proof",
+          productDomain: "pokemon",
+          productForm: "single-card",
+          ingestionPurpose: "source-observation-proof",
+          profileVersion: "reference-proof-2026.06.05",
+          semanticReadiness: "ready",
+          transportReadiness: "ready",
+          fixtureValidationStatus: "ready",
+          dryRunStatus: "completed",
+          observationFacts: 1,
+          diagnosticCounts: { info: 1, warning: 0, error: 0 },
+          latestDiagnosticText:
+            "Reference provider uses fixture-backed payloads and does not require live provider transport.",
+          dryRunEvidence: [
+            {
+              externalKey: "pokemon:abra-43",
+              sourceUrl: "fixture://reference-cards/pokemon/abra-43.json",
+              sourceHash: "sha256:reference-cards-abra-43",
+              normalizedFacts: {
+                name: "Abra",
+                cardNumber: "43",
+                expansionName: "Reference Proof",
+                rarity: "Common",
+              },
+            },
+          ],
+        },
+      ],
+    }));
+    const services = {
+      getCatalogIntegrationControlPlaneReadiness,
+    } as unknown as SourceObservationServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-control-plane/readiness");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      units: [
+        {
+          unitKey: "reference-cards:pokemon:single-card:source-observation-proof",
+          semanticReadiness: "ready",
+          dryRunStatus: "completed",
+          dryRunEvidence: [expect.objectContaining({ externalKey: "pokemon:abra-43" })],
+        },
+      ],
+    });
+    expect(getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledOnce();
+  });
+
   it("clones provider profile versions through the admin API", async () => {
     const services = {} as SourceObservationServices;
     const store = mutableProfileStore();

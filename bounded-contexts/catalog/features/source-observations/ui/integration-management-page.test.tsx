@@ -39,6 +39,7 @@ const {
   mockRevalidate,
   mockUseSourceObservationProviderProfileAuthoringModel,
   mockUseSourceObservationProviderProfiles,
+  mockUseCatalogIntegrationControlPlaneReadiness,
   mockUseSourceObservationIntegrationOptions,
   mockUseActiveSourceObservationIntegrationJobs,
   mockWatchSourceObservationIntegrationJob,
@@ -61,6 +62,7 @@ const {
   mockRevalidate: vi.fn(),
   mockUseSourceObservationProviderProfileAuthoringModel: vi.fn(),
   mockUseSourceObservationProviderProfiles: vi.fn(),
+  mockUseCatalogIntegrationControlPlaneReadiness: vi.fn(),
   mockUseSourceObservationIntegrationOptions: vi.fn(),
   mockUseActiveSourceObservationIntegrationJobs: vi.fn(),
   mockWatchSourceObservationIntegrationJob: vi.fn(),
@@ -120,6 +122,7 @@ vi.mock("./use-source-observations", () => ({
   updateSourceObservationProviderProfile: mockUpdateSourceObservationProviderProfile,
   updateSourceObservationProviderProfileSection: mockUpdateSourceObservationProviderProfileSection,
   useActiveSourceObservationIntegrationJobs: mockUseActiveSourceObservationIntegrationJobs,
+  useCatalogIntegrationControlPlaneReadiness: mockUseCatalogIntegrationControlPlaneReadiness,
   useSourceObservationProviderProfileAuthoringModel: mockUseSourceObservationProviderProfileAuthoringModel,
   useSourceObservationProviderProfiles: mockUseSourceObservationProviderProfiles,
   useSourceObservationIntegrationOptions: mockUseSourceObservationIntegrationOptions,
@@ -188,6 +191,12 @@ describe("IntegrationManagementPage", () => {
     );
     mockUseActiveSourceObservationIntegrationJobs.mockReturnValue({
       data: { items: [], total: 0, count: 0 },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseCatalogIntegrationControlPlaneReadiness.mockReturnValue({
+      data: controlPlaneReadiness(),
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -975,6 +984,27 @@ describe("IntegrationManagementPage", () => {
     expect(screen.getByText("Authoring Workbench")).toBeTruthy();
     expect(screen.getByText("Editable sections")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Edit selected profile" })).toBeTruthy();
+  });
+
+  it("shows reference ingestion-unit readiness and dry-run Source Observation facts", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(
+      <IntegrationManagementPage
+        data={{ items: [integrationScope()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgdex", language: "en", setId: "base1" }}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "First slice readiness" })).toBeTruthy();
+    expect(screen.getByText("reference-cards:pokemon:single-card:source-observation-proof")).toBeTruthy();
+    expect(screen.getByText("reference-proof-2026.06.05")).toBeTruthy();
+    expect(screen.getByText("pokemon:abra-43")).toBeTruthy();
+    expect(screen.getByText("sha256:reference-cards-abra-43")).toBeTruthy();
+    expect(
+      screen.getByText("Reference provider uses fixture-backed payloads and does not require live provider transport."),
+    ).toBeTruthy();
   });
 
   it("searches and selects an integration expansion filter", async () => {
@@ -4208,6 +4238,44 @@ function profileAuthoringModel(
     selectedOptionSchema: null,
     promotionTargetSchema: null,
     ...overrides,
+  };
+}
+
+function controlPlaneReadiness() {
+  return {
+    generatedAt: "2026-06-05T00:00:00.000Z",
+    units: [
+      {
+        unitKey: "reference-cards:pokemon:single-card:source-observation-proof",
+        providerKey: "reference-cards",
+        displayName: "Reference Pokemon single-card Source Observation proof",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-proof",
+        profileVersion: "reference-proof-2026.06.05",
+        semanticReadiness: "ready",
+        transportReadiness: "ready",
+        fixtureValidationStatus: "ready",
+        dryRunStatus: "completed",
+        observationFacts: 1,
+        diagnosticCounts: { info: 1, warning: 0, error: 0 },
+        latestDiagnosticText:
+          "Reference provider uses fixture-backed payloads and does not require live provider transport.",
+        dryRunEvidence: [
+          {
+            externalKey: "pokemon:abra-43",
+            sourceUrl: "fixture://reference-cards/pokemon/abra-43.json",
+            sourceHash: "sha256:reference-cards-abra-43",
+            normalizedFacts: {
+              name: "Abra",
+              cardNumber: "43",
+              expansionName: "Reference Proof",
+              rarity: "Common",
+            },
+          },
+        ],
+      },
+    ],
   };
 }
 

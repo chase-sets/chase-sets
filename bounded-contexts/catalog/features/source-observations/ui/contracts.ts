@@ -87,6 +87,38 @@ export interface SourceObservationIntegrationOption {
   metadata: Record<string, JsonValue>;
 }
 
+export interface CatalogIntegrationControlPlaneReadiness {
+  generatedAt: string;
+  units: CatalogIntegrationControlPlaneUnitReadiness[];
+}
+
+export interface CatalogIntegrationControlPlaneUnitReadiness {
+  unitKey: string;
+  providerKey: string;
+  displayName: string;
+  productDomain: string;
+  productForm: string;
+  ingestionPurpose: string | null;
+  profileVersion: string;
+  semanticReadiness: "ready" | "blocked";
+  transportReadiness: "ready" | "blocked";
+  fixtureValidationStatus: "ready" | "blocked";
+  dryRunStatus: "completed" | "blocked";
+  observationFacts: number;
+  diagnosticCounts: {
+    info: number;
+    warning: number;
+    error: number;
+  };
+  latestDiagnosticText: string | null;
+  dryRunEvidence: {
+    externalKey: string;
+    sourceUrl: string | null;
+    sourceHash: string | null;
+    normalizedFacts: Record<string, string>;
+  }[];
+}
+
 export interface CatalogProviderProfileReviewDiagnostic {
   code: string;
   path: string;

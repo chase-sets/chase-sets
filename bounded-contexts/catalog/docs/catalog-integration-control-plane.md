@@ -112,6 +112,23 @@ Broad implementation must wait for Phase 0 signoff. The start-gate bundle is:
 
 The selected first slice is the fixture-backed `reference-cards:pokemon:single-card:source-observation-proof` ingestion unit. It must run locally or in CI without live provider dependencies before the thin real-provider proof (#800).
 
+## Admin Readiness Contract
+
+The Catalog Admin Control Plane exposes ingestion-unit readiness through:
+
+```text
+GET /api/catalog/source-observations/integration-control-plane/readiness
+```
+
+The response is grouped by ingestion unit and includes:
+
+- `unitKey`, provider, product domain, product form, ingestion purpose, display name, and proof profile version.
+- Catalog semantic readiness, provider transport readiness, fixture validation status, and dry-run status.
+- Diagnostic counts by severity plus the latest diagnostic text.
+- Structured dry-run Source Observation evidence, including external key, source URL, source hash, and normalized facts.
+
+The Phase 1 reference record is `reference-cards:pokemon:single-card:source-observation-proof`. It is fixture-backed, has no live transport dependency, and runs through the ProviderAdapter registry plus the Catalog Integration Engine before the Admin UI reports it as ready. Future live provider readiness should use the same contract while keeping provider transport details on adapters and Catalog semantic readiness on ingestion units.
+
 ## Related Docs
 
 - [Provider Integration Profiles](./provider-integration-profiles.md)

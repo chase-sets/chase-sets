@@ -317,6 +317,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrations.tcgplayer.scope.product.line": "Product Line",
   "catalog.features.sourceObservations.ui.integrations.tcgplayer.set.name": "Set Name",
   "catalog.features.sourceObservations.ui.integrations.title": "Catalog Integrations",
+  "catalog.features.sourceObservations.api.providerAdapters.referenceCards.fixture.backed.provider":
+    "Reference provider uses fixture-backed payloads and does not require live provider transport.",
   "catalog.features.sourceObservations.api.route.profile.review.unavailable":
     "Provider profile review is not available.",
   "catalog.features.sourceObservations.api.route.profile.review.invalid.json.object":
@@ -1420,7 +1422,9 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.expansion.detail.endpoint":
     "Expansion detail endpoint",
   "catalog.features.sourceObservations.ui.integrationManagementPage.expansion.list.endpoint": "Expansion list endpoint",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.expansion": "Expansion",
   "catalog.features.sourceObservations.ui.integrationManagementPage.expression": "Expression",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.external.key": "External key",
   "catalog.features.sourceObservations.ui.integrationManagementPage.external.key.prefix": "External key prefix",
   "catalog.features.sourceObservations.ui.integrationManagementPage.external.reference.preview":
     "External Reference Preview",
@@ -1444,8 +1448,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.sample.fields": "Fixture Sample Fields",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.set.version": "Fixture set version",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixtures": "Fixtures",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.first.slice.readiness": "First slice readiness",
   "catalog.features.sourceObservations.ui.integrationManagementPage.future.provider.bridge.match":
     "Future provider bridge match",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.generated": "Generated",
   "catalog.features.sourceObservations.ui.integrationManagementPage.hash.material": "Hash Material",
   "catalog.features.sourceObservations.ui.integrationManagementPage.hash.material.2": "Hash material",
   "catalog.features.sourceObservations.ui.integrationManagementPage.health": "Health",
@@ -1508,6 +1514,21 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.merge.candidate.evidence":
     "Merge Candidate Evidence",
   "catalog.features.sourceObservations.ui.integrationManagementPage.merge.evidence": "Merge evidence",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.ingestion.units.reported":
+    "No ingestion units reported",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.control.plane.proof": "Control plane proof",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.source.observation.fact":
+    "Dry-run Source Observation fact",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.facts": "Facts",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.readiness.unavailable": "Readiness unavailable",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.ready.units": "Ready units",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.reference.ingestion.unit.health.fixture.validation.dry.run.facts.and.diagnostics":
+    "Reference ingestion-unit health, fixture validation, dry-run facts, and diagnostics.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.refresh.readiness": "Refresh readiness",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.source.hash": "Source hash",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.the.catalog.integration.control.plane.did.not.return.any.ingestion.unit.readiness.records":
+    "The Catalog integration control plane did not return any ingestion-unit readiness records.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.transport": "Transport",
   "catalog.features.sourceObservations.ui.integrationManagementPage.merge.identity": "Merge Identity",
   "catalog.features.sourceObservations.ui.integrationManagementPage.merge.identity.2": "Merge identity",
   "catalog.features.sourceObservations.ui.integrationManagementPage.metadata": "Metadata",
@@ -1519,6 +1540,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.missing.required.fixture.flows":
     "Missing required fixture flows:",
   "catalog.features.sourceObservations.ui.integrationManagementPage.module.map": "Module map",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.name": "Name",
   "catalog.features.sourceObservations.ui.integrationManagementPage.needs.at.least.one.expression":
     "needs at least one expression.",
   "catalog.features.sourceObservations.ui.integrationManagementPage.needs.language": "Needs language",
@@ -1615,6 +1637,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.profile": "Profile",
   "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section": "Profile Section",
   "catalog.features.sourceObservations.ui.integrationManagementPage.profile.snapshot": "Profile Snapshot",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.version": "Profile version",
   "catalog.features.sourceObservations.ui.integrationManagementPage.profile.workspace": "Profile workspace",
   "catalog.features.sourceObservations.ui.integrationManagementPage.progress": "Progress",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promoted": "Promoted",

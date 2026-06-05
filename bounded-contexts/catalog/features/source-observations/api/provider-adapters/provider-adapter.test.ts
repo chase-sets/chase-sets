@@ -6,6 +6,11 @@ import type {
   ProviderImportPlan,
   ProviderPayloadEnvelope,
 } from "./provider-adapter";
+import {
+  createReferenceCardsProviderAdapter,
+  REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY,
+  runReferenceCardsSourceObservationProofDryRun,
+} from "./reference-cards";
 import { ProviderAdapterRegistry } from "./registry";
 
 type ReferenceCardPayload = Readonly<{
@@ -86,6 +91,33 @@ describe("ProviderAdapterRegistry", () => {
       },
     ]);
     expect(JSON.stringify(diagnostics)).not.toMatch(/promotion|replay|duplicate-prevention/i);
+  });
+
+  it("ships a fixture-backed reference adapter that proves the selected first slice", async () => {
+    const adapter = createReferenceCardsProviderAdapter();
+    const units = await adapter.listIntegrationUnits();
+    const dryRun = await runReferenceCardsSourceObservationProofDryRun(adapter);
+
+    expect(units.map((unit) => unit.unitKey)).toEqual([
+      REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY,
+    ]);
+    expect(dryRun).toMatchObject({
+      unitKey: REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY,
+      profileVersion: "reference-proof-2026.06.05",
+      observations: [
+        {
+          providerKey: "reference-cards",
+          externalKey: "pokemon:abra-43",
+          normalizedFacts: {
+            name: "Abra",
+            cardNumber: "43",
+            expansionName: "Reference Proof",
+            rarity: "Common",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
   });
 });
 
