@@ -17,7 +17,10 @@ import type {
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
   SourceObservationReapplyPreview,
+  CatalogProviderProfileEditableSectionKey,
+  CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileDryRunResult,
+  CatalogProviderProfileSectionUpdateCommand,
   CatalogProviderProfileVersionReview,
   SourceObservationDetail,
   SourceObservationListItem,
@@ -88,6 +91,23 @@ export function useSourceObservationProviderProfiles(
   );
 }
 
+export function useSourceObservationProviderProfileAuthoringModel(
+  providerKey: string,
+  profileVersion: string,
+  enabled = true,
+) {
+  return useFetch(
+    () =>
+      enabled
+        ? api.getSourceObservationProviderProfileAuthoringModel<CatalogProviderProfileAuthoringModel>(
+            providerKey,
+            profileVersion,
+          )
+        : Promise.resolve(null),
+    [enabled, providerKey, profileVersion],
+  );
+}
+
 export function dryRunSourceObservationProviderProfile(providerKey: string, profileVersion: string, payload: unknown) {
   return api.dryRunSourceObservationProviderProfile<CatalogProviderProfileDryRunResult>(
     providerKey,
@@ -105,6 +125,20 @@ export function updateSourceObservationProviderProfile(providerKey: string, prof
     providerKey,
     profileVersion,
     patch,
+  );
+}
+
+export function updateSourceObservationProviderProfileSection(
+  providerKey: string,
+  profileVersion: string,
+  section: CatalogProviderProfileEditableSectionKey,
+  command: CatalogProviderProfileSectionUpdateCommand,
+) {
+  return api.updateSourceObservationProviderProfileSection<CatalogProviderProfileVersionReview>(
+    providerKey,
+    profileVersion,
+    section,
+    command,
   );
 }
 

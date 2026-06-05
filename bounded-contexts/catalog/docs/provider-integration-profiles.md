@@ -10,6 +10,8 @@ Provider integration profiles are not fake data. They are the authoring structur
 
 Executable mapping semantics are documented in [Provider Integration Mapping Contract](./provider-integration-mapping-contract.md). That contract is the migration target for profile versions, selectors, transforms, normalized Source Observation output, hash material, merge identity, external references, selected Options, Reference Record hierarchy, duplicate-prevention rules, and Catalog aggregate promotion command plans. Provider transport adapters should fetch provider payloads only; Catalog-owned profile data decides how those payloads become Catalog review facts.
 
+The operator-facing workflow is documented in [Provider Integration Admin Module](./provider-integration-admin-module.md). Normal profile authoring, validation, comparison, activation, import, reapply, rollback, and retirement workflows must be typed and guided in admin. Operators should not need to edit raw JSON to complete supported work.
+
 ## Versioned Data Path
 
 Catalog persists provider integration profiles in `catalog_provider_integration_profile_versions`.

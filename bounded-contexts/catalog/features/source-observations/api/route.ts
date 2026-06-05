@@ -7,13 +7,17 @@ import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-i
 import {
   activateCatalogProviderProfileVersionForReview,
   CatalogProviderProfileActivationValidationError,
+  CatalogProviderProfileSectionValidationError,
   cloneCatalogProviderProfileVersionForReview,
   createCatalogProviderProfileVersionForReview,
   deprecateCatalogProviderProfileVersionForReview,
   dryRunCatalogProviderProfileVersion,
+  getCatalogProviderProfileAuthoringModel,
   listCatalogProviderProfileVersionReviews,
   retireCatalogProviderProfileVersionForReview,
   rollbackCatalogProviderProfileVersionForReview,
+  type CatalogProviderProfileSectionUpdateCommand,
+  updateCatalogProviderProfileSectionForReview,
   updateCatalogProviderProfileVersionForReview,
 } from "./provider-profile-review";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "./provider-integration-profiles";
@@ -85,6 +89,22 @@ export function sourceObservationRoutes(
     return c.json(result, 201);
   });
 
+  app.get("/provider-profiles/:providerKey/:profileVersion/authoring", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const result = await getCatalogProviderProfileAuthoringModel({
+      store: profileVersions,
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+      selectedOptionSchema: await services.getSelectedOptionAuthoringSchema?.(),
+      promotionTargetSchema: await services.getPromotionTargetAuthoringSchema?.(),
+    });
+
+    return c.json(result);
+  });
+
   app.patch("/provider-profiles/:providerKey/:profileVersion", async (c) => {
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
@@ -105,6 +125,44 @@ export function sourceObservationRoutes(
     return c.json(result);
   });
 
+  app.patch("/provider-profiles/:providerKey/:profileVersion/sections/:section", async (c) => {
+    if (!profileVersions) {
+      return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
+    }
+
+    const body = await readJsonObject(c);
+    if (body instanceof Response) {
+      return body;
+    }
+
+    try {
+      const commandBody = isRecord(body.command) ? body.command : body;
+      const result = await updateCatalogProviderProfileSectionForReview({
+        store: profileVersions,
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+        command: { ...commandBody, section: c.req.param("section") } as CatalogProviderProfileSectionUpdateCommand,
+        audit: authoringAuditFromContext(c.get("context")),
+      });
+
+      return c.json(result);
+    } catch (error) {
+      if (!(error instanceof CatalogProviderProfileSectionValidationError)) {
+        throw error;
+      }
+
+      return c.json(
+        {
+          error: {
+            code: "invalid_profile_section_command",
+            message: error.message,
+          },
+        },
+        400,
+      );
+    }
+  });
+
   app.post("/provider-profiles/:providerKey/:profileVersion/dry-run", async (c) => {
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
@@ -122,7 +180,18 @@ export function sourceObservationRoutes(
       observedAt: new Date(0).toISOString(),
     });
 
-    return c.json(result);
+    const duplicatePreventionCandidatePreview = await services.previewDuplicatePreventionCandidates?.({
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+      payload: toJsonValue(body.payload),
+      observedAt: new Date(0).toISOString(),
+    });
+
+    return c.json({
+      ...result,
+      duplicatePreventionCandidatePreview:
+        duplicatePreventionCandidatePreview ?? result.duplicatePreventionCandidatePreview,
+    });
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/activate", async (c) => {
@@ -623,6 +692,10 @@ function isIntegrationJobValidationError(error: unknown): error is Error {
     (error.message.includes("does not support background import") ||
       error.message.includes("No active Catalog source observation import provider is configured"))
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function readJsonObject(c: Context<CatalogAuthoringEnv>): Promise<Record<string, unknown> | Response> {

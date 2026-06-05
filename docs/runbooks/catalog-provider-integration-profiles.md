@@ -4,19 +4,64 @@ Catalog provider profile versions control provider option queries, Source Observ
 
 ## Normal Activation
 
-1. Clone the current profile version in Catalog Integrations admin.
-2. Edit the draft or test version and run fixture dry-runs against committed fixture payloads.
-3. Record migration evidence that summarizes fixture results, replay comparison, and any mapping fingerprint changes.
-4. Activate the version from admin. Activation must pass the fixture harness and migration-evidence guard before it can become active.
-5. Run a narrow provider import or reapply job and review Source Observation counts before broad import.
+1. Open Catalog Integrations admin with `catalog.manage`.
+2. Clone the current profile version.
+3. Edit the draft or test version through guided profile sections. Do not edit raw profile JSON for normal operator work.
+4. Run fixture dry-runs against committed fixture payloads and review grouped diagnostics, redaction summary, normalized output, duplicate-prevention decisions, selected Options, external references, and promotion command-plan preview.
+5. Compare the candidate against the active profile and review lifecycle, capabilities, option queries, connector, mapping, evidence, duplicate-prevention, promotion-plan, fixture, and mapping-fingerprint impact.
+6. Record structured migration evidence when the mapping fingerprint changes. Include before/after fingerprints, fixture run id, replay scope, observed impact, and an operator note.
+7. Activate the version from admin. Activation must pass the fixture harness and migration-evidence guard before it can become active.
+8. Run a narrow provider import or reapply job and review Source Observation counts, job result summary, grouped failures, and promoted/reapplied counts before broad import.
 
 Activation diagnostics with code `profile_activation_blocked` are operator-actionable. Fix the reported fixture, mapping, redaction, or migration-evidence issue, then retry activation. Do not bypass the fixture harness with live provider calls.
+
+## View-Only Access
+
+Operators with `catalog.view` can inspect profiles, review observations, compare versions, and inspect safe diagnostics. Profile authoring, lifecycle writes, imports, promotion, reapply, rollback, retirement, and migration-evidence saves require `catalog.manage`.
+
+If a write action is disabled, confirm the actor has `catalog.manage` before treating it as a product defect. Server-side authorization remains the source of truth even when the UI also disables write controls.
+
+## Blocked Activation
+
+When activation is blocked:
+
+1. Open the activation readiness or compare panel for the candidate profile.
+2. Fix diagnostics in the relevant guided section. The diagnostic path should identify the section/control without requiring JSON editing.
+3. Re-run the fixture dry-run for the failing flow.
+4. Add or update migration evidence if the active/candidate mapping fingerprint changed.
+5. Retry activation only after readiness checks are non-blocking.
+
+Never paste raw provider payloads, secrets, pricing, inventory, seller, listing, order, message, or operations facts into evidence notes.
+
+## Fixture Failure
+
+Fixture failures indicate a profile contract problem, stale fixture coverage, or unsafe evidence use.
+
+1. Select the failing fixture flow in the dry-run workbench.
+2. Review grouped diagnostics and redaction summary.
+3. Use safe typed override controls only for supported fixture variations.
+4. Update the profile section or fixture metadata through guided controls.
+5. Commit fixture changes through the owning code path when fixture evidence needs to change.
+
+Do not use live provider calls to satisfy activation evidence.
+
+## Missing Migration Evidence
+
+When activation reports missing migration evidence:
+
+1. Compare candidate and active profiles.
+2. Record before and after mapping fingerprints.
+3. Run the relevant fixture or replay scope.
+4. Capture observed impact and the operator decision in structured migration evidence fields.
+5. Retry activation.
 
 ## Rollback
 
 Rollback means reactivating a prior validated profile version. Use it when a newly activated profile causes import failures, unexpected Source Observation normalized facts, or promotion command-plan regressions.
 
 After rollback, queued import jobs that already have a profile snapshot continue using their queued version. New imports use the rolled-back active profile. Integration reapply jobs snapshot `current-active-profile` when queued, so cancel and enqueue a new reapply job if the rollback must affect a pending reapply.
+
+After rollback, run a narrow import or reapply job and verify the completed job summary before broad replay. Record lifecycle audit context through admin; do not edit historical profile rows in place.
 
 ## Retirement
 

@@ -351,6 +351,228 @@ describe("source observation routes", () => {
     });
   });
 
+  it("updates provider profile sections through typed admin commands", async () => {
+    const services = {} as SourceObservationServices;
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/sections/basics", {
+      method: "PATCH",
+      body: JSON.stringify({
+        command: {
+          displayName: "TCGdex Admin Candidate",
+          lifecycle: "test",
+          languageOptions: ["en", "fr"],
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      displayName: "TCGdex Admin Candidate",
+      lifecycle: "test",
+      languageOptions: ["en", "fr"],
+      authoringAudit: {
+        updatedByUserId: "usr_test",
+        updatedForAccountId: "acc_test",
+      },
+    });
+  });
+
+  it("returns a typed provider profile authoring model through the admin API", async () => {
+    const getSelectedOptionAuthoringSchema = vi.fn(async () => ({
+      dimensions: [
+        {
+          dimensionId: "dim_condition",
+          dimensionKey: "condition",
+          dimensionName: "Condition",
+          status: "active",
+          options: [
+            {
+              optionId: "opt_near_mint",
+              optionKey: "near-mint",
+              optionLabel: "Near Mint",
+              status: "active",
+            },
+          ],
+        },
+      ],
+    }));
+    const getPromotionTargetAuthoringSchema = vi.fn(async () => ({
+      blueprints: [{ id: "bp_pokemon", key: "pokemon-card-single", name: "Pokemon Card", status: "active" }],
+      categories: [{ id: "cat_singles", key: "trading-card-singles", name: "Singles", status: "active" }],
+      fields: [{ id: "fld_name", key: "card-name", name: "Card Name", status: "active" }],
+    }));
+    const services = {
+      getSelectedOptionAuthoringSchema,
+      getPromotionTargetAuthoringSchema,
+    } as unknown as SourceObservationServices;
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/authoring");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      review: {
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+      },
+      editableSections: expect.arrayContaining([
+        expect.objectContaining({
+          section: "provider-options",
+          rawJsonBacked: false,
+        }),
+      ]),
+      dryRunInputTemplate: {
+        defaultFlow: "normal",
+      },
+      activationReadiness: {
+        status: "blocked",
+      },
+      selectedOptionSchema: {
+        dimensions: [
+          expect.objectContaining({
+            dimensionKey: "condition",
+            options: [expect.objectContaining({ optionKey: "near-mint" })],
+          }),
+        ],
+      },
+      promotionTargetSchema: {
+        blueprints: [expect.objectContaining({ key: "pokemon-card-single" })],
+        categories: [expect.objectContaining({ key: "trading-card-singles" })],
+        fields: [expect.objectContaining({ key: "card-name" })],
+      },
+    });
+    expect(getSelectedOptionAuthoringSchema).toHaveBeenCalledOnce();
+    expect(getPromotionTargetAuthoringSchema).toHaveBeenCalledOnce();
+  });
+
+  it("enriches provider profile dry-runs with duplicate-prevention candidate previews", async () => {
+    const previewDuplicatePreventionCandidates = vi.fn(async () => ({
+      status: "blocked" as const,
+      ruleKey: "deterministic-card",
+      candidateCount: 2,
+      candidateCatalogItemIds: ["cat_existing_1", "cat_existing_2"],
+      diagnosticText: "Duplicate-prevention rule produced multiple reusable candidates.",
+      evidenceSummary: {
+        ruleKey: "deterministic-card",
+        matchKind: "deterministic-pokemon-card-field-match",
+        evidenceText: "deterministic Pokemon card field identity",
+        candidateCatalogItemIds: ["cat_existing_1", "cat_existing_2"],
+      },
+      evidenceSummaries: [],
+    }));
+    const services = { previewDuplicatePreventionCandidates } as unknown as SourceObservationServices;
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/dry-run", {
+      method: "POST",
+      body: JSON.stringify({ payload: { id: "fixture_1" } }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      duplicatePreventionCandidatePreview: {
+        status: "blocked",
+        ruleKey: "deterministic-card",
+        candidateCount: 2,
+        candidateCatalogItemIds: ["cat_existing_1", "cat_existing_2"],
+      },
+    });
+    expect(previewDuplicatePreventionCandidates).toHaveBeenCalledWith({
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      payload: { id: "fixture_1" },
+      observedAt: "1970-01-01T00:00:00.000Z",
+    });
+  });
+
+  it("returns structured bad requests for invalid profile section commands", async () => {
+    const services = {} as SourceObservationServices;
+    const store = mutableProfileStore([
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/sections/fixtures", {
+      method: "PATCH",
+      body: JSON.stringify({
+        fixtures: {
+          fixtureRoot: "bounded-contexts/catalog/fixtures/source-observations/tcgdex",
+          coveredFlows: ["normal"],
+          liveProviderCallsAllowed: true,
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_profile_section_command",
+        message: "fixtures.liveProviderCallsAllowed must remain false.",
+      },
+    });
+  });
+
+  it("returns structured bad requests for empty deep profile section commands", async () => {
+    const services = {} as SourceObservationServices;
+    const store = mutableProfileStore([
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request(
+      "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/normalized-observation",
+      {
+        method: "PATCH",
+        body: JSON.stringify({ command: {} }),
+        headers: { "content-type": "application/json" },
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_profile_section_command",
+        message: "Profile section 'normalized-observation' must include at least one editable field.",
+      },
+    });
+  });
+
   it("returns a structured bad request for invalid provider profile authoring JSON", async () => {
     const services = {} as SourceObservationServices;
     const app = buildApp(services, mutableProfileStore());
@@ -980,8 +1202,10 @@ describe("source observation routes", () => {
   });
 });
 
-function mutableProfileStore(): CatalogProviderIntegrationProfileVersionStore {
-  let records: CatalogProviderIntegrationProfileVersionRecord[] = [...catalogProviderIntegrationProfileVersions];
+function mutableProfileStore(
+  initialRecords: readonly CatalogProviderIntegrationProfileVersionRecord[] = catalogProviderIntegrationProfileVersions,
+): CatalogProviderIntegrationProfileVersionStore {
+  let records: CatalogProviderIntegrationProfileVersionRecord[] = [...initialRecords];
   return {
     seedProfileVersions: async () => records,
     upsertProfileVersion: async (version) => {
@@ -1038,6 +1262,33 @@ function mutableProfileStore(): CatalogProviderIntegrationProfileVersionStore {
     records = current.map((candidate) => (candidate === version ? updated : candidate));
     return updated;
   }
+}
+
+function profileVersion(
+  providerKey: string,
+  overrides: Partial<CatalogProviderIntegrationProfileVersionRecord>,
+): CatalogProviderIntegrationProfileVersionRecord {
+  const base = catalogProviderIntegrationProfileVersions.find((version) => version.providerKey === providerKey);
+  if (!base) {
+    throw new Error(`Expected seeded ${providerKey} provider profile version.`);
+  }
+
+  const nextProfileVersion = overrides.profileVersion ?? base.profileVersion;
+  const nextLifecycle = overrides.lifecycle ?? base.lifecycle;
+
+  return {
+    ...base,
+    ...overrides,
+    profileVersion: nextProfileVersion,
+    lifecycle: nextLifecycle,
+    executableMappingContract: base.executableMappingContract
+      ? {
+          ...base.executableMappingContract,
+          profileVersion: nextProfileVersion,
+          lifecycle: nextLifecycle,
+        }
+      : undefined,
+  };
 }
 
 function jobEvent<TJob>(job: TJob, sequence = 1) {

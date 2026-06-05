@@ -12,7 +12,9 @@ import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-i
 import {
   activateCatalogProviderProfileVersionForReview,
   cloneCatalogProviderProfileVersionForReview,
+  getCatalogProviderProfileAuthoringModel,
   updateCatalogProviderProfileVersionForReview,
+  updateCatalogProviderProfileSectionForReview,
   dryRunCatalogProviderProfileVersion,
   listCatalogProviderProfileVersionReviews,
   retireCatalogProviderProfileVersionForReview,
@@ -63,6 +65,11 @@ describe("Catalog provider profile review", () => {
     });
     expect(result.hashMaterial).toHaveLength(1);
     expect(result.mergeCandidateEvidence.map((evidence) => evidence.value)).toEqual([14240, "157", "Time Spiral"]);
+    expect(result.duplicatePreventionPolicy).toEqual({
+      ambiguousCandidatePolicy: "block-promotion",
+      replayPolicy: "same-profile-version",
+      exactExternalCatalogItemReferencesFirst: true,
+    });
     expect(result.duplicatePreventionRules).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -71,6 +78,7 @@ describe("Catalog provider profile review", () => {
         }),
       ]),
     );
+    expect(result.duplicatePreventionCandidatePreview).toBeNull();
     expect(result.promotionCommandPlan.commands).toEqual([]);
   });
 
@@ -155,6 +163,249 @@ describe("Catalog provider profile review", () => {
     });
   });
 
+  it("builds a UI authoring model with fixture templates, semantic diff, and activation readiness", async () => {
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      tcgdexVersion("2026.06.04", "draft", false),
+    ]);
+
+    const model = await getCatalogProviderProfileAuthoringModel({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      repositoryRoot: repositoryRoot(),
+    });
+
+    expect(model.review).toMatchObject({
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+    });
+    expect(model.editableSections.map((section) => section.section)).toEqual(
+      expect.arrayContaining(["basics", "provider-options", "promotion-plan", "migration-evidence"]),
+    );
+    expect(model.fixtureCases.map((fixtureCase) => fixtureCase.flow)).toEqual(
+      expect.arrayContaining(["normal", "ambiguous", "unknown-option"]),
+    );
+    expect(model.dryRunInputTemplate).toMatchObject({
+      defaultFlow: "normal",
+      payload: expect.objectContaining({ observationId: "tcgdex_en_sv01_001_standard" }),
+    });
+    expect(model.semanticDiff).toMatchObject({
+      activeProfileVersion: "2026.06.03",
+      mappingFingerprint: { changed: true },
+    });
+    expect(model.semanticDiff.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "executableMappingContract.normalizedObservation.hashMaterial",
+          label: "Hash Material",
+          severity: "error",
+          activationImpact: expect.stringContaining("migration evidence"),
+        }),
+        expect.objectContaining({
+          path: "executableMappingContract.duplicatePrevention",
+          label: "Duplicate Prevention",
+          severity: "error",
+        }),
+        expect.objectContaining({
+          path: "profile.optionQueries",
+          label: "Provider Option Queries",
+          severity: "warning",
+        }),
+        expect.objectContaining({
+          path: "migrationEvidence",
+          label: "Migration Evidence",
+          activationImpact: expect.stringContaining("fingerprint-changing activation"),
+        }),
+      ]),
+    );
+    expect(model.activationReadiness).toMatchObject({
+      status: "blocked",
+      requiresMigrationEvidence: true,
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          checkKey: "migration-evidence",
+          status: "blocked",
+        }),
+      ]),
+    });
+    expect(model.selectedOptionSchema).toBeNull();
+    expect(model.promotionTargetSchema).toBeNull();
+  });
+
+  it("includes selected option authoring schema when supplied by the admin runtime", async () => {
+    const model = await getCatalogProviderProfileAuthoringModel({
+      store: mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]),
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      repositoryRoot: repositoryRoot(),
+      selectedOptionSchema: {
+        dimensions: [
+          {
+            dimensionId: "dim_condition",
+            dimensionKey: "condition",
+            dimensionName: "Condition",
+            status: "active",
+            options: [
+              {
+                optionId: "opt_near_mint",
+                optionKey: "near-mint",
+                optionLabel: "Near Mint",
+                status: "active",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(model.selectedOptionSchema).toEqual({
+      dimensions: [
+        expect.objectContaining({
+          dimensionKey: "condition",
+          options: [expect.objectContaining({ optionKey: "near-mint" })],
+        }),
+      ],
+    });
+  });
+
+  it("includes promotion target authoring schema when supplied by the admin runtime", async () => {
+    const model = await getCatalogProviderProfileAuthoringModel({
+      store: mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]),
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      repositoryRoot: repositoryRoot(),
+      promotionTargetSchema: {
+        blueprints: [{ id: "bp_pokemon", key: "pokemon-card-single", name: "Pokemon Card", status: "active" }],
+        categories: [{ id: "cat_singles", key: "trading-card-singles", name: "Singles", status: "active" }],
+        fields: [{ id: "fld_name", key: "card-name", name: "Card Name", status: "active" }],
+      },
+    });
+
+    expect(model.promotionTargetSchema).toEqual({
+      blueprints: [expect.objectContaining({ key: "pokemon-card-single" })],
+      categories: [expect.objectContaining({ key: "trading-card-singles" })],
+      fields: [expect.objectContaining({ key: "card-name" })],
+    });
+  });
+
+  it("updates profile basics through typed section commands", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      command: {
+        section: "basics",
+        lifecycle: "test",
+        displayName: "TCGdex Authoring Candidate",
+        status: "planned",
+        compatibilityMode: "transitional-static-profile",
+        capabilities: ["provider-option-query"],
+        supportedScopes: ["language", "expansion"],
+        languageOptions: ["en", "fr"],
+      },
+    });
+
+    expect(review).toMatchObject({
+      displayName: "TCGdex Authoring Candidate",
+      lifecycle: "test",
+      status: "planned",
+      compatibilityMode: "transitional-static-profile",
+      capabilities: ["provider-option-query"],
+      supportedScopes: ["language", "expansion"],
+      languageOptions: ["en", "fr"],
+      executableMappingContract: {
+        displayName: "TCGdex Authoring Candidate",
+        lifecycle: "test",
+      },
+    });
+  });
+
+  it("updates provider option queries through typed section commands", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const base = await store.getProfileVersion("tcgdex", "2026.06.04");
+    if (!base) {
+      throw new Error("Expected draft TCGdex profile version.");
+    }
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      command: {
+        section: "provider-options",
+        optionQueries: [
+          ...base.profile.optionQueries,
+          {
+            ...base.profile.optionQueries[0],
+            queryKind: "language-audit",
+            displayName: "Language Audit",
+          },
+        ],
+      },
+    });
+
+    expect(review.profile.optionQueries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          queryKind: "language-audit",
+          displayName: "Language Audit",
+        }),
+      ]),
+    );
+  });
+
+  it("updates executable promotion plans while preserving profile identity", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+    const base = await store.getProfileVersion("tcgdex", "2026.06.04");
+    if (!base?.executableMappingContract) {
+      throw new Error("Expected draft TCGdex executable mapping contract.");
+    }
+
+    const review = await updateCatalogProviderProfileSectionForReview({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      command: {
+        section: "promotion-plan",
+        promotionCommandPlan: {
+          ...base.executableMappingContract.promotionCommandPlan,
+          commands: [],
+        },
+      },
+    });
+
+    expect(review.executableMappingContract).toMatchObject({
+      providerKey: "tcgdex",
+      profileKey: "pokemon-tcg",
+      profileVersion: "2026.06.04",
+      lifecycle: "draft",
+      promotionCommandPlan: {
+        commands: [],
+      },
+    });
+  });
+
+  it("rejects fixture section commands that allow live provider calls", async () => {
+    await expect(
+      updateCatalogProviderProfileSectionForReview({
+        store: mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]),
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        command: {
+          section: "fixtures",
+          fixtures: {
+            fixtureRoot: "bounded-contexts/catalog/fixtures/source-observations/tcgdex",
+            coveredFlows: ["normal"],
+            liveProviderCallsAllowed: true as false,
+          },
+        },
+      }),
+    ).rejects.toThrow("fixtures.liveProviderCallsAllowed must remain false.");
+  });
+
   it("blocks activation when fixture harness validation fails", async () => {
     await expect(
       activateCatalogProviderProfileVersionForReview({
@@ -167,6 +418,45 @@ describe("Catalog provider profile review", () => {
         repositoryRoot: repositoryRoot(),
       }),
     ).rejects.toThrow("failed fixture harness validation");
+  });
+
+  it("blocks activation when the profile is not eligible for imports", async () => {
+    const version = tcgdexVersion("2026.06.04", "test", false);
+    const importIneligibleVersion = {
+      ...version,
+      profile: {
+        ...version.profile,
+        capabilities: version.profile.capabilities.filter((capability) => capability !== "source-observation-import"),
+      },
+    };
+    const store = mutableProfileStore([importIneligibleVersion]);
+
+    const model = await getCatalogProviderProfileAuthoringModel({
+      store,
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      repositoryRoot: repositoryRoot(),
+    });
+
+    expect(model.activationReadiness).toMatchObject({
+      status: "blocked",
+      checks: expect.arrayContaining([
+        expect.objectContaining({
+          checkKey: "import-eligibility",
+          status: "blocked",
+          path: "profile.capabilities",
+        }),
+      ]),
+    });
+    await expect(
+      activateCatalogProviderProfileVersionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        fixtureCases: fixtureCasesForProfileVersion("tcgdex", "2026.06.04"),
+        repositoryRoot: repositoryRoot(),
+      }),
+    ).rejects.toThrow("requires the source-observation-import capability");
   });
 
   it("rejects edits to immutable active profile versions", async () => {

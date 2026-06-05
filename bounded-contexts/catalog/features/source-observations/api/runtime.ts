@@ -86,6 +86,7 @@ import {
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import {
   catalogProviderSourceMappingFingerprint,
+  normalizeCatalogProviderSourceObservation,
   requireCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
@@ -95,7 +96,10 @@ import {
   type CatalogProviderPromotionResolvedCatalogMapping,
   type CatalogProviderPromotionCommandPlanResult,
 } from "./provider-promotion-command-planner";
-import { resolveCatalogProviderDuplicatePrevention } from "./provider-duplicate-prevention-resolver";
+import {
+  resolveCatalogProviderDuplicatePrevention,
+  type CatalogProviderDuplicatePreventionEvidenceSummary,
+} from "./provider-duplicate-prevention-resolver";
 import { provisionCatalogProviderReferenceHierarchy } from "./provider-reference-hierarchy-provisioner";
 
 const PRINTED_CARD_COUNT_ATTRIBUTE = "printed-card-count";
@@ -314,6 +318,44 @@ export type SourceObservationIntegrationOption = Readonly<{
   metadata: Readonly<Record<string, JsonValue>>;
 }>;
 
+export type SourceObservationSelectedOptionAuthoringSchema = Readonly<{
+  dimensions: readonly Readonly<{
+    dimensionId: string;
+    dimensionKey: string;
+    dimensionName: string;
+    status: string;
+    options: readonly Readonly<{
+      optionId: string;
+      optionKey: string;
+      optionLabel: string;
+      status: string;
+    }>[];
+  }>[];
+}>;
+
+export type SourceObservationPromotionTargetAuthoringSchema = Readonly<{
+  blueprints: readonly SourceObservationPromotionTargetAuthoringRecord[];
+  categories: readonly SourceObservationPromotionTargetAuthoringRecord[];
+  fields: readonly SourceObservationPromotionTargetAuthoringRecord[];
+}>;
+
+export type SourceObservationPromotionTargetAuthoringRecord = Readonly<{
+  id: string;
+  key: string;
+  name: string;
+  status: string;
+}>;
+
+export type SourceObservationDuplicatePreventionCandidatePreview = Readonly<{
+  status: "matched" | "none" | "blocked" | "review-only" | "not-evaluated";
+  ruleKey: string | null;
+  candidateCount: number;
+  candidateCatalogItemIds: readonly CatalogItemId[];
+  diagnosticText: string | null;
+  evidenceSummary: CatalogProviderDuplicatePreventionEvidenceSummary | null;
+  evidenceSummaries: readonly CatalogProviderDuplicatePreventionEvidenceSummary[];
+}>;
+
 export type SourceObservationServices = Readonly<{
   commandHandler: CommandHandler<SourceObservationCommand, SourceObservationState, SourceObservationEvent>;
   importTcgdexSet: (input: {
@@ -341,6 +383,14 @@ export type SourceObservationServices = Readonly<{
     languageCode?: string | null;
     parentValue?: string | null;
   }) => Promise<readonly SourceObservationIntegrationOption[]>;
+  getSelectedOptionAuthoringSchema: () => Promise<SourceObservationSelectedOptionAuthoringSchema>;
+  getPromotionTargetAuthoringSchema: () => Promise<SourceObservationPromotionTargetAuthoringSchema>;
+  previewDuplicatePreventionCandidates: (input: {
+    providerKey: string;
+    profileVersion: string;
+    payload: JsonValue;
+    observedAt?: string;
+  }) => Promise<SourceObservationDuplicatePreventionCandidatePreview>;
   promoteObservation: (input: {
     observationId: string;
     context: EventStoreContext;
@@ -558,6 +608,59 @@ export function createSourceObservationRuntime(
       },
       context,
     });
+  }
+
+  async function previewDuplicatePreventionCandidates(input: {
+    providerKey: string;
+    profileVersion: string;
+    payload: JsonValue;
+    observedAt?: string;
+  }): Promise<SourceObservationDuplicatePreventionCandidatePreview> {
+    const version =
+      (await profileVersions.listProfileVersions(input.providerKey)).find(
+        (candidate) => candidate.profileVersion === input.profileVersion,
+      ) ?? null;
+    if (!version) {
+      return notEvaluatedDuplicatePreventionPreview(
+        `Catalog provider profile version ${input.providerKey}@${input.profileVersion} was not found.`,
+      );
+    }
+
+    try {
+      const contract = requireSourceObservationMappingContract(version);
+      const normalization = normalizeCatalogProviderSourceObservation({
+        contract,
+        payload: input.payload,
+        observedAt: input.observedAt ?? new Date(0).toISOString(),
+      });
+      if (!normalization.observation) {
+        return notEvaluatedDuplicatePreventionPreview("Source Observation normalization did not complete.");
+      }
+
+      const normalized = requirePokemonCardPromotionObservation(
+        normalization.observation.normalized,
+        input.providerKey,
+      );
+      const catalogMapping = await loadPokemonTcgPromotionProfile(deps, version.profile);
+      const result = await resolveCatalogProviderDuplicatePrevention({
+        db: deps.db,
+        profile: version.profile,
+        providerKey: input.providerKey,
+        externalKey: normalization.observation.externalKey,
+        normalized,
+        catalog: {
+          blueprintId: catalogMapping.blueprintId,
+          categoryId: catalogMapping.categoryId,
+          fieldIds: catalogMapping.fieldIds,
+        },
+      });
+
+      return duplicatePreventionCandidatePreview(result);
+    } catch (error) {
+      return notEvaluatedDuplicatePreventionPreview(
+        error instanceof Error ? error.message : "Duplicate-prevention candidate preview failed.",
+      );
+    }
   }
 
   async function promoteObservationFromRow(input: {
@@ -2460,6 +2563,9 @@ export function createSourceObservationRuntime(
       }),
     listIntegrationOptions: (input) =>
       listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient, profileVersions),
+    getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
+    getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),
+    previewDuplicatePreventionCandidates,
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -2834,6 +2940,149 @@ function isActiveProviderOptionQueryProfileVersion(version: CatalogProviderInteg
     version.profile.status === "active" &&
     version.profile.capabilities.includes("provider-option-query")
   );
+}
+
+async function loadSelectedOptionAuthoringSchema(
+  db: PgQueryable,
+): Promise<SourceObservationSelectedOptionAuthoringSchema> {
+  const result = await db.query<{
+    dimension_id: string;
+    dimension_key: string;
+    dimension_name: string;
+    dimension_status: string;
+    option_id: string | null;
+    option_key: string | null;
+    option_label: string | null;
+    option_status: string | null;
+    display_order: number | null;
+  }>(
+    `SELECT
+       dimension.dimension_id,
+       dimension.key AS dimension_key,
+       dimension.name AS dimension_name,
+       dimension.status AS dimension_status,
+       option.option_id,
+       option.code AS option_key,
+       option.label AS option_label,
+       option.status AS option_status,
+       option.display_order
+     FROM catalog_dimensions AS dimension
+     LEFT JOIN catalog_dimension_options AS option
+       ON option.dimension_id = dimension.dimension_id
+     ORDER BY dimension.key ASC, option.display_order ASC, option.code ASC`,
+  );
+
+  const dimensions = new Map<string, SourceObservationSelectedOptionAuthoringSchema["dimensions"][number]>();
+  const optionsByDimensionId = new Map<
+    string,
+    SourceObservationSelectedOptionAuthoringSchema["dimensions"][number]["options"][number][]
+  >();
+
+  for (const row of result.rows) {
+    if (!dimensions.has(row.dimension_id)) {
+      dimensions.set(row.dimension_id, {
+        dimensionId: row.dimension_id,
+        dimensionKey: row.dimension_key,
+        dimensionName: row.dimension_name,
+        status: row.dimension_status,
+        options: [],
+      });
+      optionsByDimensionId.set(row.dimension_id, []);
+    }
+
+    if (row.option_id) {
+      optionsByDimensionId.get(row.dimension_id)?.push({
+        optionId: row.option_id,
+        optionKey: row.option_key ?? row.option_id,
+        optionLabel: row.option_label ?? row.option_key ?? row.option_id,
+        status: row.option_status ?? "unknown",
+      });
+    }
+  }
+
+  return {
+    dimensions: [...dimensions.values()].map((dimension) => ({
+      ...dimension,
+      options: optionsByDimensionId.get(dimension.dimensionId) ?? [],
+    })),
+  };
+}
+
+async function loadPromotionTargetAuthoringSchema(
+  db: PgQueryable,
+): Promise<SourceObservationPromotionTargetAuthoringSchema> {
+  const [blueprints, categories, fields] = await Promise.all([
+    loadPromotionTargetAuthoringRecords(db, "catalog_blueprints", "blueprint_id"),
+    loadPromotionTargetAuthoringRecords(db, "catalog_categories", "category_id"),
+    loadPromotionTargetAuthoringRecords(db, "catalog_fields", "field_id"),
+  ]);
+
+  return { blueprints, categories, fields };
+}
+
+async function loadPromotionTargetAuthoringRecords(
+  db: PgQueryable,
+  tableName: "catalog_blueprints" | "catalog_categories" | "catalog_fields",
+  idColumnName: "blueprint_id" | "category_id" | "field_id",
+): Promise<readonly SourceObservationPromotionTargetAuthoringRecord[]> {
+  const result = await db.query<{
+    id: string;
+    key: string;
+    name: string;
+    status: string;
+  }>(
+    `SELECT ${idColumnName} AS id, key, name, status
+     FROM ${tableName}
+     ORDER BY key ASC`,
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    status: row.status,
+  }));
+}
+
+function duplicatePreventionCandidatePreview(
+  result: Awaited<ReturnType<typeof resolveCatalogProviderDuplicatePrevention>>,
+): SourceObservationDuplicatePreventionCandidatePreview {
+  if (result.status === "none") {
+    return {
+      status: "none",
+      ruleKey: null,
+      candidateCount: 0,
+      candidateCatalogItemIds: [],
+      diagnosticText: null,
+      evidenceSummary: null,
+      evidenceSummaries: result.evidenceSummaries,
+    };
+  }
+
+  const candidateCatalogItemIds = result.status === "matched" ? [result.catalogItemId] : result.candidateCatalogItemIds;
+  return {
+    status: result.status,
+    ruleKey: result.ruleKey,
+    candidateCount: candidateCatalogItemIds.length,
+    candidateCatalogItemIds,
+    diagnosticText: result.status === "blocked" ? result.diagnosticText : null,
+    evidenceSummary: result.evidenceSummary,
+    evidenceSummaries: [result.evidenceSummary],
+  };
+}
+
+function notEvaluatedDuplicatePreventionPreview(
+  diagnosticText: string,
+): SourceObservationDuplicatePreventionCandidatePreview {
+  return {
+    status: "not-evaluated",
+    ruleKey: null,
+    candidateCount: 0,
+    candidateCatalogItemIds: [],
+    diagnosticText,
+    evidenceSummary: null,
+    evidenceSummaries: [],
+  };
 }
 
 async function createCatalogDraftFromObservation(input: {
