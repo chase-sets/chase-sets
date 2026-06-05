@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import { Button, Inline, Select, Stack, TextInput, Textarea, type SelectItem } from "@chase-sets/design-system";
 
@@ -49,31 +50,49 @@ export interface MappingExpressionEditorProps {
 }
 
 const SELECTOR_KIND_OPTIONS = [
-  { value: "path", label: "Path" },
-  { value: "constant", label: "Constant" },
-  { value: "coalesce", label: "Coalesce" },
-  { value: "template", label: "Template" },
-  { value: "array", label: "Array" },
-  { value: "object", label: "Object" },
-  { value: "array-map", label: "Array map" },
-  { value: "named-runtime-selector", label: "Named runtime selector" },
+  { value: "path", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.path") },
+  { value: "constant", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.constant") },
+  { value: "coalesce", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.coalesce") },
+  { value: "template", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.template") },
+  { value: "array", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.array") },
+  { value: "object", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.object") },
+  { value: "array-map", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.array.map") },
+  {
+    value: "named-runtime-selector",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.named.runtime.selector"),
+  },
 ] satisfies SelectItem[];
 
 const TRANSFORM_KIND_OPTIONS = [
-  { value: "named-transform", label: "Named transform" },
-  { value: "coerce", label: "Coerce" },
-  { value: "string", label: "String transform" },
-  { value: "lookup", label: "Lookup" },
+  {
+    value: "named-transform",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.named.transform"),
+  },
+  { value: "coerce", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.coerce") },
+  { value: "string", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.string.transform") },
+  { value: "lookup", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.lookup") },
 ] satisfies SelectItem[];
 
 const OWNER_OPTIONS = [
-  { value: "catalog-truth", label: "Catalog truth" },
-  { value: "catalog-merge-evidence", label: "Catalog merge evidence" },
-  { value: "external-reference", label: "External reference" },
-  { value: "pricing-signal", label: "Pricing signal" },
-  { value: "inventory-signal", label: "Inventory signal" },
-  { value: "operations", label: "Operations" },
-  { value: "excluded", label: "Excluded" },
+  { value: "catalog-truth", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.catalog.truth") },
+  {
+    value: "catalog-merge-evidence",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.catalog.merge.evidence"),
+  },
+  {
+    value: "external-reference",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.external.reference"),
+  },
+  {
+    value: "pricing-signal",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.pricing.signal"),
+  },
+  {
+    value: "inventory-signal",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.inventory.signal"),
+  },
+  { value: "operations", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.operations") },
+  { value: "excluded", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.excluded") },
 ] satisfies SelectItem[];
 
 const USE_OPTIONS = [
@@ -88,50 +107,80 @@ const USE_OPTIONS = [
 ] as const;
 
 const REDACTION_OPTIONS = [
-  { value: "none", label: "None" },
-  { value: "secret", label: "Secret" },
-  { value: "seller", label: "Seller" },
-  { value: "price", label: "Price" },
-  { value: "operations", label: "Operations" },
+  { value: "none", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.none") },
+  { value: "secret", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.secret") },
+  { value: "seller", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.seller") },
+  { value: "price", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.price") },
+  { value: "operations", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.operations") },
 ] satisfies SelectItem[];
 
 const NULL_POLICY_OPTIONS = [
-  { value: "allow-null", label: "Allow null" },
-  { value: "omit", label: "Omit" },
-  { value: "diagnostic", label: "Diagnostic" },
+  { value: "allow-null", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.allow.null") },
+  { value: "omit", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.omit") },
+  { value: "diagnostic", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.diagnostic") },
 ] satisfies SelectItem[];
 
 const COERCE_OPTIONS = [
-  { value: "string", label: "String" },
-  { value: "number", label: "Number" },
-  { value: "boolean", label: "Boolean" },
-  { value: "json-object", label: "JSON object" },
-  { value: "json-array", label: "JSON array" },
+  { value: "string", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.string") },
+  { value: "number", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.number") },
+  { value: "boolean", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.boolean") },
+  { value: "json-object", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.json.object") },
+  { value: "json-array", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.json.array") },
 ] satisfies SelectItem[];
 
 const STRING_TRANSFORM_OPTIONS = [
-  { value: "trim", label: "Trim" },
-  { value: "lowercase", label: "Lowercase" },
-  { value: "uppercase", label: "Uppercase" },
-  { value: "slug", label: "Slug" },
-  { value: "normalize-provider-option", label: "Normalize provider option" },
+  { value: "trim", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.trim") },
+  { value: "lowercase", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.lowercase") },
+  { value: "uppercase", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.uppercase") },
+  { value: "slug", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.slug") },
+  {
+    value: "normalize-provider-option",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.normalize.provider.option"),
+  },
 ] satisfies SelectItem[];
 
 const UNKNOWN_POLICY_OPTIONS = [
-  { value: "diagnostic", label: "Diagnostic" },
-  { value: "review-evidence", label: "Review evidence" },
-  { value: "omit", label: "Omit" },
+  { value: "diagnostic", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.diagnostic") },
+  {
+    value: "review-evidence",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.review.evidence"),
+  },
+  { value: "omit", label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.omit") },
 ] satisfies SelectItem[];
 
 const RUNTIME_FUNCTION_OPTIONS = [
-  { value: "tcgdex-card-variant-expander", label: "TCGdex card variant expander" },
-  { value: "tcgdex-marketplace-reference-extractor", label: "TCGdex marketplace reference extractor" },
-  { value: "tcgdex-pokemon-reference-hierarchy", label: "TCGdex Pokemon reference hierarchy" },
-  { value: "tcgdex-pokemon-promotion-command-plan", label: "TCGdex Pokemon promotion command plan" },
-  { value: "tcgplayer-product-barcode", label: "TCGplayer product barcode" },
-  { value: "tcgplayer-product-form", label: "TCGplayer product form" },
-  { value: "tcgplayer-sku-selected-option-resolver", label: "TCGplayer SKU selected option resolver" },
-  { value: "scrydex-tcgplayer-id-reference-extractor", label: "Scrydex TCGplayer ID reference extractor" },
+  {
+    value: "tcgdex-card-variant-expander",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.tcgdex.card.variant.expander"),
+  },
+  {
+    value: "tcgdex-marketplace-reference-extractor",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.tcgdex.marketplace.reference.extractor"),
+  },
+  {
+    value: "tcgdex-pokemon-reference-hierarchy",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.tcgdex.pokemon.reference.hierarchy"),
+  },
+  {
+    value: "tcgdex-pokemon-promotion-command-plan",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.tcgdex.pokemon.promotion.command.plan"),
+  },
+  {
+    value: "tcgplayer-product-barcode",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.tcgplayer.product.barcode"),
+  },
+  {
+    value: "tcgplayer-product-form",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.tcgplayer.product.form"),
+  },
+  {
+    value: "tcgplayer-sku-selected-option-resolver",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.tcgplayer.sku.selected.option.resolver"),
+  },
+  {
+    value: "scrydex-tcgplayer-id-reference-extractor",
+    label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.scrydex.tcgplayer.id.reference.extractor"),
+  },
 ] satisfies SelectItem[];
 
 export function MappingExpressionEditor({
@@ -157,13 +206,13 @@ export function MappingExpressionEditor({
       <SelectorEditor selector={value.selector} onChange={(selector) => setExpression({ selector })} path={label} />
       <Inline gap={3}>
         <Select
-          label="Evidence owner"
+          label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.evidence.owner")}
           value={value.owner}
           items={OWNER_OPTIONS}
           onValueChange={(owner) => setExpression({ owner: owner as MappingExpressionValue["owner"] })}
         />
         <Select
-          label="Redaction"
+          label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.redaction")}
           value={value.redaction}
           items={REDACTION_OPTIONS}
           onValueChange={(redaction) => setExpression({ redaction: redaction as MappingExpressionValue["redaction"] })}
@@ -181,7 +230,9 @@ export function MappingExpressionEditor({
       />
       {preview ? (
         <Stack gap={1}>
-          <h4 className="text-sm font-semibold text-foreground">Fixture Preview</h4>
+          <h4 className="text-sm font-semibold text-foreground">
+            {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.fixture.preview")}
+          </h4>
           <p className="text-sm text-foreground">{summarizePreviewValue(preview.value)}</p>
           {preview.diagnostics.length > 0 ? (
             <ul className="text-sm text-danger">
@@ -208,7 +259,7 @@ function SelectorEditor({
   return (
     <Stack gap={3}>
       <Select
-        label="Selector kind"
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.selector.kind")}
         value={selector.kind}
         items={SELECTOR_KIND_OPTIONS}
         onValueChange={(kind) => onChange(defaultSelector(kind))}
@@ -243,12 +294,12 @@ function PathSelectorEditor({
   return (
     <Inline gap={3}>
       <TextInput
-        label="Path"
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.path")}
         value={selector.path}
         onChange={(event) => onChange({ ...selector, path: event.currentTarget.value })}
       />
       <Select
-        label="Null policy"
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.null.policy")}
         value={selector.nullPolicy}
         items={NULL_POLICY_OPTIONS}
         onValueChange={(nullPolicy) =>
@@ -265,7 +316,7 @@ function PathSelectorEditor({
           onChange={() => onChange({ ...selector, required: !selector.required })}
           className="h-4 w-4 rounded border-border accent-accent"
         />
-        <span>Required path</span>
+        <span>{t("catalog.features.sourceObservations.ui.mappingExpressionEditor.required.path")}</span>
       </label>
     </Inline>
   );
@@ -280,7 +331,7 @@ function ConstantSelectorEditor({
 }>) {
   return (
     <Textarea
-      label="Constant JSON"
+      label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.constant.json")}
       value={JSON.stringify(selector.value, null, 2)}
       rows={3}
       onChange={(event) => onChange({ ...selector, value: parseJsonInput(event.currentTarget.value) })}
@@ -306,10 +357,10 @@ function CoalesceSelectorEditor({
           onChange={() => onChange({ ...selector, required: !selector.required })}
           className="h-4 w-4 rounded border-border accent-accent"
         />
-        <span>Required coalesce result</span>
+        <span>{t("catalog.features.sourceObservations.ui.mappingExpressionEditor.required.coalesce.result")}</span>
       </label>
       <SelectorList
-        label="Fallback selectors"
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.fallback.selectors")}
         selectors={selector.selectors}
         onChange={(selectors) => onChange({ ...selector, selectors })}
         path={path}
@@ -331,7 +382,7 @@ function TemplateSelectorEditor({
     <Stack gap={3}>
       <Inline gap={3}>
         <TextInput
-          label="Template"
+          label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.template")}
           value={selector.template}
           onChange={(event) => onChange({ ...selector, template: event.currentTarget.value })}
         />
@@ -342,11 +393,11 @@ function TemplateSelectorEditor({
             onChange={() => onChange({ ...selector, required: !selector.required })}
             className="h-4 w-4 rounded border-border accent-accent"
           />
-          <span>Required template result</span>
+          <span>{t("catalog.features.sourceObservations.ui.mappingExpressionEditor.required.template.result")}</span>
         </label>
       </Inline>
       <ExpressionRecordEditor
-        label="Template values"
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.template.values")}
         values={selector.values}
         defaultKey="value"
         onChange={(values) => onChange({ ...selector, values })}
@@ -367,7 +418,7 @@ function ArraySelectorEditor({
 }>) {
   return (
     <ExpressionList
-      label="Array items"
+      label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.array.items")}
       values={selector.items}
       onChange={(items) => onChange({ ...selector, items })}
       path={path}
@@ -386,7 +437,7 @@ function ObjectSelectorEditor({
 }>) {
   return (
     <ExpressionRecordEditor
-      label="Object fields"
+      label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.object.fields")}
       values={selector.fields}
       defaultKey="field"
       onChange={(fields) => onChange({ ...selector, fields })}
@@ -408,16 +459,22 @@ function ArrayMapSelectorEditor({
     <Stack gap={3}>
       <Inline gap={3}>
         <TextInput
-          label="Array path"
+          label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.array.path")}
           value={selector.path}
           onChange={(event) => onChange({ ...selector, path: event.currentTarget.value })}
         />
         <Select
-          label="Empty policy"
+          label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.empty.policy")}
           value={selector.emptyPolicy}
           items={[
-            { value: "allow-empty", label: "Allow empty" },
-            { value: "diagnostic", label: "Diagnostic" },
+            {
+              value: "allow-empty",
+              label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.allow.empty"),
+            },
+            {
+              value: "diagnostic",
+              label: t("catalog.features.sourceObservations.ui.mappingExpressionEditor.diagnostic"),
+            },
           ]}
           onValueChange={(emptyPolicy) =>
             onChange({
@@ -428,7 +485,7 @@ function ArrayMapSelectorEditor({
         />
       </Inline>
       <MappingExpressionEditor
-        label={`${path} item`}
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.value.item", { value: String(path) })}
         value={selector.item}
         onChange={(item) => onChange({ ...selector, item })}
       />
@@ -446,13 +503,13 @@ function NamedRuntimeSelectorEditor({
   return (
     <Inline gap={3}>
       <Select
-        label="Runtime selector"
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.runtime.selector")}
         value={selector.functionKey}
         items={RUNTIME_FUNCTION_OPTIONS}
         onValueChange={(functionKey) => onChange({ ...selector, functionKey })}
       />
       <TextInput
-        label="Selector reason"
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.selector.reason")}
         value={selector.reason}
         onChange={(event) => onChange({ ...selector, reason: event.currentTarget.value })}
       />
@@ -476,20 +533,23 @@ function SelectorList({
       <Inline gap={2}>
         <h4 className="text-sm font-semibold text-foreground">{label}</h4>
         <Button size="sm" tone="secondary" onClick={() => onChange([...selectors, defaultSelector("path")])}>
-          Add selector
+          {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.add.selector")}
         </Button>
       </Inline>
       {selectors.map((selector, index) => (
         <Stack key={index} gap={2}>
           <Inline gap={2}>
-            <span className="text-sm font-semibold text-secondary">Selector {index + 1}</span>
+            <span className="text-sm font-semibold text-secondary">
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.selector")}
+              {index + 1}
+            </span>
             <Button
               size="sm"
               tone="secondary"
               disabled={index === 0}
               onClick={() => onChange(moveItem(selectors, index, index - 1))}
             >
-              Up
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.up")}
             </Button>
             <Button
               size="sm"
@@ -497,13 +557,13 @@ function SelectorList({
               disabled={index === selectors.length - 1}
               onClick={() => onChange(moveItem(selectors, index, index + 1))}
             >
-              Down
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.down")}
             </Button>
             <Button size="sm" tone="secondary" onClick={() => onChange(insertItem(selectors, index + 1, selector))}>
-              Duplicate
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.duplicate")}
             </Button>
             <Button size="sm" tone="danger" onClick={() => onChange(removeItem(selectors, index))}>
-              Remove
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.remove")}
             </Button>
           </Inline>
           <SelectorEditor
@@ -533,20 +593,23 @@ function ExpressionList({
       <Inline gap={2}>
         <h4 className="text-sm font-semibold text-foreground">{label}</h4>
         <Button size="sm" tone="secondary" onClick={() => onChange([...values, defaultExpression()])}>
-          Add expression
+          {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.add.expression")}
         </Button>
       </Inline>
       {values.map((value, index) => (
         <Stack key={index} gap={2}>
           <Inline gap={2}>
-            <span className="text-sm font-semibold text-secondary">Expression {index + 1}</span>
+            <span className="text-sm font-semibold text-secondary">
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.expression")}
+              {index + 1}
+            </span>
             <Button
               size="sm"
               tone="secondary"
               disabled={index === 0}
               onClick={() => onChange(moveItem(values, index, index - 1))}
             >
-              Up
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.up")}
             </Button>
             <Button
               size="sm"
@@ -554,17 +617,20 @@ function ExpressionList({
               disabled={index === values.length - 1}
               onClick={() => onChange(moveItem(values, index, index + 1))}
             >
-              Down
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.down")}
             </Button>
             <Button size="sm" tone="secondary" onClick={() => onChange(insertItem(values, index + 1, value))}>
-              Duplicate
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.duplicate")}
             </Button>
             <Button size="sm" tone="danger" onClick={() => onChange(removeItem(values, index))}>
-              Remove
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.remove")}
             </Button>
           </Inline>
           <MappingExpressionEditor
-            label={`${path} expression ${index + 1}`}
+            label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.value.expression.value", {
+              value0: String(path),
+              value1: String(index + 1),
+            })}
             value={value}
             onChange={(nextValue) => onChange(replaceItem(values, index, nextValue))}
           />
@@ -606,14 +672,14 @@ function ExpressionRecordEditor({
           tone="secondary"
           onClick={() => onChange({ ...values, [`${defaultKey}${entries.length + 1}`]: defaultExpression() })}
         >
-          Add field
+          {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.add.field")}
         </Button>
       </Inline>
       {entries.map(([key, value], index) => (
         <Stack key={`${key}-${index}`} gap={2}>
           <Inline gap={2}>
             <TextInput
-              label="Field key"
+              label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.field.key")}
               value={key}
               onChange={(event) => setEntryKey(index, event.currentTarget.value)}
             />
@@ -622,14 +688,17 @@ function ExpressionRecordEditor({
               tone="secondary"
               onClick={() => onChange(Object.fromEntries(insertItem(entries, index + 1, [`${key}Copy`, value])))}
             >
-              Duplicate
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.duplicate")}
             </Button>
             <Button size="sm" tone="danger" onClick={() => onChange(Object.fromEntries(removeItem(entries, index)))}>
-              Remove
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.remove")}
             </Button>
           </Inline>
           <MappingExpressionEditor
-            label={`${path}.${key}`}
+            label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.value.value", {
+              value0: String(path),
+              value1: String(key),
+            })}
             value={value}
             onChange={(nextValue) => setEntryValue(index, nextValue)}
           />
@@ -649,22 +718,27 @@ function TransformList({
   return (
     <Stack gap={2}>
       <Inline gap={2}>
-        <h4 className="text-sm font-semibold text-foreground">Transforms</h4>
+        <h4 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.transforms")}
+        </h4>
         <Button size="sm" tone="secondary" onClick={() => onChange([...transforms, defaultTransform("coerce")])}>
-          Add transform
+          {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.add.transform")}
         </Button>
       </Inline>
       {transforms.map((transform, index) => (
         <Stack key={index} gap={2}>
           <Inline gap={2}>
-            <span className="text-sm font-semibold text-secondary">Transform {index + 1}</span>
+            <span className="text-sm font-semibold text-secondary">
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.transform")}
+              {index + 1}
+            </span>
             <Button
               size="sm"
               tone="secondary"
               disabled={index === 0}
               onClick={() => onChange(moveItem(transforms, index, index - 1))}
             >
-              Up
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.up")}
             </Button>
             <Button
               size="sm"
@@ -672,13 +746,13 @@ function TransformList({
               disabled={index === transforms.length - 1}
               onClick={() => onChange(moveItem(transforms, index, index + 1))}
             >
-              Down
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.down")}
             </Button>
             <Button size="sm" tone="secondary" onClick={() => onChange(insertItem(transforms, index + 1, transform))}>
-              Duplicate
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.duplicate")}
             </Button>
             <Button size="sm" tone="danger" onClick={() => onChange(removeItem(transforms, index))}>
-              Remove
+              {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.remove")}
             </Button>
           </Inline>
           <TransformEditor
@@ -701,7 +775,7 @@ function TransformEditor({
   return (
     <Inline gap={3}>
       <Select
-        label="Transform kind"
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.transform.kind")}
         value={transform.kind}
         items={TRANSFORM_KIND_OPTIONS}
         onValueChange={(kind) => onChange(defaultTransform(kind))}
@@ -709,13 +783,13 @@ function TransformEditor({
       {transform.kind === "named-transform" ? (
         <>
           <Select
-            label="Transform function"
+            label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.transform.function")}
             value={transform.functionKey}
             items={RUNTIME_FUNCTION_OPTIONS}
             onValueChange={(functionKey) => onChange({ ...transform, functionKey })}
           />
           <TextInput
-            label="Transform reason"
+            label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.transform.reason")}
             value={transform.reason}
             onChange={(event) => onChange({ ...transform, reason: event.currentTarget.value })}
           />
@@ -723,7 +797,7 @@ function TransformEditor({
       ) : null}
       {transform.kind === "coerce" ? (
         <Select
-          label="Coerce to"
+          label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.coerce.to")}
           value={transform.to}
           items={COERCE_OPTIONS}
           onValueChange={(to) =>
@@ -733,7 +807,7 @@ function TransformEditor({
       ) : null}
       {transform.kind === "string" ? (
         <Select
-          label="String operation"
+          label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.string.operation")}
           value={transform.operation}
           items={STRING_TRANSFORM_OPTIONS}
           onValueChange={(operation) =>
@@ -747,12 +821,12 @@ function TransformEditor({
       {transform.kind === "lookup" ? (
         <>
           <TextInput
-            label="Lookup table"
+            label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.lookup.table")}
             value={transform.tableKey}
             onChange={(event) => onChange({ ...transform, tableKey: event.currentTarget.value })}
           />
           <Select
-            label="Unknown policy"
+            label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.unknown.policy")}
             value={transform.unknownPolicy}
             items={UNKNOWN_POLICY_OPTIONS}
             onValueChange={(unknownPolicy) =>

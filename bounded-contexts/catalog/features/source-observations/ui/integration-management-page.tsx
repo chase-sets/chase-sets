@@ -147,104 +147,244 @@ const REQUIRED_FIXTURE_FLOW_OPTIONS = [
   "unknown-option",
 ] as const;
 const PROFILE_COMPATIBILITY_MODE_OPTIONS = [
-  { value: "executable-mapping-contract", label: "Executable mapping contract" },
-  { value: "transitional-static-profile", label: "Transitional static profile" },
+  {
+    value: "executable-mapping-contract",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.executable.mapping.contract"),
+  },
+  {
+    value: "transitional-static-profile",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.transitional.static.profile"),
+  },
 ] satisfies SelectItem[];
 const PROFILE_STATUS_OPTIONS = [
-  { value: "active", label: "Active" },
-  { value: "planned", label: "Planned" },
+  { value: "active", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.active") },
+  { value: "planned", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.planned") },
 ] satisfies SelectItem[];
 const PROFILE_LIFECYCLE_OPTIONS = [
-  { value: "draft", label: "Draft" },
-  { value: "test", label: "Test" },
+  { value: "draft", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.draft") },
+  { value: "test", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.test") },
 ] satisfies SelectItem[];
 const EMPTY_PROFILE_REVIEWS: CatalogProviderProfileVersionReview[] = [];
 const CATALOG_INTEGRATION_MODULE_AREAS = [
-  { value: "health", label: "Health", icon: "dashboard" },
-  { value: "authoring", label: "Authoring", icon: "settings" },
-  { value: "validation", label: "Validation", icon: "badgeCheck" },
-  { value: "operations", label: "Operations", icon: "refreshCcw" },
-  { value: "audit", label: "Audit", icon: "search" },
+  {
+    value: "health",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.health"),
+    icon: "dashboard",
+  },
+  {
+    value: "authoring",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.authoring"),
+    icon: "settings",
+  },
+  {
+    value: "validation",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
+    icon: "badgeCheck",
+  },
+  {
+    value: "operations",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.operations"),
+    icon: "refreshCcw",
+  },
+  {
+    value: "audit",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.audit"),
+    icon: "search",
+  },
 ] satisfies SegmentedControlItem[];
 type CatalogIntegrationModuleArea = (typeof CATALOG_INTEGRATION_MODULE_AREAS)[number]["value"];
 const OPTION_QUERY_OPERATION_OPTIONS = [
-  { value: "tcgdex-list-languages", label: "TCGdex languages" },
-  { value: "tcgdex-list-series", label: "TCGdex series" },
-  { value: "tcgdex-list-expansions", label: "TCGdex expansions" },
-  { value: "tcgplayer-list-product-lines", label: "TCGplayer product lines" },
-  { value: "tcgplayer-list-set-names", label: "TCGplayer set names" },
-  { value: "tcgplayer-list-products", label: "TCGplayer products" },
-  { value: "tcgplayer-list-skus", label: "TCGplayer SKUs" },
-  { value: "scrydex-list-sets", label: "Scrydex sets" },
+  {
+    value: "tcgdex-list-languages",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgdex.languages"),
+  },
+  {
+    value: "tcgdex-list-series",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgdex.series"),
+  },
+  {
+    value: "tcgdex-list-expansions",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgdex.expansions"),
+  },
+  {
+    value: "tcgplayer-list-product-lines",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgplayer.product.lines"),
+  },
+  {
+    value: "tcgplayer-list-set-names",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgplayer.set.names"),
+  },
+  {
+    value: "tcgplayer-list-products",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgplayer.products"),
+  },
+  {
+    value: "tcgplayer-list-skus",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgplayer.skus"),
+  },
+  {
+    value: "scrydex-list-sets",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.scrydex.sets"),
+  },
 ] satisfies SelectItem[];
 const OPTION_QUERY_SCOPE_OPTIONS = [
-  { value: "__none__", label: "None" },
+  { value: "__none__", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.none") },
   ...CATALOG_PROVIDER_SCOPE_OPTIONS.map((scope) => ({ value: scope, label: scope })),
 ] satisfies SelectItem[];
 const OPTION_QUERY_DESCRIPTION_KIND_OPTIONS = [
-  { value: "__none__", label: "None" },
-  { value: "path", label: "Path" },
-  { value: "tcgdex-expansion-card-count", label: "TCGdex expansion card count" },
-  { value: "tcgplayer-set-name", label: "TCGplayer set name" },
+  { value: "__none__", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.none") },
+  { value: "path", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.path") },
+  {
+    value: "tcgdex-expansion-card-count",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgdex.expansion.card.count"),
+  },
+  {
+    value: "tcgplayer-set-name",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgplayer.set.name"),
+  },
 ] satisfies SelectItem[];
 const CONNECTOR_KIND_OPTIONS = [
-  { value: "tcgdex-json", label: "TCGdex JSON" },
-  { value: "tcgplayer-automation-client", label: "TCGplayer automation client" },
-  { value: "scrydex-scryfall-json", label: "Scrydex Scryfall JSON" },
+  { value: "tcgdex-json", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgdex.json") },
+  {
+    value: "tcgplayer-automation-client",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgplayer.automation.client"),
+  },
+  {
+    value: "scrydex-scryfall-json",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.scrydex.scryfall.json"),
+  },
 ] satisfies SelectItem[];
 const NORMALIZED_OUTPUT_KIND_OPTIONS = [
-  { value: "pokemon-card", label: "Pokemon card" },
-  { value: "provider-product", label: "Provider product" },
+  { value: "pokemon-card", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.pokemon.card") },
+  {
+    value: "provider-product",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.product"),
+  },
 ] satisfies SelectItem[];
 const EXTERNAL_REFERENCE_TARGET_OPTIONS = [
-  { value: "catalog-item-reference", label: "Catalog Item reference" },
-  { value: "product-reference", label: "Product reference" },
+  {
+    value: "catalog-item-reference",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.catalog.item.reference"),
+  },
+  {
+    value: "product-reference",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.product.reference"),
+  },
 ] satisfies SelectItem[];
 const EXTERNAL_REFERENCE_AMBIGUITY_OPTIONS = [
-  { value: "skip-reference", label: "Skip reference" },
-  { value: "diagnostic", label: "Diagnostic" },
-  { value: "review-evidence", label: "Review evidence" },
+  {
+    value: "skip-reference",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.skip.reference"),
+  },
+  { value: "diagnostic", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.diagnostic") },
+  {
+    value: "review-evidence",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.review.evidence"),
+  },
 ] satisfies SelectItem[];
 const SELECTED_OPTION_UNKNOWN_POLICY_OPTIONS = [
-  { value: "leave-unmapped-review-evidence", label: "Leave unmapped as review evidence" },
-  { value: "diagnostic", label: "Diagnostic" },
+  {
+    value: "leave-unmapped-review-evidence",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.leave.unmapped.as.review.evidence"),
+  },
+  { value: "diagnostic", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.diagnostic") },
 ] satisfies SelectItem[];
 const SELECTED_OPTION_PROVIDER_VALUE_SOURCE_OPTIONS = [
-  { value: "record", label: "Record" },
-  { value: "payload", label: "Payload" },
+  { value: "record", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.record") },
+  { value: "payload", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.payload") },
 ] satisfies SelectItem[];
 const DUPLICATE_PREVENTION_RULE_KIND_OPTIONS = [
-  { value: "exact-external-catalog-item-reference", label: "Exact external Catalog Item reference" },
-  { value: "source-observation-link", label: "Source Observation link" },
-  { value: "deterministic-field-match", label: "Deterministic field match" },
-  { value: "sealed-product-match", label: "Sealed product match" },
-  { value: "barcode-gtin-match", label: "Barcode/GTIN match" },
-  { value: "future-provider-bridge-match", label: "Future provider bridge match" },
+  {
+    value: "exact-external-catalog-item-reference",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.exact.external.catalog.item.reference"),
+  },
+  {
+    value: "source-observation-link",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.link"),
+  },
+  {
+    value: "deterministic-field-match",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.deterministic.field.match"),
+  },
+  {
+    value: "sealed-product-match",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.sealed.product.match"),
+  },
+  {
+    value: "barcode-gtin-match",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.barcode.gtin.match"),
+  },
+  {
+    value: "future-provider-bridge-match",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.future.provider.bridge.match"),
+  },
 ] satisfies SelectItem[];
 const DUPLICATE_PREVENTION_CANDIDATE_POLICY_OPTIONS = [
-  { value: "reuse", label: "Reuse candidate" },
-  { value: "review-only", label: "Review only" },
+  { value: "reuse", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.reuse.candidate") },
+  { value: "review-only", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.review.only") },
 ] satisfies SelectItem[];
 const DUPLICATE_PREVENTION_AMBIGUOUS_POLICY_OPTIONS = [
-  { value: "block-promotion", label: "Block promotion" },
-  { value: "review-only", label: "Review only" },
+  {
+    value: "block-promotion",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.block.promotion"),
+  },
+  { value: "review-only", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.review.only") },
 ] satisfies SelectItem[];
 const DUPLICATE_PREVENTION_REPLAY_POLICY_OPTIONS = [
-  { value: "same-profile-version", label: "Same profile version" },
-  { value: "operator-reapply-active-version", label: "Operator reapplies active version" },
+  {
+    value: "same-profile-version",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.same.profile.version"),
+  },
+  {
+    value: "operator-reapply-active-version",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.operator.reapplies.active.version"),
+  },
 ] satisfies SelectItem[];
 const PROMOTION_COMMAND_NAME_OPTIONS = [
-  { value: "CreateCatalogItem", label: "Create Catalog Item" },
-  { value: "RefreshCatalogItem", label: "Refresh Catalog Item" },
-  { value: "ReviseCatalogItemMetadata", label: "Revise Catalog Item Metadata" },
-  { value: "AssignBlueprintToCatalogItem", label: "Assign Blueprint" },
-  { value: "AssignCatalogItemToCategory", label: "Assign Category" },
-  { value: "SetCatalogItemFieldValue", label: "Set Field Value" },
-  { value: "SetCatalogItemTags", label: "Set Tags" },
-  { value: "SetCatalogItemImageUrls", label: "Set Image URLs" },
-  { value: "SetCatalogItemProductAssetSets", label: "Set Product Asset Sets" },
-  { value: "LinkExternalCatalogItemReference", label: "Link External Catalog Item Reference" },
-  { value: "LinkExternalProductReference", label: "Link External Product Reference" },
+  {
+    value: "CreateCatalogItem",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.create.catalog.item"),
+  },
+  {
+    value: "RefreshCatalogItem",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.refresh.catalog.item"),
+  },
+  {
+    value: "ReviseCatalogItemMetadata",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.revise.catalog.item.metadata"),
+  },
+  {
+    value: "AssignBlueprintToCatalogItem",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.assign.blueprint"),
+  },
+  {
+    value: "AssignCatalogItemToCategory",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.assign.category"),
+  },
+  {
+    value: "SetCatalogItemFieldValue",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.set.field.value"),
+  },
+  {
+    value: "SetCatalogItemTags",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.set.tags"),
+  },
+  {
+    value: "SetCatalogItemImageUrls",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.set.image.urls"),
+  },
+  {
+    value: "SetCatalogItemProductAssetSets",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.set.product.asset.sets"),
+  },
+  {
+    value: "LinkExternalCatalogItemReference",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.link.external.catalog.item.reference"),
+  },
+  {
+    value: "LinkExternalProductReference",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.link.external.product.reference"),
+  },
 ] satisfies SelectItem[];
 const PROMOTION_COMMAND_REQUIRED_INPUTS: Readonly<
   Record<ProfilePromotionCommandForm["commandName"], readonly string[]>
@@ -262,13 +402,16 @@ const PROMOTION_COMMAND_REQUIRED_INPUTS: Readonly<
   LinkExternalProductReference: ["providerKey", "externalKey"],
 };
 const REFERENCE_RECORD_ID_KIND_OPTIONS = [
-  { value: "static", label: "Static record ID" },
-  { value: "provider", label: "Provider-derived ID" },
+  { value: "static", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.static.record.id") },
+  {
+    value: "provider",
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.derived.id"),
+  },
 ] satisfies SelectItem[];
 const REFERENCE_VALUE_RULE_KIND_OPTIONS = [
-  { value: "static", label: "Static value" },
-  { value: "path", label: "Payload path" },
-  { value: "template", label: "Template" },
+  { value: "static", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.static.value") },
+  { value: "path", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.payload.path") },
+  { value: "template", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.template") },
 ] satisfies SelectItem[];
 
 type ProfileBasicsForm = Readonly<{
@@ -1578,12 +1721,14 @@ export function IntegrationManagementPage({
         }
       >
         <Stack gap={3}>
-          {dryRunAuthoringModel.loading ? <p>Loading fixture templates...</p> : null}
+          {dryRunAuthoringModel.loading ? (
+            <p>{t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.fixture.templates")}</p>
+          ) : null}
           {dryRunAuthoringModel.error ? <p>{dryRunAuthoringModel.error}</p> : null}
           {dryRunAuthoringModel.data ? (
             <Stack gap={3}>
               <Select
-                label="Fixture flow"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flow")}
                 value={dryRunFlow}
                 onValueChange={(flow) => {
                   setDryRunFlow(flow);
@@ -1694,7 +1839,11 @@ export function IntegrationManagementPage({
                 },
               ]}
             />
-            {migrationAuthoringModel.loading ? <p>Loading activation readiness...</p> : null}
+            {migrationAuthoringModel.loading ? (
+              <p>
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.activation.readiness")}
+              </p>
+            ) : null}
             {migrationAuthoringModel.data ? <MigrationReadinessSummary model={migrationAuthoringModel.data} /> : null}
             <MigrationEvidenceEditor
               form={migrationEvidenceForm}
@@ -1712,7 +1861,7 @@ export function IntegrationManagementPage({
             setActivationProfile(null);
           }
         }}
-        title="Activate profile"
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.activate.profile")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setActivationProfile(null)} disabled={Boolean(profileActionKey)}>
@@ -1724,7 +1873,7 @@ export function IntegrationManagementPage({
               disabled={activationConfirmationBlocked(activationAuthoringModel.data, activationAuthoringModel.loading)}
               loading={Boolean(activationProfile && profileActionKey === profileActionIdentity(activationProfile))}
             >
-              Confirm activation
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.confirm.activation")}
             </Button>
           </Inline>
         }
@@ -1740,7 +1889,11 @@ export function IntegrationManagementPage({
                 { key: "Reference count", value: String(activationProfile.referenceCount) },
               ]}
             />
-            {activationAuthoringModel.loading ? <p>Loading activation readiness...</p> : null}
+            {activationAuthoringModel.loading ? (
+              <p>
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.activation.readiness")}
+              </p>
+            ) : null}
             {activationAuthoringModel.error ? <p>{activationAuthoringModel.error}</p> : null}
             {activationAuthoringModel.data ? (
               <ActivationConfirmationReadiness model={activationAuthoringModel.data} />
@@ -1758,7 +1911,7 @@ export function IntegrationManagementPage({
             setEditProfileError(null);
           }
         }}
-        title="Edit Profile Basics"
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.edit.profile.basics")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setEditProfile(null)} disabled={Boolean(profileActionKey)}>
@@ -1770,7 +1923,7 @@ export function IntegrationManagementPage({
               disabled={profileBasicsSaveDisabled(editProfile, editBasicsForm, editAuthoringModel.data)}
               loading={Boolean(editProfile && profileActionKey === profileActionIdentity(editProfile))}
             >
-              Save Basics
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.save.basics")}
             </Button>
           </Inline>
         }
@@ -1814,7 +1967,11 @@ export function IntegrationManagementPage({
                 activeProfileFor(compareProfile, providerProfiles.data?.items ?? []),
               )}
             />
-            {compareAuthoringModel.loading ? <p>Loading profile authoring model...</p> : null}
+            {compareAuthoringModel.loading ? (
+              <p>
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.profile.authoring.model")}
+              </p>
+            ) : null}
             {compareAuthoringModel.error ? <p>{compareAuthoringModel.error}</p> : null}
             {compareAuthoringModel.data ? <ProfileAuthoringCompare model={compareAuthoringModel.data} /> : null}
           </Stack>
@@ -1828,7 +1985,7 @@ export function IntegrationManagementPage({
             setDeprecateProfile(null);
           }
         }}
-        title="Deprecate profile"
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.deprecate.profile")}
         footer={
           <Inline gap={2} align="end">
             <Button tone="secondary" onClick={() => setDeprecateProfile(null)} disabled={Boolean(profileActionKey)}>
@@ -1840,7 +1997,7 @@ export function IntegrationManagementPage({
               onClick={handleDeprecateProfile}
               loading={Boolean(deprecateProfile && profileActionKey === profileActionIdentity(deprecateProfile))}
             >
-              Confirm deprecation
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.confirm.deprecation")}
             </Button>
           </Inline>
         }
@@ -1848,8 +2005,9 @@ export function IntegrationManagementPage({
         {deprecateProfile ? (
           <Stack gap={3}>
             <p className="text-sm text-secondary">
-              Deprecation keeps this profile readable for replay and rollback, but removes it from normal new import
-              selection once another validated profile is active.
+              {t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.deprecation.keeps.this.profile.readable.for.replay.and",
+              )}
             </p>
             <KeyValueList items={lifecycleProfileContextItems(deprecateProfile)} />
           </Stack>
@@ -1888,8 +2046,9 @@ export function IntegrationManagementPage({
               })}
             </p>
             <p className="text-sm text-secondary">
-              Rollback reactivates this previously validated profile version and records lifecycle audit metadata. It
-              does not edit historical profile rows or rewrite queued job profile snapshots.
+              {t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.reactivates.this.previously.validated.profile.version.and",
+              )}
             </p>
             <KeyValueList items={lifecycleProfileContextItems(rollbackProfile)} />
           </Stack>
@@ -2138,7 +2297,9 @@ function CatalogIntegrationModuleShell({
       primary={
         <Stack gap={4}>
           <SegmentedControl
-            aria-label="Catalog integration module area"
+            aria-label={t(
+              "catalog.features.sourceObservations.ui.integrationManagementPage.catalog.integration.module.area",
+            )}
             value={area}
             onValueChange={onAreaChange}
             items={CATALOG_INTEGRATION_MODULE_AREAS}
@@ -2159,37 +2320,87 @@ function CatalogIntegrationModuleShell({
             }
           />
           <TaskSummary
-            title="Selected profile"
+            title={t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.profile")}
             items={
               selectedProfile
                 ? [
-                    { label: "Provider", value: selectedProfile.displayName },
-                    { label: "Version", value: selectedProfile.profileVersion },
-                    { label: "Lifecycle", value: selectedProfile.active ? "active" : selectedProfile.lifecycle },
-                    { label: "Validation", value: selectedProfile.validation.status },
-                    { label: "Mapping", value: selectedProfile.mappingOutputKind },
-                    { label: "Fixture flows", value: String(selectedProfile.fixtures.coveredFlows.length) },
+                    {
+                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
+                      value: selectedProfile.displayName,
+                    },
+                    {
+                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.version"),
+                      value: selectedProfile.profileVersion,
+                    },
+                    {
+                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.lifecycle"),
+                      value: selectedProfile.active ? "active" : selectedProfile.lifecycle,
+                    },
+                    {
+                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
+                      value: selectedProfile.validation.status,
+                    },
+                    {
+                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping"),
+                      value: selectedProfile.mappingOutputKind,
+                    },
+                    {
+                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flows"),
+                      value: String(selectedProfile.fixtures.coveredFlows.length),
+                    },
                   ]
-                : [{ label: "Profile", value: "No profile selected" }]
+                : [
+                    {
+                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile"),
+                      value: "No profile selected",
+                    },
+                  ]
             }
           />
           <TaskSummary
-            title="Module map"
+            title={t("catalog.features.sourceObservations.ui.integrationManagementPage.module.map")}
             items={[
-              { label: "Current area", value: moduleAreaLabel(area) },
-              { label: "Authoring", value: "Profile basics, options, connector, mappings, references, and plans" },
-              { label: "Validation", value: "Fixture dry-runs, diagnostics, readiness, and semantic comparison" },
-              { label: "Operations", value: "Import, promote all, reapply, job status, and failure groups" },
-              { label: "Audit", value: "Migration evidence, authoring metadata, rollback, and retirement" },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.current.area"),
+                value: moduleAreaLabel(area),
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.authoring"),
+                value: "Profile basics, options, connector, mappings, references, and plans",
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
+                value: "Fixture dry-runs, diagnostics, readiness, and semantic comparison",
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.operations"),
+                value: "Import, promote all, reapply, job status, and failure groups",
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.audit"),
+                value: "Migration evidence, authoring metadata, rollback, and retirement",
+              },
             ]}
           />
           <TaskSummary
-            title="Operations"
+            title={t("catalog.features.sourceObservations.ui.integrationManagementPage.operations")}
             items={[
-              { label: "Scopes", value: formatCount(summary.scopes) },
-              { label: "Needs review", value: formatCount(summary.observed + summary.changed) },
-              { label: "Promoted", value: formatCount(summary.promoted) },
-              { label: "Active jobs", value: formatCount(activeJobCount) },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.scopes"),
+                value: formatCount(summary.scopes),
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.review"),
+                value: formatCount(summary.observed + summary.changed),
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.promoted"),
+                value: formatCount(summary.promoted),
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.active.jobs"),
+                value: formatCount(activeJobCount),
+              },
             ]}
           />
         </Stack>
@@ -2227,13 +2438,20 @@ function CatalogIntegrationProfileHealthPanel({
         </Button>
       </Inline>
       <Select
-        label="Profile workspace"
+        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.workspace")}
         value={selectedProfileId}
         onValueChange={onSelectedProfileChange}
         items={
           profileWorkspaceItems.length > 0
             ? profileWorkspaceItems
-            : [{ label: "No provider profiles available", value: NO_PROFILE_WORKSPACE }]
+            : [
+                {
+                  label: t(
+                    "catalog.features.sourceObservations.ui.integrationManagementPage.no.provider.profiles.available",
+                  ),
+                  value: NO_PROFILE_WORKSPACE,
+                },
+              ]
         }
         disabled={profileWorkspaceItems.length === 0}
       />
@@ -2250,7 +2468,11 @@ function CatalogIntegrationProfileHealthPanel({
 function buildProfileWorkspaceItems(profiles: readonly CatalogProviderProfileVersionReview[]): SelectItem[] {
   return profiles.map((profile) => ({
     value: profileActionIdentity(profile),
-    label: `${profile.displayName} ${profile.profileVersion}${profile.active ? " active" : ` ${profile.lifecycle}`}`,
+    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.value.value.value", {
+      value0: String(profile.displayName),
+      value1: String(profile.profileVersion),
+      value2: String(profile.active ? " active" : ` ${profile.lifecycle}`),
+    }),
   }));
 }
 
@@ -2295,8 +2517,12 @@ function CatalogIntegrationAreaWorkbench({
     return (
       <OperationalStatusBanner
         tone="warning"
-        title={`${moduleAreaLabel(area)} workbench`}
-        description="Select a provider profile version to use this module area."
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.workbench", {
+          value: String(moduleAreaLabel(area)),
+        })}
+        description={t(
+          "catalog.features.sourceObservations.ui.integrationManagementPage.select.a.provider.profile.version.to.use.this",
+        )}
       />
     );
   }
@@ -2306,34 +2532,76 @@ function CatalogIntegrationAreaWorkbench({
     area === "authoring"
       ? [
           {
-            label: "Editable sections",
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.editable.sections"),
             value: authoringModel ? String(authoringModel.editableSections.length) : "Loading",
           },
-          { label: "Fixture flows", value: selectedProfile.fixtures.coveredFlows.join(", ") || "None" },
-          { label: "Mapping output", value: selectedProfile.mappingOutputKind },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flows"),
+            value: selectedProfile.fixtures.coveredFlows.join(", ") || "None",
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.output"),
+            value: selectedProfile.mappingOutputKind,
+          },
         ]
       : area === "validation"
         ? [
-            { label: "Validation", value: selectedProfile.validation.status },
-            { label: "Readiness", value: readiness?.status ?? "Loading" },
-            { label: "Readiness checks", value: readiness ? String(readiness.checks.length) : "Loading" },
+            {
+              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
+              value: selectedProfile.validation.status,
+            },
+            {
+              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness"),
+              value: readiness?.status ?? "Loading",
+            },
+            {
+              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness.checks"),
+              value: readiness ? String(readiness.checks.length) : "Loading",
+            },
           ]
         : area === "operations"
           ? [
-              { label: "Provider", value: selectedProfile.providerKey },
-              { label: "Capabilities", value: selectedProfile.capabilities.join(", ") || "None" },
-              { label: "Supported scopes", value: selectedProfile.supportedScopes.join(", ") || "None" },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
+                value: selectedProfile.providerKey,
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.capabilities"),
+                value: selectedProfile.capabilities.join(", ") || "None",
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.supported.scopes"),
+                value: selectedProfile.supportedScopes.join(", ") || "None",
+              },
             ]
           : [
-              { label: "Lifecycle", value: selectedProfile.lifecycle },
-              { label: "Reference count", value: String(selectedProfile.referenceCount) },
-              { label: "Migration evidence", value: selectedProfile.migrationEvidence ? "Recorded" : "Not recorded" },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.lifecycle"),
+                value: selectedProfile.lifecycle,
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.count"),
+                value: String(selectedProfile.referenceCount),
+              },
+              {
+                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.migration.evidence"),
+                value: selectedProfile.migrationEvidence ? "Recorded" : "Not recorded",
+              },
             ];
 
   return (
     <Stack gap={3}>
-      <TaskSummary title={`${moduleAreaLabel(area)} Workbench`} items={areaItems} />
-      {loading ? <p className="text-sm text-secondary">Loading selected profile context...</p> : null}
+      <TaskSummary
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.workbench.2", {
+          value: String(moduleAreaLabel(area)),
+        })}
+        items={areaItems}
+      />
+      {loading ? (
+        <p className="text-sm text-secondary">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.selected.profile.context")}
+        </p>
+      ) : null}
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       <Inline gap={2}>
         {area === "authoring" ? (
@@ -2343,23 +2611,23 @@ function CatalogIntegrationAreaWorkbench({
             disabled={!canManageCatalog}
             onClick={() => onEditProfile(selectedProfile)}
           >
-            Edit selected profile
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.edit.selected.profile")}
           </Button>
         ) : null}
         {area === "validation" ? (
           <>
             <Button size="sm" tone="secondary" leadingIcon="play" onClick={() => onDryRun(selectedProfile)}>
-              Dry run selected profile
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.selected.profile")}
             </Button>
             <Button size="sm" tone="secondary" leadingIcon="search" onClick={() => onCompare(selectedProfile)}>
-              Compare active
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.compare.active")}
             </Button>
           </>
         ) : null}
         {area === "operations" ? (
           <>
             <Button size="sm" leadingIcon="plus" disabled={!canManageCatalog} onClick={onImport}>
-              Pull Provider Data
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.pull.provider.data")}
             </Button>
             <Button
               size="sm"
@@ -2368,7 +2636,7 @@ function CatalogIntegrationAreaWorkbench({
               disabled={!canManageCatalog}
               onClick={onReapply}
             >
-              Reapply promoted
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.reapply.promoted")}
             </Button>
           </>
         ) : null}
@@ -2381,7 +2649,7 @@ function CatalogIntegrationAreaWorkbench({
               disabled={!canManageCatalog}
               onClick={() => onMigrationEvidence(selectedProfile)}
             >
-              Evidence
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.evidence")}
             </Button>
             <Button
               size="sm"
@@ -2390,7 +2658,7 @@ function CatalogIntegrationAreaWorkbench({
               disabled={!canManageCatalog}
               onClick={() => onActivate(selectedProfile)}
             >
-              Activate
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.activate")}
             </Button>
           </>
         ) : null}
@@ -2533,7 +2801,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               disabled={!actions.canManage || (row.lifecycle !== "draft" && row.lifecycle !== "test")}
               onClick={() => actions.onEditJson(row)}
             >
-              Edit Profile
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.edit.profile")}
             </Button>
             <Button size="sm" tone="secondary" leadingIcon="search" onClick={() => actions.onCompareActive(row)}>
               {t("catalog.features.sourceObservations.ui.integrations.profile.review.compare")}
@@ -2647,23 +2915,23 @@ function ProfileAuthoringCompare({ model }: Readonly<{ model: CatalogProviderPro
       </Stack>
 
       <Stack gap={2}>
-        <h3>Activation Readiness</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.activation.readiness")}</h3>
         <DataTable
           rows={blockedChecks.length > 0 ? blockedChecks : readiness.checks}
           columns={activationReadinessColumns}
           getRowId={(row, index) => `${row.checkKey}:${row.path}:${index}`}
-          emptyTitle="No readiness checks"
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.readiness.checks")}
           density="compact"
         />
       </Stack>
 
       <Stack gap={2}>
-        <h3>Semantic Changes</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.semantic.changes")}</h3>
         <DataTable
           rows={changedDiffs.length > 0 ? changedDiffs : model.semanticDiff.changes}
           columns={semanticDiffColumns}
           getRowId={(row) => row.path}
-          emptyTitle="No semantic changes"
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.semantic.changes")}
           density="compact"
         />
       </Stack>
@@ -2687,23 +2955,26 @@ function ActivationConfirmationReadiness({ model }: Readonly<{ model: CatalogPro
       </Inline>
       <MigrationReadinessSummary model={model} />
       <Stack gap={2}>
-        <h3>Readiness Checks</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness.checks.2")}</h3>
         <DataTable
           rows={blockedChecks.length > 0 ? blockedChecks : readiness.checks}
           columns={activationReadinessColumns}
           getRowId={(row, index) => `${row.checkKey}:${row.path}:${index}`}
-          emptyTitle="No readiness checks"
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.readiness.checks")}
           density="compact"
         />
       </Stack>
       {readiness.status === "blocked" ? (
         <p className="text-sm text-secondary">
-          Resolve the blocking checks or record the required migration evidence before activating this profile.
+          {t(
+            "catalog.features.sourceObservations.ui.integrationManagementPage.resolve.the.blocking.checks.or.record.the.required",
+          )}
         </p>
       ) : (
         <p className="text-sm text-secondary">
-          Activation will make this profile version the default for new provider imports. Queued jobs keep their
-          existing profile snapshot.
+          {t(
+            "catalog.features.sourceObservations.ui.integrationManagementPage.activation.will.make.this.profile.version.the.default",
+          )}
         </p>
       )}
     </Stack>
@@ -2716,7 +2987,7 @@ function MigrationReadinessSummary({ model }: Readonly<{ model: CatalogProviderP
 
   return (
     <Stack gap={2}>
-      <h3>Activation Readiness</h3>
+      <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.activation.readiness")}</h3>
       <KeyValueList
         density="compact"
         variant="plain"
@@ -2825,39 +3096,39 @@ function MigrationEvidenceEditor({
 
   return (
     <Stack gap={3}>
-      <h3>Migration Evidence</h3>
+      <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.migration.evidence.2")}</h3>
       <Inline gap={2}>
         <TextInput
-          label="Before fingerprint"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.before.fingerprint")}
           value={effectiveBefore}
           onChange={(event) => setForm({ mappingFingerprintBefore: event.currentTarget.value })}
         />
         <TextInput
-          label="After fingerprint"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.after.fingerprint")}
           value={effectiveAfter}
           onChange={(event) => setForm({ mappingFingerprintAfter: event.currentTarget.value })}
         />
       </Inline>
       <Inline gap={2}>
         <TextInput
-          label="Fixture run id"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.run.id")}
           value={form.fixtureRunId}
           onChange={(event) => setForm({ fixtureRunId: event.currentTarget.value })}
         />
         <TextInput
-          label="Replay scope"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.replay.scope")}
           value={form.replayScope}
           onChange={(event) => setForm({ replayScope: event.currentTarget.value })}
         />
       </Inline>
       <Textarea
-        label="Observed impact"
+        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.observed.impact")}
         rows={3}
         value={form.observedImpact}
         onChange={(event) => setForm({ observedImpact: event.currentTarget.value })}
       />
       <Textarea
-        label="Operator note"
+        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.operator.note")}
         rows={4}
         value={form.operatorNote}
         onChange={(event) => setForm({ operatorNote: event.currentTarget.value })}
@@ -2876,15 +3147,18 @@ function ImportActiveProfileSnapshot({
   if (!profile) {
     return (
       <Stack gap={2}>
-        <h3>Active Profile Snapshot</h3>
-        <p className="text-sm text-secondary">No active profile is available for {providerKey}.</p>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.active.profile.snapshot")}</h3>
+        <p className="text-sm text-secondary">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.no.active.profile.is.available.for")}
+          {providerKey}.
+        </p>
       </Stack>
     );
   }
 
   return (
     <Stack gap={2}>
-      <h3>Active Profile Snapshot</h3>
+      <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.active.profile.snapshot")}</h3>
       <KeyValueList
         density="compact"
         variant="plain"
@@ -2935,21 +3209,34 @@ function TcgdexImportScopeCard({
   return (
     <Stack gap={3}>
       <TaskSummary
-        title="TCGdex Import Scope"
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgdex.import.scope")}
         items={[
-          { label: "Provider", value: "TCGdex card catalog" },
-          { label: "Language", value: selectedSelectItemLabel(languageOptions, languageCode) },
           {
-            label: "Series",
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
+            value: "TCGdex card catalog",
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.language"),
+            value: selectedSelectItemLabel(languageOptions, languageCode),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.series"),
             value: seriesId === ALL_SERIES ? "All series" : selectedSelectItemLabel(seriesOptions, seriesId),
           },
-          { label: "Job scope", value: formatIntegrationJobScope(scope) },
           {
-            label: "Readiness",
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.job.scope"),
+            value: formatIntegrationJobScope(scope),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness"),
             value: languageCode ? (
-              <StatusPill tone="success">Ready</StatusPill>
+              <StatusPill tone="success">
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.ready")}
+              </StatusPill>
             ) : (
-              <StatusPill tone="warning">Needs language</StatusPill>
+              <StatusPill tone="warning">
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.language")}
+              </StatusPill>
             ),
           },
         ]}
@@ -2979,7 +3266,9 @@ function TcgdexImportScopeCard({
         />
       </Inline>
       {languagesLoading || seriesLoading ? (
-        <p className="text-sm text-secondary">Loading TCGdex scope options...</p>
+        <p className="text-sm text-secondary">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.tcgdex.scope.options")}
+        </p>
       ) : null}
     </Stack>
   );
@@ -3034,10 +3323,16 @@ function TcgplayerImportScopeCard({
   return (
     <Stack gap={3}>
       <TaskSummary
-        title="TCGplayer Import Scope"
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.tcgplayer.import.scope")}
         items={[
-          { label: "Provider", value: "TCGplayer marketplace catalog" },
-          { label: "Scope type", value: productScope ? "Product" : "Product line" },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
+            value: "TCGplayer marketplace catalog",
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.scope.type"),
+            value: productScope ? "Product" : "Product line",
+          },
           {
             label: productScope ? "Product ID" : "Product line",
             value: productScope
@@ -3045,16 +3340,23 @@ function TcgplayerImportScopeCard({
               : selectedSelectItemLabel(productLineOptions, productLineId),
           },
           {
-            label: "Set",
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.set"),
             value: productScope ? "Single product import" : setName.trim() || "All sets in product line",
           },
-          { label: "Job scope", value: formatIntegrationJobScope(scope) },
           {
-            label: "Readiness",
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.job.scope"),
+            value: formatIntegrationJobScope(scope),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness"),
             value: ready ? (
-              <StatusPill tone="success">Ready</StatusPill>
+              <StatusPill tone="success">
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.ready")}
+              </StatusPill>
             ) : (
-              <StatusPill tone="warning">Needs scope</StatusPill>
+              <StatusPill tone="warning">
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.scope")}
+              </StatusPill>
             ),
           },
         ]}
@@ -3110,7 +3412,9 @@ function TcgplayerImportScopeCard({
         </Inline>
       )}
       {productLinesLoading || setNamesLoading ? (
-        <p className="text-sm text-secondary">Loading TCGplayer scope options...</p>
+        <p className="text-sm text-secondary">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.tcgplayer.scope.options")}
+        </p>
       ) : null}
     </Stack>
   );
@@ -3135,22 +3439,26 @@ function ActiveIntegrationJobsPanel({
     <Stack gap={3}>
       <Inline gap={3} align="center">
         <Stack gap={1}>
-          <h3>Active Integration Jobs</h3>
+          <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.active.integration.jobs")}</h3>
           <p className="text-sm text-secondary">
-            Queued and running provider imports or reapply jobs with their profile snapshots and progress.
+            {t(
+              "catalog.features.sourceObservations.ui.integrationManagementPage.queued.and.running.provider.imports.or.reapply.jobs",
+            )}
           </p>
         </Stack>
         <Button tone="secondary" leadingIcon="refreshCcw" onClick={onRefresh}>
-          Refresh jobs
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.refresh.jobs")}
         </Button>
       </Inline>
       {error ? <p>{error}</p> : null}
-      {loading ? <p>Loading active jobs...</p> : null}
+      {loading ? (
+        <p>{t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.active.jobs")}</p>
+      ) : null}
       <DataTable
         rows={[...jobs]}
         columns={activeIntegrationJobColumns}
         getRowId={(row) => row.jobId}
-        emptyTitle="No active integration jobs"
+        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.active.integration.jobs")}
         density="compact"
       />
     </Stack>
@@ -3160,7 +3468,7 @@ function ActiveIntegrationJobsPanel({
 const activeIntegrationJobColumns: DataColumn<CatalogIntegrationJob<SourceObservationIntegrationJobResult>>[] = [
   {
     key: "job",
-    header: "Job",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.job"),
     cell: (row) => (
       <Stack gap={1}>
         <Inline gap={2}>
@@ -3175,7 +3483,7 @@ const activeIntegrationJobColumns: DataColumn<CatalogIntegrationJob<SourceObserv
   },
   {
     key: "profile",
-    header: "Profile Snapshot",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.snapshot"),
     cell: (row) =>
       row.profileSnapshot ? (
         <Stack gap={1}>
@@ -3193,12 +3501,12 @@ const activeIntegrationJobColumns: DataColumn<CatalogIntegrationJob<SourceObserv
   },
   {
     key: "scope",
-    header: "Scope",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.scope"),
     cell: (row) => formatIntegrationJobScope(row.scope),
   },
   {
     key: "progress",
-    header: "Progress",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.progress"),
     cell: (row) => (
       <ProgressBar
         value={bulkActionProgressPercent(row.progress)}
@@ -3216,25 +3524,43 @@ function IntegrationJobResultSummary({ summary }: Readonly<{ summary: LastIntegr
   return (
     <Stack gap={3}>
       <Cluster gap={3} align="center" justify="between">
-        <h3>Last Job Result</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.last.job.result")}</h3>
         <LinkButton href={reviewHref} size="sm" tone="secondary">
-          Review Matching Observations
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.review.matching.observations")}
         </LinkButton>
       </Cluster>
       <KeyValueList items={[{ key: "Scope", value: formatIntegrationJobScope(summary.scope) }]} />
       <StatGrid columns={{ base: 2, md: 3 }}>
-        <Stat label="Requested" value={formatCount(summary.result.requested)} />
-        <Stat label="Imported" value={formatCount(summary.result.imported)} />
-        <Stat label="Observed" value={formatCount(summary.result.observed)} />
-        <Stat label="Reapplied" value={formatCount(summary.result.reapplied)} />
-        <Stat label="Skipped" value={formatCount(summary.result.skipped)} />
-        <Stat label="Failed" value={formatCount(summary.result.failed)} />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.requested")}
+          value={formatCount(summary.result.requested)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.imported")}
+          value={formatCount(summary.result.imported)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.observed")}
+          value={formatCount(summary.result.observed)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reapplied")}
+          value={formatCount(summary.result.reapplied)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.skipped")}
+          value={formatCount(summary.result.skipped)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.failed")}
+          value={formatCount(summary.result.failed)}
+        />
       </StatGrid>
       <DataTable
         rows={failureGroups}
         columns={integrationFailureGroupColumns}
         getRowId={(row) => row.reason}
-        emptyTitle="No grouped failures"
+        emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.grouped.failures")}
         density="compact"
       />
     </Stack>
@@ -3247,18 +3573,33 @@ function PromotionResultSummary({ summary }: Readonly<{ summary: LastPromotionRe
   return (
     <Stack gap={3}>
       <Cluster gap={3} align="center" justify="between">
-        <h3>Last Promotion Result</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.last.promotion.result")}</h3>
         <LinkButton href={reviewHref} size="sm" tone="secondary">
-          Review Matching Observations
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.review.matching.observations")}
         </LinkButton>
       </Cluster>
       <KeyValueList items={[{ key: "Scope", value: formatPromotionScope(summary.scope) }]} />
       <StatGrid columns={{ base: 2, md: 5 }}>
-        <Stat label="Requested" value={formatCount(summary.result.requested)} />
-        <Stat label="Promoted" value={formatCount(summary.result.promoted)} />
-        <Stat label="Rejected" value={formatCount(summary.result.rejected ?? 0)} />
-        <Stat label="Skipped" value={formatCount(summary.result.skipped)} />
-        <Stat label="Failed" value={formatCount(summary.result.failed)} />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.requested")}
+          value={formatCount(summary.result.requested)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.promoted")}
+          value={formatCount(summary.result.promoted)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.rejected")}
+          value={formatCount(summary.result.rejected ?? 0)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.skipped")}
+          value={formatCount(summary.result.skipped)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.failed")}
+          value={formatCount(summary.result.failed)}
+        />
       </StatGrid>
     </Stack>
   );
@@ -3340,13 +3681,14 @@ function ProfileBasicsEditor({
 
       {!editable ? (
         <p className="text-sm text-secondary">
-          This profile version is immutable from the Basics editor. Use the lifecycle actions on the profile row to
-          deprecate, roll back, or retire it.
+          {t(
+            "catalog.features.sourceObservations.ui.integrationManagementPage.this.profile.version.is.immutable.from.the.basics",
+          )}
         </p>
       ) : null}
 
       <TextInput
-        label="Display name"
+        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.display.name")}
         value={form.displayName}
         disabled={!editable}
         onChange={(event) => setForm({ displayName: event.currentTarget.value })}
@@ -3354,21 +3696,21 @@ function ProfileBasicsEditor({
 
       <Inline gap={3}>
         <Select
-          label="Lifecycle"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.lifecycle")}
           value={form.lifecycle}
           onValueChange={(value) => setForm({ lifecycle: value === "test" ? "test" : "draft" })}
           items={PROFILE_LIFECYCLE_OPTIONS}
           disabled={!editable}
         />
         <Select
-          label="Status"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.status")}
           value={form.status}
           onValueChange={(value) => setForm({ status: value === "active" ? "active" : "planned" })}
           items={PROFILE_STATUS_OPTIONS}
           disabled={!editable}
         />
         <Select
-          label="Compatibility"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.compatibility")}
           value={form.compatibilityMode}
           onValueChange={(value) =>
             setForm({
@@ -3398,8 +3740,10 @@ function ProfileBasicsEditor({
       />
 
       <Textarea
-        label="Language options"
-        description="Comma or line separated language codes."
+        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.language.options")}
+        description={t(
+          "catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated.language.codes",
+        )}
         value={form.languageOptionsText}
         disabled={!editable}
         onChange={(event) => setForm({ languageOptionsText: event.currentTarget.value })}
@@ -3407,23 +3751,25 @@ function ProfileBasicsEditor({
       />
 
       <Stack gap={3}>
-        <h3 className="text-sm font-semibold text-foreground">Source Contract</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.source.contract")}
+        </h3>
         <Inline gap={3}>
           <TextInput
-            label="Contract owner"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.contract.owner")}
             value={form.sourceContract.owner}
             disabled={!editable}
             required
             onChange={(event) => setSourceContract({ owner: event.currentTarget.value })}
           />
           <TextInput
-            label="Repository"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.repository")}
             value={form.sourceContract.repository}
             disabled={!editable}
             onChange={(event) => setSourceContract({ repository: event.currentTarget.value })}
           />
           <TextInput
-            label="Commit"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.commit")}
             value={form.sourceContract.commit}
             disabled={!editable}
             onChange={(event) => setSourceContract({ commit: event.currentTarget.value })}
@@ -3431,14 +3777,14 @@ function ProfileBasicsEditor({
         </Inline>
         <Inline gap={3}>
           <TextInput
-            label="Document path"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.document.path")}
             value={form.sourceContract.documentPath}
             disabled={!editable}
             required
             onChange={(event) => setSourceContract({ documentPath: event.currentTarget.value })}
           />
           <TextInput
-            label="Fixture set version"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.set.version")}
             value={form.sourceContract.fixtureSetVersion}
             disabled={!editable}
             required
@@ -3448,7 +3794,9 @@ function ProfileBasicsEditor({
       </Stack>
 
       <Stack gap={3}>
-        <h3 className="text-sm font-semibold text-foreground">Retirement Plan</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.retirement.plan")}
+        </h3>
         <label className="flex items-center gap-2 text-sm text-foreground">
           <input
             type="checkbox"
@@ -3457,12 +3805,12 @@ function ProfileBasicsEditor({
             onChange={() => setRetirementPlan({ enabled: !form.retirementPlan.enabled })}
             className="h-4 w-4 rounded border-border accent-accent"
           />
-          <span>Track planned retirement</span>
+          <span>{t("catalog.features.sourceObservations.ui.integrationManagementPage.track.planned.retirement")}</span>
         </label>
         {form.retirementPlan.enabled ? (
           <Inline gap={3}>
             <TextInput
-              label="Tracking issue"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.tracking.issue")}
               value={form.retirementPlan.trackingIssueText}
               disabled={!editable}
               inputMode="numeric"
@@ -3470,18 +3818,23 @@ function ProfileBasicsEditor({
               onChange={(event) => setRetirementPlan({ trackingIssueText: event.currentTarget.value })}
             />
             <Select
-              label="Remove after"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.remove.after")}
               value="executable-mapping-contract-activated"
               disabled
               items={[
-                { value: "executable-mapping-contract-activated", label: "Executable mapping contract activated" },
+                {
+                  value: "executable-mapping-contract-activated",
+                  label: t(
+                    "catalog.features.sourceObservations.ui.integrationManagementPage.executable.mapping.contract.activated",
+                  ),
+                },
               ]}
             />
           </Inline>
         ) : null}
         {form.retirementPlan.enabled ? (
           <Textarea
-            label="Retirement diagnostic"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.retirement.diagnostic")}
             value={form.retirementPlan.diagnosticText}
             disabled={!editable}
             required
@@ -3492,7 +3845,9 @@ function ProfileBasicsEditor({
       </Stack>
 
       <Stack gap={3}>
-        <h3 className="text-sm font-semibold text-foreground">Connector</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.connector")}
+        </h3>
         {connectorDiagnostics.length > 0 ? (
           <ul className="text-sm text-danger">
             {connectorDiagnostics.map((diagnostic) => (
@@ -3501,7 +3856,7 @@ function ProfileBasicsEditor({
           </ul>
         ) : null}
         <Select
-          label="Connector kind"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.connector.kind")}
           value={form.connector.kind}
           disabled={!editable}
           items={CONNECTOR_KIND_OPTIONS}
@@ -3511,14 +3866,14 @@ function ProfileBasicsEditor({
           <Stack gap={3}>
             <Inline gap={3}>
               <TextInput
-                label="Base URL"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.base.url")}
                 value={form.connector.tcgdexBaseUrl}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgdexBaseUrl: event.currentTarget.value })}
               />
               <TextInput
-                label="High quality asset variant"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.high.quality.asset.variant")}
                 value={form.connector.tcgdexHighQualityAssetVariant}
                 disabled={!editable}
                 required
@@ -3527,14 +3882,14 @@ function ProfileBasicsEditor({
             </Inline>
             <Inline gap={3}>
               <TextInput
-                label="Series list endpoint"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.series.list.endpoint")}
                 value={form.connector.tcgdexSeriesListEndpoint}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgdexSeriesListEndpoint: event.currentTarget.value })}
               />
               <TextInput
-                label="Series detail endpoint"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.series.detail.endpoint")}
                 value={form.connector.tcgdexSeriesDetailEndpoint}
                 disabled={!editable}
                 required
@@ -3543,21 +3898,21 @@ function ProfileBasicsEditor({
             </Inline>
             <Inline gap={3}>
               <TextInput
-                label="Expansion list endpoint"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.expansion.list.endpoint")}
                 value={form.connector.tcgdexExpansionListEndpoint}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgdexExpansionListEndpoint: event.currentTarget.value })}
               />
               <TextInput
-                label="Expansion detail endpoint"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.expansion.detail.endpoint")}
                 value={form.connector.tcgdexExpansionDetailEndpoint}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgdexExpansionDetailEndpoint: event.currentTarget.value })}
               />
               <TextInput
-                label="Product detail endpoint"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.product.detail.endpoint")}
                 value={form.connector.tcgdexProductDetailEndpoint}
                 disabled={!editable}
                 required
@@ -3570,21 +3925,21 @@ function ProfileBasicsEditor({
           <Stack gap={3}>
             <Inline gap={3}>
               <TextInput
-                label="Repository owner"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.repository.owner")}
                 value={form.connector.tcgplayerRepositoryOwner}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgplayerRepositoryOwner: event.currentTarget.value })}
               />
               <TextInput
-                label="Repository name"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.repository.name")}
                 value={form.connector.tcgplayerRepositoryName}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgplayerRepositoryName: event.currentTarget.value })}
               />
               <TextInput
-                label="Repository commit"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.repository.commit")}
                 value={form.connector.tcgplayerRepositoryCommit}
                 disabled={!editable}
                 required
@@ -3593,21 +3948,21 @@ function ProfileBasicsEditor({
             </Inline>
             <Inline gap={3}>
               <TextInput
-                label="Source contract document"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.source.contract.document")}
                 value={form.connector.tcgplayerSourceContractDocument}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgplayerSourceContractDocument: event.currentTarget.value })}
               />
               <TextInput
-                label="Cookie name"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.cookie.name")}
                 value={form.connector.tcgplayerCookieName}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgplayerCookieName: event.currentTarget.value })}
               />
               <TextInput
-                label="Retry status codes"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.retry.status.codes")}
                 value={form.connector.tcgplayerRetryStatusCodesText}
                 disabled={!editable}
                 onChange={(event) => setConnector({ tcgplayerRetryStatusCodesText: event.currentTarget.value })}
@@ -3615,28 +3970,28 @@ function ProfileBasicsEditor({
             </Inline>
             <Inline gap={3}>
               <TextInput
-                label="Search domain"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.search.domain")}
                 value={form.connector.tcgplayerSearchDomain}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgplayerSearchDomain: event.currentTarget.value })}
               />
               <TextInput
-                label="Marketplace API domain"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.marketplace.api.domain")}
                 value={form.connector.tcgplayerMarketplaceApiDomain}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgplayerMarketplaceApiDomain: event.currentTarget.value })}
               />
               <TextInput
-                label="Infinite API domain"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.infinite.api.domain")}
                 value={form.connector.tcgplayerInfiniteApiDomain}
                 disabled={!editable}
                 required
                 onChange={(event) => setConnector({ tcgplayerInfiniteApiDomain: event.currentTarget.value })}
               />
               <TextInput
-                label="Marketplace gateway domain"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.marketplace.gateway.domain")}
                 value={form.connector.tcgplayerMarketplaceGatewayDomain}
                 disabled={!editable}
                 required
@@ -3648,7 +4003,7 @@ function ProfileBasicsEditor({
         {form.connector.kind === "scrydex-scryfall-json" ? (
           <Stack gap={3}>
             <TextInput
-              label="Scrydex contract document"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.scrydex.contract.document")}
               value={form.connector.scrydexSourceContractDocument}
               disabled={!editable}
               required
@@ -3656,16 +4011,20 @@ function ProfileBasicsEditor({
             />
             <KeyValueList items={[{ key: "Fixture backed only", value: "Yes" }]} />
             <Textarea
-              label="Accepted evidence"
-              description="Comma or line separated evidence keys."
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.accepted.evidence")}
+              description={t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated.evidence.keys",
+              )}
               value={form.connector.scrydexAcceptedEvidenceText}
               disabled={!editable}
               rows={3}
               onChange={(event) => setConnector({ scrydexAcceptedEvidenceText: event.currentTarget.value })}
             />
             <Textarea
-              label="Excluded evidence"
-              description="Comma or line separated evidence keys."
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.excluded.evidence")}
+              description={t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated.evidence.keys",
+              )}
               value={form.connector.scrydexExcludedEvidenceText}
               disabled={!editable}
               rows={3}
@@ -3676,9 +4035,11 @@ function ProfileBasicsEditor({
       </Stack>
 
       <Stack gap={3}>
-        <h3 className="text-sm font-semibold text-foreground">Fixtures</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.fixtures")}
+        </h3>
         <TextInput
-          label="Fixture root"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.root")}
           value={form.fixtures.fixtureRoot}
           disabled={!editable}
           required
@@ -3686,7 +4047,10 @@ function ProfileBasicsEditor({
         />
         <KeyValueList items={[{ key: "Live provider calls allowed", value: "No" }]} />
         {missingFixtureFlows.length > 0 ? (
-          <p className="text-sm text-danger">Missing required fixture flows: {missingFixtureFlows.join(", ")}</p>
+          <p className="text-sm text-danger">
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.missing.required.fixture.flows")}
+            {missingFixtureFlows.join(", ")}
+          </p>
         ) : null}
         <CheckboxSet
           legend="Covered fixture flows"
@@ -3743,7 +4107,9 @@ function ProfileBasicsEditor({
 
       <Stack gap={3}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-foreground">Provider Options</h3>
+          <h3 className="text-sm font-semibold text-foreground">
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.options")}
+          </h3>
           <Button
             size="sm"
             tone="secondary"
@@ -3751,7 +4117,7 @@ function ProfileBasicsEditor({
             disabled={!editable}
             onClick={() => setOptionQueries([...form.optionQueries, emptyOptionQueryForm()])}
           >
-            Add query
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.query")}
           </Button>
         </div>
         {optionQueryDiagnostics.length > 0 ? (
@@ -3766,7 +4132,11 @@ function ProfileBasicsEditor({
             <Stack key={query.id} gap={3}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h4 className="text-sm font-semibold text-foreground">
-                  {query.displayName.trim() || query.queryKind.trim() || `Option Query ${index + 1}`}
+                  {query.displayName.trim() ||
+                    query.queryKind.trim() ||
+                    t("catalog.features.sourceObservations.ui.integrationManagementPage.option.query.value", {
+                      value: String(index + 1),
+                    })}
                 </h4>
                 <Inline gap={2}>
                   <Button
@@ -3775,7 +4145,7 @@ function ProfileBasicsEditor({
                     disabled={!editable || index === 0}
                     onClick={() => setOptionQueries(moveItem(form.optionQueries, index, index - 1))}
                   >
-                    Up
+                    {t("catalog.features.sourceObservations.ui.integrationManagementPage.up")}
                   </Button>
                   <Button
                     size="sm"
@@ -3783,7 +4153,7 @@ function ProfileBasicsEditor({
                     disabled={!editable || index === form.optionQueries.length - 1}
                     onClick={() => setOptionQueries(moveItem(form.optionQueries, index, index + 1))}
                   >
-                    Down
+                    {t("catalog.features.sourceObservations.ui.integrationManagementPage.down")}
                   </Button>
                   <Button
                     size="sm"
@@ -3793,27 +4163,29 @@ function ProfileBasicsEditor({
                       setOptionQueries(form.optionQueries.filter((candidate) => candidate.id !== query.id))
                     }
                   >
-                    Remove
+                    {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                   </Button>
                 </Inline>
               </div>
               <Inline gap={3}>
                 <TextInput
-                  label="Query kind"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.query.kind")}
                   value={query.queryKind}
                   disabled={!editable}
                   required
                   onChange={(event) => setOptionQuery(query.id, { queryKind: event.currentTarget.value })}
                 />
                 <TextInput
-                  label="Aliases"
-                  description="Comma or line separated."
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.aliases")}
+                  description={t(
+                    "catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated",
+                  )}
                   value={query.aliasesText}
                   disabled={!editable}
                   onChange={(event) => setOptionQuery(query.id, { aliasesText: event.currentTarget.value })}
                 />
                 <TextInput
-                  label="Option display name"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.option.display.name")}
                   value={query.displayName}
                   disabled={!editable}
                   required
@@ -3822,14 +4194,14 @@ function ProfileBasicsEditor({
               </Inline>
               <Inline gap={3}>
                 <Select
-                  label="Scope"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.scope")}
                   value={query.scope}
                   disabled={!editable}
                   items={OPTION_QUERY_SCOPE_OPTIONS.filter((item) => item.value !== "__none__")}
                   onValueChange={(value) => setOptionQuery(query.id, { scope: value })}
                 />
                 <Select
-                  label="Parent scope"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.scope")}
                   value={query.parentScope}
                   disabled={!editable}
                   items={OPTION_QUERY_SCOPE_OPTIONS}
@@ -3841,7 +4213,7 @@ function ProfileBasicsEditor({
                   }
                 />
                 <Select
-                  label="Operation"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.operation")}
                   value={query.operation}
                   disabled={!editable}
                   items={OPTION_QUERY_OPERATION_OPTIONS}
@@ -3856,18 +4228,20 @@ function ProfileBasicsEditor({
                   onChange={() => setOptionQuery(query.id, { parentRequired: !query.parentRequired })}
                   className="h-4 w-4 rounded border-border accent-accent"
                 />
-                <span>Parent value required</span>
+                <span>
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.value.required")}
+                </span>
               </label>
               {query.parentScope !== "__none__" ? (
                 <Inline gap={3}>
                   <TextInput
-                    label="Parent value kind"
+                    label={t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.value.kind")}
                     value={query.parentValueKind}
                     disabled={!editable}
                     onChange={(event) => setOptionQuery(query.id, { parentValueKind: event.currentTarget.value })}
                   />
                   <TextInput
-                    label="Parent diagnostic"
+                    label={t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.diagnostic")}
                     value={query.parentDiagnosticText}
                     disabled={!editable}
                     onChange={(event) => setOptionQuery(query.id, { parentDiagnosticText: event.currentTarget.value })}
@@ -3876,21 +4250,21 @@ function ProfileBasicsEditor({
               ) : null}
               <Inline gap={3}>
                 <TextInput
-                  label="Value path"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.path")}
                   value={query.valuePath}
                   disabled={!editable}
                   required
                   onChange={(event) => setOptionQuery(query.id, { valuePath: event.currentTarget.value })}
                 />
                 <TextInput
-                  label="Label path"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.label.path")}
                   value={query.labelPath}
                   disabled={!editable}
                   required
                   onChange={(event) => setOptionQuery(query.id, { labelPath: event.currentTarget.value })}
                 />
                 <TextInput
-                  label="Parent value path"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.value.path")}
                   value={query.parentValuePath}
                   disabled={!editable}
                   onChange={(event) => setOptionQuery(query.id, { parentValuePath: event.currentTarget.value })}
@@ -3898,7 +4272,7 @@ function ProfileBasicsEditor({
               </Inline>
               <Inline gap={3}>
                 <Select
-                  label="Description"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.description")}
                   value={query.descriptionKind}
                   disabled={!editable}
                   items={OPTION_QUERY_DESCRIPTION_KIND_OPTIONS}
@@ -3906,30 +4280,34 @@ function ProfileBasicsEditor({
                 />
                 {query.descriptionKind === "path" ? (
                   <TextInput
-                    label="Description path"
+                    label={t("catalog.features.sourceObservations.ui.integrationManagementPage.description.path")}
                     value={query.descriptionPath}
                     disabled={!editable}
                     onChange={(event) => setOptionQuery(query.id, { descriptionPath: event.currentTarget.value })}
                   />
                 ) : null}
                 <TextInput
-                  label="Image URL path"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.image.url.path")}
                   value={query.imageUrlPath}
                   disabled={!editable}
                   onChange={(event) => setOptionQuery(query.id, { imageUrlPath: event.currentTarget.value })}
                 />
               </Inline>
               <Textarea
-                label="Image URL coalesce paths"
-                description="Comma or line separated paths."
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.image.url.coalesce.paths")}
+                description={t(
+                  "catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated.paths",
+                )}
                 value={query.imageUrlCoalescePathsText}
                 disabled={!editable}
                 rows={2}
                 onChange={(event) => setOptionQuery(query.id, { imageUrlCoalescePathsText: event.currentTarget.value })}
               />
               <Textarea
-                label="Metadata paths"
-                description="One key=path mapping per line."
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.metadata.paths")}
+                description={t(
+                  "catalog.features.sourceObservations.ui.integrationManagementPage.one.key.path.mapping.per.line",
+                )}
                 value={query.metadataPathsText}
                 disabled={!editable}
                 rows={4}
@@ -3950,7 +4328,7 @@ function ProfileBasicsEditor({
           rows={profile.validation.diagnostics}
           columns={profileValidationColumns}
           getRowId={(row, index) => `${row.path}:${index}`}
-          emptyTitle="No validation diagnostics"
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.validation.diagnostics")}
           density="compact"
         />
       ) : null}
@@ -3972,19 +4350,34 @@ function ProviderOptionQueryPreview({
 
   return (
     <TaskSummary
-      title="Import Surface Preview"
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.import.surface.preview")}
       items={[
-        { label: "Used by", value: providerOptionImportSurface(providerKey, query) },
-        { label: "Parent behavior", value: providerOptionParentPreview(query) },
-        { label: "Output option", value: providerOptionOutputPreview(query) },
-        { label: "Aliases", value: parseListInput(query.aliasesText).join(", ") || "None" },
-        { label: "Metadata", value: providerOptionMetadataPreview(query) },
         {
-          label: "Sample output",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.used.by"),
+          value: providerOptionImportSurface(providerKey, query),
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.behavior"),
+          value: providerOptionParentPreview(query),
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.output.option"),
+          value: providerOptionOutputPreview(query),
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.aliases"),
+          value: parseListInput(query.aliasesText).join(", ") || "None",
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.metadata"),
+          value: providerOptionMetadataPreview(query),
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.sample.output"),
           value: samplePreview ? summarizeJsonValue(samplePreview.output) : "No fixture sample",
         },
         {
-          label: "Sample diagnostics",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.sample.diagnostics"),
           value: samplePreview?.diagnostics.length ? samplePreview.diagnostics.join("; ") : "None",
         },
       ]}
@@ -4016,7 +4409,9 @@ function NormalizedObservationEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">Normalized Observation</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.normalized.observation")}
+        </h3>
         <Button
           size="sm"
           tone="secondary"
@@ -4024,7 +4419,7 @@ function NormalizedObservationEditor({
           disabled={!editable}
           onClick={() => setForm({ fields: [...form.fields, emptyExpressionFieldForm()] })}
         >
-          Add field
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.field")}
         </Button>
       </div>
       {diagnostics.length > 0 ? (
@@ -4035,7 +4430,7 @@ function NormalizedObservationEditor({
         </ul>
       ) : null}
       <Select
-        label="Normalized output kind"
+        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.normalized.output.kind")}
         value={form.outputKind}
         disabled={!editable}
         items={NORMALIZED_OUTPUT_KIND_OPTIONS}
@@ -4045,7 +4440,7 @@ function NormalizedObservationEditor({
       />
       <NormalizedOutputPreview form={form} authoringModel={authoringModel} previewPayload={previewPayload} />
       <MappingExpressionEditor
-        label="Language expression"
+        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.language.expression")}
         value={form.languageCode}
         onChange={(languageCode) => setForm({ languageCode })}
         previewPayload={previewPayload}
@@ -4055,7 +4450,10 @@ function NormalizedObservationEditor({
           <Stack key={field.id} gap={3}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h4 className="text-sm font-semibold text-foreground">
-                {field.fieldKey.trim() || `Normalized Field ${index + 1}`}
+                {field.fieldKey.trim() ||
+                  t("catalog.features.sourceObservations.ui.integrationManagementPage.normalized.field.value", {
+                    value: String(index + 1),
+                  })}
               </h4>
               <Inline gap={2}>
                 <Button
@@ -4064,7 +4462,7 @@ function NormalizedObservationEditor({
                   disabled={!editable || index === 0}
                   onClick={() => setForm({ fields: moveItem(form.fields, index, index - 1) })}
                 >
-                  Up
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.up")}
                 </Button>
                 <Button
                   size="sm"
@@ -4072,7 +4470,7 @@ function NormalizedObservationEditor({
                   disabled={!editable || index === form.fields.length - 1}
                   onClick={() => setForm({ fields: moveItem(form.fields, index, index + 1) })}
                 >
-                  Down
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.down")}
                 </Button>
                 <Button
                   size="sm"
@@ -4088,7 +4486,7 @@ function NormalizedObservationEditor({
                     })
                   }
                 >
-                  Duplicate
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate")}
                 </Button>
                 <Button
                   size="sm"
@@ -4096,19 +4494,21 @@ function NormalizedObservationEditor({
                   disabled={!editable}
                   onClick={() => setForm({ fields: form.fields.filter((candidate) => candidate.id !== field.id) })}
                 >
-                  Remove
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
             </div>
             <TextInput
-              label="Normalized field key"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.normalized.field.key")}
               value={field.fieldKey}
               disabled={!editable}
               required
               onChange={(event) => setField(field.id, { fieldKey: event.currentTarget.value })}
             />
             <MappingExpressionEditor
-              label={`Field expression: ${field.fieldKey.trim() || index + 1}`}
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.field.expression.value", {
+                value: String(field.fieldKey.trim() || index + 1),
+              })}
               value={field.expression}
               onChange={(expression) => setField(field.id, { expression })}
               previewPayload={previewPayload}
@@ -4117,7 +4517,7 @@ function NormalizedObservationEditor({
         ))}
       </Stack>
       <NormalizedExpressionListEditor
-        title="Hash Material"
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.hash.material")}
         addLabel="Add hash expression"
         items={form.hashMaterial}
         onChange={setHashMaterial}
@@ -4125,7 +4525,7 @@ function NormalizedObservationEditor({
         previewPayload={previewPayload}
       />
       <NormalizedExpressionListEditor
-        title="Merge Identity"
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.merge.identity")}
         addLabel="Add merge expression"
         items={form.mergeIdentity}
         onChange={setMergeIdentity}
@@ -4150,15 +4550,30 @@ function NormalizedOutputPreview({
 
   return (
     <TaskSummary
-      title="Sample Normalized Output"
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.sample.normalized.output")}
       items={[
-        { label: "Output kind", value: form.outputKind },
-        { label: "Language", value: preview?.languageCode ?? "No fixture sample" },
-        { label: "Fields", value: preview ? summarizeJsonValue(preview.fields) : "No fixture sample" },
-        { label: "Hash material", value: preview ? summarizeJsonValue(preview.hashMaterial) : "No fixture sample" },
-        { label: "Merge identity", value: preview ? summarizeJsonValue(preview.mergeIdentity) : "No fixture sample" },
         {
-          label: "Fingerprint impact",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.output.kind"),
+          value: form.outputKind,
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.language"),
+          value: preview?.languageCode ?? "No fixture sample",
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fields"),
+          value: preview ? summarizeJsonValue(preview.fields) : "No fixture sample",
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.hash.material.2"),
+          value: preview ? summarizeJsonValue(preview.hashMaterial) : "No fixture sample",
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.merge.identity.2"),
+          value: preview ? summarizeJsonValue(preview.mergeIdentity) : "No fixture sample",
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fingerprint.impact"),
           value: fingerprint
             ? fingerprint.changed
               ? `Changed: ${fingerprint.active ?? "none"} -> ${fingerprint.candidate ?? "none"}`
@@ -4216,12 +4631,17 @@ function NormalizedExpressionListEditor({
           {addLabel}
         </Button>
       </div>
-      {items.length === 0 ? <p className="text-sm text-danger">{title} needs at least one expression.</p> : null}
+      {items.length === 0 ? (
+        <p className="text-sm text-danger">
+          {title} {t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.at.least.one.expression")}
+        </p>
+      ) : null}
       {items.map((item, index) => (
         <Stack key={item.id} gap={3}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h5 className="text-sm font-semibold text-foreground">
-              {title} Expression {index + 1}
+              {title} {t("catalog.features.sourceObservations.ui.integrationManagementPage.expression")}
+              {index + 1}
             </h5>
             <Inline gap={2}>
               <Button
@@ -4230,7 +4650,7 @@ function NormalizedExpressionListEditor({
                 disabled={!editable || index === 0}
                 onClick={() => onChange(moveItem(items, index, index - 1))}
               >
-                Up
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.up")}
               </Button>
               <Button
                 size="sm"
@@ -4238,7 +4658,7 @@ function NormalizedExpressionListEditor({
                 disabled={!editable || index === items.length - 1}
                 onClick={() => onChange(moveItem(items, index, index + 1))}
               >
-                Down
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.down")}
               </Button>
               <Button
                 size="sm"
@@ -4248,7 +4668,7 @@ function NormalizedExpressionListEditor({
                   onChange(insertItem(items, index + 1, { ...item, id: newFormRowId(title.toLowerCase()) }))
                 }
               >
-                Duplicate
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate")}
               </Button>
               <Button
                 size="sm"
@@ -4256,12 +4676,15 @@ function NormalizedExpressionListEditor({
                 disabled={!editable}
                 onClick={() => onChange(items.filter((candidate) => candidate.id !== item.id))}
               >
-                Remove
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
               </Button>
             </Inline>
           </div>
           <MappingExpressionEditor
-            label={`${title} expression ${index + 1}`}
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.expression.value", {
+              value0: String(title),
+              value1: String(index + 1),
+            })}
             value={item.expression}
             onChange={(expression) => setExpression(item.id, expression)}
             previewPayload={previewPayload}
@@ -4298,7 +4721,11 @@ function ExternalReferencesEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">External References and Selected Options</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t(
+            "catalog.features.sourceObservations.ui.integrationManagementPage.external.references.and.selected.options",
+          )}
+        </h3>
         <Button
           size="sm"
           tone="secondary"
@@ -4306,7 +4733,7 @@ function ExternalReferencesEditor({
           disabled={!editable}
           onClick={() => setForm({ contracts: [...form.contracts, emptyExternalReferenceForm()] })}
         >
-          Add reference
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.reference")}
         </Button>
       </div>
       {diagnostics.length > 0 ? (
@@ -4326,7 +4753,10 @@ function ExternalReferencesEditor({
           <Stack key={contract.id} gap={3}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h4 className="text-sm font-semibold text-foreground">
-                {contract.providerKey || `External Reference ${index + 1}`}
+                {contract.providerKey ||
+                  t("catalog.features.sourceObservations.ui.integrationManagementPage.external.reference.value", {
+                    value: String(index + 1),
+                  })}
               </h4>
               <Inline gap={2}>
                 <Button
@@ -4335,7 +4765,7 @@ function ExternalReferencesEditor({
                   disabled={!editable || index === 0}
                   onClick={() => setForm({ contracts: moveItem(form.contracts, index, index - 1) })}
                 >
-                  Up
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.up")}
                 </Button>
                 <Button
                   size="sm"
@@ -4343,7 +4773,7 @@ function ExternalReferencesEditor({
                   disabled={!editable || index === form.contracts.length - 1}
                   onClick={() => setForm({ contracts: moveItem(form.contracts, index, index + 1) })}
                 >
-                  Down
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.down")}
                 </Button>
                 <Button
                   size="sm"
@@ -4358,7 +4788,7 @@ function ExternalReferencesEditor({
                     })
                   }
                 >
-                  Duplicate
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate")}
                 </Button>
                 <Button
                   size="sm"
@@ -4368,13 +4798,13 @@ function ExternalReferencesEditor({
                     setForm({ contracts: form.contracts.filter((candidate) => candidate.id !== contract.id) })
                   }
                 >
-                  Remove
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
             </div>
             <Inline gap={3}>
               <Select
-                label="Reference target"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.target")}
                 value={contract.target}
                 disabled={!editable}
                 items={EXTERNAL_REFERENCE_TARGET_OPTIONS}
@@ -4389,21 +4819,21 @@ function ExternalReferencesEditor({
                 }
               />
               <TextInput
-                label="Reference provider key"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.provider.key")}
                 value={contract.providerKey}
                 disabled={!editable}
                 required
                 onChange={(event) => setContract(contract.id, { providerKey: event.currentTarget.value })}
               />
               <TextInput
-                label="External key prefix"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.external.key.prefix")}
                 value={contract.externalKeyPrefix}
                 disabled={!editable}
                 required
                 onChange={(event) => setContract(contract.id, { externalKeyPrefix: event.currentTarget.value })}
               />
               <Select
-                label="Ambiguity policy"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.ambiguity.policy")}
                 value={contract.ambiguityPolicy}
                 disabled={!editable}
                 items={EXTERNAL_REFERENCE_AMBIGUITY_OPTIONS}
@@ -4415,7 +4845,7 @@ function ExternalReferencesEditor({
               />
             </Inline>
             <MappingExpressionEditor
-              label="Reference source expression"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.source.expression")}
               value={contract.source}
               onChange={(source) => setContract(contract.id, { source })}
               previewPayload={previewPayload}
@@ -4454,22 +4884,22 @@ function ExternalReferencePreview({
 
   return (
     <TaskSummary
-      title="External Reference Preview"
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.external.reference.preview")}
       items={[
         {
-          label: "Catalog Item references",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.catalog.item.references"),
           value: preview ? summarizeJsonValue(preview.catalogItemReferences) : "No fixture sample",
         },
         {
-          label: "Product references",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.product.references"),
           value: preview ? summarizeJsonValue(preview.productReferences) : "No fixture sample",
         },
         {
-          label: "Selected option evidence",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.evidence"),
           value: preview ? summarizeJsonValue(preview.selectedOptions) : "No fixture sample",
         },
         {
-          label: "Unknown option policy",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.unknown.option.policy"),
           value:
             form.contracts
               .map((contract) => contract.selectedOptions?.missingOrUnknownOptionPolicy)
@@ -4479,7 +4909,7 @@ function ExternalReferencePreview({
             "Not configured",
         },
         {
-          label: "Catalog option schema",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.catalog.option.schema"),
           value: selectedOptionSchema
             ? selectedOptionSchemaSummary(form, selectedOptionSchema)
             : "Catalog schema context unavailable",
@@ -4703,7 +5133,9 @@ function ExternalSelectedOptionsEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h5 className="text-sm font-semibold text-foreground">Product Reference Selected Options</h5>
+        <h5 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.product.reference.selected.options")}
+        </h5>
         <Button
           size="sm"
           tone="secondary"
@@ -4711,11 +5143,11 @@ function ExternalSelectedOptionsEditor({
           disabled={!editable}
           onClick={() => setForm({ dimensions: [...form.dimensions, emptyExternalSelectedOptionDimensionForm()] })}
         >
-          Add dimension
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.dimension")}
         </Button>
       </div>
       <Select
-        label="Missing or unknown option policy"
+        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.missing.or.unknown.option.policy")}
         value={form.missingOrUnknownOptionPolicy}
         disabled={!editable}
         items={SELECTED_OPTION_UNKNOWN_POLICY_OPTIONS}
@@ -4729,7 +5161,10 @@ function ExternalSelectedOptionsEditor({
         <Stack key={dimension.id} gap={3}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h6 className="text-sm font-semibold text-foreground">
-              {dimension.dimensionKey || `Selected Option Dimension ${index + 1}`}
+              {dimension.dimensionKey ||
+                t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.dimension.value", {
+                  value: String(index + 1),
+                })}
             </h6>
             <Inline gap={2}>
               <Button
@@ -4738,7 +5173,7 @@ function ExternalSelectedOptionsEditor({
                 disabled={!editable || index === 0}
                 onClick={() => setForm({ dimensions: moveItem(form.dimensions, index, index - 1) })}
               >
-                Up
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.up")}
               </Button>
               <Button
                 size="sm"
@@ -4746,7 +5181,7 @@ function ExternalSelectedOptionsEditor({
                 disabled={!editable || index === form.dimensions.length - 1}
                 onClick={() => setForm({ dimensions: moveItem(form.dimensions, index, index + 1) })}
               >
-                Down
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.down")}
               </Button>
               <Button
                 size="sm"
@@ -4756,20 +5191,20 @@ function ExternalSelectedOptionsEditor({
                   setForm({ dimensions: form.dimensions.filter((candidate) => candidate.id !== dimension.id) })
                 }
               >
-                Remove
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
               </Button>
             </Inline>
           </div>
           <Inline gap={3}>
             <TextInput
-              label="Option dimension key"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.option.dimension.key")}
               value={dimension.dimensionKey}
               disabled={!editable}
               required
               onChange={(event) => setDimension(dimension.id, { dimensionKey: event.currentTarget.value })}
             />
             <TextInput
-              label="Option lookup table key"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.option.lookup.table.key")}
               value={dimension.optionLookupTableKey}
               disabled={!editable}
               required
@@ -4783,11 +5218,16 @@ function ExternalSelectedOptionsEditor({
                 onChange={() => setDimension(dimension.id, { required: !dimension.required })}
                 className="h-4 w-4 rounded border-border accent-accent"
               />
-              <span>Selected option required</span>
+              <span>
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.required")}
+              </span>
             </label>
           </Inline>
           <MappingExpressionEditor
-            label={`Selected option value expression: ${dimension.dimensionKey || index + 1}`}
+            label={t(
+              "catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.value.expression.value",
+              { value: String(dimension.dimensionKey || index + 1) },
+            )}
             value={dimension.providerValue}
             onChange={(providerValue) => setDimension(dimension.id, { providerValue })}
             previewPayload={previewPayload}
@@ -4826,7 +5266,9 @@ function SelectedOptionMappingEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold text-foreground">Selected Option Mapping</h4>
+        <h4 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.mapping")}
+        </h4>
         <Button
           size="sm"
           tone="secondary"
@@ -4839,16 +5281,22 @@ function SelectedOptionMappingEditor({
       {form ? (
         <Stack gap={3}>
           <Inline gap={3}>
-            <TextInput label="Selected option source" value={form.source} disabled />
             <TextInput
-              label="Product reference provider key"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.source")}
+              value={form.source}
+              disabled
+            />
+            <TextInput
+              label={t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.product.reference.provider.key",
+              )}
               value={form.providerKey}
               disabled={!editable}
               required
               onChange={(event) => setForm({ providerKey: event.currentTarget.value })}
             />
             <TextInput
-              label="Product reference prefix"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.product.reference.prefix")}
               value={form.externalKeyPrefix}
               disabled={!editable}
               required
@@ -4856,8 +5304,8 @@ function SelectedOptionMappingEditor({
             />
           </Inline>
           <Textarea
-            label="Required source keys"
-            description="Comma or line separated."
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.required.source.keys")}
+            description={t("catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated")}
             value={form.requiredSourceKeysText}
             disabled={!editable}
             rows={2}
@@ -4865,7 +5313,9 @@ function SelectedOptionMappingEditor({
           />
           <KeyValueList items={[{ key: "Unknown option policy", value: form.missingOrUnknownOptionPolicy }]} />
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h5 className="text-sm font-semibold text-foreground">Selected Option Dimensions</h5>
+            <h5 className="text-sm font-semibold text-foreground">
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.dimensions")}
+            </h5>
             <Button
               size="sm"
               tone="secondary"
@@ -4873,14 +5323,17 @@ function SelectedOptionMappingEditor({
               disabled={!editable}
               onClick={() => setForm({ dimensions: [...form.dimensions, emptySelectedOptionMappingDimensionForm()] })}
             >
-              Add mapping dimension
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.mapping.dimension")}
             </Button>
           </div>
           {form.dimensions.map((dimension, index) => (
             <Stack key={dimension.id} gap={3}>
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <h6 className="text-sm font-semibold text-foreground">
-                  {dimension.dimensionKey || `Mapping Dimension ${index + 1}`}
+                  {dimension.dimensionKey ||
+                    t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.value", {
+                      value: String(index + 1),
+                    })}
                 </h6>
                 <Button
                   size="sm"
@@ -4890,19 +5343,19 @@ function SelectedOptionMappingEditor({
                     setForm({ dimensions: form.dimensions.filter((candidate) => candidate.id !== dimension.id) })
                   }
                 >
-                  Remove
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </div>
               <Inline gap={3}>
                 <TextInput
-                  label="Mapping dimension key"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.key")}
                   value={dimension.dimensionKey}
                   disabled={!editable}
                   required
                   onChange={(event) => setDimension(dimension.id, { dimensionKey: event.currentTarget.value })}
                 />
                 <Select
-                  label="Provider value source"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.value.source")}
                   value={dimension.providerValueSource}
                   disabled={!editable}
                   items={SELECTED_OPTION_PROVIDER_VALUE_SOURCE_OPTIONS}
@@ -4911,7 +5364,7 @@ function SelectedOptionMappingEditor({
                   }
                 />
                 <TextInput
-                  label="Provider value path"
+                  label={t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.value.path")}
                   value={dimension.providerValuePath}
                   disabled={!editable}
                   required
@@ -4925,20 +5378,26 @@ function SelectedOptionMappingEditor({
                     onChange={() => setDimension(dimension.id, { required: !dimension.required })}
                     className="h-4 w-4 rounded border-border accent-accent"
                   />
-                  <span>Mapping dimension required</span>
+                  <span>
+                    {t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.required")}
+                  </span>
                 </label>
               </Inline>
               <Textarea
-                label="Option aliases"
-                description="One optionKey=value,value mapping per line."
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.option.aliases")}
+                description={t(
+                  "catalog.features.sourceObservations.ui.integrationManagementPage.one.optionkey.value.value.mapping.per.line",
+                )}
                 value={dimension.optionAliasesText}
                 disabled={!editable}
                 rows={3}
                 onChange={(event) => setDimension(dimension.id, { optionAliasesText: event.currentTarget.value })}
               />
               <Textarea
-                label="Value mappings"
-                description="One source=value mapping per line."
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.mappings")}
+                description={t(
+                  "catalog.features.sourceObservations.ui.integrationManagementPage.one.source.value.mapping.per.line",
+                )}
                 value={dimension.valueMappingsText}
                 disabled={!editable}
                 rows={3}
@@ -4948,7 +5407,11 @@ function SelectedOptionMappingEditor({
           ))}
         </Stack>
       ) : (
-        <p className="text-sm text-secondary">No selected option mapping is configured for this provider profile.</p>
+        <p className="text-sm text-secondary">
+          {t(
+            "catalog.features.sourceObservations.ui.integrationManagementPage.no.selected.option.mapping.is.configured.for.this",
+          )}
+        </p>
       )}
     </Stack>
   );
@@ -4990,7 +5453,9 @@ function ReferenceHierarchyEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">Reference Hierarchy</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.hierarchy")}
+        </h3>
         <Button
           size="sm"
           tone="secondary"
@@ -4998,7 +5463,7 @@ function ReferenceHierarchyEditor({
           disabled={!editable}
           onClick={() => setForm({ contracts: [...form.contracts, emptyReferenceHierarchyContractForm()] })}
         >
-          Add hierarchy chain
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.hierarchy.chain")}
         </Button>
       </div>
       {diagnostics.length > 0 ? (
@@ -5010,14 +5475,14 @@ function ReferenceHierarchyEditor({
       ) : null}
       <Inline gap={3}>
         <TextInput
-          label="Provider reference ID prefix"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.reference.id.prefix")}
           value={form.providerReferenceIdPrefix}
           disabled={!editable}
           required
           onChange={(event) => setForm({ providerReferenceIdPrefix: event.currentTarget.value })}
         />
         <TextInput
-          label="Target record rule key"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.target.record.rule.key")}
           value={form.targetRecordRuleKey}
           disabled={!editable}
           required
@@ -5027,7 +5492,9 @@ function ReferenceHierarchyEditor({
       <ReferenceHierarchyPreview form={form} previewPayload={previewPayload} />
       <Stack gap={3}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-foreground">Provider Attributes</h4>
+          <h4 className="text-sm font-semibold text-foreground">
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.attributes")}
+          </h4>
           <Button
             size="sm"
             tone="secondary"
@@ -5035,20 +5502,20 @@ function ReferenceHierarchyEditor({
             disabled={!editable}
             onClick={() => setForm({ providerAttributes: [...form.providerAttributes, emptyProviderAttributeForm()] })}
           >
-            Add provider attribute
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.provider.attribute")}
           </Button>
         </div>
         {form.providerAttributes.map((attribute) => (
           <Inline key={attribute.id} gap={3}>
             <TextInput
-              label="Attribute type key"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.attribute.type.key")}
               value={attribute.typeKey}
               disabled={!editable}
               required
               onChange={(event) => setProviderAttribute(attribute.id, { typeKey: event.currentTarget.value })}
             />
             <TextInput
-              label="Provider attribute key"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.attribute.key")}
               value={attribute.providerAttributeKey}
               disabled={!editable}
               required
@@ -5066,14 +5533,16 @@ function ReferenceHierarchyEditor({
                 })
               }
             >
-              Remove
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
             </Button>
           </Inline>
         ))}
       </Stack>
       <Stack gap={3}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-foreground">Reference Types</h4>
+          <h4 className="text-sm font-semibold text-foreground">
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.types")}
+          </h4>
           <Button
             size="sm"
             tone="secondary"
@@ -5081,28 +5550,28 @@ function ReferenceHierarchyEditor({
             disabled={!editable}
             onClick={() => setForm({ referenceTypes: [...form.referenceTypes, emptyReferenceTypeRuleForm()] })}
           >
-            Add reference type
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.reference.type")}
           </Button>
         </div>
         {form.referenceTypes.map((type) => (
           <Stack key={type.id} gap={3}>
             <Inline gap={3}>
               <TextInput
-                label="Reference type ID"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.type.id")}
                 value={type.referenceTypeId}
                 disabled={!editable}
                 required
                 onChange={(event) => setReferenceType(type.id, { referenceTypeId: event.currentTarget.value })}
               />
               <TextInput
-                label="Reference type key"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.type.key")}
                 value={type.typeKey}
                 disabled={!editable}
                 required
                 onChange={(event) => setReferenceType(type.id, { typeKey: event.currentTarget.value })}
               />
               <TextInput
-                label="Reference type name"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.type.name")}
                 value={type.name}
                 disabled={!editable}
                 required
@@ -5116,19 +5585,23 @@ function ReferenceHierarchyEditor({
                   setForm({ referenceTypes: form.referenceTypes.filter((candidate) => candidate.id !== type.id) })
                 }
               >
-                Remove
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
               </Button>
             </Inline>
             <Textarea
-              label="Reference type description"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.type.description")}
               value={type.descriptionText}
               disabled={!editable}
               rows={2}
               onChange={(event) => setReferenceType(type.id, { descriptionText: event.currentTarget.value })}
             />
             <Textarea
-              label="Reference type attribute keys"
-              description="Comma or line separated."
+              label={t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.reference.type.attribute.keys",
+              )}
+              description={t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated",
+              )}
               value={type.attributeKeysText}
               disabled={!editable}
               rows={2}
@@ -5139,7 +5612,9 @@ function ReferenceHierarchyEditor({
       </Stack>
       <Stack gap={3}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-foreground">Reference Record Rules</h4>
+          <h4 className="text-sm font-semibold text-foreground">
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.record.rules")}
+          </h4>
           <Button
             size="sm"
             tone="secondary"
@@ -5147,21 +5622,21 @@ function ReferenceHierarchyEditor({
             disabled={!editable}
             onClick={() => setForm({ recordRules: [...form.recordRules, emptyReferenceRecordRuleForm()] })}
           >
-            Add record rule
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.record.rule")}
           </Button>
         </div>
         {form.recordRules.map((rule) => (
           <Stack key={rule.id} gap={3}>
             <Inline gap={3}>
               <TextInput
-                label="Reference record rule key"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.record.rule.key")}
                 value={rule.ruleKey}
                 disabled={!editable}
                 required
                 onChange={(event) => setRecordRule(rule.id, { ruleKey: event.currentTarget.value })}
               />
               <TextInput
-                label="Reference record type key"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.record.type.key")}
                 value={rule.typeKey}
                 disabled={!editable}
                 required
@@ -5175,20 +5650,24 @@ function ReferenceHierarchyEditor({
                   setForm({ recordRules: form.recordRules.filter((candidate) => candidate.id !== rule.id) })
                 }
               >
-                Remove
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
               </Button>
             </Inline>
             <Textarea
-              label="Required paths"
-              description="Comma or line separated."
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.required.paths")}
+              description={t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated",
+              )}
               value={rule.requiredPathsText}
               disabled={!editable}
               rows={2}
               onChange={(event) => setRecordRule(rule.id, { requiredPathsText: event.currentTarget.value })}
             />
             <Textarea
-              label="Relationships"
-              description="One relationshipType=ruleKey mapping per line. Use relationshipType=ruleKey|fallbackRuleKey for fallback."
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.relationships")}
+              description={t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.one.relationshiptype.rulekey.mapping.per.line.use.relationshiptype",
+              )}
               value={rule.relationshipsText}
               disabled={!editable}
               rows={3}
@@ -5201,20 +5680,20 @@ function ReferenceHierarchyEditor({
             />
             <Inline gap={3}>
               <ReferenceValueRuleEditor
-                label="Record key"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.record.key")}
                 value={rule.keyRule}
                 editable={editable}
                 onChange={(keyRule) => setRecordRule(rule.id, { keyRule })}
               />
               <ReferenceValueRuleEditor
-                label="Record name"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.record.name")}
                 value={rule.nameRule}
                 editable={editable}
                 onChange={(nameRule) => setRecordRule(rule.id, { nameRule })}
               />
             </Inline>
             <ReferenceValueRuleEditor
-              label="Record description"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.record.description")}
               value={rule.descriptionRule}
               editable={editable}
               onChange={(descriptionRule) => setRecordRule(rule.id, { descriptionRule })}
@@ -5232,7 +5711,8 @@ function ReferenceHierarchyEditor({
           <Stack key={contract.id} gap={3}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h4 className="text-sm font-semibold text-foreground">
-                Hierarchy Chain {index + 1}: {referenceHierarchyChainSummary(contract)}
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.hierarchy.chain")}
+                {index + 1}: {referenceHierarchyChainSummary(contract)}
               </h4>
               <Inline gap={2}>
                 <Button
@@ -5241,7 +5721,7 @@ function ReferenceHierarchyEditor({
                   disabled={!editable || index === 0}
                   onClick={() => setForm({ contracts: moveItem(form.contracts, index, index - 1) })}
                 >
-                  Up
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.up")}
                 </Button>
                 <Button
                   size="sm"
@@ -5249,7 +5729,7 @@ function ReferenceHierarchyEditor({
                   disabled={!editable || index === form.contracts.length - 1}
                   onClick={() => setForm({ contracts: moveItem(form.contracts, index, index + 1) })}
                 >
-                  Down
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.down")}
                 </Button>
                 <Button
                   size="sm"
@@ -5259,12 +5739,12 @@ function ReferenceHierarchyEditor({
                     setForm({ contracts: form.contracts.filter((candidate) => candidate.id !== contract.id) })
                   }
                 >
-                  Remove
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
             </div>
             <ReferenceHierarchyNodeEditor
-              label="Target reference record"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.target.reference.record")}
               node={contract}
               editable={editable}
               previewPayload={previewPayload}
@@ -5294,10 +5774,12 @@ function ReferenceRecordIdRuleEditor({
 }>) {
   return (
     <Stack gap={3}>
-      <h5 className="text-sm font-semibold text-foreground">Reference Record ID</h5>
+      <h5 className="text-sm font-semibold text-foreground">
+        {t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.record.id")}
+      </h5>
       <Inline gap={3}>
         <Select
-          label="Record ID strategy"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.record.id.strategy")}
           value={form.recordIdKind}
           disabled={!editable}
           items={REFERENCE_RECORD_ID_KIND_OPTIONS}
@@ -5307,7 +5789,7 @@ function ReferenceRecordIdRuleEditor({
         />
         {form.recordIdKind === "static" ? (
           <TextInput
-            label="Static reference record ID"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.static.reference.record.id")}
             value={form.staticReferenceRecordId}
             disabled={!editable}
             required
@@ -5316,15 +5798,17 @@ function ReferenceRecordIdRuleEditor({
         ) : (
           <>
             <TextInput
-              label="Provider record type key"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.record.type.key")}
               value={form.providerRecordTypeKey}
               disabled={!editable}
               required
               onChange={(event) => onChange({ providerRecordTypeKey: event.currentTarget.value })}
             />
             <Textarea
-              label="Provider value paths"
-              description="Comma or line separated. First available value becomes the deterministic record suffix."
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.value.paths")}
+              description={t(
+                "catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated.first.available.value.becomes",
+              )}
               value={form.providerValuePathsText}
               disabled={!editable}
               rows={2}
@@ -5355,7 +5839,9 @@ function ReferenceValueRuleEditor({
       <h5 className="text-sm font-semibold text-foreground">{label}</h5>
       <Inline gap={3}>
         <Select
-          label={`${label} source`}
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.source", {
+            value: String(label),
+          })}
           value={value.kind}
           disabled={!editable}
           items={REFERENCE_VALUE_RULE_KIND_OPTIONS}
@@ -5363,7 +5849,7 @@ function ReferenceValueRuleEditor({
         />
         {value.kind === "static" ? (
           <TextInput
-            label="Static value"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.static.value")}
             value={value.staticValue}
             disabled={!editable}
             required
@@ -5372,7 +5858,7 @@ function ReferenceValueRuleEditor({
         ) : null}
         {value.kind === "path" ? (
           <TextInput
-            label="Payload path"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.payload.path")}
             value={value.path}
             disabled={!editable}
             required
@@ -5383,16 +5869,20 @@ function ReferenceValueRuleEditor({
       {value.kind === "template" ? (
         <>
           <Textarea
-            label="Template"
-            description="Use {name} tokens sourced by the template values below."
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.template")}
+            description={t(
+              "catalog.features.sourceObservations.ui.integrationManagementPage.use.value.tokens.sourced.by.the.template.values",
+            )}
             value={value.template}
             disabled={!editable}
             rows={2}
             onChange={(event) => setValue({ template: event.currentTarget.value })}
           />
           <Textarea
-            label="Template values"
-            description="One token=path:path.to.value or token=static:Text mapping per line."
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.template.values")}
+            description={t(
+              "catalog.features.sourceObservations.ui.integrationManagementPage.one.token.path.path.to.value.or.token",
+            )}
             value={value.templateValuesText}
             disabled={!editable}
             rows={3}
@@ -5419,7 +5909,9 @@ function ReferenceAttributeRulesEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h5 className="text-sm font-semibold text-foreground">Record Attributes</h5>
+        <h5 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.record.attributes")}
+        </h5>
         <Button
           size="sm"
           tone="secondary"
@@ -5427,15 +5919,20 @@ function ReferenceAttributeRulesEditor({
           disabled={!editable}
           onClick={() => onChange([...attributes, emptyReferenceAttributeRuleForm()])}
         >
-          Add attribute rule
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.attribute.rule")}
         </Button>
       </div>
-      {attributes.length === 0 ? <p className="text-sm text-secondary">No attribute rules.</p> : null}
+      {attributes.length === 0 ? (
+        <p className="text-sm text-secondary">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.no.attribute.rules")}
+        </p>
+      ) : null}
       {attributes.map((attribute, index) => (
         <Stack key={attribute.id} gap={3}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h6 className="text-sm font-semibold text-foreground">
-              Attribute {index + 1}: {attribute.attributeKey || "Unconfigured"}
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.attribute")}
+              {index + 1}: {attribute.attributeKey || "Unconfigured"}
             </h6>
             <Button
               size="sm"
@@ -5443,12 +5940,12 @@ function ReferenceAttributeRulesEditor({
               disabled={!editable}
               onClick={() => onChange(attributes.filter((candidate) => candidate.id !== attribute.id))}
             >
-              Remove
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
             </Button>
           </div>
           <Inline gap={3}>
             <TextInput
-              label="Attribute key"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.attribute.key")}
               value={attribute.attributeKey}
               disabled={!editable}
               required
@@ -5462,11 +5959,11 @@ function ReferenceAttributeRulesEditor({
                 onChange={() => setAttribute(attribute.id, { optional: !attribute.optional })}
                 className="h-4 w-4 rounded border-border accent-accent"
               />
-              <span>Optional attribute</span>
+              <span>{t("catalog.features.sourceObservations.ui.integrationManagementPage.optional.attribute")}</span>
             </label>
           </Inline>
           <ReferenceValueRuleEditor
-            label="Attribute value"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.attribute.value")}
             value={attribute.valueRule}
             editable={editable}
             onChange={(valueRule) => setAttribute(attribute.id, { valueRule })}
@@ -5494,25 +5991,25 @@ function ReferenceHierarchyPreview({
 
   return (
     <TaskSummary
-      title="Reference Hierarchy Preview"
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.hierarchy.preview")}
       items={[
         {
-          label: "Target record rule",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.target.record.rule"),
           value: form.targetRecordRuleKey || "Not configured",
         },
         {
-          label: "Provider attributes",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.attributes.2"),
           value:
             form.providerAttributes
               .map((attribute) => `${attribute.typeKey || "type"}=${attribute.providerAttributeKey || "provider-key"}`)
               .join(", ") || "No provider attributes",
         },
         {
-          label: "Provisioned records",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provisioned.records"),
           value: previewPayload ? summarizeJsonValue(preview) : "No fixture sample",
         },
         {
-          label: "Preview diagnostics",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.preview.diagnostics"),
           value: diagnostics.length > 0 ? diagnostics.join("; ") : "None",
         },
       ]}
@@ -5589,14 +6086,14 @@ function ReferenceHierarchyNodeEditor({
       <h5 className="text-sm font-semibold text-foreground">{label}</h5>
       <Inline gap={3}>
         <TextInput
-          label="Hierarchy target type key"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.hierarchy.target.type.key")}
           value={node.targetTypeKey}
           disabled={!editable}
           required
           onChange={(event) => onChange({ targetTypeKey: event.currentTarget.value })}
         />
         <TextInput
-          label="Hierarchy provider attribute key"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.hierarchy.provider.attribute.key")}
           value={node.providerAttributeKey}
           disabled={!editable}
           required
@@ -5604,7 +6101,9 @@ function ReferenceHierarchyNodeEditor({
         />
       </Inline>
       <MappingExpressionEditor
-        label={`${label} key expression`}
+        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.key.expression", {
+          value: String(label),
+        })}
         value={node.referenceRecordKey}
         onChange={(referenceRecordKey) => onChange({ referenceRecordKey })}
         previewPayload={previewPayload}
@@ -5630,7 +6129,9 @@ function ReferenceHierarchyParentsEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h5 className="text-sm font-semibold text-foreground">Parent Chain</h5>
+        <h5 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.chain")}
+        </h5>
         <Button
           size="sm"
           tone="secondary"
@@ -5638,15 +6139,20 @@ function ReferenceHierarchyParentsEditor({
           disabled={!editable}
           onClick={() => onChange([...parents, emptyReferenceHierarchyParentForm()])}
         >
-          Add parent
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.parent")}
         </Button>
       </div>
-      {parents.length === 0 ? <p className="text-sm text-secondary">No parent reference records.</p> : null}
+      {parents.length === 0 ? (
+        <p className="text-sm text-secondary">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.no.parent.reference.records")}
+        </p>
+      ) : null}
       {parents.map((parent, index) => (
         <Stack key={parent.id} gap={3}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h6 className="text-sm font-semibold text-foreground">
-              Parent {index + 1}: {parent.targetTypeKey || "Unconfigured"}
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.parent")}
+              {index + 1}: {parent.targetTypeKey || "Unconfigured"}
             </h6>
             <Inline gap={2}>
               <Button
@@ -5655,7 +6161,7 @@ function ReferenceHierarchyParentsEditor({
                 disabled={!editable || index === 0}
                 onClick={() => onChange(moveItem(parents, index, index - 1))}
               >
-                Up
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.up")}
               </Button>
               <Button
                 size="sm"
@@ -5663,7 +6169,7 @@ function ReferenceHierarchyParentsEditor({
                 disabled={!editable || index === parents.length - 1}
                 onClick={() => onChange(moveItem(parents, index, index + 1))}
               >
-                Down
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.down")}
               </Button>
               <Button
                 size="sm"
@@ -5671,12 +6177,14 @@ function ReferenceHierarchyParentsEditor({
                 disabled={!editable}
                 onClick={() => onChange(parents.filter((candidate) => candidate.id !== parent.id))}
               >
-                Remove
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
               </Button>
             </Inline>
           </div>
           <ReferenceHierarchyNodeEditor
-            label={`Parent reference record ${index + 1}`}
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.reference.record.value", {
+              value: String(index + 1),
+            })}
             node={parent}
             editable={editable}
             previewPayload={previewPayload}
@@ -5708,7 +6216,9 @@ function DuplicatePreventionEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">Duplicate Prevention</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.prevention")}
+        </h3>
         <Button
           size="sm"
           tone="secondary"
@@ -5716,7 +6226,7 @@ function DuplicatePreventionEditor({
           disabled={!editable}
           onClick={() => setForm({ identityRules: [...form.identityRules, emptyDuplicatePreventionRuleForm()] })}
         >
-          Add identity rule
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.identity.rule")}
         </Button>
       </div>
       {diagnostics.length > 0 ? (
@@ -5728,7 +6238,7 @@ function DuplicatePreventionEditor({
       ) : null}
       <Inline gap={3}>
         <Select
-          label="Ambiguous candidate policy"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.ambiguous.candidate.policy")}
           value={form.ambiguousCandidatePolicy}
           disabled={!editable}
           items={DUPLICATE_PREVENTION_AMBIGUOUS_POLICY_OPTIONS}
@@ -5737,7 +6247,7 @@ function DuplicatePreventionEditor({
           }
         />
         <Select
-          label="Replay policy"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.replay.policy")}
           value={form.replayPolicy}
           disabled={!editable}
           items={DUPLICATE_PREVENTION_REPLAY_POLICY_OPTIONS}
@@ -5760,12 +6270,14 @@ function DuplicatePreventionEditor({
             }
             className="h-4 w-4 rounded border-border accent-accent"
           />
-          <span>Exact external references first</span>
+          <span>
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.exact.external.references.first")}
+          </span>
         </label>
       </Inline>
       <DuplicatePreventionPreview form={form} previewPayload={previewPayload} />
       <NormalizedExpressionListEditor
-        title="Merge Candidate Evidence"
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.merge.candidate.evidence")}
         addLabel="Add merge evidence"
         items={form.mergeCandidateEvidence}
         onChange={(mergeCandidateEvidence) => setForm({ mergeCandidateEvidence })}
@@ -5777,7 +6289,8 @@ function DuplicatePreventionEditor({
           <Stack key={rule.id} gap={3}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h4 className="text-sm font-semibold text-foreground">
-                Rule {index + 1}: {rule.ruleKey || rule.ruleKind}
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.rule")}
+                {index + 1}: {rule.ruleKey || rule.ruleKind}
               </h4>
               <Inline gap={2}>
                 <Button
@@ -5786,7 +6299,7 @@ function DuplicatePreventionEditor({
                   disabled={!editable || index === 0}
                   onClick={() => setForm({ identityRules: moveItem(form.identityRules, index, index - 1) })}
                 >
-                  Up
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.up")}
                 </Button>
                 <Button
                   size="sm"
@@ -5794,7 +6307,7 @@ function DuplicatePreventionEditor({
                   disabled={!editable || index === form.identityRules.length - 1}
                   onClick={() => setForm({ identityRules: moveItem(form.identityRules, index, index + 1) })}
                 >
-                  Down
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.down")}
                 </Button>
                 <Button
                   size="sm"
@@ -5810,7 +6323,7 @@ function DuplicatePreventionEditor({
                     })
                   }
                 >
-                  Duplicate
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate")}
                 </Button>
                 <Button
                   size="sm"
@@ -5820,27 +6333,27 @@ function DuplicatePreventionEditor({
                     setForm({ identityRules: form.identityRules.filter((candidate) => candidate.id !== rule.id) })
                   }
                 >
-                  Remove
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
             </div>
             <Inline gap={3}>
               <TextInput
-                label="Duplicate rule key"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.rule.key")}
                 value={rule.ruleKey}
                 disabled={!editable}
                 required
                 onChange={(event) => setRule(rule.id, { ruleKey: event.currentTarget.value })}
               />
               <Select
-                label="Duplicate rule kind"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.rule.kind")}
                 value={rule.ruleKind}
                 disabled={!editable}
                 items={DUPLICATE_PREVENTION_RULE_KIND_OPTIONS}
                 onValueChange={(value) => setRule(rule.id, { ruleKind: duplicatePreventionRuleKindValue(value) })}
               />
               <Select
-                label="Candidate policy"
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.candidate.policy")}
                 value={rule.candidatePolicy}
                 disabled={!editable}
                 items={DUPLICATE_PREVENTION_CANDIDATE_POLICY_OPTIONS}
@@ -5850,7 +6363,9 @@ function DuplicatePreventionEditor({
               />
             </Inline>
             <NormalizedExpressionListEditor
-              title={`Rule Evidence: ${rule.ruleKey || index + 1}`}
+              title={t("catalog.features.sourceObservations.ui.integrationManagementPage.rule.evidence.value", {
+                value: String(rule.ruleKey || index + 1),
+              })}
               addLabel="Add rule evidence"
               items={rule.evidence}
               onChange={(evidence) => setRule(rule.id, { evidence })}
@@ -5875,22 +6390,22 @@ function DuplicatePreventionPreview({
 
   return (
     <TaskSummary
-      title="Duplicate Prevention Preview"
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.prevention.preview")}
       items={[
         {
-          label: "Ambiguous candidates",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.ambiguous.candidates"),
           value: duplicatePreventionPolicyLabel(form.ambiguousCandidatePolicy),
         },
         {
-          label: "Rule order",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.rule.order"),
           value: form.identityRules.map((rule, index) => `${index + 1}. ${rule.ruleKey || rule.ruleKind}`).join("; "),
         },
         {
-          label: "Merge evidence",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.merge.evidence"),
           value: preview ? summarizeJsonValue(preview.mergeCandidateEvidence) : "No fixture sample",
         },
         {
-          label: "Identity evidence",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.identity.evidence"),
           value: preview ? summarizeJsonValue(preview.identityRules) : "No fixture sample",
         },
       ]}
@@ -5968,7 +6483,9 @@ function PromotionPlanEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">Promotion Command Plan</h3>
+        <h3 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.plan")}
+        </h3>
         <Button
           size="sm"
           tone="secondary"
@@ -5976,7 +6493,7 @@ function PromotionPlanEditor({
           disabled={!editable}
           onClick={() => setForm({ commands: [...form.commands, emptyPromotionCommandForm()] })}
         >
-          Add command
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.command")}
         </Button>
       </div>
       {diagnostics.length > 0 ? (
@@ -5995,7 +6512,9 @@ function PromotionPlanEditor({
       <PromotionPlanPreview form={form} promotionTargetSchema={promotionTargetSchema} previewPayload={previewPayload} />
       <Stack gap={2}>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-foreground">Server Dry-Run Comparison</h4>
+          <h4 className="text-sm font-semibold text-foreground">
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.server.dry.run.comparison")}
+          </h4>
           <Button
             size="sm"
             tone="secondary"
@@ -6004,16 +6523,19 @@ function PromotionPlanEditor({
             disabled={!previewPayload}
             onClick={runServerComparison}
           >
-            Compare server plan
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.compare.server.plan")}
           </Button>
         </div>
         {serverDryRunError ? <p className="text-sm text-danger">{serverDryRunError}</p> : null}
         <TaskSummary
-          title="Server Promotion Command Plan"
+          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.server.promotion.command.plan")}
           items={[
-            { label: "Status", value: serverDryRunResult?.status ?? "Not compared" },
             {
-              label: "Planned commands",
+              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.status"),
+              value: serverDryRunResult?.status ?? "Not compared",
+            },
+            {
+              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.planned.commands"),
               value: serverDryRunResult
                 ? summarizeJsonValue(serverDryRunResult.promotionCommandPlan.commands as unknown as JsonValue)
                 : "Run comparison",
@@ -6026,7 +6548,8 @@ function PromotionPlanEditor({
           <Stack key={command.id} gap={3}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h4 className="text-sm font-semibold text-foreground">
-                Command {index + 1}: {command.commandName}
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.command")}
+                {index + 1}: {command.commandName}
               </h4>
               <Inline gap={2}>
                 <Button
@@ -6035,7 +6558,7 @@ function PromotionPlanEditor({
                   disabled={!editable || index === 0}
                   onClick={() => setForm({ commands: moveItem(form.commands, index, index - 1) })}
                 >
-                  Up
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.up")}
                 </Button>
                 <Button
                   size="sm"
@@ -6043,7 +6566,7 @@ function PromotionPlanEditor({
                   disabled={!editable || index === form.commands.length - 1}
                   onClick={() => setForm({ commands: moveItem(form.commands, index, index + 1) })}
                 >
-                  Down
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.down")}
                 </Button>
                 <Button
                   size="sm"
@@ -6058,7 +6581,7 @@ function PromotionPlanEditor({
                     })
                   }
                 >
-                  Duplicate
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate")}
                 </Button>
                 <Button
                   size="sm"
@@ -6068,12 +6591,12 @@ function PromotionPlanEditor({
                     setForm({ commands: form.commands.filter((candidate) => candidate.id !== command.id) })
                   }
                 >
-                  Remove
+                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
             </div>
             <Select
-              label="Promotion command name"
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.name")}
               value={command.commandName}
               disabled={!editable}
               items={PROMOTION_COMMAND_NAME_OPTIONS}
@@ -6120,19 +6643,22 @@ function PromotionPlanPreview({
 
   return (
     <TaskSummary
-      title="Promotion Command Preview"
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.preview")}
       items={[
-        { label: "Command count", value: String(form.commands.length) },
         {
-          label: "Ordered commands",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.command.count"),
+          value: String(form.commands.length),
+        },
+        {
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.ordered.commands"),
           value: form.commands.map((command, index) => `${index + 1}. ${command.commandName}`).join("; ") || "None",
         },
         {
-          label: "Fixture command inputs",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.command.inputs"),
           value: preview ? summarizeJsonValue(preview.commands) : "No fixture sample",
         },
         {
-          label: "Resolved Catalog targets",
+          label: t("catalog.features.sourceObservations.ui.integrationManagementPage.resolved.catalog.targets"),
           value: preview ? summarizeJsonValue(preview.resolvedTargets) : "No fixture sample",
         },
       ]}
@@ -6231,7 +6757,9 @@ function PromotionCommandInputsEditor({
   return (
     <Stack gap={3}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h5 className="text-sm font-semibold text-foreground">Command Inputs</h5>
+        <h5 className="text-sm font-semibold text-foreground">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.command.inputs")}
+        </h5>
         <Button
           size="sm"
           tone="secondary"
@@ -6239,14 +6767,15 @@ function PromotionCommandInputsEditor({
           disabled={!editable}
           onClick={() => onChange([...command.inputs, emptyPromotionCommandInputForm()])}
         >
-          Add input
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.input")}
         </Button>
       </div>
       {command.inputs.map((input, index) => (
         <Stack key={input.id} gap={3}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h6 className="text-sm font-semibold text-foreground">
-              Input {index + 1}: {input.fieldKey || "Unnamed"}
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.input")}
+              {index + 1}: {input.fieldKey || "Unnamed"}
             </h6>
             <Button
               size="sm"
@@ -6254,18 +6783,21 @@ function PromotionCommandInputsEditor({
               disabled={!editable}
               onClick={() => onChange(command.inputs.filter((candidate) => candidate.id !== input.id))}
             >
-              Remove
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
             </Button>
           </div>
           <TextInput
-            label="Promotion input key"
+            label={t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.input.key")}
             value={input.fieldKey}
             disabled={!editable}
             required
             onChange={(event) => setInput(input.id, { fieldKey: event.currentTarget.value })}
           />
           <MappingExpressionEditor
-            label={`Promotion input expression: ${input.fieldKey || index + 1}`}
+            label={t(
+              "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.input.expression.value",
+              { value: String(input.fieldKey || index + 1) },
+            )}
             value={input.expression}
             onChange={(expression) => setInput(input.id, { expression })}
             previewPayload={previewPayload}
@@ -6316,7 +6848,13 @@ function DryRunFixtureSummary({
 }: Readonly<{ model: CatalogProviderProfileAuthoringModel; flow: string }>) {
   const fixture = selectedDryRunFixture(model, flow);
   if (!fixture) {
-    return <p>No fixture template is available for this flow.</p>;
+    return (
+      <p>
+        {t(
+          "catalog.features.sourceObservations.ui.integrationManagementPage.no.fixture.template.is.available.for.this.flow",
+        )}
+      </p>
+    );
   }
 
   return (
@@ -6353,32 +6891,34 @@ function DryRunSafeOverrideEditor({
 
   return (
     <Stack gap={2}>
-      <h3>Safe Payload Overrides</h3>
+      <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.safe.payload.overrides")}</h3>
       <Inline gap={2}>
         <TextInput
-          label="Override name"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.override.name")}
           value={overrides.name}
           onChange={(event) => setOverride({ name: event.currentTarget.value })}
         />
         <TextInput
-          label="Override language"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.override.language")}
           value={overrides.language}
           onChange={(event) => setOverride({ language: event.currentTarget.value })}
         />
         <TextInput
-          label="Override source updated at"
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.override.source.updated.at")}
           value={overrides.sourceUpdatedAt}
           onChange={(event) => setOverride({ sourceUpdatedAt: event.currentTarget.value })}
         />
       </Inline>
       {sampleFieldItems.length > 0 ? (
         <Stack gap={2}>
-          <h4>Fixture Sample Fields</h4>
+          <h4>{t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.sample.fields")}</h4>
           <Inline gap={2}>
             {sampleFieldItems.map((item) => (
               <TextInput
                 key={item.key}
-                label={`Override ${item.label}`}
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.override.value", {
+                  value: String(item.label),
+                })}
                 value={overrides.sampleFields[item.key] ?? ""}
                 placeholder={String(item.value)}
                 onChange={(event) => setSampleFieldOverride(item.key, event.currentTarget.value)}
@@ -6401,7 +6941,7 @@ function ProfileDryRunResultPanels({
   return (
     <Stack gap={4}>
       <Stack gap={2}>
-        <h3>Dry-Run Summary</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.summary")}</h3>
         <KeyValueList
           density="compact"
           variant="plain"
@@ -6418,45 +6958,45 @@ function ProfileDryRunResultPanels({
       </Stack>
 
       <Stack gap={2}>
-        <h3>Diagnostic Groups</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.diagnostic.groups")}</h3>
         <DataTable
           rows={diagnosticGroups}
           columns={dryRunDiagnosticGroupColumns}
           getRowId={(row, index) => `${row.path}:${index}`}
-          emptyTitle="No diagnostic groups"
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.diagnostic.groups")}
           density="compact"
         />
       </Stack>
 
       <Stack gap={2}>
-        <h3>Diagnostics</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.diagnostics")}</h3>
         <DataTable
           rows={result.diagnostics}
           columns={dryRunDiagnosticColumns}
           getRowId={(row, index) => `${row.path}:${index}`}
-          emptyTitle="No diagnostics"
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.diagnostics")}
           density="compact"
         />
       </Stack>
 
       <Stack gap={2}>
-        <h3>Redaction Summary</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.redaction.summary")}</h3>
         <KeyValueList density="compact" variant="plain" items={redactionSummary} />
       </Stack>
 
       <Stack gap={2}>
-        <h3>Mapping Evidence</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.evidence")}</h3>
         <DataTable
           rows={[...result.hashMaterial, ...result.mergeCandidateEvidence]}
           columns={dryRunEvidenceColumns}
           getRowId={(row) => row.path}
-          emptyTitle="No mapping evidence"
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.mapping.evidence")}
           density="compact"
         />
       </Stack>
 
       <Stack gap={2}>
-        <h3>External References</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.external.references")}</h3>
         <KeyValueList
           density="compact"
           variant="plain"
@@ -6478,7 +7018,7 @@ function ProfileDryRunResultPanels({
       </Stack>
 
       <Stack gap={2}>
-        <h3>Duplicate Prevention</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.prevention")}</h3>
         <KeyValueList
           density="compact"
           variant="plain"
@@ -6509,18 +7049,20 @@ function ProfileDryRunResultPanels({
           rows={result.duplicatePreventionRules}
           columns={dryRunDuplicatePreventionColumns}
           getRowId={(row) => row.ruleKey}
-          emptyTitle="No duplicate-prevention decisions"
+          emptyTitle={t(
+            "catalog.features.sourceObservations.ui.integrationManagementPage.no.duplicate.prevention.decisions",
+          )}
           density="compact"
         />
       </Stack>
 
       <Stack gap={2}>
-        <h3>Promotion Command Plan</h3>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.plan")}</h3>
         <DataTable
           rows={result.promotionCommandPlan.commands}
           columns={dryRunPromotionCommandColumns}
           getRowId={(row, index) => `${row.commandName}:${index}`}
-          emptyTitle="No promotion commands"
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.promotion.commands")}
           density="compact"
         />
       </Stack>
@@ -6533,7 +7075,7 @@ const activationReadinessColumns: DataColumn<
 >[] = [
   {
     key: "status",
-    header: "Status",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.status"),
     cell: (row) => (
       <StatusPill tone={row.status === "passed" ? "success" : "danger"}>
         {row.status === "passed" ? "Passed" : "Blocked"}
@@ -6542,17 +7084,17 @@ const activationReadinessColumns: DataColumn<
   },
   {
     key: "check",
-    header: "Check",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.check"),
     cell: (row) => row.checkKey,
   },
   {
     key: "path",
-    header: "Path",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.path"),
     cell: (row) => row.path,
   },
   {
     key: "detail",
-    header: "Detail",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.detail"),
     cell: (row) => row.diagnosticText,
   },
 ];
@@ -6560,7 +7102,7 @@ const activationReadinessColumns: DataColumn<
 const semanticDiffColumns: DataColumn<CatalogProviderProfileAuthoringModel["semanticDiff"]["changes"][number]>[] = [
   {
     key: "change",
-    header: "Change",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.change"),
     cell: (row) => (
       <Stack gap={1}>
         <span>{row.label}</span>
@@ -6573,17 +7115,17 @@ const semanticDiffColumns: DataColumn<CatalogProviderProfileAuthoringModel["sema
   },
   {
     key: "impact",
-    header: "Activation Impact",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.activation.impact"),
     cell: (row) => row.activationImpact,
   },
   {
     key: "candidate",
-    header: "Candidate",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.candidate"),
     cell: (row) => summarizeDiffValue(row.candidate),
   },
   {
     key: "active",
-    header: "Active",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.active"),
     cell: (row) => summarizeDiffValue(row.active),
   },
 ];
@@ -6605,17 +7147,17 @@ const profileValidationColumns: DataColumn<CatalogProviderProfileVersionReview["
   [
     {
       key: "path",
-      header: "Path",
+      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.path"),
       cell: (row) => row.path,
     },
     {
       key: "severity",
-      header: "Severity",
+      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.severity"),
       cell: (row) => <StatusPill tone={row.severity === "error" ? "danger" : "warning"}>{row.severity}</StatusPill>,
     },
     {
       key: "detail",
-      header: "Detail",
+      header: t("catalog.features.sourceObservations.ui.integrationManagementPage.detail"),
       cell: (row) => row.diagnosticText,
     },
   ];
@@ -6623,17 +7165,17 @@ const profileValidationColumns: DataColumn<CatalogProviderProfileVersionReview["
 const integrationFailureGroupColumns: DataColumn<IntegrationFailureGroup>[] = [
   {
     key: "reason",
-    header: "Reason",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.reason"),
     cell: (row) => row.reason,
   },
   {
     key: "count",
-    header: "Failures",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.failures"),
     cell: (row) => String(row.count),
   },
   {
     key: "examples",
-    header: "Example scopes",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.example.scopes"),
     cell: (row) =>
       row.examples.length > 0 ? (
         <Inline gap={2}>
@@ -6652,17 +7194,17 @@ const integrationFailureGroupColumns: DataColumn<IntegrationFailureGroup>[] = [
 const dryRunDiagnosticColumns: DataColumn<CatalogProviderProfileDryRunResult["diagnostics"][number]>[] = [
   {
     key: "path",
-    header: "Path",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.path"),
     cell: (row) => row.path,
   },
   {
     key: "code",
-    header: "Code",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.code"),
     cell: (row) => row.code,
   },
   {
     key: "detail",
-    header: "Detail",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.detail"),
     cell: (row) => row.diagnosticText,
   },
 ];
@@ -6670,22 +7212,22 @@ const dryRunDiagnosticColumns: DataColumn<CatalogProviderProfileDryRunResult["di
 const dryRunDiagnosticGroupColumns: DataColumn<ReturnType<typeof dryRunDiagnosticGroups>[number]>[] = [
   {
     key: "flow",
-    header: "Fixture Flow",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flow.2"),
     cell: (row) => row.flow,
   },
   {
     key: "section",
-    header: "Profile Section",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.section"),
     cell: (row) => row.section,
   },
   {
     key: "count",
-    header: "Diagnostics",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.diagnostics"),
     cell: (row) => String(row.count),
   },
   {
     key: "path",
-    header: "Example Path",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.example.path"),
     cell: (row) => row.path,
   },
 ];
@@ -6693,27 +7235,27 @@ const dryRunDiagnosticGroupColumns: DataColumn<ReturnType<typeof dryRunDiagnosti
 const dryRunEvidenceColumns: DataColumn<CatalogProviderProfileDryRunResult["hashMaterial"][number]>[] = [
   {
     key: "path",
-    header: "Path",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.path"),
     cell: (row) => row.path,
   },
   {
     key: "owner",
-    header: "Owner",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.owner"),
     cell: (row) => row.owner,
   },
   {
     key: "uses",
-    header: "Uses",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.uses"),
     cell: (row) => row.uses.join(", "),
   },
   {
     key: "redaction",
-    header: "Redaction",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.redaction"),
     cell: (row) => row.redaction,
   },
   {
     key: "value",
-    header: "Value",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.value"),
     cell: (row) => summarizeJsonValue(row.value),
   },
 ];
@@ -6723,22 +7265,22 @@ const dryRunDuplicatePreventionColumns: DataColumn<
 >[] = [
   {
     key: "rule",
-    header: "Rule",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.rule"),
     cell: (row) => row.ruleKey,
   },
   {
     key: "kind",
-    header: "Kind",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.kind"),
     cell: (row) => row.ruleKind,
   },
   {
     key: "policy",
-    header: "Policy",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.policy"),
     cell: (row) => row.candidatePolicy,
   },
   {
     key: "evidence",
-    header: "Evidence",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.evidence"),
     cell: (row) => String(row.evidence.length),
   },
 ];
@@ -6748,12 +7290,12 @@ const dryRunPromotionCommandColumns: DataColumn<
 >[] = [
   {
     key: "command",
-    header: "Command",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.command"),
     cell: (row) => row.commandName,
   },
   {
     key: "inputs",
-    header: "Inputs",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.inputs"),
     cell: (row) => String(row.inputs.length),
   },
 ];
