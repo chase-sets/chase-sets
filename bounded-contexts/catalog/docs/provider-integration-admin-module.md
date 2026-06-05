@@ -1,6 +1,6 @@
 # Provider Integration Admin Module
 
-The Catalog provider integration admin module is the operator surface for authoring, validating, activating, importing, replaying, and retiring Provider Integration Profile versions.
+The Catalog provider integration admin module is the operator surface for authoring, validating, activating, importing, replaying, and retiring Provider Integration Profile versions. It is part of the [Catalog Integration Control Plane](./catalog-integration-control-plane.md).
 
 Normal operator workflows must be fully UI driven. Operators should not need to edit profile JSON, fixture JSON, candidate JSON, active JSON, or dry-run result JSON to complete supported work. Versioned JSONB remains an acceptable persistence format, but the admin module must expose typed forms, guided controls, semantic comparisons, fixture workbenches, and diagnostics that map back to domain concepts.
 
@@ -83,4 +83,3 @@ Expected primitives include:
 - active job and completed job summary panels
 
 Create missing primitives in the design system or local admin component layer when the current components cannot support this workflow cleanly.
-
