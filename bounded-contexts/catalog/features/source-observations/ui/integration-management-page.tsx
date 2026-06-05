@@ -3740,7 +3740,11 @@ function ProfileBasicsEditor({
                 rows={4}
                 onChange={(event) => setOptionQuery(query.id, { metadataPathsText: event.currentTarget.value })}
               />
-              <ProviderOptionQueryPreview providerKey={profile.providerKey} query={query} />
+              <ProviderOptionQueryPreview
+                providerKey={profile.providerKey}
+                query={query}
+                previewPayload={previewPayload}
+              />
             </Stack>
           ))}
         </Stack>
@@ -3763,10 +3767,14 @@ function ProfileBasicsEditor({
 function ProviderOptionQueryPreview({
   providerKey,
   query,
+  previewPayload,
 }: Readonly<{
   providerKey: string;
   query: ProfileOptionQueryForm;
+  previewPayload: JsonValue | null;
 }>) {
+  const samplePreview = previewPayload ? providerOptionSamplePreview(query, previewPayload) : null;
+
   return (
     <TaskSummary
       title="Import Surface Preview"
@@ -3776,6 +3784,14 @@ function ProviderOptionQueryPreview({
         { label: "Output option", value: providerOptionOutputPreview(query) },
         { label: "Aliases", value: parseListInput(query.aliasesText).join(", ") || "None" },
         { label: "Metadata", value: providerOptionMetadataPreview(query) },
+        {
+          label: "Sample output",
+          value: samplePreview ? summarizeJsonValue(samplePreview.output) : "No fixture sample",
+        },
+        {
+          label: "Sample diagnostics",
+          value: samplePreview?.diagnostics.length ? samplePreview.diagnostics.join("; ") : "None",
+        },
       ]}
     />
   );
@@ -8345,6 +8361,54 @@ export function providerOptionMetadataPreview(query: ProfileOptionQueryForm): st
   const metadata = metadataPathsObject(query.metadataPathsText);
   const entries = Object.entries(metadata).map(([key, path]) => `${key}=${path}`);
   return entries.length > 0 ? entries.join(", ") : "No metadata paths.";
+}
+
+export function providerOptionSamplePreview(query: ProfileOptionQueryForm, payload: JsonValue) {
+  const diagnostics: string[] = [];
+  const output: Record<string, JsonValue> = {
+    value: providerOptionPreviewPath(query.valuePath, payload, "value path", diagnostics),
+    label: providerOptionPreviewPath(query.labelPath, payload, "label path", diagnostics),
+  };
+  if (query.parentValuePath.trim()) {
+    output.parentValue = providerOptionPreviewPath(query.parentValuePath, payload, "parent value path", diagnostics);
+  }
+  if (query.imageUrlPath.trim()) {
+    output.imageUrl = providerOptionPreviewPath(query.imageUrlPath, payload, "image URL path", diagnostics);
+  }
+  const coalescedImage = parseListInput(query.imageUrlCoalescePathsText)
+    .map((path) => providerOptionPreviewPath(path, payload, `image coalesce path '${path}'`, diagnostics))
+    .find((value) => value !== null && value !== "");
+  if (coalescedImage !== undefined) {
+    output.coalescedImageUrl = coalescedImage;
+  }
+  const metadata = Object.fromEntries(
+    Object.entries(metadataPathsObject(query.metadataPathsText)).map(([key, path]) => [
+      key,
+      providerOptionPreviewPath(path, payload, `metadata path '${key}'`, diagnostics),
+    ]),
+  ) as Record<string, JsonValue>;
+  if (Object.keys(metadata).length > 0) {
+    output.metadata = metadata;
+  }
+  return { output, diagnostics };
+}
+
+function providerOptionPreviewPath(
+  path: string,
+  payload: JsonValue,
+  label: string,
+  diagnostics: string[],
+): JsonValue {
+  if (!path.trim()) {
+    diagnostics.push(`${label} is not configured.`);
+    return null;
+  }
+  const preview = previewMappingExpression(
+    defaultPathExpression(path, "external-reference", ["source-payload"]),
+    payload,
+  );
+  diagnostics.push(...preview.diagnostics.map((diagnostic) => `${label}: ${diagnostic}`));
+  return preview.value;
 }
 
 function validateOptionQueryForms(queries: readonly ProfileOptionQueryForm[]): string[] {

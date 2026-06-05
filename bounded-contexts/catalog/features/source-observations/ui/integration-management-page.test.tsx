@@ -10,6 +10,7 @@ import {
   providerOptionMetadataPreview,
   providerOptionOutputPreview,
   providerOptionParentPreview,
+  providerOptionSamplePreview,
   promotionPlanPreview,
   referenceHierarchyPreview,
 } from "./integration-management-page";
@@ -288,6 +289,57 @@ describe("IntegrationManagementPage", () => {
         metadataPathsText: "languageCode=$languageCode\nseriesId=seriesId",
       }),
     ).toBe("Pull Provider Data: TCGdex series selector after language.");
+  });
+
+  it("builds provider option sample output previews from fixture payloads", () => {
+    const preview = providerOptionSamplePreview(
+      {
+        id: "set-names-1",
+        queryKind: "set-names",
+        aliasesText: "set-name, sets",
+        displayName: "Set Name",
+        scope: "set-name",
+        parentScope: "product-line/category",
+        parentRequired: true,
+        parentValueKind: "product-line-id",
+        parentDiagnosticText: "Choose a product line first.",
+        operation: "tcgplayer-list-set-names",
+        valuePath: "cleanSetName",
+        labelPath: "name",
+        descriptionKind: "tcgplayer-set-name",
+        descriptionPath: "",
+        parentValuePath: "productLineId",
+        imageUrlPath: "missingImage",
+        imageUrlCoalescePathsText: "image.url, fallbackImageUrl",
+        metadataPathsText: "productLineId=productLineId\ncleanSetName=cleanSetName\nmissing=missing.value",
+      },
+      {
+        productLineId: 3,
+        cleanSetName: "prismatic-evolutions",
+        name: "Prismatic Evolutions",
+        image: { url: "" },
+        fallbackImageUrl: "https://images.example/prismatic.png",
+      },
+    );
+
+    expect(preview.output).toEqual({
+      value: "prismatic-evolutions",
+      label: "Prismatic Evolutions",
+      parentValue: 3,
+      imageUrl: null,
+      coalescedImageUrl: "https://images.example/prismatic.png",
+      metadata: {
+        productLineId: 3,
+        cleanSetName: "prismatic-evolutions",
+        missing: null,
+      },
+    });
+    expect(preview.diagnostics).toEqual(
+      expect.arrayContaining([
+        "image URL path: Preview path 'missingImage' was not found.",
+        "metadata path 'missing': Preview path 'missing.value' was not found.",
+      ]),
+    );
   });
 
   it("builds external reference previews from fixture payloads", () => {
