@@ -1,6 +1,6 @@
 # Source Observation Integration
 
-Catalog owns provider-fed product facts through a review-first Source Observation workflow.
+Catalog owns provider-fed product facts through a review-first Source Observation workflow. The broader provider integration boundary is documented in [Catalog Integration Control Plane](./catalog-integration-control-plane.md), and source-to-source field authority is documented in [Source Conflict Resolution](./source-conflict-resolution.md).
 
 ## Policy
 

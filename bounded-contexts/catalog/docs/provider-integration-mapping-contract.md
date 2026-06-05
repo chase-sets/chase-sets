@@ -1,6 +1,6 @@
 # Provider Integration Mapping Contract
 
-Catalog provider integrations use an executable mapping contract to turn provider payload evidence into Catalog-owned review data and command plans.
+Catalog provider integrations use an executable mapping contract to turn provider payload evidence into Catalog-owned review data and command plans. The broader control-plane boundary is documented in [Catalog Integration Control Plane](./catalog-integration-control-plane.md), and the new-provider architecture benchmark is documented in [Catalog Integration New-Provider Walkthrough](./catalog-integration-new-provider-walkthrough.md).
 
 This contract is the target migration path for Provider Integration Profiles. It does not replace provider transport adapters. Transport adapters fetch and parse provider payloads. Catalog-owned mapping profiles define what the payload means to Catalog.
 
