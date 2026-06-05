@@ -11,6 +11,7 @@ import {
   providerOptionOutputPreview,
   providerOptionParentPreview,
   providerOptionSamplePreview,
+  promotionCommandRequiredInputKeys,
   promotionPlanPreview,
   referenceHierarchyPreview,
 } from "./integration-management-page";
@@ -702,20 +703,24 @@ describe("IntegrationManagementPage", () => {
         {
           order: 1,
           commandName: "CreateCatalogItem",
+          requiredInputs: ["title"],
           inputs: { title: "Charizard", externalKey: "tcgdex:swsh3-20" },
         },
         {
           order: 2,
           commandName: "AssignBlueprintToCatalogItem",
+          requiredInputs: ["blueprintKey"],
           inputs: { blueprintKey: "pokemon-card-single" },
         },
         {
           order: 3,
           commandName: "SetCatalogItemFieldValue",
+          requiredInputs: ["fieldKey", "value"],
           inputs: { fieldKey: "card-name", value: "Charizard" },
         },
       ],
     });
+    expect(promotionCommandRequiredInputKeys("LinkExternalProductReference")).toEqual(["providerKey", "externalKey"]);
   });
 
   it("shows pulled provider scopes with language expansion series and review counts", () => {
@@ -2270,6 +2275,64 @@ describe("IntegrationManagementPage", () => {
         "Promotion command plan: provider-product profiles need the catalog-item-promotion capability before commands can be configured.",
       ),
     ).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("blocks promotion commands that omit command-specific required inputs", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgdex",
+            profileKey: "tcgdex-pokemon-card",
+            displayName: "TCGdex",
+            lifecycle: "draft",
+            capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
+            mappingOutputKind: "pokemon-card",
+            executableMappingContract: executableMappingContract({
+              outputKind: "pokemon-card",
+              promotionCommandPlan: {
+                requiresReview: true,
+                commands: [
+                  {
+                    commandName: "SetCatalogItemFieldValue",
+                    inputs: {
+                      fieldKey: mappingExpression("catalog.fields.cardName", "catalog-truth", ["promotion-command"]),
+                    },
+                  },
+                ],
+              },
+            }),
+            profile: {
+              providerKey: "tcgdex",
+              profileKey: "tcgdex-pokemon-card",
+              displayName: "TCGdex",
+              status: "planned",
+              connector: { kind: "tcgdex-json" },
+              capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
+              supportedScopes: ["language", "series", "expansion", "product/card"],
+              languageOptions: ["en"],
+              optionQueries: [],
+              normalizedObservationMapping: { kind: "pokemon-card" },
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).getByText("Promotion command 1: missing required inputs value.")).toBeTruthy();
+    expect(within(dialog).getByText("Required inputs")).toBeTruthy();
     expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 

@@ -246,6 +246,19 @@ const PROMOTION_COMMAND_NAME_OPTIONS = [
   { value: "LinkExternalCatalogItemReference", label: "Link External Catalog Item Reference" },
   { value: "LinkExternalProductReference", label: "Link External Product Reference" },
 ] satisfies SelectItem[];
+const PROMOTION_COMMAND_REQUIRED_INPUTS: Readonly<Record<ProfilePromotionCommandForm["commandName"], readonly string[]>> = {
+  CreateCatalogItem: ["title"],
+  RefreshCatalogItem: ["title"],
+  ReviseCatalogItemMetadata: ["title"],
+  AssignBlueprintToCatalogItem: ["blueprintKey"],
+  AssignCatalogItemToCategory: ["categoryKey"],
+  SetCatalogItemFieldValue: ["fieldKey", "value"],
+  SetCatalogItemTags: ["tags"],
+  SetCatalogItemImageUrls: ["imageUrls"],
+  SetCatalogItemProductAssetSets: ["productAssetSets"],
+  LinkExternalCatalogItemReference: ["references"],
+  LinkExternalProductReference: ["providerKey", "externalKey"],
+};
 const REFERENCE_RECORD_ID_KIND_OPTIONS = [
   { value: "static", label: "Static record ID" },
   { value: "provider", label: "Provider-derived ID" },
@@ -5717,6 +5730,16 @@ function PromotionPlanEditor({
                 })
               }
             />
+            <KeyValueList
+              density="compact"
+              variant="plain"
+              items={[
+                {
+                  key: "Required inputs",
+                  value: promotionCommandRequiredInputKeys(command.commandName).join(", ") || "None",
+                },
+              ]}
+            />
             <PromotionCommandInputsEditor
               command={command}
               editable={editable}
@@ -5764,6 +5787,7 @@ export function promotionPlanPreview(form: ProfilePromotionPlanForm, payload: Js
     commands: form.commands.map((command, index) => ({
       order: index + 1,
       commandName: command.commandName,
+      requiredInputs: promotionCommandRequiredInputKeys(command.commandName),
       inputs: Object.fromEntries(
         command.inputs.map((input) => [
           input.fieldKey.trim() || "unnamed",
@@ -5772,6 +5796,12 @@ export function promotionPlanPreview(form: ProfilePromotionPlanForm, payload: Js
       ) as JsonValue,
     })),
   };
+}
+
+export function promotionCommandRequiredInputKeys(
+  commandName: ProfilePromotionCommandForm["commandName"],
+): readonly string[] {
+  return PROMOTION_COMMAND_REQUIRED_INPUTS[commandName] ?? [];
 }
 
 function PromotionCommandInputsEditor({
@@ -7981,6 +8011,13 @@ function validatePromotionPlanForm(form: ProfilePromotionPlanForm, basics?: Prof
       diagnostics.push(`${label}: at least one input is required.`);
     }
     const seenInputs = new Set<string>();
+    const inputKeys = new Set(command.inputs.map((input) => input.fieldKey.trim()).filter(Boolean));
+    const missingRequiredInputs = promotionCommandRequiredInputKeys(command.commandName).filter(
+      (inputKey) => !inputKeys.has(inputKey),
+    );
+    if (missingRequiredInputs.length > 0) {
+      diagnostics.push(`${label}: missing required inputs ${missingRequiredInputs.join(", ")}.`);
+    }
     command.inputs.forEach((input, inputIndex) => {
       const inputKey = input.fieldKey.trim();
       if (!inputKey) {
