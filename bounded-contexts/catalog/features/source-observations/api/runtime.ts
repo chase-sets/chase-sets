@@ -90,6 +90,14 @@ import {
   requireCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
+import { ProviderAdapterRegistry } from "./provider-adapters/registry";
+import {
+  createReferenceCardsProviderAdapter,
+  isReferenceCardsProofUnit,
+  REFERENCE_CARDS_PROFILE_VERSION,
+  runReferenceCardsSourceObservationProofDryRun,
+} from "./provider-adapters/reference-cards";
+import type { ProviderTransportDiagnostic } from "./provider-adapters/provider-adapter";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
 import {
   planCatalogProviderPromotionCommands,
@@ -356,6 +364,40 @@ export type SourceObservationDuplicatePreventionCandidatePreview = Readonly<{
   evidenceSummaries: readonly CatalogProviderDuplicatePreventionEvidenceSummary[];
 }>;
 
+export type CatalogIntegrationControlPlaneReadiness = Readonly<{
+  generatedAt: string;
+  units: readonly CatalogIntegrationControlPlaneUnitReadiness[];
+}>;
+
+export type CatalogIntegrationControlPlaneUnitReadiness = Readonly<{
+  unitKey: string;
+  providerKey: string;
+  displayName: string;
+  productDomain: string;
+  productForm: string;
+  ingestionPurpose: string | null;
+  profileVersion: string;
+  semanticReadiness: "ready" | "blocked";
+  transportReadiness: "ready" | "blocked";
+  fixtureValidationStatus: "ready" | "blocked";
+  dryRunStatus: "completed" | "blocked";
+  observationFacts: number;
+  diagnosticCounts: Readonly<{
+    info: number;
+    warning: number;
+    error: number;
+  }>;
+  latestDiagnosticText: string | null;
+  dryRunEvidence: readonly CatalogIntegrationControlPlaneDryRunEvidence[];
+}>;
+
+export type CatalogIntegrationControlPlaneDryRunEvidence = Readonly<{
+  externalKey: string;
+  sourceUrl: string | null;
+  sourceHash: string | null;
+  normalizedFacts: Readonly<Record<string, string>>;
+}>;
+
 export type SourceObservationServices = Readonly<{
   commandHandler: CommandHandler<SourceObservationCommand, SourceObservationState, SourceObservationEvent>;
   importTcgdexSet: (input: {
@@ -497,6 +539,7 @@ export type SourceObservationServices = Readonly<{
     language?: string;
     setId?: string;
   }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
+  getCatalogIntegrationControlPlaneReadiness: () => Promise<CatalogIntegrationControlPlaneReadiness>;
   pruneSourceObservationJobRetention: (input?: {
     completedBefore?: string | Date;
     limit?: number;
@@ -598,6 +641,7 @@ export function createSourceObservationRuntime(
       eventSnapshot: toSourceObservationIntegrationJobEventSnapshot,
     },
   );
+  const providerAdapterRegistry = new ProviderAdapterRegistry([createReferenceCardsProviderAdapter()]);
 
   async function recordObservation(observation: SourceObservationRecordInput, context: EventStoreContext) {
     await commandHandler({
@@ -2678,6 +2722,8 @@ export function createSourceObservationRuntime(
     getIntegrationWorkUnitSummary: (input = {}) => integrationWorkUnitStore.summarize({ jobId: input.jobId ?? null }),
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
     listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
+    getCatalogIntegrationControlPlaneReadiness: async () =>
+      buildCatalogIntegrationControlPlaneReadiness(providerAdapterRegistry),
     pruneSourceObservationJobRetention: async (input = {}) => {
       const completedBefore = input.completedBefore ?? sourceObservationRetentionCutoff(7);
       const [bulkReviewJobs, integrationJobs] = await Promise.all([
@@ -2734,6 +2780,78 @@ async function listProviderIntegrationOptions(
       },
     },
   });
+}
+
+async function buildCatalogIntegrationControlPlaneReadiness(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<CatalogIntegrationControlPlaneReadiness> {
+  const units: CatalogIntegrationControlPlaneUnitReadiness[] = [];
+
+  for (const providerKey of providerAdapterRegistry.listProviderKeys()) {
+    const adapter = providerAdapterRegistry.require(providerKey);
+    const [descriptors, transportDiagnostics] = await Promise.all([
+      adapter.listIntegrationUnits(),
+      adapter.getTransportDiagnostics(),
+    ]);
+
+    for (const descriptor of descriptors) {
+      const dryRun = isReferenceCardsProofUnit(descriptor.unitKey)
+        ? await runReferenceCardsSourceObservationProofDryRun()
+        : null;
+      const unitDiagnostics = [
+        ...transportDiagnostics.filter(
+          (diagnostic) => !diagnostic.unitKey || diagnostic.unitKey === descriptor.unitKey,
+        ),
+        ...(dryRun?.diagnostics.map((diagnostic) => ({
+          code: diagnostic.code,
+          severity: diagnostic.severity,
+          message: diagnostic.diagnosticText,
+          unitKey: diagnostic.unitKey,
+        })) ?? []),
+      ];
+      const errorCount = countDiagnostics(unitDiagnostics, "error");
+
+      units.push({
+        unitKey: descriptor.unitKey,
+        providerKey: descriptor.providerKey,
+        displayName: descriptor.displayName,
+        productDomain: descriptor.productDomain,
+        productForm: descriptor.productForm,
+        ingestionPurpose: descriptor.ingestionPurpose ?? null,
+        profileVersion: isReferenceCardsProofUnit(descriptor.unitKey) ? REFERENCE_CARDS_PROFILE_VERSION : "",
+        semanticReadiness: dryRun && errorCount === 0 && dryRun.observations.length > 0 ? "ready" : "blocked",
+        transportReadiness: countDiagnostics(transportDiagnostics, "error") === 0 ? "ready" : "blocked",
+        fixtureValidationStatus: dryRun && dryRun.observations.length > 0 ? "ready" : "blocked",
+        dryRunStatus: dryRun && errorCount === 0 ? "completed" : "blocked",
+        observationFacts: dryRun?.observations.length ?? 0,
+        diagnosticCounts: {
+          info: countDiagnostics(unitDiagnostics, "info"),
+          warning: countDiagnostics(unitDiagnostics, "warning"),
+          error: errorCount,
+        },
+        latestDiagnosticText: unitDiagnostics.at(-1)?.message ?? null,
+        dryRunEvidence:
+          dryRun?.observations.map((observation) => ({
+            externalKey: observation.externalKey,
+            sourceUrl: observation.sourceUrl ?? null,
+            sourceHash: observation.sourceHash ?? null,
+            normalizedFacts: observation.normalizedFacts,
+          })) ?? [],
+      });
+    }
+  }
+
+  return {
+    generatedAt: new Date().toISOString(),
+    units,
+  };
+}
+
+function countDiagnostics(
+  diagnostics: readonly Pick<ProviderTransportDiagnostic, "severity">[],
+  severity: ProviderTransportDiagnostic["severity"],
+): number {
+  return diagnostics.filter((diagnostic) => diagnostic.severity === severity).length;
 }
 
 function requireTcgplayerAutomationCatalogClient(

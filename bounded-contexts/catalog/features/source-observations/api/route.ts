@@ -66,6 +66,11 @@ export function sourceObservationRoutes(
     return c.json({ items, total: items.length, count: items.length });
   });
 
+  app.get("/integration-control-plane/readiness", async (c) => {
+    const result = await services.getCatalogIntegrationControlPlaneReadiness();
+    return c.json(result);
+  });
+
   app.get("/provider-profiles", async (c) => {
     const items = profileVersions ? await listCatalogProviderProfileVersionReviews(profileVersions) : [];
     return c.json({ items, total: items.length, count: items.length });
