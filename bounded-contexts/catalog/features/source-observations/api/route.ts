@@ -5,9 +5,12 @@ import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import {
+  CatalogProviderProfileSectionValidationError,
+  parseCatalogProviderProfileSectionUpdateCommand,
+} from "./provider-profile-admin-contracts";
+import {
   activateCatalogProviderProfileVersionForReview,
   CatalogProviderProfileActivationValidationError,
-  CatalogProviderProfileSectionValidationError,
   cloneCatalogProviderProfileVersionForReview,
   createCatalogProviderProfileVersionForReview,
   deprecateCatalogProviderProfileVersionForReview,
@@ -16,7 +19,6 @@ import {
   listCatalogProviderProfileVersionReviews,
   retireCatalogProviderProfileVersionForReview,
   rollbackCatalogProviderProfileVersionForReview,
-  type CatalogProviderProfileSectionUpdateCommand,
   updateCatalogProviderProfileSectionForReview,
   updateCatalogProviderProfileVersionForReview,
 } from "./provider-profile-review";
@@ -142,11 +144,12 @@ export function sourceObservationRoutes(
 
     try {
       const commandBody = isRecord(body.command) ? body.command : body;
+      const command = parseCatalogProviderProfileSectionUpdateCommand(commandBody, c.req.param("section"));
       const result = await updateCatalogProviderProfileSectionForReview({
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
-        command: { ...commandBody, section: c.req.param("section") } as CatalogProviderProfileSectionUpdateCommand,
+        command,
         audit: authoringAuditFromContext(c.get("context")),
       });
 

@@ -129,6 +129,12 @@ The response is grouped by ingestion unit and includes:
 
 The Phase 1 reference record is `reference-cards:pokemon:single-card:source-observation-proof`. It is fixture-backed, has no live transport dependency, and runs through the ProviderAdapter registry plus the Catalog Integration Engine before the Admin UI reports it as ready. Future live provider readiness should use the same contract while keeping provider transport details on adapters and Catalog semantic readiness on ingestion units.
 
+## Admin Section Command Contract
+
+Provider profile section updates use the shared `provider-profile-admin-contracts` module under Source Observations. The Hono route parses section update commands before invoking review services, and the Admin UI imports the same section key and command DTO types instead of maintaining a duplicate union. Invalid section commands return HTTP 400 with `invalid_profile_section_command` and a stable validation message.
+
+The URL section key is authoritative for section update routes. Request bodies may be wrapped in `{ "command": ... }` for compatibility, but normal Admin Control Plane workflows should send typed section commands rather than raw profile JSON snapshots.
+
 ## Related Docs
 
 - [Provider Integration Profiles](./provider-integration-profiles.md)

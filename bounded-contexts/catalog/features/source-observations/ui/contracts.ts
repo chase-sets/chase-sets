@@ -1,5 +1,24 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationNormalized } from "../domain/domain";
+import type {
+  CatalogProviderProfileBasicsUpdateCommand,
+  CatalogProviderProfileCatalogFieldMappingUpdateCommand,
+  CatalogProviderProfileConnectorUpdateCommand,
+  CatalogProviderProfileDuplicatePreventionUpdateCommand,
+  CatalogProviderProfileEditableSectionKey,
+  CatalogProviderProfileExternalReferencesUpdateCommand,
+  CatalogProviderProfileFixturesUpdateCommand,
+  CatalogProviderProfileMigrationEvidenceUpdateCommand,
+  CatalogProviderProfileNormalizedObservationUpdateCommand,
+  CatalogProviderProfilePromotionPlanUpdateCommand,
+  CatalogProviderProfileProviderOptionsUpdateCommand,
+  CatalogProviderProfileReferenceHierarchyUpdateCommand,
+  CatalogProviderProfileRetirementPlanUpdateCommand,
+  CatalogProviderProfileSectionUpdateCommand,
+  CatalogProviderProfileSelectedOptionsUpdateCommand,
+  CatalogProviderProfileSourceContractUpdateCommand,
+  CatalogProviderProfileSourceObservationUpdateCommand,
+} from "../api/provider-profile-admin-contracts";
 
 export interface SourceObservationListItem {
   observation_id: string;
@@ -187,128 +206,25 @@ export interface CatalogProviderProfileVersionReview {
   };
 }
 
-export type CatalogProviderProfileEditableSectionKey =
-  | "basics"
-  | "provider-options"
-  | "connector"
-  | "catalog-field-mapping"
-  | "source-contract"
-  | "fixtures"
-  | "source-observation"
-  | "normalized-observation"
-  | "external-references"
-  | "selected-options"
-  | "reference-hierarchy"
-  | "duplicate-prevention"
-  | "promotion-plan"
-  | "retirement-plan"
-  | "migration-evidence";
-
-export type CatalogProviderProfileSectionObject = Record<string, JsonValue>;
-
-export interface CatalogProviderProfileBasicsUpdateCommand {
-  section: "basics";
-  lifecycle?: "draft" | "test";
-  displayName?: string;
-  status?: "active" | "planned";
-  compatibilityMode?: "executable-mapping-contract" | "transitional-static-profile";
-  capabilities?: string[];
-  supportedScopes?: string[];
-  languageOptions?: string[];
-}
-
-export interface CatalogProviderProfileProviderOptionsUpdateCommand {
-  section: "provider-options";
-  optionQueries: CatalogProviderProfileSectionObject[];
-}
-
-export interface CatalogProviderProfileConnectorUpdateCommand {
-  section: "connector";
-  connector: CatalogProviderProfileSectionObject;
-  mappingConnector?: CatalogProviderProfileSectionObject;
-}
-
-export interface CatalogProviderProfileCatalogFieldMappingUpdateCommand {
-  section: "catalog-field-mapping";
-  catalogFieldMapping: CatalogProviderProfileSectionObject;
-}
-
-export interface CatalogProviderProfileSourceContractUpdateCommand {
-  section: "source-contract";
-  sourceContract: CatalogProviderProfileVersionReview["sourceContract"];
-}
-
-export interface CatalogProviderProfileFixturesUpdateCommand {
-  section: "fixtures";
-  fixtures: CatalogProviderProfileVersionReview["fixtures"];
-}
-
-export interface CatalogProviderProfileSourceObservationUpdateCommand {
-  section: "source-observation";
-  sourceObservation: CatalogProviderProfileSectionObject | null;
-}
-
-export interface CatalogProviderProfileNormalizedObservationUpdateCommand {
-  section: "normalized-observation";
-  normalizedObservationMapping?: CatalogProviderProfileSectionObject;
-  normalizedObservationContract?: CatalogProviderProfileSectionObject;
-}
-
-export interface CatalogProviderProfileExternalReferencesUpdateCommand {
-  section: "external-references";
-  externalReferenceExtractionRules?: CatalogProviderProfileSectionObject;
-  externalReferenceContracts?: CatalogProviderProfileSectionObject[];
-}
-
-export interface CatalogProviderProfileSelectedOptionsUpdateCommand {
-  section: "selected-options";
-  selectedOptionMapping: CatalogProviderProfileSectionObject | null;
-}
-
-export interface CatalogProviderProfileReferenceHierarchyUpdateCommand {
-  section: "reference-hierarchy";
-  referenceHierarchyMapping?: CatalogProviderProfileSectionObject;
-  referenceHierarchyContracts?: CatalogProviderProfileSectionObject[];
-}
-
-export interface CatalogProviderProfileDuplicatePreventionUpdateCommand {
-  section: "duplicate-prevention";
-  duplicatePreventionMapping?: CatalogProviderProfileSectionObject;
-  ambiguityRules?: CatalogProviderProfileSectionObject;
-  duplicatePreventionContract?: CatalogProviderProfileSectionObject;
-}
-
-export interface CatalogProviderProfilePromotionPlanUpdateCommand {
-  section: "promotion-plan";
-  promotionCommandPlan: CatalogProviderProfileSectionObject;
-}
-
-export interface CatalogProviderProfileRetirementPlanUpdateCommand {
-  section: "retirement-plan";
-  retirementPlan: JsonValue;
-}
-
-export interface CatalogProviderProfileMigrationEvidenceUpdateCommand {
-  section: "migration-evidence";
-  migrationEvidence: CatalogProviderProfileVersionReview["migrationEvidence"];
-}
-
-export type CatalogProviderProfileSectionUpdateCommand =
-  | CatalogProviderProfileBasicsUpdateCommand
-  | CatalogProviderProfileProviderOptionsUpdateCommand
-  | CatalogProviderProfileConnectorUpdateCommand
-  | CatalogProviderProfileCatalogFieldMappingUpdateCommand
-  | CatalogProviderProfileSourceContractUpdateCommand
-  | CatalogProviderProfileFixturesUpdateCommand
-  | CatalogProviderProfileSourceObservationUpdateCommand
-  | CatalogProviderProfileNormalizedObservationUpdateCommand
-  | CatalogProviderProfileExternalReferencesUpdateCommand
-  | CatalogProviderProfileSelectedOptionsUpdateCommand
-  | CatalogProviderProfileReferenceHierarchyUpdateCommand
-  | CatalogProviderProfileDuplicatePreventionUpdateCommand
-  | CatalogProviderProfilePromotionPlanUpdateCommand
-  | CatalogProviderProfileRetirementPlanUpdateCommand
-  | CatalogProviderProfileMigrationEvidenceUpdateCommand;
+export type {
+  CatalogProviderProfileBasicsUpdateCommand,
+  CatalogProviderProfileCatalogFieldMappingUpdateCommand,
+  CatalogProviderProfileConnectorUpdateCommand,
+  CatalogProviderProfileDuplicatePreventionUpdateCommand,
+  CatalogProviderProfileEditableSectionKey,
+  CatalogProviderProfileExternalReferencesUpdateCommand,
+  CatalogProviderProfileFixturesUpdateCommand,
+  CatalogProviderProfileMigrationEvidenceUpdateCommand,
+  CatalogProviderProfileNormalizedObservationUpdateCommand,
+  CatalogProviderProfilePromotionPlanUpdateCommand,
+  CatalogProviderProfileProviderOptionsUpdateCommand,
+  CatalogProviderProfileReferenceHierarchyUpdateCommand,
+  CatalogProviderProfileRetirementPlanUpdateCommand,
+  CatalogProviderProfileSectionUpdateCommand,
+  CatalogProviderProfileSelectedOptionsUpdateCommand,
+  CatalogProviderProfileSourceContractUpdateCommand,
+  CatalogProviderProfileSourceObservationUpdateCommand,
+};
 
 export interface CatalogProviderProfileEditableSection {
   section: CatalogProviderProfileEditableSectionKey;
