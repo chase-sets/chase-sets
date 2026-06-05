@@ -98,6 +98,7 @@ export function sourceObservationRoutes(
       store: profileVersions,
       providerKey: c.req.param("providerKey"),
       profileVersion: c.req.param("profileVersion"),
+      selectedOptionSchema: await services.getSelectedOptionAuthoringSchema?.(),
     });
 
     return c.json(result);

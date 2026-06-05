@@ -388,7 +388,25 @@ describe("source observation routes", () => {
   });
 
   it("returns a typed provider profile authoring model through the admin API", async () => {
-    const services = {} as SourceObservationServices;
+    const getSelectedOptionAuthoringSchema = vi.fn(async () => ({
+      dimensions: [
+        {
+          dimensionId: "dim_condition",
+          dimensionKey: "condition",
+          dimensionName: "Condition",
+          status: "active",
+          options: [
+            {
+              optionId: "opt_near_mint",
+              optionKey: "near-mint",
+              optionLabel: "Near Mint",
+              status: "active",
+            },
+          ],
+        },
+      ],
+    }));
+    const services = { getSelectedOptionAuthoringSchema } as unknown as SourceObservationServices;
     const store = mutableProfileStore([
       ...catalogProviderIntegrationProfileVersions,
       profileVersion("tcgdex", {
@@ -419,7 +437,16 @@ describe("source observation routes", () => {
       activationReadiness: {
         status: "blocked",
       },
+      selectedOptionSchema: {
+        dimensions: [
+          expect.objectContaining({
+            dimensionKey: "condition",
+            options: [expect.objectContaining({ optionKey: "near-mint" })],
+          }),
+        ],
+      },
     });
+    expect(getSelectedOptionAuthoringSchema).toHaveBeenCalledOnce();
   });
 
   it("returns structured bad requests for invalid profile section commands", async () => {

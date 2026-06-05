@@ -340,6 +340,21 @@ export interface CatalogProviderProfileActivationReadiness {
   referenceCount: number;
 }
 
+export interface CatalogProviderSelectedOptionAuthoringSchema {
+  dimensions: {
+    dimensionId: string;
+    dimensionKey: string;
+    dimensionName: string;
+    status: string;
+    options: {
+      optionId: string;
+      optionKey: string;
+      optionLabel: string;
+      status: string;
+    }[];
+  }[];
+}
+
 export interface CatalogProviderProfileAuthoringModel {
   review: CatalogProviderProfileVersionReview;
   editableSections: CatalogProviderProfileEditableSection[];
@@ -347,6 +362,7 @@ export interface CatalogProviderProfileAuthoringModel {
   dryRunInputTemplate: CatalogProviderProfileDryRunInputTemplate;
   semanticDiff: CatalogProviderProfileSemanticDiff;
   activationReadiness: CatalogProviderProfileActivationReadiness;
+  selectedOptionSchema: CatalogProviderSelectedOptionAuthoringSchema | null;
 }
 
 export interface CatalogProviderProfileDryRunEvidence {

@@ -228,6 +228,43 @@ describe("Catalog provider profile review", () => {
         }),
       ]),
     });
+    expect(model.selectedOptionSchema).toBeNull();
+  });
+
+  it("includes selected option authoring schema when supplied by the admin runtime", async () => {
+    const model = await getCatalogProviderProfileAuthoringModel({
+      store: mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]),
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      repositoryRoot: repositoryRoot(),
+      selectedOptionSchema: {
+        dimensions: [
+          {
+            dimensionId: "dim_condition",
+            dimensionKey: "condition",
+            dimensionName: "Condition",
+            status: "active",
+            options: [
+              {
+                optionId: "opt_near_mint",
+                optionKey: "near-mint",
+                optionLabel: "Near Mint",
+                status: "active",
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(model.selectedOptionSchema).toEqual({
+      dimensions: [
+        expect.objectContaining({
+          dimensionKey: "condition",
+          options: [expect.objectContaining({ optionKey: "near-mint" })],
+        }),
+      ],
+    });
   });
 
   it("updates profile basics through typed section commands", async () => {

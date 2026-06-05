@@ -475,6 +475,81 @@ describe("IntegrationManagementPage", () => {
     ]);
   });
 
+  it("resolves selected option previews against active Catalog option schema", () => {
+    const preview = externalReferencePreview(
+      {
+        extractionRules: {},
+        contracts: [
+          {
+            id: "product-reference",
+            target: "product-reference",
+            providerKey: "tcgplayer",
+            externalKeyPrefix: "sku:",
+            source: mappingExpression("sku", "external-reference", ["external-reference"]) as MappingExpressionValue,
+            ambiguityPolicy: "review-evidence",
+            selectedOptions: {
+              missingOrUnknownOptionPolicy: "leave-unmapped-review-evidence",
+              dimensions: [
+                {
+                  id: "condition",
+                  dimensionKey: "condition",
+                  providerValue: mappingExpression("condition", "external-reference", [
+                    "selected-option",
+                  ]) as MappingExpressionValue,
+                  optionLookupTableKey: "catalog-condition",
+                  required: true,
+                },
+                {
+                  id: "printing",
+                  dimensionKey: "printing",
+                  providerValue: mappingExpression("printing", "external-reference", [
+                    "selected-option",
+                  ]) as MappingExpressionValue,
+                  optionLookupTableKey: "catalog-printing",
+                  required: true,
+                },
+              ],
+            },
+          },
+        ],
+        selectedOptionMapping: null,
+      },
+      { sku: 610001, condition: "Near Mint", printing: "Confetti Galaxy Foil" },
+      {
+        dimensions: [
+          {
+            dimensionId: "dim_condition",
+            dimensionKey: "condition",
+            dimensionName: "Condition",
+            status: "active",
+            options: [
+              {
+                optionId: "opt_near_mint",
+                optionKey: "near-mint",
+                optionLabel: "Near Mint",
+                status: "active",
+              },
+            ],
+          },
+          {
+            dimensionId: "dim_printing",
+            dimensionKey: "printing",
+            dimensionName: "Printing",
+            status: "active",
+            options: [],
+          },
+        ],
+      },
+    );
+
+    expect(preview.selectedOptions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ dimension: "condition", previewDisposition: "catalog-option-active" }),
+        expect.objectContaining({ dimension: "printing", previewDisposition: "catalog-option-missing" }),
+      ]),
+    );
+  });
+
   it("builds reference hierarchy previews from fixture payloads", () => {
     const preview = referenceHierarchyPreview(
       {
@@ -1552,6 +1627,71 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/product references require selected option dimensions/i)).toBeTruthy();
+    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("blocks selected option dimension keys that are absent from active Catalog schema", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgplayer",
+            profileKey: "tcgplayer-product",
+            displayName: "TCGplayer",
+            profile: {
+              providerKey: "tcgplayer",
+              profileKey: "tcgplayer-product",
+              displayName: "TCGplayer",
+              status: "planned",
+              connector: tcgplayerConnectorFixture(),
+              capabilities: ["source-observation-import", "external-reference-extraction"],
+              supportedScopes: ["product"],
+              languageOptions: ["en"],
+              optionQueries: [],
+              normalizedObservationMapping: { kind: "provider-product" },
+              selectedOptionMapping: selectedOptionMappingFixture(),
+              externalReferenceExtractionRules: { referenceTarget: "mixed", rules: [] },
+            },
+            executableMappingContract: executableMappingContract({
+              externalReferences: externalReferenceContractsFixture(),
+            }),
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseSourceObservationProviderProfileAuthoringModel.mockReturnValue({
+      data: profileAuthoringModel({
+        selectedOptionSchema: {
+          dimensions: [
+            {
+              dimensionId: "dim_printing",
+              dimensionKey: "printing",
+              dimensionName: "Printing",
+              status: "active",
+              options: [],
+            },
+          ],
+        },
+      }),
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    expect(
+      within(dialog).getAllByText(/dimension key 'condition' does not match an active Catalog dimension/i).length,
+    ).toBeGreaterThan(0);
     expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
   });
 
@@ -3766,6 +3906,7 @@ function profileAuthoringModel(
       requiresMigrationEvidence: true,
       referenceCount: 0,
     },
+    selectedOptionSchema: null,
     ...overrides,
   };
 }

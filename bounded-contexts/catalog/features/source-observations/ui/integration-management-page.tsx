@@ -1744,7 +1744,7 @@ export function IntegrationManagementPage({
             <Button
               leadingIcon="settings"
               onClick={handleSaveProfileBasics}
-              disabled={profileBasicsSaveDisabled(editProfile, editBasicsForm)}
+              disabled={profileBasicsSaveDisabled(editProfile, editBasicsForm, editAuthoringModel.data)}
               loading={Boolean(editProfile && profileActionKey === profileActionIdentity(editProfile))}
             >
               Save Basics
@@ -3127,7 +3127,10 @@ function ProfileBasicsEditor({
   const optionQueryDiagnostics = validateOptionQueryForms(form.optionQueries);
   const connectorDiagnostics = validateConnectorForm(form.connector);
   const normalizedObservationDiagnostics = validateNormalizedObservationForm(form.normalizedObservation);
-  const externalReferenceDiagnostics = validateExternalReferencesForm(form.externalReferences);
+  const externalReferenceDiagnostics = validateExternalReferencesForm(
+    form.externalReferences,
+    authoringModel?.selectedOptionSchema ?? null,
+  );
   const referenceHierarchyDiagnostics = validateReferenceHierarchyForm(form.referenceHierarchy);
   const duplicatePreventionDiagnostics = validateDuplicatePreventionForm(form.duplicatePrevention);
   const promotionPlanDiagnostics = validatePromotionPlanForm(form.promotionPlan, form);
@@ -3532,6 +3535,7 @@ function ProfileBasicsEditor({
         onChange={setExternalReferences}
         diagnostics={externalReferenceDiagnostics}
         editable={editable}
+        authoringModel={authoringModel}
         previewPayload={previewPayload}
       />
 
@@ -4095,12 +4099,14 @@ function ExternalReferencesEditor({
   onChange,
   diagnostics,
   editable,
+  authoringModel,
   previewPayload,
 }: Readonly<{
   form: ProfileExternalReferencesForm;
   onChange: (form: ProfileExternalReferencesForm) => void;
   diagnostics: readonly string[];
   editable: boolean;
+  authoringModel: CatalogProviderProfileAuthoringModel | null;
   previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileExternalReferencesForm>) => onChange({ ...form, ...patch });
@@ -4132,7 +4138,11 @@ function ExternalReferencesEditor({
           ))}
         </ul>
       ) : null}
-      <ExternalReferencePreview form={form} previewPayload={previewPayload} />
+      <ExternalReferencePreview
+        form={form}
+        previewPayload={previewPayload}
+        selectedOptionSchema={authoringModel?.selectedOptionSchema ?? null}
+      />
       <Stack gap={4}>
         {form.contracts.map((contract, index) => (
           <Stack key={contract.id} gap={3}>
@@ -4256,11 +4266,13 @@ function ExternalReferencesEditor({
 function ExternalReferencePreview({
   form,
   previewPayload,
+  selectedOptionSchema,
 }: Readonly<{
   form: ProfileExternalReferencesForm;
   previewPayload: JsonValue | null;
+  selectedOptionSchema: CatalogProviderProfileAuthoringModel["selectedOptionSchema"];
 }>) {
-  const preview = previewPayload ? externalReferencePreview(form, previewPayload) : null;
+  const preview = previewPayload ? externalReferencePreview(form, previewPayload, selectedOptionSchema) : null;
 
   return (
     <TaskSummary
@@ -4288,12 +4300,22 @@ function ExternalReferencePreview({
             form.selectedOptionMapping?.missingOrUnknownOptionPolicy ||
             "Not configured",
         },
+        {
+          label: "Catalog option schema",
+          value: selectedOptionSchema
+            ? selectedOptionSchemaSummary(form, selectedOptionSchema)
+            : "Catalog schema context unavailable",
+        },
       ]}
     />
   );
 }
 
-export function externalReferencePreview(form: ProfileExternalReferencesForm, payload: JsonValue) {
+export function externalReferencePreview(
+  form: ProfileExternalReferencesForm,
+  payload: JsonValue,
+  selectedOptionSchema: CatalogProviderProfileAuthoringModel["selectedOptionSchema"] = null,
+) {
   const catalogItemReferences: JsonValue[] = [];
   const productReferences: JsonValue[] = [];
   const selectedOptions: JsonValue[] = [];
@@ -4320,6 +4342,8 @@ export function externalReferencePreview(form: ProfileExternalReferencesForm, pa
             previewDisposition: selectedOptionPreviewDisposition(
               providerValue,
               contract.selectedOptions?.missingOrUnknownOptionPolicy,
+              selectedOptionSchema,
+              dimension.dimensionKey,
             ),
           };
         }) ?? [];
@@ -4341,6 +4365,9 @@ export function externalReferencePreview(form: ProfileExternalReferencesForm, pa
       previewDisposition: selectedOptionPreviewDisposition(
         providerValue,
         form.selectedOptionMapping?.missingOrUnknownOptionPolicy,
+        selectedOptionSchema,
+        dimension.dimensionKey,
+        dimension.optionAliasesText,
       ),
     });
   }
@@ -4351,12 +4378,99 @@ export function externalReferencePreview(form: ProfileExternalReferencesForm, pa
 function selectedOptionPreviewDisposition(
   providerValue: JsonValue,
   policy: ProfileExternalSelectedOptionsForm["missingOrUnknownOptionPolicy"] | "leave-unmapped-review-evidence" | undefined,
+  selectedOptionSchema: CatalogProviderProfileAuthoringModel["selectedOptionSchema"] = null,
+  dimensionKey?: string,
+  optionAliasesText?: string,
 ): string {
   const missing = providerValue === null || providerValue === "" || providerValue === undefined;
+  if (!missing && selectedOptionSchema && dimensionKey) {
+    const schemaDisposition = selectedOptionSchemaDisposition(
+      selectedOptionSchema,
+      dimensionKey,
+      providerValue,
+      optionAliasesText,
+    );
+    if (schemaDisposition) {
+      return schemaDisposition;
+    }
+  }
   if (policy === "diagnostic") {
     return missing ? "diagnostic-missing-provider-value" : "diagnostic-if-catalog-option-unknown";
   }
   return missing ? "review-evidence-missing-provider-value" : "review-evidence-if-catalog-option-unknown";
+}
+
+function selectedOptionSchemaDisposition(
+  selectedOptionSchema: NonNullable<CatalogProviderProfileAuthoringModel["selectedOptionSchema"]>,
+  dimensionKey: string,
+  providerValue: JsonValue,
+  optionAliasesText?: string,
+): string | null {
+  const dimension = selectedOptionSchema.dimensions.find(
+    (candidate) => normalizeSelectedOptionKey(candidate.dimensionKey) === normalizeSelectedOptionKey(dimensionKey),
+  );
+  if (!dimension) {
+    return "catalog-dimension-missing";
+  }
+  if (dimension.status !== "active") {
+    return "catalog-dimension-inactive";
+  }
+
+  const providerText = summarizeJsonValue(providerValue);
+  const aliasedOptionKeys = selectedOptionAliasesObject(optionAliasesText ?? "")
+    .filter((alias) =>
+      Array.isArray(alias.providerValues)
+        ? alias.providerValues.some(
+            (value) => normalizeSelectedOptionKey(String(value)) === normalizeSelectedOptionKey(providerText),
+          )
+        : false,
+    )
+    .map((alias) => String(alias.optionKey ?? ""));
+  const providerKeys = [providerText, ...aliasedOptionKeys].map(normalizeSelectedOptionKey).filter(Boolean);
+  const option = dimension.options.find((candidate) =>
+    [candidate.optionKey, candidate.optionId, candidate.optionLabel]
+      .map(normalizeSelectedOptionKey)
+      .some((key) => providerKeys.includes(key)),
+  );
+
+  if (!option) {
+    return "catalog-option-missing";
+  }
+
+  return option.status === "active" ? "catalog-option-active" : "catalog-option-inactive";
+}
+
+function selectedOptionSchemaSummary(
+  form: ProfileExternalReferencesForm,
+  selectedOptionSchema: NonNullable<CatalogProviderProfileAuthoringModel["selectedOptionSchema"]>,
+): string {
+  const dimensionKeys = [
+    ...form.contracts.flatMap((contract) => contract.selectedOptions?.dimensions.map((dimension) => dimension.dimensionKey) ?? []),
+    ...(form.selectedOptionMapping?.dimensions.map((dimension) => dimension.dimensionKey) ?? []),
+  ].filter((dimensionKey) => dimensionKey.trim().length > 0);
+  if (dimensionKeys.length === 0) {
+    return "No selected option dimensions configured";
+  }
+
+  const configured = [...new Set(dimensionKeys.map((dimensionKey) => dimensionKey.trim()))];
+  const activeMatches = configured.filter((dimensionKey) =>
+    selectedOptionSchema.dimensions.some(
+      (dimension) =>
+        normalizeSelectedOptionKey(dimension.dimensionKey) === normalizeSelectedOptionKey(dimensionKey) &&
+        dimension.status === "active",
+    ),
+  );
+  const missing = configured.filter(
+    (dimensionKey) =>
+      !selectedOptionSchema.dimensions.some(
+        (dimension) => normalizeSelectedOptionKey(dimension.dimensionKey) === normalizeSelectedOptionKey(dimensionKey),
+      ),
+  );
+  return `${activeMatches.length}/${configured.length} active dimensions matched${missing.length > 0 ? `; missing ${missing.join(", ")}` : ""}`;
+}
+
+function normalizeSelectedOptionKey(value: string): string {
+  return value.trim().toLowerCase().replace(/[\s_]+/g, "-");
 }
 
 function previewSelectedOptionMappingValue(
@@ -6640,6 +6754,7 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
 function profileBasicsSaveDisabled(
   profile: CatalogProviderProfileVersionReview | null,
   form: ProfileBasicsForm | null,
+  authoringModel: CatalogProviderProfileAuthoringModel | null = null,
 ): boolean {
   if (!profile || !form || !profileLifecycleEditable(profile)) {
     return true;
@@ -6661,7 +6776,7 @@ function profileBasicsSaveDisabled(
     validateOptionQueryForms(form.optionQueries).length > 0 ||
     validateConnectorForm(form.connector).length > 0 ||
     validateNormalizedObservationForm(form.normalizedObservation).length > 0 ||
-    validateExternalReferencesForm(form.externalReferences).length > 0 ||
+    validateExternalReferencesForm(form.externalReferences, authoringModel?.selectedOptionSchema ?? null).length > 0 ||
     validateReferenceHierarchyForm(form.referenceHierarchy).length > 0 ||
     validateDuplicatePreventionForm(form.duplicatePrevention).length > 0 ||
     validatePromotionPlanForm(form.promotionPlan, form).length > 0 ||
@@ -7128,7 +7243,10 @@ function selectedOptionMappingDimensionFormToCommand(dimension: ProfileSelectedO
   return command;
 }
 
-function validateExternalReferencesForm(form: ProfileExternalReferencesForm): string[] {
+function validateExternalReferencesForm(
+  form: ProfileExternalReferencesForm,
+  selectedOptionSchema: CatalogProviderProfileAuthoringModel["selectedOptionSchema"] = null,
+): string[] {
   const diagnostics: string[] = [];
   form.contracts.forEach((contract, index) => {
     const label = `${contract.target === "product-reference" ? "Product reference" : "Catalog Item reference"} ${index + 1}`;
@@ -7145,6 +7263,14 @@ function validateExternalReferencesForm(form: ProfileExternalReferencesForm): st
         if (!dimension.dimensionKey.trim() || !dimension.optionLookupTableKey.trim()) {
           diagnostics.push(`${dimensionLabel}: dimension key and option lookup table key are required.`);
         }
+        diagnostics.push(
+          ...selectedOptionSchemaDiagnostics(
+            dimensionLabel,
+            dimension.dimensionKey,
+            "",
+            selectedOptionSchema,
+          ),
+        );
         diagnostics.push(...prefixedExpressionDiagnostics(`${dimensionLabel} value`, dimension.providerValue));
       });
     }
@@ -7162,7 +7288,54 @@ function validateExternalReferencesForm(form: ProfileExternalReferencesForm): st
       if (!dimension.dimensionKey.trim() || !dimension.providerValuePath.trim()) {
         diagnostics.push(`${label}: dimension key and provider value path are required.`);
       }
+      diagnostics.push(
+        ...selectedOptionSchemaDiagnostics(
+          label,
+          dimension.dimensionKey,
+          dimension.optionAliasesText,
+          selectedOptionSchema,
+        ),
+      );
     });
+  }
+
+  return diagnostics;
+}
+
+function selectedOptionSchemaDiagnostics(
+  label: string,
+  dimensionKey: string,
+  optionAliasesText: string,
+  selectedOptionSchema: CatalogProviderProfileAuthoringModel["selectedOptionSchema"],
+): string[] {
+  if (!selectedOptionSchema || !dimensionKey.trim()) {
+    return [];
+  }
+
+  const diagnostics: string[] = [];
+  const dimension = selectedOptionSchema.dimensions.find(
+    (candidate) => normalizeSelectedOptionKey(candidate.dimensionKey) === normalizeSelectedOptionKey(dimensionKey),
+  );
+  if (!dimension) {
+    return [`${label}: dimension key '${dimensionKey}' does not match an active Catalog dimension.`];
+  }
+  if (dimension.status !== "active") {
+    diagnostics.push(`${label}: Catalog dimension '${dimensionKey}' is ${dimension.status}.`);
+  }
+
+  for (const alias of selectedOptionAliasesObject(optionAliasesText)) {
+    const optionKey = String(alias.optionKey ?? "").trim();
+    if (!optionKey) {
+      continue;
+    }
+    const option = dimension.options.find(
+      (candidate) => normalizeSelectedOptionKey(candidate.optionKey) === normalizeSelectedOptionKey(optionKey),
+    );
+    if (!option) {
+      diagnostics.push(`${label}: option alias key '${optionKey}' does not match a Catalog option.`);
+    } else if (option.status !== "active") {
+      diagnostics.push(`${label}: option alias key '${optionKey}' points at a ${option.status} Catalog option.`);
+    }
   }
 
   return diagnostics;

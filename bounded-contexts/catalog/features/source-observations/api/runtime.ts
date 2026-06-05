@@ -314,6 +314,21 @@ export type SourceObservationIntegrationOption = Readonly<{
   metadata: Readonly<Record<string, JsonValue>>;
 }>;
 
+export type SourceObservationSelectedOptionAuthoringSchema = Readonly<{
+  dimensions: readonly Readonly<{
+    dimensionId: string;
+    dimensionKey: string;
+    dimensionName: string;
+    status: string;
+    options: readonly Readonly<{
+      optionId: string;
+      optionKey: string;
+      optionLabel: string;
+      status: string;
+    }>[];
+  }>[];
+}>;
+
 export type SourceObservationServices = Readonly<{
   commandHandler: CommandHandler<SourceObservationCommand, SourceObservationState, SourceObservationEvent>;
   importTcgdexSet: (input: {
@@ -341,6 +356,7 @@ export type SourceObservationServices = Readonly<{
     languageCode?: string | null;
     parentValue?: string | null;
   }) => Promise<readonly SourceObservationIntegrationOption[]>;
+  getSelectedOptionAuthoringSchema: () => Promise<SourceObservationSelectedOptionAuthoringSchema>;
   promoteObservation: (input: {
     observationId: string;
     context: EventStoreContext;
@@ -2460,6 +2476,7 @@ export function createSourceObservationRuntime(
       }),
     listIntegrationOptions: (input) =>
       listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient, profileVersions),
+    getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -2834,6 +2851,72 @@ function isActiveProviderOptionQueryProfileVersion(version: CatalogProviderInteg
     version.profile.status === "active" &&
     version.profile.capabilities.includes("provider-option-query")
   );
+}
+
+async function loadSelectedOptionAuthoringSchema(
+  db: PgQueryable,
+): Promise<SourceObservationSelectedOptionAuthoringSchema> {
+  const result = await db.query<{
+    dimension_id: string;
+    dimension_key: string;
+    dimension_name: string;
+    dimension_status: string;
+    option_id: string | null;
+    option_key: string | null;
+    option_label: string | null;
+    option_status: string | null;
+    display_order: number | null;
+  }>(
+    `SELECT
+       dimension.dimension_id,
+       dimension.key AS dimension_key,
+       dimension.name AS dimension_name,
+       dimension.status AS dimension_status,
+       option.option_id,
+       option.code AS option_key,
+       option.label AS option_label,
+       option.status AS option_status,
+       option.display_order
+     FROM catalog_dimensions AS dimension
+     LEFT JOIN catalog_dimension_options AS option
+       ON option.dimension_id = dimension.dimension_id
+     ORDER BY dimension.key ASC, option.display_order ASC, option.code ASC`,
+  );
+
+  const dimensions = new Map<string, SourceObservationSelectedOptionAuthoringSchema["dimensions"][number]>();
+  const optionsByDimensionId = new Map<
+    string,
+    SourceObservationSelectedOptionAuthoringSchema["dimensions"][number]["options"][number][]
+  >();
+
+  for (const row of result.rows) {
+    if (!dimensions.has(row.dimension_id)) {
+      dimensions.set(row.dimension_id, {
+        dimensionId: row.dimension_id,
+        dimensionKey: row.dimension_key,
+        dimensionName: row.dimension_name,
+        status: row.dimension_status,
+        options: [],
+      });
+      optionsByDimensionId.set(row.dimension_id, []);
+    }
+
+    if (row.option_id) {
+      optionsByDimensionId.get(row.dimension_id)?.push({
+        optionId: row.option_id,
+        optionKey: row.option_key ?? row.option_id,
+        optionLabel: row.option_label ?? row.option_key ?? row.option_id,
+        status: row.option_status ?? "unknown",
+      });
+    }
+  }
+
+  return {
+    dimensions: [...dimensions.values()].map((dimension) => ({
+      ...dimension,
+      options: optionsByDimensionId.get(dimension.dimensionId) ?? [],
+    })),
+  };
 }
 
 async function createCatalogDraftFromObservation(input: {
