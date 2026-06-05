@@ -75,6 +75,37 @@ vi.mock("react-router", () => ({
   useSearchParams: mockUseSearchParams,
 }));
 
+vi.mock("motion/react", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  type MockMotionProps = React.HTMLAttributes<HTMLElement> & {
+    children?: React.ReactNode;
+    initial?: unknown;
+    animate?: unknown;
+    exit?: unknown;
+    transition?: unknown;
+    layoutId?: unknown;
+  };
+  const passthrough = ({ children }: { children?: React.ReactNode }) =>
+    React.createElement(React.Fragment, null, children);
+  const motionComponent = (tagName: string) =>
+    React.forwardRef<HTMLElement, MockMotionProps>(
+      ({ children, initial, animate, exit, transition, layoutId, ...props }, ref) =>
+        React.createElement(tagName, { ...props, ref }, children),
+    );
+
+  return {
+    AnimatePresence: passthrough,
+    LayoutGroup: passthrough,
+    MotionConfig: passthrough,
+    motion: new Proxy(
+      {},
+      {
+        get: (_target, tagName) => motionComponent(String(tagName)),
+      },
+    ),
+  };
+});
+
 vi.mock("./use-source-observations", () => ({
   activateSourceObservationProviderProfile: mockActivateSourceObservationProviderProfile,
   bulkPromoteSourceObservationsByScope: mockBulkPromoteSourceObservationsByScope,
@@ -126,6 +157,29 @@ const query: CatalogListQuery = {
   page: 0,
   pageSize: 50,
 };
+
+const pendingWatchResolutions: Array<() => void> = [];
+
+function fieldControls(container: HTMLElement | Document, label: string | RegExp): HTMLElement[] {
+  return Array.from(container.querySelectorAll("label"))
+    .filter((labelElement) => {
+      const text = (labelElement.textContent ?? "").replace(/\s+\*$/, "").trim();
+      return typeof label === "string" ? text === label : label.test(text);
+    })
+    .map((labelElement) => {
+      const htmlFor = labelElement.getAttribute("for");
+      return htmlFor
+        ? container.querySelector<HTMLElement>(`[id="${htmlFor.replaceAll('"', '\\"')}"]`)
+        : labelElement.querySelector<HTMLElement>("input, textarea, select, button, [role='combobox']");
+    })
+    .filter((element): element is HTMLElement => Boolean(element));
+}
+
+function fieldControl(container: HTMLElement | Document, label: string | RegExp, index = 0): HTMLElement {
+  const control = fieldControls(container, label)[index];
+  expect(control).toBeTruthy();
+  return control;
+}
 
 describe("IntegrationManagementPage", () => {
   beforeEach(() => {
@@ -247,6 +301,9 @@ describe("IntegrationManagementPage", () => {
 
   afterEach(() => {
     cleanup();
+    for (const resolveWatch of pendingWatchResolutions.splice(0)) {
+      resolveWatch();
+    }
     vi.clearAllMocks();
   });
 
@@ -909,7 +966,7 @@ describe("IntegrationManagementPage", () => {
     expect(screen.getByRole("tab", { name: "Health" }).getAttribute("aria-selected")).toBe("true");
     fireEvent.click(screen.getByRole("tab", { name: "Validation" }));
     expect(screen.getByRole("tab", { name: "Validation" }).getAttribute("aria-selected")).toBe("true");
-    expect(screen.getByLabelText("Profile workspace")).toBeTruthy();
+    expect(fieldControl(document, "Profile workspace")).toBeTruthy();
     expect(screen.getAllByRole("heading", { name: "Selected profile" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Module map" }).length).toBeGreaterThan(0);
     expect(screen.getAllByRole("heading", { name: "Operations" }).length).toBeGreaterThan(0);
@@ -972,13 +1029,13 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Dry run$/i })[0]);
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByLabelText("Fixture flow")).toBeTruthy();
-    expect(within(dialog).queryByLabelText("Fixture Payload JSON")).toBeNull();
+    expect(fieldControl(dialog, "Fixture flow")).toBeTruthy();
+    expect(dialog.innerHTML.includes("Fixture Payload JSON")).toBe(false);
     expect(within(dialog).getByText("Safe Payload Overrides")).toBeTruthy();
     expect(within(dialog).getByText("Fixture Sample Fields")).toBeTruthy();
-    expect(within(dialog).getByLabelText("Override Id")).toBeTruthy();
-    fireEvent.change(within(dialog).getByLabelText("Override name"), { target: { value: "Fury Sliver Override" } });
-    fireEvent.change(within(dialog).getByLabelText("Override Tcgplayer Id"), { target: { value: "14241" } });
+    expect(fieldControl(dialog, "Override Id")).toBeTruthy();
+    fireEvent.change(fieldControl(dialog, "Override name"), { target: { value: "Fury Sliver Override" } });
+    fireEvent.change(fieldControl(dialog, "Override Tcgplayer Id"), { target: { value: "14241" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Dry run$/i }));
 
     await waitFor(() =>
@@ -1002,7 +1059,7 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText("Candidate preview")).toBeTruthy();
     expect(within(dialog).getByText(/cat_existing_1, cat_existing_2/i)).toBeTruthy();
     expect(within(dialog).getAllByText("product:14240").length).toBeGreaterThan(0);
-    expect(within(dialog).queryByLabelText("Dry-run output JSON")).toBeNull();
+    expect(dialog.innerHTML.includes("Dry-run output JSON")).toBe(false);
   });
 
   it("keeps view-only operators on read workflows and disables writes", () => {
@@ -1239,16 +1296,16 @@ describe("IntegrationManagementPage", () => {
     dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Activation Readiness")).toBeTruthy();
     expect(within(dialog).getByText("Candidate fingerprint")).toBeTruthy();
-    fireEvent.change(within(dialog).getByLabelText("Fixture run id"), {
+    fireEvent.change(fieldControl(dialog, "Fixture run id"), {
       target: { value: "fixture-run-20260604" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Replay scope"), {
+    fireEvent.change(fieldControl(dialog, "Replay scope"), {
       target: { value: "scrydex changed observations" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Observed impact"), {
+    fireEvent.change(fieldControl(dialog, "Observed impact"), {
       target: { value: "Replay changed only expected hash material for Scrydex fixtures." },
     });
-    fireEvent.change(within(dialog).getByLabelText("Operator note"), {
+    fireEvent.change(fieldControl(dialog, "Operator note"), {
       target: { value: "Fixture harness passed and replay diff was reviewed." },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save evidence$/i }));
@@ -1292,22 +1349,22 @@ describe("IntegrationManagementPage", () => {
     expect((screen.getAllByRole("button", { name: /^Edit Profile$/i })[1] as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     let dialog = screen.getByRole("dialog");
-    expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
-    fireEvent.change(within(dialog).getByLabelText("Display name"), { target: { value: "Scrydex Draft" } });
-    fireEvent.change(within(dialog).getByLabelText(/^Contract owner/i), { target: { value: "Catalog Ops" } });
-    fireEvent.change(within(dialog).getByLabelText("Repository"), {
+    expect(dialog.innerHTML.includes("Profile JSON")).toBe(false);
+    fireEvent.change(fieldControl(dialog, "Display name"), { target: { value: "Scrydex Draft" } });
+    fireEvent.change(fieldControl(dialog, /^Contract owner/i), { target: { value: "Catalog Ops" } });
+    fireEvent.change(fieldControl(dialog, "Repository"), {
       target: { value: "chase-sets/catalog-contracts" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Commit"), { target: { value: "abc123" } });
-    fireEvent.change(within(dialog).getByLabelText(/^Document path/i), {
+    fireEvent.change(fieldControl(dialog, "Commit"), { target: { value: "abc123" } });
+    fireEvent.change(fieldControl(dialog, /^Document path/i), {
       target: { value: "bounded-contexts/catalog/docs/scrydex-contract.md" },
     });
-    fireEvent.change(within(dialog).getByLabelText(/^Fixture set version/i), {
+    fireEvent.change(fieldControl(dialog, /^Fixture set version/i), {
       target: { value: "scrydex-scryfall-card-proof-v2" },
     });
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /^Track planned retirement$/i }));
-    fireEvent.change(within(dialog).getByLabelText("Tracking issue"), { target: { value: "739" } });
-    fireEvent.change(within(dialog).getByLabelText(/^Retirement diagnostic/i), {
+    fireEvent.change(fieldControl(dialog, "Tracking issue"), { target: { value: "739" } });
+    fireEvent.change(fieldControl(dialog, /^Retirement diagnostic/i), {
       target: { value: "Retire once the executable mapping contract is active." },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
@@ -1389,8 +1446,8 @@ describe("IntegrationManagementPage", () => {
         "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
       ).length,
     ).toBeGreaterThan(0);
-    expect(within(dialog).queryByLabelText("Candidate profile JSON")).toBeNull();
-    expect(within(dialog).queryByLabelText("Active profile JSON")).toBeNull();
+    expect(dialog.innerHTML.includes("Candidate profile JSON")).toBe(false);
+    expect(dialog.innerHTML.includes("Active profile JSON")).toBe(false);
   }, 180000);
 
   it("renders semantic comparison fingerprint and impact metadata without raw JSON", () => {
@@ -1430,8 +1487,8 @@ describe("IntegrationManagementPage", () => {
         "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
       ).length,
     ).toBeGreaterThan(0);
-    expect(within(dialog).queryByLabelText("Candidate profile JSON")).toBeNull();
-    expect(within(dialog).queryByLabelText("Active profile JSON")).toBeNull();
+    expect(dialog.innerHTML.includes("Candidate profile JSON")).toBe(false);
+    expect(dialog.innerHTML.includes("Active profile JSON")).toBe(false);
   });
 
   it("edits normalized observation expressions through typed controls", async () => {
@@ -1448,12 +1505,12 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText(/active_fingerprint -> candidate_fingerprint/i)).toBeTruthy();
     expect(within(dialog).getAllByText("Fixture Preview").length).toBeGreaterThan(0);
     expect(within(dialog).getAllByText("fixture_1").length).toBeGreaterThan(0);
-    expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
+    expect(dialog.innerHTML.includes("Profile JSON")).toBe(false);
 
-    fireEvent.change(within(dialog).getAllByLabelText(/^Path$/i)[1], {
+    fireEvent.change(fieldControl(dialog, /^Path$/i, 1), {
       target: { value: "card.printed_name" },
     });
-    fireEvent.change(within(dialog).getAllByLabelText(/^Path$/i)[3], {
+    fireEvent.change(fieldControl(dialog, /^Path$/i, 3), {
       target: { value: "catalogHashMaterial.printedProductName" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
@@ -1606,7 +1663,7 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText(/product:14240/i)).toBeTruthy();
     expect(within(dialog).getByText(/sku:610001/i)).toBeTruthy();
     expect(within(dialog).getAllByText(/Near Mint/i).length).toBeGreaterThan(0);
-    expect(within(dialog).queryByLabelText("Profile JSON")).toBeNull();
+    expect(dialog.innerHTML.includes("Profile JSON")).toBe(false);
 
     expect(within(dialog).getByText("Product reference")).toBeTruthy();
     fireEvent.change(within(dialog).getAllByDisplayValue("tcgplayer")[1], {
@@ -1615,7 +1672,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(within(dialog).getByDisplayValue("catalog-condition"), {
       target: { value: "catalog-condition-v2" },
     });
-    fireEvent.change(within(dialog).getByLabelText("Option aliases"), {
+    fireEvent.change(fieldControl(dialog, "Option aliases"), {
       target: { value: "near-mint=Near Mint,NM\nlightly-played=Lightly Played,LP" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
@@ -2155,14 +2212,14 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getAllByLabelText(/^Option display name/i)[1], {
+    fireEvent.change(fieldControl(dialog, /^Option display name/i, 1), {
       target: { value: "Set Filter" },
     });
-    fireEvent.change(within(dialog).getAllByLabelText("Aliases")[1], { target: { value: "set-name, sets" } });
-    fireEvent.change(within(dialog).getAllByLabelText("Parent diagnostic")[0], {
+    fireEvent.change(fieldControl(dialog, "Aliases", 1), { target: { value: "set-name, sets" } });
+    fireEvent.change(fieldControl(dialog, "Parent diagnostic", 0), {
       target: { value: "Choose a product line before loading set names." },
     });
-    fireEvent.change(within(dialog).getAllByLabelText("Metadata paths")[1], {
+    fireEvent.change(fieldControl(dialog, "Metadata paths", 1), {
       target: { value: "productLineId=$parentValueNumber\ncleanSetName=cleanSetName\nurlName=urlName" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
@@ -2262,11 +2319,11 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
-    fireEvent.change(within(dialog).getByLabelText("Parent diagnostic"), {
+    fireEvent.change(fieldControl(dialog, "Parent diagnostic"), {
       target: { value: "Use the selected TCGdex language before loading series." },
     });
-    fireEvent.change(within(dialog).getByLabelText("Image URL path"), { target: { value: "symbolUrl" } });
-    fireEvent.change(within(dialog).getByLabelText("Metadata paths"), {
+    fireEvent.change(fieldControl(dialog, "Image URL path"), { target: { value: "symbolUrl" } });
+    fireEvent.change(fieldControl(dialog, "Metadata paths"), {
       target: { value: "languageCode=$languageCode\nseriesId=seriesId\nsymbolUrl=symbolUrl" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
@@ -2739,12 +2796,12 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).queryByLabelText(/^Cookie name/i)).toBeNull();
-    fireEvent.change(within(dialog).getByLabelText(/^Base URL/i), { target: { value: "https://api.tcgdex.dev/v2" } });
-    fireEvent.change(within(dialog).getByLabelText(/^Product detail endpoint/i), {
+    expect(fieldControls(dialog, /^Cookie name/i)).toHaveLength(0);
+    fireEvent.change(fieldControl(dialog, /^Base URL/i), { target: { value: "https://api.tcgdex.dev/v2" } });
+    fireEvent.change(fieldControl(dialog, /^Product detail endpoint/i), {
       target: { value: "/{language}/cards/{cardId}/details" },
     });
-    fireEvent.change(within(dialog).getByLabelText(/^Fixture root/i), {
+    fireEvent.change(fieldControl(dialog, /^Fixture root/i), {
       target: { value: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex-dev" },
     });
     expect(within(dialog).getByText("Live provider calls allowed")).toBeTruthy();
@@ -2838,9 +2895,9 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).queryByLabelText(/^Base URL/i)).toBeNull();
-    fireEvent.change(within(dialog).getByLabelText(/^Repository commit/i), { target: { value: "commit-2026" } });
-    fireEvent.change(within(dialog).getByLabelText(/^Retry status codes/i), { target: { value: "403, 429, 503" } });
+    expect(fieldControls(dialog, /^Base URL/i)).toHaveLength(0);
+    fireEvent.change(fieldControl(dialog, /^Repository commit/i), { target: { value: "commit-2026" } });
+    fireEvent.change(fieldControl(dialog, /^Retry status codes/i), { target: { value: "403, 429, 503" } });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
 
     await waitFor(() =>
@@ -2887,12 +2944,12 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).queryByLabelText(/^Repository commit/i)).toBeNull();
+    expect(fieldControls(dialog, /^Repository commit/i)).toHaveLength(0);
     expect(within(dialog).getByText("Fixture backed only")).toBeTruthy();
-    fireEvent.change(within(dialog).getByLabelText(/^Accepted evidence/i), {
+    fireEvent.change(fieldControl(dialog, /^Accepted evidence/i), {
       target: { value: "scryfall-id, set-code, collector-number" },
     });
-    fireEvent.change(within(dialog).getByLabelText(/^Excluded evidence/i), {
+    fireEvent.change(fieldControl(dialog, /^Excluded evidence/i), {
       target: { value: "price\nseller" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
@@ -2951,7 +3008,7 @@ describe("IntegrationManagementPage", () => {
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
     fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
-    expect(screen.queryByLabelText("TCGdex Expansion ID")).toBeNull();
+    expect(fieldControls(document, "TCGdex Expansion ID")).toHaveLength(0);
     expect(screen.getByText("Active Profile Snapshot")).toBeTruthy();
     expect(screen.getByText("TCGdex Import Scope")).toBeTruthy();
     expect(screen.getByText("TCGdex card catalog")).toBeTruthy();
@@ -3136,7 +3193,22 @@ describe("IntegrationManagementPage", () => {
   it("shows queued progress while an integration job waits for worker processing", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
-    mockWatchSourceObservationIntegrationJob.mockImplementation(() => new Promise(() => undefined));
+    mockWatchSourceObservationIntegrationJob.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          pendingWatchResolutions.push(() =>
+            resolve({
+              requested: 1,
+              imported: 0,
+              observed: 0,
+              reapplied: 0,
+              skipped: 0,
+              failed: 0,
+              outcomes: [],
+            }),
+          );
+        }),
+    );
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
@@ -3172,7 +3244,19 @@ describe("IntegrationManagementPage", () => {
         },
       ) => {
         pushProgress = options?.onProgress ?? pushProgress;
-        return new Promise(() => undefined);
+        return new Promise((resolve) => {
+          pendingWatchResolutions.push(() =>
+            resolve({
+              requested: 100,
+              imported: 64,
+              observed: 64,
+              reapplied: 0,
+              skipped: 0,
+              failed: 0,
+              outcomes: [],
+            }),
+          );
+        });
       },
     );
 
@@ -3231,7 +3315,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /Pull Provider Data/i })[0]);
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("tab", { name: "TCGplayer" }));
-    fireEvent.change(await within(dialog).findByLabelText("Product Line"), {
+    fireEvent.change(fieldControl(dialog, "Product Line"), {
       target: { value: "3" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: /^Import$/i }));

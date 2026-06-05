@@ -4048,7 +4048,7 @@ function ProfileBasicsEditor({
         <KeyValueList items={[{ key: "Live provider calls allowed", value: "No" }]} />
         {missingFixtureFlows.length > 0 ? (
           <p className="text-sm text-danger">
-            {t("catalog.features.sourceObservations.ui.integrationManagementPage.missing.required.fixture.flows")}
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.missing.required.fixture.flows")}{" "}
             {missingFixtureFlows.join(", ")}
           </p>
         ) : null}
@@ -6289,8 +6289,8 @@ function DuplicatePreventionEditor({
           <Stack key={rule.id} gap={3}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h4 className="text-sm font-semibold text-foreground">
-                {t("catalog.features.sourceObservations.ui.integrationManagementPage.rule")}
-                {index + 1}: {rule.ruleKey || rule.ruleKind}
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.rule")} {index + 1}:{" "}
+                {rule.ruleKey || rule.ruleKind}
               </h4>
               <Inline gap={2}>
                 <Button
@@ -6548,8 +6548,8 @@ function PromotionPlanEditor({
           <Stack key={command.id} gap={3}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h4 className="text-sm font-semibold text-foreground">
-                {t("catalog.features.sourceObservations.ui.integrationManagementPage.command")}
-                {index + 1}: {command.commandName}
+                {t("catalog.features.sourceObservations.ui.integrationManagementPage.command")} {index + 1}:{" "}
+                {command.commandName}
               </h4>
               <Inline gap={2}>
                 <Button
