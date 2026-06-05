@@ -150,7 +150,7 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByLabel("Display name")).toBeVisible();
     await expect(page.getByLabel("Contract owner")).toBeVisible();
     await expect(page.getByText("Provider Options")).toBeVisible();
-    await expect(page.getByText("Promotion Command Plan")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Promotion Command Plan", exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
     await clickDialogFooterButton(page, "Edit Profile Basics", "Cancel");
 
