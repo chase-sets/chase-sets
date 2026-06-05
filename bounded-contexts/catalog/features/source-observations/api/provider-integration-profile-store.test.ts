@@ -150,6 +150,25 @@ describe("catalog provider integration profile version store", () => {
     });
   });
 
+  it("refreshes section projections after canonical profile version writes", async () => {
+    const db = new InMemoryProfileVersionDb();
+    const store = createCatalogProviderIntegrationProfileVersionStore(db);
+
+    await store.upsertProfileVersion(currentTcgdexVersion());
+
+    expect(
+      db.statements.some((statement) => statement.includes("INSERT INTO catalog_provider_profile_version_sections")),
+    ).toBe(true);
+    expect(
+      db.statements.some((statement) =>
+        statement.includes("DELETE FROM catalog_provider_profile_version_section_diagnostics"),
+      ),
+    ).toBe(true);
+    expect(
+      db.statements.some((statement) => statement.includes("DELETE FROM catalog_provider_profile_version_sections")),
+    ).toBe(true);
+  });
+
   it("does not clobber admin-authored profile rows during seed reconciliation", async () => {
     const db = new InMemoryProfileVersionDb();
     const store = createCatalogProviderIntegrationProfileVersionStore(db);
@@ -286,6 +305,7 @@ class InMemoryProfileVersionDb {
     ) {
       const providerKey = String(params[0]);
       const profileVersion = String(params[1]);
+      const updatedRows: PersistedProfileVersionRow[] = [];
       for (const [key, row] of this.rows) {
         if (
           row.provider_key === providerKey &&
@@ -293,14 +313,16 @@ class InMemoryProfileVersionDb {
           row.active &&
           row.lifecycle === "active"
         ) {
-          this.rows.set(key, {
+          const updatedRow = {
             ...row,
             active: false,
             lifecycle: "deprecated",
-          });
+          } as const satisfies PersistedProfileVersionRow;
+          this.rows.set(key, updatedRow);
+          updatedRows.push(updatedRow);
         }
       }
-      return { rows: [] as T[] };
+      return { rows: updatedRows as T[] };
     }
 
     if (sql.includes("FROM catalog_source_observations") && sql.includes("COUNT(*) AS reference_count")) {
