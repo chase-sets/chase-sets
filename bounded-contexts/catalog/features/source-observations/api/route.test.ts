@@ -58,6 +58,30 @@ describe("source observation routes", () => {
     });
   });
 
+  it("returns a structured error when a provider profile section command fails shared contract parsing", async () => {
+    const app = buildApp({} as SourceObservationServices, {} as CatalogProviderIntegrationProfileVersionStore);
+
+    const response = await app.request(
+      "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/provider-options",
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          command: {
+            optionQueries: {},
+          },
+        }),
+      },
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "invalid_profile_section_command",
+        message: "optionQueries must be an array.",
+      },
+    });
+  });
+
   it("previews filter-scoped bulk promotion", async () => {
     const previewPromoteObservationScope = vi.fn(async () => ({
       matched: 102,

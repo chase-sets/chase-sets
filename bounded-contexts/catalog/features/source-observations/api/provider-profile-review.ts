@@ -4,23 +4,19 @@ import path from "node:path";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type {
   CatalogProviderIntegrationProfileAuthoringAudit,
-  CatalogProviderCapability,
   CatalogProviderIntegrationProfile,
-  CatalogProviderIntegrationProfileCompatibilityMode,
   CatalogProviderIntegrationProfileMigrationEvidence,
   CatalogProviderIntegrationProfileRetirementPlan,
   CatalogProviderIntegrationProfileVersionDiagnostic,
   CatalogProviderIntegrationProfileVersionRecord,
-  CatalogProviderScope,
 } from "./provider-integration-profiles";
 import { validateCatalogProviderIntegrationProfileVersion } from "./provider-integration-profiles";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import type {
-  CatalogProviderExecutableMappingContract,
   CatalogProviderDuplicatePreventionContract,
+  CatalogProviderExecutableMappingContract,
   CatalogProviderExternalReferenceContract,
   CatalogProviderMappingConnectorContract,
-  CatalogProviderMappingSourceContract,
   CatalogProviderMappingValueExpression,
   CatalogProviderNormalizedObservationContract,
   CatalogProviderProfileFixtureContract,
@@ -43,6 +39,12 @@ import {
 } from "./provider-profile-contract-harness";
 import { catalogProviderProfileFixtureCases } from "./provider-profile-fixture-cases";
 import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
+import {
+  CatalogProviderProfileSectionValidationError,
+  parseCatalogProviderProfileSectionUpdateCommand,
+  type CatalogProviderProfileEditableSectionKey,
+  type CatalogProviderProfileSectionUpdateCommand,
+} from "./provider-profile-admin-contracts";
 
 type SourceObservationProfileVersionRecord = CatalogProviderIntegrationProfileVersionRecord &
   Readonly<{ executableMappingContract: CatalogProviderSourceObservationMappingContract }>;
@@ -108,134 +110,6 @@ export type CatalogProviderProfileVersionUpdatePatch = Readonly<{
   executableMappingContract?: CatalogProviderIntegrationProfileVersionRecord["executableMappingContract"] | null;
   migrationEvidence?: CatalogProviderIntegrationProfileMigrationEvidence | null;
 }>;
-
-export type CatalogProviderProfileEditableSectionKey =
-  | "basics"
-  | "provider-options"
-  | "connector"
-  | "catalog-field-mapping"
-  | "source-contract"
-  | "fixtures"
-  | "source-observation"
-  | "normalized-observation"
-  | "external-references"
-  | "selected-options"
-  | "reference-hierarchy"
-  | "duplicate-prevention"
-  | "promotion-plan"
-  | "retirement-plan"
-  | "migration-evidence";
-
-export type CatalogProviderProfileBasicsUpdateCommand = Readonly<{
-  section: "basics";
-  lifecycle?: "draft" | "test";
-  displayName?: string;
-  status?: CatalogProviderIntegrationProfile["status"];
-  compatibilityMode?: CatalogProviderIntegrationProfileCompatibilityMode;
-  capabilities?: readonly CatalogProviderCapability[];
-  supportedScopes?: readonly CatalogProviderScope[];
-  languageOptions?: readonly string[];
-}>;
-
-export type CatalogProviderProfileSourceContractUpdateCommand = Readonly<{
-  section: "source-contract";
-  sourceContract: CatalogProviderMappingSourceContract;
-}>;
-
-export type CatalogProviderProfileProviderOptionsUpdateCommand = Readonly<{
-  section: "provider-options";
-  optionQueries: CatalogProviderIntegrationProfile["optionQueries"];
-}>;
-
-export type CatalogProviderProfileConnectorUpdateCommand = Readonly<{
-  section: "connector";
-  connector: CatalogProviderIntegrationProfile["connector"];
-  mappingConnector?: CatalogProviderMappingConnectorContract;
-}>;
-
-export type CatalogProviderProfileCatalogFieldMappingUpdateCommand = Readonly<{
-  section: "catalog-field-mapping";
-  catalogFieldMapping: CatalogProviderIntegrationProfile["catalogFieldMapping"];
-}>;
-
-export type CatalogProviderProfileFixturesUpdateCommand = Readonly<{
-  section: "fixtures";
-  fixtures: CatalogProviderProfileFixtureContract;
-}>;
-
-export type CatalogProviderProfileSourceObservationUpdateCommand = Readonly<{
-  section: "source-observation";
-  sourceObservation: CatalogProviderSourceObservationContract | null;
-}>;
-
-export type CatalogProviderProfileNormalizedObservationUpdateCommand = Readonly<{
-  section: "normalized-observation";
-  normalizedObservationMapping?: CatalogProviderIntegrationProfile["normalizedObservationMapping"];
-  normalizedObservationContract?: CatalogProviderNormalizedObservationContract;
-}>;
-
-export type CatalogProviderProfileExternalReferencesUpdateCommand = Readonly<{
-  section: "external-references";
-  externalReferenceExtractionRules?: CatalogProviderIntegrationProfile["externalReferenceExtractionRules"];
-  externalReferenceContracts?: readonly CatalogProviderExternalReferenceContract[];
-}>;
-
-export type CatalogProviderProfileSelectedOptionsUpdateCommand = Readonly<{
-  section: "selected-options";
-  selectedOptionMapping: CatalogProviderIntegrationProfile["selectedOptionMapping"] | null;
-}>;
-
-export type CatalogProviderProfileReferenceHierarchyUpdateCommand = Readonly<{
-  section: "reference-hierarchy";
-  referenceHierarchyMapping?: CatalogProviderIntegrationProfile["referenceHierarchyMapping"];
-  referenceHierarchyContracts?: readonly CatalogProviderReferenceHierarchyContract[];
-}>;
-
-export type CatalogProviderProfileDuplicatePreventionUpdateCommand = Readonly<{
-  section: "duplicate-prevention";
-  duplicatePreventionMapping?: CatalogProviderIntegrationProfile["duplicatePreventionMapping"];
-  ambiguityRules?: CatalogProviderIntegrationProfile["ambiguityRules"];
-  duplicatePreventionContract?: CatalogProviderDuplicatePreventionContract;
-}>;
-
-export type CatalogProviderProfilePromotionPlanUpdateCommand = Readonly<{
-  section: "promotion-plan";
-  promotionCommandPlan: CatalogProviderPromotionCommandPlanContract;
-}>;
-
-export type CatalogProviderProfileRetirementPlanUpdateCommand = Readonly<{
-  section: "retirement-plan";
-  retirementPlan: CatalogProviderIntegrationProfileRetirementPlan | null;
-}>;
-
-export type CatalogProviderProfileMigrationEvidenceUpdateCommand = Readonly<{
-  section: "migration-evidence";
-  migrationEvidence: CatalogProviderIntegrationProfileMigrationEvidence | null;
-}>;
-
-export type CatalogProviderProfileSectionUpdateCommand =
-  | CatalogProviderProfileBasicsUpdateCommand
-  | CatalogProviderProfileProviderOptionsUpdateCommand
-  | CatalogProviderProfileConnectorUpdateCommand
-  | CatalogProviderProfileCatalogFieldMappingUpdateCommand
-  | CatalogProviderProfileSourceContractUpdateCommand
-  | CatalogProviderProfileFixturesUpdateCommand
-  | CatalogProviderProfileSourceObservationUpdateCommand
-  | CatalogProviderProfileNormalizedObservationUpdateCommand
-  | CatalogProviderProfileExternalReferencesUpdateCommand
-  | CatalogProviderProfileSelectedOptionsUpdateCommand
-  | CatalogProviderProfileReferenceHierarchyUpdateCommand
-  | CatalogProviderProfileDuplicatePreventionUpdateCommand
-  | CatalogProviderProfilePromotionPlanUpdateCommand
-  | CatalogProviderProfileRetirementPlanUpdateCommand
-  | CatalogProviderProfileMigrationEvidenceUpdateCommand;
-
-export class CatalogProviderProfileSectionValidationError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "CatalogProviderProfileSectionValidationError";
-  }
-}
 
 export type CatalogProviderProfileDryRunEvidence = Readonly<{
   path: string;
@@ -1197,7 +1071,7 @@ function toProfileSectionPatch(
   existing: CatalogProviderIntegrationProfileVersionRecord,
   command: CatalogProviderProfileSectionUpdateCommand,
 ): CatalogProviderProfileVersionUpdatePatch {
-  assertProfileSectionCommand(command);
+  command = parseCatalogProviderProfileSectionUpdateCommand(command);
 
   switch (command.section) {
     case "basics":
@@ -1208,8 +1082,12 @@ function toProfileSectionPatch(
           ...existing.profile,
           displayName: command.displayName ?? existing.profile.displayName,
           status: command.status ?? existing.profile.status,
-          capabilities: command.capabilities ?? existing.profile.capabilities,
-          supportedScopes: command.supportedScopes ?? existing.profile.supportedScopes,
+          capabilities:
+            (command.capabilities as CatalogProviderIntegrationProfile["capabilities"] | undefined) ??
+            existing.profile.capabilities,
+          supportedScopes:
+            (command.supportedScopes as CatalogProviderIntegrationProfile["supportedScopes"] | undefined) ??
+            existing.profile.supportedScopes,
           languageOptions: command.languageOptions ?? existing.profile.languageOptions,
         },
         executableMappingContract: existing.executableMappingContract
@@ -1224,19 +1102,21 @@ function toProfileSectionPatch(
       return {
         profile: {
           ...existing.profile,
-          optionQueries: command.optionQueries,
+          optionQueries: command.optionQueries as CatalogProviderIntegrationProfile["optionQueries"],
         },
       };
     case "connector":
       return {
         profile: {
           ...existing.profile,
-          connector: command.connector,
+          connector: command.connector as CatalogProviderIntegrationProfile["connector"],
         },
         executableMappingContract: existing.executableMappingContract
           ? {
               ...existing.executableMappingContract,
-              ...(command.mappingConnector ? { connector: command.mappingConnector } : {}),
+              ...(command.mappingConnector
+                ? { connector: command.mappingConnector as CatalogProviderMappingConnectorContract }
+                : {}),
             }
           : undefined,
       };
@@ -1244,7 +1124,7 @@ function toProfileSectionPatch(
       return {
         profile: {
           ...existing.profile,
-          catalogFieldMapping: command.catalogFieldMapping,
+          catalogFieldMapping: command.catalogFieldMapping as CatalogProviderIntegrationProfile["catalogFieldMapping"],
         },
       };
     case "source-contract":
@@ -1259,11 +1139,11 @@ function toProfileSectionPatch(
       };
     case "fixtures":
       return {
-        fixtures: command.fixtures,
+        fixtures: command.fixtures as CatalogProviderProfileFixtureContract,
         executableMappingContract: existing.executableMappingContract
           ? {
               ...existing.executableMappingContract,
-              fixtures: command.fixtures,
+              fixtures: command.fixtures as CatalogProviderProfileFixtureContract,
             }
           : undefined,
       };
@@ -1272,7 +1152,8 @@ function toProfileSectionPatch(
       return {
         executableMappingContract: {
           ...executableMappingContract,
-          sourceObservation: command.sourceObservation ?? undefined,
+          sourceObservation:
+            (command.sourceObservation as CatalogProviderSourceObservationContract | null) ?? undefined,
         },
       };
     }
@@ -1281,13 +1162,15 @@ function toProfileSectionPatch(
         profile: command.normalizedObservationMapping
           ? {
               ...existing.profile,
-              normalizedObservationMapping: command.normalizedObservationMapping,
+              normalizedObservationMapping:
+                command.normalizedObservationMapping as CatalogProviderIntegrationProfile["normalizedObservationMapping"],
             }
           : undefined,
         executableMappingContract: command.normalizedObservationContract
           ? {
               ...requireExecutableMappingContractForSection(existing, command.section),
-              normalizedObservation: command.normalizedObservationContract,
+              normalizedObservation:
+                command.normalizedObservationContract as CatalogProviderNormalizedObservationContract,
             }
           : undefined,
       };
@@ -1296,13 +1179,15 @@ function toProfileSectionPatch(
         profile: command.externalReferenceExtractionRules
           ? {
               ...existing.profile,
-              externalReferenceExtractionRules: command.externalReferenceExtractionRules,
+              externalReferenceExtractionRules:
+                command.externalReferenceExtractionRules as CatalogProviderIntegrationProfile["externalReferenceExtractionRules"],
             }
           : undefined,
         executableMappingContract: command.externalReferenceContracts
           ? {
               ...requireExecutableMappingContractForSection(existing, command.section),
-              externalReferences: command.externalReferenceContracts,
+              externalReferences:
+                command.externalReferenceContracts as readonly CatalogProviderExternalReferenceContract[],
             }
           : undefined,
       };
@@ -1311,7 +1196,10 @@ function toProfileSectionPatch(
         profile: {
           ...existing.profile,
           ...(command.selectedOptionMapping
-            ? { selectedOptionMapping: command.selectedOptionMapping }
+            ? {
+                selectedOptionMapping:
+                  command.selectedOptionMapping as CatalogProviderIntegrationProfile["selectedOptionMapping"],
+              }
             : { selectedOptionMapping: undefined }),
         },
       };
@@ -1320,13 +1208,15 @@ function toProfileSectionPatch(
         profile: command.referenceHierarchyMapping
           ? {
               ...existing.profile,
-              referenceHierarchyMapping: command.referenceHierarchyMapping,
+              referenceHierarchyMapping:
+                command.referenceHierarchyMapping as CatalogProviderIntegrationProfile["referenceHierarchyMapping"],
             }
           : undefined,
         executableMappingContract: command.referenceHierarchyContracts
           ? {
               ...requireExecutableMappingContractForSection(existing, command.section),
-              referenceHierarchy: command.referenceHierarchyContracts,
+              referenceHierarchy:
+                command.referenceHierarchyContracts as readonly CatalogProviderReferenceHierarchyContract[],
             }
           : undefined,
       };
@@ -1337,14 +1227,18 @@ function toProfileSectionPatch(
             ? {
                 ...existing.profile,
                 duplicatePreventionMapping:
-                  command.duplicatePreventionMapping ?? existing.profile.duplicatePreventionMapping,
-                ambiguityRules: command.ambiguityRules ?? existing.profile.ambiguityRules,
+                  (command.duplicatePreventionMapping as
+                    | CatalogProviderIntegrationProfile["duplicatePreventionMapping"]
+                    | undefined) ?? existing.profile.duplicatePreventionMapping,
+                ambiguityRules:
+                  (command.ambiguityRules as CatalogProviderIntegrationProfile["ambiguityRules"] | undefined) ??
+                  existing.profile.ambiguityRules,
               }
             : undefined,
         executableMappingContract: command.duplicatePreventionContract
           ? {
               ...requireExecutableMappingContractForSection(existing, command.section),
-              duplicatePrevention: command.duplicatePreventionContract,
+              duplicatePrevention: command.duplicatePreventionContract as CatalogProviderDuplicatePreventionContract,
             }
           : undefined,
       };
@@ -1352,13 +1246,15 @@ function toProfileSectionPatch(
       return {
         executableMappingContract: {
           ...requireExecutableMappingContractForSection(existing, command.section),
-          promotionCommandPlan: command.promotionCommandPlan,
+          promotionCommandPlan: command.promotionCommandPlan as CatalogProviderPromotionCommandPlanContract,
         },
       };
     case "retirement-plan":
-      return { retirementPlan: command.retirementPlan };
+      return { retirementPlan: command.retirementPlan as CatalogProviderIntegrationProfileRetirementPlan | null };
     case "migration-evidence":
-      return { migrationEvidence: command.migrationEvidence };
+      return {
+        migrationEvidence: command.migrationEvidence as CatalogProviderIntegrationProfileMigrationEvidence | null,
+      };
   }
 }
 
@@ -1438,198 +1334,6 @@ function assertMutableLifecycle(lifecycle: CatalogProviderIntegrationProfileVers
   if (lifecycle !== "draft" && lifecycle !== "test") {
     throw new Error(`Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`);
   }
-}
-
-function assertProfileSectionCommand(command: CatalogProviderProfileSectionUpdateCommand): void {
-  if (!isJsonObject(command)) {
-    throw new CatalogProviderProfileSectionValidationError("Profile section update command must be a JSON object.");
-  }
-
-  switch (command.section) {
-    case "basics":
-      assertOptionalString(command.displayName, "displayName");
-      assertOptionalEnum(command.status, ["active", "planned"], "status");
-      assertOptionalEnum(command.lifecycle, ["draft", "test"], "lifecycle");
-      assertOptionalEnum(
-        command.compatibilityMode,
-        ["executable-mapping-contract", "transitional-static-profile"],
-        "compatibilityMode",
-      );
-      assertOptionalStringArray(command.capabilities, "capabilities");
-      assertOptionalStringArray(command.supportedScopes, "supportedScopes");
-      assertOptionalStringArray(command.languageOptions, "languageOptions");
-      break;
-    case "provider-options":
-      assertRequiredArray(command.optionQueries, "optionQueries");
-      break;
-    case "connector":
-      assertRequiredObject(command.connector, "connector");
-      assertOptionalObject(command.mappingConnector, "mappingConnector");
-      break;
-    case "catalog-field-mapping":
-      assertRequiredObject(command.catalogFieldMapping, "catalogFieldMapping");
-      break;
-    case "source-contract":
-      assertSourceContract(command.sourceContract);
-      break;
-    case "fixtures":
-      assertFixtureContract(command.fixtures);
-      break;
-    case "source-observation":
-      if (command.sourceObservation !== null) {
-        assertRequiredObject(command.sourceObservation, "sourceObservation");
-      }
-      break;
-    case "normalized-observation":
-      assertAtLeastOneSectionField(command, ["normalizedObservationMapping", "normalizedObservationContract"]);
-      assertOptionalObject(command.normalizedObservationMapping, "normalizedObservationMapping");
-      assertOptionalObject(command.normalizedObservationContract, "normalizedObservationContract");
-      break;
-    case "external-references":
-      assertAtLeastOneSectionField(command, ["externalReferenceExtractionRules", "externalReferenceContracts"]);
-      assertOptionalObject(command.externalReferenceExtractionRules, "externalReferenceExtractionRules");
-      if (command.externalReferenceContracts !== undefined) {
-        assertRequiredArray(command.externalReferenceContracts, "externalReferenceContracts");
-      }
-      break;
-    case "selected-options":
-      if (command.selectedOptionMapping !== null) {
-        assertRequiredObject(command.selectedOptionMapping, "selectedOptionMapping");
-      }
-      break;
-    case "reference-hierarchy":
-      assertAtLeastOneSectionField(command, ["referenceHierarchyMapping", "referenceHierarchyContracts"]);
-      assertOptionalObject(command.referenceHierarchyMapping, "referenceHierarchyMapping");
-      if (command.referenceHierarchyContracts !== undefined) {
-        assertRequiredArray(command.referenceHierarchyContracts, "referenceHierarchyContracts");
-      }
-      break;
-    case "duplicate-prevention":
-      assertAtLeastOneSectionField(command, [
-        "duplicatePreventionMapping",
-        "ambiguityRules",
-        "duplicatePreventionContract",
-      ]);
-      assertOptionalObject(command.duplicatePreventionMapping, "duplicatePreventionMapping");
-      assertOptionalObject(command.ambiguityRules, "ambiguityRules");
-      assertOptionalObject(command.duplicatePreventionContract, "duplicatePreventionContract");
-      break;
-    case "promotion-plan":
-      assertRequiredObject(command.promotionCommandPlan, "promotionCommandPlan");
-      break;
-    case "retirement-plan":
-      if (command.retirementPlan !== null) {
-        assertRetirementPlan(command.retirementPlan);
-      }
-      break;
-    case "migration-evidence":
-      if (command.migrationEvidence !== null) {
-        assertMigrationEvidence(command.migrationEvidence);
-      }
-      break;
-    default:
-      throw new CatalogProviderProfileSectionValidationError("Unsupported profile section update command.");
-  }
-}
-
-function assertAtLeastOneSectionField(command: Record<string, unknown>, fields: readonly string[]): void {
-  if (!fields.some((field) => Object.prototype.hasOwnProperty.call(command, field))) {
-    throw new CatalogProviderProfileSectionValidationError(
-      `Profile section '${String(command.section)}' must include at least one editable field.`,
-    );
-  }
-}
-
-function assertOptionalString(value: unknown, path: string): void {
-  if (value !== undefined && typeof value !== "string") {
-    throw new CatalogProviderProfileSectionValidationError(`${path} must be a string when provided.`);
-  }
-}
-
-function assertOptionalStringArray(value: unknown, path: string): void {
-  if (value === undefined) {
-    return;
-  }
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) {
-    throw new CatalogProviderProfileSectionValidationError(`${path} must be an array of strings when provided.`);
-  }
-}
-
-function assertRequiredArray(value: unknown, path: string): void {
-  if (!Array.isArray(value)) {
-    throw new CatalogProviderProfileSectionValidationError(`${path} must be an array.`);
-  }
-}
-
-function assertRequiredObject(value: unknown, path: string): void {
-  if (!isJsonObject(value)) {
-    throw new CatalogProviderProfileSectionValidationError(`${path} must be a JSON object.`);
-  }
-}
-
-function assertOptionalObject(value: unknown, path: string): void {
-  if (value !== undefined && !isJsonObject(value)) {
-    throw new CatalogProviderProfileSectionValidationError(`${path} must be a JSON object when provided.`);
-  }
-}
-
-function assertOptionalEnum(value: unknown, allowed: readonly string[], path: string): void {
-  if (value !== undefined && (typeof value !== "string" || !allowed.includes(value))) {
-    throw new CatalogProviderProfileSectionValidationError(`${path} is not a supported value.`);
-  }
-}
-
-function assertRequiredString(value: unknown, path: string): void {
-  if (typeof value !== "string" || value.trim().length === 0) {
-    throw new CatalogProviderProfileSectionValidationError(`${path} must be a non-empty string.`);
-  }
-}
-
-function assertSourceContract(value: CatalogProviderMappingSourceContract): void {
-  if (!isJsonObject(value)) {
-    throw new CatalogProviderProfileSectionValidationError("sourceContract must be a JSON object.");
-  }
-  assertRequiredString(value.owner, "sourceContract.owner");
-  if (value.repository !== null && typeof value.repository !== "string") {
-    throw new CatalogProviderProfileSectionValidationError("sourceContract.repository must be a string or null.");
-  }
-  if (value.commit !== null && typeof value.commit !== "string") {
-    throw new CatalogProviderProfileSectionValidationError("sourceContract.commit must be a string or null.");
-  }
-  assertRequiredString(value.documentPath, "sourceContract.documentPath");
-  assertRequiredString(value.fixtureSetVersion, "sourceContract.fixtureSetVersion");
-}
-
-function assertFixtureContract(value: CatalogProviderProfileFixtureContract): void {
-  if (!isJsonObject(value)) {
-    throw new CatalogProviderProfileSectionValidationError("fixtures must be a JSON object.");
-  }
-  assertRequiredString(value.fixtureRoot, "fixtures.fixtureRoot");
-  assertOptionalStringArray(value.coveredFlows, "fixtures.coveredFlows");
-  if (value.liveProviderCallsAllowed !== false) {
-    throw new CatalogProviderProfileSectionValidationError("fixtures.liveProviderCallsAllowed must remain false.");
-  }
-}
-
-function assertRetirementPlan(value: CatalogProviderIntegrationProfileRetirementPlan): void {
-  if (!isJsonObject(value)) {
-    throw new CatalogProviderProfileSectionValidationError("retirementPlan must be a JSON object or null.");
-  }
-  if (typeof value.trackingIssue !== "number") {
-    throw new CatalogProviderProfileSectionValidationError("retirementPlan.trackingIssue must be a number.");
-  }
-  if (value.removeAfter !== "executable-mapping-contract-activated") {
-    throw new CatalogProviderProfileSectionValidationError("retirementPlan.removeAfter is not supported.");
-  }
-  assertRequiredString(value.diagnosticText, "retirementPlan.diagnosticText");
-}
-
-function assertMigrationEvidence(value: CatalogProviderIntegrationProfileMigrationEvidence): void {
-  if (!isJsonObject(value)) {
-    throw new CatalogProviderProfileSectionValidationError("migrationEvidence must be a JSON object or null.");
-  }
-  assertRequiredString(value.evidenceText, "migrationEvidence.evidenceText");
-  assertRequiredString(value.recordedAt, "migrationEvidence.recordedAt");
 }
 
 function assertProfileVersionIdentity(
