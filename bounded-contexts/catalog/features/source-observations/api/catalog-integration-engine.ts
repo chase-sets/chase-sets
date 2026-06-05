@@ -4,7 +4,7 @@ import type { ProviderPayloadEnvelope } from "./provider-adapters/provider-adapt
 export type CatalogIntegrationEngineDiagnostic = Readonly<{
   code: string;
   severity: "info" | "warning" | "error";
-  message: string;
+  diagnosticText: string;
   unitKey: CatalogIntegrationUnitKey;
   externalKey?: string;
   path?: string;
@@ -47,7 +47,7 @@ export function runCatalogIntegrationDryRun<TPayload>(
       diagnostics.push({
         code: "integration-unit-mismatch",
         severity: "error",
-        message: "Provider payload was produced for a different Catalog integration unit.",
+        diagnosticText: "Provider payload was produced for a different Catalog integration unit.",
         unitKey: input.unitKey,
         externalKey: payload.externalKey,
         path: "payload.unitKey",
@@ -59,7 +59,7 @@ export function runCatalogIntegrationDryRun<TPayload>(
       diagnostics.push({
         code: "provider-key-mismatch",
         severity: "error",
-        message: "Provider payload key does not match the Catalog integration unit provider key.",
+        diagnosticText: "Provider payload key does not match the Catalog integration unit provider key.",
         unitKey: input.unitKey,
         externalKey: payload.externalKey,
         path: "payload.providerKey",
@@ -78,7 +78,7 @@ export function runCatalogIntegrationDryRun<TPayload>(
       diagnostics.push({
         code: "normalized-observation-identity-mismatch",
         severity: "error",
-        message: "Normalized Source Observation fact does not preserve engine input identity.",
+        diagnosticText: "Normalized Source Observation fact does not preserve engine input identity.",
         unitKey: input.unitKey,
         externalKey: payload.externalKey,
         path: "normalize",
@@ -93,7 +93,7 @@ export function runCatalogIntegrationDryRun<TPayload>(
     diagnostics.push({
       code: "no-provider-payloads",
       severity: "warning",
-      message: "Dry run did not receive provider payloads to evaluate.",
+      diagnosticText: "Dry run did not receive provider payloads to evaluate.",
       unitKey: input.unitKey,
     });
   }

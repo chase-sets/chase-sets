@@ -73,7 +73,7 @@ describe("Catalog Integration Engine", () => {
       {
         code: "integration-unit-mismatch",
         severity: "error",
-        message: "Provider payload was produced for a different Catalog integration unit.",
+        diagnosticText: "Provider payload was produced for a different Catalog integration unit.",
         unitKey,
         externalKey: "fury-sliver",
         path: "payload.unitKey",
@@ -105,7 +105,7 @@ describe("Catalog Integration Engine", () => {
       {
         code: "normalized-observation-identity-mismatch",
         severity: "error",
-        message: "Normalized Source Observation fact does not preserve engine input identity.",
+        diagnosticText: "Normalized Source Observation fact does not preserve engine input identity.",
         unitKey,
         externalKey: "abra-43",
         path: "normalize",
