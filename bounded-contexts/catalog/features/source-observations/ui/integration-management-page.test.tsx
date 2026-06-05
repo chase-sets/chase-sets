@@ -780,22 +780,81 @@ describe("IntegrationManagementPage", () => {
           commandName: "CreateCatalogItem",
           requiredInputs: ["title"],
           inputs: { title: "Charizard", externalKey: "tcgdex:swsh3-20" },
+          resolvedTargets: [],
         },
         {
           order: 2,
           commandName: "AssignBlueprintToCatalogItem",
           requiredInputs: ["blueprintKey"],
           inputs: { blueprintKey: "pokemon-card-single" },
+          resolvedTargets: [],
         },
         {
           order: 3,
           commandName: "SetCatalogItemFieldValue",
           requiredInputs: ["fieldKey", "value"],
           inputs: { fieldKey: "card-name", value: "Charizard" },
+          resolvedTargets: [],
         },
       ],
+      resolvedTargets: [],
     });
     expect(promotionCommandRequiredInputKeys("LinkExternalProductReference")).toEqual(["providerKey", "externalKey"]);
+  });
+
+  it("resolves promotion command fixture inputs to Catalog target records", () => {
+    const preview = promotionPlanPreview(
+      {
+        planKind: "catalog-item-promotion",
+        requiresReview: true,
+        commands: [
+          promotionPreviewCommand("AssignBlueprintToCatalogItem", {
+            blueprintKey: "catalog.blueprintKey",
+          }),
+          promotionPreviewCommand("AssignCatalogItemToCategory", {
+            categoryKey: "catalog.categoryKey",
+          }),
+          promotionPreviewCommand("SetCatalogItemFieldValue", {
+            fieldKey: "catalog.fields.cardName",
+            value: "card.name",
+          }),
+        ],
+      },
+      {
+        card: { name: "Charizard" },
+        catalog: {
+          blueprintKey: "pokemon-card-single",
+          categoryKey: "trading-card-singles",
+          fields: { cardName: "card-name" },
+        },
+      },
+      {
+        blueprints: [{ id: "bp_pokemon", key: "pokemon-card-single", name: "Pokemon Card", status: "active" }],
+        categories: [{ id: "cat_singles", key: "trading-card-singles", name: "Singles", status: "active" }],
+        fields: [{ id: "fld_name", key: "card-name", name: "Card Name", status: "active" }],
+      },
+    );
+
+    expect(preview.resolvedTargets).toEqual([
+      expect.objectContaining({
+        inputKey: "blueprintKey",
+        targetKind: "blueprint",
+        targetId: "bp_pokemon",
+        disposition: "catalog-target-active",
+      }),
+      expect.objectContaining({
+        inputKey: "categoryKey",
+        targetKind: "category",
+        targetId: "cat_singles",
+        disposition: "catalog-target-active",
+      }),
+      expect.objectContaining({
+        inputKey: "fieldKey",
+        targetKind: "field",
+        targetId: "fld_name",
+        disposition: "catalog-target-active",
+      }),
+    ]);
   });
 
   it("shows pulled provider scopes with language expansion series and review counts", () => {
@@ -2370,6 +2429,141 @@ describe("IntegrationManagementPage", () => {
     );
   });
 
+  it("compares promotion command previews with server dry-run output in the editor", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockDryRunSourceObservationProviderProfile.mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.03",
+      status: "completed",
+      redactedPayload: { card: { name: "Charizard" } },
+      observation: null,
+      diagnostics: [],
+      hashMaterial: [],
+      externalReferences: {
+        catalogItemReferences: [],
+        productReferences: [],
+      },
+      selectedOptions: [],
+      mergeCandidateEvidence: [],
+      duplicatePreventionPolicy: {
+        ambiguousCandidatePolicy: "block-promotion",
+        replayPolicy: "same-profile-version",
+        exactExternalCatalogItemReferencesFirst: true,
+      },
+      duplicatePreventionRules: [],
+      promotionCommandPlan: {
+        requiresReview: true,
+        commands: [
+          {
+            commandName: "CreateCatalogItem",
+            inputs: [
+              {
+                path: "promotionCommandPlan.commands.0.inputs.title",
+                owner: "catalog-truth",
+                uses: ["promotion-command"],
+                redaction: "none",
+                value: "Charizard",
+                diagnostics: [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgdex",
+            profileKey: "tcgdex-pokemon-card",
+            displayName: "TCGdex",
+            lifecycle: "draft",
+            capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
+            mappingOutputKind: "pokemon-card",
+            executableMappingContract: executableMappingContract({
+              outputKind: "pokemon-card",
+              promotionCommandPlan: {
+                requiresReview: true,
+                commands: [
+                  {
+                    commandName: "CreateCatalogItem",
+                    inputs: {
+                      title: mappingExpression("card.name", "catalog-truth", ["promotion-command"]),
+                    },
+                  },
+                ],
+              },
+            }),
+            profile: {
+              providerKey: "tcgdex",
+              profileKey: "tcgdex-pokemon-card",
+              displayName: "TCGdex",
+              status: "planned",
+              connector: { kind: "tcgdex-json" },
+              capabilities: ["source-observation-import", "catalog-item-promotion", "external-reference-extraction"],
+              supportedScopes: ["language", "series", "expansion", "product/card"],
+              languageOptions: ["en"],
+              optionQueries: [],
+              normalizedObservationMapping: { kind: "pokemon-card" },
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseSourceObservationProviderProfileAuthoringModel.mockReturnValue({
+      data: profileAuthoringModel({
+        fixtureCases: [
+          {
+            flow: "normal",
+            payloadFile: "normal.json",
+            payloadPath: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex/normal.json",
+            expectedStatus: "completed",
+            expectedDiagnosticPaths: [],
+            expectedHashEvidencePaths: ["normalizedObservation.hashMaterial.0"],
+            expectedMergeEvidencePaths: ["duplicatePrevention.mergeCandidateEvidence.0"],
+            expectedPromotionCommands: ["CreateCatalogItem"],
+            expectedObservation: { normalizedKind: "pokemon-card" },
+            samplePayload: { card: { name: "Charizard" } },
+            samplePayloadAvailable: true,
+          },
+        ],
+        dryRunInputTemplate: {
+          observedAt: "1970-01-01T00:00:00.000Z",
+          defaultFlow: "normal",
+          payload: { card: { name: "Charizard" } },
+          fixturePayloads: [],
+        },
+      }),
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Compare server plan$/i }));
+
+    await waitFor(() =>
+      expect(mockDryRunSourceObservationProviderProfile).toHaveBeenCalledWith(
+        "tcgdex",
+        "2026.06.03",
+        expect.objectContaining({ card: { name: "Charizard" } }),
+      ),
+    );
+    await waitFor(() => expect(within(dialog).getAllByText(/completed/i).length).toBeGreaterThan(0));
+    expect(within(dialog).getAllByText(/CreateCatalogItem/i).length).toBeGreaterThan(1);
+    expect(within(dialog).getAllByText(/Charizard/i).length).toBeGreaterThan(0);
+  });
+
   it("blocks provider-product promotion commands without promotion capability", () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
@@ -3907,6 +4101,7 @@ function profileAuthoringModel(
       referenceCount: 0,
     },
     selectedOptionSchema: null,
+    promotionTargetSchema: null,
     ...overrides,
   };
 }

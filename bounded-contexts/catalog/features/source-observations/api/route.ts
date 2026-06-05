@@ -99,6 +99,7 @@ export function sourceObservationRoutes(
       providerKey: c.req.param("providerKey"),
       profileVersion: c.req.param("profileVersion"),
       selectedOptionSchema: await services.getSelectedOptionAuthoringSchema?.(),
+      promotionTargetSchema: await services.getPromotionTargetAuthoringSchema?.(),
     });
 
     return c.json(result);

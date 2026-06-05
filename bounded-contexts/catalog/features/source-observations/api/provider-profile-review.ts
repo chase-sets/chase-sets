@@ -360,6 +360,19 @@ export type CatalogProviderSelectedOptionAuthoringSchema = Readonly<{
   }>[];
 }>;
 
+export type CatalogProviderPromotionTargetAuthoringSchema = Readonly<{
+  blueprints: readonly CatalogProviderPromotionTargetAuthoringRecord[];
+  categories: readonly CatalogProviderPromotionTargetAuthoringRecord[];
+  fields: readonly CatalogProviderPromotionTargetAuthoringRecord[];
+}>;
+
+export type CatalogProviderPromotionTargetAuthoringRecord = Readonly<{
+  id: string;
+  key: string;
+  name: string;
+  status: string;
+}>;
+
 export type CatalogProviderProfileAuthoringModel = Readonly<{
   review: CatalogProviderProfileVersionReview;
   editableSections: readonly CatalogProviderProfileEditableSection[];
@@ -368,6 +381,7 @@ export type CatalogProviderProfileAuthoringModel = Readonly<{
   semanticDiff: CatalogProviderProfileSemanticDiff;
   activationReadiness: CatalogProviderProfileActivationReadiness;
   selectedOptionSchema: CatalogProviderSelectedOptionAuthoringSchema | null;
+  promotionTargetSchema: CatalogProviderPromotionTargetAuthoringSchema | null;
 }>;
 
 export async function listCatalogProviderProfileVersionReviews(
@@ -392,6 +406,7 @@ export async function getCatalogProviderProfileAuthoringModel(input: {
   observedAt?: string;
   fixtureCases?: readonly CatalogProviderProfileFixtureCase[];
   selectedOptionSchema?: CatalogProviderSelectedOptionAuthoringSchema | null;
+  promotionTargetSchema?: CatalogProviderPromotionTargetAuthoringSchema | null;
 }): Promise<CatalogProviderProfileAuthoringModel> {
   const version = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
   const referenceCount = await input.store.countProfileVersionReferences(version.providerKey, version.profileVersion);
@@ -426,6 +441,7 @@ export async function getCatalogProviderProfileAuthoringModel(input: {
       fixtureCases,
     }),
     selectedOptionSchema: input.selectedOptionSchema ?? null,
+    promotionTargetSchema: input.promotionTargetSchema ?? null,
   };
 }
 

@@ -229,6 +229,7 @@ describe("Catalog provider profile review", () => {
       ]),
     });
     expect(model.selectedOptionSchema).toBeNull();
+    expect(model.promotionTargetSchema).toBeNull();
   });
 
   it("includes selected option authoring schema when supplied by the admin runtime", async () => {
@@ -264,6 +265,26 @@ describe("Catalog provider profile review", () => {
           options: [expect.objectContaining({ optionKey: "near-mint" })],
         }),
       ],
+    });
+  });
+
+  it("includes promotion target authoring schema when supplied by the admin runtime", async () => {
+    const model = await getCatalogProviderProfileAuthoringModel({
+      store: mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]),
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      repositoryRoot: repositoryRoot(),
+      promotionTargetSchema: {
+        blueprints: [{ id: "bp_pokemon", key: "pokemon-card-single", name: "Pokemon Card", status: "active" }],
+        categories: [{ id: "cat_singles", key: "trading-card-singles", name: "Singles", status: "active" }],
+        fields: [{ id: "fld_name", key: "card-name", name: "Card Name", status: "active" }],
+      },
+    });
+
+    expect(model.promotionTargetSchema).toEqual({
+      blueprints: [expect.objectContaining({ key: "pokemon-card-single" })],
+      categories: [expect.objectContaining({ key: "trading-card-singles" })],
+      fields: [expect.objectContaining({ key: "card-name" })],
     });
   });
 

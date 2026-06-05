@@ -406,7 +406,15 @@ describe("source observation routes", () => {
         },
       ],
     }));
-    const services = { getSelectedOptionAuthoringSchema } as unknown as SourceObservationServices;
+    const getPromotionTargetAuthoringSchema = vi.fn(async () => ({
+      blueprints: [{ id: "bp_pokemon", key: "pokemon-card-single", name: "Pokemon Card", status: "active" }],
+      categories: [{ id: "cat_singles", key: "trading-card-singles", name: "Singles", status: "active" }],
+      fields: [{ id: "fld_name", key: "card-name", name: "Card Name", status: "active" }],
+    }));
+    const services = {
+      getSelectedOptionAuthoringSchema,
+      getPromotionTargetAuthoringSchema,
+    } as unknown as SourceObservationServices;
     const store = mutableProfileStore([
       ...catalogProviderIntegrationProfileVersions,
       profileVersion("tcgdex", {
@@ -445,8 +453,14 @@ describe("source observation routes", () => {
           }),
         ],
       },
+      promotionTargetSchema: {
+        blueprints: [expect.objectContaining({ key: "pokemon-card-single" })],
+        categories: [expect.objectContaining({ key: "trading-card-singles" })],
+        fields: [expect.objectContaining({ key: "card-name" })],
+      },
     });
     expect(getSelectedOptionAuthoringSchema).toHaveBeenCalledOnce();
+    expect(getPromotionTargetAuthoringSchema).toHaveBeenCalledOnce();
   });
 
   it("returns structured bad requests for invalid profile section commands", async () => {

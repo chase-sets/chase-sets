@@ -329,6 +329,19 @@ export type SourceObservationSelectedOptionAuthoringSchema = Readonly<{
   }>[];
 }>;
 
+export type SourceObservationPromotionTargetAuthoringSchema = Readonly<{
+  blueprints: readonly SourceObservationPromotionTargetAuthoringRecord[];
+  categories: readonly SourceObservationPromotionTargetAuthoringRecord[];
+  fields: readonly SourceObservationPromotionTargetAuthoringRecord[];
+}>;
+
+export type SourceObservationPromotionTargetAuthoringRecord = Readonly<{
+  id: string;
+  key: string;
+  name: string;
+  status: string;
+}>;
+
 export type SourceObservationServices = Readonly<{
   commandHandler: CommandHandler<SourceObservationCommand, SourceObservationState, SourceObservationEvent>;
   importTcgdexSet: (input: {
@@ -357,6 +370,7 @@ export type SourceObservationServices = Readonly<{
     parentValue?: string | null;
   }) => Promise<readonly SourceObservationIntegrationOption[]>;
   getSelectedOptionAuthoringSchema: () => Promise<SourceObservationSelectedOptionAuthoringSchema>;
+  getPromotionTargetAuthoringSchema: () => Promise<SourceObservationPromotionTargetAuthoringSchema>;
   promoteObservation: (input: {
     observationId: string;
     context: EventStoreContext;
@@ -2477,6 +2491,7 @@ export function createSourceObservationRuntime(
     listIntegrationOptions: (input) =>
       listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient, profileVersions),
     getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
+    getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -2917,6 +2932,42 @@ async function loadSelectedOptionAuthoringSchema(
       options: optionsByDimensionId.get(dimension.dimensionId) ?? [],
     })),
   };
+}
+
+async function loadPromotionTargetAuthoringSchema(
+  db: PgQueryable,
+): Promise<SourceObservationPromotionTargetAuthoringSchema> {
+  const [blueprints, categories, fields] = await Promise.all([
+    loadPromotionTargetAuthoringRecords(db, "catalog_blueprints", "blueprint_id"),
+    loadPromotionTargetAuthoringRecords(db, "catalog_categories", "category_id"),
+    loadPromotionTargetAuthoringRecords(db, "catalog_fields", "field_id"),
+  ]);
+
+  return { blueprints, categories, fields };
+}
+
+async function loadPromotionTargetAuthoringRecords(
+  db: PgQueryable,
+  tableName: "catalog_blueprints" | "catalog_categories" | "catalog_fields",
+  idColumnName: "blueprint_id" | "category_id" | "field_id",
+): Promise<readonly SourceObservationPromotionTargetAuthoringRecord[]> {
+  const result = await db.query<{
+    id: string;
+    key: string;
+    name: string;
+    status: string;
+  }>(
+    `SELECT ${idColumnName} AS id, key, name, status
+     FROM ${tableName}
+     ORDER BY key ASC`,
+  );
+
+  return result.rows.map((row) => ({
+    id: row.id,
+    key: row.key,
+    name: row.name,
+    status: row.status,
+  }));
 }
 
 async function createCatalogDraftFromObservation(input: {

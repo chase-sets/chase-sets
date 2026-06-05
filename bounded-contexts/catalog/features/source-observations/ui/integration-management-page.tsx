@@ -3556,10 +3556,12 @@ function ProfileBasicsEditor({
       />
 
       <PromotionPlanEditor
+        profile={profile}
         form={form.promotionPlan}
         onChange={setPromotionPlan}
         diagnostics={promotionPlanDiagnostics}
         editable={editable}
+        promotionTargetSchema={authoringModel?.promotionTargetSchema ?? null}
         previewPayload={previewPayload}
       />
 
@@ -5737,21 +5739,45 @@ export function duplicatePreventionPreview(form: ProfileDuplicatePreventionForm,
 }
 
 function PromotionPlanEditor({
+  profile,
   form,
   onChange,
   diagnostics,
   editable,
+  promotionTargetSchema,
   previewPayload,
 }: Readonly<{
+  profile: CatalogProviderProfileVersionReview;
   form: ProfilePromotionPlanForm;
   onChange: (form: ProfilePromotionPlanForm) => void;
   diagnostics: readonly string[];
   editable: boolean;
+  promotionTargetSchema: CatalogProviderProfileAuthoringModel["promotionTargetSchema"];
   previewPayload: JsonValue | null;
 }>) {
+  const [serverDryRunResult, setServerDryRunResult] = useState<CatalogProviderProfileDryRunResult | null>(null);
+  const [serverDryRunError, setServerDryRunError] = useState<string | null>(null);
+  const [serverDryRunning, setServerDryRunning] = useState(false);
   const setForm = (patch: Partial<ProfilePromotionPlanForm>) => onChange({ ...form, ...patch });
   const setCommand = (id: string, patch: Partial<ProfilePromotionCommandForm>) =>
     setForm({ commands: form.commands.map((command) => (command.id === id ? { ...command, ...patch } : command)) });
+  const runServerComparison = async () => {
+    if (!previewPayload) {
+      return;
+    }
+
+    setServerDryRunning(true);
+    setServerDryRunError(null);
+    try {
+      const result = await dryRunSourceObservationProviderProfile(profile.providerKey, profile.profileVersion, previewPayload);
+      setServerDryRunResult(result);
+    } catch (error) {
+      setServerDryRunResult(null);
+      setServerDryRunError(error instanceof Error ? error.message : "Server dry-run comparison failed.");
+    } finally {
+      setServerDryRunning(false);
+    }
+  };
 
   return (
     <Stack gap={3}>
@@ -5780,7 +5806,35 @@ function PromotionPlanEditor({
           { key: "Requires review", value: "Yes" },
         ]}
       />
-      <PromotionPlanPreview form={form} previewPayload={previewPayload} />
+      <PromotionPlanPreview form={form} promotionTargetSchema={promotionTargetSchema} previewPayload={previewPayload} />
+      <Stack gap={2}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h4 className="text-sm font-semibold text-foreground">Server Dry-Run Comparison</h4>
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="play"
+            loading={serverDryRunning}
+            disabled={!previewPayload}
+            onClick={runServerComparison}
+          >
+            Compare server plan
+          </Button>
+        </div>
+        {serverDryRunError ? <p className="text-sm text-danger">{serverDryRunError}</p> : null}
+        <TaskSummary
+          title="Server Promotion Command Plan"
+          items={[
+            { label: "Status", value: serverDryRunResult?.status ?? "Not compared" },
+            {
+              label: "Planned commands",
+              value: serverDryRunResult
+                ? summarizeJsonValue(serverDryRunResult.promotionCommandPlan.commands as unknown as JsonValue)
+                : "Run comparison",
+            },
+          ]}
+        />
+      </Stack>
       <Stack gap={4}>
         {form.commands.map((command, index) => (
           <Stack key={command.id} gap={3}>
@@ -5869,12 +5923,14 @@ function PromotionPlanEditor({
 
 function PromotionPlanPreview({
   form,
+  promotionTargetSchema,
   previewPayload,
 }: Readonly<{
   form: ProfilePromotionPlanForm;
+  promotionTargetSchema: CatalogProviderProfileAuthoringModel["promotionTargetSchema"];
   previewPayload: JsonValue | null;
 }>) {
-  const preview = previewPayload ? promotionPlanPreview(form, previewPayload) : null;
+  const preview = previewPayload ? promotionPlanPreview(form, previewPayload, promotionTargetSchema) : null;
 
   return (
     <TaskSummary
@@ -5889,27 +5945,77 @@ function PromotionPlanPreview({
           label: "Fixture command inputs",
           value: preview ? summarizeJsonValue(preview.commands) : "No fixture sample",
         },
+        {
+          label: "Resolved Catalog targets",
+          value: preview ? summarizeJsonValue(preview.resolvedTargets) : "No fixture sample",
+        },
       ]}
     />
   );
 }
 
-export function promotionPlanPreview(form: ProfilePromotionPlanForm, payload: JsonValue) {
-  return {
-    planKind: form.planKind,
-    requiresReview: form.requiresReview,
-    commands: form.commands.map((command, index) => ({
+export function promotionPlanPreview(
+  form: ProfilePromotionPlanForm,
+  payload: JsonValue,
+  promotionTargetSchema: CatalogProviderProfileAuthoringModel["promotionTargetSchema"] = null,
+) {
+  const commands = form.commands.map((command, index) => {
+    const inputs = Object.fromEntries(
+      command.inputs.map((input) => [
+        input.fieldKey.trim() || "unnamed",
+        previewMappingExpression(input.expression, payload).value,
+      ]),
+    ) as Record<string, JsonValue>;
+    return {
       order: index + 1,
       commandName: command.commandName,
       requiredInputs: promotionCommandRequiredInputKeys(command.commandName),
-      inputs: Object.fromEntries(
-        command.inputs.map((input) => [
-          input.fieldKey.trim() || "unnamed",
-          previewMappingExpression(input.expression, payload).value,
-        ]),
-      ) as JsonValue,
-    })),
+      inputs: inputs as JsonValue,
+      resolvedTargets: promotionCommandResolvedTargets(command.commandName, inputs, promotionTargetSchema),
+    };
+  });
+
+  return {
+    planKind: form.planKind,
+    requiresReview: form.requiresReview,
+    commands,
+    resolvedTargets: commands.flatMap((command) => command.resolvedTargets),
   };
+}
+
+function promotionCommandResolvedTargets(
+  commandName: ProfilePromotionCommandForm["commandName"],
+  inputs: Record<string, JsonValue>,
+  promotionTargetSchema: CatalogProviderProfileAuthoringModel["promotionTargetSchema"],
+) {
+  if (!promotionTargetSchema) {
+    return [];
+  }
+
+  const targetSpecs =
+    commandName === "AssignBlueprintToCatalogItem"
+      ? [{ inputKey: "blueprintKey", targetKind: "blueprint", records: promotionTargetSchema.blueprints }]
+      : commandName === "AssignCatalogItemToCategory"
+        ? [{ inputKey: "categoryKey", targetKind: "category", records: promotionTargetSchema.categories }]
+        : commandName === "SetCatalogItemFieldValue"
+          ? [{ inputKey: "fieldKey", targetKind: "field", records: promotionTargetSchema.fields }]
+          : [];
+
+  return targetSpecs.map((spec) => {
+    const inputValue = inputs[spec.inputKey];
+    const target = spec.records.find(
+      (record) => normalizeSelectedOptionKey(record.key) === normalizeSelectedOptionKey(summarizeJsonValue(inputValue)),
+    );
+    return {
+      inputKey: spec.inputKey,
+      targetKind: spec.targetKind,
+      key: summarizeJsonValue(inputValue),
+      targetId: target?.id ?? null,
+      targetName: target?.name ?? null,
+      status: target?.status ?? "missing",
+      disposition: target ? (target.status === "active" ? "catalog-target-active" : "catalog-target-inactive") : "catalog-target-missing",
+    };
+  });
 }
 
 export function promotionCommandRequiredInputKeys(

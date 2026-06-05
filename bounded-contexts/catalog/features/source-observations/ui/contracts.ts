@@ -355,6 +355,19 @@ export interface CatalogProviderSelectedOptionAuthoringSchema {
   }[];
 }
 
+export interface CatalogProviderPromotionTargetAuthoringSchema {
+  blueprints: CatalogProviderPromotionTargetAuthoringRecord[];
+  categories: CatalogProviderPromotionTargetAuthoringRecord[];
+  fields: CatalogProviderPromotionTargetAuthoringRecord[];
+}
+
+export interface CatalogProviderPromotionTargetAuthoringRecord {
+  id: string;
+  key: string;
+  name: string;
+  status: string;
+}
+
 export interface CatalogProviderProfileAuthoringModel {
   review: CatalogProviderProfileVersionReview;
   editableSections: CatalogProviderProfileEditableSection[];
@@ -363,6 +376,7 @@ export interface CatalogProviderProfileAuthoringModel {
   semanticDiff: CatalogProviderProfileSemanticDiff;
   activationReadiness: CatalogProviderProfileActivationReadiness;
   selectedOptionSchema: CatalogProviderSelectedOptionAuthoringSchema | null;
+  promotionTargetSchema: CatalogProviderPromotionTargetAuthoringSchema | null;
 }
 
 export interface CatalogProviderProfileDryRunEvidence {
