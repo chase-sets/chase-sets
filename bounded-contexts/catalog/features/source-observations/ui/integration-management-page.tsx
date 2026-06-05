@@ -3543,6 +3543,7 @@ function ProfileBasicsEditor({
         onChange={setPromotionPlan}
         diagnostics={promotionPlanDiagnostics}
         editable={editable}
+        previewPayload={previewPayload}
       />
 
       <Stack gap={3}>
@@ -5597,11 +5598,13 @@ function PromotionPlanEditor({
   onChange,
   diagnostics,
   editable,
+  previewPayload,
 }: Readonly<{
   form: ProfilePromotionPlanForm;
   onChange: (form: ProfilePromotionPlanForm) => void;
   diagnostics: readonly string[];
   editable: boolean;
+  previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfilePromotionPlanForm>) => onChange({ ...form, ...patch });
   const setCommand = (id: string, patch: Partial<ProfilePromotionCommandForm>) =>
@@ -5634,6 +5637,7 @@ function PromotionPlanEditor({
           { key: "Requires review", value: "Yes" },
         ]}
       />
+      <PromotionPlanPreview form={form} previewPayload={previewPayload} />
       <Stack gap={4}>
         {form.commands.map((command, index) => (
           <Stack key={command.id} gap={3}>
@@ -5700,6 +5704,7 @@ function PromotionPlanEditor({
             <PromotionCommandInputsEditor
               command={command}
               editable={editable}
+              previewPayload={previewPayload}
               onChange={(inputs) => setCommand(command.id, { inputs })}
             />
           </Stack>
@@ -5709,13 +5714,59 @@ function PromotionPlanEditor({
   );
 }
 
+function PromotionPlanPreview({
+  form,
+  previewPayload,
+}: Readonly<{
+  form: ProfilePromotionPlanForm;
+  previewPayload: JsonValue | null;
+}>) {
+  const preview = previewPayload ? promotionPlanPreview(form, previewPayload) : null;
+
+  return (
+    <TaskSummary
+      title="Promotion Command Preview"
+      items={[
+        { label: "Command count", value: String(form.commands.length) },
+        {
+          label: "Ordered commands",
+          value: form.commands.map((command, index) => `${index + 1}. ${command.commandName}`).join("; ") || "None",
+        },
+        {
+          label: "Fixture command inputs",
+          value: preview ? summarizeJsonValue(preview.commands) : "No fixture sample",
+        },
+      ]}
+    />
+  );
+}
+
+export function promotionPlanPreview(form: ProfilePromotionPlanForm, payload: JsonValue) {
+  return {
+    planKind: form.planKind,
+    requiresReview: form.requiresReview,
+    commands: form.commands.map((command, index) => ({
+      order: index + 1,
+      commandName: command.commandName,
+      inputs: Object.fromEntries(
+        command.inputs.map((input) => [
+          input.fieldKey.trim() || "unnamed",
+          previewMappingExpression(input.expression, payload).value,
+        ]),
+      ) as JsonValue,
+    })),
+  };
+}
+
 function PromotionCommandInputsEditor({
   command,
   editable,
+  previewPayload,
   onChange,
 }: Readonly<{
   command: ProfilePromotionCommandForm;
   editable: boolean;
+  previewPayload: JsonValue | null;
   onChange: (inputs: readonly ProfileExpressionFieldForm[]) => void;
 }>) {
   const setInput = (id: string, patch: Partial<ProfileExpressionFieldForm>) =>
@@ -5761,6 +5812,7 @@ function PromotionCommandInputsEditor({
             label={`Promotion input expression: ${input.fieldKey || index + 1}`}
             value={input.expression}
             onChange={(expression) => setInput(input.id, { expression })}
+            previewPayload={previewPayload}
           />
         </Stack>
       ))}

@@ -10,6 +10,7 @@ import {
   providerOptionMetadataPreview,
   providerOptionOutputPreview,
   providerOptionParentPreview,
+  promotionPlanPreview,
   referenceHierarchyPreview,
 } from "./integration-management-page";
 import type {
@@ -611,6 +612,58 @@ describe("IntegrationManagementPage", () => {
         }),
       ]),
     );
+  });
+
+  it("builds ordered promotion command previews from fixture payloads", () => {
+    const preview = promotionPlanPreview(
+      {
+        planKind: "catalog-item-promotion",
+        requiresReview: true,
+        commands: [
+          promotionPreviewCommand("CreateCatalogItem", {
+            title: "card.name",
+            externalKey: "externalKey",
+          }),
+          promotionPreviewCommand("AssignBlueprintToCatalogItem", {
+            blueprintKey: "catalog.blueprintKey",
+          }),
+          promotionPreviewCommand("SetCatalogItemFieldValue", {
+            fieldKey: "catalog.fields.cardName",
+            value: "card.name",
+          }),
+        ],
+      },
+      {
+        externalKey: "tcgdex:swsh3-20",
+        card: { name: "Charizard", localId: "20" },
+        catalog: {
+          blueprintKey: "pokemon-card-single",
+          fields: { cardName: "card-name" },
+        },
+      },
+    );
+
+    expect(preview).toEqual({
+      planKind: "catalog-item-promotion",
+      requiresReview: true,
+      commands: [
+        {
+          order: 1,
+          commandName: "CreateCatalogItem",
+          inputs: { title: "Charizard", externalKey: "tcgdex:swsh3-20" },
+        },
+        {
+          order: 2,
+          commandName: "AssignBlueprintToCatalogItem",
+          inputs: { blueprintKey: "pokemon-card-single" },
+        },
+        {
+          order: 3,
+          commandName: "SetCatalogItemFieldValue",
+          inputs: { fieldKey: "card-name", value: "Charizard" },
+        },
+      ],
+    });
   });
 
   it("shows pulled provider scopes with language expansion series and review counts", () => {
@@ -3221,6 +3274,33 @@ function duplicatePreviewRule(
         expression: mappingExpression(path, "catalog-merge-evidence", ["merge-identity"]) as MappingExpressionValue,
       },
     ],
+  };
+}
+
+function promotionPreviewCommand(
+  commandName:
+    | "CreateCatalogItem"
+    | "RefreshCatalogItem"
+    | "ReviseCatalogItemMetadata"
+    | "AssignBlueprintToCatalogItem"
+    | "AssignCatalogItemToCategory"
+    | "SetCatalogItemFieldValue"
+    | "SetCatalogItemTags"
+    | "SetCatalogItemImageUrls"
+    | "SetCatalogItemProductAssetSets"
+    | "LinkExternalCatalogItemReference"
+    | "LinkExternalProductReference",
+  inputs: Record<string, string>,
+) {
+  return {
+    id: `promotion-${commandName}`,
+    unsupportedCommandName: null,
+    commandName,
+    inputs: Object.entries(inputs).map(([fieldKey, path]) => ({
+      id: `promotion-${commandName}-${fieldKey}`,
+      fieldKey,
+      expression: mappingExpression(path, "catalog-truth", ["promotion-command"]) as MappingExpressionValue,
+    })),
   };
 }
 
