@@ -1,6 +1,6 @@
 # Catalog Integration Job Consistency
 
-Catalog owns consistency for provider profile lifecycle work, integration jobs, Source Observation review jobs, promotion, reapply, rollback, and retirement. Platform durable-job storage provides leases, events, and work-unit checkpoints; Catalog defines what duplicate submissions, profile changes, retries, partial failures, and deploy skew mean to operators.
+Catalog owns consistency for provider profile lifecycle work, integration jobs, Source Observation review jobs, promotion, reapply, rollback, and retirement. Platform durable-job storage provides leases, events, and work-unit checkpoints; Catalog defines what duplicate submissions, profile changes, retries, partial failures, and deploy skew mean to operators. The schema versioning and compatibility policy for job payloads, work units, profile snapshots, and retained data is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md).
 
 ## Submission And Lifecycle Rules
 
@@ -17,6 +17,7 @@ Catalog owns consistency for provider profile lifecycle work, integration jobs, 
 - Reapply work units are claimed independently and use Source Observation IDs as unit IDs, so replaying worker setup does not enqueue duplicate units for completed observations.
 - Lost parent-job or work-unit leases cause a handoff instead of marking the job failed. The next worker resumes from durable outcomes and terminal work-unit states.
 - API and worker deploy skew is safe because jobs execute against their snapshotted profile version instead of whichever version is active after deployment.
+- Integration job payloads use `catalog-integration-durable-job-v1`; integration work-unit payloads use `catalog-integration-work-unit-v1`. Both are retained while referenced and must tolerate additive fields during API/worker deploy skew.
 
 ## Promotion And Reapply Idempotency
 
