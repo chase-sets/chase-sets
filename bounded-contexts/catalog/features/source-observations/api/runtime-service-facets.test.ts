@@ -37,6 +37,7 @@ describe("Source Observation service facets", () => {
 
     expect(providerAdapters.providerAdapterRegistry.require("reference-cards").providerKey).toBe("reference-cards");
     expect(providerAdapters.providerAdapterRegistry.require("tcgdex").providerKey).toBe("tcgdex");
+    expect(providerAdapters.providerAdapterRegistry.require("tcgplayer").providerKey).toBe("tcgplayer");
     expect(typeof providerImports.importTcgplayerScope).toBe("function");
     expect(typeof providerOptions.listIntegrationOptions).toBe("function");
     expect(typeof providerProfileAdmin.getSelectedOptionAuthoringSchema).toBe("function");

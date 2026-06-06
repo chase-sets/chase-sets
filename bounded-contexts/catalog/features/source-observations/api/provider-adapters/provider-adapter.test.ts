@@ -13,7 +13,16 @@ import {
 } from "./reference-cards";
 import { ProviderAdapterRegistry } from "./registry";
 import { createTcgdexProviderAdapter, TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./tcgdex";
-import { getActiveCatalogProviderIntegrationProfileVersion } from "../provider-integration-profiles";
+import {
+  createTcgplayerProviderAdapter,
+  TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+} from "./tcgplayer";
+import {
+  getActiveCatalogProviderIntegrationProfileVersion,
+  getCatalogProviderIntegrationProfileVersion,
+} from "../provider-integration-profiles";
+import type { TcgplayerAutomationCatalogClient } from "../tcgplayer-automation-catalog-client";
+import { tcgplayerAutomationResponseFixtures } from "../tcgplayer-automation-response-fixtures.test-data";
 
 type ReferenceCardPayload = Readonly<{
   providerCardId: string;
@@ -267,6 +276,178 @@ describe("ProviderAdapterRegistry", () => {
     ]);
     expect(JSON.stringify(diagnostics)).not.toMatch(/promotion|replay|duplicate-prevention/i);
   });
+
+  it("serves TCGplayer option transport through the ProviderAdapter boundary", async () => {
+    const adapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      client: tcgplayerClient(),
+    });
+
+    await expect(adapter.listIntegrationUnits()).resolves.toEqual([
+      {
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        providerKey: "tcgplayer",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+        displayName: "TCGplayer pokemon single-card",
+        profileVersion: "2026.06.03",
+      },
+    ]);
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "product-lines",
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "3",
+          label: "Pokemon",
+          metadata: {
+            productLineId: "3",
+            productLineName: "Pokemon",
+            productLineUrlName: "pokemon",
+            isDirect: "true",
+          },
+        },
+      ],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "set-names",
+        parentValues: { productLineId: "3" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "Prismatic Evolutions",
+          label: "Prismatic Evolutions",
+          parentValue: "3",
+          metadata: expect.objectContaining({ setNameId: "2387", active: "true" }),
+        }),
+      ],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "products",
+        parentValues: { setName: "Prismatic Evolutions" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        expect.objectContaining({
+          value: "610001",
+          label: "Eevee ex",
+          metadata: expect.objectContaining({ productLineName: "Pokemon", sealed: "false" }),
+        }),
+      ],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "skus",
+        parentValues: { productId: "610001" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "7001001",
+          label: "7001001",
+          metadata: { sku: "7001001", condition: "Near Mint", variant: "Holofoil", language: "English" },
+        },
+        {
+          value: "7001002",
+          label: "7001002",
+          metadata: { sku: "7001002", condition: "Lightly Played", variant: "Holofoil", language: "English" },
+        },
+      ],
+    });
+  });
+
+  it("plans and fetches TCGplayer product detail payloads with typed provenance", async () => {
+    const progress: unknown[] = [];
+    const adapter = createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      client: tcgplayerClient(),
+      now: () => new Date("2026-06-06T00:00:00.000Z"),
+    });
+    const plan = await adapter.planImport({
+      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "product",
+      values: { productId: "610001" },
+    });
+    const payloads = await collectPayloads(
+      adapter.fetchPayloads(plan, {
+        onProgress: (event) => {
+          progress.push(event);
+        },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      planKey: "tcgplayer:product:610001",
+      transportSteps: ["Fetch TCGplayer product detail", "Attach payload provenance"],
+    });
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        providerKey: "tcgplayer",
+        externalKey: "product:610001",
+        provenance: {
+          fetchedAt: "2026-06-06T00:00:00.000Z",
+          sourceUpdatedAt: "2025-01-17",
+          sourceUrl: "https://mp-search-api.tcgplayer.com/v2/product/610001/details",
+        },
+        payload: {
+          kind: "product-detail",
+          detail: expect.objectContaining({ productId: 610001, productName: "Eevee ex" }),
+        },
+      }),
+    ]);
+    expect(progress).toEqual([
+      { phase: "fetching", completed: 0, total: 1, currentLabel: "Product 610001" },
+      { phase: "fetching", completed: 1, total: 1, currentLabel: "Eevee ex" },
+    ]);
+  });
+
+  it("keeps TCGplayer adapter diagnostics transport-only and secret-free", async () => {
+    const configured = await createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      client: tcgplayerClient(),
+    }).getTransportDiagnostics();
+    const unconfigured = await createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+    }).getTransportDiagnostics();
+
+    expect(configured).toEqual([
+      expect.objectContaining({
+        code: "tcgplayer-automation-client-configured",
+        severity: "info",
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      }),
+      expect.objectContaining({
+        code: "tcgplayer-domain-rate-limit-policy-configured",
+        severity: "info",
+        unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      }),
+    ]);
+    expect(unconfigured).toEqual([
+      expect.objectContaining({
+        code: "tcgplayer-automation-client-unconfigured",
+        severity: "error",
+      }),
+      expect.objectContaining({
+        code: "tcgplayer-domain-rate-limit-policy-configured",
+        severity: "info",
+      }),
+    ]);
+    expect(JSON.stringify([...configured, ...unconfigured])).not.toMatch(
+      /TCGAuthTicket|cookie|secret|promotion|replay/i,
+    );
+  });
 });
 
 function referenceCardsAdapter(): ProviderAdapter<ReferenceCardPayload> {
@@ -344,6 +525,24 @@ function requireTcgdexProfileVersion() {
     throw new Error("Expected active TCGdex profile version.");
   }
   return version;
+}
+
+function requireTcgplayerProfileVersion() {
+  const version = getCatalogProviderIntegrationProfileVersion("tcgplayer");
+  if (!version) {
+    throw new Error("Expected TCGplayer profile version.");
+  }
+  return version;
+}
+
+function tcgplayerClient(): TcgplayerAutomationCatalogClient {
+  return {
+    listProductLines: async () => tcgplayerAutomationResponseFixtures.productLines,
+    listCatalogSetNames: async () => tcgplayerAutomationResponseFixtures.catalogSetNames,
+    searchProducts: async () => tcgplayerAutomationResponseFixtures.productSearch,
+    listAllProducts: async () => tcgplayerAutomationResponseFixtures.productSearch.results[0].results,
+    getProductDetail: async () => tcgplayerAutomationResponseFixtures.productDetail,
+  };
 }
 
 function tcgdexFetch(responses: Readonly<Record<string, unknown>>): typeof globalThis.fetch {

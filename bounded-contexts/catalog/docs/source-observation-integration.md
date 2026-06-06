@@ -66,13 +66,25 @@ review so an import cannot create another plausible duplicate.
 The direct TCGplayer integration uses the automation-app client contract in
 [TCGplayer Automation Client Contract](./tcgplayer-automation-client-contract.md).
 Its fixture-backed executable `test` profile maps provider product and SKU
-evidence as Source Observations while the HTTP adapter remains the transport
-source of truth. It must not use official TCGplayer API documentation as the
+evidence as Source Observations while the registered TCGplayer ProviderAdapter
+owns option and import transport. The adapter serves product-line, set-name,
+product, and SKU options, plans Product and Set Name import scopes, fetches
+automation-app Product Detail payloads, attaches source provenance, and reports
+credential/session, domain, retry, and rate-limit diagnostics without exposing
+production cookies. It must not use official TCGplayer API documentation as the
 provider contract for this workstream, and it must not store price, latest sale,
 listing, order, message, or seller inventory facts as Catalog truth or source
 hash material. TCGplayer SKU evidence remains review evidence until a SKU's
 selected options validate against the active Catalog Product schema; only then
 may `sku:<id>` become an External Product Reference.
+
+The implemented TCGplayer ingestion unit is
+`tcgplayer:pokemon:single-card:source-observation-import`. Future TCGplayer MTG,
+sealed product, or One Piece units must add separate profile versions before
+runtime import enables them. Existing TCGplayer normalization helpers for product
+form, barcode, source hash, selected Options, duplicate-prevention evidence, and
+promotion readiness remain deterministic Catalog semantic compatibility points
+until profile interpretation can express those decisions safely.
 
 ## Promotion
 

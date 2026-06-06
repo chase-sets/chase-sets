@@ -117,6 +117,17 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
           active: true,
         },
       ],
+      listTcgplayerProducts: async () => [
+        {
+          productId: 610001,
+          productName: "Eevee ex",
+        },
+      ],
+      listTcgplayerSkus: async () => [
+        {
+          sku: 7001001,
+        },
+      ],
     };
 
     await expect(
@@ -152,6 +163,42 @@ describe("listCatalogProviderIntegrationOptionsFromProfiles", () => {
         description: "PRE - 2025-01-17",
         parentValue: "3",
         metadata: expect.objectContaining({ productLineId: 3, setNameId: 7001 }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [tcgplayerAutomationClientProviderProfile],
+        providerKey: "tcgplayer",
+        queryKind: "products",
+        parentValue: "Prismatic Evolutions",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        queryKind: "products",
+        value: "610001",
+        label: "Eevee ex",
+        metadata: expect.objectContaining({ productId: 610001 }),
+      }),
+    ]);
+
+    await expect(
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: [tcgplayerAutomationClientProviderProfile],
+        providerKey: "tcgplayer",
+        queryKind: "skus",
+        parentValue: "610001",
+        defaultProviderKey: "tcgdex",
+        transports,
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        queryKind: "skus",
+        value: "7001001",
+        label: "7001001",
+        metadata: expect.objectContaining({ sku: 7001001 }),
       }),
     ]);
   });

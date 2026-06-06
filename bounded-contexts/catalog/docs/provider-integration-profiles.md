@@ -164,19 +164,51 @@ Unknown, inactive, or missing selected-option evidence remains review evidence.
 
 The TCGplayer profile can represent product-line and set-name Reference Record
 evidence through the same hierarchy rules, including `tcgplayer-product-line-id`
-and `tcgplayer-set-name` attributes. The connector remains planned until the
-broader TCGplayer import workflow is enabled. TCGplayer provider-product Source
-Observations remain non-promotable until an active profile declares Catalog Item
-promotion capability and a valid promotion command plan. Its duplicate-prevention
-mapping still records review-only identity evidence such as sealed product form,
-barcode/GTIN values, and future bridge provider references.
+and `tcgplayer-set-name` attributes. The TCGplayer ProviderAdapter is the live
+transport boundary for #786: it lists the
+`tcgplayer:pokemon:single-card:source-observation-import` ingestion unit, serves
+product-line, set-name, product, and SKU option-query transport, plans Product
+and Set Name import scopes, fetches automation-app Product Detail payloads,
+attaches source provenance, and emits credential/session, domain, retry, and
+rate-limit diagnostics. It must not decide which TCGplayer facts are Catalog
+Fields, which Product IDs are Catalog Item references, which SKUs are Product
+references, or whether a provider-product observation is promotable.
+
+The adapter identifies TCGplayer integration work as narrow ingestion units
+rather than one broad provider semantic profile. The implemented profile-backed
+unit is `tcgplayer:pokemon:single-card:source-observation-import`. Planned split
+units such as `tcgplayer:mtg:single-card:source-observation-import`,
+`tcgplayer:mtg:sealed-product:source-observation-import`, and
+`tcgplayer:one-piece:single-card:source-observation-import` require their own
+profile versions before runtime import can enable them. Raw and graded card
+differences stay inside the single-card unit as condition/certification and
+selected Option evidence unless a future provider payload proves a distinct
+aggregate target, lifecycle, duplicate-prevention policy, or promotion plan.
+
+TCGplayer provider-product Source Observations remain non-promotable until an
+active profile declares Catalog Item promotion capability and a valid promotion
+command plan. Its duplicate-prevention mapping still records review-only
+identity evidence such as sealed product form, barcode/GTIN values, and future
+bridge provider references.
 
 The automation client remains transport-owned code for cookie authentication,
 domain-specific HTTP clients, throttling, pagination, endpoint DTOs, and response
 shape audit fixtures. Runtime DTO adaptation may still assemble deterministic
 product-form, barcode, source hash, and selected-option context before invoking
-the profile contract; those helpers are not allowed to import price, listing,
-seller, inventory, order, or message facts into Catalog truth or hash material.
+the profile contract; those helpers are transitional Catalog semantic
+compatibility points. They can retire only after executable profile sections can
+express product-form normalization, barcode coalescing, selected Option review
+evidence, Product ID external Catalog Item references, SKU external Product
+references, duplicate-prevention evidence, Reference Record hierarchy evidence,
+and promotion command-plan readiness without importing price, listing, seller,
+inventory, order, or message facts into Catalog truth or hash material.
+
+The runtime still dispatches the existing `importTcgplayerScope` service and
+TCGplayer durable-job branch for API compatibility. Those branches may retire
+when the generic integration job executor can resolve any provider's active
+ingestion-unit profile, call the registered adapter for target planning and
+payload fetch, and invoke Catalog-owned normalization/recording through the
+same profile snapshot and job-resume guarantees.
 
 ## Scrydex Scryfall-Style Proof Profile
 
