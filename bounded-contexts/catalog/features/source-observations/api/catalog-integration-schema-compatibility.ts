@@ -1,3 +1,5 @@
+import type { CatalogIntegrationGovernedDataClassKey } from "./catalog-integration-data-governance";
+
 export type CatalogIntegrationSchemaCompatibilitySurfaceKey =
   | "provider-adapter-contract"
   | "provider-payload-provenance-envelope"
@@ -276,3 +278,21 @@ export function getCatalogIntegrationSchemaCompatibilityPolicy(
 ): CatalogIntegrationSchemaCompatibilityPolicy {
   return catalogIntegrationSchemaCompatibilityPoliciesByKey[key];
 }
+
+export const catalogIntegrationSchemaCompatibilityGovernanceDataClasses = {
+  "provider-adapter-contract": ["provider-transport-diagnostic"],
+  "provider-payload-provenance-envelope": ["raw-provider-payload", "sampled-provider-payload"],
+  "provider-profile-version": ["audit-evidence"],
+  "profile-section-command": ["audit-evidence"],
+  "executable-mapping-contract": ["fixture-payload", "dry-run-output-evidence"],
+  "catalog-integration-engine-io": ["dry-run-input-payload", "dry-run-output-evidence", "engine-diagnostic"],
+  "diagnostic-record": ["engine-diagnostic", "provider-transport-diagnostic"],
+  "fixture-contract": ["fixture-payload", "sampled-provider-payload"],
+  "admin-control-plane-read-model": ["dry-run-output-evidence", "audit-evidence", "job-progress-summary"],
+  "source-observation-record": ["raw-provider-payload", "audit-evidence"],
+  "integration-durable-job": ["job-progress-summary", "audit-evidence"],
+  "integration-work-unit": ["job-progress-summary"],
+  "audit-evidence-record": ["audit-evidence"],
+} as const satisfies Readonly<
+  Record<CatalogIntegrationSchemaCompatibilitySurfaceKey, readonly CatalogIntegrationGovernedDataClassKey[]>
+>;

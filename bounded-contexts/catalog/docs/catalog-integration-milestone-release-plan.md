@@ -36,7 +36,7 @@ Required decisions:
 - First slice: `reference-cards:pokemon:single-card:source-observation-proof`.
 - Legacy integration data: default to wipe/reset/rebuild for unlaunched data; document retained-data exceptions.
 - Raw JSON: deprecated/internal only, not required for supported operator workflows.
-- Governance: provider payload sampling, fixtures, dry-run output, diagnostics, and retention require policy/legal signoff before live provider sampling.
+- Governance: provider payload sampling, fixtures, dry-run output, diagnostics, and retention follow [Catalog Integration Data Governance](./catalog-integration-data-governance.md) and require policy/legal signoff before live provider sampling.
 
 ## Phase 1: Reference Slice And Engine Boundary
 
@@ -72,7 +72,7 @@ Primary issues:
 - #791 idempotency, concurrency, and job consistency
 - #792 migration/reset/backfill/rollback implementation
 - #793 schema versioning and compatibility, documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md)
-- #794 provider payload and diagnostics data governance
+- #794 provider payload and diagnostics data governance, documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - #795 read-model performance and freshness SLOs
 - #796 diagnostic taxonomy
 - #797 option query caching, pagination, and backpressure
@@ -145,12 +145,12 @@ Primary issues:
 - #787 observability and runbooks
 - #789 raw JSON fallback retirement
 - #801 rollout modes, feature flags, and kill switches
-- #803 provider-data policy/legal signoff
+- #803 provider-data policy/legal signoff, documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - #804 legacy data and compatibility cleanup
 
 Exit criteria:
 
-- Release verification covers empty integration-data bootstrap, reset/migration, rollback, compatibility/deploy skew, idempotency, API compatibility, adapter/engine behavior, conflict precedence, admin workflows, credentials, audit/evidence, fixtures, governance/redaction, read-model freshness, diagnostics, backpressure, impact analysis, observability, RBAC, raw JSON retirement, UX/accessibility, operator journeys, E2E smoke tests, and worker/job verification.
+- Release verification covers empty integration-data bootstrap, reset/migration, rollback, compatibility/deploy skew, idempotency, API compatibility, adapter/engine behavior, conflict precedence, admin workflows, credentials, audit/evidence, fixtures, governance/redaction/signoff, read-model freshness, diagnostics, backpressure, impact analysis, observability, RBAC, raw JSON retirement, UX/accessibility, operator journeys, E2E smoke tests, and worker/job verification.
 - Legacy cleanup verification covers zero old Source Observations, zero legacy profile references, empty integration and bulk-review jobs/work units, rebuilt seeded profiles, rebuilt profile sections, `rawJsonBacked=false` section editors, and an owner/reason/removal-date launch gate for every retained compatibility path.
 - No unresolved P0-P2 release hardening findings remain.
 - CI passes before merge queue entry.
@@ -163,7 +163,7 @@ Exit criteria:
 - #799 gates broad #763, #777, #778, #779, #785, #786, and #800 work.
 - #759, #758, #781, and #795 gate Admin Control Plane UI work; #781 contributes the stable Admin query/read-model contract inventory, and #795 contributes latency, pagination, indexing, freshness, and degraded-state SLOs for that inventory.
 - #796 gates #768 diagnostics/readiness UX.
-- #794 and #803 gate live provider sampling, fixture retention, dry-run retention, diagnostics retention, and MTGJSON/Scryfall sampling.
+- #794 and #803 gate live provider sampling, fixture retention, dry-run retention, diagnostics retention, raw provider evidence display/export, and MTGJSON/Scryfall sampling.
 - #807 gates final #806 validation and release completion.
 - #804, #792, and #793 gate launch migration, reset, and compatibility decisions. #792 provides the executable pre-launch wipe/rebuild policy and verification queries; #804 provides the retained legacy path inventory and clean-start checklist.
 - #775 and #789 gate no-legacy-branch and no-raw-JSON release readiness.
@@ -188,5 +188,5 @@ These clusters can proceed in parallel only after their upstream gates are satis
 - No normal operator workflow depends on raw JSON editing.
 - Source Observations, jobs, diagnostics, audit, read models, and admin state carry ingestion-unit identity when they touch the control plane.
 - Conflict precedence impact is documented for any promotion/reapply behavior.
-- Provider payload, fixture, dry-run, and diagnostic retention follow data-governance policy.
+- Provider payload, fixture, dry-run, diagnostic, audit, job, logging, export, and Admin visibility behavior follows data-governance policy and signoff gates.
 - Targeted verification and release-hardening findings are included in the PR body.

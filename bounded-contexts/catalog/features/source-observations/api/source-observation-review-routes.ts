@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
+import { redactCatalogIntegrationProviderData } from "./catalog-integration-data-governance";
 import type { SourceObservationReadServices, SourceObservationReviewServices } from "./runtime";
 
 export type SourceObservationReadReviewRouteServices = SourceObservationReadServices & SourceObservationReviewServices;
@@ -36,7 +37,10 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
       );
     }
 
-    return c.json(observation);
+    return c.json({
+      ...observation,
+      source_payload: redactCatalogIntegrationProviderData(observation.source_payload),
+    });
   });
 
   app.post("/:id/promote", async (c) => {

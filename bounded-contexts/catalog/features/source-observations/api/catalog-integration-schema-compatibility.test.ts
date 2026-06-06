@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  catalogIntegrationSchemaCompatibilityGovernanceDataClasses,
   catalogIntegrationSchemaCompatibilityPolicies,
   catalogIntegrationSchemaCompatibilityPoliciesByKey,
   getCatalogIntegrationSchemaCompatibilityPolicy,
   type CatalogIntegrationSchemaCompatibilitySurfaceKey,
 } from "./catalog-integration-schema-compatibility";
+import { catalogIntegrationDataGovernancePoliciesByKey } from "./catalog-integration-data-governance";
 
 describe("Catalog integration schema compatibility policy", () => {
   it("defines the #793 compatibility surface inventory", () => {
@@ -89,5 +91,28 @@ describe("Catalog integration schema compatibility policy", () => {
       "blockingBehavior",
       "visibility",
     ]);
+  });
+
+  it("maps every schema surface that may carry provider evidence to governed data classes", () => {
+    expect(Object.keys(catalogIntegrationSchemaCompatibilityGovernanceDataClasses).sort()).toEqual(
+      catalogIntegrationSchemaCompatibilityPolicies.map((policy) => policy.key).sort(),
+    );
+
+    for (const [surfaceKey, dataClasses] of Object.entries(
+      catalogIntegrationSchemaCompatibilityGovernanceDataClasses,
+    )) {
+      expect(dataClasses.length, surfaceKey).toBeGreaterThan(0);
+      for (const dataClass of dataClasses) {
+        expect(catalogIntegrationDataGovernancePoliciesByKey[dataClass], `${surfaceKey}:${dataClass}`).toBeDefined();
+      }
+    }
+
+    expect(catalogIntegrationSchemaCompatibilityGovernanceDataClasses["provider-payload-provenance-envelope"]).toEqual([
+      "raw-provider-payload",
+      "sampled-provider-payload",
+    ]);
+    expect(catalogIntegrationSchemaCompatibilityGovernanceDataClasses["fixture-contract"]).toEqual(
+      expect.arrayContaining(["fixture-payload", "sampled-provider-payload"]),
+    );
   });
 });

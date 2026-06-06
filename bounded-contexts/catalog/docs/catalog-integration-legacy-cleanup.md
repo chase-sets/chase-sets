@@ -29,7 +29,7 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-le
 | Source Observations and legacy profile references | wipe | Clean release reset leaves zero Source Observations and zero `legacy` profile markers. |
 | Integration jobs, bulk review jobs, work units, and events | wipe | Job and work-unit tables are empty before launch verification. |
 | Learned provider option rate limits | wipe | Provider throttling cache rows are zero after reset. |
-| Fixture contract metadata and payloads | retain with explicit exception | Fixture metadata remains with profile versions; raw payload retention requires #794/#803 governance and #804 retained-data evidence. |
+| Fixture contract metadata and payloads | retain with explicit exception | Fixture metadata remains with profile versions; raw payload retention requires [Catalog Integration Data Governance](./catalog-integration-data-governance.md) and #804 retained-data evidence. |
 
 Seeded Provider Integration Profile versions are intentional bootstrap data. Admin-authored rows or migration-evidence rows can survive reset only when release evidence names the retained-data reason.
 

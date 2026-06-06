@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  catalogAdminControlPlaneQueryGovernanceDataClasses,
   catalogAdminControlPlaneQueryContracts,
   catalogAdminControlPlaneQueryContractsByKey,
   catalogAdminControlPlaneQueryKeys,
@@ -11,6 +12,7 @@ import {
   type CatalogAdminSemanticVersionComparisonReadModel,
   type CatalogAdminControlPlaneQueryKey,
 } from "./admin-control-plane-read-model-contracts";
+import { catalogIntegrationDataGovernancePoliciesByKey } from "./catalog-integration-data-governance";
 
 describe("Admin Control Plane read-model contracts", () => {
   it("defines the full #781 Admin query inventory", () => {
@@ -292,5 +294,28 @@ describe("Admin Control Plane read-model contracts", () => {
     expect(summary.jobs[0].consistency.profileSnapshotPolicy).toBe("snapshotted-at-enqueue");
     expect(summary.jobs[0].profile?.compatibilityPolicy).toBe("provider-profile-version");
     expect(summary.jobs[0].profile?.connectorKind).toBe("tcgdex-json");
+  });
+
+  it("links every Admin query contract to governed provider-data classes", () => {
+    expect(Object.keys(catalogAdminControlPlaneQueryGovernanceDataClasses).sort()).toEqual(
+      [...catalogAdminControlPlaneQueryKeys].sort(),
+    );
+
+    for (const [queryKey, dataClasses] of Object.entries(catalogAdminControlPlaneQueryGovernanceDataClasses)) {
+      expect(dataClasses.length, queryKey).toBeGreaterThan(0);
+      for (const dataClass of dataClasses) {
+        expect(catalogIntegrationDataGovernancePoliciesByKey[dataClass], `${queryKey}:${dataClass}`).toBeDefined();
+      }
+    }
+
+    expect(catalogAdminControlPlaneQueryGovernanceDataClasses["dry-run-evidence-summary"]).toEqual([
+      "dry-run-input-payload",
+      "dry-run-output-evidence",
+      "engine-diagnostic",
+    ]);
+    expect(catalogAdminControlPlaneQueryGovernanceDataClasses["adapter-transport-diagnostics"]).toEqual([
+      "provider-transport-diagnostic",
+    ]);
+    expect(catalogAdminControlPlaneQueryGovernanceDataClasses["audit-evidence-timeline"]).toEqual(["audit-evidence"]);
   });
 });

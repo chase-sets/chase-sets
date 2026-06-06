@@ -2,7 +2,7 @@
 
 Catalog provider integrations are a Catalog-owned control plane for turning external provider facts into reviewed Catalog truth. They are not a generic low-code provider platform, and they are not separate provider systems that bypass Source Observations and call Catalog APIs directly.
 
-Control-plane diagnostics use the canonical [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md) so adapters, profile sections, fixtures, engine checks, jobs, read models, credential readiness, and projection lag share stable codes, severity, remediation, blocking behavior, visibility, metrics, and redaction rules.
+Control-plane diagnostics use the canonical [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md) so adapters, profile sections, fixtures, engine checks, jobs, read models, credential readiness, and projection lag share stable codes, severity, remediation, blocking behavior, visibility, metrics, and redaction rules. Provider-controlled payload, fixture, dry-run, diagnostic, audit, and job evidence follows [Catalog Integration Data Governance](./catalog-integration-data-governance.md).
 
 ## Boundary
 
@@ -137,7 +137,7 @@ The response is grouped by ingestion unit and includes:
 
 The Phase 1 reference record is `reference-cards:pokemon:single-card:source-observation-proof`. It is fixture-backed, has no live transport dependency, and runs through the ProviderAdapter registry plus the Catalog Integration Engine before the Admin UI reports it as ready. Future live provider readiness should use the same contract while keeping provider transport details on adapters and Catalog semantic readiness on ingestion units.
 
-The Phase 4 thin real-provider proof (#800) uses `tcgdex:pokemon:single-card:source-observation-import`. The readiness path resolves dry-run proof runners from a registry keyed by `unitKey`, so adding the real-provider proof did not add another provider-specific runtime or route branch. The TCGdex proof uses the real TCGdex ProviderAdapter and Catalog Integration Engine with deterministic fixture `fetch` responses for one Expansion scope and one card payload. This keeps CI and readiness deterministic while validating the real provider payload shape, provenance, and normalized Source Observation facts. The current TCGdex adapter does not emit a payload content hash in its provenance envelope; readiness shows `sourceHash: null` for that proof until provider payload hashing is governed by the fixture/payload retention policy.
+The Phase 4 thin real-provider proof (#800) uses `tcgdex:pokemon:single-card:source-observation-import`. The readiness path resolves dry-run proof runners from a registry keyed by `unitKey`, so adding the real-provider proof did not add another provider-specific runtime or route branch. The TCGdex proof uses the real TCGdex ProviderAdapter and Catalog Integration Engine with deterministic fixture `fetch` responses for one Expansion scope and one card payload. This keeps CI and readiness deterministic while validating the real provider payload shape, provenance, and normalized Source Observation facts. The current TCGdex adapter does not emit a payload content hash in its provenance envelope; readiness shows `sourceHash: null` for that proof until provider payload hashing is implemented against the governed hash material and retention rules in [Catalog Integration Data Governance](./catalog-integration-data-governance.md).
 
 ## Admin Query Contract
 
@@ -159,6 +159,7 @@ The URL section key is authoritative for section update routes. Request bodies m
 - [Provider Integration Mapping Contract](./provider-integration-mapping-contract.md)
 - [Provider Integration Admin Module](./provider-integration-admin-module.md)
 - [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md)
+- [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)
 - [Source Observation Integration](./source-observation-integration.md)
