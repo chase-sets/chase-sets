@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { runCatalogIntegrationDryRun } from "../catalog-integration-engine";
 import type { CatalogIntegrationDryRunResult } from "../catalog-integration-engine";
+import { createCatalogProviderCredentialReadiness } from "../catalog-integration-credential-readiness";
 import { defineCatalogIntegrationUnitKey } from "../integration-unit";
 import {
   getActiveCatalogProviderIntegrationProfileVersion,
@@ -124,6 +125,26 @@ export function createTcgdexProviderAdapter(
           }),
           unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
         },
+      ];
+    },
+    async getCredentialReadiness() {
+      const profileVersion = await options.loadActiveProfileVersion();
+      return [
+        createCatalogProviderCredentialReadiness({
+          providerKey: "tcgdex",
+          unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+          requirement: "not-required",
+          sourceKind: "none",
+          state: "not-required",
+          message: t("catalog.features.sourceObservations.api.providerAdapters.tcgdex.credential.not.required"),
+          scope: {
+            environmentKey: "runtime",
+          },
+          evidence: {
+            connectorKind: profileVersion.profile.connector.kind,
+            credentialRequirement: "not-required",
+          },
+        }),
       ];
     },
   };

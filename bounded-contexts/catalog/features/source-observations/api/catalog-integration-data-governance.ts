@@ -8,6 +8,7 @@ export type CatalogIntegrationGovernedDataClassKey =
   | "dry-run-output-evidence"
   | "engine-diagnostic"
   | "provider-transport-diagnostic"
+  | "provider-credential-readiness"
   | "audit-evidence"
   | "job-progress-summary";
 
@@ -187,6 +188,27 @@ export const catalogIntegrationDataGovernancePolicies = [
     signoffTriggers: ["show-raw-provider-content", "export-provider-content"],
     redactedPathPatterns: [...sharedSensitivePathPatterns, ...providerControlledCommercePatterns],
     allowedEvidence: ["provider key", "domain key", "HTTP status", "retry count", "redacted provider message"],
+  }),
+  policy({
+    key: "provider-credential-readiness",
+    displayName: "Provider credential readiness",
+    owner: "provider-adapter",
+    retentionPolicy: "retain-redacted-summary",
+    rawBodyPolicy: "redacted-preview-only",
+    adminVisibility: "catalog-support-redacted-detail",
+    exportPolicy: "redacted-summary-only",
+    loggingPolicy:
+      "Credential readiness logs may include provider key, unit key, state, source kind, and redacted secret reference labels only.",
+    signoffTriggers: ["show-raw-provider-content", "export-provider-content"],
+    redactedPathPatterns: [...sharedSensitivePathPatterns, ...providerControlledCommercePatterns],
+    allowedEvidence: [
+      "provider key",
+      "unit key",
+      "credential state",
+      "credential requirement",
+      "credential source kind",
+      "redacted secret reference",
+    ],
   }),
   policy({
     key: "audit-evidence",

@@ -91,6 +91,11 @@ import {
   createCatalogIntegrationDryRunProofRegistry,
   type CatalogIntegrationDryRunProofRegistry,
 } from "./catalog-integration-dry-run-proofs";
+import {
+  catalogProviderCredentialReadinessToTransportDiagnostic,
+  type CatalogProviderCredentialReadiness,
+  type CatalogProviderCredentialReadinessState,
+} from "./catalog-integration-credential-readiness";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import {
   createReferenceCardsProviderAdapter,
@@ -412,6 +417,9 @@ export type CatalogIntegrationControlPlaneUnitReadiness = Readonly<{
   ingestionPurpose: string | null;
   profileVersion: string;
   semanticReadiness: "ready" | "blocked";
+  credentialReadiness: "ready" | "blocked" | "not-required";
+  credentialReadinessState: CatalogProviderCredentialReadinessState;
+  credentialDiagnosticCode: string | null;
   transportReadiness: "ready" | "blocked";
   fixtureValidationStatus: "ready" | "blocked";
   dryRunStatus: "completed" | "blocked";
@@ -3146,25 +3154,35 @@ async function buildCatalogIntegrationControlPlaneReadiness(
 
   for (const providerKey of providerAdapterRegistry.listProviderKeys()) {
     const adapter = providerAdapterRegistry.require(providerKey);
-    const [descriptors, transportDiagnostics] = await Promise.all([
+    const [descriptors, transportDiagnostics, credentialReadiness] = await Promise.all([
       adapter.listIntegrationUnits(),
       adapter.getTransportDiagnostics(),
+      adapter.getCredentialReadiness(),
     ]);
 
     for (const descriptor of descriptors) {
       const dryRun = (await dryRunProofRegistry.get(descriptor.unitKey)?.()) ?? null;
-      const unitDiagnostics = [
-        ...transportDiagnostics.filter(
-          (diagnostic) => !diagnostic.unitKey || diagnostic.unitKey === descriptor.unitKey,
-        ),
-        ...(dryRun?.diagnostics.map((diagnostic) => ({
+      const dryRunDiagnostics =
+        dryRun?.diagnostics.map((diagnostic) => ({
           code: diagnostic.code,
           severity: diagnostic.severity,
           message: diagnostic.diagnosticText,
           unitKey: diagnostic.unitKey,
-        })) ?? []),
+        })) ?? [];
+      const unitCredentialReadiness = selectUnitCredentialReadiness(credentialReadiness, descriptor.unitKey);
+      const credentialDiagnostics = unitCredentialReadiness
+        .map(catalogProviderCredentialReadinessToTransportDiagnostic)
+        .filter((diagnostic): diagnostic is ProviderTransportDiagnostic => diagnostic !== null);
+      const unitDiagnostics = [
+        ...transportDiagnostics.filter(
+          (diagnostic) => !diagnostic.unitKey || diagnostic.unitKey === descriptor.unitKey,
+        ),
+        ...credentialDiagnostics,
+        ...dryRunDiagnostics,
       ];
       const errorCount = countDiagnostics(unitDiagnostics, "error");
+      const dryRunErrorCount = countDiagnostics(dryRunDiagnostics, "error");
+      const credentialStatus = summarizeUnitCredentialReadiness(unitCredentialReadiness);
 
       units.push({
         unitKey: descriptor.unitKey,
@@ -3174,10 +3192,13 @@ async function buildCatalogIntegrationControlPlaneReadiness(
         productForm: descriptor.productForm,
         ingestionPurpose: descriptor.ingestionPurpose ?? null,
         profileVersion: descriptor.profileVersion ?? "",
-        semanticReadiness: dryRun && errorCount === 0 && dryRun.observations.length > 0 ? "ready" : "blocked",
+        semanticReadiness: dryRun && dryRunErrorCount === 0 && dryRun.observations.length > 0 ? "ready" : "blocked",
+        credentialReadiness: credentialStatus.readiness,
+        credentialReadinessState: credentialStatus.state,
+        credentialDiagnosticCode: credentialStatus.diagnosticCode,
         transportReadiness: countDiagnostics(transportDiagnostics, "error") === 0 ? "ready" : "blocked",
         fixtureValidationStatus: dryRun && dryRun.observations.length > 0 ? "ready" : "blocked",
-        dryRunStatus: dryRun && errorCount === 0 ? "completed" : "blocked",
+        dryRunStatus: dryRun && dryRunErrorCount === 0 ? "completed" : "blocked",
         observationFacts: dryRun?.observations.length ?? 0,
         diagnosticCounts: {
           info: countDiagnostics(unitDiagnostics, "info"),
@@ -3199,6 +3220,53 @@ async function buildCatalogIntegrationControlPlaneReadiness(
   return {
     generatedAt: new Date().toISOString(),
     units,
+  };
+}
+
+function selectUnitCredentialReadiness(
+  readiness: readonly CatalogProviderCredentialReadiness[],
+  unitKey: string,
+): readonly CatalogProviderCredentialReadiness[] {
+  const attributed = readiness.filter((item) => item.unitKey === unitKey);
+  return attributed.length > 0 ? attributed : readiness.filter((item) => !item.unitKey);
+}
+
+function summarizeUnitCredentialReadiness(readiness: readonly CatalogProviderCredentialReadiness[]): Readonly<{
+  readiness: "ready" | "blocked" | "not-required";
+  state: CatalogProviderCredentialReadinessState;
+  diagnosticCode: string | null;
+}> {
+  if (readiness.length === 0) {
+    return {
+      readiness: "blocked",
+      state: "unknown",
+      diagnosticCode: "adapter-authentication-failed",
+    };
+  }
+
+  const blocker = readiness.find((item) => item.importBlocking);
+  if (blocker) {
+    return {
+      readiness: "blocked",
+      state: blocker.state,
+      diagnosticCode: blocker.diagnosticCode,
+    };
+  }
+
+  const required = readiness.find((item) => item.requirement === "required");
+  if (required) {
+    return {
+      readiness: "ready",
+      state: required.state,
+      diagnosticCode: required.diagnosticCode,
+    };
+  }
+
+  const notRequired = readiness.find((item) => item.state === "not-required");
+  return {
+    readiness: "not-required",
+    state: notRequired?.state ?? "unknown",
+    diagnosticCode: notRequired?.diagnosticCode ?? null,
   };
 }
 

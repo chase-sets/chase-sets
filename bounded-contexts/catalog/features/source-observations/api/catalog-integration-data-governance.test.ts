@@ -19,6 +19,7 @@ describe("Catalog integration data governance", () => {
       "dry-run-output-evidence",
       "engine-diagnostic",
       "provider-transport-diagnostic",
+      "provider-credential-readiness",
       "audit-evidence",
       "job-progress-summary",
     ];

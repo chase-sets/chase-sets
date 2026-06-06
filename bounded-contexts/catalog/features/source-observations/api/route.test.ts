@@ -411,6 +411,9 @@ describe("source observation routes", () => {
           ingestionPurpose: "source-observation-proof",
           profileVersion: "reference-proof-2026.06.05",
           semanticReadiness: "ready",
+          credentialReadiness: "not-required",
+          credentialReadinessState: "not-required",
+          credentialDiagnosticCode: null,
           transportReadiness: "ready",
           fixtureValidationStatus: "ready",
           dryRunStatus: "completed",
@@ -447,6 +450,7 @@ describe("source observation routes", () => {
         {
           unitKey: "reference-cards:pokemon:single-card:source-observation-proof",
           semanticReadiness: "ready",
+          credentialReadiness: "not-required",
           dryRunStatus: "completed",
           dryRunEvidence: [expect.objectContaining({ externalKey: "pokemon:abra-43" })],
         },

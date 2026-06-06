@@ -1,4 +1,5 @@
 import type { CatalogIntegrationUnitKey } from "../integration-unit";
+import type { CatalogProviderCredentialReadiness } from "../catalog-integration-credential-readiness";
 
 export type CatalogIntegrationUnitDescriptor = Readonly<{
   unitKey: CatalogIntegrationUnitKey;
@@ -92,5 +93,6 @@ export type ProviderAdapter<TPayload = unknown> = Readonly<{
     plan: ProviderImportPlan,
     options?: ProviderPayloadFetchOptions,
   ): AsyncIterable<ProviderPayloadEnvelope<TPayload>>;
+  getCredentialReadiness(): Promise<readonly CatalogProviderCredentialReadiness[]>;
   getTransportDiagnostics(): Promise<readonly ProviderTransportDiagnostic[]>;
 }>;

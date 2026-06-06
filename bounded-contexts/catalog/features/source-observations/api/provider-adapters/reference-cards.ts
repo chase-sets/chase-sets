@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { runCatalogIntegrationDryRun } from "../catalog-integration-engine";
 import type { CatalogIntegrationDryRunResult } from "../catalog-integration-engine";
+import { createCatalogProviderCredentialReadiness } from "../catalog-integration-credential-readiness";
 import { defineCatalogIntegrationUnitKey } from "../integration-unit";
 import type {
   ProviderAdapter,
@@ -82,6 +83,22 @@ export function createReferenceCardsProviderAdapter(): ProviderAdapter<Reference
       if (plan.unitKey === REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY) {
         yield referencePayloadEnvelope;
       }
+    },
+    async getCredentialReadiness() {
+      return [
+        createCatalogProviderCredentialReadiness({
+          providerKey: "reference-cards",
+          unitKey: REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY,
+          requirement: "not-required",
+          sourceKind: "none",
+          state: "not-required",
+          message: t("catalog.features.sourceObservations.api.providerAdapters.referenceCards.credential.not.required"),
+          evidence: {
+            credentialRequirement: "not-required",
+            fixtureBacked: true,
+          },
+        }),
+      ];
     },
     async getTransportDiagnostics() {
       return [

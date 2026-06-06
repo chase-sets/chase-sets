@@ -38,7 +38,7 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-di
 - `engine`: mapping interpreter output, selected-option resolution, external reference extraction, duplicate-prevention preflight, promotion planning, import eligibility, and migration-impact signals.
 - `job`: durable job lookup, checkpoint freshness, and work-unit failure summaries presented through Catalog workflows.
 - `read-model`: Admin read-model partial or unavailable states.
-- `credential-readiness`: missing, expired, or failed provider credentials with credential-redacted evidence only.
+- `credential-readiness`: missing, invalid, expired, revoked, or failed provider credentials with credential-redacted evidence only.
 - `projection-lag`: stale Source Observation and audit/evidence projections.
 - `admin-route`: structured API error envelopes that route clients and Admin UI modules already consume.
 
@@ -103,6 +103,7 @@ Unsafe provider material must remain outside normalized Catalog truth, source ha
 - Existing route error codes with underscores are stable API contracts and should not be renamed only for taxonomy style.
 - Activation readiness, import eligibility, promotion planning, rollback, retirement, and read-model availability must use `blockingBehavior` instead of inferring actionability from message text.
 - Fixture and dry-run diagnostics should name the fixture flow and path, and should use redacted-provider-evidence or credential-redacted whenever they mention provider payload shape.
+- Credential readiness diagnostics should use `credential-missing`, `credential-invalid`, `credential-expired`, `credential-revoked`, or `adapter-authentication-failed` and must not include secret values in message text, evidence, paths, or metric labels.
 
 ## Current Coverage
 

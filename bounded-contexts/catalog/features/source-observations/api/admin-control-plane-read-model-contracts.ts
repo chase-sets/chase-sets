@@ -6,6 +6,10 @@ import type {
 } from "./catalog-integration-schema-compatibility";
 import type { CatalogIntegrationGovernedDataClassKey } from "./catalog-integration-data-governance";
 import type {
+  CatalogProviderCredentialReadinessState,
+  CatalogProviderCredentialRequirement,
+} from "./catalog-integration-credential-readiness";
+import type {
   CatalogProviderProfileSectionDiagnostic,
   CatalogProviderProfileSectionKey,
 } from "./provider-profile-sections";
@@ -73,6 +77,7 @@ export type CatalogAdminControlPlaneSourceKind =
 
 export type CatalogAdminControlPlaneErrorCode =
   | "adapter_unavailable"
+  | "credential_unavailable"
   | "source_projection_stale"
   | "profile_version_missing"
   | "profile_section_projection_missing"
@@ -140,7 +145,7 @@ export const catalogAdminControlPlaneQueryContracts = [
     unitKey: "required",
     freshness: "request-time",
     sources: [
-      runtimeSource("ProviderAdapterRegistry.listIntegrationUnits/getTransportDiagnostics"),
+      runtimeSource("ProviderAdapterRegistry.listIntegrationUnits/getTransportDiagnostics/getCredentialReadiness"),
       runtimeSource("CatalogIntegrationEngine.getCatalogIntegrationControlPlaneReadiness"),
       tableSource("catalog_provider_integration_profile_versions"),
       projectionSource("catalog_provider_profile_version_sections"),
@@ -148,6 +153,7 @@ export const catalogAdminControlPlaneQueryContracts = [
     ],
     errorStates: [
       errorState("adapter_unavailable", "blocked", "Provider adapter did not report integration units."),
+      errorState("credential_unavailable", "blocked", "Provider credential readiness is unavailable."),
       errorState(
         "profile_version_missing",
         "blocked",
@@ -159,13 +165,15 @@ export const catalogAdminControlPlaneQueryContracts = [
   contract({
     key: "provider-transport-readiness-summary",
     readModelName: "CatalogAdminProviderTransportReadinessSummaryReadModel",
-    routeIntent: "Summarize provider/adapter transport readiness separately from Catalog semantic readiness.",
+    routeIntent:
+      "Summarize provider/adapter transport and credential readiness separately from Catalog semantic readiness.",
     grouping: "provider-adapter",
     unitKey: "optional",
     freshness: "request-time",
-    sources: [runtimeSource("ProviderAdapterRegistry.getTransportDiagnostics")],
+    sources: [runtimeSource("ProviderAdapterRegistry.getTransportDiagnostics/getCredentialReadiness")],
     errorStates: [
       errorState("adapter_unavailable", "blocked", "Provider adapter transport diagnostics are unavailable."),
+      errorState("credential_unavailable", "blocked", "Provider credential readiness is unavailable."),
       errorState("permission_denied", "blocked", "Operator lacks permission to inspect provider transport readiness."),
     ],
   }),
@@ -220,7 +228,7 @@ export const catalogAdminControlPlaneQueryContracts = [
     grouping: "provider-adapter",
     unitKey: "optional",
     freshness: "request-time",
-    sources: [runtimeSource("ProviderAdapterRegistry.getTransportDiagnostics")],
+    sources: [runtimeSource("ProviderAdapterRegistry.getTransportDiagnostics/getCredentialReadiness")],
     errorStates: [
       errorState("adapter_unavailable", "blocked", "Provider adapter diagnostics are unavailable."),
       errorState("permission_denied", "blocked", "Operator lacks permission to inspect provider diagnostics."),
@@ -426,17 +434,21 @@ export function getCatalogAdminControlPlaneQueryContract(
 }
 
 export const catalogAdminControlPlaneQueryGovernanceDataClasses = {
-  "integration-health-summary": ["dry-run-output-evidence", "engine-diagnostic"],
-  "provider-transport-readiness-summary": ["provider-transport-diagnostic"],
+  "integration-health-summary": ["dry-run-output-evidence", "engine-diagnostic", "provider-credential-readiness"],
+  "provider-transport-readiness-summary": ["provider-transport-diagnostic", "provider-credential-readiness"],
   "active-profile-version-summary": ["audit-evidence"],
   "profile-section-status-summary": ["engine-diagnostic", "audit-evidence"],
-  "adapter-transport-diagnostics": ["provider-transport-diagnostic"],
+  "adapter-transport-diagnostics": ["provider-transport-diagnostic", "provider-credential-readiness"],
   "fixture-validation-summary": ["fixture-payload", "engine-diagnostic"],
   "dry-run-evidence-summary": ["dry-run-input-payload", "dry-run-output-evidence", "engine-diagnostic"],
   "semantic-version-comparison": ["dry-run-output-evidence", "audit-evidence"],
   "activation-readiness-summary": ["engine-diagnostic", "fixture-payload", "audit-evidence"],
   "replay-reapply-impact-summary": ["audit-evidence", "job-progress-summary"],
-  "import-job-progress-summary": ["job-progress-summary", "provider-transport-diagnostic"],
+  "import-job-progress-summary": [
+    "job-progress-summary",
+    "provider-transport-diagnostic",
+    "provider-credential-readiness",
+  ],
   "source-observation-review-query": ["raw-provider-payload", "audit-evidence"],
   "promotion-plan-preview": ["dry-run-output-evidence", "audit-evidence"],
   "rollback-retirement-impact-summary": ["audit-evidence", "job-progress-summary"],
@@ -509,6 +521,9 @@ export type CatalogAdminIntegrationHealthSummaryReadModel = Readonly<{
     Readonly<{
       activeProfile: CatalogAdminProfileVersionPointer | null;
       semanticReadiness: CatalogAdminReadinessState;
+      credentialReadiness: CatalogAdminReadinessState;
+      credentialReadinessState: CatalogProviderCredentialReadinessState;
+      credentialRequirement: CatalogProviderCredentialRequirement;
       transportReadiness: CatalogAdminReadinessState;
       fixtureValidationStatus: CatalogAdminReadinessState;
       dryRunStatus: "completed" | "blocked" | "not-run";
@@ -523,6 +538,9 @@ export type CatalogAdminProviderTransportReadinessSummaryReadModel = Readonly<{
     providerKey: string;
     adapterKey: string;
     readiness: CatalogAdminReadinessState;
+    credentialReadiness: CatalogAdminReadinessState;
+    credentialReadinessState: CatalogProviderCredentialReadinessState;
+    credentialRequirement: CatalogProviderCredentialRequirement;
     unitKeys: readonly CatalogIntegrationUnitKey[];
     diagnostics: readonly CatalogAdminControlPlaneDiagnostic[];
   }>[];

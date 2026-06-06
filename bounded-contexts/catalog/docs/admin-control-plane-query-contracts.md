@@ -8,7 +8,7 @@ The authoritative TypeScript contract surface lives in:
 bounded-contexts/catalog/features/source-observations/api/admin-control-plane-read-model-contracts.ts
 ```
 
-Performance, pagination, indexing, and stale-state expectations for this query inventory are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). Schema versioning and compatibility policy for Admin read models, job DTOs, and profile pointers is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider-data visibility, redaction, retention, export, and signoff policy is documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). The authoritative typed SLO surface lives in:
+Performance, pagination, indexing, and stale-state expectations for this query inventory are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). Schema versioning and compatibility policy for Admin read models, job DTOs, and profile pointers is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider-data visibility, redaction, retention, export, and signoff policy is documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Credential ownership, validation states, and Admin readiness behavior are documented in [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md). The authoritative typed SLO surface lives in:
 
 ```text
 bounded-contexts/catalog/features/source-observations/api/admin-control-plane-read-model-slos.ts
@@ -18,6 +18,7 @@ bounded-contexts/catalog/features/source-observations/api/admin-control-plane-re
 
 - Catalog semantic readiness is grouped by ingestion unit and must include `unitKey`.
 - Provider transport readiness is grouped by provider/adapter. Transport diagnostics may include `unitKey` when the adapter can attribute the finding to one ingestion unit, but provider-wide diagnostics remain adapter-scoped.
+- Provider credential readiness is grouped by provider/adapter and may be attributed to an ingestion unit. Admin must show credential readiness separately from Catalog semantic readiness because missing, invalid, expired, revoked, or unknown credentials block live transport without corrupting profile semantics.
 - Jobs, Source Observations, audit records, diagnostics, profile read models, promotion plans, replay/reapply impact, fixture validation, dry-run evidence, rollback, and retirement impact must include `unitKey`.
 - Product domain and product form are data on generic ingestion-unit read models. They are not admin page branches.
 - Every Admin query contract that can expose provider-controlled evidence is mapped to governed data classes through `catalogAdminControlPlaneQueryGovernanceDataClasses`; UI modules must render summaries, hashes, references, diagnostic codes, or redacted previews according to that policy.
@@ -53,6 +54,7 @@ Existing Catalog sources:
 - `catalog_provider_profile_version_section_diagnostics`
 - `ProviderAdapterRegistry.listIntegrationUnits`
 - `ProviderAdapterRegistry.getTransportDiagnostics`
+- `ProviderAdapterRegistry.getCredentialReadiness`
 - `CatalogIntegrationEngine.getCatalogIntegrationControlPlaneReadiness`
 - `evaluateCatalogProviderProfileActivationReadiness`
 - `planCatalogProviderPromotionCommands`
