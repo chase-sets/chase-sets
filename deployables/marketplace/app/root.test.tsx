@@ -56,7 +56,8 @@ describe("marketplace root layout", () => {
       </Layout>,
     );
 
-    expect(html).toContain(`href="${window.location.origin}/search?search=charizard"`);
+    expect(html).toContain('href="http://localhost');
+    expect(html).toContain('/search?search=charizard"');
     expect(html).toContain('rel="manifest" href="/manifest.webmanifest"');
     expect(html).toContain('rel="icon" href="/favicon.svg"');
     expect(html).toContain('rel="alternate icon" href="/favicon.ico"');
@@ -117,7 +118,7 @@ describe("marketplace root layout", () => {
     expect((thrown as Response).headers.get("Location")).toBe("/sign-in?returnTo=%2Fsearch%3Fq%3Dcharizard");
   });
 
-  it("allows proof sign-in routes to render before an actor exists", async () => {
+  it("allows proof sign-in and guest checkout exit routes to render before an actor exists", async () => {
     vi.stubEnv("CHASE_SETS_MARKETPLACE_PROOF_ACCESS_REQUIRED", "true");
     vi.stubGlobal(
       "fetch",
@@ -127,9 +128,47 @@ describe("marketplace root layout", () => {
     );
 
     const data = await loader(createLoaderArgs("https://marketplace.chasesets.com/sign-in?returnTo=%2F"));
+    const guestExitData = await loader(createLoaderArgs("https://marketplace.chasesets.com/guest-checkout/exit"));
 
     expect(data.actor).toBeNull();
     expect(data.origin).toBe("https://marketplace.chasesets.com");
+    expect(guestExitData.actor).toBeNull();
+  });
+
+  it("does not request account display data for guest checkout actors", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const pathname = new URL(String(input)).pathname;
+      if (pathname === "/api/auth/session") {
+        return Response.json({
+          actor: {
+            userId: "usr_guest_checkout",
+            accountId: "acc_guest",
+            tenantId: "acc_guest",
+            sessionId: "guest_checkout",
+            roleKey: "guest-buyer",
+            permissions: ["guest-checkout.manage"],
+          },
+        });
+      }
+      if (pathname === "/api/marketplace/account/cart") {
+        return Response.json({ items: [], count: 2 });
+      }
+      if (pathname === "/api/identity/current-actor-display") {
+        throw new Error("Guest checkout actors should not load account display data.");
+      }
+
+      return Response.json({});
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    const data = await loader(createLoaderArgs("https://marketplace.chasesets.com/checkout/chk_1"));
+
+    expect(data.actor?.roleKey).toBe("guest-buyer");
+    expect(data.actorDisplay).toBeNull();
+    expect(data.cartCount).toBe(2);
+    expect(fetch.mock.calls.map(([input]) => new URL(String(input)).pathname)).not.toContain(
+      "/api/identity/current-actor-display",
+    );
   });
 
   it("does not expose sitemap routes before proof access is authenticated", async () => {

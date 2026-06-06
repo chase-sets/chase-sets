@@ -27,13 +27,18 @@ function parseCookieHeader(cookieHeader: string | null) {
   );
 }
 
-function serializeCookie(name: string, value: string, maxAgeSeconds: number) {
+function isHttpsRequest(request?: Request) {
+  return request ? new URL(request.url).protocol === "https:" : false;
+}
+
+function serializeCookie(name: string, value: string, maxAgeSeconds: number, request?: Request) {
   return [
     `${name}=${encodeURIComponent(value)}`,
     "Path=/",
     "HttpOnly",
     "SameSite=Lax",
     `Max-Age=${maxAgeSeconds}`,
+    ...(isHttpsRequest(request) ? ["Secure"] : []),
   ].join("; ");
 }
 
@@ -55,32 +60,32 @@ export function ensureAnonymousSellListId(request: Request) {
   return readAnonymousSellListId(request) ?? `anon_${createId("cmd")}`;
 }
 
-export function appendAnonymousCartCookie(headers: Headers, anonymousCartId: string) {
+export function appendAnonymousCartCookie(headers: Headers, anonymousCartId: string, request?: Request) {
   headers.append(
     "Set-Cookie",
-    serializeCookie(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME, anonymousCartId, THIRTY_DAYS_SECONDS),
+    serializeCookie(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME, anonymousCartId, THIRTY_DAYS_SECONDS, request),
   );
 }
 
-export function appendAnonymousSellListCookie(headers: Headers, anonymousSellListId: string) {
+export function appendAnonymousSellListCookie(headers: Headers, anonymousSellListId: string, request?: Request) {
   headers.append(
     "Set-Cookie",
-    serializeCookie(CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME, anonymousSellListId, THIRTY_DAYS_SECONDS),
+    serializeCookie(CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME, anonymousSellListId, THIRTY_DAYS_SECONDS, request),
   );
 }
 
-export function appendGuestCheckoutCookie(headers: Headers, guestToken: string) {
-  headers.append("Set-Cookie", serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, guestToken, ONE_DAY_SECONDS));
+export function appendGuestCheckoutCookie(headers: Headers, guestToken: string, request?: Request) {
+  headers.append("Set-Cookie", serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, guestToken, ONE_DAY_SECONDS, request));
 }
 
-export function appendClearedAnonymousCartCookie(headers: Headers) {
-  headers.append("Set-Cookie", serializeCookie(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME, "", 0));
+export function appendClearedAnonymousCartCookie(headers: Headers, request?: Request) {
+  headers.append("Set-Cookie", serializeCookie(CHECKOUT_ANONYMOUS_CART_COOKIE_NAME, "", 0, request));
 }
 
-export function appendClearedAnonymousSellListCookie(headers: Headers) {
-  headers.append("Set-Cookie", serializeCookie(CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME, "", 0));
+export function appendClearedAnonymousSellListCookie(headers: Headers, request?: Request) {
+  headers.append("Set-Cookie", serializeCookie(CHECKOUT_ANONYMOUS_SELL_LIST_COOKIE_NAME, "", 0, request));
 }
 
-export function appendClearedGuestCheckoutCookie(headers: Headers) {
-  headers.append("Set-Cookie", serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, "", 0));
+export function appendClearedGuestCheckoutCookie(headers: Headers, request?: Request) {
+  headers.append("Set-Cookie", serializeCookie(CHECKOUT_GUEST_COOKIE_NAME, "", 0, request));
 }

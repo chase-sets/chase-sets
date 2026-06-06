@@ -255,6 +255,43 @@ describe("marketplace route layout", () => {
     expect(html.indexOf('href="/register"')).toBeLessThan(html.indexOf('href="/account/cart"'));
   });
 
+  it("renders guest checkout actors without account-only shell chrome", () => {
+    const actor = {
+      roleKey: "guest-buyer",
+      permissions: ["guest-checkout.manage"],
+    };
+    mockUseRouteLoaderData.mockReturnValue({
+      actor,
+      actorDisplay,
+      cartCount: 2,
+    });
+
+    const html = renderToString(<MarketplaceLayoutRoute />);
+
+    expect(resolveMarketplaceNavItems("top-nav", actor, { cartCount: 2 }).map((item) => item.href)).toEqual([
+      "/search",
+      "/account/cart",
+    ]);
+    expect(resolveMarketplaceNavItems("bottom-nav", actor, { cartCount: 2 }).map((item) => item.href)).toEqual([
+      "/search",
+      "/account/cart",
+    ]);
+    expect(resolveMarketplaceNavItems("top-nav", actor, { cartCount: 0 }).map((item) => item.href)).toEqual([
+      "/search",
+      "/account/cart",
+    ]);
+    expect(resolveMarketplaceAccountMenuItems(actor)).toEqual([]);
+    expect(html).toContain('action="/guest-checkout/exit"');
+    expect(html).toContain("Exit guest checkout");
+    expect(html).not.toContain('action="/sign-out"');
+    expect(html).not.toContain("Account menu");
+    expect(html).not.toContain("Card Vault");
+    expect(html).not.toContain("Notifications");
+    expect(html).not.toContain('href="/sign-in"');
+    expect(html).not.toContain('href="/register"');
+    expect(html).not.toContain('href="/account/listings"');
+  });
+
   it("prompts signed-in users to add a passkey after fallback registration", () => {
     mockUseLocation.mockReturnValue({
       pathname: "/account",

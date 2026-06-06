@@ -41,6 +41,7 @@ describe("auth api client authentication methods", () => {
 
     await api.requestMagicLink({ email: "seller@example.com" });
     await api.consumeMagicLink({ token: "magic_token" });
+    await api.exitGuestCheckout();
     await api.createPasskeyChallenge({
       purpose: "passkey-sign-in",
       email: "seller@example.com",
@@ -57,6 +58,11 @@ describe("auth api client authentication methods", () => {
       {
         url: "https://app.test/api/auth/magic-link/consume",
         body: { token: "magic_token" },
+        headers: { "content-type": "application/json" },
+      },
+      {
+        url: "https://app.test/api/auth/guest-checkout/exit",
+        body: {},
         headers: { "content-type": "application/json" },
       },
       {

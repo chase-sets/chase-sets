@@ -1,4 +1,8 @@
-import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
+import {
+  AUTH_ACCOUNT_SELECTION_COOKIE_NAME,
+  AUTH_GUEST_CHECKOUT_COOKIE_NAME,
+  AUTH_SESSION_COOKIE_NAME,
+} from "../request-support/cookies";
 import { AUTH_ACCOUNT_SELECTION_TTL_MS, AUTH_SESSION_TTL_MS } from "../../features/sessions/domain/auth-flow";
 
 export function parseCookieHeader(cookieHeader: string | null) {
@@ -90,6 +94,13 @@ export function appendAccountSelectionCookie(headers: Headers, selectionToken: s
 
 export function clearAccountSelectionCookie(headers: Headers, request?: Request) {
   appendCookie(headers, AUTH_ACCOUNT_SELECTION_COOKIE_NAME, "", {
+    request,
+    maxAgeSeconds: 0,
+  });
+}
+
+export function clearGuestCheckoutCookie(headers: Headers, request?: Request) {
+  appendCookie(headers, AUTH_GUEST_CHECKOUT_COOKIE_NAME, "", {
     request,
     maxAgeSeconds: 0,
   });

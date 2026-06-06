@@ -256,7 +256,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     createFromCart: async (params, context) => {
       const cartLines = await deps.cart.listCartLines(params.accountId);
       if (cartLines.length === 0) {
-        throw new CheckoutDomainError("Cart must contain at least one line.");
+        throw new CheckoutDomainError("Cart must contain at least one line.", "cart_empty");
       }
 
       return startSession(

@@ -8,7 +8,7 @@ export const marketplaceServiceWorkerPolicy = {
     "/icons/chase-sets-maskable-192.png",
     "/icons/chase-sets-maskable-512.png",
   ],
-  excludedExactPaths: ["/sign-in", "/sign-out", "/register"],
+  excludedExactPaths: ["/guest-checkout/exit", "/sign-in", "/sign-out", "/register"],
   excludedPathPrefixes: ["/api/", "/account", "/checkout", "/payment", "/payments", "/orders"],
   staticAssetExactPaths: ["/favicon.svg", "/favicon.ico"],
   staticAssetPathPrefixes: ["/assets/", "/icons/"],

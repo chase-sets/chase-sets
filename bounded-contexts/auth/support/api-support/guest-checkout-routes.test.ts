@@ -102,4 +102,23 @@ describe("guest checkout auth routes", () => {
       expect.arrayContaining(["acc_guest", "jane@example.com", "Jane Smith"]),
     );
   });
+
+  it("revokes the guest checkout token when checkout is exited", async () => {
+    const services = createServices({ existingUser: null });
+    const app = buildApp(services);
+
+    const response = await app.request("/guest-checkout/exit", {
+      method: "POST",
+      headers: {
+        cookie: "chase_sets_guest_checkout=guest_token",
+      },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ status: "guest-checkout-ended" });
+    expect(services.auth.hashSecret).toHaveBeenCalledWith("guest_token");
+    expect(services.db.query).toHaveBeenCalledWith(expect.stringContaining("UPDATE identity_guest_checkout_tokens"), [
+      "hashed:guest_token",
+    ]);
+  });
 });

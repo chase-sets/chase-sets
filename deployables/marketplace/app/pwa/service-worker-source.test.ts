@@ -13,6 +13,7 @@ describe("marketplace service worker source", () => {
     );
     expect(isMarketplaceServiceWorkerExcludedPath("/api/payments")).toBe(true);
     expect(isMarketplaceServiceWorkerExcludedPath("/checkout/payments/pay_1")).toBe(true);
+    expect(isMarketplaceServiceWorkerExcludedPath("/guest-checkout/exit")).toBe(true);
     expect(isMarketplaceServiceWorkerExcludedPath("/search")).toBe(false);
   });
 

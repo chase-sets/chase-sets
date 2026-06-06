@@ -14,12 +14,13 @@ import {
   appendAccountSelectionCookie,
   appendSessionCookie,
   clearAccountSelectionCookie,
+  clearGuestCheckoutCookie,
   clearSessionCookie,
   createRedirectResponse,
   getSafeReturnTo,
   readCookie,
 } from "../auth-support/http";
-import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME } from "../request-support/cookies";
+import { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_GUEST_CHECKOUT_COOKIE_NAME } from "../request-support/cookies";
 import { createAuthApiClient } from "../request-support/api-client";
 export { AUTH_ACCOUNT_SELECTION_COOKIE_NAME, AUTH_SESSION_COOKIE_NAME } from "../request-support/cookies";
 
@@ -237,9 +238,18 @@ async function signOutActorViaAuthApi(
   const headers = new Headers();
   clearAccountSelectionCookie(headers, request);
   clearSessionCookie(headers, request);
+  clearGuestCheckoutCookie(headers, request);
+
+  const api = createAuthRequestApiClientInternal(request);
+  if (readCookie(request, AUTH_GUEST_CHECKOUT_COOKIE_NAME)) {
+    try {
+      await api.exitGuestCheckout();
+    } catch {
+      // Clearing local cookies is enough to end guest checkout in this browser.
+    }
+  }
 
   try {
-    const api = createAuthRequestApiClientInternal(request);
     await api.signOutCurrentSession();
   } catch {
     // Clearing local cookies is enough to end the browser session.

@@ -22,6 +22,7 @@ vi.mock("../../../support/request-support/checkout-confirmation", () => ({
 }));
 
 import { createAccountCheckoutSessionRoutes } from "./route";
+import { CheckoutDomainError } from "../../../support/runtime-support/common";
 import type { CheckoutSessionRow } from "../read-model/queries";
 
 const shippingAddress = {
@@ -126,7 +127,7 @@ describe("checkout session routes", () => {
   it("returns cart session validation errors from checkout", async () => {
     const services = createServices({
       createFromCart: vi.fn(async () => {
-        throw new Error("Cart must contain at least one line.");
+        throw new CheckoutDomainError("Cart must contain at least one line.", "cart_empty");
       }),
     });
     const app = buildApp(services);
@@ -142,7 +143,7 @@ describe("checkout session routes", () => {
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
       error: {
-        code: "validation_failed",
+        code: "cart_empty",
         message: "Cart must contain at least one line.",
       },
     });

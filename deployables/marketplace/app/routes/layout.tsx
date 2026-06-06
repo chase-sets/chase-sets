@@ -11,6 +11,7 @@ const signOutFormId = "marketplace-account-menu-sign-out";
 
 type MarketplaceActor = {
   permissions?: readonly string[];
+  roleKey?: string | null;
 } | null;
 
 function getActiveKey(pathname: string) {
@@ -103,6 +104,7 @@ export default function MarketplaceLayoutRoute() {
       }
     | undefined;
   const actor = rootData?.actor ?? null;
+  const isGuestCheckoutActor = actor?.roleKey === "guest-buyer";
   const [cartCount, setCartCount] = useState(rootData?.cartCount ?? 0);
   useEffect(() => {
     setCartCount(rootData?.cartCount ?? 0);
@@ -134,8 +136,9 @@ export default function MarketplaceLayoutRoute() {
   const notificationParams = new URLSearchParams(location.search);
   const notificationState = notificationParams.get("notifications");
   const notificationView = notificationState === "settings" ? "settings" : "feed";
-  const notificationSheetOpen = notificationState === "feed" || notificationState === "settings";
-  const showAddPasskeyPrompt = Boolean(actor && prompt === "add-passkey");
+  const notificationSheetOpen =
+    !isGuestCheckoutActor && (notificationState === "feed" || notificationState === "settings");
+  const showAddPasskeyPrompt = Boolean(actor && !isGuestCheckoutActor && prompt === "add-passkey");
   const setNotificationRouteState = (nextOpen: boolean, nextView: "feed" | "settings" = notificationView) => {
     const params = new URLSearchParams(location.search);
 
@@ -167,7 +170,13 @@ export default function MarketplaceLayoutRoute() {
       actions={
         rootData?.actor ? (
           <>
-            {rootData.actorDisplay ? (
+            {isGuestCheckoutActor ? (
+              <form action="/guest-checkout/exit" method="post">
+                <Button type="submit" tone="secondary">
+                  {t("marketplace.app.routes.layout.exit.guest.checkout")}
+                </Button>
+              </form>
+            ) : rootData.actorDisplay ? (
               <>
                 <form id={signOutFormId} action="/sign-out" method="post" className="hidden" />
                 <AccountMenu
@@ -209,7 +218,7 @@ export default function MarketplaceLayoutRoute() {
         ) : null}
         <Outlet />
       </Stack>
-      {actor ? (
+      {actor && !isGuestCheckoutActor ? (
         <NotificationCenterShell
           open={notificationSheetOpen}
           view={notificationView}

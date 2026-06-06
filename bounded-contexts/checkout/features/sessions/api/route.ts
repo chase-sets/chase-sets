@@ -38,6 +38,10 @@ function errorMessage(error: unknown) {
 }
 
 function errorCode(error: unknown) {
+  if (error instanceof Error && "code" in error && typeof error.code === "string" && error.code.trim()) {
+    return error.code;
+  }
+
   const body =
     typeof error === "object" && error !== null && "body" in error && typeof error.body === "object"
       ? (error.body as { error?: { code?: unknown } } | null)

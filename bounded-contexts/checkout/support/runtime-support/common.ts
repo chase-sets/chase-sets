@@ -41,7 +41,10 @@ export type CheckoutProductDescriptor = Readonly<{
 }>;
 
 export class CheckoutDomainError extends Error {
-  public constructor(message: string) {
+  public constructor(
+    message: string,
+    public readonly code = "validation_failed",
+  ) {
     super(message);
     this.name = "CheckoutDomainError";
   }

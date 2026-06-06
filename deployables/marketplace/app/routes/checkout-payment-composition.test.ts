@@ -58,6 +58,12 @@ describe("marketplace checkout and payment composition", () => {
           fileExport: "./routes/marketplace/checkout-payment",
           sourceContext: "payments",
         }),
+        expect.objectContaining({
+          routeId: "guest-checkout-exit",
+          routePath: "guest-checkout/exit",
+          fileExport: "./routes/marketplace/guest-checkout-exit",
+          sourceContext: "auth",
+        }),
       ]),
     );
   });
