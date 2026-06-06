@@ -8,6 +8,12 @@ The authoritative TypeScript contract surface lives in:
 bounded-contexts/catalog/features/source-observations/api/admin-control-plane-read-model-contracts.ts
 ```
 
+Performance, pagination, indexing, and stale-state expectations for this query inventory are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). The authoritative typed SLO surface lives in:
+
+```text
+bounded-contexts/catalog/features/source-observations/api/admin-control-plane-read-model-slos.ts
+```
+
 ## Boundary Rules
 
 - Catalog semantic readiness is grouped by ingestion unit and must include `unitKey`.
@@ -92,6 +98,8 @@ Contracts declare operator-facing error states instead of leaking storage except
 - `permission_denied`
 
 UI modules should render these states as blocked, degraded, or empty workflows. They should not recover by querying lower-level tables or profile JSON directly.
+
+The SLO contract narrows degraded rendering into `fresh`, `stale`, `lagging`, `partial`, and `unavailable` UI states. Views backed by durable job checkpoints or eventual projections must show lag reason and last generated timestamp when the model is stale or lagging.
 
 ## Adding Providers Or Product Categories
 
