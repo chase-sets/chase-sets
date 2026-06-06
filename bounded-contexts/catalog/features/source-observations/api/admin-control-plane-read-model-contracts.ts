@@ -9,6 +9,7 @@ import type {
   CatalogProviderCredentialReadinessState,
   CatalogProviderCredentialRequirement,
 } from "./catalog-integration-credential-readiness";
+import type { CatalogIntegrationAuditEvidenceTimelineEntry } from "./catalog-integration-audit-evidence";
 import type {
   CatalogProviderProfileSectionDiagnostic,
   CatalogProviderProfileSectionKey,
@@ -749,17 +750,7 @@ export type CatalogAdminRollbackRetirementImpactSummaryReadModel = Readonly<{
 export type CatalogAdminAuditEvidenceTimelineReadModel = Readonly<{
   generatedAt: string;
   unitKey: CatalogIntegrationUnitKey;
-  entries: readonly Readonly<{
-    occurredAt: string;
-    eventName: string;
-    actorUserId: string | null;
-    accountId: string | null;
-    providerKey: string;
-    profile: CatalogAdminProfileVersionPointer | null;
-    evidenceSummary: string;
-    relatedJobId: string | null;
-    relatedObservationId: string | null;
-  }>[];
+  entries: readonly CatalogIntegrationAuditEvidenceTimelineEntry[];
 }>;
 
 function contract(
