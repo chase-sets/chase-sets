@@ -61,13 +61,10 @@ import {
   type SourceObservationReapplyPreview,
 } from "../read-model/queries";
 import {
-  fetchTcgdexExpansionOptions,
-  fetchTcgdexSeriesOptions,
-  fetchTcgdexSetObservationPayloads,
-  listTcgdexLanguageOptions,
   normalizeTcgdexImageAsset,
   type TcgdexExpansionOption,
   type TcgdexLanguageOption,
+  type TcgdexObservationPayload,
   type TcgdexSeriesOption,
   type TcgdexSetImportProgress,
   type TcgdexSetImportResult,
@@ -97,7 +94,16 @@ import {
   REFERENCE_CARDS_PROFILE_VERSION,
   runReferenceCardsSourceObservationProofDryRun,
 } from "./provider-adapters/reference-cards";
-import type { ProviderTransportDiagnostic } from "./provider-adapters/provider-adapter";
+import {
+  createTcgdexProviderAdapter,
+  TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+} from "./provider-adapters/tcgdex";
+import type {
+  ProviderAdapter,
+  ProviderImportPlan,
+  ProviderPayloadFetchProgress,
+  ProviderTransportDiagnostic,
+} from "./provider-adapters/provider-adapter";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
 import {
   planCatalogProviderPromotionCommands,
@@ -713,7 +719,12 @@ export function createSourceObservationRuntime(
       eventSnapshot: toSourceObservationIntegrationJobEventSnapshot,
     },
   );
-  const providerAdapterRegistry = new ProviderAdapterRegistry([createReferenceCardsProviderAdapter()]);
+  const providerAdapterRegistry = new ProviderAdapterRegistry([
+    createReferenceCardsProviderAdapter(),
+    createTcgdexProviderAdapter({
+      loadActiveProfileVersion: () => requireCatalogImportProfileVersion(profileVersions, "tcgdex"),
+    }),
+  ]);
 
   async function recordObservation(observation: SourceObservationRecordInput, context: EventStoreContext) {
     await commandHandler({
@@ -1200,12 +1211,20 @@ export function createSourceObservationRuntime(
       input.providerProfileVersion ?? (await requireCatalogImportProfileVersion(profileVersions, "tcgdex"));
     const profile = profileVersion.profile;
     const contract = requireSourceObservationMappingContract(profileVersion);
-    const observationPayloads = await fetchTcgdexSetObservationPayloads({
-      profile,
-      languageCode: input.languageCode,
-      setId: input.setId,
-      onProgress: input.onProgress,
+    const tcgdexAdapter = tcgdexAdapterForProfileVersion(providerAdapterRegistry, profileVersion);
+    const importPlan = await tcgdexAdapter.planImport({
+      unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "expansion",
+      values: { languageCode: input.languageCode, setId: input.setId },
     });
+    const observationPayloads = await collectTcgdexObservationPayloads(tcgdexAdapter, importPlan, async (progress) =>
+      input.onProgress?.({
+        phase: "fetching",
+        completed: progress.completed,
+        total: progress.total,
+        currentName: progress.currentLabel,
+      }),
+    );
     const observations = observationPayloads.map(({ observedAt, payload }) =>
       requireCatalogProviderSourceObservation({
         contract,
@@ -1991,8 +2010,7 @@ export function createSourceObservationRuntime(
             name: scope.setId,
           },
         ]
-      : await fetchTcgdexExpansionOptions({
-          profile: providerProfile,
+      : await listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, {
           languageCode,
           seriesId: scope.seriesId || null,
         });
@@ -2190,8 +2208,7 @@ export function createSourceObservationRuntime(
             name: scope.setId,
           },
         ]
-      : await fetchTcgdexExpansionOptions({
-          profile: providerProfile,
+      : await listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, {
           languageCode,
           seriesId: scope.seriesId || null,
         });
@@ -2665,21 +2682,17 @@ export function createSourceObservationRuntime(
     providerAdapterRegistry,
     importTcgdexSet: importTcgdexSetScope,
     importTcgplayerScope: processTcgplayerIntegrationImportJob,
-    listTcgdexLanguages: async () =>
-      listTcgdexLanguageOptions((await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile),
-    listTcgdexSeries: async ({ languageCode }) =>
-      fetchTcgdexSeriesOptions({
-        profile: (await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile,
-        languageCode,
-      }),
-    listTcgdexExpansions: async ({ languageCode, seriesId }) =>
-      fetchTcgdexExpansionOptions({
-        profile: (await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile,
-        languageCode,
-        seriesId,
-      }),
+    listTcgdexLanguages: () => listTcgdexLanguagesThroughAdapter(providerAdapterRegistry),
+    listTcgdexSeries: ({ languageCode }) => listTcgdexSeriesThroughAdapter(providerAdapterRegistry, { languageCode }),
+    listTcgdexExpansions: ({ languageCode, seriesId }) =>
+      listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
     listIntegrationOptions: (input) =>
-      listProviderIntegrationOptions(input, deps.tcgplayerAutomationCatalogClient, profileVersions),
+      listProviderIntegrationOptions(
+        input,
+        deps.tcgplayerAutomationCatalogClient,
+        profileVersions,
+        providerAdapterRegistry,
+      ),
     getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
     getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),
     previewDuplicatePreventionCandidates,
@@ -2820,6 +2833,12 @@ async function listProviderIntegrationOptions(
   },
   tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient,
   profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
+  providerAdapterRegistry: ProviderAdapterRegistry = new ProviderAdapterRegistry([
+    createReferenceCardsProviderAdapter(),
+    createTcgdexProviderAdapter({
+      loadActiveProfileVersion: () => requireCatalogImportProfileVersion(profileVersions, "tcgdex"),
+    }),
+  ]),
 ): Promise<readonly SourceObservationIntegrationOption[]> {
   const versions = await profileVersions.listProfileVersions();
   return listCatalogProviderIntegrationOptionsFromProfiles({
@@ -2830,19 +2849,11 @@ async function listProviderIntegrationOptions(
     parentValue: input.parentValue,
     defaultProviderKey: await defaultSourceObservationImportProviderKey(profileVersions),
     transports: {
-      listTcgdexLanguages: async () =>
-        listTcgdexLanguageOptions((await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile),
-      listTcgdexSeries: async ({ languageCode }) =>
-        fetchTcgdexSeriesOptions({
-          profile: (await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile,
-          languageCode,
-        }),
-      listTcgdexExpansions: async ({ languageCode, seriesId }) =>
-        fetchTcgdexExpansionOptions({
-          profile: (await requireCatalogImportProfileVersion(profileVersions, "tcgdex")).profile,
-          languageCode,
-          seriesId,
-        }),
+      listTcgdexLanguages: () => listTcgdexLanguageOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listTcgdexSeries: ({ languageCode }) =>
+        listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode }),
+      listTcgdexExpansions: ({ languageCode, seriesId }) =>
+        listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
       listTcgplayerProductLines: async () =>
         requireTcgplayerAutomationCatalogClient(tcgplayerAutomationCatalogClient).listProductLines(),
       listTcgplayerSetNames: async ({ productLineId }) => {
@@ -2853,6 +2864,146 @@ async function listProviderIntegrationOptions(
       },
     },
   });
+}
+
+async function listTcgdexLanguagesThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly TcgdexLanguageOption[]> {
+  const records = await listTcgdexLanguageOptionRecordsThroughAdapter(providerAdapterRegistry);
+  return records.map((record) => ({ languageCode: stringRecordValue(record, "languageCode") || "en" }));
+}
+
+async function listTcgdexSeriesThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { languageCode: string },
+): Promise<readonly TcgdexSeriesOption[]> {
+  const records = await listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, input);
+  return records.map((record) => ({
+    seriesId: stringRecordValue(record, "seriesId") || "",
+    name: stringRecordValue(record, "name") || "",
+    logoUrl: stringRecordValue(record, "logoUrl"),
+  }));
+}
+
+async function listTcgdexExpansionsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { languageCode: string; seriesId?: string | null },
+): Promise<readonly TcgdexExpansionOption[]> {
+  const records = await listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, input);
+  return records.map((record) => ({
+    expansionId: stringRecordValue(record, "expansionId") || "",
+    name: stringRecordValue(record, "name") || "",
+    seriesId: stringRecordValue(record, "seriesId"),
+    seriesName: stringRecordValue(record, "seriesName"),
+    logoUrl: stringRecordValue(record, "logoUrl"),
+    symbolUrl: stringRecordValue(record, "symbolUrl"),
+    cardCount: numberRecordValue(record, "cardCount"),
+    officialCardCount: numberRecordValue(record, "officialCardCount"),
+  }));
+}
+
+async function listTcgdexLanguageOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireTcgdexAdapter(providerAdapterRegistry).listOptions({
+    unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "languages",
+  });
+  return result.items.map((item) => ({ languageCode: item.value }));
+}
+
+async function listTcgdexSeriesOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { languageCode: string },
+): Promise<readonly JsonValue[]> {
+  const result = await requireTcgdexAdapter(providerAdapterRegistry).listOptions({
+    unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "series",
+    parentValues: { languageCode: input.languageCode },
+  });
+  return result.items.map((item) => ({
+    seriesId: item.value,
+    name: item.label,
+    logoUrl: item.metadata?.logoUrl ?? null,
+  }));
+}
+
+async function listTcgdexExpansionOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { languageCode: string; seriesId?: string | null },
+): Promise<readonly JsonValue[]> {
+  const result = await requireTcgdexAdapter(providerAdapterRegistry).listOptions({
+    unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "expansions",
+    parentValues: { languageCode: input.languageCode, seriesId: input.seriesId ?? "" },
+  });
+  return result.items.map((item) => ({
+    expansionId: item.value,
+    name: item.label,
+    seriesId: item.parentValue ?? null,
+    seriesName: item.metadata?.seriesName ?? null,
+    logoUrl: item.metadata?.logoUrl ?? null,
+    symbolUrl: item.metadata?.symbolUrl ?? null,
+    cardCount: numberFromString(item.metadata?.cardCount),
+    officialCardCount: numberFromString(item.metadata?.officialCardCount),
+  }));
+}
+
+async function collectTcgdexObservationPayloads(
+  adapter: ProviderAdapter<TcgdexObservationPayload>,
+  plan: ProviderImportPlan,
+  onProgress?: (progress: ProviderPayloadFetchProgress) => void | Promise<void>,
+): Promise<readonly TcgdexObservationPayload[]> {
+  const payloads: TcgdexObservationPayload[] = [];
+
+  for await (const envelope of adapter.fetchPayloads(plan, { onProgress })) {
+    payloads.push(envelope.payload);
+  }
+
+  return payloads;
+}
+
+function tcgdexAdapterForProfileVersion(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord,
+): ProviderAdapter<TcgdexObservationPayload> {
+  const registeredAdapter = requireTcgdexAdapter(providerAdapterRegistry);
+
+  if (profileVersion.active) {
+    return registeredAdapter;
+  }
+
+  return createTcgdexProviderAdapter({ loadActiveProfileVersion: async () => profileVersion });
+}
+
+function requireTcgdexAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): ProviderAdapter<TcgdexObservationPayload> {
+  return providerAdapterRegistry.require("tcgdex") as ProviderAdapter<TcgdexObservationPayload>;
+}
+
+function stringRecordValue(record: JsonValue, key: string): string | null {
+  if (!isJsonRecord(record)) {
+    return null;
+  }
+  const value = record[key];
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    const normalized = String(value).trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+  return null;
+}
+
+function numberRecordValue(record: JsonValue, key: string): number | null {
+  return numberFromString(stringRecordValue(record, key));
+}
+
+function numberFromString(value: string | null | undefined): number | null {
+  if (!value) {
+    return null;
+  }
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 async function buildCatalogIntegrationControlPlaneReadiness(
@@ -2891,7 +3042,7 @@ async function buildCatalogIntegrationControlPlaneReadiness(
         productDomain: descriptor.productDomain,
         productForm: descriptor.productForm,
         ingestionPurpose: descriptor.ingestionPurpose ?? null,
-        profileVersion: isReferenceCardsProofUnit(descriptor.unitKey) ? REFERENCE_CARDS_PROFILE_VERSION : "",
+        profileVersion: descriptor.profileVersion ?? "",
         semanticReadiness: dryRun && errorCount === 0 && dryRun.observations.length > 0 ? "ready" : "blocked",
         transportReadiness: countDiagnostics(transportDiagnostics, "error") === 0 ? "ready" : "blocked",
         fixtureValidationStatus: dryRun && dryRun.observations.length > 0 ? "ready" : "blocked",

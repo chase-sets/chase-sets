@@ -7,6 +7,7 @@ export type CatalogIntegrationUnitDescriptor = Readonly<{
   productForm: string;
   ingestionPurpose?: string;
   displayName: string;
+  profileVersion?: string;
 }>;
 
 export type ProviderAdapterCapabilities = Readonly<{
@@ -47,6 +48,17 @@ export type ProviderImportPlan = Readonly<{
   transportSteps: readonly string[];
 }>;
 
+export type ProviderPayloadFetchProgress = Readonly<{
+  phase: "fetching";
+  completed: number;
+  total: number;
+  currentLabel: string | null;
+}>;
+
+export type ProviderPayloadFetchOptions = Readonly<{
+  onProgress?: (progress: ProviderPayloadFetchProgress) => void | Promise<void>;
+}>;
+
 export type ProviderPayloadProvenance = Readonly<{
   sourceUrl?: string;
   sourceUpdatedAt?: string;
@@ -76,6 +88,9 @@ export type ProviderAdapter<TPayload = unknown> = Readonly<{
   listIntegrationUnits(): Promise<readonly CatalogIntegrationUnitDescriptor[]>;
   listOptions(input: ProviderOptionQueryInput): Promise<ProviderOptionQueryResult>;
   planImport(scope: ProviderImportScope): Promise<ProviderImportPlan>;
-  fetchPayloads(plan: ProviderImportPlan): AsyncIterable<ProviderPayloadEnvelope<TPayload>>;
+  fetchPayloads(
+    plan: ProviderImportPlan,
+    options?: ProviderPayloadFetchOptions,
+  ): AsyncIterable<ProviderPayloadEnvelope<TPayload>>;
   getTransportDiagnostics(): Promise<readonly ProviderTransportDiagnostic[]>;
 }>;

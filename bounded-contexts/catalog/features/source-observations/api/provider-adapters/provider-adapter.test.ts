@@ -12,6 +12,8 @@ import {
   runReferenceCardsSourceObservationProofDryRun,
 } from "./reference-cards";
 import { ProviderAdapterRegistry } from "./registry";
+import { createTcgdexProviderAdapter, TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./tcgdex";
+import { getActiveCatalogProviderIntegrationProfileVersion } from "../provider-integration-profiles";
 
 type ReferenceCardPayload = Readonly<{
   providerCardId: string;
@@ -119,6 +121,152 @@ describe("ProviderAdapterRegistry", () => {
       diagnostics: [],
     });
   });
+
+  it("serves TCGdex option transport through the ProviderAdapter boundary", async () => {
+    const adapter = createTcgdexProviderAdapter({
+      loadActiveProfileVersion: async () => requireTcgdexProfileVersion(),
+      fetch: tcgdexFetch({
+        "https://api.tcgdex.net/v2/en/series": [
+          { id: "me", name: "Mega Evolution", logo: "https://assets.tcgdex.net/en/me/logo" },
+        ],
+        "https://api.tcgdex.net/v2/en/series/me": {
+          id: "me",
+          name: "Mega Evolution",
+          sets: [
+            {
+              id: "me02.5",
+              name: "Ascended Heroes",
+              logo: "https://assets.tcgdex.net/en/me/me02.5/logo",
+              symbol: "https://assets.tcgdex.net/univ/me/me02.5/symbol",
+              cardCount: { total: 295, official: 217 },
+            },
+          ],
+        },
+      }),
+    });
+
+    await expect(adapter.listIntegrationUnits()).resolves.toEqual([
+      {
+        unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        providerKey: "tcgdex",
+        productDomain: "pokemon",
+        productForm: "single-card",
+        ingestionPurpose: "source-observation-import",
+        displayName: "TCGdex Pokemon single-card Source Observation import",
+        profileVersion: "2026.06.03",
+      },
+    ]);
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "languages",
+      }),
+    ).resolves.toMatchObject({ items: expect.arrayContaining([{ value: "en", label: "en" }]) });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "series",
+        parentValues: { languageCode: "en" },
+      }),
+    ).resolves.toEqual({
+      items: [{ value: "me", label: "Mega Evolution", metadata: { logoUrl: "https://assets.tcgdex.net/en/me/logo" } }],
+    });
+    await expect(
+      adapter.listOptions({
+        unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+        optionKind: "expansions",
+        parentValues: { languageCode: "en", seriesId: "me" },
+      }),
+    ).resolves.toEqual({
+      items: [
+        {
+          value: "me02.5",
+          label: "Ascended Heroes",
+          parentValue: "me",
+          metadata: {
+            seriesName: "Mega Evolution",
+            logoUrl: "https://assets.tcgdex.net/en/me/me02.5/logo",
+            symbolUrl: "https://assets.tcgdex.net/univ/me/me02.5/symbol",
+            cardCount: "295",
+            officialCardCount: "217",
+          },
+        },
+      ],
+    });
+  });
+
+  it("plans and fetches TCGdex import payloads with typed provenance", async () => {
+    const progress: unknown[] = [];
+    const adapter = createTcgdexProviderAdapter({
+      loadActiveProfileVersion: async () => requireTcgdexProfileVersion(),
+      fetch: tcgdexFetch({
+        "https://api.tcgdex.net/v2/en/sets/swsh3": {
+          id: "swsh3",
+          name: "Darkness Ablaze",
+          cards: [{ id: "swsh3-136", localId: "136", name: "Furret" }],
+        },
+        "https://api.tcgdex.net/v2/en/cards/swsh3-136": {
+          id: "swsh3-136",
+          localId: "136",
+          name: "Furret",
+          category: "Pokemon",
+          set: { id: "swsh3", name: "Darkness Ablaze" },
+        },
+      }),
+    });
+    const plan = await adapter.planImport({
+      unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: "expansion",
+      values: { languageCode: "en", setId: "swsh3" },
+    });
+    const payloads = await collectPayloads(
+      adapter.fetchPayloads(plan, {
+        onProgress: (event) => {
+          progress.push(event);
+        },
+      }),
+    );
+
+    expect(plan).toMatchObject({
+      unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      planKey: "tcgdex:en:swsh3",
+      transportSteps: ["Fetch TCGdex expansion metadata", "Fetch TCGdex card payloads", "Attach payload provenance"],
+    });
+    expect(payloads).toHaveLength(1);
+    expect(payloads[0]).toMatchObject({
+      unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      providerKey: "tcgdex",
+      externalKey: "swsh3-136",
+      provenance: {
+        sourceUrl: "https://api.tcgdex.net/v2/en/cards/swsh3-136",
+      },
+      payload: {
+        payload: {
+          externalKey: "swsh3-136",
+        },
+      },
+    });
+    expect(progress).toEqual([
+      { phase: "fetching", completed: 0, total: 1, currentLabel: null },
+      { phase: "fetching", completed: 1, total: 1, currentLabel: "Furret" },
+    ]);
+  });
+
+  it("keeps TCGdex adapter diagnostics transport-only", async () => {
+    const diagnostics = await createTcgdexProviderAdapter({
+      loadActiveProfileVersion: async () => requireTcgdexProfileVersion(),
+    }).getTransportDiagnostics();
+
+    expect(diagnostics).toEqual([
+      {
+        code: "tcgdex-json-transport-configured",
+        severity: "info",
+        message: "TCGdex JSON transport is configured for tcgdex-json.",
+        unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      },
+    ]);
+    expect(JSON.stringify(diagnostics)).not.toMatch(/promotion|replay|duplicate-prevention/i);
+  });
 });
 
 function referenceCardsAdapter(): ProviderAdapter<ReferenceCardPayload> {
@@ -188,4 +336,19 @@ async function collectPayloads<TPayload>(
   }
 
   return collected;
+}
+
+function requireTcgdexProfileVersion() {
+  const version = getActiveCatalogProviderIntegrationProfileVersion("tcgdex");
+  if (!version) {
+    throw new Error("Expected active TCGdex profile version.");
+  }
+  return version;
+}
+
+function tcgdexFetch(responses: Readonly<Record<string, unknown>>): typeof globalThis.fetch {
+  return async (input) => {
+    const response = responses[String(input)];
+    return response ? new Response(JSON.stringify(response), { status: 200 }) : new Response(null, { status: 404 });
+  };
 }
