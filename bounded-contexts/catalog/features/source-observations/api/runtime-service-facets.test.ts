@@ -48,4 +48,46 @@ describe("Source Observation service facets", () => {
     expect(typeof integrationJobs.processNextIntegrationJob).toBe("function");
     expect(typeof reads.listSourceObservations).toBe("function");
   });
+
+  it("reports reference and TCGdex dry-run proof readiness by ingestion unit", async () => {
+    const services = createSourceObservationRuntime(
+      { checkpointStore: {}, db: {}, eventStore: {} } as CatalogRuntimeDeps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const readiness = await services.getCatalogIntegrationControlPlaneReadiness();
+    const referenceUnit = readiness.units.find(
+      (unit) => unit.unitKey === "reference-cards:pokemon:single-card:source-observation-proof",
+    );
+    const tcgdexUnit = readiness.units.find(
+      (unit) => unit.unitKey === "tcgdex:pokemon:single-card:source-observation-import",
+    );
+
+    expect(referenceUnit).toMatchObject({
+      semanticReadiness: "ready",
+      dryRunStatus: "completed",
+      dryRunEvidence: [expect.objectContaining({ externalKey: "pokemon:abra-43" })],
+    });
+    expect(tcgdexUnit).toMatchObject({
+      providerKey: "tcgdex",
+      semanticReadiness: "ready",
+      transportReadiness: "ready",
+      fixtureValidationStatus: "ready",
+      dryRunStatus: "completed",
+      observationFacts: 1,
+      dryRunEvidence: [
+        {
+          externalKey: "swsh3-136",
+          sourceUrl: "https://api.tcgdex.net/v2/en/cards/swsh3-136",
+          sourceHash: null,
+          normalizedFacts: expect.objectContaining({
+            name: "Furret",
+            cardNumber: "136",
+            expansionName: "Darkness Ablaze",
+          }),
+        },
+      ],
+    });
+  });
 });

@@ -12,7 +12,11 @@ import {
   runReferenceCardsSourceObservationProofDryRun,
 } from "./reference-cards";
 import { ProviderAdapterRegistry } from "./registry";
-import { createTcgdexProviderAdapter, TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY } from "./tcgdex";
+import {
+  createTcgdexProviderAdapter,
+  runTcgdexSourceObservationImportProofDryRun,
+  TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+} from "./tcgdex";
 import {
   createTcgplayerProviderAdapter,
   TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
@@ -275,6 +279,32 @@ describe("ProviderAdapterRegistry", () => {
       },
     ]);
     expect(JSON.stringify(diagnostics)).not.toMatch(/promotion|replay|duplicate-prevention/i);
+  });
+
+  it("proves the TCGdex real-provider ingestion unit through adapter fetch and engine dry-run", async () => {
+    const dryRun = await runTcgdexSourceObservationImportProofDryRun();
+
+    expect(dryRun).toMatchObject({
+      unitKey: TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      profileVersion: "2026.06.03",
+      observations: [
+        {
+          providerKey: "tcgdex",
+          externalKey: "swsh3-136",
+          sourceUrl: "https://api.tcgdex.net/v2/en/cards/swsh3-136",
+          sourceUpdatedAt: "2026-05-15T00:00:00.000Z",
+          normalizedFacts: {
+            name: "Furret",
+            cardNumber: "136",
+            expansionName: "Darkness Ablaze",
+            rarity: "Uncommon",
+            cardVariantLabel: "Standard Set",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+    expect(dryRun.observations[0]?.sourceHash).toBeUndefined();
   });
 
   it("serves TCGplayer option transport through the ProviderAdapter boundary", async () => {

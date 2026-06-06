@@ -1,6 +1,11 @@
 import { t } from "@chase-sets/localization";
+import { runCatalogIntegrationDryRun } from "../catalog-integration-engine";
+import type { CatalogIntegrationDryRunResult } from "../catalog-integration-engine";
 import { defineCatalogIntegrationUnitKey } from "../integration-unit";
-import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
+import {
+  getActiveCatalogProviderIntegrationProfileVersion,
+  type CatalogProviderIntegrationProfileVersionRecord,
+} from "../provider-integration-profiles";
 import {
   fetchTcgdexExpansionOptions,
   fetchTcgdexSeriesOptions,
@@ -24,6 +29,11 @@ export const TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY = def
   productForm: "single-card",
   ingestionPurpose: "source-observation-import",
 });
+
+export const TCGDEX_REAL_PROVIDER_PROOF_SCOPE = {
+  languageCode: "en",
+  setId: "swsh3",
+} as const;
 
 export type TcgdexProviderAdapterOptions = Readonly<{
   loadActiveProfileVersion: () => Promise<CatalogProviderIntegrationProfileVersionRecord>;
@@ -117,6 +127,42 @@ export function createTcgdexProviderAdapter(
       ];
     },
   };
+}
+
+export async function runTcgdexSourceObservationImportProofDryRun(
+  adapter: ProviderAdapter<TcgdexObservationPayload> = createTcgdexProviderAdapter({
+    loadActiveProfileVersion: async () => requireActiveTcgdexProfileVersion(),
+    fetch: tcgdexProofFetch,
+  }),
+  profileVersion: string = requireActiveTcgdexProfileVersion().profileVersion,
+): Promise<CatalogIntegrationDryRunResult> {
+  const unitKey = TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY;
+  const plan = await adapter.planImport({
+    unitKey,
+    scopeKey: "expansion",
+    values: TCGDEX_REAL_PROVIDER_PROOF_SCOPE,
+  });
+  const payloads: ProviderPayloadEnvelope<TcgdexObservationPayload>[] = [];
+
+  for await (const payload of adapter.fetchPayloads(plan)) {
+    payloads.push(payload);
+  }
+
+  return runCatalogIntegrationDryRun({
+    unitKey,
+    profileVersion,
+    payloads,
+    normalize: (envelope) => ({
+      unitKey,
+      providerKey: envelope.providerKey,
+      externalKey: envelope.externalKey,
+      profileVersion,
+      normalizedFacts: tcgdexDryRunFacts(envelope.payload),
+      sourceUrl: envelope.provenance.sourceUrl,
+      sourceUpdatedAt: envelope.provenance.sourceUpdatedAt,
+      sourceHash: envelope.provenance.contentHash,
+    }),
+  });
 }
 
 async function listTcgdexAdapterOptions(
@@ -215,3 +261,79 @@ function stringValue(value: unknown): string | null {
 
   return null;
 }
+
+function requireActiveTcgdexProfileVersion(): CatalogProviderIntegrationProfileVersionRecord {
+  const version = getActiveCatalogProviderIntegrationProfileVersion("tcgdex");
+  if (!version) {
+    throw new Error("Expected active TCGdex profile version for real-provider proof.");
+  }
+  return version;
+}
+
+function tcgdexDryRunFacts(payload: TcgdexObservationPayload): Readonly<Record<string, string>> {
+  return {
+    name: stringFact(payload.payload, "catalogHashMaterial.normalized.name"),
+    cardNumber: stringFact(payload.payload, "catalogHashMaterial.normalized.cardNumber"),
+    expansionName: stringFact(payload.payload, "catalogHashMaterial.normalized.expansionName"),
+    rarity: stringFact(payload.payload, "catalogHashMaterial.normalized.rarity"),
+    cardVariantLabel: stringFact(payload.payload, "catalogHashMaterial.normalized.cardVariantLabel"),
+  };
+}
+
+function stringFact(payload: unknown, path: string): string {
+  const value = path.split(".").reduce<unknown>((current, segment) => {
+    if (!current || typeof current !== "object" || Array.isArray(current)) {
+      return undefined;
+    }
+    return (current as Record<string, unknown>)[segment];
+  }, payload);
+
+  return stringValue(value) ?? "";
+}
+
+function tcgdexProofFetch(input: RequestInfo | URL): Promise<Response> {
+  const url = String(input);
+  const response = tcgdexProofResponses[url];
+  if (!response) {
+    return Promise.resolve(new Response(null, { status: 404 }));
+  }
+
+  return Promise.resolve(
+    new Response(JSON.stringify(response), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    }),
+  );
+}
+
+const tcgdexProofResponses: Readonly<Record<string, unknown>> = {
+  "https://api.tcgdex.net/v2/en/sets/swsh3": {
+    id: "swsh3",
+    name: "Darkness Ablaze",
+    releaseDate: "2020-08-14",
+    serie: {
+      id: "swsh",
+      name: "Sword & Shield",
+    },
+    cardCount: {
+      total: 201,
+      official: 189,
+      reverse: 155,
+    },
+    cards: [{ id: "swsh3-136", localId: "136", name: "Furret" }],
+  },
+  "https://api.tcgdex.net/v2/en/cards/swsh3-136": {
+    id: "swsh3-136",
+    localId: "136",
+    name: "Furret",
+    category: "Pokemon",
+    illustrator: "tetsuya koizumi",
+    rarity: "Uncommon",
+    updated: "2026-05-15T00:00:00.000Z",
+    image: "https://assets.tcgdex.net/en/swsh/swsh3/136",
+    set: {
+      id: "swsh3",
+      name: "Darkness Ablaze",
+    },
+  },
+};
