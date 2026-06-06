@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import {
@@ -19,13 +19,24 @@ import {
   rollbackCatalogProviderProfileVersionForReview,
   updateCatalogProviderProfileSectionForReview,
   updateCatalogProviderProfileVersionForReview,
+  CatalogProviderProfileLifecycleConsistencyError,
+  type CatalogProviderProfileLifecycleBlockingJob,
 } from "./provider-profile-review";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "./provider-integration-profiles";
-import type { CatalogIntegrationEngineServices, ProviderProfileAdminServices } from "./runtime";
+import type {
+  BulkReviewJobServices,
+  CatalogIntegrationEngineServices,
+  IntegrationJobServices,
+  ProviderProfileAdminServices,
+  SourceObservationBulkJob,
+  SourceObservationIntegrationJob,
+} from "./runtime";
 import { authoringAuditFromContext, isRecord, readJsonObject, toJsonValue } from "./route-helpers";
 
 export type ProviderProfileRouteServices = ProviderProfileAdminServices &
-  Partial<Pick<CatalogIntegrationEngineServices, "previewDuplicatePreventionCandidates">>;
+  Partial<Pick<CatalogIntegrationEngineServices, "previewDuplicatePreventionCandidates">> &
+  Partial<Pick<IntegrationJobServices, "listActiveIntegrationJobs">> &
+  Partial<Pick<BulkReviewJobServices, "listActiveBulkReviewJobs">>;
 
 export function providerProfileRoutes(
   services: ProviderProfileRouteServices,
@@ -81,13 +92,19 @@ export function providerProfileRoutes(
     if (body instanceof Response) {
       return body;
     }
-    const result = await updateCatalogProviderProfileVersionForReview({
-      store: profileVersions,
-      providerKey: c.req.param("providerKey"),
-      profileVersion: c.req.param("profileVersion"),
-      patch: (body.patch ?? body) as never,
-      audit: authoringAuditFromContext(c.get("context")),
-    });
+    let result;
+    try {
+      result = await updateCatalogProviderProfileVersionForReview({
+        store: profileVersions,
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+        patch: (body.patch ?? body) as never,
+        audit: authoringAuditFromContext(c.get("context")),
+        activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
+      });
+    } catch (error) {
+      return lifecycleConsistencyErrorResponse(c, error);
+    }
 
     return c.json(result);
   });
@@ -111,10 +128,14 @@ export function providerProfileRoutes(
         profileVersion: c.req.param("profileVersion"),
         command,
         audit: authoringAuditFromContext(c.get("context")),
+        activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
       });
 
       return c.json(result);
     } catch (error) {
+      if (error instanceof CatalogProviderProfileLifecycleConsistencyError) {
+        return lifecycleConsistencyErrorResponse(c, error);
+      }
       if (!(error instanceof CatalogProviderProfileSectionValidationError)) {
         throw error;
       }
@@ -173,8 +194,12 @@ export function providerProfileRoutes(
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
+        activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
       });
     } catch (error) {
+      if (error instanceof CatalogProviderProfileLifecycleConsistencyError) {
+        return lifecycleConsistencyErrorResponse(c, error);
+      }
       if (!(error instanceof CatalogProviderProfileActivationValidationError)) {
         throw error;
       }
@@ -220,11 +245,17 @@ export function providerProfileRoutes(
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
 
-    const result = await rollbackCatalogProviderProfileVersionForReview({
-      store: profileVersions,
-      providerKey: c.req.param("providerKey"),
-      profileVersion: c.req.param("profileVersion"),
-    });
+    let result;
+    try {
+      result = await rollbackCatalogProviderProfileVersionForReview({
+        store: profileVersions,
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+        activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
+      });
+    } catch (error) {
+      return lifecycleConsistencyErrorResponse(c, error);
+    }
 
     return c.json(result);
   });
@@ -234,12 +265,18 @@ export function providerProfileRoutes(
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
 
-    const result = await retireCatalogProviderProfileVersionForReview({
-      store: profileVersions,
-      providerKey: c.req.param("providerKey"),
-      profileVersion: c.req.param("profileVersion"),
-      audit: authoringAuditFromContext(c.get("context")),
-    });
+    let result;
+    try {
+      result = await retireCatalogProviderProfileVersionForReview({
+        store: profileVersions,
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+        audit: authoringAuditFromContext(c.get("context")),
+        activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
+      });
+    } catch (error) {
+      return lifecycleConsistencyErrorResponse(c, error);
+    }
 
     return c.json(result);
   });
@@ -249,14 +286,78 @@ export function providerProfileRoutes(
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
 
-    const result = await deprecateCatalogProviderProfileVersionForReview({
-      store: profileVersions,
-      providerKey: c.req.param("providerKey"),
-      profileVersion: c.req.param("profileVersion"),
-    });
+    let result;
+    try {
+      result = await deprecateCatalogProviderProfileVersionForReview({
+        store: profileVersions,
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+        activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
+      });
+    } catch (error) {
+      return lifecycleConsistencyErrorResponse(c, error);
+    }
 
     return c.json(result);
   });
 
   return app;
+}
+
+async function listProfileLifecycleBlockingJobs(
+  services: ProviderProfileRouteServices,
+  context: CatalogAuthoringEnv["Variables"]["context"],
+): Promise<readonly CatalogProviderProfileLifecycleBlockingJob[]> {
+  const [integrationJobs, bulkJobs] = await Promise.all([
+    services.listActiveIntegrationJobs?.({ context }) ?? Promise.resolve([]),
+    services.listActiveBulkReviewJobs?.({ context }) ?? Promise.resolve([]),
+  ]);
+
+  return [
+    ...integrationJobs.map(integrationJobToLifecycleBlockingJob),
+    ...bulkJobs.map(bulkReviewJobToLifecycleBlockingJob),
+  ];
+}
+
+function integrationJobToLifecycleBlockingJob(
+  job: SourceObservationIntegrationJob,
+): CatalogProviderProfileLifecycleBlockingJob {
+  return {
+    jobId: job.jobId,
+    jobKind: "integration",
+    action: job.action,
+    status: job.status,
+    providerKey: job.profileSnapshot?.providerKey ?? job.scope.provider ?? null,
+    profileVersion: job.profileSnapshot?.profileVersion ?? null,
+  };
+}
+
+function bulkReviewJobToLifecycleBlockingJob(
+  job: SourceObservationBulkJob,
+): CatalogProviderProfileLifecycleBlockingJob {
+  return {
+    jobId: job.jobId,
+    jobKind: "bulk-review",
+    action: job.action,
+    status: job.status,
+    providerKey: job.scope.provider ?? null,
+    profileVersion: null,
+  };
+}
+
+function lifecycleConsistencyErrorResponse(c: Context<CatalogAuthoringEnv>, error: unknown): Response {
+  if (!(error instanceof CatalogProviderProfileLifecycleConsistencyError)) {
+    throw error;
+  }
+
+  return c.json(
+    {
+      error: {
+        code: error.code,
+        message: error.message,
+        blockingJobs: error.blockingJobs,
+      },
+    },
+    409,
+  );
 }

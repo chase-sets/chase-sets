@@ -449,6 +449,32 @@ export interface BulkSourceObservationReapplyResult {
 }
 
 export type SourceObservationIntegrationJobAction = "import" | "reapply";
+export type SourceObservationIntegrationJobOperatorStatus =
+  | "queued"
+  | "running"
+  | "stale"
+  | "retried"
+  | "partial"
+  | "failed"
+  | "completed";
+
+export interface SourceObservationIntegrationProfileSnapshot {
+  providerKey: string;
+  profileKey: string;
+  profileVersion: string;
+  lifecycle: string;
+  connectorKind: string;
+  connectorSourceVersion: string | null;
+  sourceMappingFingerprint: string;
+}
+
+export interface SourceObservationIntegrationJobConsistency {
+  duplicateSubmissionPolicy: "reuse-active-job";
+  profileSnapshotPolicy: "snapshotted-at-enqueue";
+  retryResumePolicy: "skip-completed-outcomes";
+  partialFailurePolicy: "mixed-outcomes";
+  workUnitClaimPolicy: "leased-job-turns" | "leased-work-units";
+}
 
 export interface SourceObservationIntegrationJobScope {
   provider?: string;

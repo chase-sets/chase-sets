@@ -163,6 +163,68 @@ describe("Catalog provider profile review", () => {
     });
   });
 
+  it("blocks activation while same-provider integration work is active", async () => {
+    const store = mutableProfileStore([
+      ...catalogProviderIntegrationProfileVersions,
+      tcgdexVersion("2026.06.04", "test", false),
+    ]);
+
+    await expect(
+      activateCatalogProviderProfileVersionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        activeJobs: [
+          {
+            jobId: "job_import_tcgdex",
+            jobKind: "integration",
+            action: "import",
+            status: "running",
+            providerKey: "tcgdex",
+            profileVersion: "2026.06.03",
+          },
+        ],
+        fixtureCases: fixtureCasesForProfileVersion("tcgdex", "2026.06.04"),
+        repositoryRoot: repositoryRoot(),
+      }),
+    ).rejects.toMatchObject({
+      code: "profile_lifecycle_job_conflict",
+      blockingJobs: [
+        expect.objectContaining({
+          jobId: "job_import_tcgdex",
+          action: "import",
+          profileVersion: "2026.06.03",
+        }),
+      ],
+    });
+  });
+
+  it("blocks draft profile edits while provider-scoped promote work is active", async () => {
+    const store = mutableProfileStore([tcgdexVersion("2026.06.04", "draft", false)]);
+
+    await expect(
+      updateCatalogProviderProfileVersionForReview({
+        store,
+        providerKey: "tcgdex",
+        profileVersion: "2026.06.04",
+        patch: { lifecycle: "test" },
+        activeJobs: [
+          {
+            jobId: "job_promote_tcgdex",
+            jobKind: "bulk-review",
+            action: "promote",
+            status: "queued",
+            providerKey: "tcgdex",
+            profileVersion: null,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({
+      code: "profile_lifecycle_job_conflict",
+      blockingJobs: [expect.objectContaining({ jobId: "job_promote_tcgdex", action: "promote" })],
+    });
+  });
+
   it("builds a UI authoring model with fixture templates, semantic diff, and activation readiness", async () => {
     const store = mutableProfileStore([
       ...catalogProviderIntegrationProfileVersions,

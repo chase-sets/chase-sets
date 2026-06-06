@@ -148,6 +148,8 @@ function tcgdexProfileSnapshot(profileVersion: string): Record<string, unknown> 
     profileKey: "pokemon-tcg",
     profileVersion,
     lifecycle: "active",
+    connectorKind: "tcgdex-json",
+    connectorSourceVersion: null,
     sourceMappingFingerprint: `fingerprint:${profileVersion}`,
   };
 }
@@ -1092,7 +1094,10 @@ describe("source observation runtime", () => {
       profileKey: "pokemon-tcg",
       profileVersion: "2026.06.03",
       lifecycle: "active",
+      connectorKind: "tcgdex-json",
+      connectorSourceVersion: null,
     });
+    expect(job.consistency.workUnitClaimPolicy).toBe("leased-job-turns");
     expect(job.profileSnapshot?.sourceMappingFingerprint).toMatch(/^[a-f0-9]{64}$/);
     expect(harness.insertedJobs).toHaveLength(1);
   });
@@ -1146,6 +1151,16 @@ describe("source observation runtime", () => {
       profileSnapshot: {
         providerKey: "tcgdex",
         profileVersion: "2026.06.03",
+        connectorKind: "tcgdex-json",
+        connectorSourceVersion: null,
+      },
+      operatorStatus: "queued",
+      consistency: {
+        duplicateSubmissionPolicy: "reuse-active-job",
+        profileSnapshotPolicy: "snapshotted-at-enqueue",
+        retryResumePolicy: "skip-completed-outcomes",
+        partialFailurePolicy: "mixed-outcomes",
+        workUnitClaimPolicy: "leased-work-units",
       },
       progress: {
         total: 2,

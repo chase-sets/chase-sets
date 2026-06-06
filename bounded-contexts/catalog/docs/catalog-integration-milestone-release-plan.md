@@ -86,6 +86,7 @@ Exit criteria:
 - API contracts and read models are typed by provider/profile/ingestion unit, with the Admin query inventory documented in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md) and performance/freshness expectations documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md).
 - Diagnostics use the canonical [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md) for codes, severity, remediation, blocking behavior, visibility, metrics, and evidence/redaction policy.
 - Jobs, Source Observations, audit records, diagnostics, and read models carry ingestion-unit identity.
+- Job idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are defined in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md).
 - Conflict-aware promotion/reapply plans are deterministic and explainable.
 
 ## Phase 3: Admin Control Plane
