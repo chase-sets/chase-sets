@@ -174,6 +174,15 @@ export function registerGuestCheckoutRoutes(app: AuthApiApp, services: AuthServi
     );
   });
 
+  app.post("/guest-checkout/exit", async (c) => {
+    const guestToken = readGuestCheckoutToken(c.req.raw);
+    if (guestToken) {
+      await revokeGuestCheckoutTokenByHash(services.db, services.auth.hashSecret(guestToken));
+    }
+
+    return c.json({ status: "guest-checkout-ended" });
+  });
+
   app.post("/guest-checkout/claim-context", async (c) => {
     const context = await requireGuestCheckoutContext(services, c.req.raw, c.var.actor);
     if (!context) {

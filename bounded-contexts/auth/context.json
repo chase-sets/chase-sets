@@ -247,6 +247,13 @@
           "sourceContext": "auth"
         },
         {
+          "routeId": "guest-checkout-exit",
+          "routePath": "guest-checkout/exit",
+          "fileExport": "./routes/marketplace/guest-checkout-exit",
+          "routeType": "route",
+          "sourceContext": "auth"
+        },
+        {
           "routeId": "account-sessions",
           "routePath": "account/sessions",
           "fileExport": "./routes/marketplace/account-sessions",

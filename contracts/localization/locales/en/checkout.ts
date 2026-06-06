@@ -507,6 +507,13 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutSession.secure.checkout": "Secure checkout",
   "checkout.routes.checkoutSession.sign.in.to.continue": "Sign in to continue",
   "checkout.routes.checkoutSession.start.checkout.again": "Start checkout again",
+  "checkout.routes.checkoutRecovery.browse.marketplace": "Browse marketplace",
+  "checkout.routes.checkoutRecovery.buy.cart.empty": "Your Buy Cart is empty",
+  "checkout.routes.checkoutRecovery.buy.cart.empty.description": "Add items to your Buy Cart before starting checkout.",
+  "checkout.routes.checkoutRecovery.checkout.needs.attention": "Checkout needs attention",
+  "checkout.routes.checkoutRecovery.checkout.needs.attention.description":
+    "We could not start checkout from the current cart or item. Review your Buy Cart or browse for another item.",
+  "checkout.routes.checkoutRecovery.view.buy.cart": "View Buy Cart",
   "checkout.features.sessions.ui.checkoutPage.wallet.available.description":
     "{amount} {currency} available for platform purchases",
   "checkout.routes.checkoutStart.account": "Account",
@@ -533,6 +540,9 @@ export const checkoutEnglishTranslations = {
     "Continue with your account so purchases, payments, and order history stay together.",
   "checkout.routes.checkoutStart.email": "Email",
   "checkout.routes.checkoutStart.guest.checkout": "Guest checkout",
+  "checkout.routes.checkoutStart.guest.checkout.active": "Guest checkout",
+  "checkout.routes.checkoutStart.continue.with.guest.checkout":
+    "Continue as a guest buyer. We will keep checkout tied to this browser until you sign in or claim the purchase.",
   "checkout.routes.checkoutStart.guest.receipts.and.signed.in.order.history":
     "Guest receipts and signed-in order history keep purchases traceable.",
   "checkout.routes.checkoutStart.availability.confirmed.before.payment": "Availability confirmed before payment",

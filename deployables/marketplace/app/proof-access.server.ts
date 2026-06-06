@@ -11,6 +11,7 @@ const PROOF_ACCESS_PUBLIC_PATH_PREFIXES = [
   "/icons/",
   "/manifest.webmanifest",
   "/service-worker.js",
+  "/guest-checkout/exit",
   "/sign-in",
   "/sign-out",
 ] as const;

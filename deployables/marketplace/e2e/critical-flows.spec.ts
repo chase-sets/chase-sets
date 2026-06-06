@@ -208,6 +208,31 @@ test.describe("marketplace critical flows", () => {
     await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
   });
 
+  test("checkout recovery reentry follows a safe action instead of root error @marketplace-checkout", async ({
+    page,
+  }) => {
+    const recoveryResponse = await page.goto("/checkout/chk_e2e_missing_access", { waitUntil: "domcontentloaded" });
+
+    expect(recoveryResponse, "checkout recovery should return a page response").not.toBeNull();
+    expect(recoveryResponse!.status(), "expected checkout access recovery should not be a server error").toBe(401);
+    await expect(page.getByRole("heading", { name: /^Checkout access required$/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
+
+    const browseAction = page.getByRole("link", { name: /^Browse marketplace$/i });
+    await expect(browseAction).toBeVisible();
+
+    const nextResponsePromise = page.waitForResponse((response) => {
+      const url = new URL(response.url());
+      return url.pathname === "/search" && response.request().resourceType() === "document";
+    });
+    await browseAction.click();
+    const nextResponse = await nextResponsePromise;
+
+    expect(nextResponse.status(), "safe recovery action should not land on a server error").toBeLessThan(500);
+    await expect(page).toHaveURL(/\/search(?:$|\?)/);
+    await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
+  });
+
   test("account can authenticate and review cart @marketplace-checkout", async ({ page }, testInfo) => {
     test.setTimeout(120_000);
 

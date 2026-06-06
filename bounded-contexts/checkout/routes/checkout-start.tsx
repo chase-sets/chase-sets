@@ -30,6 +30,11 @@ import {
   type CreateCheckoutSessionRequest,
 } from "../support/request-support/api-client";
 import {
+  checkoutRecoveryForError,
+  checkoutRecoveryForKind,
+  type CheckoutRecovery,
+} from "../support/request-support/checkout-recovery";
+import {
   appendClearedAnonymousCartCookie,
   appendGuestCheckoutCookie,
   CHECKOUT_GUEST_COOKIE_NAME,
@@ -247,13 +252,32 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const cart = actor || source ? null : await api.getGuestCart(readAnonymousCartId(request));
   const returnTo = currentPathWithSearch(request);
+  const isGuestBuyer = actor?.roleKey === "guest-buyer";
 
   return {
-    isSignedIn: Boolean(actor),
+    isSignedIn: Boolean(actor && !isGuestBuyer),
+    isGuestBuyer,
     source,
     cartCount: cart?.count ?? (source ? 1 : 0),
     signInPath: signInPathForReturnTo(returnTo),
   };
+}
+
+type CheckoutStartActionData =
+  | Readonly<{ error: string; signInPath: string }>
+  | Readonly<{ recovery: CheckoutRecovery }>;
+
+function recoverCheckoutStartError(
+  error: unknown,
+  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
+  request: Request,
+): CheckoutStartActionData {
+  const recovery = checkoutRecoveryForError(error, actor, currentPathWithSearch(request));
+  if (!recovery) {
+    throw error;
+  }
+
+  return { recovery };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -261,27 +285,42 @@ export async function action({ request }: ActionFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const formData = await request.formData();
   const anonymousCartId = readAnonymousCartId(request);
+  const sourceType = String(formData.get("source") ?? "cart");
 
   if (actor) {
-    const sourceType = String(formData.get("source") ?? "cart");
-    if (sourceType === "cart" && anonymousCartId) {
-      await api.mergeGuestCartToAccount(anonymousCartId);
-    }
+    try {
+      if (sourceType === "cart" && anonymousCartId) {
+        await api.mergeGuestCartToAccount(anonymousCartId);
+      }
 
-    const session = await api.createCheckoutSession(checkoutSessionRequestFromForm(formData));
-    const response = redirect(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
-    if (anonymousCartId) {
-      appendClearedAnonymousCartCookie(response.headers);
-    }
+      const session = await api.createCheckoutSession(checkoutSessionRequestFromForm(formData));
+      const response = redirect(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
+      if (anonymousCartId) {
+        appendClearedAnonymousCartCookie(response.headers, request);
+      }
 
-    return response;
+      return response;
+    } catch (error) {
+      return recoverCheckoutStartError(error, actor, request);
+    }
   }
 
-  if (String(formData.get("source") ?? "cart") === "offer-intent") {
+  if (sourceType === "offer-intent") {
     return {
       error: t("checkout.routes.checkoutStart.register.or.sign.in.to.place.purchase.intent"),
       signInPath: signInPathForReturnTo(currentPathWithSearch(request)),
     };
+  }
+
+  if (sourceType === "cart") {
+    try {
+      const cart = await api.getGuestCart(anonymousCartId);
+      if (cart.count === 0) {
+        return { recovery: checkoutRecoveryForKind("cart-empty", currentPathWithSearch(request)) };
+      }
+    } catch (error) {
+      return recoverCheckoutStartError(error, actor, request);
+    }
   }
 
   const contactName = String(formData.get("contactName") ?? "").trim();
@@ -318,23 +357,25 @@ export async function action({ request }: ActionFunctionArgs) {
       cookie: `${CHECKOUT_GUEST_COOKIE_NAME}=${encodeURIComponent(guest.guestToken)}`,
     },
   });
-  const sourceType = String(formData.get("source") ?? "cart");
+  try {
+    if (sourceType === "cart" && anonymousCartId) {
+      await guestApi.mergeGuestCartToAccount(anonymousCartId);
+    }
 
-  if (sourceType === "cart" && anonymousCartId) {
-    await guestApi.mergeGuestCartToAccount(anonymousCartId);
+    const session = await guestApi.createCheckoutSession(checkoutSessionRequestFromForm(formData));
+    const response = redirectDocument(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
+    appendGuestCheckoutCookie(response.headers, guest.guestToken, request);
+    appendClearedAnonymousCartCookie(response.headers, request);
+
+    return response;
+  } catch (error) {
+    return recoverCheckoutStartError(error, actor, request);
   }
-
-  const session = await guestApi.createCheckoutSession(checkoutSessionRequestFromForm(formData));
-  const response = redirectDocument(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
-  appendGuestCheckoutCookie(response.headers, guest.guestToken);
-  appendClearedAnonymousCartCookie(response.headers);
-
-  return response;
 }
 
 export default function CheckoutStartRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const actionData = useActionData<typeof action>() as CheckoutStartActionData | undefined;
   const source = data.source;
   const isOfferIntent = source?.type === "offer-intent";
   const headerCopy = checkoutStartHeaderCopy({
@@ -469,11 +510,13 @@ export default function CheckoutStartRoute() {
                   : []),
                 {
                   label: t("checkout.routes.checkoutStart.account.choice"),
-                  value: data.isSignedIn
-                    ? t("checkout.routes.checkoutStart.signed.in")
-                    : isOfferIntent
-                      ? t("checkout.routes.checkoutStart.register.or.sign.in")
-                      : t("checkout.routes.checkoutStart.sign.in.or.guest"),
+                  value: data.isGuestBuyer
+                    ? t("checkout.routes.checkoutStart.guest.checkout.active")
+                    : data.isSignedIn
+                      ? t("checkout.routes.checkoutStart.signed.in")
+                      : isOfferIntent
+                        ? t("checkout.routes.checkoutStart.register.or.sign.in")
+                        : t("checkout.routes.checkoutStart.sign.in.or.guest"),
                 },
                 {
                   label: t("checkout.routes.checkoutStart.payment"),
@@ -500,6 +543,34 @@ export default function CheckoutStartRoute() {
       >
         <Stack gap={4}>
           {sourceSummary}
+          {actionData && "recovery" in actionData ? (
+            <Banner
+              title={actionData.recovery.title}
+              description={actionData.recovery.description}
+              tone="warning"
+              actions={
+                <>
+                  <LinkButton
+                    href={actionData.recovery.primaryAction.href}
+                    leadingIcon={actionData.recovery.primaryAction.leadingIcon}
+                    tone={actionData.recovery.primaryAction.tone}
+                  >
+                    {actionData.recovery.primaryAction.label}
+                  </LinkButton>
+                  {actionData.recovery.secondaryAction ? (
+                    <LinkButton
+                      href={actionData.recovery.secondaryAction.href}
+                      leadingIcon={actionData.recovery.secondaryAction.leadingIcon}
+                      tone={actionData.recovery.secondaryAction.tone}
+                    >
+                      {actionData.recovery.secondaryAction.label}
+                    </LinkButton>
+                  ) : null}
+                </>
+              }
+            />
+          ) : null}
+
           {actionData && "error" in actionData ? (
             <Banner
               title={t("checkout.routes.checkoutStart.sign.in.required")}
@@ -513,13 +584,21 @@ export default function CheckoutStartRoute() {
             />
           ) : null}
 
-          {data.isSignedIn ? (
-            <PageSection title={t("checkout.routes.checkoutStart.account.checkout")}>
+          {data.isSignedIn || data.isGuestBuyer ? (
+            <PageSection
+              title={
+                data.isGuestBuyer
+                  ? t("checkout.routes.checkoutStart.guest.checkout.active")
+                  : t("checkout.routes.checkoutStart.account.checkout")
+              }
+            >
               <Surface elevated glow>
                 <Form method="post">
                   <Stack gap={3}>
                     <Text tone="secondary">
-                      {t("checkout.routes.checkoutStart.continue.with.your.account.any.saved.guest")}
+                      {data.isGuestBuyer
+                        ? t("checkout.routes.checkoutStart.continue.with.guest.checkout")
+                        : t("checkout.routes.checkoutStart.continue.with.your.account.any.saved.guest")}
                     </Text>
                     {sourceFields}
                     <Button type="submit" size="lg" leadingIcon="lock">

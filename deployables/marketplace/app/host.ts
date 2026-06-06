@@ -10,9 +10,19 @@ export function resolveMarketplaceRouteConfigRecords() {
 
 export function resolveMarketplaceNavItems(
   slot: "top-nav" | "bottom-nav",
-  actor?: Readonly<{ permissions?: readonly string[] }> | null,
+  actor?: Readonly<{ permissions?: readonly string[]; roleKey?: string | null }> | null,
   options: Readonly<{ cartCount?: number }> = {},
 ): NavigationItem[] {
+  if (isGuestCheckoutActor(actor)) {
+    const publicItems = resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, null)
+      .map((item) => toTraderNavItem(item, slot))
+      .filter((item) => item.key === "search");
+
+    return moveCartLast(
+      withCartNavigation(publicItems, options.cartCount ?? 0, { includeGuestCart: true, includeEmptyGuestCart: true }),
+    );
+  }
+
   const items = resolveWebHostNavItems(webContextRegistry, "marketplace-web", slot, actor).map((item) =>
     toTraderNavItem(item, slot),
   );
@@ -29,9 +39,9 @@ export function resolveMarketplaceNavItems(
 }
 
 export function resolveMarketplaceAccountMenuItems(
-  actor?: Readonly<{ permissions?: readonly string[] }> | null,
+  actor?: Readonly<{ permissions?: readonly string[]; roleKey?: string | null }> | null,
 ): AccountMenuItem[] {
-  if (!actor) {
+  if (!actor || isGuestCheckoutActor(actor)) {
     return [];
   }
 
@@ -64,6 +74,10 @@ const sellingWorkflowKeys = new Set([
 
 const sellingInfrastructureKeys = new Set(["shipments"]);
 const topNavUtilityKeys = new Set(["account", "cart", "notifications", "register", "sign-in"]);
+
+function isGuestCheckoutActor(actor?: Readonly<{ roleKey?: string | null }> | null) {
+  return actor?.roleKey === "guest-buyer";
+}
 
 const accountChildKeys = new Set(["account", "wallet", "payouts", "submitted-offers", "reviews"]);
 const accountTopNavOrder = ["search", "cart", "purchases", "notifications", "account", "reviews"];
@@ -154,7 +168,7 @@ function applyCartBadge(item: NavigationItem, badge: string | undefined): Naviga
 function withCartNavigation(
   items: NavigationItem[],
   cartCount: number,
-  options: Readonly<{ includeGuestCart?: boolean }> = {},
+  options: Readonly<{ includeGuestCart?: boolean; includeEmptyGuestCart?: boolean }> = {},
 ): NavigationItem[] {
   const badge = formatCartBadge(cartCount);
 
@@ -162,7 +176,7 @@ function withCartNavigation(
     return items.map((item) => applyCartBadge(item, badge));
   }
 
-  if (!options.includeGuestCart || !badge) {
+  if (!options.includeGuestCart || (!badge && !options.includeEmptyGuestCart)) {
     return items;
   }
 

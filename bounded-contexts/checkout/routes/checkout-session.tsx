@@ -20,6 +20,11 @@ import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
+import {
+  checkoutRecoveryForError,
+  createCheckoutRecoveryResponse,
+  isCheckoutRecovery,
+} from "../support/request-support/checkout-recovery";
 import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
 import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
 import {
@@ -224,6 +229,11 @@ function paymentPathForActor(actor: Awaited<ReturnType<typeof resolveActorFromAu
     : `/checkout/payments/${paymentId}`;
 }
 
+function currentPathWithSearch(request: Request) {
+  const url = new URL(request.url);
+  return `${url.pathname}${url.search}`;
+}
+
 function checkoutPreviewRealtimeTopics(
   lines: readonly Readonly<{
     catalogItemId: string;
@@ -320,51 +330,6 @@ function reloadForRealtimeSync() {
   }
 }
 
-function checkoutAccessRecoveryForError(error: unknown, actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
-  if (!(error instanceof CheckoutApiError)) {
-    return null;
-  }
-
-  if (error.status === 401) {
-    return {
-      status: 401,
-      title: actor
-        ? t("checkout.routes.checkoutSession.guest.checkout.access.expired")
-        : t("checkout.routes.checkoutSession.checkout.access.required"),
-      description: actor
-        ? t("checkout.routes.checkoutSession.guest.checkout.access.expired.description")
-        : t("checkout.routes.checkoutSession.checkout.access.required.description"),
-    };
-  }
-
-  if (error.status === 403) {
-    return {
-      status: 403,
-      title: t("checkout.routes.checkoutSession.checkout.belongs.to.another.account"),
-      description: t("checkout.routes.checkoutSession.checkout.belongs.to.another.account.description"),
-    };
-  }
-
-  if (error.status === 404) {
-    return {
-      status: 404,
-      title: t("checkout.routes.checkoutSession.checkout.session.not.found"),
-      description: t("checkout.routes.checkoutSession.checkout.session.not.found.description"),
-    };
-  }
-
-  return null;
-}
-
-function createCheckoutAccessRecoveryResponse(
-  recovery: Readonly<{ status: number; title: string; description: string }>,
-) {
-  return new Response(recovery.description, {
-    status: recovery.status,
-    statusText: recovery.title,
-  });
-}
-
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   if (!params.sessionId) {
@@ -376,9 +341,9 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     isNotFound: (error) => error instanceof CheckoutApiError && error.status === 404,
     load: () => api.getCheckoutSession(params.sessionId!),
   }).catch((error) => {
-    const recovery = checkoutAccessRecoveryForError(error, actor);
+    const recovery = checkoutRecoveryForError(error, actor, currentPathWithSearch(request));
     if (recovery) {
-      throw createCheckoutAccessRecoveryResponse(recovery);
+      throw createCheckoutRecoveryResponse(recovery);
     }
 
     throw error;
@@ -617,11 +582,25 @@ export function ErrorBoundary() {
 
   const currentPath = `${location.pathname}${location.search}`;
   const signInPath = `/sign-in?returnTo=${encodeURIComponent(currentPath)}`;
-  const title = error.statusText || t("checkout.routes.checkoutSession.checkout.unavailable");
+  const recovery = isCheckoutRecovery(error.data) ? error.data : null;
+  const title = recovery?.title ?? error.statusText ?? t("checkout.routes.checkoutSession.checkout.unavailable");
   const description =
-    typeof error.data === "string" && error.data.trim()
+    recovery?.description ??
+    (typeof error.data === "string" && error.data.trim()
       ? error.data
-      : t("checkout.routes.checkoutSession.checkout.unavailable.description");
+      : t("checkout.routes.checkoutSession.checkout.unavailable.description"));
+  const trustCue = recovery?.trustCue ?? t("checkout.routes.checkoutSession.payment.has.not.started");
+  const primaryAction = recovery?.primaryAction ?? {
+    href: "/search",
+    label: t("checkout.routes.checkoutRecovery.browse.marketplace"),
+    leadingIcon: "search" as const,
+  };
+  const secondaryAction = recovery?.secondaryAction ?? {
+    href: signInPath,
+    label: t("checkout.routes.checkoutSession.sign.in.to.continue"),
+    leadingIcon: "lock" as const,
+    tone: "secondary" as const,
+  };
 
   return (
     <Page>
@@ -629,15 +608,21 @@ export function ErrorBoundary() {
         <MarketplaceEmptyState
           title={title}
           description={description}
-          trustCue={t("checkout.routes.checkoutSession.payment.has.not.started")}
+          trustCue={trustCue}
           recoveryActions={
             <>
-              <LinkButton href="/checkout/start" leadingIcon="cart">
-                {t("checkout.routes.checkoutSession.start.checkout.again")}
+              <LinkButton href={primaryAction.href} leadingIcon={primaryAction.leadingIcon} tone={primaryAction.tone}>
+                {primaryAction.label}
               </LinkButton>
-              <LinkButton href={signInPath} tone="secondary" leadingIcon="lock">
-                {t("checkout.routes.checkoutSession.sign.in.to.continue")}
-              </LinkButton>
+              {secondaryAction ? (
+                <LinkButton
+                  href={secondaryAction.href}
+                  tone={secondaryAction.tone}
+                  leadingIcon={secondaryAction.leadingIcon}
+                >
+                  {secondaryAction.label}
+                </LinkButton>
+              ) : null}
             </>
           }
         />

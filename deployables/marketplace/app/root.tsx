@@ -45,7 +45,7 @@ async function resolveCartCount(request: Request, actor: MarketplaceRootActor) {
 }
 
 async function resolveCurrentActorDisplay(request: Request, actor: MarketplaceRootActor) {
-  if (!actor) {
+  if (!actor || actor.roleKey === "guest-buyer") {
     return null;
   }
 
