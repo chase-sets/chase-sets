@@ -135,6 +135,12 @@ The response is grouped by ingestion unit and includes:
 
 The Phase 1 reference record is `reference-cards:pokemon:single-card:source-observation-proof`. It is fixture-backed, has no live transport dependency, and runs through the ProviderAdapter registry plus the Catalog Integration Engine before the Admin UI reports it as ready. Future live provider readiness should use the same contract while keeping provider transport details on adapters and Catalog semantic readiness on ingestion units.
 
+## Admin Query Contract
+
+Admin workflow modules consume stable query/read-model contracts from Source Observations. The contract inventory is documented in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md), and the authoritative TypeScript surface is `admin-control-plane-read-model-contracts.ts`.
+
+Those contracts keep Catalog semantic readiness grouped by ingestion unit, provider transport readiness grouped by provider/adapter, and all profile, job, Source Observation, diagnostic, promotion, replay/reapply, lifecycle, and audit read models attributed to `unitKey`. New providers, product domains, or product forms should flow through generic ingestion-unit fields rather than creating admin page branches.
+
 ## Admin Section Command Contract
 
 Provider profile section updates use the shared `provider-profile-admin-contracts` module under Source Observations. That compatibility contract delegates to the provider profile section registry, where each editable section entry owns its display metadata, command validator, and patch composer. The Hono route parses section update commands before invoking review services, and the Admin UI imports the same section key and command DTO types instead of maintaining a duplicate union. Invalid section commands return HTTP 400 with `invalid_profile_section_command` and a stable validation message.
@@ -146,6 +152,7 @@ The URL section key is authoritative for section update routes. Request bodies m
 - [Provider Integration Profiles](./provider-integration-profiles.md)
 - [Provider Integration Mapping Contract](./provider-integration-mapping-contract.md)
 - [Provider Integration Admin Module](./provider-integration-admin-module.md)
+- [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Source Observation Integration](./source-observation-integration.md)
 - [Catalog Integration New-Provider Walkthrough](./catalog-integration-new-provider-walkthrough.md)
 - [Catalog Integration Milestone Release Plan](./catalog-integration-milestone-release-plan.md)

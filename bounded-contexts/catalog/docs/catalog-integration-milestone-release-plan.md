@@ -83,7 +83,7 @@ Exit criteria:
 
 - Runtime services are split behind focused facets, with the aggregate runtime kept only as deployable composition convenience.
 - The Source Observation API is composed from focused subrouters behind the existing `/api/catalog/source-observations/*` compatibility mount.
-- API contracts and read models are typed by provider/profile/ingestion unit.
+- API contracts and read models are typed by provider/profile/ingestion unit, with the Admin query inventory documented in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md).
 - Jobs, Source Observations, audit records, diagnostics, and read models carry ingestion-unit identity.
 - Conflict-aware promotion/reapply plans are deterministic and explainable.
 
@@ -154,7 +154,7 @@ Exit criteria:
 - #808 gates broad work and operationalizes #780.
 - #771, #773, #774, #775, and #805 gate #799.
 - #799 gates broad #763, #777, #778, #779, #785, #786, and #800 work.
-- #759, #758, #781, and #795 gate Admin Control Plane UI work.
+- #759, #758, #781, and #795 gate Admin Control Plane UI work; #781 contributes the stable Admin query/read-model contract inventory.
 - #796 gates #768 diagnostics/readiness UX.
 - #794 and #803 gate live provider sampling, fixture retention, dry-run retention, diagnostics retention, and MTGJSON/Scryfall sampling.
 - #807 gates final #806 validation and release completion.

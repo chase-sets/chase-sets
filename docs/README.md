@@ -71,6 +71,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Source Conflict Resolution](../bounded-contexts/catalog/docs/source-conflict-resolution.md)
 - [Catalog Provider Integration Profiles](../bounded-contexts/catalog/docs/provider-integration-profiles.md)
 - [Catalog Provider Integration Admin Module](../bounded-contexts/catalog/docs/provider-integration-admin-module.md)
+- [Catalog Admin Control Plane Query Contracts](../bounded-contexts/catalog/docs/admin-control-plane-query-contracts.md)
 - [Catalog External Product References](../bounded-contexts/catalog/docs/external-product-references.md)
 - [Catalog TCGplayer Automation Client Contract](../bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md)
 - [Catalog Admin Bulk Workflows](../bounded-contexts/catalog/docs/admin-bulk-workflows.md)
