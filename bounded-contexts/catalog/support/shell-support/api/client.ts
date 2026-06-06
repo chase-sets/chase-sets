@@ -1104,24 +1104,6 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
-    async updateSourceObservationProviderProfile<T>(
-      providerKey: string,
-      profileVersion: string,
-      patch: unknown,
-    ): Promise<T> {
-      const response = await configuredFetch(
-        `${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles/${encodeURIComponent(providerKey)}/${encodeURIComponent(profileVersion)}`,
-        {
-          method: "PATCH",
-          headers: {
-            "content-type": "application/json",
-            ...headersToRecord(headers),
-          },
-          body: JSON.stringify({ patch }),
-        },
-      );
-      return parseJsonResponse<T>(response);
-    },
     async updateSourceObservationProviderProfileSection<T>(
       providerKey: string,
       profileVersion: string,

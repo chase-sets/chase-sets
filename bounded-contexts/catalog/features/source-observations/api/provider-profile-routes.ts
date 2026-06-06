@@ -92,13 +92,16 @@ export function providerProfileRoutes(
     if (body instanceof Response) {
       return body;
     }
+    if (!isRawProfilePatchQuarantineAccepted(body)) {
+      return c.json(rawProfilePatchQuarantinedError(), 403);
+    }
     let result;
     try {
       result = await updateCatalogProviderProfileVersionForReview({
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
         profileVersion: c.req.param("profileVersion"),
-        patch: (body.patch ?? body) as never,
+        patch: body.patch as never,
         audit: authoringAuditFromContext(c.get("context")),
         activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
       });
@@ -360,4 +363,36 @@ function lifecycleConsistencyErrorResponse(c: Context<CatalogAuthoringEnv>, erro
     },
     409,
   );
+}
+
+function isRawProfilePatchQuarantineAccepted(body: Record<string, unknown>): boolean {
+  if (!Object.prototype.hasOwnProperty.call(body, "patch") || !isRecord(body.patch)) {
+    return false;
+  }
+
+  const quarantine = body.rawJsonQuarantine;
+  return (
+    isRecord(quarantine) &&
+    quarantine.ownerIssue === 789 &&
+    typeof quarantine.reason === "string" &&
+    quarantine.reason.trim().length > 0 &&
+    quarantine.retirementCondition === "section-scoped-typed-commands-complete"
+  );
+}
+
+function rawProfilePatchQuarantinedError() {
+  return {
+    error: {
+      code: "raw_profile_patch_quarantined",
+      message: t("catalog.features.sourceObservations.api.route.profile.review.raw.patch.quarantined"),
+      ownerIssue: 789,
+      requiredQuarantine: {
+        rawJsonQuarantine: {
+          ownerIssue: 789,
+          reason: "Controlled internal compatibility or migration operation.",
+          retirementCondition: "section-scoped-typed-commands-complete",
+        },
+      },
+    },
+  };
 }
