@@ -62,7 +62,7 @@ Compatibility is required for:
 
 Provider adapters may add optional capabilities or diagnostics additively. A required capability change must include fixture-backed readiness diagnostics for old adapters and must not add provider-specific branches to Catalog runtime, API routes, Admin pages, or promotion/reapply code.
 
-Provider payload bodies, sampled payloads, and fixture payloads are not Catalog truth. Retaining payload bodies requires data-governance approval and a retained-data exception. Logs, metrics, diagnostics, and audit evidence must use redacted summaries or stable references instead of raw provider payloads.
+Provider payload bodies, sampled payloads, and fixture payloads are not Catalog truth. Retaining payload bodies requires [Catalog Integration Data Governance](./catalog-integration-data-governance.md) approval and a retained-data exception. Logs, metrics, diagnostics, and audit evidence must use redacted summaries or stable references instead of raw provider payloads.
 
 Provider Integration Profile versions remain readable while referenced by Source Observations, jobs, rollback/deprecation history, or audit evidence. Bootstrap may preserve admin-authored profile rows, but unreferenced pre-launch rows can be reset by #804.
 
@@ -72,7 +72,7 @@ Durable integration jobs and work units snapshot profile identity at enqueue tim
 
 Admin read models evolve additively. They must expose stale, degraded, empty, or blocked states instead of forcing UI modules to parse profile JSON, job payload JSON, or provider-specific snapshots.
 
-Audit and diagnostic records are launched operator evidence. They must remain readable after projection rebuilds and must follow the data-governance policy for payload summaries.
+Audit and diagnostic records are launched operator evidence. They must remain readable after projection rebuilds and must follow [Catalog Integration Data Governance](./catalog-integration-data-governance.md) for payload summaries.
 
 ## Reset And Migration Policy
 

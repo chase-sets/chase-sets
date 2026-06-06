@@ -91,7 +91,7 @@ External references:
 
 Price, listing, inventory, order, seller, and message facts:
 
-- These are not Catalog truth. Catalog may retain safe evidence only when permitted by data-governance policy and must not include them in Source Observation hash material unless a future owner contract explicitly changes the boundary.
+- These are not Catalog truth. Catalog may retain safe evidence only when permitted by [Catalog Integration Data Governance](./catalog-integration-data-governance.md) and must not include them in Source Observation hash material unless a future owner contract explicitly changes the boundary.
 
 ## Diagnostics
 

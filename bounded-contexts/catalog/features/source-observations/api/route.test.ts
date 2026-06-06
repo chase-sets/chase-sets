@@ -58,6 +58,59 @@ describe("source observation routes", () => {
     });
   });
 
+  it("redacts governed provider payload fields on Source Observation detail reads", async () => {
+    const getSourceObservationDetail = vi.fn(async () => ({
+      observation_id: "obs_1",
+      provider_key: "tcgplayer",
+      external_key: "product:123",
+      source_url: "https://provider.test/product/123",
+      language_code: "en",
+      source_record_hash: "sha256:abc",
+      source_updated_at: null,
+      observed_at: "2026-06-06T00:00:00.000Z",
+      source_profile_key: "pokemon-tcg",
+      source_profile_version: "2026.06.04",
+      source_mapping_fingerprint: "fingerprint",
+      normalized: { kind: "provider-product", name: "Furret" },
+      status: "observed",
+      status_reason: null,
+      promoted_catalog_item_id: null,
+      promoted_at: null,
+      promotion_profile_key: null,
+      promotion_profile_version: null,
+      promotion_plan_fingerprint: null,
+      updated_at: "2026-06-06T00:00:00.000Z",
+      source_payload: {
+        id: 123,
+        name: "Furret",
+        authorization: "Bearer secret",
+        sellerName: "Seller Name",
+        price: 1.23,
+        inventoryQuantity: 7,
+      },
+    }));
+    const services = {
+      getSourceObservationDetail,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/obs_1");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      observation_id: "obs_1",
+      source_payload: {
+        id: 123,
+        name: "Furret",
+        authorization: "<redacted>",
+        sellerName: "<redacted>",
+        price: "<redacted>",
+        inventoryQuantity: "<redacted>",
+      },
+    });
+    expect(getSourceObservationDetail).toHaveBeenCalledWith("obs_1");
+  });
+
   it("returns a structured error when a provider profile section command fails shared contract parsing", async () => {
     const app = buildApp({} as SourceObservationRouteServices, {} as CatalogProviderIntegrationProfileVersionStore);
 

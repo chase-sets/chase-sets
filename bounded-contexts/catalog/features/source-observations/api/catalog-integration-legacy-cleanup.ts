@@ -203,7 +203,7 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
     implementationReference:
       "bounded-contexts/catalog/features/source-observations/api/provider-profile-contract-harness.ts",
     reason:
-      "Fixture metadata remains with profile versions; raw fixture payload retention follows #794/#803 governance.",
+      "Fixture metadata remains with profile versions; raw fixture payload retention follows Catalog Integration Data Governance.",
     releaseExpectation:
       "Fixture payload bodies are retained only when governance and #804 retained-data evidence allow it.",
   },

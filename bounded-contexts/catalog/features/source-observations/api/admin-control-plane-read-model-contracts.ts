@@ -4,6 +4,7 @@ import type {
   CatalogIntegrationSchemaCompatibilitySurfaceKey,
   CatalogIntegrationWireSchemaVersion,
 } from "./catalog-integration-schema-compatibility";
+import type { CatalogIntegrationGovernedDataClassKey } from "./catalog-integration-data-governance";
 import type {
   CatalogProviderProfileSectionDiagnostic,
   CatalogProviderProfileSectionKey,
@@ -423,6 +424,26 @@ export function getCatalogAdminControlPlaneQueryContract(
 ): CatalogAdminControlPlaneQueryContract {
   return catalogAdminControlPlaneQueryContractsByKey[key];
 }
+
+export const catalogAdminControlPlaneQueryGovernanceDataClasses = {
+  "integration-health-summary": ["dry-run-output-evidence", "engine-diagnostic"],
+  "provider-transport-readiness-summary": ["provider-transport-diagnostic"],
+  "active-profile-version-summary": ["audit-evidence"],
+  "profile-section-status-summary": ["engine-diagnostic", "audit-evidence"],
+  "adapter-transport-diagnostics": ["provider-transport-diagnostic"],
+  "fixture-validation-summary": ["fixture-payload", "engine-diagnostic"],
+  "dry-run-evidence-summary": ["dry-run-input-payload", "dry-run-output-evidence", "engine-diagnostic"],
+  "semantic-version-comparison": ["dry-run-output-evidence", "audit-evidence"],
+  "activation-readiness-summary": ["engine-diagnostic", "fixture-payload", "audit-evidence"],
+  "replay-reapply-impact-summary": ["audit-evidence", "job-progress-summary"],
+  "import-job-progress-summary": ["job-progress-summary", "provider-transport-diagnostic"],
+  "source-observation-review-query": ["raw-provider-payload", "audit-evidence"],
+  "promotion-plan-preview": ["dry-run-output-evidence", "audit-evidence"],
+  "rollback-retirement-impact-summary": ["audit-evidence", "job-progress-summary"],
+  "audit-evidence-timeline": ["audit-evidence"],
+} as const satisfies Readonly<
+  Record<CatalogAdminControlPlaneQueryKey, readonly CatalogIntegrationGovernedDataClassKey[]>
+>;
 
 export type CatalogAdminReadinessState = "ready" | "blocked" | "degraded" | "unknown";
 export type CatalogAdminJobState = "queued" | "running" | "completed" | "failed" | "cancelled";

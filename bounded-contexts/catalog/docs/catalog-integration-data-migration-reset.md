@@ -48,7 +48,7 @@ Backfill is required only when retained data remains:
 - Profile section projections: rebuild section rows, fingerprints, validation status, and diagnostics from every retained or seeded profile version.
 - Source Observation profile references: retained observations must carry non-legacy `source_profile_version`, `source_mapping_fingerprint`, and `promotion_profile_version` when promoted.
 - Durable job profile snapshots: retained jobs and work units must keep snapshotted profile identity readable through deploy skew.
-- Fixture contracts: retained fixture metadata stays with provider profile versions; fixture payload retention must follow #794/#803 governance.
+- Fixture contracts: retained fixture metadata stays with provider profile versions; fixture payload retention must follow [Catalog Integration Data Governance](./catalog-integration-data-governance.md).
 
 ## Rollback Strategy
 
@@ -92,6 +92,6 @@ Expected clean pre-launch reset result:
 
 - #804 owns retained-data exceptions, release cleanup inventory, and removal of legacy compatibility code in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md).
 - #789 owns raw JSON fallback retirement.
-- #794/#803 own provider payload, fixture, dry-run, diagnostic retention, redaction, and legal signoff.
+- [Catalog Integration Data Governance](./catalog-integration-data-governance.md) owns provider payload, fixture, dry-run, diagnostic retention, redaction, and policy/legal signoff.
 - #791 owns job idempotency and deploy-skew behavior.
 - #793 owns wire schema compatibility policy and retained-data rules by surface.
