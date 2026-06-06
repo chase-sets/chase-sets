@@ -422,6 +422,21 @@ export function getCatalogAdminControlPlaneQueryContract(
 
 export type CatalogAdminReadinessState = "ready" | "blocked" | "degraded" | "unknown";
 export type CatalogAdminJobState = "queued" | "running" | "completed" | "failed" | "cancelled";
+export type CatalogAdminJobOperatorStatus =
+  | "queued"
+  | "running"
+  | "stale"
+  | "retried"
+  | "partial"
+  | "failed"
+  | "completed";
+export type CatalogAdminJobConsistency = Readonly<{
+  duplicateSubmissionPolicy: "reuse-active-job";
+  profileSnapshotPolicy: "snapshotted-at-enqueue";
+  retryResumePolicy: "skip-completed-outcomes";
+  partialFailurePolicy: "mixed-outcomes";
+  workUnitClaimPolicy: "leased-job-turns" | "leased-work-units";
+}>;
 
 export type CatalogAdminControlPlaneDiagnostic = Readonly<{
   code: string;
@@ -454,6 +469,8 @@ export type CatalogAdminProfileVersionPointer = Readonly<{
   profileVersion: string;
   lifecycle: "draft" | "test" | "active" | "deprecated" | "retired" | string;
   active: boolean;
+  connectorKind: string | null;
+  connectorSourceVersion: string | null;
   sourceMappingFingerprint: string | null;
 }>;
 
@@ -617,12 +634,25 @@ export type CatalogAdminImportJobProgressSummaryReadModel = Readonly<{
     jobId: string;
     action: "import" | "reapply" | "promote" | "reject";
     state: CatalogAdminJobState;
+    operatorStatus: CatalogAdminJobOperatorStatus;
     unitKey: CatalogIntegrationUnitKey;
     providerKey: string;
     profile: CatalogAdminProfileVersionPointer | null;
+    reapplyProfileMode: "original-source-profile" | "current-active-profile" | null;
+    consistency: CatalogAdminJobConsistency;
     completed: number;
     total: number;
     currentName: string | null;
+    failed: number;
+    skipped: number;
+    workUnits: Readonly<{
+      total: number;
+      queued: number;
+      running: number;
+      completed: number;
+      failed: number;
+      skipped: number;
+    }>;
     diagnostics: readonly CatalogAdminControlPlaneDiagnostic[];
   }>[];
 }>;

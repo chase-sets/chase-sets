@@ -12,6 +12,8 @@ Executable mapping semantics are documented in [Provider Integration Mapping Con
 
 The operator-facing workflow is documented in [Provider Integration Admin Module](./provider-integration-admin-module.md). Normal profile authoring, validation, comparison, activation, import, reapply, rollback, and retirement workflows must be typed and guided in admin. Operators should not need to edit raw JSON to complete supported work.
 
+Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md).
+
 ## Versioned Data Path
 
 Catalog persists provider integration profiles in `catalog_provider_integration_profile_versions`.
@@ -38,7 +40,9 @@ Retirement is stricter than deprecation. A profile version can be retired only a
 
 Bootstrap seeds static profile rows only as initial or reconciliation data. It preserves admin-authored rows with migration evidence or authoring audit metadata, then verifies that each seeded active provider still has an active persisted row. If an operator edits or retires the seeded active version without activating a replacement, bootstrap fails loudly instead of letting imports fall back to static runtime config.
 
-Durable import jobs snapshot provider key, profile key, profile version, lifecycle, and source mapping fingerprint at enqueue time. Retries and worker handoff reload that snapshotted profile version, so activating a newer version while a job is queued does not change what the queued job writes. Integration reapply jobs snapshot `current-active-profile` mode and the active profile version; direct replay-style reapply uses the Source Observation's original source profile version when available, with legacy rows falling back to the active promotion profile.
+Durable import jobs snapshot provider key, profile key, profile version, lifecycle, connector kind, connector source version, and source mapping fingerprint at enqueue time. Retries and worker handoff reload that snapshotted profile version, so activating a newer version while a job is queued does not change what the queued job writes. Integration reapply jobs snapshot `current-active-profile` mode and the active profile version; direct replay-style reapply uses the Source Observation's original source profile version when available, with legacy rows falling back to the active promotion profile.
+
+Profile edits, activation, rollback, deprecation, and retirement are blocked while same-provider import, reapply, or promote jobs are queued or running. This keeps activation and authoring decisions from racing a worker that is executing against an older snapshot or a review job that may refresh promoted Catalog Items.
 
 ## Ingestion-Unit Profile Sections
 

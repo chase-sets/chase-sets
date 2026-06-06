@@ -74,6 +74,32 @@ export class CatalogProviderProfileActivationValidationError extends Error {
   }
 }
 
+export type CatalogProviderProfileLifecycleBlockingJob = Readonly<{
+  jobId: string;
+  jobKind: "integration" | "bulk-review";
+  action: "import" | "reapply" | "promote" | "reject";
+  status: "queued" | "running" | string;
+  providerKey: string | null;
+  profileVersion: string | null;
+}>;
+
+export class CatalogProviderProfileLifecycleConsistencyError extends Error {
+  readonly code = "profile_lifecycle_job_conflict";
+  readonly blockingJobs: readonly CatalogProviderProfileLifecycleBlockingJob[];
+
+  constructor(
+    providerKey: string,
+    profileVersion: string,
+    blockingJobs: readonly CatalogProviderProfileLifecycleBlockingJob[],
+  ) {
+    super(
+      `Catalog provider profile version ${providerKey}@${profileVersion} cannot change while ${blockingJobs.length} matching integration or review job${blockingJobs.length === 1 ? " is" : "s are"} active.`,
+    );
+    this.name = "CatalogProviderProfileLifecycleConsistencyError";
+    this.blockingJobs = blockingJobs;
+  }
+}
+
 export type CatalogProviderProfileVersionReview = Readonly<{
   providerKey: string;
   profileKey: string;
@@ -472,10 +498,12 @@ export async function activateCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
   fixtureCases?: readonly CatalogProviderProfileFixtureCase[];
   repositoryRoot?: string;
   observedAt?: string;
 }): Promise<CatalogProviderProfileVersionReview> {
+  assertNoActiveProfileLifecycleBlockingJobs(input);
   await assertImportEligibilityForActivation(input);
   await assertFixtureHarnessForActivation(input);
   await assertMigrationEvidenceForActivation(input);
@@ -487,7 +515,9 @@ export async function deprecateCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
+  assertNoActiveProfileLifecycleBlockingJobs(input);
   const deprecated = await input.store.deprecateProfileVersion(input.providerKey, input.profileVersion);
   return toProfileVersionReview(deprecated);
 }
@@ -541,7 +571,9 @@ export async function updateCatalogProviderProfileVersionForReview(input: {
   profileVersion: string;
   patch: CatalogProviderProfileVersionUpdatePatch;
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
+  activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
+  assertNoActiveProfileLifecycleBlockingJobs(input);
   const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
   assertMutableLifecycle(existing.lifecycle);
   const nextLifecycle = input.patch.lifecycle ?? existing.lifecycle;
@@ -580,6 +612,7 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
   profileVersion: string;
   command: CatalogProviderProfileSectionUpdateCommand;
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
+  activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
   const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
   const patch = toCatalogProviderProfileSectionPatch(existing, input.command);
@@ -589,6 +622,7 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
     profileVersion: input.profileVersion,
     patch,
     audit: input.audit,
+    activeJobs: input.activeJobs,
   });
 }
 
@@ -596,7 +630,9 @@ export async function rollbackCatalogProviderProfileVersionForReview(input: {
   store: CatalogProviderIntegrationProfileVersionStore;
   providerKey: string;
   profileVersion: string;
+  activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
+  assertNoActiveProfileLifecycleBlockingJobs(input);
   const rolledBack = await input.store.rollbackProfileVersion(input.providerKey, input.profileVersion);
   return toProfileVersionReview(rolledBack);
 }
@@ -606,7 +642,9 @@ export async function retireCatalogProviderProfileVersionForReview(input: {
   providerKey: string;
   profileVersion: string;
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
+  activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
 }): Promise<CatalogProviderProfileVersionReview> {
+  assertNoActiveProfileLifecycleBlockingJobs(input);
   const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
   if (existing.active) {
     throw new Error(
@@ -1438,6 +1476,34 @@ async function requireProfileVersion(
 function assertMutableLifecycle(lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"]): void {
   if (lifecycle !== "draft" && lifecycle !== "test") {
     throw new Error(`Only draft or test Catalog provider profile versions can be edited; '${lifecycle}' is immutable.`);
+  }
+}
+
+function assertNoActiveProfileLifecycleBlockingJobs(input: {
+  providerKey: string;
+  profileVersion: string;
+  activeJobs?: readonly CatalogProviderProfileLifecycleBlockingJob[];
+}): void {
+  const providerKey = input.providerKey.trim().toLowerCase();
+  const profileVersion = input.profileVersion.trim();
+  const blockingJobs = (input.activeJobs ?? []).filter((job) => {
+    if (job.status !== "queued" && job.status !== "running") {
+      return false;
+    }
+    if (job.action === "reject") {
+      return false;
+    }
+    const jobProviderKey = job.providerKey?.trim().toLowerCase() ?? null;
+
+    if (jobProviderKey && jobProviderKey !== providerKey) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (blockingJobs.length > 0) {
+    throw new CatalogProviderProfileLifecycleConsistencyError(providerKey, profileVersion, blockingJobs);
   }
 }
 

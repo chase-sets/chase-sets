@@ -255,6 +255,8 @@ export type SourceObservationIntegrationProfileSnapshot = Readonly<{
   profileKey: string;
   profileVersion: string;
   lifecycle: CatalogProviderIntegrationProfileVersionRecord["lifecycle"];
+  connectorKind: string;
+  connectorSourceVersion: string | null;
   sourceMappingFingerprint: string;
 }>;
 
@@ -299,6 +301,23 @@ export type SourceObservationIntegrationJobResult = Readonly<{
   outcomes: readonly SourceObservationIntegrationJobOutcome[];
 }>;
 
+export type SourceObservationIntegrationJobOperatorStatus =
+  | "queued"
+  | "running"
+  | "stale"
+  | "retried"
+  | "partial"
+  | "failed"
+  | "completed";
+
+export type SourceObservationIntegrationJobConsistency = Readonly<{
+  duplicateSubmissionPolicy: "reuse-active-job";
+  profileSnapshotPolicy: "snapshotted-at-enqueue";
+  retryResumePolicy: "skip-completed-outcomes";
+  partialFailurePolicy: "mixed-outcomes";
+  workUnitClaimPolicy: "leased-job-turns" | "leased-work-units";
+}>;
+
 export type SourceObservationIntegrationJob = Readonly<{
   jobId: string;
   action: SourceObservationIntegrationJobAction;
@@ -306,6 +325,8 @@ export type SourceObservationIntegrationJob = Readonly<{
   profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
   reapplyProfileMode: SourceObservationReapplyProfileMode | null;
   status: SourceObservationBulkJobStatus;
+  operatorStatus: SourceObservationIntegrationJobOperatorStatus;
+  consistency: SourceObservationIntegrationJobConsistency;
   progress: BulkSourceObservationProgress;
   result: SourceObservationIntegrationJobResult | null;
   errorMessage: string | null;
@@ -3072,6 +3093,8 @@ function snapshotCatalogProfileVersion(
     profileKey: version.profileKey,
     profileVersion: version.profileVersion,
     lifecycle: version.lifecycle,
+    connectorKind: version.profile.connector.kind,
+    connectorSourceVersion: profileConnectorSourceVersion(version.profile.connector),
     sourceMappingFingerprint: catalogProviderSourceMappingFingerprint(requireSourceObservationMappingContract(version)),
   };
 }
@@ -3084,6 +3107,19 @@ function snapshotCatalogReapplyProfileVersion(
 
 function integrationProfileSnapshotKey(snapshot: SourceObservationIntegrationProfileSnapshot | null): string {
   return snapshot ? `${snapshot.providerKey}:${snapshot.profileKey}:${snapshot.profileVersion}` : "legacy";
+}
+
+function profileConnectorSourceVersion(
+  connector: CatalogProviderIntegrationProfileVersionRecord["profile"]["connector"],
+): string | null {
+  if ("sourceRepository" in connector) {
+    return connector.sourceRepository.commit;
+  }
+  if ("sourceContractDocument" in connector) {
+    return connector.sourceContractDocument;
+  }
+
+  return null;
 }
 
 function normalizeReapplyProfileMode(
@@ -3923,21 +3959,42 @@ function toSourceObservationIntegrationJob(
     SourceObservationIntegrationJobResult
   >,
 ): SourceObservationIntegrationJob {
+  const action = job.payload.action;
+  const result = job.result;
   return {
     jobId: job.jobId,
-    action: job.payload.action,
+    action,
     scope: normalizeIntegrationJobScope(job.payload.scope),
     profileSnapshot: job.payload.profileSnapshot ?? null,
     reapplyProfileMode: normalizeReapplyProfileMode(job.payload.reapplyProfileMode),
     status: job.status,
+    operatorStatus: integrationJobOperatorStatus(job.status, result),
+    consistency: {
+      duplicateSubmissionPolicy: "reuse-active-job",
+      profileSnapshotPolicy: "snapshotted-at-enqueue",
+      retryResumePolicy: "skip-completed-outcomes",
+      partialFailurePolicy: "mixed-outcomes",
+      workUnitClaimPolicy: action === "reapply" ? "leased-work-units" : "leased-job-turns",
+    },
     progress: job.progress,
-    result: job.result,
+    result,
     errorMessage: job.errorMessage,
     createdAt: job.createdAt,
     startedAt: job.startedAt,
     completedAt: job.completedAt,
     updatedAt: job.updatedAt,
   };
+}
+
+function integrationJobOperatorStatus(
+  status: SourceObservationBulkJobStatus,
+  result: SourceObservationIntegrationJobResult | null,
+): SourceObservationIntegrationJobOperatorStatus {
+  if (status === "completed" && result && result.failed > 0) {
+    return "partial";
+  }
+
+  return status;
 }
 
 function toSourceObservationIntegrationJobEventSnapshot(

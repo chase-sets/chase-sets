@@ -22,7 +22,7 @@ The module should be organized around operator jobs rather than storage shape:
 
 ## Query Contracts
 
-Admin workflows consume the Source Observations query/read-model contracts documented in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md). Those contracts define stable query keys, DTO names, source tables/projections, freshness expectations, and operator-facing error states for health, readiness, profile sections, fixture validation, dry runs, semantic compare, activation, impact preview, job progress, Source Observation review, promotion preview, rollback/retirement, and audit/evidence timelines.
+Admin workflows consume the Source Observations query/read-model contracts documented in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md). Those contracts define stable query keys, DTO names, source tables/projections, freshness expectations, and operator-facing error states for health, readiness, profile sections, fixture validation, dry runs, semantic compare, activation, impact preview, job progress, Source Observation review, promotion preview, rollback/retirement, and audit/evidence timelines. Runtime consistency and lifecycle conflict policy is documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md).
 
 UI modules should use those read models directly. They must not parse profile JSON snapshots, infer Catalog readiness from provider adapter transport state, or add provider/product-category branches for new ingestion units.
 
@@ -66,6 +66,10 @@ The admin module should make that boundary visible:
 - Write actions are disabled or hidden for view-only operators and should explain the missing `catalog.manage` permission.
 - Server-side authorization remains the source of truth; UI permission behavior is an operator clarity layer, not an enforcement replacement.
 - Audit metadata should record actor, account, and timestamp for lifecycle and authoring changes.
+
+## Lifecycle Consistency
+
+Activation, rollback, deprecation, retirement, and draft/test saves can return `409 profile_lifecycle_job_conflict` when active provider jobs make the change unsafe. The response includes `blockingJobs` with job ID, job kind, action, status, provider key, and profile version when known. UI flows should keep the operator in context, show the blocking jobs, and offer links to job progress instead of retrying automatically.
 
 ## Diagnostics And Redaction
 

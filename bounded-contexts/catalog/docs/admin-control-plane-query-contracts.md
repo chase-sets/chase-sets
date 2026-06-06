@@ -63,6 +63,8 @@ Existing Platform durable job sources interpreted by Catalog read models:
 - `catalog_source_observation_bulk_review_jobs`
 - `catalog_source_observation_bulk_review_work_units`
 
+Job consistency and lifecycle blocking policy is defined in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md).
+
 Planned Catalog projections defined for follow-on implementation:
 
 - `catalog_admin_dry_run_evidence_projection`
@@ -86,6 +88,17 @@ Profile authoring read models must carry section keys and domain concepts so Adm
 - `semantic-version-comparison` emits each change with `sectionKey` and `domainConcept`, plus section groups for compare panels.
 - `activation-readiness-summary` emits checks with diagnostic code, section key, domain concept, remediation, and blocking behavior, plus domain groups for activation dialogs.
 - `dry-run-evidence-summary` links diagnostics back to section keys and fixture flows so fixture failures can focus the relevant authoring controls.
+
+## Job Consistency Fields
+
+`import-job-progress-summary` must expose durable state and operator status separately:
+
+- `state`: durable job state from the platform job row.
+- `operatorStatus`: queued, running, stale, retried, partial, failed, or completed.
+- `profile`: provider/profile snapshot including connector kind, connector source version, and source mapping fingerprint.
+- `reapplyProfileMode`: original-source-profile, current-active-profile, or null.
+- `consistency`: policy names for duplicate submission reuse, profile snapshot timing, retry/resume behavior, partial failures, and claim mode.
+- `failed`, `skipped`, and `workUnits`: mixed-outcome and work-unit checkpoint summary fields used to explain partial jobs.
 
 ## Error States
 

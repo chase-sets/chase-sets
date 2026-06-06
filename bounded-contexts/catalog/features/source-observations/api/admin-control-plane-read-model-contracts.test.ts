@@ -6,6 +6,7 @@ import {
   getCatalogAdminControlPlaneQueryContract,
   type CatalogAdminActivationReadinessSummaryReadModel,
   type CatalogAdminDryRunEvidenceSummaryReadModel,
+  type CatalogAdminImportJobProgressSummaryReadModel,
   type CatalogAdminProfileSectionStatusSummaryReadModel,
   type CatalogAdminSemanticVersionComparisonReadModel,
   type CatalogAdminControlPlaneQueryKey,
@@ -132,6 +133,8 @@ describe("Admin Control Plane read-model contracts", () => {
       profileVersion: "2026.06.04",
       lifecycle: "draft",
       active: false,
+      connectorKind: "tcgdex-json",
+      connectorSourceVersion: null,
       sourceMappingFingerprint: "fingerprint",
     } as const;
     const sectionSummary = {
@@ -229,5 +232,57 @@ describe("Admin Control Plane read-model contracts", () => {
     expect(semanticCompare.sections[0].changePaths).toEqual(["executableMappingContract.duplicatePrevention"]);
     expect(readiness.groups[0].checkKeys).toEqual(["migration-evidence"]);
     expect(dryRun.diagnosticLinks[0].sectionKey).toBe("normalized-observation");
+  });
+
+  it("pins job consistency DTO fields for #791", () => {
+    const summary = {
+      generatedAt: "2026-06-06T00:00:00.000Z",
+      jobs: [
+        {
+          jobId: "job_reapply",
+          action: "reapply",
+          state: "completed",
+          operatorStatus: "partial",
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          providerKey: "tcgdex",
+          profile: {
+            providerKey: "tcgdex",
+            profileKey: "pokemon-tcg",
+            profileVersion: "2026.06.04",
+            lifecycle: "active",
+            active: true,
+            connectorKind: "tcgdex-json",
+            connectorSourceVersion: null,
+            sourceMappingFingerprint: "fingerprint",
+          },
+          reapplyProfileMode: "current-active-profile",
+          consistency: {
+            duplicateSubmissionPolicy: "reuse-active-job",
+            profileSnapshotPolicy: "snapshotted-at-enqueue",
+            retryResumePolicy: "skip-completed-outcomes",
+            partialFailurePolicy: "mixed-outcomes",
+            workUnitClaimPolicy: "leased-work-units",
+          },
+          completed: 9,
+          total: 10,
+          currentName: null,
+          failed: 1,
+          skipped: 0,
+          workUnits: {
+            total: 10,
+            queued: 0,
+            running: 0,
+            completed: 9,
+            failed: 1,
+            skipped: 0,
+          },
+          diagnostics: [],
+        },
+      ],
+    } satisfies CatalogAdminImportJobProgressSummaryReadModel;
+
+    expect(summary.jobs[0].operatorStatus).toBe("partial");
+    expect(summary.jobs[0].consistency.profileSnapshotPolicy).toBe("snapshotted-at-enqueue");
+    expect(summary.jobs[0].profile?.connectorKind).toBe("tcgdex-json");
   });
 });

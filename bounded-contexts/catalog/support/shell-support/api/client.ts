@@ -77,10 +77,20 @@ export type CatalogIntegrationJob<T = unknown> = Readonly<{
     profileKey: string;
     profileVersion: string;
     lifecycle: string;
+    connectorKind: string;
+    connectorSourceVersion: string | null;
     sourceMappingFingerprint: string;
   }> | null;
   reapplyProfileMode: "original-source-profile" | "current-active-profile" | null;
   status: "queued" | "running" | "completed" | "failed";
+  operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "completed";
+  consistency: Readonly<{
+    duplicateSubmissionPolicy: "reuse-active-job";
+    profileSnapshotPolicy: "snapshotted-at-enqueue";
+    retryResumePolicy: "skip-completed-outcomes";
+    partialFailurePolicy: "mixed-outcomes";
+    workUnitClaimPolicy: "leased-job-turns" | "leased-work-units";
+  }>;
   progress: CatalogBulkActionProgress;
   result: T | null;
   errorMessage: string | null;

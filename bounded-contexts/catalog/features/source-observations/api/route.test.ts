@@ -702,6 +702,71 @@ describe("source observation routes", () => {
     });
   });
 
+  it("returns a conflict when provider profile activation races active provider jobs", async () => {
+    const listActiveIntegrationJobs = vi.fn(async () => [
+      integrationJobFixture({
+        jobId: "job_import_tcgdex",
+        action: "import",
+        status: "running",
+        scope: { provider: "tcgdex", language: "en" },
+        profileSnapshot: {
+          providerKey: "tcgdex",
+          profileKey: "pokemon-tcg",
+          profileVersion: "2026.06.03",
+          lifecycle: "active",
+          connectorKind: "tcgdex-json",
+          connectorSourceVersion: null,
+          sourceMappingFingerprint: "sha256:before",
+        },
+      }),
+    ]);
+    const listActiveBulkReviewJobs = vi.fn(async () => [
+      bulkJobFixture({
+        jobId: "job_promote_selected",
+        action: "promote",
+        status: "queued",
+        scope: { provider: "tcgdex" },
+      }),
+    ]);
+    const services = {
+      listActiveIntegrationJobs,
+      listActiveBulkReviewJobs,
+    } as unknown as SourceObservationRouteServices;
+    const store = mutableProfileStore();
+    const app = buildApp(services, store);
+    await app.request("/source-observations/provider-profiles/tcgdex/2026.06.03/clone", {
+      method: "POST",
+      body: JSON.stringify({ targetProfileVersion: "2026.06.04" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04/activate", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "profile_lifecycle_job_conflict",
+        blockingJobs: [
+          expect.objectContaining({
+            jobId: "job_import_tcgdex",
+            jobKind: "integration",
+            action: "import",
+            profileVersion: "2026.06.03",
+          }),
+          expect.objectContaining({
+            jobId: "job_promote_selected",
+            jobKind: "bulk-review",
+            action: "promote",
+          }),
+        ],
+      },
+    });
+    expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
+    expect(listActiveBulkReviewJobs).toHaveBeenCalledWith({ context });
+  });
+
   it("enqueues provider integration jobs with normalized scope aliases", async () => {
     const job = integrationJob({ status: "queued" });
     const enqueueIntegrationJob = vi.fn(async () => job);
