@@ -1,6 +1,10 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogIntegrationUnitKey } from "./integration-unit";
 import type {
+  CatalogIntegrationSchemaCompatibilitySurfaceKey,
+  CatalogIntegrationWireSchemaVersion,
+} from "./catalog-integration-schema-compatibility";
+import type {
   CatalogProviderProfileSectionDiagnostic,
   CatalogProviderProfileSectionKey,
 } from "./provider-profile-sections";
@@ -431,6 +435,8 @@ export type CatalogAdminJobOperatorStatus =
   | "failed"
   | "completed";
 export type CatalogAdminJobConsistency = Readonly<{
+  schemaVersion: Extract<CatalogIntegrationWireSchemaVersion, "catalog-integration-durable-job-v1">;
+  compatibilityPolicy: Extract<CatalogIntegrationSchemaCompatibilitySurfaceKey, "integration-durable-job">;
   duplicateSubmissionPolicy: "reuse-active-job";
   profileSnapshotPolicy: "snapshotted-at-enqueue";
   retryResumePolicy: "skip-completed-outcomes";
@@ -464,6 +470,8 @@ export type CatalogAdminIngestionUnitIdentity = Readonly<{
 }>;
 
 export type CatalogAdminProfileVersionPointer = Readonly<{
+  schemaVersion: Extract<CatalogIntegrationWireSchemaVersion, "catalog-provider-profile-version-v1">;
+  compatibilityPolicy: Extract<CatalogIntegrationSchemaCompatibilitySurfaceKey, "provider-profile-version">;
   providerKey: string;
   profileKey: string;
   profileVersion: string;

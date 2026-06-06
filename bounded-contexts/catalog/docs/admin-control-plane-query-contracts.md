@@ -8,7 +8,7 @@ The authoritative TypeScript contract surface lives in:
 bounded-contexts/catalog/features/source-observations/api/admin-control-plane-read-model-contracts.ts
 ```
 
-Performance, pagination, indexing, and stale-state expectations for this query inventory are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). The authoritative typed SLO surface lives in:
+Performance, pagination, indexing, and stale-state expectations for this query inventory are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). Schema versioning and compatibility policy for Admin read models, job DTOs, and profile pointers is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). The authoritative typed SLO surface lives in:
 
 ```text
 bounded-contexts/catalog/features/source-observations/api/admin-control-plane-read-model-slos.ts
@@ -99,6 +99,8 @@ Profile authoring read models must carry section keys and domain concepts so Adm
 - `reapplyProfileMode`: original-source-profile, current-active-profile, or null.
 - `consistency`: policy names for duplicate submission reuse, profile snapshot timing, retry/resume behavior, partial failures, and claim mode.
 - `failed`, `skipped`, and `workUnits`: mixed-outcome and work-unit checkpoint summary fields used to explain partial jobs.
+
+Profile pointers in Admin read models declare `schemaVersion: catalog-provider-profile-version-v1` and `compatibilityPolicy: provider-profile-version`. Job consistency DTOs declare `schemaVersion: catalog-integration-durable-job-v1` and `compatibilityPolicy: integration-durable-job`.
 
 ## Error States
 

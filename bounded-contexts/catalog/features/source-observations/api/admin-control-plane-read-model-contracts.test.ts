@@ -128,6 +128,8 @@ describe("Admin Control Plane read-model contracts", () => {
 
   it("pins section-scoped diagnostics, readiness, compare, and dry-run DTO fields for #768", () => {
     const profile = {
+      schemaVersion: "catalog-provider-profile-version-v1",
+      compatibilityPolicy: "provider-profile-version",
       providerKey: "tcgdex",
       profileKey: "pokemon-tcg",
       profileVersion: "2026.06.04",
@@ -246,6 +248,8 @@ describe("Admin Control Plane read-model contracts", () => {
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",
           providerKey: "tcgdex",
           profile: {
+            schemaVersion: "catalog-provider-profile-version-v1",
+            compatibilityPolicy: "provider-profile-version",
             providerKey: "tcgdex",
             profileKey: "pokemon-tcg",
             profileVersion: "2026.06.04",
@@ -257,6 +261,8 @@ describe("Admin Control Plane read-model contracts", () => {
           },
           reapplyProfileMode: "current-active-profile",
           consistency: {
+            schemaVersion: "catalog-integration-durable-job-v1",
+            compatibilityPolicy: "integration-durable-job",
             duplicateSubmissionPolicy: "reuse-active-job",
             profileSnapshotPolicy: "snapshotted-at-enqueue",
             retryResumePolicy: "skip-completed-outcomes",
@@ -282,7 +288,9 @@ describe("Admin Control Plane read-model contracts", () => {
     } satisfies CatalogAdminImportJobProgressSummaryReadModel;
 
     expect(summary.jobs[0].operatorStatus).toBe("partial");
+    expect(summary.jobs[0].consistency.schemaVersion).toBe("catalog-integration-durable-job-v1");
     expect(summary.jobs[0].consistency.profileSnapshotPolicy).toBe("snapshotted-at-enqueue");
+    expect(summary.jobs[0].profile?.compatibilityPolicy).toBe("provider-profile-version");
     expect(summary.jobs[0].profile?.connectorKind).toBe("tcgdex-json");
   });
 });

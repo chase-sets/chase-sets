@@ -71,7 +71,7 @@ Primary issues:
 - #784 fixture repository and sampling lifecycle
 - #791 idempotency, concurrency, and job consistency
 - #792 migration/reset/backfill/rollback implementation
-- #793 schema versioning and compatibility
+- #793 schema versioning and compatibility, documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md)
 - #794 provider payload and diagnostics data governance
 - #795 read-model performance and freshness SLOs
 - #796 diagnostic taxonomy
@@ -87,6 +87,7 @@ Exit criteria:
 - Diagnostics use the canonical [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md) for codes, severity, remediation, blocking behavior, visibility, metrics, and evidence/redaction policy.
 - Jobs, Source Observations, audit records, diagnostics, and read models carry ingestion-unit identity.
 - Job idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are defined in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md).
+- Schema compatibility distinguishes launched or intentionally retained data from resettable pre-launch profile, payload, fixture, job, and projection data.
 - Conflict-aware promotion/reapply plans are deterministic and explainable.
 
 ## Phase 3: Admin Control Plane

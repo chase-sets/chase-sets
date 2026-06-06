@@ -1,6 +1,6 @@
 # Source Observation Integration
 
-Catalog owns provider-fed product facts through a review-first Source Observation workflow. The broader provider integration boundary is documented in [Catalog Integration Control Plane](./catalog-integration-control-plane.md), source-to-source field authority is documented in [Source Conflict Resolution](./source-conflict-resolution.md), and job idempotency/concurrency guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md).
+Catalog owns provider-fed product facts through a review-first Source Observation workflow. The broader provider integration boundary is documented in [Catalog Integration Control Plane](./catalog-integration-control-plane.md), source-to-source field authority is documented in [Source Conflict Resolution](./source-conflict-resolution.md), job idempotency/concurrency guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md), and Source Observation record compatibility is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md).
 
 ## Policy
 
