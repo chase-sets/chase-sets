@@ -84,6 +84,7 @@ Exit criteria:
 - Runtime services are split behind focused facets, with the aggregate runtime kept only as deployable composition convenience.
 - The Source Observation API is composed from focused subrouters behind the existing `/api/catalog/source-observations/*` compatibility mount.
 - API contracts and read models are typed by provider/profile/ingestion unit, with the Admin query inventory documented in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md) and performance/freshness expectations documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md).
+- Diagnostics use the canonical [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md) for codes, severity, remediation, blocking behavior, visibility, metrics, and evidence/redaction policy.
 - Jobs, Source Observations, audit records, diagnostics, and read models carry ingestion-unit identity.
 - Conflict-aware promotion/reapply plans are deterministic and explainable.
 
