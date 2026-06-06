@@ -12,7 +12,7 @@ Executable mapping semantics are documented in [Provider Integration Mapping Con
 
 The operator-facing workflow is documented in [Provider Integration Admin Module](./provider-integration-admin-module.md). Normal profile authoring, validation, comparison, activation, import, reapply, rollback, and retirement workflows must be typed and guided in admin. Operators should not need to edit raw JSON to complete supported work.
 
-Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md). Schema versioning, launched-data compatibility, and resettable pre-launch data policy are documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md).
+Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md). Schema versioning, launched-data compatibility, and resettable pre-launch data policy are documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). The executable pre-launch wipe/rebuild and rollback plan is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
 
 ## Versioned Data Path
 
@@ -39,6 +39,8 @@ Rollback means activating a prior validated profile version and deprecating the 
 Retirement is stricter than deprecation. A profile version can be retired only after no Source Observations reference it as either their source profile version or promotion profile version. Retired versions remain readable for historical review but cannot be activated for new imports.
 
 Bootstrap seeds static profile rows only as initial or reconciliation data. It preserves admin-authored rows with migration evidence or authoring audit metadata, then verifies that each seeded active provider still has an active persisted row. If an operator edits or retires the seeded active version without activating a replacement, bootstrap fails loudly instead of letting imports fall back to static runtime config.
+
+Pre-launch reset deletes non-admin-authored provider profile rows and then rebuilds the seeded profile versions through this same persisted data path. Admin-authored rows with migration evidence or authoring audit metadata are preserved by default and must have an explicit retained-data reason before launch if they outlive the reset window.
 
 Durable import jobs snapshot provider key, profile key, profile version, lifecycle, connector kind, connector source version, and source mapping fingerprint at enqueue time. Retries and worker handoff reload that snapshotted profile version, so activating a newer version while a job is queued does not change what the queued job writes. Integration reapply jobs snapshot `current-active-profile` mode and the active profile version; direct replay-style reapply uses the Source Observation's original source profile version when available, with legacy rows falling back to the active promotion profile.
 

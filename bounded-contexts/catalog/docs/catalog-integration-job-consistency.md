@@ -1,6 +1,6 @@
 # Catalog Integration Job Consistency
 
-Catalog owns consistency for provider profile lifecycle work, integration jobs, Source Observation review jobs, promotion, reapply, rollback, and retirement. Platform durable-job storage provides leases, events, and work-unit checkpoints; Catalog defines what duplicate submissions, profile changes, retries, partial failures, and deploy skew mean to operators. The schema versioning and compatibility policy for job payloads, work units, profile snapshots, and retained data is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md).
+Catalog owns consistency for provider profile lifecycle work, integration jobs, Source Observation review jobs, promotion, reapply, rollback, and retirement. Platform durable-job storage provides leases, events, and work-unit checkpoints; Catalog defines what duplicate submissions, profile changes, retries, partial failures, and deploy skew mean to operators. The schema versioning and compatibility policy for job payloads, work units, profile snapshots, and retained data is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). The reset/backfill/rollback release plan is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
 
 ## Submission And Lifecycle Rules
 
@@ -44,3 +44,5 @@ The job DTO also exposes consistency policy names: duplicate submissions reuse a
 ## Rollback And Retirement
 
 Rollback activates a prior validated profile version and deprecates the current active version; it does not rewrite observations or running jobs. Retirement requires the profile to be inactive and unreferenced by Source Observations, and it is blocked while matching active jobs are present.
+
+Pre-launch reset is blocked while integration or bulk review jobs are queued or running. Forced active-job cleanup is only for explicit pre-launch wipe decisions; normal rollback cancels or drains active work, activates the prior profile version, and enqueues fresh import/reapply work when the rollback must affect new processing.

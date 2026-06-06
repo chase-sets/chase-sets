@@ -88,6 +88,7 @@ Exit criteria:
 - Jobs, Source Observations, audit records, diagnostics, and read models carry ingestion-unit identity.
 - Job idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are defined in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md).
 - Schema compatibility distinguishes launched or intentionally retained data from resettable pre-launch profile, payload, fixture, job, and projection data.
+- Migration/reset/backfill/rollback execution is defined in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
 - Conflict-aware promotion/reapply plans are deterministic and explainable.
 
 ## Phase 3: Admin Control Plane
@@ -161,7 +162,7 @@ Exit criteria:
 - #796 gates #768 diagnostics/readiness UX.
 - #794 and #803 gate live provider sampling, fixture retention, dry-run retention, diagnostics retention, and MTGJSON/Scryfall sampling.
 - #807 gates final #806 validation and release completion.
-- #804, #792, and #793 gate launch migration, reset, and compatibility decisions.
+- #804, #792, and #793 gate launch migration, reset, and compatibility decisions. #792 provides the executable pre-launch wipe/rebuild policy and verification queries.
 - #775 and #789 gate no-legacy-branch and no-raw-JSON release readiness.
 
 ## Parallel Work After Phase 0
