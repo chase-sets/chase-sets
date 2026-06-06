@@ -88,7 +88,7 @@ Exit criteria:
 - Jobs, Source Observations, audit records, diagnostics, and read models carry ingestion-unit identity.
 - Job idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are defined in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md).
 - Schema compatibility distinguishes launched or intentionally retained data from resettable pre-launch profile, payload, fixture, job, and projection data.
-- Migration/reset/backfill/rollback execution is defined in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
+- Migration/reset/backfill/rollback execution is defined in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md), and retained legacy cleanup exceptions are defined in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md).
 - Conflict-aware promotion/reapply plans are deterministic and explainable.
 
 ## Phase 3: Admin Control Plane
@@ -149,6 +149,7 @@ Primary issues:
 Exit criteria:
 
 - Release verification covers empty integration-data bootstrap, reset/migration, rollback, compatibility/deploy skew, idempotency, API compatibility, adapter/engine behavior, conflict precedence, admin workflows, credentials, audit/evidence, fixtures, governance/redaction, read-model freshness, diagnostics, backpressure, impact analysis, observability, RBAC, raw JSON retirement, UX/accessibility, operator journeys, E2E smoke tests, and worker/job verification.
+- Legacy cleanup verification covers zero old Source Observations, zero legacy profile references, empty integration and bulk-review jobs/work units, rebuilt seeded profiles, rebuilt profile sections, `rawJsonBacked=false` section editors, and an owner/reason/removal-date launch gate for every retained compatibility path.
 - No unresolved P0-P2 release hardening findings remain.
 - CI passes before merge queue entry.
 - Staging and production deployments are verified green after merge and rollout.
@@ -162,7 +163,7 @@ Exit criteria:
 - #796 gates #768 diagnostics/readiness UX.
 - #794 and #803 gate live provider sampling, fixture retention, dry-run retention, diagnostics retention, and MTGJSON/Scryfall sampling.
 - #807 gates final #806 validation and release completion.
-- #804, #792, and #793 gate launch migration, reset, and compatibility decisions. #792 provides the executable pre-launch wipe/rebuild policy and verification queries.
+- #804, #792, and #793 gate launch migration, reset, and compatibility decisions. #792 provides the executable pre-launch wipe/rebuild policy and verification queries; #804 provides the retained legacy path inventory and clean-start checklist.
 - #775 and #789 gate no-legacy-branch and no-raw-JSON release readiness.
 
 ## Parallel Work After Phase 0

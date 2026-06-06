@@ -14,6 +14,12 @@ The authoritative typed policy lives in:
 bounded-contexts/catalog/features/source-observations/api/catalog-integration-schema-compatibility.ts
 ```
 
+Legacy cleanup exceptions and launch cleanup checks are owned by [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md) and live in:
+
+```text
+bounded-contexts/catalog/features/source-observations/api/catalog-integration-legacy-cleanup.ts
+```
+
 The executable migration/reset policy for applying these retention decisions before launch is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md) and lives in:
 
 ```text
@@ -22,7 +28,7 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-da
 
 ## Launch Boundary
 
-Pre-launch integration-control-plane data should be reset or rebuilt by default. Do not add compatibility adapters for old profile, payload, fixture, or job shapes unless #804 records a retained-data exception with owner, reason, and removal criteria.
+Pre-launch integration-control-plane data should be reset or rebuilt by default. Do not add compatibility adapters for old profile, payload, fixture, or job shapes unless #804 records a retained-data exception with owner, reason, removal date, removal criteria, and launch gate.
 
 Compatibility is required for:
 
@@ -86,6 +92,8 @@ Use compatibility adapters or migrations only when at least one of these is true
 - a future provider addition needs an additive semantic primitive or adapter capability
 
 The pre-launch reset mode deletes integration jobs, work units, Source Observations, learned provider option rate limits, and non-admin-authored provider profile versions, then rebuilds seeded profile versions and section projections. Active jobs block reset unless an operator records an explicit forced pre-launch wipe decision.
+
+The #804 launch cleanup inventory additionally requires every retained transitional static profile, legacy Source Observation marker read, or broad profile patch route to be named in the retained-path table. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`; broad raw profile patching remains quarantined under #789 until it is removed or permission-split.
 
 ## Test Expectations
 
