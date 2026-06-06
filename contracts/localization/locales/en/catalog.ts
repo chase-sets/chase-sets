@@ -325,11 +325,11 @@ export const catalogEnglishTranslations = {
     "Expected a JSON object request body.",
   "catalog.features.sourceObservations.api.route.profile.review.invalid.json.valid.object":
     "Expected a valid JSON object request body.",
+  "catalog.features.sourceObservations.api.route.profile.review.raw.patch.quarantined":
+    "Broad Provider Integration Profile patching is quarantined under #789; use section-scoped typed commands for normal authoring.",
   "catalog.features.sourceObservations.ui.integrations.profile.review.activate": "Activate",
   "catalog.features.sourceObservations.ui.integrations.profile.review.activate.failed": "Profile activation failed.",
   "catalog.features.sourceObservations.ui.integrations.profile.review.activated": "Provider profile activated.",
-  "catalog.features.sourceObservations.ui.integrations.profile.review.active.profile.json": "Active profile JSON",
-  "catalog.features.sourceObservations.ui.integrations.profile.review.candidate.profile.json": "Candidate profile JSON",
   "catalog.features.sourceObservations.ui.integrations.profile.review.clone": "Clone",
   "catalog.features.sourceObservations.ui.integrations.profile.review.clone.title": "Clone profile version",
   "catalog.features.sourceObservations.ui.integrations.profile.review.compare": "Compare",
@@ -354,8 +354,6 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrations.profile.review.fixture": "Fixture",
   "catalog.features.sourceObservations.ui.integrations.profile.review.fixture.flows": "{count} flow(s)",
   "catalog.features.sourceObservations.ui.integrations.profile.review.fixture.payload": "Fixture Payload JSON",
-  "catalog.features.sourceObservations.ui.integrations.profile.review.edit.json": "Edit JSON",
-  "catalog.features.sourceObservations.ui.integrations.profile.review.edit.json.title": "Edit profile JSON",
   "catalog.features.sourceObservations.ui.integrations.profile.review.evidence": "Evidence",
   "catalog.features.sourceObservations.ui.integrations.profile.review.invalid.json":
     "Fixture payload must be valid JSON.",
@@ -363,7 +361,6 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrations.profile.review.mapping": "Mapping",
   "catalog.features.sourceObservations.ui.integrations.profile.review.migration.evidence.title": "Migration evidence",
   "catalog.features.sourceObservations.ui.integrations.profile.review.none.found": "No provider profiles found",
-  "catalog.features.sourceObservations.ui.integrations.profile.review.profile.json": "Profile JSON",
   "catalog.features.sourceObservations.ui.integrations.profile.review.refresh": "Refresh profiles",
   "catalog.features.sourceObservations.ui.integrations.profile.review.retire": "Retire",
   "catalog.features.sourceObservations.ui.integrations.profile.review.retire.body":

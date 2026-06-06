@@ -47,7 +47,20 @@ These paths are compatibility exceptions, not normal authoring workflows. Adding
 
 Normal operators should not edit raw profile JSON. Supported authoring goes through section-scoped typed commands and the provider profile section registry.
 
-The broad profile patch route remains quarantined for controlled internal or migration compatibility while #789 retires raw JSON fallback paths. It must not become the normal Admin Control Plane workflow for authoring, validation, activation, dry-run, import, promotion/reapply, rollback, or retirement.
+The broad profile patch route remains quarantined for controlled internal or migration compatibility while #789 retires raw JSON fallback paths. Normal calls receive `raw_profile_patch_quarantined` and must move to the relevant typed section command. The only accepted compatibility request shape is:
+
+```json
+{
+  "patch": {},
+  "rawJsonQuarantine": {
+    "ownerIssue": 789,
+    "reason": "Controlled internal compatibility or migration operation.",
+    "retirementCondition": "section-scoped-typed-commands-complete"
+  }
+}
+```
+
+This route must not become the normal Admin Control Plane workflow for profile authoring, validation, dry-run, activation, import, promotion/reapply, rollback, migration evidence, or retirement. Migration evidence is a normal operator workflow and saves through the `migration-evidence` section command.
 
 ## Fresh Bootstrap Expectations
 
@@ -72,7 +85,7 @@ Use the release checklist from `catalogIntegrationLegacyCleanupReleaseChecklist`
 4. Verify seeded active TCGdex, TCGplayer, and Scrydex profile versions are present after bootstrap.
 5. Verify profile section projections and diagnostics rebuilt from retained or seeded profile versions.
 6. Verify every editable Provider Integration Profile section reports `rawJsonBacked=false`.
-7. Verify the broad profile patch route is quarantined under #789 or removed before launch.
+7. Verify the broad profile patch route rejects normal calls with `raw_profile_patch_quarantined` and accepts only explicit #789 compatibility metadata, or is removed before launch.
 8. Verify every retained transitional compatibility path has owner, reason, removal date, and launch gate.
 
 ## Verification Queries

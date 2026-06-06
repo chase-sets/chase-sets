@@ -468,6 +468,85 @@ describe("source observation routes", () => {
     });
   });
 
+  it("blocks broad provider profile patches from normal admin workflows", async () => {
+    const services = {} as SourceObservationRouteServices;
+    const store = mutableProfileStore([
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04", {
+      method: "PATCH",
+      body: JSON.stringify({
+        patch: {
+          migrationEvidence: {
+            evidenceText: "normal admin migration evidence must use a typed section command",
+            recordedAt: "2026-06-06T00:00:00.000Z",
+          },
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "raw_profile_patch_quarantined",
+        ownerIssue: 789,
+        requiredQuarantine: {
+          rawJsonQuarantine: {
+            ownerIssue: 789,
+            retirementCondition: "section-scoped-typed-commands-complete",
+          },
+        },
+      },
+    });
+  });
+
+  it("allows broad provider profile patches only with explicit raw JSON quarantine metadata", async () => {
+    const services = {} as SourceObservationRouteServices;
+    const store = mutableProfileStore([
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "draft",
+        active: false,
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.04", {
+      method: "PATCH",
+      body: JSON.stringify({
+        patch: {
+          migrationEvidence: {
+            evidenceText: "controlled migration compatibility evidence",
+            recordedAt: "2026-06-06T00:00:00.000Z",
+          },
+        },
+        rawJsonQuarantine: {
+          ownerIssue: 789,
+          reason: "Backfill migration evidence from the pre-section-command compatibility window.",
+          retirementCondition: "section-scoped-typed-commands-complete",
+        },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      providerKey: "tcgdex",
+      profileVersion: "2026.06.04",
+      migrationEvidence: {
+        evidenceText: "controlled migration compatibility evidence",
+        recordedAt: "2026-06-06T00:00:00.000Z",
+      },
+    });
+  });
+
   it("returns a typed provider profile authoring model through the admin API", async () => {
     const getSelectedOptionAuthoringSchema = vi.fn(async () => ({
       dimensions: [

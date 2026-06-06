@@ -34,7 +34,6 @@ const {
   mockPreviewReapplySourceObservations,
   mockRetireSourceObservationProviderProfile,
   mockRollbackSourceObservationProviderProfile,
-  mockUpdateSourceObservationProviderProfile,
   mockUpdateSourceObservationProviderProfileSection,
   mockRevalidate,
   mockUseSourceObservationProviderProfileAuthoringModel,
@@ -57,7 +56,6 @@ const {
   mockPreviewReapplySourceObservations: vi.fn(),
   mockRetireSourceObservationProviderProfile: vi.fn(),
   mockRollbackSourceObservationProviderProfile: vi.fn(),
-  mockUpdateSourceObservationProviderProfile: vi.fn(),
   mockUpdateSourceObservationProviderProfileSection: vi.fn(),
   mockRevalidate: vi.fn(),
   mockUseSourceObservationProviderProfileAuthoringModel: vi.fn(),
@@ -119,7 +117,6 @@ vi.mock("./use-source-observations", () => ({
   previewReapplySourceObservations: mockPreviewReapplySourceObservations,
   retireSourceObservationProviderProfile: mockRetireSourceObservationProviderProfile,
   rollbackSourceObservationProviderProfile: mockRollbackSourceObservationProviderProfile,
-  updateSourceObservationProviderProfile: mockUpdateSourceObservationProviderProfile,
   updateSourceObservationProviderProfileSection: mockUpdateSourceObservationProviderProfileSection,
   useActiveSourceObservationIntegrationJobs: mockUseActiveSourceObservationIntegrationJobs,
   useCatalogIntegrationControlPlaneReadiness: mockUseCatalogIntegrationControlPlaneReadiness,
@@ -214,7 +211,6 @@ describe("IntegrationManagementPage", () => {
       refresh: vi.fn(),
     });
     mockCloneSourceObservationProviderProfile.mockResolvedValue(profileReview({ profileVersion: "2026.06.03.1" }));
-    mockUpdateSourceObservationProviderProfile.mockResolvedValue(profileReview());
     mockUpdateSourceObservationProviderProfileSection.mockResolvedValue(profileReview());
     mockRollbackSourceObservationProviderProfile.mockResolvedValue(profileReview());
     mockRetireSourceObservationProviderProfile.mockResolvedValue(profileReview({ lifecycle: "retired" }));
@@ -1341,14 +1337,20 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: /^Save evidence$/i }));
 
     await waitFor(() =>
-      expect(mockUpdateSourceObservationProviderProfile).toHaveBeenCalledWith("scrydex", "2026.06.03", {
-        migrationEvidence: expect.objectContaining({
-          evidenceText: expect.stringContaining("Fixture run: fixture-run-20260604"),
-          fixtureRunId: "fixture-run-20260604",
-          mappingFingerprintBefore: "active_fingerprint",
-          mappingFingerprintAfter: "candidate_fingerprint",
-        }),
-      }),
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "scrydex",
+        "2026.06.03",
+        "migration-evidence",
+        {
+          section: "migration-evidence",
+          migrationEvidence: expect.objectContaining({
+            evidenceText: expect.stringContaining("Fixture run: fixture-run-20260604"),
+            fixtureRunId: "fixture-run-20260604",
+            mappingFingerprintBefore: "active_fingerprint",
+            mappingFingerprintAfter: "candidate_fingerprint",
+          }),
+        },
+      ),
     );
   });
 

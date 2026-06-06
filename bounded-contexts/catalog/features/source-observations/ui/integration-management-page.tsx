@@ -78,7 +78,6 @@ import {
   previewReapplySourceObservations,
   retireSourceObservationProviderProfile,
   rollbackSourceObservationProviderProfile,
-  updateSourceObservationProviderProfile,
   updateSourceObservationProviderProfileSection,
   useActiveSourceObservationIntegrationJobs,
   useCatalogIntegrationControlPlaneReadiness,
@@ -845,7 +844,7 @@ export function IntegrationManagementPage({
       buildProfileColumns({
         onDryRun: openDryRunDialog,
         onClone: openCloneDialog,
-        onEditJson: openEditProfileDialog,
+        onEditProfile: openEditProfileDialog,
         onCompareActive: setCompareProfile,
         onMigrationEvidence: openMigrationEvidenceDialog,
         onActivate: setActivationProfile,
@@ -1065,12 +1064,18 @@ export function IntegrationManagementPage({
 
     try {
       const migrationEvidence = migrationEvidenceFromForm(migrationEvidenceForm, migrationAuthoringModel.data);
-      await updateSourceObservationProviderProfile(migrationProfile.providerKey, migrationProfile.profileVersion, {
-        migrationEvidence: {
-          ...migrationEvidence,
-          recordedAt: new Date().toISOString(),
+      await updateSourceObservationProviderProfileSection(
+        migrationProfile.providerKey,
+        migrationProfile.profileVersion,
+        "migration-evidence",
+        {
+          section: "migration-evidence",
+          migrationEvidence: {
+            ...migrationEvidence,
+            recordedAt: new Date().toISOString(),
+          },
         },
-      });
+      );
       addToast("Migration evidence saved.", "success");
       setMigrationProfile(null);
       providerProfiles.refresh();
@@ -2859,7 +2864,7 @@ type IntegrationRowActions = Readonly<{
 type ProfileRowActions = Readonly<{
   onDryRun: (profile: CatalogProviderProfileVersionReview) => void;
   onClone: (profile: CatalogProviderProfileVersionReview) => void;
-  onEditJson: (profile: CatalogProviderProfileVersionReview) => void;
+  onEditProfile: (profile: CatalogProviderProfileVersionReview) => void;
   onCompareActive: (profile: CatalogProviderProfileVersionReview) => void;
   onMigrationEvidence: (profile: CatalogProviderProfileVersionReview) => void;
   onActivate: (profile: CatalogProviderProfileVersionReview) => void;
@@ -2966,7 +2971,7 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               tone="secondary"
               leadingIcon="settings"
               disabled={!actions.canManage || (row.lifecycle !== "draft" && row.lifecycle !== "test")}
-              onClick={() => actions.onEditJson(row)}
+              onClick={() => actions.onEditProfile(row)}
             >
               {t("catalog.features.sourceObservations.ui.integrationManagementPage.edit.profile")}
             </Button>

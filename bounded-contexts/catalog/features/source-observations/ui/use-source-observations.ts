@@ -125,14 +125,6 @@ export function createSourceObservationProviderProfile(version: unknown) {
   return api.createSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(version);
 }
 
-export function updateSourceObservationProviderProfile(providerKey: string, profileVersion: string, patch: unknown) {
-  return api.updateSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
-    providerKey,
-    profileVersion,
-    patch,
-  );
-}
-
 export function updateSourceObservationProviderProfileSection(
   providerKey: string,
   profileVersion: string,

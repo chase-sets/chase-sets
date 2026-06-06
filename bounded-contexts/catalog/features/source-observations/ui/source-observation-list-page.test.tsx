@@ -229,7 +229,7 @@ describe("SourceObservationListPage", () => {
         setId: "base1",
       }),
     );
-    expect(screen.getByText(/123 eligible observations will be promoted/i)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/123 eligible observations will be promoted/i)).toBeTruthy());
 
     const promoteAllButtons = screen.getAllByRole("button", {
       name: /^Promote all matching$/i,
