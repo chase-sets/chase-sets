@@ -483,11 +483,27 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutSession.checkout.marketplace": "Checkout | Marketplace",
   "checkout.routes.checkoutSession.checkout.session.not.found": "Checkout session not found.",
   "checkout.routes.checkoutSession.checkout.session.not.found.2": "Checkout session not found.",
+  "checkout.routes.checkoutSession.checkout.session.not.found.description": "We could not find this checkout session.",
+  "checkout.routes.checkoutSession.checkout.access.required": "Checkout access required",
+  "checkout.routes.checkoutSession.checkout.access.required.description":
+    "We could not open this checkout because checkout access is not active in this browser.",
+  "checkout.routes.checkoutSession.guest.checkout.access.expired": "Guest checkout access expired",
+  "checkout.routes.checkoutSession.guest.checkout.access.expired.description":
+    "This guest checkout link is no longer active.",
+  "checkout.routes.checkoutSession.checkout.belongs.to.another.account": "Checkout belongs to another account",
+  "checkout.routes.checkoutSession.checkout.belongs.to.another.account.description":
+    "Sign in with the account that started this checkout, or start checkout again.",
+  "checkout.routes.checkoutSession.checkout.unavailable": "Checkout unavailable",
+  "checkout.routes.checkoutSession.checkout.unavailable.description": "We could not open this checkout.",
   "checkout.routes.checkoutSession.choose.shipping.and.create.purchases.grouped":
     "Choose shipping and create purchases grouped by seller before payment.",
   "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable":
     "Live fulfillment preview is temporarily unavailable. You can still review checkout and refresh before confirming.",
+  "checkout.routes.checkoutSession.payment.has.not.started": "Your payment has not started.",
   "checkout.routes.checkoutSession.request.failed": "Request failed.",
+  "checkout.routes.checkoutSession.secure.checkout": "Secure checkout",
+  "checkout.routes.checkoutSession.sign.in.to.continue": "Sign in to continue",
+  "checkout.routes.checkoutSession.start.checkout.again": "Start checkout again",
   "checkout.features.sessions.ui.checkoutPage.wallet.available.description":
     "{amount} {currency} available for platform purchases",
   "checkout.routes.checkoutStart.account": "Account",

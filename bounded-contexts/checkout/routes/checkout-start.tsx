@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { redirect } from "react-router";
+import { redirect, redirectDocument } from "react-router";
 import { Form, useActionData, useLoaderData } from "react-router";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -325,7 +325,7 @@ export async function action({ request }: ActionFunctionArgs) {
   }
 
   const session = await guestApi.createCheckoutSession(checkoutSessionRequestFromForm(formData));
-  const response = redirect(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
+  const response = redirectDocument(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
   appendGuestCheckoutCookie(response.headers, guest.guestToken);
   appendClearedAnonymousCartCookie(response.headers);
 

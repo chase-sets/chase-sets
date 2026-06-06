@@ -4,6 +4,7 @@ const {
   mockRequireActorFromAuthApi,
   mockResolveActorFromAuthApi,
   mockCreateCheckoutRequestApiClient,
+  MockCheckoutApiError,
   mockCreateMarketplaceRequestApiClient,
   mockCreateSettlementRequestApiClient,
   mockCreateOrderingRequestApiClient,
@@ -37,6 +38,14 @@ const {
   mockRequireActorFromAuthApi: vi.fn(),
   mockResolveActorFromAuthApi: vi.fn(),
   mockCreateCheckoutRequestApiClient: vi.fn(),
+  MockCheckoutApiError: class CheckoutApiError extends Error {
+    public constructor(
+      public readonly status: number,
+      public readonly body: unknown,
+    ) {
+      super(`Checkout API error ${status}`);
+    }
+  },
   mockCreateMarketplaceRequestApiClient: vi.fn(),
   mockCreateSettlementRequestApiClient: vi.fn(),
   mockCreateOrderingRequestApiClient: vi.fn(),
@@ -90,6 +99,7 @@ vi.mock("@chase-sets/auth/server", async () => {
 });
 
 vi.mock("../support/request-support/api-client", () => ({
+  CheckoutApiError: MockCheckoutApiError,
   createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
 }));
 
@@ -1040,7 +1050,172 @@ describe("checkout web routes", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/chk_guest");
+    expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
     expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_guest_checkout=guest_token");
+  });
+
+  it("loads the checkout session after a fresh signed-out guest checkout handoff", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_guest" });
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    const checkoutStartResponse = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+    const guestCheckoutCookie = checkoutStartResponse.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith("chase_sets_guest_checkout="));
+
+    expect(checkoutStartResponse.headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect(guestCheckoutCookie).toContain("chase_sets_guest_checkout=guest_token");
+
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_guest",
+      buyer_account_id: "acc_guest",
+      source_type: "cart",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      shipping_address: null,
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      order_ids: [],
+      lines: [
+        {
+          listingId: "lst_1",
+          cartLineId: "cart_line_1",
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockResolvedValue({
+      revision: "rev_1",
+      readyLineKeys: ["lst_1"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+      materialChangeReasons: [],
+      sellerGroups: [],
+      totals: {
+        itemSubtotalAmount: "20.00",
+        shippingAmount: "4.00",
+        salesTaxAmount: "2.00",
+        totalAmount: "26.00",
+        packageCount: 1,
+      },
+    });
+    mockPreviewCheckoutStatus.mockResolvedValue({
+      amount: "26.00",
+      marketplace_checkout_fee: { total_amount: "27.10" },
+      wallet_credit: { applied_amount: "0.00" },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+    });
+
+    const checkoutSessionResult = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/chk_guest", {
+        headers: {
+          cookie: guestCheckoutCookie ?? "",
+        },
+      }),
+      params: { sessionId: "chk_guest" },
+      context: undefined,
+    } as never);
+
+    expect(mockGetCheckoutSession).toHaveBeenCalledWith("chk_guest");
+    expect(checkoutSessionResult).toEqual(
+      expect.objectContaining({
+        session: expect.objectContaining({
+          session_id: "chk_guest",
+          buyer_account_id: "acc_guest",
+        }),
+        paymentPreview: expect.objectContaining({
+          amount: "26.00",
+        }),
+      }),
+    );
+  });
+
+  it("does not start payment while starting signed-out guest cart checkout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_guest" });
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      createCheckoutPayment: vi.fn(),
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockCreatePaymentsRequestApiClient).not.toHaveBeenCalled();
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
   it("returns a sign-in prompt when guest checkout uses an account email", async () => {
@@ -1540,6 +1715,110 @@ describe("checkout web routes", () => {
     );
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/offers/submitted/off_chk_1?feedbackWorkflow=offer-submit");
+  });
+
+  it("returns checkout-owned recovery when checkout access is missing", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(401, {
+          error: { code: "authentication_required", message: "Authentication required." },
+        });
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/chk_1"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(401);
+    expect(recoveryResponse?.statusText).toBe("Checkout access required");
+    await expect(recoveryResponse?.text()).resolves.toContain("checkout access is not active in this browser");
+  });
+
+  it("returns checkout-owned recovery when guest checkout access is expired", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(401, {
+          error: { code: "authentication_required", message: "Authentication required." },
+        });
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/chk_1"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(401);
+    expect(recoveryResponse?.statusText).toBe("Guest checkout access expired");
+    await expect(recoveryResponse?.text()).resolves.toContain("guest checkout link is no longer active");
+  });
+
+  it("returns checkout-owned recovery when the checkout belongs to another account", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_other", permissions: [] });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(403, {
+          error: { code: "authorization_forbidden", message: "Forbidden." },
+        });
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/chk_1"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(403);
+    expect(recoveryResponse?.statusText).toBe("Checkout belongs to another account");
+    await expect(recoveryResponse?.text()).resolves.toContain("Sign in with the account that started this checkout");
+  });
+
+  it("returns checkout-owned recovery when the checkout session is not found", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(404, {
+          error: { code: "not_found", message: "Checkout session not found." },
+        });
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: new Request("http://localhost/checkout/chk_1"),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(404);
+    expect(recoveryResponse?.statusText).toBe("Checkout session not found.");
+    await expect(recoveryResponse?.text()).resolves.toContain("We could not find this checkout session.");
   });
 
   it("redirects completed checkout sessions to payment detail", async () => {

@@ -1,7 +1,15 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useEffect } from "react";
-import { redirect, useActionData, useLoaderData, useNavigation } from "react-router";
+import {
+  isRouteErrorResponse,
+  redirect,
+  useActionData,
+  useLoaderData,
+  useLocation,
+  useNavigation,
+  useRouteError,
+} from "react-router";
 import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
@@ -17,6 +25,7 @@ import {
 } from "@chase-sets/payments/server";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
+import { LinkButton, MarketplaceEmptyState, Page, PageSection } from "@chase-sets/design-system";
 
 const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.choose.shipping.and.create.purchases.grouped");
 const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
@@ -307,6 +316,51 @@ function reloadForRealtimeSync() {
   }
 }
 
+function checkoutAccessRecoveryForError(error: unknown, actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
+  if (!(error instanceof CheckoutApiError)) {
+    return null;
+  }
+
+  if (error.status === 401) {
+    return {
+      status: 401,
+      title: actor
+        ? t("checkout.routes.checkoutSession.guest.checkout.access.expired")
+        : t("checkout.routes.checkoutSession.checkout.access.required"),
+      description: actor
+        ? t("checkout.routes.checkoutSession.guest.checkout.access.expired.description")
+        : t("checkout.routes.checkoutSession.checkout.access.required.description"),
+    };
+  }
+
+  if (error.status === 403) {
+    return {
+      status: 403,
+      title: t("checkout.routes.checkoutSession.checkout.belongs.to.another.account"),
+      description: t("checkout.routes.checkoutSession.checkout.belongs.to.another.account.description"),
+    };
+  }
+
+  if (error.status === 404) {
+    return {
+      status: 404,
+      title: t("checkout.routes.checkoutSession.checkout.session.not.found"),
+      description: t("checkout.routes.checkoutSession.checkout.session.not.found.description"),
+    };
+  }
+
+  return null;
+}
+
+function createCheckoutAccessRecoveryResponse(
+  recovery: Readonly<{ status: number; title: string; description: string }>,
+) {
+  return new Response(recovery.description, {
+    status: recovery.status,
+    statusText: recovery.title,
+  });
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   if (!params.sessionId) {
@@ -317,6 +371,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     request,
     isNotFound: (error) => error instanceof CheckoutApiError && error.status === 404,
     load: () => api.getCheckoutSession(params.sessionId!),
+  }).catch((error) => {
+    const recovery = checkoutAccessRecoveryForError(error, actor);
+    if (recovery) {
+      throw createCheckoutAccessRecoveryResponse(recovery);
+    }
+
+    throw error;
   });
   if (session.payment_id) {
     throw redirect(paymentPathForActor(actor, session.payment_id));
@@ -533,5 +594,44 @@ export default function CheckoutSessionRoute() {
       paymentQuoteRequired={data.paymentQuoteRequired}
       isSubmitting={navigation.state === "submitting"}
     />
+  );
+}
+
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const location = useLocation();
+
+  if (!isRouteErrorResponse(error) || ![401, 403, 404].includes(error.status)) {
+    throw error;
+  }
+
+  const currentPath = `${location.pathname}${location.search}`;
+  const signInPath = `/sign-in?returnTo=${encodeURIComponent(currentPath)}`;
+  const title = error.statusText || t("checkout.routes.checkoutSession.checkout.unavailable");
+  const description =
+    typeof error.data === "string" && error.data.trim()
+      ? error.data
+      : t("checkout.routes.checkoutSession.checkout.unavailable.description");
+
+  return (
+    <Page>
+      <PageSection title={t("checkout.routes.checkoutSession.secure.checkout")}>
+        <MarketplaceEmptyState
+          title={title}
+          description={description}
+          trustCue={t("checkout.routes.checkoutSession.payment.has.not.started")}
+          recoveryActions={
+            <>
+              <LinkButton href="/checkout/start" leadingIcon="cart">
+                {t("checkout.routes.checkoutSession.start.checkout.again")}
+              </LinkButton>
+              <LinkButton href={signInPath} tone="secondary" leadingIcon="lock">
+                {t("checkout.routes.checkoutSession.sign.in.to.continue")}
+              </LinkButton>
+            </>
+          }
+        />
+      </PageSection>
+    </Page>
   );
 }
