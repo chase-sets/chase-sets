@@ -14,6 +14,12 @@ The authoritative typed policy lives in:
 bounded-contexts/catalog/features/source-observations/api/catalog-integration-schema-compatibility.ts
 ```
 
+The executable migration/reset policy for applying these retention decisions before launch is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md) and lives in:
+
+```text
+bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-migration-reset.ts
+```
+
 ## Launch Boundary
 
 Pre-launch integration-control-plane data should be reset or rebuilt by default. Do not add compatibility adapters for old profile, payload, fixture, or job shapes unless #804 records a retained-data exception with owner, reason, and removal criteria.
@@ -78,6 +84,8 @@ Use compatibility adapters or migrations only when at least one of these is true
 - a queued/running durable job or work unit was created before deployment
 - the Admin UI or an operator journey consumes the DTO as a stable contract
 - a future provider addition needs an additive semantic primitive or adapter capability
+
+The pre-launch reset mode deletes integration jobs, work units, Source Observations, learned provider option rate limits, and non-admin-authored provider profile versions, then rebuilds seeded profile versions and section projections. Active jobs block reset unless an operator records an explicit forced pre-launch wipe decision.
 
 ## Test Expectations
 

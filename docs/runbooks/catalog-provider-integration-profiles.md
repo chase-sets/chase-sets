@@ -63,6 +63,20 @@ After rollback, queued import jobs that already have a profile snapshot continue
 
 After rollback, run a narrow import or reapply job and verify the completed job summary before broad replay. Record lifecycle audit context through admin; do not edit historical profile rows in place.
 
+## Pre-Launch Data Reset
+
+Use the Catalog Integration Data Migration Reset plan when release needs to wipe unlaunched integration-control-plane data and rebuild from current bootstrap.
+
+1. Verify no Catalog integration or bulk review jobs are queued or running.
+2. Capture the before-reset verification report from `collectCatalogIntegrationDataVerificationReport`.
+3. Run the pre-launch wipe/rebuild path from `resetCatalogIntegrationPreLaunchData`.
+4. Confirm seeded provider profiles were rebuilt through the persisted profile version store.
+5. Confirm Source Observations, integration jobs, bulk review jobs, work units, and learned provider rate limits are empty.
+6. Confirm profile section projections exist for retained or seeded profile versions.
+7. Record any retained admin-authored profile, Source Observation, fixture, job, or compatibility path with owner, reason, and removal criteria in #804.
+
+Forced reset with active jobs is allowed only for explicit pre-launch cleanup decisions. Normal rollback should cancel or drain active work, activate the prior profile version, and enqueue fresh import/reapply work if needed.
+
 ## Retirement
 
 Retire a profile version only after no Source Observations reference it as a source or promotion profile version. Admin retirement is blocked while references remain.
