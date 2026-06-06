@@ -62,6 +62,7 @@ export function createReferenceCardsProviderAdapter(): ProviderAdapter<Reference
           productForm: "single-card",
           ingestionPurpose: "source-observation-proof",
           displayName: "Reference Pokemon single-card Source Observation proof",
+          profileVersion: REFERENCE_CARDS_PROFILE_VERSION,
         },
       ];
     },

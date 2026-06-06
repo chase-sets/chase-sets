@@ -36,6 +36,7 @@ describe("Source Observation service facets", () => {
     const reads: SourceObservationReadServices = services;
 
     expect(providerAdapters.providerAdapterRegistry.require("reference-cards").providerKey).toBe("reference-cards");
+    expect(providerAdapters.providerAdapterRegistry.require("tcgdex").providerKey).toBe("tcgdex");
     expect(typeof providerImports.importTcgplayerScope).toBe("function");
     expect(typeof providerOptions.listIntegrationOptions).toBe("function");
     expect(typeof providerProfileAdmin.getSelectedOptionAuthoringSchema).toBe("function");

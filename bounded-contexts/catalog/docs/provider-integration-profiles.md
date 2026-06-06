@@ -101,14 +101,15 @@ Expansion Reference Records may carry `printed-card-count` when the number print
 
 TCGdex imports still write Source Observations. Promotion remains a Catalog review action. Staging and production do not auto-import provider content during bootstrap.
 
-The active TCGdex profile version carries an executable mapping contract for Source Observation IDs, external keys, normalized Pokemon card facts, source hash material, merge identity, external reference evidence, duplicate-prevention evidence, reference hierarchy evidence, and promotion command-plan intent. The TCGdex connector must stay transport-only: it fetches TCGdex JSON from profile-defined endpoints and assembles the reviewed runtime context consumed by that contract. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
+The active TCGdex profile version carries an executable mapping contract for Source Observation IDs, external keys, normalized Pokemon card facts, source hash material, merge identity, external reference evidence, duplicate-prevention evidence, reference hierarchy evidence, and promotion command-plan intent. The TCGdex ProviderAdapter is the live transport boundary for #785: it lists the `tcgdex:pokemon:single-card:source-observation-import` ingestion unit, serves language/Series/Expansion option queries, plans Expansion import scopes, fetches TCGdex JSON payloads, attaches source provenance, and emits transport diagnostics. It must not decide which provider fields are Catalog fields, which identifiers are Catalog Item references, which identifiers are Product SKU references, or how duplicate marketplace identifiers are handled.
 
 TCGdex variant expansion, marketplace reference extraction, Pokemon Reference Record hierarchy provisioning, and Pokemon Catalog Item promotion planning still use reviewed named runtime helpers where generic profile interpretation cannot yet express the behavior safely. Those helpers are transitional compatibility points referenced by the executable mapping contract and provider profile data; they must remain deterministic, fixture-backed, and free of live provider calls.
 
 Provider option queries are profile-driven. The TCGdex profile declares language,
 Series, and Expansion query aliases, parent value policy, named transport
-operations, and option DTO output selectors. Runtime supplies the named TCGdex
-transport operations; profile data decides which operation and mapping are used.
+operations, and option DTO output selectors. Runtime supplies those operations
+through the registered TCGdex ProviderAdapter; profile data decides which
+operation and mapping are used.
 
 Reference hierarchy provisioning is profile-driven. The TCGdex profile declares
 Reference Types for Manufacturer, Product Line, Series, and Expansion, static

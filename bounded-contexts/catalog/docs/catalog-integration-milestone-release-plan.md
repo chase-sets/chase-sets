@@ -130,6 +130,7 @@ Primary issues:
 Exit criteria:
 
 - Current providers are behind ProviderAdapter boundaries or have documented transitional exceptions with retirement criteria.
+- #785 moves TCGdex option queries and Expansion import payload acquisition behind the registered `tcgdex` ProviderAdapter. Remaining TCGdex variant expansion, external-reference extraction, Reference Record hierarchy provisioning, and promotion command planning are Catalog semantic helpers referenced by the executable profile contract; they are deterministic, fixture-backed, and tracked as transitional compatibility until generic profile interpretation can express them safely.
 - One thin real-provider ingestion unit proves the target architecture.
 - MTGJSON and Scryfall validation pass the no-core-change gate and include source-conflict scenarios.
 

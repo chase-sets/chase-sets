@@ -319,6 +319,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrations.title": "Catalog Integrations",
   "catalog.features.sourceObservations.api.providerAdapters.referenceCards.fixture.backed.provider":
     "Reference provider uses fixture-backed payloads and does not require live provider transport.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgdex.json.transport.configured":
+    "TCGdex JSON transport is configured for {connectorKind}.",
   "catalog.features.sourceObservations.api.route.profile.review.unavailable":
     "Provider profile review is not available.",
   "catalog.features.sourceObservations.api.route.profile.review.invalid.json.object":
