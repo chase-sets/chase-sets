@@ -321,6 +321,12 @@ export const catalogEnglishTranslations = {
     "Reference provider uses fixture-backed payloads and does not require live provider transport.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgdex.json.transport.configured":
     "TCGdex JSON transport is configured for {connectorKind}.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.configured":
+    "TCGplayer automation transport is configured for {connectorKind} with profile lifecycle {lifecycle}.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.unconfigured":
+    "TCGplayer automation transport is not configured in this runtime.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.domain.rate.limit.policy.configured":
+    "TCGplayer domain throttling covers {domains}; retryable statuses are {retryableCodes}.",
   "catalog.features.sourceObservations.api.route.profile.review.unavailable":
     "Provider profile review is not available.",
   "catalog.features.sourceObservations.api.route.profile.review.invalid.json.object":

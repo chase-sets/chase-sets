@@ -98,6 +98,11 @@ import {
   createTcgdexProviderAdapter,
   TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
 } from "./provider-adapters/tcgdex";
+import {
+  createTcgplayerProviderAdapter,
+  TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+  type TcgplayerProviderPayload,
+} from "./provider-adapters/tcgplayer";
 import type {
   ProviderAdapter,
   ProviderImportPlan,
@@ -723,6 +728,10 @@ export function createSourceObservationRuntime(
     createReferenceCardsProviderAdapter(),
     createTcgdexProviderAdapter({
       loadActiveProfileVersion: () => requireCatalogImportProfileVersion(profileVersions, "tcgdex"),
+    }),
+    createTcgplayerProviderAdapter({
+      loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
+      client: deps.tcgplayerAutomationCatalogClient,
     }),
   ]);
 
@@ -2458,12 +2467,12 @@ export function createSourceObservationRuntime(
       throw new Error("TCGplayer import requires productLineId/categoryId or productId.");
     }
 
-    const client = requireTcgplayerAutomationCatalogClient();
-    const productLines = await client.listProductLines();
-    const productLine = productLines.find((item) => item.productLineId === productLineId);
+    const productLines = await listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry);
+    const productLine = productLines.find((item) => numberRecordValue(item, "productLineId") === productLineId);
     if (!productLine) {
       throw new Error(`TCGplayer product line '${productLineId}' was not found.`);
     }
+    const productLineName = stringRecordValue(productLine, "productLineName") ?? String(productLineId);
 
     const setName = scope.setName?.trim() || scope.setId?.trim() || undefined;
     if (setName) {
@@ -2472,21 +2481,21 @@ export function createSourceObservationRuntime(
           targetId: `set:${productLineId}:${setName}`,
           name: setName,
           productLineId,
-          productLineName: productLine.productLineName,
+          productLineName,
           setName,
         },
       ];
     }
 
-    const response = await client.listCatalogSetNames({ categoryId: productLineId });
-    return response.results
-      .filter((setNameOption) => setNameOption.active)
+    const setNames = await listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, { productLineId });
+    return setNames
+      .filter((setNameOption) => booleanRecordValue(setNameOption, "active") !== false)
       .map((setNameOption) => ({
-        targetId: `set:${productLineId}:${setNameOption.cleanSetName}`,
-        name: setNameOption.cleanSetName,
+        targetId: `set:${productLineId}:${stringRecordValue(setNameOption, "cleanSetName") ?? ""}`,
+        name: stringRecordValue(setNameOption, "cleanSetName") ?? "",
         productLineId,
-        productLineName: productLine.productLineName,
-        setName: setNameOption.cleanSetName,
+        productLineName,
+        setName: stringRecordValue(setNameOption, "cleanSetName") ?? "",
       }));
   }
 
@@ -2500,7 +2509,11 @@ export function createSourceObservationRuntime(
     runRecordObservation?: DurableSideEffectRunner;
   }): Promise<SourceObservationIntegrationJobOutcome> {
     try {
-      const { details, failureReason } = await fetchTcgplayerTargetProductDetails(input.target, input.onProgress);
+      const { details, failureReason } = await fetchTcgplayerTargetProductDetails(
+        input.target,
+        input.providerProfileVersion,
+        input.onProgress,
+      );
       if (details.length === 0) {
         return {
           providerKey: input.providerProfile.providerKey,
@@ -2568,6 +2581,7 @@ export function createSourceObservationRuntime(
 
   async function fetchTcgplayerTargetProductDetails(
     target: TcgplayerIntegrationImportTarget,
+    providerProfileVersion: CatalogProviderIntegrationProfileVersionRecord,
     onProgress?: (progress: TcgplayerProductImportProgress) => void | Promise<void>,
   ): Promise<
     Readonly<{
@@ -2575,69 +2589,31 @@ export function createSourceObservationRuntime(
       failureReason: string | null;
     }>
   > {
-    const client = requireTcgplayerAutomationCatalogClient();
-    if (target.productId !== undefined) {
-      await onProgress?.({ currentName: target.name, completed: 0, total: 1 });
-      const detail = await client.getProductDetail({ productId: target.productId });
-      await onProgress?.({ currentName: detail.productName, completed: 1, total: 1 });
-      return { details: [detail], failureReason: null };
-    }
-
-    if (!target.productLineName || !target.setName) {
-      throw new Error("TCGplayer set import requires a product line name and set name.");
-    }
-
-    const products = await client.listAllProducts({
-      size: 24,
-      filters: {
-        term: {
-          productLineName: [target.productLineName],
-          setName: [target.setName],
-        },
-      },
-      sort: {
-        field: "product-sorting-name",
-        order: "asc",
-      },
+    const adapter = tcgplayerAdapterForProfileVersion(
+      providerAdapterRegistry,
+      providerProfileVersion,
+      deps.tcgplayerAutomationCatalogClient,
+    );
+    const plan = await adapter.planImport({
+      unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+      scopeKey: target.productId !== undefined ? "product" : "set-name",
+      values:
+        target.productId !== undefined
+          ? { productId: String(target.productId), productName: target.name }
+          : {
+              productLineId: target.productLineId === undefined ? "" : String(target.productLineId),
+              productLineName: target.productLineName ?? "",
+              setName: target.setName ?? "",
+            },
     });
-    const details: TcgplayerAutomationProductDetail[] = [];
-    const failures: string[] = [];
-    await onProgress?.({ currentName: target.name, completed: 0, total: products.length });
 
-    for (const product of products) {
-      try {
-        const detail = await client.getProductDetail({ productId: product.productId });
-        details.push(detail);
-        await onProgress?.({ currentName: detail.productName, completed: details.length, total: products.length });
-      } catch (error) {
-        if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error)) {
-          throw error;
-        }
-        failures.push(error instanceof Error ? error.message : `Product ${product.productId} failed.`);
-        await onProgress?.({ currentName: product.productName, completed: details.length, total: products.length });
-      }
-    }
-
-    if (failures.length > 0) {
-      const failureText = failures.length === 1 ? failures[0] : `${failures.length} product details failed.`;
-      return {
-        details,
-        failureReason:
-          details.length > 0
-            ? `Imported ${details.length} TCGplayer product details before ${failureText}`
-            : failureText,
-      };
-    }
-
-    return { details, failureReason: null };
-  }
-
-  function requireTcgplayerAutomationCatalogClient(): TcgplayerAutomationCatalogClient {
-    if (!deps.tcgplayerAutomationCatalogClient) {
-      throw new Error("TCGplayer automation Catalog client is required for TCGplayer imports.");
-    }
-
-    return deps.tcgplayerAutomationCatalogClient;
+    return collectTcgplayerProviderPayloads(adapter, plan, (progress) =>
+      onProgress?.({
+        currentName: progress.currentLabel ?? target.name,
+        completed: progress.completed,
+        total: progress.total,
+      }),
+    );
   }
 
   async function processIntegrationReapplyJob(input: {
@@ -2838,6 +2814,10 @@ async function listProviderIntegrationOptions(
     createTcgdexProviderAdapter({
       loadActiveProfileVersion: () => requireCatalogImportProfileVersion(profileVersions, "tcgdex"),
     }),
+    createTcgplayerProviderAdapter({
+      loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
+      client: tcgplayerAutomationCatalogClient,
+    }),
   ]),
 ): Promise<readonly SourceObservationIntegrationOption[]> {
   const versions = await profileVersions.listProfileVersions();
@@ -2854,14 +2834,13 @@ async function listProviderIntegrationOptions(
         listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode }),
       listTcgdexExpansions: ({ languageCode, seriesId }) =>
         listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
-      listTcgplayerProductLines: async () =>
-        requireTcgplayerAutomationCatalogClient(tcgplayerAutomationCatalogClient).listProductLines(),
-      listTcgplayerSetNames: async ({ productLineId }) => {
-        const response = await requireTcgplayerAutomationCatalogClient(
-          tcgplayerAutomationCatalogClient,
-        ).listCatalogSetNames({ categoryId: productLineId });
-        return response.results.filter((item) => item.active);
-      },
+      listTcgplayerProductLines: () => listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry),
+      listTcgplayerSetNames: ({ productLineId }) =>
+        listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, { productLineId }),
+      listTcgplayerProducts: ({ setName }) =>
+        listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
+      listTcgplayerSkus: ({ productId }) =>
+        listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
     },
   });
 }
@@ -2982,6 +2961,138 @@ function requireTcgdexAdapter(
   return providerAdapterRegistry.require("tcgdex") as ProviderAdapter<TcgdexObservationPayload>;
 }
 
+async function listTcgplayerProductLineOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): Promise<readonly JsonValue[]> {
+  const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
+    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "product-lines",
+  });
+  return result.items.map((item) => ({
+    productLineId: numberFromString(item.value),
+    productLineName: item.label,
+    productLineUrlName: item.metadata?.productLineUrlName ?? null,
+    isDirect: booleanFromString(item.metadata?.isDirect),
+  }));
+}
+
+async function listTcgplayerSetNameOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { productLineId: number },
+): Promise<readonly JsonValue[]> {
+  const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
+    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "set-names",
+    parentValues: { productLineId: String(input.productLineId) },
+  });
+  return result.items.map((item) => ({
+    setNameId: numberFromString(item.metadata?.setNameId),
+    categoryId: numberFromString(item.metadata?.categoryId),
+    name: item.label,
+    cleanSetName: item.value,
+    urlName: item.metadata?.urlName ?? null,
+    abbreviation: item.metadata?.abbreviation ?? null,
+    releaseDate: item.metadata?.releaseDate ?? null,
+    isSupplemental: booleanFromString(item.metadata?.isSupplemental),
+    active: booleanFromString(item.metadata?.active),
+  }));
+}
+
+async function listTcgplayerProductOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { setName: string },
+): Promise<readonly JsonValue[]> {
+  const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
+    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "products",
+    parentValues: { setName: input.setName },
+  });
+  return result.items.map((item) => ({
+    productId: numberFromString(item.value),
+    productName: item.label,
+    productLineId: numberFromString(item.metadata?.productLineId),
+    productLineName: item.metadata?.productLineName ?? null,
+    productTypeName: item.metadata?.productTypeName ?? null,
+    setId: numberFromString(item.metadata?.setId),
+    setName: item.metadata?.setName ?? input.setName,
+    rarityName: item.metadata?.rarityName ?? null,
+    sealed: booleanFromString(item.metadata?.sealed),
+  }));
+}
+
+async function listTcgplayerSkuOptionRecordsThroughAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  input: { productId: number },
+): Promise<readonly JsonValue[]> {
+  const result = await requireTcgplayerAdapter(providerAdapterRegistry).listOptions({
+    unitKey: TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+    optionKind: "skus",
+    parentValues: { productId: String(input.productId) },
+  });
+  return result.items.map((item) => ({
+    sku: numberFromString(item.value),
+    condition: item.metadata?.condition ?? null,
+    variant: item.metadata?.variant ?? null,
+    language: item.metadata?.language ?? null,
+  }));
+}
+
+async function collectTcgplayerProviderPayloads(
+  adapter: ProviderAdapter<TcgplayerProviderPayload>,
+  plan: ProviderImportPlan,
+  onProgress?: (progress: ProviderPayloadFetchProgress) => void | Promise<void>,
+): Promise<
+  Readonly<{
+    details: readonly TcgplayerAutomationProductDetail[];
+    failureReason: string | null;
+  }>
+> {
+  const details: TcgplayerAutomationProductDetail[] = [];
+  const failures: string[] = [];
+
+  for await (const envelope of adapter.fetchPayloads(plan, { onProgress })) {
+    if (envelope.payload.kind === "product-detail") {
+      details.push(envelope.payload.detail);
+    } else {
+      failures.push(envelope.payload.reason);
+    }
+  }
+
+  if (failures.length > 0) {
+    const failureText = failures.length === 1 ? failures[0] : `${failures.length} product details failed.`;
+    return {
+      details,
+      failureReason:
+        details.length > 0 ? `Imported ${details.length} TCGplayer product details before ${failureText}` : failureText,
+    };
+  }
+
+  return { details, failureReason: null };
+}
+
+function tcgplayerAdapterForProfileVersion(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+  profileVersion: CatalogProviderIntegrationProfileVersionRecord,
+  client?: TcgplayerAutomationCatalogClient,
+): ProviderAdapter<TcgplayerProviderPayload> {
+  const registeredAdapter = requireTcgplayerAdapter(providerAdapterRegistry);
+
+  if (profileVersion.active) {
+    return registeredAdapter;
+  }
+
+  return createTcgplayerProviderAdapter({
+    loadProfileVersions: async () => [profileVersion],
+    client,
+  });
+}
+
+function requireTcgplayerAdapter(
+  providerAdapterRegistry: ProviderAdapterRegistry,
+): ProviderAdapter<TcgplayerProviderPayload> {
+  return providerAdapterRegistry.require("tcgplayer") as ProviderAdapter<TcgplayerProviderPayload>;
+}
+
 function stringRecordValue(record: JsonValue, key: string): string | null {
   if (!isJsonRecord(record)) {
     return null;
@@ -2998,12 +3109,30 @@ function numberRecordValue(record: JsonValue, key: string): number | null {
   return numberFromString(stringRecordValue(record, key));
 }
 
+function booleanRecordValue(record: JsonValue, key: string): boolean | null {
+  return booleanFromString(stringRecordValue(record, key));
+}
+
 function numberFromString(value: string | null | undefined): number | null {
   if (!value) {
     return null;
   }
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function booleanFromString(value: string | null | undefined): boolean | null {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") {
+    return true;
+  }
+  if (normalized === "false") {
+    return false;
+  }
+  return null;
 }
 
 async function buildCatalogIntegrationControlPlaneReadiness(
@@ -3076,16 +3205,6 @@ function countDiagnostics(
   severity: ProviderTransportDiagnostic["severity"],
 ): number {
   return diagnostics.filter((diagnostic) => diagnostic.severity === severity).length;
-}
-
-function requireTcgplayerAutomationCatalogClient(
-  client: TcgplayerAutomationCatalogClient | undefined,
-): TcgplayerAutomationCatalogClient {
-  if (!client) {
-    throw new Error("TCGplayer automation catalog client is required before TCGplayer runtime option queries can run.");
-  }
-
-  return client;
 }
 
 function normalizeIntegrationKey(value: string): string {
