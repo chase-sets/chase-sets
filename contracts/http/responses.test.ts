@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CHASE_SETS_COMMIT_RECEIPT_HEADER,
   appendFreshWriteToken,
+  appendFreshWriteTokenFromSources,
   attachResponseMetadata,
   decodeFreshWriteReceipt,
   encodeCommitReceipt,
@@ -14,6 +15,18 @@ const source = {
   sourceContextName: "marketplace",
   maxGlobalPosition: "42",
   eventIds: ["evt_1"],
+};
+
+const laterSource = {
+  sourceContextName: "marketplace",
+  maxGlobalPosition: "44",
+  eventIds: ["evt_2"],
+};
+
+const checkoutSource = {
+  sourceContextName: "checkout",
+  maxGlobalPosition: "9",
+  eventIds: ["evt_checkout"],
 };
 
 describe("response consistency metadata", () => {
@@ -44,5 +57,39 @@ describe("response consistency metadata", () => {
 
     expect(readFreshWriteToken(href, 40_000)).toBeNull();
     expect(decodeFreshWriteReceipt("%7Bnot-json", 1)).toBeNull();
+  });
+
+  it("combines multiple write sources into one fresh-write token", () => {
+    const first = {
+      commitPosition: "42",
+      commitPositions: [source, checkoutSource],
+      commitEventIds: ["evt_1", "evt_checkout"],
+    };
+    const second = {
+      commitPosition: "44",
+      commitPositions: [laterSource],
+      commitEventIds: ["evt_2"],
+    };
+
+    const href = appendFreshWriteTokenFromSources("/checkout/chk_1?paymentMethodCategory=card", [first, second], 1234);
+
+    expect(readFreshWriteToken(href, 1234)).toEqual({
+      observedAtMs: 1234,
+      commitPosition: "44",
+      sources: [
+        checkoutSource,
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "44",
+          eventIds: ["evt_1", "evt_2"],
+        },
+      ],
+    });
+  });
+
+  it("leaves paths unchanged when write sources have no consistency metadata", () => {
+    expect(
+      appendFreshWriteTokenFromSources("/checkout/chk_1?paymentMethodCategory=card", [{ status: "ok" }], 1234),
+    ).toBe("/checkout/chk_1?paymentMethodCategory=card");
   });
 });

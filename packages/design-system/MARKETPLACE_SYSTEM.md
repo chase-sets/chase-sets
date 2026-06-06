@@ -111,6 +111,14 @@ Buy Cart and Sell List are checkout-plan review surfaces, not generic dashboards
 
 Checkout must show item subtotal, shipping, fees, tax, discounts, wallet credit, and final total before payment. The sticky CTA should include the final action, payment confidence copy, and at most one secondary edit or escape action.
 
+## Preview-Backed Forms
+
+Marketplace forms that edit inputs while showing server-calculated previews, totals, fees, eligibility, or fulfillment state must use explicit submit commands. Field blur, keyboard tabbing, and ordinary select/input changes should update local UI state only; they must not route-submit, navigate, or reload the page.
+
+When edits make a visible preview stale, show a concise stale-review state and keep the explicit command visible. Examples include `Refresh totals`, `Save changes`, or `Create purchases and continue to secure payment`. Route actions should keep refresh/review intent separate from commit intent so buyers understand whether they are updating a preview or creating a commercial commitment.
+
+Autosave or live-preview behavior is allowed only when it uses a non-navigating fetcher-style interaction with cancellation or deduping, preserves keyboard flow, and does not clear partially entered values. Write-then-redirect flows that depend on projected read models must append fresh-write metadata so the reloaded page reads the written state before rendering defaults.
+
 ## Real-App Validation
 
 The real marketplace and admin apps are the validation surfaces. Do not recreate a separate showcase project for marketplace UI validation.

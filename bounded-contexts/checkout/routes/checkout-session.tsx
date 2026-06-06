@@ -10,7 +10,11 @@ import {
   useNavigation,
   useRouteError,
 } from "react-router";
-import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  appendFreshWriteTokenFromSources,
+  loadFreshlyWrittenResource,
+} from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-web";
@@ -442,29 +446,32 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
   try {
     if (intent === "select-optimization-goal") {
-      await api.selectOptimizationGoal(params.sessionId, {
+      const result = await api.selectOptimizationGoal(params.sessionId, {
         optimizationGoal: formData.get("optimizationGoal") === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
       });
-      return redirect(`/checkout/${params.sessionId}`);
+      return redirect(appendFreshWriteToken(`/checkout/${params.sessionId}`, result));
     }
 
     if (intent === "refresh-checkout-preview") {
-      await api.selectShippingOption(params.sessionId, {
+      const shippingOptionResult = await api.selectShippingOption(params.sessionId, {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
       });
-      await api.selectShippingAddress(params.sessionId, {
+      const shippingAddressResult = await api.selectShippingAddress(params.sessionId, {
         shippingAddress: await resolveCheckoutShippingAddress(request, actor, formData, {
           persistAddressBook: false,
         }),
       });
       const paymentMethodCategory = String(formData.get("previewPaymentMethodCategory") ?? "card");
       return redirect(
-        `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
+        appendFreshWriteTokenFromSources(
+          `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(paymentMethodCategory)}`,
+          [shippingOptionResult, shippingAddressResult],
+        ),
       );
     }
 
     if (intent === "confirm-checkout") {
-      await api.selectShippingOption(params.sessionId, {
+      const shippingOptionResult = await api.selectShippingOption(params.sessionId, {
         shippingOption: String(formData.get("shippingOption") ?? "standard"),
       });
       const shippingAddress = await resolveCheckoutShippingAddress(request, actor, formData, {
@@ -500,12 +507,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
         !marketplaceCheckoutFeeQuoteFingerprint &&
         !session?.payment_id;
       if (visibleReviewChanged || needsPaymentQuote) {
-        await api.selectShippingAddress(params.sessionId, {
+        const shippingAddressResult = await api.selectShippingAddress(params.sessionId, {
           shippingAddress,
         });
         const quoteReason = needsPaymentQuote ? "&quote=required" : "";
         return redirect(
-          `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
+          appendFreshWriteTokenFromSources(
+            `/checkout/${params.sessionId}?paymentMethodCategory=${encodeURIComponent(visiblePaymentMethodCategory)}&review=updated${quoteReason}`,
+            [shippingOptionResult, shippingAddressResult],
+          ),
         );
       }
       const result = await api.confirmCheckoutSession(params.sessionId, {

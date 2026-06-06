@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFreshWriteToken } from "@chase-sets/http/responses";
 
 const {
   mockRequireActorFromAuthApi,
@@ -174,6 +175,20 @@ describe("checkout web routes", () => {
       membershipId: "guest:tok_1",
       roleKey: "guest-buyer",
       permissions: ["guest-checkout.manage"],
+    };
+  }
+
+  function checkoutCommit(position: string, eventId: string) {
+    return {
+      commitPosition: position,
+      commitEventIds: [eventId],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: position,
+          eventIds: [eventId],
+        },
+      ],
     };
   }
 
@@ -1546,6 +1561,52 @@ describe("checkout web routes", () => {
     expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=bank-account");
   });
 
+  it("refreshes guest checkout totals with a fresh-write redirect token", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockSelectShippingOption.mockResolvedValue(checkoutCommit("41", "evt_shipping_option"));
+    mockSelectShippingAddress.mockResolvedValue(checkoutCommit("42", "evt_shipping_address"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "refresh-checkout-preview");
+    form.set("shippingOption", "standard");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+    form.set("previewPaymentMethodCategory", "card");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+    const location = response.headers.get("Location") ?? "";
+    const receipt = readFreshWriteToken(location);
+
+    expect(response.status).toBe(302);
+    expect(location).toContain("/checkout/chk_1?paymentMethodCategory=card&afterWrite=");
+    expect(receipt?.commitPosition).toBe("42");
+    expect(receipt?.sources).toEqual([
+      {
+        sourceContextName: "checkout",
+        maxGlobalPosition: "42",
+        eventIds: ["evt_shipping_option", "evt_shipping_address"],
+      },
+    ]);
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
+  });
+
   it("refreshes checkout totals instead of confirming when the visible payment method changed", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
@@ -1601,6 +1662,7 @@ describe("checkout web routes", () => {
     form.set("shippingOption", "priority");
     form.set("reviewedShippingOption", "standard");
     form.set("reviewedShippingAddressSignature", "previous-preview");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
     form.set("paymentMethodCategory", "card");
     form.set("previewPaymentMethodCategory", "card");
     form.set("shippingName", "Jane Smith");
@@ -1632,6 +1694,58 @@ describe("checkout web routes", () => {
     expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/chk_1?paymentMethodCategory=card&review=updated");
+  });
+
+  it("keeps checkout review refresh fallback freshness-aware", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: [] });
+    mockSelectShippingOption.mockResolvedValue(checkoutCommit("43", "evt_shipping_option"));
+    mockSelectShippingAddress.mockResolvedValue(checkoutCommit("44", "evt_shipping_address"));
+    mockGetCheckoutSession.mockResolvedValue({ source_type: "cart", payment_id: null });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+      selectShippingOption: mockSelectShippingOption,
+      selectShippingAddress: mockSelectShippingAddress,
+      confirmCheckoutSession: mockConfirmCheckoutSession,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "confirm-checkout");
+    form.set("shippingOption", "priority");
+    form.set("reviewedShippingOption", "standard");
+    form.set("reviewedShippingAddressSignature", "previous-preview");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_1");
+    form.set("paymentMethodCategory", "card");
+    form.set("previewPaymentMethodCategory", "card");
+    form.set("shippingName", "Jane Smith");
+    form.set("shippingLine1", "100 Market Street");
+    form.set("shippingCity", "Chicago");
+    form.set("shippingState", "IL");
+    form.set("shippingPostalCode", "60601");
+    form.set("shippingCountry", "US");
+
+    const response = (await checkoutSessionAction({
+      request: new Request("http://localhost/checkout/chk_1", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never)) as Response;
+    const location = response.headers.get("Location") ?? "";
+    const receipt = readFreshWriteToken(location);
+
+    expect(response.status).toBe(302);
+    expect(location).toContain("/checkout/chk_1?paymentMethodCategory=card&review=updated&afterWrite=");
+    expect(receipt?.commitPosition).toBe("44");
+    expect(receipt?.sources).toEqual([
+      {
+        sourceContextName: "checkout",
+        maxGlobalPosition: "44",
+        eventIds: ["evt_shipping_option", "evt_shipping_address"],
+      },
+    ]);
+    expect(mockConfirmCheckoutSession).not.toHaveBeenCalled();
   });
 
   it("keeps guest checkout confirmation on the guest payment route", async () => {
