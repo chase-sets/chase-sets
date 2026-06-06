@@ -65,17 +65,21 @@ After rollback, run a narrow import or reapply job and verify the completed job 
 
 ## Pre-Launch Data Reset
 
-Use the Catalog Integration Data Migration Reset plan when release needs to wipe unlaunched integration-control-plane data and rebuild from current bootstrap.
+Use the Catalog Integration Data Migration Reset and Legacy Cleanup plans when release needs to wipe unlaunched integration-control-plane data and rebuild from current bootstrap.
 
 1. Verify no Catalog integration or bulk review jobs are queued or running.
 2. Capture the before-reset verification report from `collectCatalogIntegrationDataVerificationReport`.
 3. Run the pre-launch wipe/rebuild path from `resetCatalogIntegrationPreLaunchData`.
 4. Confirm seeded provider profiles were rebuilt through the persisted profile version store.
 5. Confirm Source Observations, integration jobs, bulk review jobs, work units, and learned provider rate limits are empty.
-6. Confirm profile section projections exist for retained or seeded profile versions.
-7. Record any retained admin-authored profile, Source Observation, fixture, job, or compatibility path with owner, reason, and removal criteria in #804.
+6. Confirm legacy Source Observation profile references are zero.
+7. Confirm profile section projections exist for retained or seeded profile versions.
+8. Confirm normal Admin authoring exposes section-scoped typed controls with `rawJsonBacked=false`.
+9. Record any retained admin-authored profile, Source Observation, fixture, job, raw JSON route, or compatibility path with owner, reason, removal date, removal criteria, and launch gate in #804.
 
 Forced reset with active jobs is allowed only for explicit pre-launch cleanup decisions. Normal rollback should cancel or drain active work, activate the prior profile version, and enqueue fresh import/reapply work if needed.
+
+The broad Provider Integration Profile patch route is quarantined under #789 for controlled internal or migration compatibility. Operators should not use it for normal profile authoring, validation, activation, dry-run, import, promotion/reapply, rollback, or retirement workflows.
 
 ## Retirement
 

@@ -6,11 +6,11 @@ Catalog owns migration, reset, backfill, and rollback behavior for Catalog Integ
 bounded-contexts/catalog/features/source-observations/api/catalog-integration-data-migration-reset.ts
 ```
 
-This plan implements #792 and consumes the compatibility policy from [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md).
+This plan implements #792, consumes the compatibility policy from [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md), and uses the retained-path inventory from [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md).
 
 ## Release Posture
 
-The control plane has not launched, so pre-launch integration data should be wiped and rebuilt by default. Compatibility or backfill is required only for intentionally retained data, launched contracts, deploy-skew safety, or a documented #804 retained-data exception with owner, reason, and removal criteria.
+The control plane has not launched, so pre-launch integration data should be wiped and rebuilt by default. Compatibility or backfill is required only for intentionally retained data, launched contracts, deploy-skew safety, or a documented #804 retained-data exception with owner, reason, removal date, removal criteria, and launch gate.
 
 The reset mode is `pre-launch-wipe-and-rebuild`:
 
@@ -80,15 +80,17 @@ SELECT COUNT(*) AS profile_section_diagnostics FROM catalog_provider_profile_ver
 Expected clean pre-launch reset result:
 
 - Seeded provider profile versions are present.
+- TCGdex, TCGplayer, and Scrydex provider setup can be recreated through the persisted profile version store.
 - Each seeded active provider has exactly one active profile version.
 - Source Observations are empty until re-imported.
 - Integration and bulk review job/work-unit tables are empty.
 - Legacy Source Observation profile references are zero.
 - Profile section projections exist for retained or seeded profile versions.
+- Normal Admin profile authoring uses section-scoped typed commands with `rawJsonBacked=false`; the broad profile patch route is quarantined under #789 or removed.
 
 ## Relationship To Adjacent Issues
 
-- #804 owns retained-data exceptions and removal of legacy compatibility code.
+- #804 owns retained-data exceptions, release cleanup inventory, and removal of legacy compatibility code in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md).
 - #789 owns raw JSON fallback retirement.
 - #794/#803 own provider payload, fixture, dry-run, diagnostic retention, redaction, and legal signoff.
 - #791 owns job idempotency and deploy-skew behavior.
