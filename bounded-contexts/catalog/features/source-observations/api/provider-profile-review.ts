@@ -4,25 +4,15 @@ import path from "node:path";
 import type { JsonObject, JsonValue } from "@chase-sets/primitives/json";
 import type {
   CatalogProviderIntegrationProfileAuthoringAudit,
-  CatalogProviderIntegrationProfile,
   CatalogProviderIntegrationProfileMigrationEvidence,
-  CatalogProviderIntegrationProfileRetirementPlan,
   CatalogProviderIntegrationProfileVersionDiagnostic,
   CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
 import { validateCatalogProviderIntegrationProfileVersion } from "./provider-integration-profiles";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import type {
-  CatalogProviderDuplicatePreventionContract,
   CatalogProviderExecutableMappingContract,
-  CatalogProviderExternalReferenceContract,
-  CatalogProviderMappingConnectorContract,
   CatalogProviderMappingValueExpression,
-  CatalogProviderNormalizedObservationContract,
-  CatalogProviderProfileFixtureContract,
-  CatalogProviderPromotionCommandPlanContract,
-  CatalogProviderReferenceHierarchyContract,
-  CatalogProviderSourceObservationContract,
 } from "./provider-integration-mapping-contract";
 import { evaluateCatalogProviderMappingExpression } from "./provider-mapping-interpreter";
 import type { CatalogProviderMappingInterpreterDiagnostic } from "./provider-mapping-interpreter";
@@ -40,11 +30,12 @@ import {
 import { catalogProviderProfileFixtureCases } from "./provider-profile-fixture-cases";
 import { catalogProviderRequiredFixtureFlows } from "./provider-integration-mapping-contract";
 import {
-  CatalogProviderProfileSectionValidationError,
-  parseCatalogProviderProfileSectionUpdateCommand,
-  type CatalogProviderProfileEditableSectionKey,
+  catalogProviderProfileEditableSectionMetadata,
+  toCatalogProviderProfileSectionPatch,
+  type CatalogProviderProfileEditableSectionMetadata,
   type CatalogProviderProfileSectionUpdateCommand,
-} from "./provider-profile-admin-contracts";
+  type CatalogProviderProfileVersionUpdatePatch,
+} from "./provider-profile-section-registry";
 
 type SourceObservationProfileVersionRecord = CatalogProviderIntegrationProfileVersionRecord &
   Readonly<{ executableMappingContract: CatalogProviderSourceObservationMappingContract }>;
@@ -98,17 +89,6 @@ export type CatalogProviderProfileVersionReview = Readonly<{
     status: "valid" | "invalid";
     diagnostics: readonly CatalogProviderProfileReviewDiagnostic[];
   }>;
-}>;
-
-export type CatalogProviderProfileVersionUpdatePatch = Readonly<{
-  lifecycle?: "draft" | "test";
-  profile?: CatalogProviderIntegrationProfileVersionRecord["profile"];
-  sourceContract?: CatalogProviderIntegrationProfileVersionRecord["sourceContract"];
-  fixtures?: CatalogProviderIntegrationProfileVersionRecord["fixtures"];
-  compatibilityMode?: CatalogProviderIntegrationProfileVersionRecord["compatibilityMode"];
-  retirementPlan?: CatalogProviderIntegrationProfileVersionRecord["retirementPlan"];
-  executableMappingContract?: CatalogProviderIntegrationProfileVersionRecord["executableMappingContract"] | null;
-  migrationEvidence?: CatalogProviderIntegrationProfileMigrationEvidence | null;
 }>;
 
 export type CatalogProviderProfileDryRunEvidence = Readonly<{
@@ -166,12 +146,7 @@ export type CatalogProviderProfileDuplicatePreventionCandidatePreview = Readonly
   evidenceSummaries: JsonValue;
 }>;
 
-export type CatalogProviderProfileEditableSection = Readonly<{
-  section: CatalogProviderProfileEditableSectionKey;
-  displayName: string;
-  requiredPermission: "catalog.manage";
-  rawJsonBacked: false;
-}>;
+export type CatalogProviderProfileEditableSection = CatalogProviderProfileEditableSectionMetadata;
 
 export type CatalogProviderProfileFixtureMetadata = Readonly<{
   flow: CatalogProviderProfileFixtureCase["flow"];
@@ -541,7 +516,7 @@ export async function updateCatalogProviderProfileSectionForReview(input: {
   audit?: CatalogProviderIntegrationProfileAuthoringAudit | null;
 }): Promise<CatalogProviderProfileVersionReview> {
   const existing = await requireProfileVersion(input.store, input.providerKey, input.profileVersion);
-  const patch = toProfileSectionPatch(existing, input.command);
+  const patch = toCatalogProviderProfileSectionPatch(existing, input.command);
   return updateCatalogProviderProfileVersionForReview({
     store: input.store,
     providerKey: input.providerKey,
@@ -594,35 +569,7 @@ export async function retireCatalogProviderProfileVersionForReview(input: {
 }
 
 function catalogProviderProfileEditableSections(): readonly CatalogProviderProfileEditableSection[] {
-  return [
-    editableSection("basics", "Basics"),
-    editableSection("provider-options", "Provider Options"),
-    editableSection("connector", "Connector"),
-    editableSection("catalog-field-mapping", "Catalog Field Mapping"),
-    editableSection("source-contract", "Source Contract"),
-    editableSection("fixtures", "Fixtures"),
-    editableSection("source-observation", "Source Observation"),
-    editableSection("normalized-observation", "Normalized Observation"),
-    editableSection("external-references", "External References"),
-    editableSection("selected-options", "Selected Options"),
-    editableSection("reference-hierarchy", "Reference Hierarchy"),
-    editableSection("duplicate-prevention", "Duplicate Prevention"),
-    editableSection("promotion-plan", "Promotion Plan"),
-    editableSection("retirement-plan", "Retirement Plan"),
-    editableSection("migration-evidence", "Migration Evidence"),
-  ];
-}
-
-function editableSection(
-  section: CatalogProviderProfileEditableSectionKey,
-  displayName: string,
-): CatalogProviderProfileEditableSection {
-  return {
-    section,
-    displayName,
-    requiredPermission: "catalog.manage",
-    rawJsonBacked: false,
-  };
+  return catalogProviderProfileEditableSectionMetadata();
 }
 
 function authoringFixtureCasesForVersion(
@@ -1065,210 +1012,6 @@ function toActivationReadiness(input: {
     requiresMigrationEvidence,
     referenceCount: input.referenceCount,
   };
-}
-
-function toProfileSectionPatch(
-  existing: CatalogProviderIntegrationProfileVersionRecord,
-  command: CatalogProviderProfileSectionUpdateCommand,
-): CatalogProviderProfileVersionUpdatePatch {
-  command = parseCatalogProviderProfileSectionUpdateCommand(command);
-
-  switch (command.section) {
-    case "basics":
-      return {
-        lifecycle: command.lifecycle,
-        compatibilityMode: command.compatibilityMode,
-        profile: {
-          ...existing.profile,
-          displayName: command.displayName ?? existing.profile.displayName,
-          status: command.status ?? existing.profile.status,
-          capabilities:
-            (command.capabilities as CatalogProviderIntegrationProfile["capabilities"] | undefined) ??
-            existing.profile.capabilities,
-          supportedScopes:
-            (command.supportedScopes as CatalogProviderIntegrationProfile["supportedScopes"] | undefined) ??
-            existing.profile.supportedScopes,
-          languageOptions: command.languageOptions ?? existing.profile.languageOptions,
-        },
-        executableMappingContract: existing.executableMappingContract
-          ? {
-              ...existing.executableMappingContract,
-              displayName: command.displayName ?? existing.executableMappingContract.displayName,
-              lifecycle: command.lifecycle ?? existing.lifecycle,
-            }
-          : undefined,
-      };
-    case "provider-options":
-      return {
-        profile: {
-          ...existing.profile,
-          optionQueries: command.optionQueries as CatalogProviderIntegrationProfile["optionQueries"],
-        },
-      };
-    case "connector":
-      return {
-        profile: {
-          ...existing.profile,
-          connector: command.connector as CatalogProviderIntegrationProfile["connector"],
-        },
-        executableMappingContract: existing.executableMappingContract
-          ? {
-              ...existing.executableMappingContract,
-              ...(command.mappingConnector
-                ? { connector: command.mappingConnector as CatalogProviderMappingConnectorContract }
-                : {}),
-            }
-          : undefined,
-      };
-    case "catalog-field-mapping":
-      return {
-        profile: {
-          ...existing.profile,
-          catalogFieldMapping: command.catalogFieldMapping as CatalogProviderIntegrationProfile["catalogFieldMapping"],
-        },
-      };
-    case "source-contract":
-      return {
-        sourceContract: command.sourceContract,
-        executableMappingContract: existing.executableMappingContract
-          ? {
-              ...existing.executableMappingContract,
-              sourceContract: command.sourceContract,
-            }
-          : undefined,
-      };
-    case "fixtures":
-      return {
-        fixtures: command.fixtures as CatalogProviderProfileFixtureContract,
-        executableMappingContract: existing.executableMappingContract
-          ? {
-              ...existing.executableMappingContract,
-              fixtures: command.fixtures as CatalogProviderProfileFixtureContract,
-            }
-          : undefined,
-      };
-    case "source-observation": {
-      const executableMappingContract = requireExecutableMappingContractForSection(existing, command.section);
-      return {
-        executableMappingContract: {
-          ...executableMappingContract,
-          sourceObservation:
-            (command.sourceObservation as CatalogProviderSourceObservationContract | null) ?? undefined,
-        },
-      };
-    }
-    case "normalized-observation":
-      return {
-        profile: command.normalizedObservationMapping
-          ? {
-              ...existing.profile,
-              normalizedObservationMapping:
-                command.normalizedObservationMapping as CatalogProviderIntegrationProfile["normalizedObservationMapping"],
-            }
-          : undefined,
-        executableMappingContract: command.normalizedObservationContract
-          ? {
-              ...requireExecutableMappingContractForSection(existing, command.section),
-              normalizedObservation:
-                command.normalizedObservationContract as CatalogProviderNormalizedObservationContract,
-            }
-          : undefined,
-      };
-    case "external-references":
-      return {
-        profile: command.externalReferenceExtractionRules
-          ? {
-              ...existing.profile,
-              externalReferenceExtractionRules:
-                command.externalReferenceExtractionRules as CatalogProviderIntegrationProfile["externalReferenceExtractionRules"],
-            }
-          : undefined,
-        executableMappingContract: command.externalReferenceContracts
-          ? {
-              ...requireExecutableMappingContractForSection(existing, command.section),
-              externalReferences:
-                command.externalReferenceContracts as readonly CatalogProviderExternalReferenceContract[],
-            }
-          : undefined,
-      };
-    case "selected-options":
-      return {
-        profile: {
-          ...existing.profile,
-          ...(command.selectedOptionMapping
-            ? {
-                selectedOptionMapping:
-                  command.selectedOptionMapping as CatalogProviderIntegrationProfile["selectedOptionMapping"],
-              }
-            : { selectedOptionMapping: undefined }),
-        },
-      };
-    case "reference-hierarchy":
-      return {
-        profile: command.referenceHierarchyMapping
-          ? {
-              ...existing.profile,
-              referenceHierarchyMapping:
-                command.referenceHierarchyMapping as CatalogProviderIntegrationProfile["referenceHierarchyMapping"],
-            }
-          : undefined,
-        executableMappingContract: command.referenceHierarchyContracts
-          ? {
-              ...requireExecutableMappingContractForSection(existing, command.section),
-              referenceHierarchy:
-                command.referenceHierarchyContracts as readonly CatalogProviderReferenceHierarchyContract[],
-            }
-          : undefined,
-      };
-    case "duplicate-prevention":
-      return {
-        profile:
-          command.duplicatePreventionMapping || command.ambiguityRules
-            ? {
-                ...existing.profile,
-                duplicatePreventionMapping:
-                  (command.duplicatePreventionMapping as
-                    | CatalogProviderIntegrationProfile["duplicatePreventionMapping"]
-                    | undefined) ?? existing.profile.duplicatePreventionMapping,
-                ambiguityRules:
-                  (command.ambiguityRules as CatalogProviderIntegrationProfile["ambiguityRules"] | undefined) ??
-                  existing.profile.ambiguityRules,
-              }
-            : undefined,
-        executableMappingContract: command.duplicatePreventionContract
-          ? {
-              ...requireExecutableMappingContractForSection(existing, command.section),
-              duplicatePrevention: command.duplicatePreventionContract as CatalogProviderDuplicatePreventionContract,
-            }
-          : undefined,
-      };
-    case "promotion-plan":
-      return {
-        executableMappingContract: {
-          ...requireExecutableMappingContractForSection(existing, command.section),
-          promotionCommandPlan: command.promotionCommandPlan as CatalogProviderPromotionCommandPlanContract,
-        },
-      };
-    case "retirement-plan":
-      return { retirementPlan: command.retirementPlan as CatalogProviderIntegrationProfileRetirementPlan | null };
-    case "migration-evidence":
-      return {
-        migrationEvidence: command.migrationEvidence as CatalogProviderIntegrationProfileMigrationEvidence | null,
-      };
-  }
-}
-
-function requireExecutableMappingContractForSection(
-  version: CatalogProviderIntegrationProfileVersionRecord,
-  section: CatalogProviderProfileEditableSectionKey,
-): CatalogProviderExecutableMappingContract {
-  if (!version.executableMappingContract) {
-    throw new CatalogProviderProfileSectionValidationError(
-      `Profile section '${section}' requires an executable mapping contract.`,
-    );
-  }
-
-  return version.executableMappingContract;
 }
 
 function toProfileVersionReview(

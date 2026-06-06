@@ -133,7 +133,7 @@ The Phase 1 reference record is `reference-cards:pokemon:single-card:source-obse
 
 ## Admin Section Command Contract
 
-Provider profile section updates use the shared `provider-profile-admin-contracts` module under Source Observations. The Hono route parses section update commands before invoking review services, and the Admin UI imports the same section key and command DTO types instead of maintaining a duplicate union. Invalid section commands return HTTP 400 with `invalid_profile_section_command` and a stable validation message.
+Provider profile section updates use the shared `provider-profile-admin-contracts` module under Source Observations. That compatibility contract delegates to the provider profile section registry, where each editable section entry owns its display metadata, command validator, and patch composer. The Hono route parses section update commands before invoking review services, and the Admin UI imports the same section key and command DTO types instead of maintaining a duplicate union. Invalid section commands return HTTP 400 with `invalid_profile_section_command` and a stable validation message.
 
 The URL section key is authoritative for section update routes. Request bodies may be wrapped in `{ "command": ... }` for compatibility, but normal Admin Control Plane workflows should send typed section commands rather than raw profile JSON snapshots.
 
