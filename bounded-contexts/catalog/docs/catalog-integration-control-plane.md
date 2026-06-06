@@ -141,6 +141,8 @@ Admin workflow modules consume stable query/read-model contracts from Source Obs
 
 Those contracts keep Catalog semantic readiness grouped by ingestion unit, provider transport readiness grouped by provider/adapter, and all profile, job, Source Observation, diagnostic, promotion, replay/reapply, lifecycle, and audit read models attributed to `unitKey`. New providers, product domains, or product forms should flow through generic ingestion-unit fields rather than creating admin page branches.
 
+Read-model performance and freshness expectations are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md), with the authoritative TypeScript surface in `admin-control-plane-read-model-slos.ts`. High-volume diagnostic, job, Source Observation, impact, promotion, rollback, and audit views must carry server-side pagination contracts and render `fresh`, `stale`, `lagging`, `partial`, or `unavailable` states instead of silently falling back to raw storage reads.
+
 ## Admin Section Command Contract
 
 Provider profile section updates use the shared `provider-profile-admin-contracts` module under Source Observations. That compatibility contract delegates to the provider profile section registry, where each editable section entry owns its display metadata, command validator, and patch composer. The Hono route parses section update commands before invoking review services, and the Admin UI imports the same section key and command DTO types instead of maintaining a duplicate union. Invalid section commands return HTTP 400 with `invalid_profile_section_command` and a stable validation message.
@@ -153,6 +155,7 @@ The URL section key is authoritative for section update routes. Request bodies m
 - [Provider Integration Mapping Contract](./provider-integration-mapping-contract.md)
 - [Provider Integration Admin Module](./provider-integration-admin-module.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
+- [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)
 - [Source Observation Integration](./source-observation-integration.md)
 - [Catalog Integration New-Provider Walkthrough](./catalog-integration-new-provider-walkthrough.md)
 - [Catalog Integration Milestone Release Plan](./catalog-integration-milestone-release-plan.md)
