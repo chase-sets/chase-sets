@@ -69,7 +69,7 @@ export type CatalogIntegrationLegacyCleanupReadinessFinding = Readonly<{
     | "raw-profile-patch-route-unowned"
     | "transitional-profile-without-retirement";
   severity: "p1" | "p2";
-  message: string;
+  releaseCheck: string;
 }>;
 
 export type CatalogIntegrationLegacyCleanupReadinessReport = Readonly<{
@@ -282,7 +282,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     findings.push({
       code: "source-observations-not-reset",
       severity: "p1",
-      message: "Clean pre-launch reset expects zero Source Observations before launch verification.",
+      releaseCheck: "Clean pre-launch reset expects zero Source Observations before launch verification.",
     });
   }
 
@@ -290,7 +290,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     findings.push({
       code: "legacy-source-observation-references",
       severity: "p1",
-      message: "Legacy Source Observation profile markers must be zero before launch.",
+      releaseCheck: "Legacy Source Observation profile markers must be zero before launch.",
     });
   }
 
@@ -298,7 +298,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     findings.push({
       code: "integration-jobs-not-reset",
       severity: "p1",
-      message: "Integration durable jobs and work units must be empty after pre-launch wipe/rebuild.",
+      releaseCheck: "Integration durable jobs and work units must be empty after pre-launch wipe/rebuild.",
     });
   }
 
@@ -306,7 +306,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     findings.push({
       code: "bulk-review-jobs-not-reset",
       severity: "p1",
-      message: "Bulk review jobs and work units must be empty after pre-launch wipe/rebuild.",
+      releaseCheck: "Bulk review jobs and work units must be empty after pre-launch wipe/rebuild.",
     });
   }
 
@@ -314,7 +314,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     findings.push({
       code: "provider-option-rate-limits-not-reset",
       severity: "p2",
-      message: "Learned provider option rate-limit cache must not be carried into launch.",
+      releaseCheck: "Learned provider option rate-limit cache must not be carried into launch.",
     });
   }
 
@@ -322,7 +322,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     findings.push({
       code: "seeded-profiles-missing",
       severity: "p1",
-      message: "Fresh bootstrap must recreate at least one active seeded Provider Integration Profile.",
+      releaseCheck: "Fresh bootstrap must recreate at least one active seeded Provider Integration Profile.",
     });
   }
 
@@ -330,7 +330,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     findings.push({
       code: "profile-sections-missing",
       severity: "p1",
-      message: "Provider profile section projections must rebuild from retained or seeded profile versions.",
+      releaseCheck: "Provider profile section projections must rebuild from retained or seeded profile versions.",
     });
   }
 
@@ -339,7 +339,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
       findings.push({
         code: "raw-json-section-editor",
         severity: "p1",
-        message: `Editable section ${section.section} is raw JSON backed and cannot be a normal operator workflow.`,
+        releaseCheck: `Editable section ${section.section} is raw JSON backed and cannot be a normal operator workflow.`,
       });
     }
   }
@@ -348,7 +348,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     findings.push({
       code: "raw-profile-patch-route-unowned",
       severity: "p1",
-      message: "The broad Provider Integration Profile patch route must be removed or quarantined under #789.",
+      releaseCheck: "The broad Provider Integration Profile patch route must be removed or quarantined under #789.",
     });
   }
 
@@ -357,7 +357,7 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
       findings.push({
         code: "transitional-profile-without-retirement",
         severity: "p1",
-        message: `${profile.providerKey} ${profile.profileVersion} uses transitional static compatibility without a retirement plan.`,
+        releaseCheck: `${profile.providerKey} ${profile.profileVersion} uses transitional static compatibility without a retirement plan.`,
       });
     }
   }
