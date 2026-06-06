@@ -196,6 +196,18 @@ test.describe("marketplace critical flows", () => {
     }
   });
 
+  test("signed-out checkout session access shows checkout recovery instead of root error @marketplace-checkout", async ({
+    page,
+  }) => {
+    const response = await page.goto("/checkout/chk_e2e_missing_access", { waitUntil: "domcontentloaded" });
+
+    expect(response, "checkout recovery should return a page response").not.toBeNull();
+    expect(response!.status(), "missing checkout access should not be a server error").toBe(401);
+    await expect(page.getByRole("heading", { name: /^Checkout access required$/i })).toBeVisible();
+    await expect(page.getByText("Your payment has not started.").first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: /^Marketplace error$/i })).toHaveCount(0);
+  });
+
   test("account can authenticate and review cart @marketplace-checkout", async ({ page }, testInfo) => {
     test.setTimeout(120_000);
 
