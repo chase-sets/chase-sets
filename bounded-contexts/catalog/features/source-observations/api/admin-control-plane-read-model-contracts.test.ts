@@ -4,6 +4,10 @@ import {
   catalogAdminControlPlaneQueryContractsByKey,
   catalogAdminControlPlaneQueryKeys,
   getCatalogAdminControlPlaneQueryContract,
+  type CatalogAdminActivationReadinessSummaryReadModel,
+  type CatalogAdminDryRunEvidenceSummaryReadModel,
+  type CatalogAdminProfileSectionStatusSummaryReadModel,
+  type CatalogAdminSemanticVersionComparisonReadModel,
   type CatalogAdminControlPlaneQueryKey,
 } from "./admin-control-plane-read-model-contracts";
 
@@ -119,5 +123,111 @@ describe("Admin Control Plane read-model contracts", () => {
       expect(contract.key).not.toMatch(/tcgdex|tcgplayer|scryfall|mtg|pokemon/);
       expect(contract.readModelName).not.toMatch(/Tcgdex|Tcgplayer|Scryfall|Mtg|Pokemon/);
     }
+  });
+
+  it("pins section-scoped diagnostics, readiness, compare, and dry-run DTO fields for #768", () => {
+    const profile = {
+      providerKey: "tcgdex",
+      profileKey: "pokemon-tcg",
+      profileVersion: "2026.06.04",
+      lifecycle: "draft",
+      active: false,
+      sourceMappingFingerprint: "fingerprint",
+    } as const;
+    const sectionSummary = {
+      generatedAt: "2026-06-06T00:00:00.000Z",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      profile,
+      sections: [
+        {
+          sectionKey: "migration-evidence",
+          domainConcept: "Migration Evidence",
+          editable: true,
+          validationStatus: "valid",
+          sectionStatus: "blocked",
+          sectionFingerprint: "section-fingerprint",
+          lastEditedAt: null,
+          diagnostics: [],
+          readinessCheckKeys: ["migration-evidence"],
+          semanticChangePaths: ["migrationEvidence"],
+        },
+      ],
+    } satisfies CatalogAdminProfileSectionStatusSummaryReadModel;
+    const semanticCompare = {
+      generatedAt: sectionSummary.generatedAt,
+      unitKey: sectionSummary.unitKey,
+      candidateProfile: profile,
+      activeProfile: null,
+      changes: [
+        {
+          sectionKey: "duplicate-prevention",
+          domainConcept: "Duplicate Prevention",
+          path: "executableMappingContract.duplicatePrevention",
+          label: "Duplicate Prevention",
+          candidate: {},
+          active: null,
+          changed: true,
+          severity: "error",
+          activationImpact: "Changes duplicate candidate order.",
+        },
+      ],
+      sections: [
+        {
+          sectionKey: "duplicate-prevention",
+          domainConcept: "Duplicate Prevention",
+          status: "error",
+          changePaths: ["executableMappingContract.duplicatePrevention"],
+        },
+      ],
+    } satisfies CatalogAdminSemanticVersionComparisonReadModel;
+    const readiness = {
+      generatedAt: sectionSummary.generatedAt,
+      unitKey: sectionSummary.unitKey,
+      profile,
+      status: "blocked",
+      checks: [
+        {
+          checkKey: "migration-evidence",
+          code: "activation-migration-evidence",
+          sectionKey: "migration-evidence",
+          domainConcept: "Migration Evidence",
+          status: "blocked",
+          path: "migrationEvidence.evidenceText",
+          diagnosticText: "Migration evidence is required.",
+          severity: "error",
+          remediation: "Record migration evidence for mapping fingerprint changes.",
+          blockingBehavior: "activation-blocking",
+        },
+      ],
+      groups: [
+        {
+          domainConcept: "Migration Evidence",
+          status: "blocked",
+          checkKeys: ["migration-evidence"],
+        },
+      ],
+    } satisfies CatalogAdminActivationReadinessSummaryReadModel;
+    const dryRun = {
+      generatedAt: sectionSummary.generatedAt,
+      unitKey: sectionSummary.unitKey,
+      profile,
+      status: "blocked",
+      redactionSummary: {},
+      diagnosticLinks: [
+        {
+          code: "missing-required-path",
+          path: "normalizedObservation.externalKey",
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
+          fixtureFlow: "normal",
+        },
+      ],
+      evidence: [],
+    } satisfies CatalogAdminDryRunEvidenceSummaryReadModel;
+
+    expect(sectionSummary.sections[0].sectionStatus).toBe("blocked");
+    expect(semanticCompare.sections[0].changePaths).toEqual(["executableMappingContract.duplicatePrevention"]);
+    expect(readiness.groups[0].checkKeys).toEqual(["migration-evidence"]);
+    expect(dryRun.diagnosticLinks[0].sectionKey).toBe("normalized-observation");
   });
 });

@@ -78,6 +78,15 @@ Planned Catalog projections defined for follow-on implementation:
 - `durable-job-checkpoint`: backed by durable job rows and work-unit checkpoints. Use for active and completed job progress.
 - `eventual-projection`: projected from events and operational evidence after the source transaction. Use for timeline views that can show projection lag.
 
+## Section-Scoped Semantics
+
+Profile authoring read models must carry section keys and domain concepts so Admin views can group diagnostics without parsing paths:
+
+- `profile-section-status-summary` exposes per-section `sectionStatus` values: valid, warning, error, or blocked.
+- `semantic-version-comparison` emits each change with `sectionKey` and `domainConcept`, plus section groups for compare panels.
+- `activation-readiness-summary` emits checks with diagnostic code, section key, domain concept, remediation, and blocking behavior, plus domain groups for activation dialogs.
+- `dry-run-evidence-summary` links diagnostics back to section keys and fixture flows so fixture failures can focus the relevant authoring controls.
+
 ## Error States
 
 Contracts declare operator-facing error states instead of leaking storage exceptions. Common states include:
