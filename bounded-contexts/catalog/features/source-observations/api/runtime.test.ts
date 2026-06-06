@@ -1563,6 +1563,35 @@ describe("source observation runtime", () => {
     await expect(services.listActiveIntegrationJobs({ context: null })).resolves.toEqual([]);
     expect(harness.queryCount).toBe(0);
   });
+
+  it("propagates credential readiness separately from semantic readiness", async () => {
+    const harness = createIntegrationJobDedupeHarness();
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const readiness = await services.getCatalogIntegrationControlPlaneReadiness();
+    const unitsByKey = Object.fromEntries(readiness.units.map((unit) => [unit.unitKey, unit]));
+
+    expect(unitsByKey["reference-cards:pokemon:single-card:source-observation-proof"]).toMatchObject({
+      semanticReadiness: "ready",
+      credentialReadiness: "not-required",
+      credentialReadinessState: "not-required",
+    });
+    expect(unitsByKey["tcgdex:pokemon:single-card:source-observation-import"]).toMatchObject({
+      semanticReadiness: "ready",
+      credentialReadiness: "not-required",
+      credentialReadinessState: "not-required",
+    });
+    expect(unitsByKey["tcgplayer:pokemon:single-card:source-observation-import"]).toMatchObject({
+      credentialReadiness: "blocked",
+      credentialReadinessState: "missing",
+      credentialDiagnosticCode: "credential-missing",
+      transportReadiness: "blocked",
+    });
+  });
 });
 
 function pokemonObservation(input: {

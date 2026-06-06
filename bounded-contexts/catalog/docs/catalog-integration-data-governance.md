@@ -21,6 +21,7 @@ The authoritative executable policy lives in `bounded-contexts/catalog/features/
 | Dry-run output evidence | Retained redacted summary | Redacted preview only | Catalog manage summary | Redacted summary only |
 | Engine diagnostic | Retained redacted summary | Redacted preview only | Catalog manage summary | Redacted summary only |
 | Provider transport diagnostic | Retained redacted summary | Redacted preview only | Support redacted detail | Redacted summary only |
+| Provider credential readiness | Retained redacted summary | Redacted preview only | Support redacted detail | Redacted summary only |
 | Audit evidence | Retained audit summary | Redacted preview only | Support redacted detail | Reviewed evidence package only |
 | Job progress summary | Retained redacted summary | Redacted preview only | Catalog manage summary | Redacted summary only |
 
@@ -52,7 +53,7 @@ Representative sensitive or excluded paths include:
 - price, market price, inventory, quantity, listing, latest sales, and order/message facts unless a different bounded context owns and governs them;
 - raw provider request or response bodies.
 
-Redacted summaries may include provider key, ingestion-unit key, profile version, fixture flow, source URL, source hash, diagnostic code, path, owner, uses, retry count, HTTP status, scope, job id, and normalized Catalog facts.
+Redacted summaries may include provider key, ingestion-unit key, profile version, fixture flow, source URL, source hash, diagnostic code, path, owner, uses, retry count, HTTP status, scope, credential readiness state, credential source kind, job id, and normalized Catalog facts.
 
 ## Admin UI And API Rules
 
@@ -73,7 +74,7 @@ Metric labels must stay bounded and must not include provider product ids, SKU i
 ## Provider Notes
 
 - TCGdex: public JSON payloads may be used for deterministic fixture-backed proof, but retained real-provider samples still require the signoff gate. The #800 proof intentionally reports `sourceHash: null` until the governed hash material and retention policy define how real-provider payload content hashes are computed and retained.
-- TCGplayer: cookie/session auth, seller/account data, price, inventory, listing, latest sales, and marketplace account identifiers are excluded from Catalog truth and hashes. The TCGplayer automation runbook remains the transport runbook for credential handling, throttling, and diagnostic redaction.
+- TCGplayer: cookie/session auth, seller/account data, price, inventory, listing, latest sales, and marketplace account identifiers are excluded from Catalog truth and hashes. The TCGplayer automation runbook remains the transport runbook for credential handling, throttling, and diagnostic redaction. Catalog stores only redacted credential-readiness state and source-kind metadata.
 - Scrydex/Scryfall-style and MTGJSON validation: fixture-backed validation may use redacted sample payloads only after the signoff gate is satisfied for the provider and data class. Rulings, legalities, prices, seller/inventory facts, and other non-Catalog-owned fields stay outside Catalog truth unless a later owner contract changes the boundary.
 
 ## Release Checklist

@@ -71,7 +71,10 @@ owns option and import transport. The adapter serves product-line, set-name,
 product, and SKU options, plans Product and Set Name import scopes, fetches
 automation-app Product Detail payloads, attaches source provenance, and reports
 credential/session, domain, retry, and rate-limit diagnostics without exposing
-production cookies. It must not use official TCGplayer API documentation as the
+production cookies. Credential readiness is reported separately from profile
+semantic readiness according to
+[Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md).
+It must not use official TCGplayer API documentation as the
 provider contract for this workstream, and it must not store price, latest sale,
 listing, order, message, or seller inventory facts as Catalog truth or source
 hash material. TCGplayer SKU evidence remains review evidence until a SKU's

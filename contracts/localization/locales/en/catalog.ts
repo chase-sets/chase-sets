@@ -319,12 +319,20 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrations.title": "Catalog Integrations",
   "catalog.features.sourceObservations.api.providerAdapters.referenceCards.fixture.backed.provider":
     "Reference provider uses fixture-backed payloads and does not require live provider transport.",
+  "catalog.features.sourceObservations.api.providerAdapters.referenceCards.credential.not.required":
+    "Reference fixture payloads do not require provider credentials.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgdex.json.transport.configured":
     "TCGdex JSON transport is configured for {connectorKind}.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgdex.credential.not.required":
+    "TCGdex public JSON transport does not require provider credentials.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.configured":
     "TCGplayer automation transport is configured for {connectorKind} with profile lifecycle {lifecycle}.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.unconfigured":
     "TCGplayer automation transport is not configured in this runtime.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured":
+    "TCGplayer automation credential/session readiness is configured.",
+  "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing":
+    "TCGplayer automation credential/session readiness is missing.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.domain.rate.limit.policy.configured":
     "TCGplayer domain throttling covers {domains}; retryable statuses are {retryableCodes}.",
   "catalog.features.sourceObservations.api.route.profile.review.unavailable":

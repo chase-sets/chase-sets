@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { createCatalogProviderCredentialReadiness } from "../catalog-integration-credential-readiness";
 import { defineCatalogIntegrationUnitKey } from "../integration-unit";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "../provider-integration-profiles";
 import { assembleCatalogProviderIngestionUnitProfileSections } from "../provider-profile-sections";
@@ -248,6 +249,38 @@ export function createTcgplayerProviderAdapter(
           ),
           unitKey,
         },
+      ];
+    },
+    async getCredentialReadiness() {
+      const profileVersion = await loadTcgplayerProfileVersion(options);
+      const unitKey =
+        profileVersion === null
+          ? TCGPLAYER_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY
+          : assembleCatalogProviderIngestionUnitProfileSections(profileVersion).ingestionUnitIdentity.value.unitKey;
+      const checkedAt = (options.now ?? (() => new Date()))().toISOString();
+
+      return [
+        createCatalogProviderCredentialReadiness({
+          providerKey: "tcgplayer",
+          unitKey,
+          requirement: "required",
+          sourceKind: options.client ? "operator-session" : "environment-secret",
+          state: options.client ? "configured" : "missing",
+          message: options.client
+            ? t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.configured")
+            : t("catalog.features.sourceObservations.api.providerAdapters.tcgplayer.credential.missing"),
+          checkedAt,
+          scope: {
+            environmentKey: "runtime",
+            secretReference: "tcgplayer-automation-client",
+          },
+          evidence: {
+            connectorKind: profileVersion?.profile.connector.kind ?? "tcgplayer-automation-client",
+            lifecycle: profileVersion?.lifecycle ?? "unregistered",
+            credentialRequirement: "required",
+            credentialState: options.client ? "configured" : "missing",
+          },
+        }),
       ];
     },
   };

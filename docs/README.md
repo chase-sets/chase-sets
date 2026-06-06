@@ -68,6 +68,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Integration Control Plane](../bounded-contexts/catalog/docs/catalog-integration-control-plane.md)
 - [Catalog Integration Diagnostic Taxonomy](../bounded-contexts/catalog/docs/catalog-integration-diagnostic-taxonomy.md)
 - [Catalog Integration Data Governance](../bounded-contexts/catalog/docs/catalog-integration-data-governance.md)
+- [Catalog Integration Credential Readiness](../bounded-contexts/catalog/docs/catalog-integration-credential-readiness.md)
 - [Catalog Integration Job Consistency](../bounded-contexts/catalog/docs/catalog-integration-job-consistency.md)
 - [Catalog Integration Schema Compatibility](../bounded-contexts/catalog/docs/catalog-integration-schema-compatibility.md)
 - [Catalog Integration Data Migration Reset](../bounded-contexts/catalog/docs/catalog-integration-data-migration-reset.md)

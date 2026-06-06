@@ -108,6 +108,21 @@ describe("ProviderAdapterRegistry", () => {
     expect(JSON.stringify(diagnostics)).not.toMatch(/promotion|replay|duplicate-prevention/i);
   });
 
+  it("keeps fixture-backed credential readiness explicit and secret-free", async () => {
+    const readiness = await referenceCardsAdapter().getCredentialReadiness();
+
+    expect(readiness).toEqual([
+      expect.objectContaining({
+        providerKey: "reference-cards",
+        requirement: "not-required",
+        sourceKind: "none",
+        state: "not-required",
+        importBlocking: false,
+      }),
+    ]);
+    expect(JSON.stringify(readiness)).not.toMatch(/token|cookie|secret|password/i);
+  });
+
   it("ships a fixture-backed reference adapter that proves the selected first slice", async () => {
     const adapter = createReferenceCardsProviderAdapter();
     const units = await adapter.listIntegrationUnits();
@@ -478,6 +493,42 @@ describe("ProviderAdapterRegistry", () => {
       /TCGAuthTicket|cookie|secret|promotion|replay/i,
     );
   });
+
+  it("reports TCGplayer credential readiness without exposing credential material", async () => {
+    const configured = await createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      client: tcgplayerClient(),
+      now: () => new Date("2026-06-06T00:00:00.000Z"),
+    }).getCredentialReadiness();
+    const unconfigured = await createTcgplayerProviderAdapter({
+      loadProfileVersions: async () => [requireTcgplayerProfileVersion()],
+      now: () => new Date("2026-06-06T00:00:00.000Z"),
+    }).getCredentialReadiness();
+
+    expect(configured).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        requirement: "required",
+        sourceKind: "operator-session",
+        state: "configured",
+        importBlocking: false,
+        diagnosticCode: null,
+      }),
+    ]);
+    expect(unconfigured).toEqual([
+      expect.objectContaining({
+        providerKey: "tcgplayer",
+        requirement: "required",
+        sourceKind: "environment-secret",
+        state: "missing",
+        importBlocking: true,
+        diagnosticCode: "credential-missing",
+      }),
+    ]);
+    expect(JSON.stringify([...configured, ...unconfigured])).not.toMatch(
+      /TCGAuthTicket|password|Bearer|authorization/i,
+    );
+  });
 });
 
 function referenceCardsAdapter(): ProviderAdapter<ReferenceCardPayload> {
@@ -531,6 +582,23 @@ function referenceCardsAdapter(): ProviderAdapter<ReferenceCardPayload> {
           code: "reference-fixtures-ready",
           severity: "info",
           message: "Reference fixture payloads are available.",
+        },
+      ];
+    },
+    async getCredentialReadiness() {
+      return [
+        {
+          providerKey: "reference-cards",
+          requirement: "not-required",
+          sourceKind: "none",
+          state: "not-required",
+          importBlocking: false,
+          optionQueryBlocking: false,
+          diagnosticCode: null,
+          message: "Reference fixture payloads do not require provider credentials.",
+          checkedAt: null,
+          scope: {},
+          evidence: { fixtureBacked: true },
         },
       ];
     },

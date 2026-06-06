@@ -155,6 +155,16 @@ describe("Catalog Integration diagnostic taxonomy", () => {
       blockingBehavior: "import-blocking",
       evidencePolicy: "credential-redacted",
     });
+    expect(getCatalogIntegrationDiagnosticDefinition("credential-invalid")).toMatchObject({
+      source: "credential-readiness",
+      blockingBehavior: "import-blocking",
+      evidencePolicy: "credential-redacted",
+    });
+    expect(getCatalogIntegrationDiagnosticDefinition("credential-revoked")).toMatchObject({
+      source: "credential-readiness",
+      blockingBehavior: "import-blocking",
+      evidencePolicy: "credential-redacted",
+    });
     expect(getCatalogIntegrationDiagnosticDefinition("read-model-unavailable")).toMatchObject({
       blockingBehavior: "read-model-blocking",
       evidencePolicy: "projection-metadata-only",

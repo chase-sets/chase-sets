@@ -120,6 +120,9 @@ export interface CatalogIntegrationControlPlaneUnitReadiness {
   ingestionPurpose: string | null;
   profileVersion: string;
   semanticReadiness: "ready" | "blocked";
+  credentialReadiness: "ready" | "blocked" | "not-required";
+  credentialReadinessState: "not-required" | "configured" | "missing" | "invalid" | "expired" | "revoked" | "unknown";
+  credentialDiagnosticCode: string | null;
   transportReadiness: "ready" | "blocked";
   fixtureValidationStatus: "ready" | "blocked";
   dryRunStatus: "completed" | "blocked";

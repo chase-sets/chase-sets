@@ -172,7 +172,10 @@ transport boundary for #786: it lists the
 product-line, set-name, product, and SKU option-query transport, plans Product
 and Set Name import scopes, fetches automation-app Product Detail payloads,
 attaches source provenance, and emits credential/session, domain, retry, and
-rate-limit diagnostics. It must not decide which TCGplayer facts are Catalog
+rate-limit diagnostics. Credential storage, validation, rotation, revocation,
+and readiness reporting remain adapter-owned according to
+[Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md).
+It must not decide which TCGplayer facts are Catalog
 Fields, which Product IDs are Catalog Item references, which SKUs are Product
 references, or whether a provider-product observation is promotable.
 

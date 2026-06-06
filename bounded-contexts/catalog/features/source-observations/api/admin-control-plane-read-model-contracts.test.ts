@@ -6,6 +6,8 @@ import {
   catalogAdminControlPlaneQueryKeys,
   getCatalogAdminControlPlaneQueryContract,
   type CatalogAdminActivationReadinessSummaryReadModel,
+  type CatalogAdminIntegrationHealthSummaryReadModel,
+  type CatalogAdminProviderTransportReadinessSummaryReadModel,
   type CatalogAdminDryRunEvidenceSummaryReadModel,
   type CatalogAdminImportJobProgressSummaryReadModel,
   type CatalogAdminProfileSectionStatusSummaryReadModel,
@@ -68,6 +70,11 @@ describe("Admin Control Plane read-model contracts", () => {
       grouping: "provider-adapter",
       unitKey: "optional",
       freshness: "request-time",
+      sources: [
+        expect.objectContaining({
+          name: "ProviderAdapterRegistry.getTransportDiagnostics/getCredentialReadiness",
+        }),
+      ],
     });
     expect(getCatalogAdminControlPlaneQueryContract("adapter-transport-diagnostics")).toMatchObject({
       grouping: "provider-adapter",
@@ -238,6 +245,51 @@ describe("Admin Control Plane read-model contracts", () => {
     expect(dryRun.diagnosticLinks[0].sectionKey).toBe("normalized-observation");
   });
 
+  it("pins credential readiness separately from semantic and transport readiness", () => {
+    const health = {
+      generatedAt: "2026-06-06T00:00:00.000Z",
+      units: [
+        {
+          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+          providerKey: "tcgplayer",
+          productDomain: "pokemon",
+          productForm: "single-card",
+          ingestionPurpose: "source-observation-import",
+          displayName: "TCGplayer Pokemon single-card Source Observation import",
+          activeProfile: null,
+          semanticReadiness: "ready",
+          credentialReadiness: "blocked",
+          credentialReadinessState: "missing",
+          credentialRequirement: "required",
+          transportReadiness: "ready",
+          fixtureValidationStatus: "ready",
+          dryRunStatus: "completed",
+          observationFacts: 1,
+          diagnostics: [],
+        },
+      ],
+    } satisfies CatalogAdminIntegrationHealthSummaryReadModel;
+    const providerSummary = {
+      generatedAt: health.generatedAt,
+      providers: [
+        {
+          providerKey: "tcgplayer",
+          adapterKey: "tcgplayer",
+          readiness: "blocked",
+          credentialReadiness: "blocked",
+          credentialReadinessState: "missing",
+          credentialRequirement: "required",
+          unitKeys: ["tcgplayer:pokemon:single-card:source-observation-import"],
+          diagnostics: [],
+        },
+      ],
+    } satisfies CatalogAdminProviderTransportReadinessSummaryReadModel;
+
+    expect(health.units[0].semanticReadiness).toBe("ready");
+    expect(health.units[0].credentialReadiness).toBe("blocked");
+    expect(providerSummary.providers[0].credentialReadinessState).toBe("missing");
+  });
+
   it("pins job consistency DTO fields for #791", () => {
     const summary = {
       generatedAt: "2026-06-06T00:00:00.000Z",
@@ -315,6 +367,7 @@ describe("Admin Control Plane read-model contracts", () => {
     ]);
     expect(catalogAdminControlPlaneQueryGovernanceDataClasses["adapter-transport-diagnostics"]).toEqual([
       "provider-transport-diagnostic",
+      "provider-credential-readiness",
     ]);
     expect(catalogAdminControlPlaneQueryGovernanceDataClasses["audit-evidence-timeline"]).toEqual(["audit-evidence"]);
   });
