@@ -137,6 +137,20 @@ export type ReviseCatalogItemMetadataCommand = Readonly<{
   description?: LocalizedTextMap;
 }>;
 
+export type RecordCatalogItemDisplayIdentityCommand = Readonly<{
+  type: "RecordCatalogItemDisplayIdentity";
+  catalogItemId: CatalogItemId;
+  languageCode?: string;
+  title: string;
+  subtitle?: string | null;
+  displayTemplateKey?: string | null;
+  displayTemplateTargetKind?: string | null;
+  displayTemplateTargetId?: string | null;
+  displayIdentityHash: string;
+  resolverVersion: number;
+  resolvedAt: string;
+}>;
+
 export type SetCatalogItemTagsCommand = Readonly<{
   type: "SetCatalogItemTags";
   tags: readonly string[];
@@ -203,6 +217,7 @@ export type CatalogItemCommand =
   | RemoveCatalogItemFromCategoryCommand
   | PublishCatalogItemCommand
   | ReviseCatalogItemMetadataCommand
+  | RecordCatalogItemDisplayIdentityCommand
   | SetCatalogItemTagsCommand
   | SetCatalogItemImageUrlsCommand
   | SetCatalogItemProductAssetSetsCommand
@@ -268,6 +283,24 @@ export type ItemPublishedEvent = DomainEvent<
 >;
 
 export type ItemMetadataRevisedEvent = DomainEvent<"catalog.catalog-item.metadata-revised", ItemMetadata>;
+
+export type ItemDisplayIdentityResolvedData = Readonly<{
+  catalogItemId: CatalogItemId;
+  languageCode: string;
+  title: string;
+  subtitle: string | null;
+  displayTemplateKey: string | null;
+  displayTemplateTargetKind: string | null;
+  displayTemplateTargetId: string | null;
+  displayIdentityHash: string;
+  resolverVersion: number;
+  resolvedAt: string;
+}>;
+
+export type ItemDisplayIdentityResolvedEvent = DomainEvent<
+  "catalog.catalog-item.display-identity-resolved",
+  ItemDisplayIdentityResolvedData
+>;
 
 export type ItemTagsSetEvent = DomainEvent<
   "catalog.catalog-item.tags-set",
@@ -337,6 +370,7 @@ export type CatalogItemEvent =
   | ItemCategoryRemovedEvent
   | ItemPublishedEvent
   | ItemMetadataRevisedEvent
+  | ItemDisplayIdentityResolvedEvent
   | ItemTagsSetEvent
   | ItemImageUrlsSetEvent
   | ItemProductAssetSetsSetEvent
@@ -490,6 +524,17 @@ export const decideCatalogItem: AggregateDecider<CatalogItemState, CatalogItemCo
           },
         },
       ];
+    case "RecordCatalogItemDisplayIdentity": {
+      requireCreatedItem(state);
+      assert(command.catalogItemId === state.id, "Display identity must target the current Catalog Item.");
+
+      return [
+        {
+          type: "catalog.catalog-item.display-identity-resolved",
+          data: normalizeDisplayIdentityResolvedData(command),
+        },
+      ];
+    }
     case "SetCatalogItemTags":
       requireCreatedItem(state);
       assertCatalogItemCanBeModified(state);
@@ -696,6 +741,8 @@ export const evolveCatalogItem: AggregateEvolver<CatalogItemState, CatalogItemEv
         subtitle: event.data.subtitle,
         description: event.data.description,
       };
+    case "catalog.catalog-item.display-identity-resolved":
+      return state;
     case "catalog.catalog-item.tags-set":
       return {
         ...state,
@@ -812,6 +859,41 @@ function normalizeLanguageCode(languageCode: string | undefined): string {
 
 function assertLocalizedTitle(title: LocalizedTextMap): void {
   assert(title.values?.en?.trim().length > 0, "Catalog items require an English title.");
+}
+
+function normalizeDisplayIdentityResolvedData(
+  command: RecordCatalogItemDisplayIdentityCommand,
+): ItemDisplayIdentityResolvedData {
+  const title = command.title.trim();
+  const subtitle = command.subtitle?.trim() || null;
+  const displayIdentityHash = command.displayIdentityHash.trim();
+  const resolvedAt = command.resolvedAt.trim();
+
+  assert(title.length > 0, "Resolved display identity requires a title.");
+  assert(displayIdentityHash.length > 0, "Resolved display identity requires a hash.");
+  assert(
+    Number.isInteger(command.resolverVersion) && command.resolverVersion > 0,
+    "Resolved display identity requires a positive resolver version.",
+  );
+  assert(!Number.isNaN(Date.parse(resolvedAt)), "Resolved display identity requires a valid resolved timestamp.");
+
+  return {
+    catalogItemId: command.catalogItemId,
+    languageCode: normalizeLanguageCode(command.languageCode),
+    title,
+    subtitle,
+    displayTemplateKey: normalizeNullableString(command.displayTemplateKey),
+    displayTemplateTargetKind: normalizeNullableString(command.displayTemplateTargetKind),
+    displayTemplateTargetId: normalizeNullableString(command.displayTemplateTargetId),
+    displayIdentityHash,
+    resolverVersion: command.resolverVersion,
+    resolvedAt,
+  };
+}
+
+function normalizeNullableString(value: string | null | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
 }
 
 function normalizeFieldValues(fieldValues: readonly ItemFieldValue[]): readonly ItemFieldValue[] {

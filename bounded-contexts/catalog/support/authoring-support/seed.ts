@@ -62,9 +62,7 @@ export async function seedTcgdexCatalogIntegrationProfile(
   if (await tableHasRows(services.db, "catalog_dimensions")) {
     console.log("Pokemon TCG catalog integration profile already exists. Reconciling fields.");
     const fields = await seedFields(services);
-    if (!(await tableHasRows(services.db, "catalog_display_templates"))) {
-      await seedDisplayTemplates(services);
-    }
+    await seedDisplayTemplates(services);
     return {
       ...staticTcgdexCatalogIntegrationIds(),
       fields,

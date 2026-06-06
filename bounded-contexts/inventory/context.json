@@ -13,12 +13,13 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "inventory-catalog-item-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.blueprint-assigned",
         "catalog.catalog-item.published",
         "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.display-identity-resolved",
         "catalog.catalog-item.external-catalog-item-reference-linked",
         "catalog.catalog-item.external-catalog-item-reference-unlinked",
         "catalog.catalog-item.external-product-reference-linked",

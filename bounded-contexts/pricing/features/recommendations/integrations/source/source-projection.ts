@@ -10,6 +10,13 @@ function extractIdFromStreamId(streamId: string, prefix: string): string {
   return streamId.slice(prefix.length);
 }
 
+type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
+  catalogItemId: string;
+  languageCode?: string;
+  title: string;
+  subtitle?: string | null;
+}>;
+
 export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
@@ -63,6 +70,25 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
              updated_at = $5
          WHERE catalog_item_id = $1`,
         [itemId, data.languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
+      );
+    },
+    "catalog.catalog-item.display-identity-resolved": async (event) => {
+      const data = event.data as CatalogItemDisplayIdentityResolvedEventData;
+
+      await db.query(
+        `UPDATE pricing_catalog_item_inputs
+         SET language_code = $2,
+             title = $3,
+             subtitle = $4,
+             updated_at = $5
+         WHERE catalog_item_id = $1`,
+        [
+          data.catalogItemId,
+          data.languageCode ?? "en",
+          data.title,
+          data.subtitle?.trim() || null,
+          event.timing.recordedAt,
+        ],
       );
     },
     "catalog.catalog-item.published": async (event) => {

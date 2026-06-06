@@ -25,6 +25,7 @@ Use these terms consistently across APIs, internal tools, docs, and formal UI co
 - `Catalog Item Image Fallback`
 - `Product Measure Profile`
 - `Resolved Product Measure`
+- `Resolved Display Identity`
 
 This glossary focuses on catalog truth and identity. Browsing, filtering, and listing aggregation belong to other bounded contexts such as Discovery and Marketplace.
 
@@ -52,6 +53,7 @@ The current implementation also uses four supporting authoring concepts:
 - `Reference Type` — a reusable kind of rich descriptive value, such as Expansion, Series, or Product Line
 - `Reference Record` — one rich reusable value under a Reference Type, such as Ascended Heroes under Expansion
 - `Display Template` — a reusable rule that resolves Catalog Item title and subtitle copy from Fields, Reference Records, Categories, Blueprints, or item-specific overrides
+- `Resolved Display Identity` — the Catalog-owned item-level title/subtitle fact produced from Display Templates and fallback metadata for downstream consumption
 - `External Catalog Item Reference` — a provider-scoped product identifier mapped to one Catalog Item
 - `External Product Reference` — a provider-scoped SKU or sellable identifier mapped to one Catalog Item plus selected Options for Product resolution
 - `Provider Integration Profile` — Catalog-owned configuration that defines how one provider's observations, lookup scopes, normalized facts, Catalog mappings, external references, and ambiguity rules are interpreted
@@ -91,6 +93,7 @@ The current implementation resolves valid Product combinations through blueprint
 - A `Reference Record` may be selected as a Field value on many Catalog Items.
 - A `Reference Record` may relate to other Reference Records.
 - A `Display Template` may target one Catalog Item, Reference Record, Category, Blueprint, or all Catalog Items.
+- A `Resolved Display Identity` belongs to one Catalog Item and one resolved language.
 - An `External Catalog Item Reference` belongs to one Catalog Item and does not carry selected Options.
 - An `External Product Reference` belongs to one Catalog Item and carries the selected Options needed to resolve the mapped Product.
 - A `Catalog Item Image Fallback` belongs to one Catalog Item and may point at a shared Catalog-owned asset used by many items.
@@ -122,6 +125,7 @@ Notes:
 - A reference-shaped Field value must point at one Catalog-owned Reference Record.
 - A Reference Record enriches item information but does not change `product_id`.
 - A Display Template changes display copy only. It never changes `catalog_item_id`, `product_id`, selected Options, or product-resolution validity.
+- Resolved Display Identity is the published Catalog Item display copy fact. Downstream contexts consume it instead of importing or interpreting Display Templates.
 - An External Catalog Item Reference must be scoped by provider and must map only to Catalog Item identity.
 - An External Product Reference must be scoped by provider and must map to selected Options that are valid for the Catalog Item's active Product schema.
 - A Catalog Item Image Fallback never changes `product_id`; it only describes fallback imagery for item presentation.
@@ -142,6 +146,7 @@ Preferred field names:
 - `reference_type_id`
 - `reference_record_id`
 - `display_template_id`
+- `display_identity_hash`
 - `provider_key`
 - `external_key`
 
@@ -201,6 +206,7 @@ Catalog defines:
 - the relationship between Dimensions, Options, and Products
 - the authoring relationship between Blueprints, Fields, Components, Categories, Reference Records, and Catalog Items
 - the template hierarchy used to resolve product-facing Catalog Item title and subtitle copy
+- the resolved item-level display identity fact published for downstream title and subtitle updates
 - external product references that map provider identifiers to Catalog Item and Product selection truth
 - external catalog item references that map provider product identifiers to Catalog Item truth
 - the review and promotion policy for provider Source Observations
@@ -217,4 +223,4 @@ Catalog does not define:
 
 ## One-Line Summary
 
-A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, Display Templates, and Product Measure Profiles support authoring, enriching, organizing, naming, and measuring that truth.
+A Catalog Item defines the thing, Dimensions define axes of variation, Options define selectable values, and a Product is a valid sellable combination of selected Options under the Catalog Item; Blueprints, Fields, Components, Categories, Reference Types, Reference Records, Display Templates, Resolved Display Identity, and Product Measure Profiles support authoring, enriching, organizing, naming, and measuring that truth.

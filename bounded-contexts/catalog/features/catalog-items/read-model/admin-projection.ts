@@ -7,7 +7,13 @@ import {
   type FieldValue,
   loadNameMap,
 } from "../../../support/projection-support/read-model-support";
-import { resolveCatalogItemDisplayIdentity } from "./display-identity";
+import { resolveAndPersistCatalogItemDisplayIdentity } from "./display-identity";
+import {
+  enqueueAllCatalogItemDisplayIdentityRecomputeWork,
+  enqueueCatalogItemDisplayIdentityRecomputeWork,
+  type DisplayIdentityRecomputeReason,
+  type DisplayIdentityRecomputeSource,
+} from "./display-identity-recompute";
 
 const ITEM_STREAM_PREFIX = "catalog.item-";
 const BLUEPRINT_STREAM_PREFIX = "catalog.blueprint-";
@@ -89,7 +95,8 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
   const blueprintName = item.blueprint_id
     ? (await loadNameMap(db, "catalog_blueprints", "blueprint_id", "name", [item.blueprint_id])).get(item.blueprint_id)
     : undefined;
-  const displayIdentity = await resolveCatalogItemDisplayIdentity(db, item);
+  const displayIdentityResult = await resolveAndPersistCatalogItemDisplayIdentity(db, item, item.updated_at);
+  const { identity: displayIdentity } = displayIdentityResult;
 
   await db.query(
     `INSERT INTO catalog_admin_catalog_item_list_pages (
@@ -99,18 +106,24 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
       title,
       subtitle_i18n,
       subtitle,
+      display_template_key,
+      display_identity_hash,
+      display_identity_resolved_at,
       blueprint_id,
       blueprint,
       status,
       tags,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       language_code = EXCLUDED.language_code,
       title_i18n = EXCLUDED.title_i18n,
       title = EXCLUDED.title,
       subtitle_i18n = EXCLUDED.subtitle_i18n,
       subtitle = EXCLUDED.subtitle,
+      display_template_key = EXCLUDED.display_template_key,
+      display_identity_hash = EXCLUDED.display_identity_hash,
+      display_identity_resolved_at = EXCLUDED.display_identity_resolved_at,
       blueprint_id = EXCLUDED.blueprint_id,
       blueprint = EXCLUDED.blueprint,
       status = EXCLUDED.status,
@@ -123,6 +136,9 @@ async function refreshCatalogAdminCatalogItemListPage(db: PgQueryable, itemId: s
       displayIdentity.title,
       item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
       displayIdentity.subtitle,
+      displayIdentity.templateKey,
+      displayIdentity.hash,
+      displayIdentityResult.resolvedAt,
       item.blueprint_id,
       item.blueprint_id && blueprintName
         ? JSON.stringify({ blueprintId: item.blueprint_id, name: blueprintName })
@@ -145,7 +161,8 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
   }
 
   const fieldValues = asArray<FieldValue>(item.field_values);
-  const displayIdentity = await resolveCatalogItemDisplayIdentity(db, item);
+  const displayIdentityResult = await resolveAndPersistCatalogItemDisplayIdentity(db, item, item.updated_at);
+  const { identity: displayIdentity } = displayIdentityResult;
   const categoryIds = asStringArray(item.category_ids);
   const fieldIds = fieldValues.map((entry) => entry.fieldId);
   const referenceIds = fieldValues
@@ -204,6 +221,9 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       title,
       subtitle_i18n,
       subtitle,
+      display_template_key,
+      display_identity_hash,
+      display_identity_resolved_at,
       description_i18n,
       description,
       blueprint_id,
@@ -218,13 +238,16 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       product_asset_sets,
       image_fallback,
       updated_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
     ON CONFLICT (catalog_item_id) DO UPDATE SET
       language_code = EXCLUDED.language_code,
       title_i18n = EXCLUDED.title_i18n,
       title = EXCLUDED.title,
       subtitle_i18n = EXCLUDED.subtitle_i18n,
       subtitle = EXCLUDED.subtitle,
+      display_template_key = EXCLUDED.display_template_key,
+      display_identity_hash = EXCLUDED.display_identity_hash,
+      display_identity_resolved_at = EXCLUDED.display_identity_resolved_at,
       description_i18n = EXCLUDED.description_i18n,
       description = EXCLUDED.description,
       blueprint_id = EXCLUDED.blueprint_id,
@@ -246,6 +269,9 @@ async function refreshCatalogAdminCatalogItemDetailPage(db: PgQueryable, itemId:
       displayIdentity.title,
       item.subtitle_i18n === null ? null : JSON.stringify(item.subtitle_i18n),
       displayIdentity.subtitle,
+      displayIdentity.templateKey,
+      displayIdentity.hash,
+      displayIdentityResult.resolvedAt,
       JSON.stringify(item.description_i18n ?? { defaultLocale: "en", values: { en: item.description } }),
       item.description,
       item.blueprint_id,
@@ -349,37 +375,50 @@ async function findCatalogItemIdsByCategory(db: PgQueryable, categoryId: string)
   return result.rows.map((row) => row.catalog_item_id);
 }
 
-async function refreshCatalogItemIds(db: PgQueryable, itemIds: readonly string[]): Promise<void> {
+async function refreshCatalogItemIds(
+  db: PgQueryable,
+  itemIds: readonly string[],
+  reason: DisplayIdentityRecomputeReason,
+  source: DisplayIdentityRecomputeSource = {},
+): Promise<void> {
+  await enqueueCatalogItemDisplayIdentityRecomputeWork(db, itemIds, reason, source);
+
   for (const itemId of new Set(itemIds)) {
     await refreshCatalogAdminCatalogItemPages(db, itemId);
   }
 }
 
-async function refreshAllCatalogItemIds(db: PgQueryable): Promise<void> {
-  const result = await db.query<{ catalog_item_id: string }>(
-    `SELECT catalog_item_id FROM catalog_items ORDER BY catalog_item_id ASC`,
-  );
+async function enqueueItemAndRefresh(
+  db: PgQueryable,
+  itemId: string,
+  reason: DisplayIdentityRecomputeReason,
+  source: DisplayIdentityRecomputeSource = {},
+): Promise<void> {
+  await refreshCatalogItemIds(db, [itemId], reason, source);
+}
 
-  await refreshCatalogItemIds(
-    db,
-    result.rows.map((row) => row.catalog_item_id),
-  );
+function sourceFromEvent(event: { type?: unknown; streamId?: unknown; timing?: { recordedAt?: unknown } }) {
+  return {
+    eventType: typeof event.type === "string" ? event.type : undefined,
+    streamId: typeof event.streamId === "string" ? event.streamId : undefined,
+    recordedAt: typeof event.timing?.recordedAt === "string" ? event.timing.recordedAt : undefined,
+  };
 }
 
 export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
-  async function refreshFieldDependents(fieldId: string) {
-    await refreshCatalogItemIds(db, await findCatalogItemIdsByField(db, fieldId));
+  async function refreshFieldDependents(fieldId: string, source: DisplayIdentityRecomputeSource) {
+    await refreshCatalogItemIds(db, await findCatalogItemIdsByField(db, fieldId), "field-changed", source);
   }
 
-  async function refreshBlueprintDependents(blueprintId: string) {
-    await refreshCatalogItemIds(db, await findCatalogItemIdsByBlueprint(db, blueprintId));
+  async function refreshBlueprintDependents(blueprintId: string, source: DisplayIdentityRecomputeSource) {
+    await refreshCatalogItemIds(db, await findCatalogItemIdsByBlueprint(db, blueprintId), "blueprint-changed", source);
   }
 
-  async function refreshCategoryDependents(categoryId: string) {
-    await refreshCatalogItemIds(db, await findCatalogItemIdsByCategory(db, categoryId));
+  async function refreshCategoryDependents(categoryId: string, source: DisplayIdentityRecomputeSource) {
+    await refreshCatalogItemIds(db, await findCatalogItemIdsByCategory(db, categoryId), "category-changed", source);
   }
 
-  async function refreshReferenceDependents(referenceRecordId: string) {
+  async function refreshReferenceDependents(referenceRecordId: string, source: DisplayIdentityRecomputeSource) {
     const relatedRecordIds = await findReferenceRecordIdsByRelatedReferenceGraph(db, referenceRecordId);
     const itemIds = await findCatalogItemIdsByReferenceRecord(db, referenceRecordId);
 
@@ -387,33 +426,68 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
       itemIds.push(...(await findCatalogItemIdsByReferenceRecord(db, relatedRecordId)));
     }
 
-    await refreshCatalogItemIds(db, [...new Set(itemIds)]);
+    await refreshCatalogItemIds(db, [...new Set(itemIds)], "reference-record-changed", source);
   }
 
   return {
     "catalog.catalog-item.created": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, event.data.itemId as string);
+      await enqueueItemAndRefresh(db, event.data.itemId as string, "catalog-item-changed", sourceFromEvent(event));
     },
     "catalog.catalog-item.blueprint-assigned": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefresh(
+        db,
+        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
+        "catalog-item-changed",
+        sourceFromEvent(event),
+      );
     },
     "catalog.catalog-item.field-value-set": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefresh(
+        db,
+        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
+        "catalog-item-changed",
+        sourceFromEvent(event),
+      );
     },
     "catalog.catalog-item.field-value-cleared": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefresh(
+        db,
+        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
+        "catalog-item-changed",
+        sourceFromEvent(event),
+      );
     },
     "catalog.catalog-item.category-assigned": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefresh(
+        db,
+        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
+        "catalog-item-changed",
+        sourceFromEvent(event),
+      );
     },
     "catalog.catalog-item.category-removed": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefresh(
+        db,
+        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
+        "catalog-item-changed",
+        sourceFromEvent(event),
+      );
     },
     "catalog.catalog-item.published": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefresh(
+        db,
+        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
+        "catalog-item-changed",
+        sourceFromEvent(event),
+      );
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
-      await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
+      await enqueueItemAndRefresh(
+        db,
+        extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX),
+        "catalog-item-changed",
+        sourceFromEvent(event),
+      );
     },
     "catalog.catalog-item.tags-set": async (event) => {
       await refreshCatalogAdminCatalogItemPages(db, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX));
@@ -456,80 +530,116 @@ export function buildCatalogAdminCatalogItemProjectionHandlers(db: PgQueryable):
     },
 
     "catalog.blueprint.revised": async (event) => {
-      await refreshBlueprintDependents(extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX));
+      await refreshBlueprintDependents(
+        extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
     "catalog.blueprint.published": async (event) => {
-      await refreshBlueprintDependents(extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX));
+      await refreshBlueprintDependents(
+        extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
     "catalog.blueprint.deprecated": async (event) => {
-      await refreshBlueprintDependents(extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX));
+      await refreshBlueprintDependents(
+        extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
     "catalog.blueprint.archived": async (event) => {
-      await refreshBlueprintDependents(extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX));
+      await refreshBlueprintDependents(
+        extractIdFromStreamId(event.streamId, BLUEPRINT_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
 
     "catalog.category.created": async (event) => {
-      await refreshCategoryDependents(event.data.categoryId as string);
+      await refreshCategoryDependents(event.data.categoryId as string, sourceFromEvent(event));
     },
     "catalog.category.revised": async (event) => {
-      await refreshCategoryDependents(extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
+      await refreshCategoryDependents(
+        extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
     "catalog.category.published": async (event) => {
-      await refreshCategoryDependents(extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
+      await refreshCategoryDependents(
+        extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
     "catalog.category.deprecated": async (event) => {
-      await refreshCategoryDependents(extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
+      await refreshCategoryDependents(
+        extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
     "catalog.category.archived": async (event) => {
-      await refreshCategoryDependents(extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX));
+      await refreshCategoryDependents(
+        extractIdFromStreamId(event.streamId, CATEGORY_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
 
     "catalog.field.created": async (event) => {
-      await refreshFieldDependents(event.data.fieldId as string);
+      await refreshFieldDependents(event.data.fieldId as string, sourceFromEvent(event));
     },
     "catalog.field.configured": async (event) => {
-      await refreshFieldDependents(extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX));
+      await refreshFieldDependents(extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX), sourceFromEvent(event));
     },
     "catalog.field.activated": async (event) => {
-      await refreshFieldDependents(extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX));
+      await refreshFieldDependents(extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX), sourceFromEvent(event));
     },
     "catalog.field.deprecated": async (event) => {
-      await refreshFieldDependents(extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX));
+      await refreshFieldDependents(extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX), sourceFromEvent(event));
     },
     "catalog.field.archived": async (event) => {
-      await refreshFieldDependents(extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX));
+      await refreshFieldDependents(extractIdFromStreamId(event.streamId, FIELD_STREAM_PREFIX), sourceFromEvent(event));
     },
 
     "catalog.reference-record.created": async (event) => {
-      await refreshReferenceDependents(event.data.referenceRecordId as string);
+      await refreshReferenceDependents(event.data.referenceRecordId as string, sourceFromEvent(event));
     },
     "catalog.reference-record.revised": async (event) => {
-      await refreshReferenceDependents(extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX));
+      await refreshReferenceDependents(
+        extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
     "catalog.reference-record.published": async (event) => {
-      await refreshReferenceDependents(extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX));
+      await refreshReferenceDependents(
+        extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
     "catalog.reference-record.deprecated": async (event) => {
-      await refreshReferenceDependents(extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX));
+      await refreshReferenceDependents(
+        extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
     "catalog.reference-record.archived": async (event) => {
-      await refreshReferenceDependents(extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX));
+      await refreshReferenceDependents(
+        extractIdFromStreamId(event.streamId, REFERENCE_RECORD_STREAM_PREFIX),
+        sourceFromEvent(event),
+      );
     },
 
-    "catalog.display-template.created": async () => {
-      await refreshAllCatalogItemIds(db);
+    "catalog.display-template.created": async (event) => {
+      await enqueueAllCatalogItemDisplayIdentityRecomputeWork(db, "display-template-changed", sourceFromEvent(event));
     },
-    "catalog.display-template.revised": async () => {
-      await refreshAllCatalogItemIds(db);
+    "catalog.display-template.revised": async (event) => {
+      await enqueueAllCatalogItemDisplayIdentityRecomputeWork(db, "display-template-changed", sourceFromEvent(event));
     },
-    "catalog.display-template.published": async () => {
-      await refreshAllCatalogItemIds(db);
+    "catalog.display-template.published": async (event) => {
+      await enqueueAllCatalogItemDisplayIdentityRecomputeWork(db, "display-template-changed", sourceFromEvent(event));
     },
-    "catalog.display-template.deprecated": async () => {
-      await refreshAllCatalogItemIds(db);
+    "catalog.display-template.deprecated": async (event) => {
+      await enqueueAllCatalogItemDisplayIdentityRecomputeWork(db, "display-template-changed", sourceFromEvent(event));
     },
-    "catalog.display-template.archived": async () => {
-      await refreshAllCatalogItemIds(db);
+    "catalog.display-template.archived": async (event) => {
+      await enqueueAllCatalogItemDisplayIdentityRecomputeWork(db, "display-template-changed", sourceFromEvent(event));
     },
   };
 }

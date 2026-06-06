@@ -45,6 +45,10 @@ export function buildGoogleShoppingFeedRowProjectionHandlers(db: PgQueryable): P
     "catalog.catalog-item.metadata-revised": async (event) => {
       await refreshCatalogItemRows(db, event, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX), "catalog");
     },
+    "catalog.catalog-item.display-identity-resolved": async (event) => {
+      const { catalogItemId } = event.data as { catalogItemId: string };
+      await refreshCatalogItemRows(db, event, catalogItemId, "catalog");
+    },
     "catalog.catalog-item.image-urls-set": async (event) => {
       await refreshCatalogItemRows(db, event, extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX), "image");
     },

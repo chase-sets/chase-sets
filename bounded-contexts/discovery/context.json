@@ -83,7 +83,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-search-item-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -98,6 +98,7 @@
         "catalog.catalog-item.category-removed",
         "catalog.catalog-item.published",
         "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.display-identity-resolved",
         "catalog.catalog-item.tags-set",
         "catalog.catalog-item.image-urls-set",
         "catalog.catalog-item.product-asset-sets-set",
@@ -129,7 +130,7 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-item-detail-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "catalog.category.created",
         "catalog.category.revised",
@@ -144,6 +145,7 @@
         "catalog.catalog-item.category-removed",
         "catalog.catalog-item.published",
         "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.display-identity-resolved",
         "catalog.catalog-item.tags-set",
         "catalog.catalog-item.image-urls-set",
         "catalog.catalog-item.product-asset-sets-set",
@@ -175,13 +177,14 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "discovery-google-shopping-feed-row-projection",
-      "subscriptionVersion": 1,
+      "subscriptionVersion": 2,
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.field-value-set",
         "catalog.catalog-item.field-value-cleared",
         "catalog.catalog-item.published",
         "catalog.catalog-item.metadata-revised",
+        "catalog.catalog-item.display-identity-resolved",
         "catalog.catalog-item.image-urls-set",
         "catalog.catalog-item.product-asset-sets-set",
         "catalog.catalog-item.image-fallback-set",

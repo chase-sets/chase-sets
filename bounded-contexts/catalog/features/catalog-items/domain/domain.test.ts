@@ -351,6 +351,53 @@ describe("CatalogItem aggregate", () => {
       expect(events[0].type).toBe("catalog.catalog-item.metadata-revised");
     });
 
+    it("records a resolved display identity fact for downstream consumers", () => {
+      const events = decide(decideCatalogItem, activeState(), {
+        type: "RecordCatalogItemDisplayIdentity" as const,
+        catalogItemId: itemId,
+        languageCode: "en-US",
+        title: " Test Card - Red ",
+        subtitle: " Near Mint ",
+        displayTemplateKey: " product-card-title ",
+        displayTemplateTargetKind: "blueprint",
+        displayTemplateTargetId: bpId,
+        displayIdentityHash: " display-hash-1 ",
+        resolverVersion: 1,
+        resolvedAt: "2026-06-06T12:00:00.000Z",
+      });
+
+      expect(events[0]).toMatchObject({
+        type: "catalog.catalog-item.display-identity-resolved",
+        data: {
+          catalogItemId: itemId,
+          languageCode: "en-US",
+          title: "Test Card - Red",
+          subtitle: "Near Mint",
+          displayTemplateKey: "product-card-title",
+          displayTemplateTargetKind: "blueprint",
+          displayTemplateTargetId: bpId,
+          displayIdentityHash: "display-hash-1",
+          resolverVersion: 1,
+          resolvedAt: "2026-06-06T12:00:00.000Z",
+        },
+      });
+    });
+
+    it("requires resolved display identity to target the current item", () => {
+      expectDomainError(
+        () =>
+          decide(decideCatalogItem, activeState(), {
+            type: "RecordCatalogItemDisplayIdentity" as const,
+            catalogItemId: "cat_other" as CatalogItemId,
+            title: "Other",
+            displayIdentityHash: "hash",
+            resolverVersion: 1,
+            resolvedAt: "2026-06-06T12:00:00.000Z",
+          }),
+        "Display identity must target the current Catalog Item.",
+      );
+    });
+
     it("lifecycle: active -> archived", () => {
       const archiveEvents = decide(decideCatalogItem, activeState(), { type: "ArchiveCatalogItem" as const });
 
@@ -434,6 +481,27 @@ describe("CatalogItem aggregate", () => {
       });
 
       expect(state.status).toBe("active");
+    });
+
+    it("replays display identity resolved events without changing canonical item state", () => {
+      const before = activeState();
+      const after = evolveCatalogItem(before, {
+        type: "catalog.catalog-item.display-identity-resolved",
+        data: {
+          catalogItemId: itemId,
+          languageCode: "en",
+          title: "Test Card - Red",
+          subtitle: null,
+          displayTemplateKey: "product-card-title",
+          displayTemplateTargetKind: "blueprint",
+          displayTemplateTargetId: bpId,
+          displayIdentityHash: "hash",
+          resolverVersion: 1,
+          resolvedAt: "2026-06-06T12:00:00.000Z",
+        },
+      });
+
+      expect(after).toBe(before);
     });
 
     it("evolves draft removed event", () => {

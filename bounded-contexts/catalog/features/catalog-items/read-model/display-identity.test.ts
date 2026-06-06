@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveCatalogItemDisplayIdentity } from "./display-identity";
+import { resolveAndPersistCatalogItemDisplayIdentity, resolveCatalogItemDisplayIdentity } from "./display-identity";
 
 describe("resolveCatalogItemDisplayIdentity", () => {
   it("uses blueprint templates with field and reference attributes", async () => {
@@ -114,31 +114,139 @@ describe("resolveCatalogItemDisplayIdentity", () => {
       templateKey: "pokemon-promo",
     });
   });
+
+  it("creates stable hash metadata for the resolved identity", async () => {
+    const db = displayIdentityDb({
+      fields: [{ field_id: "fld_name", key: "card-name" }],
+      references: [],
+      templates: [
+        {
+          key: "global-card",
+          target_kind: "global",
+          target_id: null,
+          priority: 1,
+          title_template: "{field.card-name}",
+          subtitle_template: null,
+          required_field_keys: ["card-name"],
+        },
+      ],
+    });
+    const item = {
+      catalog_item_id: "cat_hash",
+      language_code: "EN",
+      title: "Fallback",
+      subtitle: null,
+      blueprint_id: null,
+      category_ids: [],
+      field_values: [{ fieldId: "fld_name", value: "Hash Card" }],
+    };
+
+    const first = await resolveCatalogItemDisplayIdentity(db, item);
+    const second = await resolveCatalogItemDisplayIdentity(db, item);
+
+    expect(first).toMatchObject({
+      catalogItemId: "cat_hash",
+      languageCode: "en",
+      title: "Hash Card",
+      subtitle: null,
+      templateKey: "global-card",
+      templateTargetKind: "global",
+      templateTargetId: null,
+      resolverVersion: 1,
+    });
+    expect(first.hash).toMatch(/^[a-f0-9]{64}$/);
+    expect(second.hash).toBe(first.hash);
+  });
+
+  it("persists resolved identity and reports whether the hash changed", async () => {
+    const persistedWrites: unknown[][] = [];
+    const db = displayIdentityDb(
+      {
+        fields: [{ field_id: "fld_name", key: "card-name" }],
+        references: [],
+        templates: [
+          {
+            key: "global-card",
+            target_kind: "global",
+            target_id: null,
+            priority: 1,
+            title_template: "{field.card-name}",
+            subtitle_template: null,
+            required_field_keys: ["card-name"],
+          },
+        ],
+      },
+      { existingHash: "old-hash", persistedWrites },
+    );
+
+    const result = await resolveAndPersistCatalogItemDisplayIdentity(
+      db,
+      {
+        catalog_item_id: "cat_persist",
+        language_code: "en",
+        title: "Fallback",
+        subtitle: null,
+        blueprint_id: null,
+        category_ids: [],
+        field_values: [{ fieldId: "fld_name", value: "Persisted Card" }],
+      },
+      "2026-06-06T22:00:00.000Z",
+    );
+
+    expect(result.changed).toBe(true);
+    expect(persistedWrites).toHaveLength(1);
+    expect(persistedWrites[0]).toEqual([
+      "cat_persist",
+      "en",
+      "Persisted Card",
+      null,
+      "global-card",
+      "global",
+      null,
+      result.identity.hash,
+      1,
+      "2026-06-06T22:00:00.000Z",
+    ]);
+  });
 });
 
-function displayIdentityDb(data: {
-  fields: Array<{ field_id: string; key: string }>;
-  references: Array<{
-    reference_record_id: string;
-    type_key: string;
-    key: string;
-    name: string;
-    attributes: Record<string, unknown>;
-    relationships: unknown[];
-    status: string;
-  }>;
-  templates: Array<{
-    key: string;
-    target_kind: string;
-    target_id: string | null;
-    priority: number;
-    title_template: string;
-    subtitle_template: string | null;
-    required_field_keys: unknown;
-  }>;
-}) {
+function displayIdentityDb(
+  data: {
+    fields: Array<{ field_id: string; key: string }>;
+    references: Array<{
+      reference_record_id: string;
+      type_key: string;
+      key: string;
+      name: string;
+      attributes: Record<string, unknown>;
+      relationships: unknown[];
+      status: string;
+    }>;
+    templates: Array<{
+      key: string;
+      target_kind: string;
+      target_id: string | null;
+      priority: number;
+      title_template: string;
+      subtitle_template: string | null;
+      required_field_keys: unknown;
+    }>;
+  },
+  options: { existingHash?: string; persistedWrites?: unknown[][] } = {},
+) {
   return {
     async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[] }> {
+      if (sql.includes("FROM catalog_item_display_identities")) {
+        return {
+          rows: options.existingHash ? ([{ display_identity_hash: options.existingHash }] as T[]) : [],
+        };
+      }
+
+      if (sql.includes("INSERT INTO catalog_item_display_identities")) {
+        options.persistedWrites?.push([...(params ?? [])]);
+        return { rows: [] };
+      }
+
       if (sql.includes("FROM catalog_fields")) {
         const ids = Array.isArray(params?.[0]) ? params[0] : [];
         return { rows: data.fields.filter((field) => ids.includes(field.field_id)) as T[] };

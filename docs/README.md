@@ -53,6 +53,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.
 - [Google Shopping Operations](./runbooks/google-shopping-operations.md): Merchant Center launch checklist, worker config, operating cadence, pause/withdrawal, diagnostics owner routing, and provider incident response.
+- [Catalog Display Identity Propagation](./runbooks/catalog-display-identity-propagation.md): recomputation health, backfill, repair, downstream projection diagnosis, and rollout verification for resolved display identity.
 
 ## Owner-Owned Documentation
 
@@ -81,6 +82,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Admin Control Plane Query Contracts](../bounded-contexts/catalog/docs/admin-control-plane-query-contracts.md)
 - [Catalog Admin Control Plane Read-Model SLOs](../bounded-contexts/catalog/docs/admin-control-plane-read-model-slos.md)
 - [Catalog External Product References](../bounded-contexts/catalog/docs/external-product-references.md)
+- [Catalog Resolved Display Identity](../bounded-contexts/catalog/docs/resolved-display-identity.md)
 - [Catalog TCGplayer Automation Client Contract](../bounded-contexts/catalog/docs/tcgplayer-automation-client-contract.md)
 - [Catalog Admin Bulk Workflows](../bounded-contexts/catalog/docs/admin-bulk-workflows.md)
 - [Catalog Bulk Catalog Item Publish](../bounded-contexts/catalog/docs/bulk-catalog-item-publish.md)
