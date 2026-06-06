@@ -1,5 +1,8 @@
+// @vitest-environment jsdom
+
+import { fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CheckoutFulfillmentPreview } from "../../../support/request-support/api-client";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 import { CheckoutSessionPage } from "./checkout-page";
@@ -201,7 +204,7 @@ describe("checkout session page", () => {
     expect(markup).toContain("Product intent saved for live fulfillment preview");
     expect(markup).toContain("Marketplace checkout fee");
     expect(markup).toContain("Reviewed before payment");
-    expect(markup).toContain("Review latest total");
+    expect(markup).toContain("Refresh totals");
     expect(markup).toContain("Delivery estimate");
     expect(markup).toContain("Payment review comes next");
     expect(markup).not.toContain("lst_card_vault");
@@ -304,5 +307,23 @@ describe("checkout session page", () => {
     expect(providerStepMarkup).toContain("secure payment step before authorization");
     expect(providerStepMarkup).toContain("Create purchases and continue to secure payment");
     expect(providerStepMarkup).not.toContain("Place order with Bank account");
+  });
+
+  it("marks totals stale without submitting when checkout fields change or blur", () => {
+    const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
+
+    render(
+      <CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} paymentPreview={paymentPreview} />,
+    );
+
+    fireEvent.change(screen.getByLabelText(/Recipient name/), { target: { value: "Jamie Buyer" } });
+    fireEvent.blur(screen.getByLabelText(/Recipient name/));
+    fireEvent.change(screen.getByLabelText(/Shipping option/), { target: { value: "expedited" } });
+
+    expect(requestSubmit).not.toHaveBeenCalled();
+    expect(screen.getByText("Totals need refresh")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Refresh totals" }).length).toBeGreaterThan(0);
+
+    requestSubmit.mockRestore();
   });
 });

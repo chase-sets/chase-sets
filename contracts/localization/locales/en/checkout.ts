@@ -281,6 +281,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.transparent.totals": "Transparent totals before payment",
   "checkout.features.sessions.ui.checkoutPage.transparent.totals.description":
     "Shipping, taxes, service charges, and available balance credits are reviewed before the secure payment step.",
+  "checkout.features.sessions.ui.checkoutPage.totals.need.refresh": "Totals need refresh",
+  "checkout.features.sessions.ui.checkoutPage.totals.need.refresh.description":
+    "Refresh totals to review the latest shipping, tax, fee, and payment details before purchases are created.",
   "checkout.features.sessions.ui.checkoutPage.no.payment.today": "No payment today",
   "checkout.features.sessions.ui.checkoutPage.no.available.supply": "No available supply",
   "checkout.features.sessions.ui.checkoutPage.orders.then.payment.review":

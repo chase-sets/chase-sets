@@ -245,26 +245,86 @@ export function decodeFreshWriteReceipt(
   }
 }
 
-function tokenFromMetadata(source: unknown, nowMs: number): string | null {
-  const metadata =
-    typeof source === "object" && source !== null && ("commitPosition" in source || "commitPositions" in source)
-      ? (source as ResponseConsistencyMetadata)
-      : getResponseMetadata(source)?.consistency;
-  const commitPositions = metadata?.commitPositions ?? [];
-  const commitPosition = metadata?.commitPosition;
-  if (!commitPosition && commitPositions.length === 0) {
+function consistencyMetadataFromSource(source: unknown): ResponseConsistencyMetadata | null {
+  return typeof source === "object" && source !== null && ("commitPosition" in source || "commitPositions" in source)
+    ? (source as ResponseConsistencyMetadata)
+    : (getResponseMetadata(source)?.consistency ?? null);
+}
+
+function maxCommitPosition(left: string | undefined, right: string | undefined) {
+  if (!left) {
+    return right;
+  }
+  if (!right) {
+    return left;
+  }
+  return BigInt(right) > BigInt(left) ? right : left;
+}
+
+function mergeEventIds(left: readonly string[], right: readonly string[]) {
+  return [...new Set([...left, ...right])];
+}
+
+function freshWriteReceiptFromMetadataSources(sources: readonly unknown[], nowMs: number): FreshWriteReceipt | null {
+  let commitPosition: string | undefined;
+  const commitPositions = new Map<string, SourceCommitPosition>();
+
+  for (const source of sources) {
+    const metadata = consistencyMetadataFromSource(source);
+    commitPosition = maxCommitPosition(commitPosition, metadata?.commitPosition);
+
+    for (const position of metadata?.commitPositions ?? []) {
+      const current = commitPositions.get(position.sourceContextName);
+      if (!current) {
+        commitPositions.set(position.sourceContextName, position);
+        continue;
+      }
+
+      const maxGlobalPosition = maxCommitPosition(current.maxGlobalPosition, position.maxGlobalPosition);
+      commitPositions.set(position.sourceContextName, {
+        sourceContextName: position.sourceContextName,
+        maxGlobalPosition: maxGlobalPosition ?? position.maxGlobalPosition,
+        eventIds: mergeEventIds(current.eventIds, position.eventIds),
+      });
+    }
+  }
+
+  const mergedCommitPositions = [...commitPositions.values()].sort((left, right) =>
+    left.sourceContextName.localeCompare(right.sourceContextName),
+  );
+  if (!commitPosition && mergedCommitPositions.length === 0) {
     return null;
   }
 
-  return encodeFreshWriteReceipt({
+  return {
     observedAtMs: nowMs,
     ...(commitPosition ? { commitPosition } : {}),
-    sources: commitPositions,
-  });
+    sources: mergedCommitPositions,
+  };
+}
+
+function tokenFromMetadataSources(sources: readonly unknown[], nowMs: number): string | null {
+  const receipt = freshWriteReceiptFromMetadataSources(sources, nowMs);
+  return receipt ? encodeFreshWriteReceipt(receipt) : null;
 }
 
 export function appendFreshWriteToken(path: string, source: unknown, nowMs = Date.now()): string {
-  const token = tokenFromMetadata(source, nowMs);
+  const token = tokenFromMetadataSources([source], nowMs);
+  if (!token) {
+    return path;
+  }
+
+  const url = new URL(path, "https://chase-sets.local");
+  url.searchParams.set(FRESH_WRITE_PARAM, token);
+  return pathFromUrl(url, path);
+}
+
+export function appendFreshWriteTokenFromSources(
+  path: string,
+  sources: readonly unknown[],
+  nowMs = Date.now(),
+): string {
+  const token = tokenFromMetadataSources(sources, nowMs);
   if (!token) {
     return path;
   }
