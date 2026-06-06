@@ -70,6 +70,7 @@ The admin module should make that boundary visible:
 Diagnostics must be actionable without leaking provider-sensitive material:
 
 - Messages should name the section, field path, fixture flow, severity, blocking state, and recommended correction.
+- Diagnostic codes, sources, severities, blocking behavior, visibility, remediation, metric keys, and evidence policy are governed by [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md).
 - Redaction summaries should count redacted payload fields and evidence categories without showing secrets, pricing, inventory, seller, listing, order, message, or operations material.
 - Unsafe evidence categories must block activation and must not enter normalized Catalog truth, hash material, merge identity, duplicate-prevention identity, promotion commands, logs, or UI text.
 
