@@ -28,6 +28,8 @@ Provider adapters own transport:
 - typed raw payload acquisition
 - payload provenance and transport diagnostics
 
+Source Observation runtime services are exposed as focused control-plane facets. Provider adapters, provider-backed import orchestration, option queries, Catalog Integration Engine behavior, provider profile authoring support, review actions, promotion/reapply, bulk review jobs, integration jobs, read queries, retention, and projectors each have their own service contract. The aggregate Source Observation runtime remains a deployable composition convenience, but route and worker seams should depend on the smallest composed facets they need.
+
 Provider profiles describe Catalog-facing semantics for one or more ingestion units:
 
 - profile lifecycle metadata

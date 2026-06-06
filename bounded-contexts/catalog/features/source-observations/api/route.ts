@@ -23,11 +23,31 @@ import {
   updateCatalogProviderProfileVersionForReview,
 } from "./provider-profile-review";
 import type { CatalogProviderIntegrationProfileVersionRecord } from "./provider-integration-profiles";
-import type { SourceObservationServices } from "./runtime";
+import type {
+  BulkReviewJobServices,
+  CatalogIntegrationEngineServices,
+  IntegrationJobServices,
+  PromotionReapplyServices,
+  ProviderImportOrchestrationServices,
+  ProviderOptionQueryServices,
+  ProviderProfileAdminServices,
+  SourceObservationReadServices,
+  SourceObservationReviewServices,
+} from "./runtime";
 import type { SourceObservationFilterScope } from "../read-model/queries";
 
+export type SourceObservationRouteServices = SourceObservationReadServices &
+  ProviderOptionQueryServices &
+  ProviderProfileAdminServices &
+  CatalogIntegrationEngineServices &
+  ProviderImportOrchestrationServices &
+  SourceObservationReviewServices &
+  PromotionReapplyServices &
+  BulkReviewJobServices &
+  IntegrationJobServices;
+
 export function sourceObservationRoutes(
-  services: SourceObservationServices,
+  services: SourceObservationRouteServices,
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
@@ -759,7 +779,7 @@ function parseObservationIds(input: unknown): string[] {
 }
 
 function streamBulkJobEvents(
-  services: SourceObservationServices,
+  services: BulkReviewJobServices,
   jobId: string,
   request: Request,
   context: CatalogAuthoringEnv["Variables"]["context"],
@@ -782,7 +802,7 @@ function streamBulkJobEvents(
 }
 
 function streamIntegrationJobEvents(
-  services: SourceObservationServices,
+  services: IntegrationJobServices,
   jobId: string,
   request: Request,
   context: CatalogAuthoringEnv["Variables"]["context"],

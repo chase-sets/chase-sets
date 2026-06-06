@@ -273,22 +273,24 @@ function createCatalogBulkJobRunners(
   services: Readonly<Record<string, unknown>>,
   input: Pick<ReturnType<typeof loadConfig>, "workerId" | "leaseTtlMs">,
 ): readonly WorkerRunner[] {
+  type CatalogSourceObservationJobProcessor = Readonly<{
+    processNextBulkReviewJob?: (input: {
+      claimOwnerId: string;
+      claimTtlMs: number;
+      signal?: AbortSignal;
+      throwIfLeaseLost?: () => void;
+    }) => Promise<number>;
+    processNextIntegrationJob?: (input: {
+      claimOwnerId: string;
+      claimTtlMs: number;
+      signal?: AbortSignal;
+      throwIfLeaseLost?: () => void;
+    }) => Promise<number>;
+  }>;
+
   const catalog = services.catalog as
     | {
-        sourceObservations?: {
-          processNextBulkReviewJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-          processNextIntegrationJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
+        sourceObservations?: CatalogSourceObservationJobProcessor;
         authoringBulkJobs?: {
           processNext?: (input: {
             claimOwnerId: string;
