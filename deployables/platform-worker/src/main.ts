@@ -752,28 +752,30 @@ function createCatalogBulkJobRunners(
     | "sourceObservationIntegrationJobMaxActiveClaimsPerJob"
   >,
 ): readonly WorkerRunner[] {
+  type CatalogSourceObservationJobProcessor = Readonly<{
+    processNextBulkReviewJob?: (input: {
+      claimOwnerId: string;
+      claimTtlMs: number;
+      workflowMaxActiveClaims?: number;
+      jobMaxActiveClaims?: number;
+      laneName?: string | null;
+      signal?: AbortSignal;
+      throwIfLeaseLost?: () => void;
+    }) => Promise<number>;
+    processNextIntegrationJob?: (input: {
+      claimOwnerId: string;
+      claimTtlMs: number;
+      workflowMaxActiveClaims?: number;
+      jobMaxActiveClaims?: number;
+      laneName?: string | null;
+      signal?: AbortSignal;
+      throwIfLeaseLost?: () => void;
+    }) => Promise<number>;
+  }>;
+
   const catalog = services.catalog as
     | {
-        sourceObservations?: {
-          processNextBulkReviewJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-          processNextIntegrationJob?: (input: {
-            claimOwnerId: string;
-            claimTtlMs: number;
-            workflowMaxActiveClaims?: number;
-            jobMaxActiveClaims?: number;
-            laneName?: string | null;
-            signal?: AbortSignal;
-            throwIfLeaseLost?: () => void;
-          }) => Promise<number>;
-        };
+        sourceObservations?: CatalogSourceObservationJobProcessor;
         authoringBulkJobs?: {
           processNext?: (input: {
             claimOwnerId: string;

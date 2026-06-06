@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { sourceObservationRoutes } from "./route";
-import type { SourceObservationServices } from "./runtime";
+import type { SourceObservationRouteServices } from "./route";
 import type { CatalogProviderIntegrationProfileVersionStore } from "./provider-integration-profile-store";
 import {
   catalogProviderIntegrationProfileVersions,
@@ -19,7 +19,7 @@ const context: EventStoreContext = {
 };
 
 function buildApp(
-  services: SourceObservationServices,
+  services: SourceObservationRouteServices,
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
@@ -41,7 +41,7 @@ describe("source observation routes", () => {
     }));
     const services = {
       listSourceObservations,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations?source=tcgdex&language=en&setId=base1&limit=50&offset=0");
@@ -59,7 +59,7 @@ describe("source observation routes", () => {
   });
 
   it("returns a structured error when a provider profile section command fails shared contract parsing", async () => {
-    const app = buildApp({} as SourceObservationServices, {} as CatalogProviderIntegrationProfileVersionStore);
+    const app = buildApp({} as SourceObservationRouteServices, {} as CatalogProviderIntegrationProfileVersionStore);
 
     const response = await app.request(
       "/source-observations/provider-profiles/tcgdex/2026.06.04/sections/provider-options",
@@ -97,7 +97,7 @@ describe("source observation routes", () => {
     }));
     const services = {
       previewPromoteObservationScope,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/bulk-promote/preview", {
@@ -146,7 +146,7 @@ describe("source observation routes", () => {
     ]);
     const services = {
       listIntegrationScopes,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/integration-scopes?source=tcgdex&language=en&setId=base1");
@@ -180,7 +180,7 @@ describe("source observation routes", () => {
     const enqueueIntegrationJob = vi.fn(async () => job);
     const services = {
       enqueueIntegrationJob,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/imports/tcgdex-set", {
@@ -234,7 +234,7 @@ describe("source observation routes", () => {
     const services = {
       getIntegrationJob,
       listIntegrationJobEvents,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/integration-jobs/job_import_base1/events");
@@ -267,7 +267,7 @@ describe("source observation routes", () => {
       listTcgdexLanguages,
       listTcgdexSeries,
       listTcgdexExpansions,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const languagesResponse = await app.request("/source-observations/tcgdex/languages");
@@ -317,7 +317,7 @@ describe("source observation routes", () => {
     ]);
     const services = {
       listIntegrationOptions,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request(
@@ -383,7 +383,7 @@ describe("source observation routes", () => {
     }));
     const services = {
       getCatalogIntegrationControlPlaneReadiness,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/integration-control-plane/readiness");
@@ -403,7 +403,7 @@ describe("source observation routes", () => {
   });
 
   it("clones provider profile versions through the admin API", async () => {
-    const services = {} as SourceObservationServices;
+    const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore();
     const app = buildApp(services, store);
 
@@ -433,7 +433,7 @@ describe("source observation routes", () => {
   });
 
   it("updates provider profile sections through typed admin commands", async () => {
-    const services = {} as SourceObservationServices;
+    const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore([
       ...catalogProviderIntegrationProfileVersions,
       profileVersion("tcgdex", {
@@ -495,7 +495,7 @@ describe("source observation routes", () => {
     const services = {
       getSelectedOptionAuthoringSchema,
       getPromotionTargetAuthoringSchema,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const store = mutableProfileStore([
       ...catalogProviderIntegrationProfileVersions,
       profileVersion("tcgdex", {
@@ -559,7 +559,7 @@ describe("source observation routes", () => {
       },
       evidenceSummaries: [],
     }));
-    const services = { previewDuplicatePreventionCandidates } as unknown as SourceObservationServices;
+    const services = { previewDuplicatePreventionCandidates } as unknown as SourceObservationRouteServices;
     const store = mutableProfileStore([
       ...catalogProviderIntegrationProfileVersions,
       profileVersion("tcgdex", {
@@ -594,7 +594,7 @@ describe("source observation routes", () => {
   });
 
   it("returns structured bad requests for invalid profile section commands", async () => {
-    const services = {} as SourceObservationServices;
+    const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore([
       profileVersion("tcgdex", {
         profileVersion: "2026.06.04",
@@ -626,7 +626,7 @@ describe("source observation routes", () => {
   });
 
   it("returns structured bad requests for empty deep profile section commands", async () => {
-    const services = {} as SourceObservationServices;
+    const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore([
       profileVersion("tcgdex", {
         profileVersion: "2026.06.04",
@@ -655,7 +655,7 @@ describe("source observation routes", () => {
   });
 
   it("returns a structured bad request for invalid provider profile authoring JSON", async () => {
-    const services = {} as SourceObservationServices;
+    const services = {} as SourceObservationRouteServices;
     const app = buildApp(services, mutableProfileStore());
 
     const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.03/clone", {
@@ -674,7 +674,7 @@ describe("source observation routes", () => {
   });
 
   it("returns structured diagnostics when provider profile activation is blocked", async () => {
-    const services = {} as SourceObservationServices;
+    const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore();
     const app = buildApp(services, store);
     await app.request("/source-observations/provider-profiles/tcgdex/2026.06.03/clone", {
@@ -707,7 +707,7 @@ describe("source observation routes", () => {
     const enqueueIntegrationJob = vi.fn(async () => job);
     const services = {
       enqueueIntegrationJob,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/integration-jobs", {
@@ -738,7 +738,7 @@ describe("source observation routes", () => {
     const enqueueIntegrationJob = vi.fn(async () => job);
     const services = {
       enqueueIntegrationJob,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/integration-jobs", {
@@ -777,7 +777,7 @@ describe("source observation routes", () => {
     });
     const services = {
       enqueueIntegrationJob,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/integration-jobs", {
@@ -812,7 +812,7 @@ describe("source observation routes", () => {
     const listActiveIntegrationJobs = vi.fn(async () => [activeJob]);
     const services = {
       listActiveIntegrationJobs,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/integration-jobs/active");
@@ -833,7 +833,7 @@ describe("source observation routes", () => {
     const services = {
       getIntegrationJob,
       listIntegrationJobEvents,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/integration-jobs/job_integration/events");
@@ -858,7 +858,7 @@ describe("source observation routes", () => {
     const enqueueBulkReviewJob = vi.fn(async () => job);
     const services = {
       enqueueBulkReviewJob,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/bulk-promote", {
@@ -904,7 +904,7 @@ describe("source observation routes", () => {
     }));
     const services = {
       previewReapplyObservationScope,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/reapply/preview", {
@@ -941,7 +941,7 @@ describe("source observation routes", () => {
     const enqueueIntegrationJob = vi.fn(async () => job);
     const services = {
       enqueueIntegrationJob,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/reapply", {
@@ -997,7 +997,7 @@ describe("source observation routes", () => {
     const services = {
       getIntegrationJob,
       listIntegrationJobEvents,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/integration-jobs/job_reapply_progress/events");
@@ -1018,7 +1018,7 @@ describe("source observation routes", () => {
     const enqueueBulkReviewJob = vi.fn(async () => job);
     const services = {
       enqueueBulkReviewJob,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/bulk-promote", {
@@ -1075,7 +1075,7 @@ describe("source observation routes", () => {
     const services = {
       getBulkReviewJob,
       listBulkReviewJobEvents,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/bulk-jobs/job_1/events");
@@ -1091,7 +1091,7 @@ describe("source observation routes", () => {
   it("requires a reason for bulk rejection", async () => {
     const services = {
       rejectObservations: vi.fn(),
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/bulk-reject", {
@@ -1114,7 +1114,7 @@ describe("source observation routes", () => {
     const enqueueBulkReviewJob = vi.fn(async () => job);
     const services = {
       enqueueBulkReviewJob,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/bulk-reject", {
@@ -1151,7 +1151,7 @@ describe("source observation routes", () => {
     const enqueueBulkReviewJob = vi.fn(async () => job);
     const services = {
       enqueueBulkReviewJob,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/bulk-reject", {
@@ -1219,7 +1219,7 @@ describe("source observation routes", () => {
     const services = {
       getBulkReviewJob,
       listBulkReviewJobEvents,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/bulk-jobs/job_2/events");
@@ -1257,7 +1257,7 @@ describe("source observation routes", () => {
     const listActiveBulkReviewJobs = vi.fn(async () => [activeJob]);
     const services = {
       listActiveBulkReviewJobs,
-    } as unknown as SourceObservationServices;
+    } as unknown as SourceObservationRouteServices;
     const app = buildApp(services);
 
     const response = await app.request("/source-observations/bulk-jobs/active");

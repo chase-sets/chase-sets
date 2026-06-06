@@ -398,8 +398,15 @@ export type CatalogIntegrationControlPlaneDryRunEvidence = Readonly<{
   normalizedFacts: Readonly<Record<string, string>>;
 }>;
 
-export type SourceObservationServices = Readonly<{
+export type SourceObservationCommandServices = Readonly<{
   commandHandler: CommandHandler<SourceObservationCommand, SourceObservationState, SourceObservationEvent>;
+}>;
+
+export type ProviderAdapterServices = Readonly<{
+  providerAdapterRegistry: ProviderAdapterRegistry;
+}>;
+
+export type ProviderImportOrchestrationServices = Readonly<{
   importTcgdexSet: (input: {
     languageCode: string;
     setId: string;
@@ -413,6 +420,9 @@ export type SourceObservationServices = Readonly<{
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
   }) => Promise<SourceObservationIntegrationJobResult>;
+}>;
+
+export type ProviderOptionQueryServices = Readonly<{
   listTcgdexLanguages: () => Promise<readonly TcgdexLanguageOption[]>;
   listTcgdexSeries: (input: { languageCode: string }) => Promise<readonly TcgdexSeriesOption[]>;
   listTcgdexExpansions: (input: {
@@ -425,18 +435,36 @@ export type SourceObservationServices = Readonly<{
     languageCode?: string | null;
     parentValue?: string | null;
   }) => Promise<readonly SourceObservationIntegrationOption[]>;
+}>;
+
+export type ProviderProfileAdminServices = Readonly<{
   getSelectedOptionAuthoringSchema: () => Promise<SourceObservationSelectedOptionAuthoringSchema>;
   getPromotionTargetAuthoringSchema: () => Promise<SourceObservationPromotionTargetAuthoringSchema>;
+}>;
+
+export type CatalogIntegrationEngineServices = Readonly<{
   previewDuplicatePreventionCandidates: (input: {
     providerKey: string;
     profileVersion: string;
     payload: JsonValue;
     observedAt?: string;
   }) => Promise<SourceObservationDuplicatePreventionCandidatePreview>;
+  getCatalogIntegrationControlPlaneReadiness: () => Promise<CatalogIntegrationControlPlaneReadiness>;
+}>;
+
+export type SourceObservationReviewServices = Readonly<{
   promoteObservation: (input: {
     observationId: string;
     context: EventStoreContext;
   }) => Promise<{ observationId: string; catalogItemId: CatalogItemId }>;
+  rejectObservation: (input: {
+    observationId: string;
+    reason: string;
+    context: EventStoreContext;
+  }) => Promise<{ observationId: string; status: "rejected" }>;
+}>;
+
+export type PromotionReapplyServices = Readonly<{
   promoteObservations: (input: {
     observationIds: readonly string[];
     context: EventStoreContext;
@@ -475,11 +503,9 @@ export type SourceObservationServices = Readonly<{
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationPromotionResult>;
-  rejectObservation: (input: {
-    observationId: string;
-    reason: string;
-    context: EventStoreContext;
-  }) => Promise<{ observationId: string; status: "rejected" }>;
+}>;
+
+export type BulkReviewJobServices = Readonly<{
   enqueueBulkReviewJob: (input: {
     action: SourceObservationBulkJobAction;
     observationIds?: readonly string[];
@@ -504,6 +530,9 @@ export type SourceObservationServices = Readonly<{
     } & SourceObservationJobRunContext,
   ) => Promise<number>;
   getBulkReviewWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
+}>;
+
+export type IntegrationJobServices = Readonly<{
   enqueueIntegrationJob: (input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
@@ -531,6 +560,9 @@ export type SourceObservationServices = Readonly<{
     } & SourceObservationJobRunContext,
   ) => Promise<number>;
   getIntegrationWorkUnitSummary: (input?: { jobId?: string | null }) => Promise<DurableJobWorkUnitSummary>;
+}>;
+
+export type SourceObservationReadServices = Readonly<{
   listSourceObservations: (
     params?: Parameters<typeof listSourceObservations>[1],
   ) => ReturnType<typeof listSourceObservations>;
@@ -539,14 +571,33 @@ export type SourceObservationServices = Readonly<{
     language?: string;
     setId?: string;
   }) => Promise<readonly SourceObservationIntegrationScopeRow[]>;
-  getCatalogIntegrationControlPlaneReadiness: () => Promise<CatalogIntegrationControlPlaneReadiness>;
+  getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
+}>;
+
+export type SourceObservationRetentionServices = Readonly<{
   pruneSourceObservationJobRetention: (input?: {
     completedBefore?: string | Date;
     limit?: number;
   }) => Promise<{ bulkReviewJobs: number; integrationJobs: number }>;
-  getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
+}>;
+
+export type SourceObservationProjectorServices = Readonly<{
   projectors: readonly ProjectionHandlerSet[];
 }>;
+
+export type SourceObservationServices = SourceObservationCommandServices &
+  ProviderAdapterServices &
+  ProviderImportOrchestrationServices &
+  ProviderOptionQueryServices &
+  ProviderProfileAdminServices &
+  CatalogIntegrationEngineServices &
+  SourceObservationReviewServices &
+  PromotionReapplyServices &
+  BulkReviewJobServices &
+  IntegrationJobServices &
+  SourceObservationReadServices &
+  SourceObservationRetentionServices &
+  SourceObservationProjectorServices;
 
 export function createSourceObservationRuntime(
   deps: CatalogRuntimeDeps,
@@ -2590,6 +2641,7 @@ export function createSourceObservationRuntime(
 
   return {
     commandHandler,
+    providerAdapterRegistry,
     importTcgdexSet: importTcgdexSetScope,
     importTcgplayerScope: processTcgplayerIntegrationImportJob,
     listTcgdexLanguages: async () =>
