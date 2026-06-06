@@ -137,6 +137,8 @@ The response is grouped by ingestion unit and includes:
 
 The Phase 1 reference record is `reference-cards:pokemon:single-card:source-observation-proof`. It is fixture-backed, has no live transport dependency, and runs through the ProviderAdapter registry plus the Catalog Integration Engine before the Admin UI reports it as ready. Future live provider readiness should use the same contract while keeping provider transport details on adapters and Catalog semantic readiness on ingestion units.
 
+The Phase 4 thin real-provider proof (#800) uses `tcgdex:pokemon:single-card:source-observation-import`. The readiness path resolves dry-run proof runners from a registry keyed by `unitKey`, so adding the real-provider proof did not add another provider-specific runtime or route branch. The TCGdex proof uses the real TCGdex ProviderAdapter and Catalog Integration Engine with deterministic fixture `fetch` responses for one Expansion scope and one card payload. This keeps CI and readiness deterministic while validating the real provider payload shape, provenance, and normalized Source Observation facts. The current TCGdex adapter does not emit a payload content hash in its provenance envelope; readiness shows `sourceHash: null` for that proof until provider payload hashing is governed by the fixture/payload retention policy.
+
 ## Admin Query Contract
 
 Admin workflow modules consume stable query/read-model contracts from Source Observations. The contract inventory is documented in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md), and the authoritative TypeScript surface is `admin-control-plane-read-model-contracts.ts`.

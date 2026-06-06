@@ -87,12 +87,14 @@ import {
   requireCatalogProviderSourceObservation,
   type CatalogProviderSourceObservationMappingContract,
 } from "./provider-source-observation-normalizer";
+import {
+  createCatalogIntegrationDryRunProofRegistry,
+  type CatalogIntegrationDryRunProofRegistry,
+} from "./catalog-integration-dry-run-proofs";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import {
   createReferenceCardsProviderAdapter,
-  isReferenceCardsProofUnit,
   REFERENCE_CARDS_PROFILE_VERSION,
-  runReferenceCardsSourceObservationProofDryRun,
 } from "./provider-adapters/reference-cards";
 import {
   createTcgdexProviderAdapter,
@@ -734,6 +736,7 @@ export function createSourceObservationRuntime(
       client: deps.tcgplayerAutomationCatalogClient,
     }),
   ]);
+  const dryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry();
 
   async function recordObservation(observation: SourceObservationRecordInput, context: EventStoreContext) {
     await commandHandler({
@@ -2785,7 +2788,7 @@ export function createSourceObservationRuntime(
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
     listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
     getCatalogIntegrationControlPlaneReadiness: async () =>
-      buildCatalogIntegrationControlPlaneReadiness(providerAdapterRegistry),
+      buildCatalogIntegrationControlPlaneReadiness(providerAdapterRegistry, dryRunProofRegistry),
     pruneSourceObservationJobRetention: async (input = {}) => {
       const completedBefore = input.completedBefore ?? sourceObservationRetentionCutoff(7);
       const [bulkReviewJobs, integrationJobs] = await Promise.all([
@@ -3137,6 +3140,7 @@ function booleanFromString(value: string | null | undefined): boolean | null {
 
 async function buildCatalogIntegrationControlPlaneReadiness(
   providerAdapterRegistry: ProviderAdapterRegistry,
+  dryRunProofRegistry: CatalogIntegrationDryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry(),
 ): Promise<CatalogIntegrationControlPlaneReadiness> {
   const units: CatalogIntegrationControlPlaneUnitReadiness[] = [];
 
@@ -3148,9 +3152,7 @@ async function buildCatalogIntegrationControlPlaneReadiness(
     ]);
 
     for (const descriptor of descriptors) {
-      const dryRun = isReferenceCardsProofUnit(descriptor.unitKey)
-        ? await runReferenceCardsSourceObservationProofDryRun()
-        : null;
+      const dryRun = (await dryRunProofRegistry.get(descriptor.unitKey)?.()) ?? null;
       const unitDiagnostics = [
         ...transportDiagnostics.filter(
           (diagnostic) => !diagnostic.unitKey || diagnostic.unitKey === descriptor.unitKey,

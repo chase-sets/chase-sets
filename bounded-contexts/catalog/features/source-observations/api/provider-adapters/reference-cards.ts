@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { runCatalogIntegrationDryRun } from "../catalog-integration-engine";
 import type { CatalogIntegrationDryRunResult } from "../catalog-integration-engine";
-import { defineCatalogIntegrationUnitKey, type CatalogIntegrationUnitKey } from "../integration-unit";
+import { defineCatalogIntegrationUnitKey } from "../integration-unit";
 import type {
   ProviderAdapter,
   ProviderImportPlan,
@@ -131,8 +131,4 @@ export async function runReferenceCardsSourceObservationProofDryRun(
       sourceHash: envelope.provenance.contentHash,
     }),
   });
-}
-
-export function isReferenceCardsProofUnit(unitKey: CatalogIntegrationUnitKey): boolean {
-  return unitKey === REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY;
 }

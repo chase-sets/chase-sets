@@ -1,0 +1,29 @@
+import type { CatalogIntegrationDryRunResult } from "./catalog-integration-engine";
+import type { CatalogIntegrationUnitKey } from "./integration-unit";
+import {
+  REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY,
+  runReferenceCardsSourceObservationProofDryRun,
+} from "./provider-adapters/reference-cards";
+import {
+  runTcgdexSourceObservationImportProofDryRun,
+  TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY,
+} from "./provider-adapters/tcgdex";
+
+export type CatalogIntegrationDryRunProofRunner = () => Promise<CatalogIntegrationDryRunResult>;
+
+export type CatalogIntegrationDryRunProofRegistry = ReadonlyMap<
+  CatalogIntegrationUnitKey,
+  CatalogIntegrationDryRunProofRunner
+>;
+
+export function createCatalogIntegrationDryRunProofRegistry(
+  proofs: readonly (readonly [CatalogIntegrationUnitKey, CatalogIntegrationDryRunProofRunner])[] = [
+    [
+      REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY,
+      runReferenceCardsSourceObservationProofDryRun,
+    ],
+    [TCGDEX_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_IMPORT_UNIT_KEY, runTcgdexSourceObservationImportProofDryRun],
+  ],
+): CatalogIntegrationDryRunProofRegistry {
+  return new Map(proofs);
+}
