@@ -30,6 +30,8 @@ Provider adapters own transport:
 
 Source Observation runtime services are exposed as focused control-plane facets. Provider adapters, provider-backed import orchestration, option queries, Catalog Integration Engine behavior, provider profile authoring support, review actions, promotion/reapply, bulk review jobs, integration jobs, read queries, retention, and projectors each have their own service contract. The aggregate Source Observation runtime remains a deployable composition convenience, but route and worker seams should depend on the smallest composed facets they need.
 
+The public Source Observation API keeps `/api/catalog/source-observations/*` as the compatibility mount while composing focused route modules underneath it. Provider profile routes, provider option/readiness routes, provider compatibility routes, promotion preview routes, bulk review job routes, integration job routes, and Source Observation read/review routes each accept only the route service facets they need. New API behavior should join the narrowest route module instead of expanding the aggregate compatibility composer.
+
 Provider profiles describe Catalog-facing semantics for one or more ingestion units:
 
 - profile lifecycle metadata
