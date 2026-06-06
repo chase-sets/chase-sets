@@ -219,18 +219,99 @@ describe("Catalog provider profile review", () => {
         }),
       ]),
     );
+    expect(model.semanticDiff.changes).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "executableMappingContract.duplicatePrevention",
+          sectionKey: "duplicate-prevention",
+          domainConcept: "Duplicate Prevention",
+        }),
+      ]),
+    );
+    expect(model.semanticDiff.sections).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
+          status: "error",
+          changes: expect.arrayContaining([
+            expect.objectContaining({
+              path: "executableMappingContract.normalizedObservation.hashMaterial",
+            }),
+          ]),
+        }),
+      ]),
+    );
     expect(model.activationReadiness).toMatchObject({
       status: "blocked",
       requiresMigrationEvidence: true,
       checks: expect.arrayContaining([
         expect.objectContaining({
           checkKey: "migration-evidence",
+          code: "activation-migration-evidence",
+          sectionKey: "migration-evidence",
+          domainConcept: "Migration Evidence",
+          status: "blocked",
+          remediation: "Record migration evidence for mapping fingerprint changes.",
+          blockingBehavior: "activation-blocking",
+        }),
+      ]),
+      groups: expect.arrayContaining([
+        expect.objectContaining({
+          domainConcept: "Migration Evidence",
           status: "blocked",
         }),
       ]),
     });
+    expect(model.sectionSummaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sectionKey: "migration-evidence",
+          domainConcept: "Migration Evidence",
+          status: "blocked",
+          readinessChecks: expect.arrayContaining([
+            expect.objectContaining({
+              checkKey: "migration-evidence",
+            }),
+          ]),
+        }),
+        expect.objectContaining({
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
+          status: "warning",
+          semanticChanges: expect.arrayContaining([
+            expect.objectContaining({
+              path: "executableMappingContract.normalizedObservation.hashMaterial",
+            }),
+          ]),
+        }),
+      ]),
+    );
     expect(model.selectedOptionSchema).toBeNull();
     expect(model.promotionTargetSchema).toBeNull();
+  });
+
+  it("links dry-run diagnostics back to semantic profile sections and fixture flows", async () => {
+    const result = await dryRunCatalogProviderProfileVersion({
+      store: profileStore(),
+      providerKey: "scrydex",
+      profileVersion: "2026.06.03",
+      payload: {},
+      observedAt: "2026-06-03T00:00:00.000Z",
+      fixtureFlow: "normal",
+    });
+
+    expect(result.status).toBe("blocked");
+    expect(result.diagnosticLinks.length).toBeGreaterThan(0);
+    expect(result.diagnosticLinks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
+          fixtureFlow: "normal",
+        }),
+      ]),
+    );
   });
 
   it("includes selected option authoring schema when supplied by the admin runtime", async () => {

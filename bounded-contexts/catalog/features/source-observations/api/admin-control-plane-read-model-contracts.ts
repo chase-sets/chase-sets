@@ -4,6 +4,8 @@ import type {
   CatalogProviderProfileSectionDiagnostic,
   CatalogProviderProfileSectionKey,
 } from "./provider-profile-sections";
+import type { CatalogIntegrationDiagnosticBlockingBehavior } from "./catalog-integration-diagnostic-taxonomy";
+import type { CatalogProviderProfileSectionStatus } from "./provider-profile-review";
 
 export type CatalogAdminControlPlaneQueryKey =
   | "integration-health-summary"
@@ -496,11 +498,15 @@ export type CatalogAdminProfileSectionStatusSummaryReadModel = Readonly<{
   profile: CatalogAdminProfileVersionPointer;
   sections: readonly Readonly<{
     sectionKey: CatalogProviderProfileSectionKey;
+    domainConcept: string;
     editable: boolean;
     validationStatus: "valid" | "invalid";
+    sectionStatus: CatalogProviderProfileSectionStatus;
     sectionFingerprint: string;
     lastEditedAt: string | null;
     diagnostics: readonly CatalogAdminProfileSectionDiagnostic[];
+    readinessCheckKeys: readonly string[];
+    semanticChangePaths: readonly string[];
   }>[];
 }>;
 
@@ -529,6 +535,13 @@ export type CatalogAdminDryRunEvidenceSummaryReadModel = Readonly<{
   profile: CatalogAdminProfileVersionPointer;
   status: "completed" | "blocked";
   redactionSummary: Readonly<Record<string, number>>;
+  diagnosticLinks: readonly Readonly<{
+    code: string;
+    path: string;
+    sectionKey: CatalogProviderProfileSectionKey;
+    domainConcept: string;
+    fixtureFlow: string | null;
+  }>[];
   evidence: readonly Readonly<{
     path: string;
     owner: "catalog" | "provider-adapter";
@@ -544,6 +557,8 @@ export type CatalogAdminSemanticVersionComparisonReadModel = Readonly<{
   candidateProfile: CatalogAdminProfileVersionPointer;
   activeProfile: CatalogAdminProfileVersionPointer | null;
   changes: readonly Readonly<{
+    sectionKey: CatalogProviderProfileSectionKey;
+    domainConcept: string;
     path: string;
     label: string;
     candidate: JsonValue;
@@ -551,6 +566,12 @@ export type CatalogAdminSemanticVersionComparisonReadModel = Readonly<{
     changed: boolean;
     severity: "info" | "warning" | "error";
     activationImpact: string;
+  }>[];
+  sections: readonly Readonly<{
+    sectionKey: CatalogProviderProfileSectionKey;
+    domainConcept: string;
+    status: Exclude<CatalogProviderProfileSectionStatus, "blocked">;
+    changePaths: readonly string[];
   }>[];
 }>;
 
@@ -561,10 +582,21 @@ export type CatalogAdminActivationReadinessSummaryReadModel = Readonly<{
   status: "ready" | "blocked";
   checks: readonly Readonly<{
     checkKey: string;
+    code: string;
+    sectionKey: CatalogProviderProfileSectionKey;
+    domainConcept: string;
     status: "passed" | "blocked";
     path: string;
     diagnosticText: string;
     severity: "error" | "warning";
+    remediation: string;
+    blockingBehavior: CatalogIntegrationDiagnosticBlockingBehavior;
+    flow?: string;
+  }>[];
+  groups: readonly Readonly<{
+    domainConcept: string;
+    status: "ready" | "blocked";
+    checkKeys: readonly string[];
   }>[];
 }>;
 

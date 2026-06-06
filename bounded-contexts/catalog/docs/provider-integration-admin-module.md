@@ -26,6 +26,8 @@ Admin workflows consume the Source Observations query/read-model contracts docum
 
 UI modules should use those read models directly. They must not parse profile JSON snapshots, infer Catalog readiness from provider adapter transport state, or add provider/product-category branches for new ingestion units.
 
+Profile authoring, semantic compare, activation readiness, and dry-run outputs must carry `sectionKey` and domain concept metadata. Section workspaces should render valid/warning/error/blocked state from those fields, activation dialogs should group checks by domain concept, compare panels should group human-readable changes by section, and fixture dry-run failures should focus the section and fixture flow that produced the diagnostic.
+
 ## Guided Authoring
 
 Each profile section must be edited through controls that match the domain:
