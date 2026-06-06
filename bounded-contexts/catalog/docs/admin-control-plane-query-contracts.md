@@ -8,7 +8,7 @@ The authoritative TypeScript contract surface lives in:
 bounded-contexts/catalog/features/source-observations/api/admin-control-plane-read-model-contracts.ts
 ```
 
-Performance, pagination, indexing, and stale-state expectations for this query inventory are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). Schema versioning and compatibility policy for Admin read models, job DTOs, and profile pointers is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider-data visibility, redaction, retention, export, and signoff policy is documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Credential ownership, validation states, and Admin readiness behavior are documented in [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md). The authoritative typed SLO surface lives in:
+Performance, pagination, indexing, and stale-state expectations for this query inventory are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). Schema versioning and compatibility policy for Admin read models, job DTOs, and profile pointers is documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider-data visibility, redaction, retention, export, and signoff policy is documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Credential ownership, validation states, and Admin readiness behavior are documented in [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md). Canonical lifecycle audit/evidence records are documented in [Catalog Integration Audit Evidence](./catalog-integration-audit-evidence.md). The authoritative typed SLO surface lives in:
 
 ```text
 bounded-contexts/catalog/features/source-observations/api/admin-control-plane-read-model-slos.ts
@@ -104,6 +104,12 @@ Profile authoring read models must carry section keys and domain concepts so Adm
 - `failed`, `skipped`, and `workUnits`: mixed-outcome and work-unit checkpoint summary fields used to explain partial jobs.
 
 Profile pointers in Admin read models declare `schemaVersion: catalog-provider-profile-version-v1` and `compatibilityPolicy: provider-profile-version`. Job consistency DTOs declare `schemaVersion: catalog-integration-durable-job-v1` and `compatibilityPolicy: integration-durable-job`.
+
+## Audit Evidence Timeline Fields
+
+`audit-evidence-timeline` entries are adapted from canonical `catalog-audit-evidence-record-v1` records. Each entry includes the audit event id, event name, category, occurrence time, actor ids, provider key, ingestion unit key, profile pointer, optional section key, related job id, related Source Observation id, related Catalog Item id, promotion plan id, reapply run id, governed evidence summaries, governed evidence entries, and diagnostic codes.
+
+Audit timeline entries must use the Catalog integration data-governance redaction policy. They may retain safe summaries, hashes, identifiers, counts, status, diagnostic codes, and redacted previews. They must not expose raw provider payloads, provider credentials, cookies, seller/account facts, prices, inventory, quantities, listing facts, or provider-controlled commerce values that Catalog does not own.
 
 ## Error States
 

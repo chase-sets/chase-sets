@@ -10,6 +10,7 @@ import {
   type CatalogAdminProviderTransportReadinessSummaryReadModel,
   type CatalogAdminDryRunEvidenceSummaryReadModel,
   type CatalogAdminImportJobProgressSummaryReadModel,
+  type CatalogAdminAuditEvidenceTimelineReadModel,
   type CatalogAdminProfileSectionStatusSummaryReadModel,
   type CatalogAdminSemanticVersionComparisonReadModel,
   type CatalogAdminControlPlaneQueryKey,
@@ -346,6 +347,64 @@ describe("Admin Control Plane read-model contracts", () => {
     expect(summary.jobs[0].consistency.profileSnapshotPolicy).toBe("snapshotted-at-enqueue");
     expect(summary.jobs[0].profile?.compatibilityPolicy).toBe("provider-profile-version");
     expect(summary.jobs[0].profile?.connectorKind).toBe("tcgdex-json");
+  });
+
+  it("pins canonical audit/evidence timeline DTO fields for #783", () => {
+    const timeline = {
+      generatedAt: "2026-06-06T00:00:00.000Z",
+      unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+      entries: [
+        {
+          schemaVersion: "catalog-audit-evidence-record-v1",
+          compatibilityPolicy: "audit-evidence-record",
+          eventId: "aud_001",
+          occurredAt: "2026-06-06T00:00:00.000Z",
+          eventName: "provider-credential-readiness-changed",
+          category: "adapter-readiness",
+          actorUserId: "usr_admin",
+          accountId: "acc_ops",
+          providerKey: "tcgplayer",
+          unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+          profile: {
+            schemaVersion: "catalog-provider-profile-version-v1",
+            compatibilityPolicy: "provider-profile-version",
+            providerKey: "tcgplayer",
+            profileKey: "pokemon-tcg",
+            profileVersion: "2026.06.06",
+            lifecycle: "active",
+            active: true,
+            connectorKind: "tcgplayer-automation",
+            connectorSourceVersion: null,
+            sourceMappingFingerprint: "fingerprint",
+          },
+          sectionKey: null,
+          evidenceSummary: "Credential readiness changed to missing.",
+          evidence: [
+            {
+              dataClass: "provider-credential-readiness",
+              summary: "Credential readiness changed to missing.",
+              redactionState: "redacted",
+              path: "credentialReadiness",
+              owner: "provider-adapter",
+            },
+          ],
+          diagnosticCodes: ["credential-missing"],
+          relatedJobId: null,
+          relatedObservationId: null,
+          relatedCatalogItemId: null,
+          promotionPlanId: null,
+          reapplyRunId: null,
+        },
+      ],
+    } satisfies CatalogAdminAuditEvidenceTimelineReadModel;
+
+    expect(timeline.entries[0]).toMatchObject({
+      schemaVersion: "catalog-audit-evidence-record-v1",
+      compatibilityPolicy: "audit-evidence-record",
+      eventName: "provider-credential-readiness-changed",
+      category: "adapter-readiness",
+      diagnosticCodes: ["credential-missing"],
+    });
   });
 
   it("links every Admin query contract to governed provider-data classes", () => {
