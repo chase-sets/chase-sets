@@ -82,6 +82,7 @@ Primary issues:
 Exit criteria:
 
 - Runtime services are split behind focused facets, with the aggregate runtime kept only as deployable composition convenience.
+- The Source Observation API is composed from focused subrouters behind the existing `/api/catalog/source-observations/*` compatibility mount.
 - API contracts and read models are typed by provider/profile/ingestion unit.
 - Jobs, Source Observations, audit records, diagnostics, and read models carry ingestion-unit identity.
 - Conflict-aware promotion/reapply plans are deterministic and explainable.
