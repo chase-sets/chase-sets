@@ -4,11 +4,15 @@ import { AdminShell, ChaseRoot, SellerBadge, type ColorMode, type NavigationItem
 import { CatalogAdminProviders } from "./providers";
 
 export function CatalogAdminLayout({
+  topNavItems,
+  topNavActiveKey,
   activeKey,
   navItems,
   actions,
   children,
 }: {
+  topNavItems?: readonly NavigationItem[];
+  topNavActiveKey?: string;
   activeKey: string;
   navItems: readonly NavigationItem[];
   actions?: ReactNode;
@@ -21,6 +25,8 @@ export function CatalogAdminLayout({
       <CatalogAdminProviders>
         <AdminShell
           brand={<SellerBadge name={t("catalog.support.shellSupport.shell.layout.catalog.ops")} verified />}
+          topNavItems={topNavItems ? [...topNavItems] : []}
+          topNavActiveKey={topNavActiveKey}
           navItems={[...navItems]}
           activeKey={activeKey}
           actions={actions}

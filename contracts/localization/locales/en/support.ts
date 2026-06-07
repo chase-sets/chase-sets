@@ -69,6 +69,8 @@ export const supportEnglishTranslations = {
   "support.features.supportRequests.ui.supportOperationsPage.action": "Action",
   "support.features.supportRequests.ui.supportOperationsPage.open": "Open",
   "support.features.supportRequests.ui.supportOperationsPage.unavailable": "Support operations API unavailable",
+  "support.features.supportRequests.ui.supportOperationsPage.success": "Success",
+  "support.features.supportRequests.ui.supportOperationsPage.error": "Error",
   "support.features.supportRequests.ui.supportOperationsPage.escalation.result":
     "Escalated {escalated} overdue requests; skipped {skipped}.",
   "support.features.supportRequests.ui.supportOperationsPage.queue.title": "Operations queue",

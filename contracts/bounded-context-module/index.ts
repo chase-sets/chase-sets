@@ -23,6 +23,7 @@ export type BcRouteModule = Readonly<{
   readonly routeType: BcRouteType;
   readonly sourceContext: string;
   readonly placement?: BcRoutePlacement;
+  readonly section?: string;
 }>;
 
 export type BcDeployableContribution = Readonly<{
@@ -41,6 +42,7 @@ export type BcShellContribution = Readonly<{
   readonly label: string;
   readonly icon: string;
   readonly href: string;
+  readonly section?: string;
   readonly order: number;
   readonly visibility: BcShellContributionVisibility;
   readonly requiredPermissions: readonly string[];

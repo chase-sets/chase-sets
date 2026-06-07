@@ -49,31 +49,35 @@
       "routes": [
         {
           "routeId": "commercial-terms-schedules",
-          "routePath": "commercial-terms/schedules",
+          "routePath": "terms/schedules",
           "fileExport": "./routes/admin/schedules",
           "routeType": "route",
-          "sourceContext": "commercial-terms"
+          "sourceContext": "commercial-terms",
+          "section": "commercial"
         },
         {
           "routeId": "commercial-terms-schedules-detail",
-          "routePath": "commercial-terms/schedules/:id",
+          "routePath": "terms/schedules/:id",
           "fileExport": "./routes/admin/schedules-detail",
           "routeType": "route",
-          "sourceContext": "commercial-terms"
+          "sourceContext": "commercial-terms",
+          "section": "commercial"
         },
         {
           "routeId": "commercial-terms-agreements",
-          "routePath": "commercial-terms/agreements",
+          "routePath": "terms/agreements",
           "fileExport": "./routes/admin/agreements",
           "routeType": "route",
-          "sourceContext": "commercial-terms"
+          "sourceContext": "commercial-terms",
+          "section": "commercial"
         },
         {
           "routeId": "commercial-terms-agreements-detail",
-          "routePath": "commercial-terms/agreements/:id",
+          "routePath": "terms/agreements/:id",
           "fileExport": "./routes/admin/agreements-detail",
           "routeType": "route",
-          "sourceContext": "commercial-terms"
+          "sourceContext": "commercial-terms",
+          "section": "commercial"
         }
       ]
     }
@@ -85,7 +89,8 @@
       "key": "commercial-terms",
       "label": "Commercial Terms",
       "icon": "settings",
-      "href": "/commercial-terms/schedules",
+      "href": "/terms/schedules",
+      "section": "commercial",
       "order": 70,
       "visibility": "signed-in",
       "requiredPermissions": ["commercial-terms.view"]

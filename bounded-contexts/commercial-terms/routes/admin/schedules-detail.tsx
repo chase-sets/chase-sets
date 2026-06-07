@@ -28,7 +28,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),
     });
-    return redirect(`/identity/commercial-terms/schedules/${params.id}`);
+    return redirect(`/commercial/terms/schedules/${params.id}`);
   } catch (error) {
     if (error instanceof CommercialTermsApiError || error instanceof Error) {
       return { error: error.message };

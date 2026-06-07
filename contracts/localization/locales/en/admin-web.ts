@@ -15,7 +15,17 @@ export const adminWebEnglishTranslations = {
   "adminWeb.app.routes.offline.retry": "Try again",
   "adminWeb.app.routes.offline.title": "Offline | Chase Sets Admin",
   "adminWeb.app.routes.catalogLayout.sign.out": "Sign Out",
+  "adminWeb.app.routes.commercialLayout.sign.out": "Sign out",
+  "adminWeb.app.routes.index.admin": "Admin",
+  "adminWeb.app.routes.index.admin.sections": "Admin sections",
+  "adminWeb.app.routes.index.choose.a.section.to.continue.with.the.tools.available.to.your.account":
+    "Choose a section to continue with the tools available to your account.",
+  "adminWeb.app.routes.index.no.admin.sections.available": "No admin sections available",
+  "adminWeb.app.routes.index.open": "Open",
+  "adminWeb.app.routes.index.your.account.is.signed.in.but.it.does.not.have.permission.to.view.any.admin.sections":
+    "Your account is signed in, but it does not have permission to view any admin sections.",
   "adminWeb.app.routes.identityLayout.sign.out": "Sign Out",
+  "adminWeb.app.routes.operationsLayout.sign.out": "Sign out",
   "adminWeb.app.routes.catalogLayout.identity": "Identity",
   "adminWeb.app.routes.catalogLayout.experience": "Experience",
   "adminWeb.app.routes.catalogLayout.operations": "Operations",

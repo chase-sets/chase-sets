@@ -30,7 +30,8 @@
           "fileExport": "./routes/admin/projection-operations",
           "routeType": "route",
           "sourceContext": "platform-operations",
-          "placement": "root"
+          "placement": "root",
+          "section": "operations"
         },
         {
           "routeId": "release-controls",
@@ -38,7 +39,8 @@
           "fileExport": "./routes/admin/release-controls",
           "routeType": "route",
           "sourceContext": "platform-operations",
-          "placement": "root"
+          "placement": "root",
+          "section": "operations"
         },
         {
           "routeId": "release-dashboard",
@@ -46,12 +48,50 @@
           "fileExport": "./routes/admin/release-dashboard",
           "routeType": "route",
           "sourceContext": "platform-operations",
-          "placement": "root"
+          "placement": "root",
+          "section": "operations"
         }
       ]
     }
   ],
-  "shellContributions": [],
+  "shellContributions": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "projection-operations",
+      "label": "Projection Operations",
+      "icon": "refreshCcw",
+      "href": "/projections",
+      "section": "operations",
+      "order": 10,
+      "visibility": "signed-in",
+      "requiredPermissions": ["security.manage"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "release-dashboard",
+      "label": "Release Dashboard",
+      "icon": "chart",
+      "href": "/release-dashboard",
+      "section": "operations",
+      "order": 20,
+      "visibility": "signed-in",
+      "requiredPermissions": ["security.manage"]
+    },
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "release-controls",
+      "label": "Release Controls",
+      "icon": "settings",
+      "href": "/release-controls",
+      "section": "operations",
+      "order": 25,
+      "visibility": "signed-in",
+      "requiredPermissions": ["security.manage"]
+    }
+  ],
   "directoryIntent": {
     "projection-operations": {
       "classification": "slice",

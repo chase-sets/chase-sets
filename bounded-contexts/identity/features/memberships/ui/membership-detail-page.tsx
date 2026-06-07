@@ -9,6 +9,10 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
 
   return (
     <AdminDetailPage
+      breadcrumbs={[
+        { label: t("identity.features.memberships.ui.membershipListPage.memberships"), href: "/identity/memberships" },
+        { label: user },
+      ]}
       title={t("identity.features.memberships.ui.membershipDetailPage.title", { user, account })}
       status={data.status}
       actions={

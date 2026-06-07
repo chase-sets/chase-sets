@@ -3,29 +3,20 @@ import { useState } from "react";
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLoaderData, useLocation } from "react-router";
 import { AdminShell, Button, ChaseRoot, Form, Inline, SellerBadge, type ColorMode } from "@chase-sets/design-system";
-import { requireOperationsAdminActor } from "../auth.server";
+import { requireCommercialTermsAdminActor } from "../auth.server";
 import { resolveAdminWebNavItems, resolveAdminWebSectionNavItems } from "../host";
 
-const activeOperationsKeys: Record<string, string> = {
-  projections: "projection-operations",
-  "release-controls": "release-controls",
-  "release-dashboard": "release-dashboard",
-  "google-shopping": "google-shopping-operations",
-  "support-requests": "support-operations",
-};
-
-function resolveActiveKey(pathname: string) {
-  const segments = pathname.split("/").filter(Boolean);
-  return activeOperationsKeys[segments[1] ?? ""] ?? "projection-operations";
+function resolveActiveKey(_pathname: string) {
+  return "commercial-terms";
 }
 
 export async function loader({ request }: LoaderFunctionArgs) {
   return {
-    actor: await requireOperationsAdminActor(request),
+    actor: await requireCommercialTermsAdminActor(request),
   };
 }
 
-export default function OperationsLayoutRoute() {
+export default function CommercialAdminLayoutRoute() {
   const location = useLocation();
   const { actor } = useLoaderData<typeof loader>();
   const [colorMode] = useState<ColorMode>("system");
@@ -33,16 +24,16 @@ export default function OperationsLayoutRoute() {
   return (
     <ChaseRoot colorMode={colorMode}>
       <AdminShell
-        brand={<SellerBadge name="Operations" verified />}
+        brand={<SellerBadge name="Commercial Terms Ops" verified />}
         topNavItems={resolveAdminWebSectionNavItems(actor)}
-        topNavActiveKey="operations"
-        navItems={resolveAdminWebNavItems(actor, { section: "operations" })}
+        topNavActiveKey="commercial"
+        navItems={resolveAdminWebNavItems(actor, { section: "commercial" })}
         activeKey={resolveActiveKey(location.pathname)}
         actions={
           <Inline gap={2}>
             <Form action="/identity/sign-out" method="post" spacing="none">
               <Button type="submit" tone="secondary">
-                {t("adminWeb.app.routes.operationsLayout.sign.out")}
+                {t("adminWeb.app.routes.commercialLayout.sign.out")}
               </Button>
             </Form>
           </Inline>

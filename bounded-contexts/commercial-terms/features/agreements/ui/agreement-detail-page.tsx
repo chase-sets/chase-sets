@@ -36,7 +36,7 @@ export function AgreementDetailPage({
           "commercialTerms.features.agreements.ui.agreementDetailPage.inspect.the.account.specific.commercial.fee",
         )}
         actions={
-          <LinkButton href="/identity/commercial-terms/agreements" tone="secondary">
+          <LinkButton href="/commercial/terms/agreements" tone="secondary">
             {t("commercialTerms.features.agreements.ui.agreementDetailPage.back.to.agreements")}
           </LinkButton>
         }

@@ -256,6 +256,42 @@ const webRegistry = [
       ],
     },
   },
+  {
+    contextName: "commercial-terms",
+    packageName: "@test/commercial-terms",
+    manifest: {
+      contextName: "commercial-terms",
+      deployableContributions: [
+        {
+          deployable: "admin-web",
+          routes: [
+            {
+              routeId: "commercial-terms-schedules",
+              routePath: "terms/schedules",
+              fileExport: "./routes/admin/schedules",
+              routeType: "route",
+              sourceContext: "commercial-terms",
+              section: "commercial",
+            },
+          ],
+        },
+      ],
+      shellContributions: [
+        {
+          deployable: "admin-web",
+          slot: "primary-nav",
+          key: "commercial-terms",
+          label: "Commercial Terms",
+          icon: "settings",
+          href: "/terms/schedules",
+          section: "commercial",
+          order: 50,
+          visibility: "signed-in",
+          requiredPermissions: ["commercial-terms.view"],
+        },
+      ],
+    },
+  },
 ] as const satisfies WebContextRegistry;
 
 describe("platform host api registry", () => {
@@ -448,7 +484,7 @@ describe("platform host web registry", () => {
         label: "Dimensions",
       }),
     ]);
-    expect(getWebHostSections("admin-web")).toEqual(["catalog", "identity", "experience", "operations"]);
+    expect(getWebHostSections("admin-web")).toEqual(["catalog", "identity", "experience", "operations", "commercial"]);
   });
 
   it("places public-presence waitlist review in the experience admin section", () => {
@@ -499,6 +535,63 @@ describe("platform host web registry", () => {
         label: "Support",
       }),
     ]);
+  });
+
+  it("uses explicit admin section placement for commercial terms", () => {
+    const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
+    const navItems = resolveWebHostNavItems(
+      webRegistry,
+      "admin-web",
+      "primary-nav",
+      { permissions: ["commercial-terms.view"] },
+      { section: "commercial" },
+    );
+
+    expect(routes).toContainEqual(
+      expect.objectContaining({
+        contextName: "commercial-terms",
+        routePath: "commercial/terms/schedules",
+        section: "commercial",
+      }),
+    );
+    expect(navItems).toEqual([
+      expect.objectContaining({
+        href: "/commercial/terms/schedules",
+        label: "Commercial Terms",
+      }),
+    ]);
+  });
+
+  it("rejects unknown explicit admin sections", () => {
+    expect(() =>
+      resolveWebHostRouteRecords(
+        [
+          {
+            contextName: "test-context",
+            packageName: "@test/context",
+            manifest: {
+              contextName: "test-context",
+              deployableContributions: [
+                {
+                  deployable: "admin-web",
+                  routes: [
+                    {
+                      routeId: "broken",
+                      routePath: "broken",
+                      fileExport: "./routes/admin/broken",
+                      routeType: "route",
+                      sourceContext: "test-context",
+                      section: "unknown",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        "admin-web",
+      ),
+    ).toThrow(/Unknown admin-web section 'unknown'/);
   });
 
   it("filters marketplace nav items by actor visibility and permissions", () => {

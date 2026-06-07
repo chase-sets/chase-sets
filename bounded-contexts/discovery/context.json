@@ -402,7 +402,8 @@
           "fileExport": "./routes/admin/google-shopping",
           "routeType": "route",
           "sourceContext": "discovery",
-          "placement": "root"
+          "placement": "root",
+          "section": "operations"
         }
       ]
     }
@@ -437,6 +438,7 @@
       "label": "Google Shopping",
       "icon": "bag",
       "href": "/google-shopping",
+      "section": "operations",
       "order": 40,
       "visibility": "signed-in",
       "requiredPermissions": ["security.manage"]
