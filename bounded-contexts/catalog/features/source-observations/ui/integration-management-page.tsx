@@ -1,7 +1,6 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ListResponse } from "@chase-sets/http/responses";
 import type { JsonValue } from "@chase-sets/primitives/json";
-import type { ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
@@ -28,7 +27,6 @@ import {
   TaskSummary,
   TextInput,
   Textarea,
-  WorkstationLayout,
   type DataColumn,
   type SegmentedControlItem,
   type SelectItem,
@@ -46,8 +44,6 @@ import type {
   CatalogProviderProfileDryRunResult,
   CatalogProviderProfileDuplicatePreventionUpdateCommand,
   CatalogProviderProfileFixturesUpdateCommand,
-  CatalogIntegrationControlPlaneReadiness,
-  CatalogIntegrationControlPlaneUnitReadiness,
   CatalogProviderProfileExternalReferencesUpdateCommand,
   CatalogProviderProfileNormalizedObservationUpdateCommand,
   CatalogProviderProfileProviderOptionsUpdateCommand,
@@ -94,6 +90,10 @@ import {
   validateMappingExpression,
   type MappingExpressionValue,
 } from "./mapping-expression-editor";
+import { CatalogIntegrationProfileHealthPanel } from "./admin-control-plane/health/integration-health-dashboard";
+import { CatalogIntegrationAreaWorkbench } from "./admin-control-plane/profiles/profile-workflow-workbench";
+import type { CatalogIntegrationModuleArea } from "./admin-control-plane/registry";
+import { CatalogIntegrationModuleShell } from "./admin-control-plane/shell/catalog-integration-module-shell";
 
 const ALL_PROVIDERS = "__all__";
 const ALL_LANGUAGES = "__all__";
@@ -167,34 +167,6 @@ const PROFILE_LIFECYCLE_OPTIONS = [
   { value: "test", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.test") },
 ] satisfies SelectItem[];
 const EMPTY_PROFILE_REVIEWS: CatalogProviderProfileVersionReview[] = [];
-const CATALOG_INTEGRATION_MODULE_AREAS = [
-  {
-    value: "health",
-    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.health"),
-    icon: "dashboard",
-  },
-  {
-    value: "authoring",
-    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.authoring"),
-    icon: "settings",
-  },
-  {
-    value: "validation",
-    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
-    icon: "badgeCheck",
-  },
-  {
-    value: "operations",
-    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.operations"),
-    icon: "refreshCcw",
-  },
-  {
-    value: "audit",
-    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.audit"),
-    icon: "search",
-  },
-] satisfies SegmentedControlItem[];
-type CatalogIntegrationModuleArea = (typeof CATALOG_INTEGRATION_MODULE_AREAS)[number]["value"];
 const OPTION_QUERY_OPERATION_OPTIONS = [
   {
     value: "tcgdex-list-languages",
@@ -1575,8 +1547,10 @@ export function IntegrationManagementPage({
           columns={profileColumns}
           profileWorkspaceItems={profileWorkspaceItems}
           selectedProfileId={selectedProfileId || profileWorkspaceItems[0]?.value || NO_PROFILE_WORKSPACE}
+          emptyProfileWorkspaceValue={NO_PROFILE_WORKSPACE}
           onSelectedProfileChange={(value) => setSelectedProfileId(value === NO_PROFILE_WORKSPACE ? "" : value)}
           onRefresh={providerProfiles.refresh}
+          getProfileRowId={profileActionIdentity}
           controlPlaneReadiness={controlPlaneReadiness.data ?? null}
           controlPlaneLoading={controlPlaneReadiness.loading}
           controlPlaneError={controlPlaneReadiness.error}
@@ -2284,359 +2258,6 @@ export function IntegrationManagementPage({
   );
 }
 
-type CatalogIntegrationModuleShellProps = Readonly<{
-  area: CatalogIntegrationModuleArea;
-  onAreaChange: (value: string) => void;
-  selectedProfile: CatalogProviderProfileVersionReview | null;
-  summary: ReturnType<typeof summarizeScopes>;
-  activeJobCount: number;
-  canManageCatalog: boolean;
-  children: ReactNode;
-}>;
-
-function CatalogIntegrationModuleShell({
-  area,
-  onAreaChange,
-  selectedProfile,
-  summary,
-  activeJobCount,
-  canManageCatalog,
-  children,
-}: CatalogIntegrationModuleShellProps) {
-  return (
-    <WorkstationLayout
-      secondaryTitle="Module context"
-      secondaryDescription="Selected profile health, operations, permissions, and the admin module map."
-      primary={
-        <Stack gap={4}>
-          <SegmentedControl
-            aria-label={t(
-              "catalog.features.sourceObservations.ui.integrationManagementPage.catalog.integration.module.area",
-            )}
-            value={area}
-            onValueChange={onAreaChange}
-            items={CATALOG_INTEGRATION_MODULE_AREAS}
-            fullWidth
-          />
-          {children}
-        </Stack>
-      }
-      secondary={
-        <Stack gap={3}>
-          <OperationalStatusBanner
-            tone={canManageCatalog ? "success" : "warning"}
-            title={canManageCatalog ? "Catalog manage enabled" : "View-only catalog access"}
-            description={
-              canManageCatalog
-                ? "This operator can author profiles, run imports, reapply promoted observations, and manage lifecycle actions."
-                : "This operator can inspect profiles, compare versions, dry-run fixtures, and review observations. Writes require catalog.manage."
-            }
-          />
-          <TaskSummary
-            title={t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.profile")}
-            items={
-              selectedProfile
-                ? [
-                    {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
-                      value: selectedProfile.displayName,
-                    },
-                    {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.version"),
-                      value: selectedProfile.profileVersion,
-                    },
-                    {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.lifecycle"),
-                      value: selectedProfile.active ? "active" : selectedProfile.lifecycle,
-                    },
-                    {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
-                      value: selectedProfile.validation.status,
-                    },
-                    {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping"),
-                      value: selectedProfile.mappingOutputKind,
-                    },
-                    {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flows"),
-                      value: String(selectedProfile.fixtures.coveredFlows.length),
-                    },
-                  ]
-                : [
-                    {
-                      label: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile"),
-                      value: "No profile selected",
-                    },
-                  ]
-            }
-          />
-          <TaskSummary
-            title={t("catalog.features.sourceObservations.ui.integrationManagementPage.module.map")}
-            items={[
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.current.area"),
-                value: moduleAreaLabel(area),
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.authoring"),
-                value: "Profile basics, options, connector, mappings, references, and plans",
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
-                value: "Fixture dry-runs, diagnostics, readiness, and semantic comparison",
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.operations"),
-                value: "Import, promote all, reapply, job status, and failure groups",
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.audit"),
-                value: "Migration evidence, authoring metadata, rollback, and retirement",
-              },
-            ]}
-          />
-          <TaskSummary
-            title={t("catalog.features.sourceObservations.ui.integrationManagementPage.operations")}
-            items={[
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.scopes"),
-                value: formatCount(summary.scopes),
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.review"),
-                value: formatCount(summary.observed + summary.changed),
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.promoted"),
-                value: formatCount(summary.promoted),
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.active.jobs"),
-                value: formatCount(activeJobCount),
-              },
-            ]}
-          />
-        </Stack>
-      }
-    />
-  );
-}
-
-type CatalogIntegrationProfileHealthPanelProps = Readonly<{
-  profiles: CatalogProviderProfileVersionReview[];
-  columns: DataColumn<CatalogProviderProfileVersionReview>[];
-  profileWorkspaceItems: SelectItem[];
-  selectedProfileId: string;
-  onSelectedProfileChange: (value: string) => void;
-  onRefresh: () => void;
-  controlPlaneReadiness: CatalogIntegrationControlPlaneReadiness | null;
-  controlPlaneLoading: boolean;
-  controlPlaneError: string | null;
-  onRefreshControlPlane: () => void;
-}>;
-
-function CatalogIntegrationProfileHealthPanel({
-  profiles,
-  columns,
-  profileWorkspaceItems,
-  selectedProfileId,
-  onSelectedProfileChange,
-  onRefresh,
-  controlPlaneReadiness,
-  controlPlaneLoading,
-  controlPlaneError,
-  onRefreshControlPlane,
-}: CatalogIntegrationProfileHealthPanelProps) {
-  return (
-    <Stack gap={3}>
-      <CatalogIntegrationControlPlaneReadinessPanel
-        readiness={controlPlaneReadiness}
-        loading={controlPlaneLoading}
-        error={controlPlaneError}
-        onRefresh={onRefreshControlPlane}
-      />
-      <Inline gap={3} align="center">
-        <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.integrations.profile.review.title")}</h2>
-          <p>{t("catalog.features.sourceObservations.ui.integrations.profile.review.description")}</p>
-        </Stack>
-        <Button tone="secondary" leadingIcon="refreshCcw" onClick={onRefresh}>
-          {t("catalog.features.sourceObservations.ui.integrations.profile.review.refresh")}
-        </Button>
-      </Inline>
-      <Select
-        label={t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.workspace")}
-        value={selectedProfileId}
-        onValueChange={onSelectedProfileChange}
-        items={
-          profileWorkspaceItems.length > 0
-            ? profileWorkspaceItems
-            : [
-                {
-                  label: t(
-                    "catalog.features.sourceObservations.ui.integrationManagementPage.no.provider.profiles.available",
-                  ),
-                  value: NO_PROFILE_WORKSPACE,
-                },
-              ]
-        }
-        disabled={profileWorkspaceItems.length === 0}
-      />
-      <DataTable
-        rows={profiles}
-        columns={columns}
-        getRowId={(row) => profileActionIdentity(row)}
-        emptyTitle={t("catalog.features.sourceObservations.ui.integrations.profile.review.none.found")}
-      />
-    </Stack>
-  );
-}
-
-function CatalogIntegrationControlPlaneReadinessPanel({
-  readiness,
-  loading,
-  error,
-  onRefresh,
-}: Readonly<{
-  readiness: CatalogIntegrationControlPlaneReadiness | null;
-  loading: boolean;
-  error: string | null;
-  onRefresh: () => void;
-}>) {
-  const units = readiness?.units ?? [];
-  const readyUnits = units.filter(
-    (unit) =>
-      unit.semanticReadiness === "ready" &&
-      unit.transportReadiness === "ready" &&
-      unit.fixtureValidationStatus === "ready" &&
-      unit.dryRunStatus === "completed",
-  ).length;
-
-  return (
-    <Stack gap={3}>
-      <Inline gap={3} align="center">
-        <Stack gap={1}>
-          <h2>{t("catalog.features.sourceObservations.ui.integrationManagementPage.first.slice.readiness")}</h2>
-          <p>
-            {t(
-              "catalog.features.sourceObservations.ui.integrationManagementPage.reference.ingestion.unit.health.fixture.validation.dry.run.facts.and.diagnostics",
-            )}
-          </p>
-        </Stack>
-        <Button tone="secondary" leadingIcon="refreshCcw" loading={loading} onClick={onRefresh}>
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.refresh.readiness")}
-        </Button>
-      </Inline>
-      {error ? (
-        <OperationalStatusBanner
-          tone="danger"
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness.unavailable")}
-          description={error}
-        />
-      ) : null}
-      <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.control.plane.proof")}
-        items={[
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.ready.units"),
-            value: `${readyUnits}/${units.length}`,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.generated"),
-            value: readiness ? formatDateTime(readiness.generatedAt) : loading ? "Loading" : "Not loaded",
-          },
-        ]}
-      />
-      {units.length > 0 ? (
-        <Stack gap={2}>
-          {units.map((unit) => (
-            <CatalogIntegrationControlPlaneUnitPanel key={unit.unitKey} unit={unit} />
-          ))}
-        </Stack>
-      ) : !loading ? (
-        <OperationalStatusBanner
-          tone="warning"
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.ingestion.units.reported")}
-          description={t(
-            "catalog.features.sourceObservations.ui.integrationManagementPage.the.catalog.integration.control.plane.did.not.return.any.ingestion.unit.readiness.records",
-          )}
-        />
-      ) : null}
-    </Stack>
-  );
-}
-
-function CatalogIntegrationControlPlaneUnitPanel({
-  unit,
-}: Readonly<{ unit: CatalogIntegrationControlPlaneUnitReadiness }>) {
-  const firstEvidence = unit.dryRunEvidence[0] ?? null;
-
-  return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center" wrap>
-        <h3>{unit.displayName}</h3>
-        <StatusPill tone={unit.semanticReadiness === "ready" ? "success" : "danger"}>
-          {unit.semanticReadiness}
-        </StatusPill>
-        <StatusPill tone={unit.dryRunStatus === "completed" ? "success" : "danger"}>{unit.dryRunStatus}</StatusPill>
-      </Inline>
-      <TaskSummary
-        title={unit.unitKey}
-        items={[
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
-            value: unit.providerKey,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.version"),
-            value: unit.profileVersion || "Not assigned",
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.transport"),
-            value: unit.transportReadiness,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixtures"),
-            value: unit.fixtureValidationStatus,
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.facts"),
-            value: formatCount(unit.observationFacts),
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.diagnostics"),
-            value: `${unit.diagnosticCounts.error} error / ${unit.diagnosticCounts.warning} warning / ${unit.diagnosticCounts.info} info`,
-          },
-        ]}
-      />
-      {firstEvidence ? (
-        <TaskSummary
-          title={t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.source.observation.fact")}
-          items={[
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.external.key"),
-              value: firstEvidence.externalKey,
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.source.hash"),
-              value: firstEvidence.sourceHash ?? "None",
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.name"),
-              value: firstEvidence.normalizedFacts.name ?? "None",
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.expansion"),
-              value: firstEvidence.normalizedFacts.expansionName ?? "None",
-            },
-          ]}
-        />
-      ) : null}
-      {unit.latestDiagnosticText ? <p className="text-sm text-secondary">{unit.latestDiagnosticText}</p> : null}
-    </Stack>
-  );
-}
-
 function buildProfileWorkspaceItems(profiles: readonly CatalogProviderProfileVersionReview[]): SelectItem[] {
   return profiles.map((profile) => ({
     value: profileActionIdentity(profile),
@@ -2646,197 +2267,6 @@ function buildProfileWorkspaceItems(profiles: readonly CatalogProviderProfileVer
       value2: String(profile.active ? " active" : ` ${profile.lifecycle}`),
     }),
   }));
-}
-
-function moduleAreaLabel(area: CatalogIntegrationModuleArea) {
-  return CATALOG_INTEGRATION_MODULE_AREAS.find((item) => item.value === area)?.label ?? area;
-}
-
-function CatalogIntegrationAreaWorkbench({
-  area,
-  selectedProfile,
-  authoringModel,
-  loading,
-  error,
-  canManageCatalog,
-  onEditProfile,
-  onDryRun,
-  onCompare,
-  onMigrationEvidence,
-  onActivate,
-  onImport,
-  onReapply,
-}: Readonly<{
-  area: CatalogIntegrationModuleArea;
-  selectedProfile: CatalogProviderProfileVersionReview | null;
-  authoringModel: CatalogProviderProfileAuthoringModel | null;
-  loading: boolean;
-  error: string | null;
-  canManageCatalog: boolean;
-  onEditProfile: (profile: CatalogProviderProfileVersionReview) => void;
-  onDryRun: (profile: CatalogProviderProfileVersionReview) => void;
-  onCompare: (profile: CatalogProviderProfileVersionReview) => void;
-  onMigrationEvidence: (profile: CatalogProviderProfileVersionReview) => void;
-  onActivate: (profile: CatalogProviderProfileVersionReview) => void;
-  onImport: () => void;
-  onReapply: () => void;
-}>) {
-  if (area === "health") {
-    return null;
-  }
-
-  if (!selectedProfile) {
-    return (
-      <OperationalStatusBanner
-        tone="warning"
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.workbench", {
-          value: String(moduleAreaLabel(area)),
-        })}
-        description={t(
-          "catalog.features.sourceObservations.ui.integrationManagementPage.select.a.provider.profile.version.to.use.this",
-        )}
-      />
-    );
-  }
-
-  const readiness = authoringModel?.activationReadiness;
-  const areaItems =
-    area === "authoring"
-      ? [
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.editable.sections"),
-            value: authoringModel ? String(authoringModel.editableSections.length) : "Loading",
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flows"),
-            value: selectedProfile.fixtures.coveredFlows.join(", ") || "None",
-          },
-          {
-            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.output"),
-            value: selectedProfile.mappingOutputKind,
-          },
-        ]
-      : area === "validation"
-        ? [
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.validation"),
-              value: selectedProfile.validation.status,
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness"),
-              value: readiness?.status ?? "Loading",
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.readiness.checks"),
-              value: readiness ? String(readiness.checks.length) : "Loading",
-            },
-          ]
-        : area === "operations"
-          ? [
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
-                value: selectedProfile.providerKey,
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.capabilities"),
-                value: selectedProfile.capabilities.join(", ") || "None",
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.supported.scopes"),
-                value: selectedProfile.supportedScopes.join(", ") || "None",
-              },
-            ]
-          : [
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.lifecycle"),
-                value: selectedProfile.lifecycle,
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.count"),
-                value: String(selectedProfile.referenceCount),
-              },
-              {
-                label: t("catalog.features.sourceObservations.ui.integrationManagementPage.migration.evidence"),
-                value: selectedProfile.migrationEvidence ? "Recorded" : "Not recorded",
-              },
-            ];
-
-  return (
-    <Stack gap={3}>
-      <TaskSummary
-        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.workbench.2", {
-          value: String(moduleAreaLabel(area)),
-        })}
-        items={areaItems}
-      />
-      {loading ? (
-        <p className="text-sm text-secondary">
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.selected.profile.context")}
-        </p>
-      ) : null}
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
-      <Inline gap={2}>
-        {area === "authoring" ? (
-          <Button
-            size="sm"
-            leadingIcon="settings"
-            disabled={!canManageCatalog}
-            onClick={() => onEditProfile(selectedProfile)}
-          >
-            {t("catalog.features.sourceObservations.ui.integrationManagementPage.edit.selected.profile")}
-          </Button>
-        ) : null}
-        {area === "validation" ? (
-          <>
-            <Button size="sm" tone="secondary" leadingIcon="play" onClick={() => onDryRun(selectedProfile)}>
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.selected.profile")}
-            </Button>
-            <Button size="sm" tone="secondary" leadingIcon="search" onClick={() => onCompare(selectedProfile)}>
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.compare.active")}
-            </Button>
-          </>
-        ) : null}
-        {area === "operations" ? (
-          <>
-            <Button size="sm" leadingIcon="plus" disabled={!canManageCatalog} onClick={onImport}>
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.pull.provider.data")}
-            </Button>
-            <Button
-              size="sm"
-              tone="secondary"
-              leadingIcon="badgeCheck"
-              disabled={!canManageCatalog}
-              onClick={onReapply}
-            >
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.reapply.promoted")}
-            </Button>
-          </>
-        ) : null}
-        {area === "audit" ? (
-          <>
-            <Button
-              size="sm"
-              tone="secondary"
-              leadingIcon="badgeCheck"
-              disabled={!canManageCatalog}
-              onClick={() => onMigrationEvidence(selectedProfile)}
-            >
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.evidence")}
-            </Button>
-            <Button
-              size="sm"
-              tone="secondary"
-              leadingIcon="badgeCheck"
-              disabled={!canManageCatalog}
-              onClick={() => onActivate(selectedProfile)}
-            >
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.activate")}
-            </Button>
-          </>
-        ) : null}
-      </Inline>
-    </Stack>
-  );
 }
 
 function lifecycleProfileContextItems(profile: CatalogProviderProfileVersionReview) {
