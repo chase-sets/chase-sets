@@ -19,6 +19,13 @@ type MarketplaceCatalogItemRow = Readonly<{
   updated_at: string;
 }>;
 
+type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
+  catalogItemId: string;
+  languageCode?: string;
+  title: string;
+  subtitle?: string | null;
+}>;
+
 type MarketplaceBlueprintRow = Readonly<{
   blueprint_id: string;
   name: string;
@@ -470,6 +477,27 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
       );
 
       await refreshMarketplaceCatalogItem(db, itemId);
+    },
+    "catalog.catalog-item.display-identity-resolved": async (event) => {
+      const data = event.data as CatalogItemDisplayIdentityResolvedEventData;
+
+      await db.query(
+        `UPDATE marketplace_catalog_items
+         SET language_code = $2,
+             title = $3,
+             subtitle = $4,
+             updated_at = $5
+         WHERE catalog_item_id = $1`,
+        [
+          data.catalogItemId,
+          data.languageCode ?? "en",
+          data.title,
+          data.subtitle?.trim() || null,
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshMarketplaceCatalogItem(db, data.catalogItemId);
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, "catalog.item-");

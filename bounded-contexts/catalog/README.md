@@ -27,6 +27,7 @@ Graded card product modeling is documented in [Graded Card Data Model](./docs/gr
 Provider-fed catalog data is documented in [Source Observation Integration](./docs/source-observation-integration.md).
 Provider-owned structural setup is documented in [Provider Integration Profiles](./docs/provider-integration-profiles.md).
 External product mapping for seller inventory imports is documented in [External Product References](./docs/external-product-references.md).
+Resolved display copy from Display Templates is documented in [Catalog Resolved Display Identity](./docs/resolved-display-identity.md).
 
 ## Owns
 
@@ -40,6 +41,7 @@ External product mapping for seller inventory imports is documented in [External
 - External Product References that map third-party SKU identifiers to Product selection truth
 - Reference Types and Reference Records that provide rich reusable facts for item fields
 - Display Templates that resolve reusable product-facing title and subtitle copy from Catalog facts
+- Resolved Display Identity as the Catalog-owned item-level display copy fact published to downstream contexts
 
 ## Does Not Own
 
@@ -107,6 +109,8 @@ Display Templates produce display copy from Catalog Item Fields, selected Refere
 6. Catalog Item metadata fallback
 
 Display Templates never affect `catalog_item_id`, `product_id`, selected Options, or product-resolution validity.
+
+Resolved Display Identity is the item-level title/subtitle fact produced from Display Templates and fallback metadata. Catalog persists and publishes this fact so downstream contexts update display copy without subscribing to internal Display Template events.
 
 ### Catalog Item
 
@@ -192,8 +196,11 @@ Initial integration surface:
 - `CatalogItemPublished`
 - `CatalogItemUpdated`
 - `CatalogItemArchived`
+- `catalog.catalog-item.display-identity-resolved`
 
 Those events should carry the Catalog Item snapshot plus the `product_schema` downstream consumers need to validate `selected_options` and compute `product_id`.
+
+Display Template authoring events are Catalog-internal. Downstream contexts should consume the item-level display identity fact when title/subtitle copy changes because of template policy.
 
 ## Invariants
 

@@ -39,6 +39,17 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.includes("UPDATE marketplace_catalog_items") && sql.includes("title = $3")) {
+      this.catalogItems.set(String(values[0]), {
+        ...this.catalogItems.get(String(values[0])),
+        language_code: values[1],
+        title: values[2],
+        subtitle: values[3],
+        updated_at: values[4],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
     throw new Error(`Unexpected query: ${sql}`);
   }
 }
@@ -84,6 +95,34 @@ describe("marketplace catalog projection", () => {
       language_code: "ja",
       title: "Charizard",
       subtitle: "Japanese Base Set",
+    });
+  });
+
+  it("updates item labels from Catalog display identity facts", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceCatalogProjectionHandlers(db);
+
+    await handlers["catalog.catalog-item.created"]!(
+      event("catalog.catalog-item.created", {
+        itemId: "cat_1",
+        title: "Fallback",
+        subtitle: null,
+      }),
+    );
+
+    await handlers["catalog.catalog-item.display-identity-resolved"]!(
+      event("catalog.catalog-item.display-identity-resolved", {
+        catalogItemId: "cat_1",
+        languageCode: "en",
+        title: "Charizard 4/102",
+        subtitle: "Base Set Rare Holo",
+      }),
+    );
+
+    expect(db.catalogItems.get("cat_1")).toMatchObject({
+      language_code: "en",
+      title: "Charizard 4/102",
+      subtitle: "Base Set Rare Holo",
     });
   });
 });

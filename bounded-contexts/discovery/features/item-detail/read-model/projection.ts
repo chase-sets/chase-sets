@@ -47,6 +47,13 @@ type ItemDetailCatalogItemRow = Readonly<{
   updated_at: string;
 }>;
 
+type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
+  catalogItemId: string;
+  languageCode?: string;
+  title: string;
+  subtitle?: string | null;
+}>;
+
 type ItemDetailBlueprintRow = Readonly<{
   blueprint_id: string;
   name: string;
@@ -381,6 +388,50 @@ async function refreshItemsByReferenceRecord(db: PgQueryable, referenceRecordId:
   await Promise.all([...new Set(itemIds)].map((itemId) => refreshDiscoveryItemDetailPage(db, itemId)));
 }
 
+async function applyCatalogItemDisplayIdentity(
+  db: PgQueryable,
+  input: CatalogItemDisplayIdentityResolvedEventData,
+  updatedAt: string,
+): Promise<void> {
+  const resolvedSubtitle = input.subtitle?.trim() || null;
+  const slug = createMarketplaceSlug([input.title, resolvedSubtitle], input.catalogItemId);
+  const current = await db.query<{ slug: string | null }>(
+    `SELECT slug FROM discovery_item_detail_catalog_items WHERE catalog_item_id = $1`,
+    [input.catalogItemId],
+  );
+
+  await db.query(
+    `UPDATE discovery_item_detail_catalog_items
+     SET slug = $2,
+         language_code = $3,
+         title_i18n = $4,
+         title = $5,
+         subtitle_i18n = $6,
+         subtitle = $7,
+         updated_at = $8
+     WHERE catalog_item_id = $1`,
+    [
+      input.catalogItemId,
+      slug,
+      input.languageCode ?? "en",
+      JSON.stringify(localizedTextMap(input.title)),
+      input.title,
+      resolvedSubtitle ? JSON.stringify(localizedTextMap(resolvedSubtitle)) : null,
+      resolvedSubtitle,
+      updatedAt,
+    ],
+  );
+  await rememberSlugRedirect(db, {
+    entityKind: "item",
+    entityId: input.catalogItemId,
+    previousSlug: current.rows[0]?.slug,
+    nextSlug: slug,
+    updatedAt,
+  });
+
+  await refreshDiscoveryItemDetailPage(db, input.catalogItemId);
+}
+
 export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
     "catalog.catalog-item.created": async (event) => {
@@ -534,6 +585,13 @@ export function buildDiscoveryItemDetailProjectionHandlers(db: PgQueryable): Pro
       );
 
       await refreshDiscoveryItemDetailPage(db, itemId);
+    },
+    "catalog.catalog-item.display-identity-resolved": async (event) => {
+      await applyCatalogItemDisplayIdentity(
+        db,
+        event.data as CatalogItemDisplayIdentityResolvedEventData,
+        event.timing.recordedAt,
+      );
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);

@@ -1,10 +1,13 @@
+import { createHash } from "node:crypto";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { asArray, asStringArray, type FieldValue } from "../../../support/projection-support/read-model-support";
 
 const MAX_REFERENCE_EXPANSION_DEPTH = 4;
+const DISPLAY_IDENTITY_RESOLVER_VERSION = 1;
 
 export type DisplayIdentityItem = Readonly<{
   catalog_item_id: string;
+  language_code?: string;
   title: string;
   subtitle: string | null;
   blueprint_id: string | null;
@@ -13,9 +16,21 @@ export type DisplayIdentityItem = Readonly<{
 }>;
 
 export type ResolvedDisplayIdentity = Readonly<{
+  catalogItemId: string;
+  languageCode: string;
   title: string;
   subtitle: string | null;
   templateKey: string | null;
+  templateTargetKind: string | null;
+  templateTargetId: string | null;
+  hash: string;
+  resolverVersion: number;
+}>;
+
+export type PersistedDisplayIdentityResult = Readonly<{
+  identity: ResolvedDisplayIdentity;
+  changed: boolean;
+  resolvedAt: string;
 }>;
 
 type FieldDefinitionRow = Readonly<{
@@ -95,23 +110,139 @@ export async function resolveCatalogItemDisplayIdentity(
     ),
   };
   const template = chooseTemplate(context, templates);
+  const languageCode = normalizeLanguageCode(item.language_code);
 
   if (!template) {
-    return {
+    return withDisplayIdentityMetadata(item, languageCode, {
       title: item.title,
       subtitle: item.subtitle?.trim() || null,
       templateKey: null,
-    };
+      templateTargetKind: null,
+      templateTargetId: null,
+    });
   }
 
   const title = renderTemplate(template.title_template, context).trim();
   const subtitle = template.subtitle_template ? renderTemplate(template.subtitle_template, context).trim() : "";
 
-  return {
+  return withDisplayIdentityMetadata(item, languageCode, {
     title: title || item.title,
     subtitle: subtitle || null,
     templateKey: template.key,
+    templateTargetKind: template.target_kind,
+    templateTargetId: template.target_id,
+  });
+}
+
+export async function resolveAndPersistCatalogItemDisplayIdentity(
+  db: PgQueryable,
+  item: DisplayIdentityItem,
+  resolvedAt: string,
+): Promise<PersistedDisplayIdentityResult> {
+  const identity = await resolveCatalogItemDisplayIdentity(db, item);
+  const existing = await db.query<{ display_identity_hash: string }>(
+    `SELECT display_identity_hash
+     FROM catalog_item_display_identities
+     WHERE catalog_item_id = $1 AND language_code = $2`,
+    [identity.catalogItemId, identity.languageCode],
+  );
+  const changed = existing.rows[0]?.display_identity_hash !== identity.hash;
+
+  await db.query(
+    `INSERT INTO catalog_item_display_identities (
+       catalog_item_id,
+       language_code,
+       title,
+       subtitle,
+       display_template_key,
+       display_template_target_kind,
+       display_template_target_id,
+       display_identity_hash,
+       resolver_version,
+       resolved_at,
+       updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)
+     ON CONFLICT (catalog_item_id, language_code) DO UPDATE SET
+       title = EXCLUDED.title,
+       subtitle = EXCLUDED.subtitle,
+       display_template_key = EXCLUDED.display_template_key,
+       display_template_target_kind = EXCLUDED.display_template_target_kind,
+       display_template_target_id = EXCLUDED.display_template_target_id,
+       display_identity_hash = EXCLUDED.display_identity_hash,
+       resolver_version = EXCLUDED.resolver_version,
+       resolved_at = EXCLUDED.resolved_at,
+       updated_at = EXCLUDED.updated_at`,
+    [
+      identity.catalogItemId,
+      identity.languageCode,
+      identity.title,
+      identity.subtitle,
+      identity.templateKey,
+      identity.templateTargetKind,
+      identity.templateTargetId,
+      identity.hash,
+      identity.resolverVersion,
+      resolvedAt,
+    ],
+  );
+
+  return { identity, changed, resolvedAt };
+}
+
+function withDisplayIdentityMetadata(
+  item: DisplayIdentityItem,
+  languageCode: string,
+  identity: Pick<
+    ResolvedDisplayIdentity,
+    "title" | "subtitle" | "templateKey" | "templateTargetKind" | "templateTargetId"
+  >,
+): ResolvedDisplayIdentity {
+  const snapshot = {
+    catalogItemId: item.catalog_item_id,
+    languageCode,
+    title: identity.title,
+    subtitle: identity.subtitle,
+    templateKey: identity.templateKey,
+    templateTargetKind: identity.templateTargetKind,
+    templateTargetId: identity.templateTargetId,
+    resolverVersion: DISPLAY_IDENTITY_RESOLVER_VERSION,
   };
+
+  return {
+    ...snapshot,
+    hash: displayIdentityHash(snapshot),
+  };
+}
+
+function displayIdentityHash(input: {
+  catalogItemId: string;
+  languageCode: string;
+  title: string;
+  subtitle: string | null;
+  templateKey: string | null;
+  templateTargetKind: string | null;
+  templateTargetId: string | null;
+  resolverVersion: number;
+}): string {
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        catalogItemId: input.catalogItemId,
+        languageCode: input.languageCode,
+        title: input.title,
+        subtitle: input.subtitle,
+        templateKey: input.templateKey,
+        templateTargetKind: input.templateTargetKind,
+        templateTargetId: input.templateTargetId,
+        resolverVersion: input.resolverVersion,
+      }),
+    )
+    .digest("hex");
+}
+
+function normalizeLanguageCode(value: string | undefined): string {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && normalized.length > 0 ? normalized : "en";
 }
 
 function chooseTemplate(

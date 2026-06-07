@@ -9,6 +9,9 @@ export interface CatalogItemListItem {
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_template_key: string | null;
+  display_identity_hash: string | null;
+  display_identity_resolved_at: string | null;
   blueprint: BlueprintRef | null;
   status: string;
   source_providers: string[];
@@ -36,6 +39,9 @@ export interface CatalogItemDetail {
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_template_key: string | null;
+  display_identity_hash: string | null;
+  display_identity_resolved_at: string | null;
   description_i18n: unknown;
   description: string;
   blueprint: BlueprintRef | null;

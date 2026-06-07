@@ -39,8 +39,17 @@ import {
   type BulkEditCatalogItemRow,
   type BulkPublishCatalogItemRow,
 } from "../read-model/queries";
-import { buildCatalogAdminCatalogItemProjectionHandlers } from "../read-model/admin-projection";
+import {
+  buildCatalogAdminCatalogItemProjectionHandlers,
+  refreshCatalogAdminCatalogItemPages,
+} from "../read-model/admin-projection";
 import { buildCatalogItemProjectionHandlers } from "../read-model/projection";
+import {
+  getCatalogItemDisplayIdentityRecomputeHealth,
+  processCatalogItemDisplayIdentityRecomputeBatch,
+  type DisplayIdentityRecomputeBatchResult,
+  type DisplayIdentityRecomputeHealth,
+} from "../read-model/display-identity-recompute";
 
 export type BulkPublishSelection =
   | Readonly<{ mode: "ids"; ids: readonly string[] }>
@@ -148,6 +157,11 @@ export type CatalogItemServices = Readonly<{
     context: EventStoreContext,
     options?: BulkLifecycleExecutionOptions,
   ) => Promise<BulkEditCatalogItemResult>;
+  processDisplayIdentityRecomputeBatch: (
+    context: EventStoreContext,
+    options?: Readonly<{ limit?: number }>,
+  ) => Promise<DisplayIdentityRecomputeBatchResult>;
+  getDisplayIdentityRecomputeHealth: () => Promise<DisplayIdentityRecomputeHealth>;
   bulkLifecycle: BulkLifecycleOperations<CatalogItemListParams, CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -207,6 +221,12 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
     previewBulkEdit: async (selection, operation) => previewBulkEdit(deps, selection, operation),
     editBulk: async (selection, operation, context, options) =>
       editBulk(deps, commandHandler, selection, operation, context, options),
+    processDisplayIdentityRecomputeBatch: async (context, options) =>
+      processCatalogItemDisplayIdentityRecomputeBatch(deps.db, commandHandler, context, {
+        ...options,
+        afterPersist: (itemId) => refreshCatalogAdminCatalogItemPages(deps.db, itemId),
+      }),
+    getDisplayIdentityRecomputeHealth: async () => getCatalogItemDisplayIdentityRecomputeHealth(deps.db),
     bulkLifecycle,
     projectors,
   };

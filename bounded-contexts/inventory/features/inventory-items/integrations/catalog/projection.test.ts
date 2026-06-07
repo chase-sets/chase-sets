@@ -38,6 +38,17 @@ class ProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.includes("UPDATE inventory_catalog_items") && sql.includes("title = $3")) {
+      this.catalogItems.set(String(values[0]), {
+        ...this.catalogItems.get(String(values[0])),
+        language_code: values[1],
+        title: values[2],
+        subtitle: values[3],
+        updated_at: values[4],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("INSERT INTO inventory_catalog_external_product_references")) {
       this.externalProductReferences.set(`${values[0]}:${values[1]}`, {
         provider_key: values[0],
@@ -114,6 +125,34 @@ describe("inventory catalog item projection", () => {
       language_code: "ja",
       title: "Charizard",
       subtitle: "Japanese Base Set",
+    });
+  });
+
+  it("updates item labels from Catalog display identity facts", async () => {
+    const db = new ProjectionDb();
+    const handlers = buildInventoryCatalogItemProjectionHandlers(db);
+
+    await handlers["catalog.catalog-item.created"]!(
+      event("catalog.catalog-item.created", {
+        itemId: "cat_1",
+        title: "Fallback",
+        subtitle: null,
+      }),
+    );
+
+    await handlers["catalog.catalog-item.display-identity-resolved"]!(
+      event("catalog.catalog-item.display-identity-resolved", {
+        catalogItemId: "cat_1",
+        languageCode: "en",
+        title: "Charizard 4/102",
+        subtitle: "Base Set Rare Holo",
+      }),
+    );
+
+    expect(db.catalogItems.get("cat_1")).toMatchObject({
+      language_code: "en",
+      title: "Charizard 4/102",
+      subtitle: "Base Set Rare Holo",
     });
   });
 

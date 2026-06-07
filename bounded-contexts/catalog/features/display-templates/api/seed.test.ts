@@ -1,0 +1,140 @@
+import { describe, expect, it, vi } from "vitest";
+import { catalogSeedIds } from "../../../support/seed-support/ids";
+import { seedDisplayTemplates } from "./seed";
+
+describe("seedDisplayTemplates", () => {
+  it("does not emit commands on a no-op seed rerun", async () => {
+    const commandHandler = vi.fn(async () => undefined);
+    const db = seedDb(matchingSeedRows());
+
+    await seedDisplayTemplates({ db, displayTemplates: { commandHandler } } as never);
+
+    expect(commandHandler).not.toHaveBeenCalled();
+    expect(db.queueTouched).toBe(false);
+  });
+
+  it("revises changed seed templates by stable seed identity", async () => {
+    const commandHandler = vi.fn(async () => undefined);
+    const rows = matchingSeedRows({
+      [catalogSeedIds.displayTemplates.pokemonSingleCardDefault]: {
+        title_template: "{field.card-name}",
+      },
+    });
+    const db = seedDb(rows);
+
+    await seedDisplayTemplates({ db, displayTemplates: { commandHandler } } as never);
+
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+    expect(commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.pokemonSingleCardDefault}`,
+        command: expect.objectContaining({
+          type: "ReviseDisplayTemplate",
+          titleTemplate: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
+        }),
+      }),
+    );
+    expect(db.queueTouched).toBe(true);
+  });
+
+  it("creates and publishes missing seed templates even when other template rows exist", async () => {
+    const commandHandler = vi.fn(async () => undefined);
+    const rows = matchingSeedRows().filter(
+      (row) => row.display_template_id !== catalogSeedIds.displayTemplates.pokemonSealedProduct,
+    );
+    const db = seedDb(rows);
+
+    await seedDisplayTemplates({ db, displayTemplates: { commandHandler } } as never);
+
+    expect(commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.pokemonSealedProduct}`,
+        command: expect.objectContaining({
+          type: "CreateDisplayTemplate",
+          displayTemplateId: catalogSeedIds.displayTemplates.pokemonSealedProduct,
+        }),
+      }),
+    );
+    expect(commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.pokemonSealedProduct}`,
+        command: { type: "PublishDisplayTemplate" },
+      }),
+    );
+    expect(db.queueTouched).toBe(true);
+  });
+});
+
+type SeedRow = Readonly<{
+  display_template_id: string;
+  key: string;
+  target_kind: string;
+  target_id: string | null;
+  priority: number;
+  title_template: string;
+  subtitle_template: string | null;
+  required_field_keys: string[];
+  status: string;
+}>;
+
+function matchingSeedRows(overrides: Record<string, Partial<SeedRow>> = {}): SeedRow[] {
+  const rows: SeedRow[] = [
+    {
+      display_template_id: catalogSeedIds.displayTemplates.pokemonSingleCardDefault,
+      key: "pokemon-single-card-default",
+      target_kind: "blueprint",
+      target_id: catalogSeedIds.blueprints.pokemonCardSingle,
+      priority: 10,
+      title_template: "{field.card-name} {field.card-number}/{reference.expansion.attributes.printed-card-count}",
+      subtitle_template: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
+      required_field_keys: ["card-name", "card-number", "expansion"],
+      status: "active",
+    },
+    {
+      display_template_id: catalogSeedIds.displayTemplates.pokemonPromoCard,
+      key: "pokemon-promo-card",
+      target_kind: "reference-record",
+      target_id: catalogSeedIds.referenceRecords.expansions.wizardsBlackStarPromos,
+      priority: 100,
+      title_template: "{field.card-name} {field.card-number}",
+      subtitle_template: "{reference.expansion.name} [{field.card-variant} ]{field.rarity}",
+      required_field_keys: ["card-name", "card-number", "expansion"],
+      status: "active",
+    },
+    {
+      display_template_id: catalogSeedIds.displayTemplates.pokemonSealedProduct,
+      key: "pokemon-sealed-product",
+      target_kind: "blueprint",
+      target_id: catalogSeedIds.blueprints.pokemonSealedProduct,
+      priority: 10,
+      title_template: "{item.title}",
+      subtitle_template: "{reference.expansion.name} sealed product",
+      required_field_keys: [],
+      status: "active",
+    },
+  ];
+
+  return rows.map((row) => ({ ...row, ...(overrides[row.display_template_id] ?? {}) }));
+}
+
+function seedDb(rows: SeedRow[]) {
+  return {
+    queueTouched: false,
+    async query<T>(sql: string): Promise<{ rows: T[] }> {
+      if (sql.includes("FROM catalog_display_templates")) {
+        return { rows: rows as T[] };
+      }
+
+      if (sql.includes("FROM catalog_items")) {
+        this.queueTouched = true;
+        return { rows: [] };
+      }
+
+      if (sql.includes("catalog_item_display_identity_recompute_work")) {
+        this.queueTouched = true;
+      }
+
+      return { rows: [] };
+    },
+  };
+}

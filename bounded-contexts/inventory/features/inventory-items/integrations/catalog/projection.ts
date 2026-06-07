@@ -23,6 +23,13 @@ type InventoryCatalogItemRow = Readonly<{
   updated_at: string;
 }>;
 
+type CatalogItemDisplayIdentityResolvedEventData = Readonly<{
+  catalogItemId: string;
+  languageCode?: string;
+  title: string;
+  subtitle?: string | null;
+}>;
+
 type InventoryCatalogBlueprintRow = Readonly<{
   blueprint_id: string;
   name: string;
@@ -241,6 +248,27 @@ export function buildInventoryCatalogItemProjectionHandlers(db: PgQueryable): Pr
       );
 
       await refreshInventoryCatalogItem(db, itemId);
+    },
+    "catalog.catalog-item.display-identity-resolved": async (event) => {
+      const data = event.data as CatalogItemDisplayIdentityResolvedEventData;
+
+      await db.query(
+        `UPDATE inventory_catalog_items
+         SET language_code = $2,
+             title = $3,
+             subtitle = $4,
+             updated_at = $5
+         WHERE catalog_item_id = $1`,
+        [
+          data.catalogItemId,
+          data.languageCode ?? "en",
+          data.title,
+          data.subtitle?.trim() || null,
+          event.timing.recordedAt,
+        ],
+      );
+
+      await refreshInventoryCatalogItem(db, data.catalogItemId);
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);

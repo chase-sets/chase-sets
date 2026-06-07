@@ -9,6 +9,9 @@ export type CatalogItemListRow = Readonly<{
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_template_key: string | null;
+  display_identity_hash: string | null;
+  display_identity_resolved_at: string | null;
   blueprint_id: string | null;
   blueprint: unknown;
   status: string;
@@ -24,6 +27,9 @@ export type CatalogItemDetailRow = Readonly<{
   title: string;
   subtitle_i18n: unknown;
   subtitle: string | null;
+  display_template_key: string | null;
+  display_identity_hash: string | null;
+  display_identity_resolved_at: string | null;
   description_i18n: unknown;
   description: string;
   blueprint_id: string | null;
