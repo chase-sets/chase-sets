@@ -6,7 +6,7 @@ import {
 
 describe("display identity recomputation work", () => {
   it("persists changed identity and publishes one item-level fact", async () => {
-    const published = vi.fn(async () => undefined);
+    const published = commandHandler();
     const afterPersist = vi.fn(async () => undefined);
     const persistedWrites: unknown[][] = [];
     const statusUpdates: string[] = [];
@@ -47,14 +47,10 @@ describe("display identity recomputation work", () => {
 
   it("does not publish when the resolved hash is unchanged", async () => {
     const firstDb = recomputeDb({ existingHash: null });
-    const first = await processCatalogItemDisplayIdentityRecomputeBatch(
-      firstDb,
-      vi.fn(async () => undefined),
-      {} as never,
-    );
+    const first = await processCatalogItemDisplayIdentityRecomputeBatch(firstDb, commandHandler(), {} as never);
     const hash = firstDb.persistedWrites[0]?.[7] as string;
 
-    const published = vi.fn(async () => undefined);
+    const published = commandHandler();
     const db = recomputeDb({ existingHash: hash });
 
     const result = await processCatalogItemDisplayIdentityRecomputeBatch(db, published, {} as never);
@@ -98,6 +94,10 @@ describe("display identity recomputation work", () => {
     });
   });
 });
+
+function commandHandler() {
+  return vi.fn(async () => ({ state: null, version: 1, newEvents: [], storedEvents: [] }) as never);
+}
 
 function recomputeDb(options: {
   existingHash?: string | null;

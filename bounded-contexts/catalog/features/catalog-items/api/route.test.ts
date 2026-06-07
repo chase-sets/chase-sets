@@ -105,6 +105,22 @@ function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogIt
       failed_count: 0,
       candidates: [],
     }),
+    processDisplayIdentityRecomputeBatch: async () => ({
+      selected: 0,
+      processed: 0,
+      changed: 0,
+      unchanged: 0,
+      missing: 0,
+      failed: 0,
+    }),
+    getDisplayIdentityRecomputeHealth: async () => ({
+      pending: 0,
+      running: 0,
+      completed: 0,
+      pendingWithError: 0,
+      oldestPendingAt: null,
+      latestFailureMessage: null,
+    }),
     bulkLifecycle: {
       preview: async () => ({
         mode: "ids",
