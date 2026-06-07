@@ -499,31 +499,6 @@ export function buildMarketplaceCatalogProjectionHandlers(db: PgQueryable): Proj
 
       await refreshMarketplaceCatalogItem(db, data.catalogItemId);
     },
-    "catalog.catalog-item.metadata-revised": async (event) => {
-      const itemId = extractIdFromStreamId(event.streamId, "catalog.item-");
-      const { languageCode, title, subtitle } = event.data as {
-        languageCode?: string;
-        title: string | LocalizedTextMap;
-        subtitle?: string | LocalizedTextMap | null;
-      };
-      const titleText = resolveLocalizedTextMap(coerceLocalizedTextMap(title));
-      const subtitleText =
-        subtitle === null || subtitle === undefined
-          ? null
-          : resolveLocalizedTextMap(coerceLocalizedTextMap(subtitle)) || null;
-
-      await db.query(
-        `UPDATE marketplace_catalog_items
-         SET language_code = $2,
-             title = $3,
-             subtitle = $4,
-             updated_at = $5
-         WHERE catalog_item_id = $1`,
-        [itemId, languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
-      );
-
-      await refreshMarketplaceCatalogItem(db, itemId);
-    },
     "catalog.catalog-item.published": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, "catalog.item-");
 

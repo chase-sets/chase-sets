@@ -121,6 +121,7 @@ function createServices(overrides: Partial<CatalogItemServices> = {}): CatalogIt
       oldestPendingAt: null,
       latestFailureMessage: null,
     }),
+    purgeCompletedDisplayIdentityRecomputeWork: async () => 0,
     bulkLifecycle: {
       preview: async () => ({
         mode: "ids",

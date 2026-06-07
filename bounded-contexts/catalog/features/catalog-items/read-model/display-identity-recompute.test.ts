@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   getCatalogItemDisplayIdentityRecomputeHealth,
   processCatalogItemDisplayIdentityRecomputeBatch,
+  purgeCompletedCatalogItemDisplayIdentityRecomputeWork,
 } from "./display-identity-recompute";
 
 describe("display identity recomputation work", () => {
@@ -92,6 +93,27 @@ describe("display identity recomputation work", () => {
       oldestPendingAt: "2026-06-06T12:00:00.000Z",
       latestFailureMessage: "resolver failed",
     });
+  });
+
+  it("purges only completed recomputation work older than the retention cutoff", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
+    const db = {
+      async query<T>(sql: string, params?: readonly unknown[]): Promise<{ rows: T[]; rowCount: number }> {
+        calls.push({ sql, params: params ?? [] });
+        return { rows: [], rowCount: 7 };
+      },
+    };
+
+    await expect(
+      purgeCompletedCatalogItemDisplayIdentityRecomputeWork(db, {
+        completedBefore: "2026-06-01T00:00:00.000Z",
+      }),
+    ).resolves.toBe(7);
+
+    expect(calls[0]?.sql).toContain("status = 'completed'");
+    expect(calls[0]?.sql).toContain("completed_at < $1");
+    expect(calls[0]?.sql).not.toContain("status IN");
+    expect(calls[0]?.params).toEqual(["2026-06-01T00:00:00.000Z"]);
   });
 });
 

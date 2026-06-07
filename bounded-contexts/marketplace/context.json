@@ -19,11 +19,10 @@
     {
       "sourceContextName": "catalog",
       "projectionName": "marketplace-catalog-item-projection",
-      "subscriptionVersion": 2,
+      "subscriptionVersion": 3,
       "eventTypes": [
         "catalog.catalog-item.created",
         "catalog.catalog-item.blueprint-assigned",
-        "catalog.catalog-item.metadata-revised",
         "catalog.catalog-item.display-identity-resolved",
         "catalog.catalog-item.published",
         "catalog.catalog-item.retired",

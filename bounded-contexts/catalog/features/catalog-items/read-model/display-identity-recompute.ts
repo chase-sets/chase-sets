@@ -44,6 +44,11 @@ export type DisplayIdentityRecomputeHealth = Readonly<{
   latestFailureMessage: string | null;
 }>;
 
+export type DisplayIdentityRecomputeRetentionOptions = Readonly<{
+  completedBefore?: string;
+  retentionDays?: number;
+}>;
+
 type DisplayIdentityRecomputeWorkRow = Readonly<{
   catalog_item_id: string;
 }>;
@@ -199,6 +204,27 @@ export async function getCatalogItemDisplayIdentityRecomputeHealth(
     oldestPendingAt: pendingRow?.oldest_pending_at ?? null,
     latestFailureMessage: pendingRow?.latest_failure_message ?? null,
   };
+}
+
+export async function purgeCompletedCatalogItemDisplayIdentityRecomputeWork(
+  db: PgQueryable,
+  options: DisplayIdentityRecomputeRetentionOptions = {},
+): Promise<number> {
+  const completedBefore = options.completedBefore ?? retentionCutoff(options.retentionDays ?? 30);
+  const result = await db.query(
+    `DELETE FROM catalog_item_display_identity_recompute_work
+     WHERE status = 'completed'
+       AND completed_at IS NOT NULL
+       AND completed_at < $1`,
+    [completedBefore],
+  );
+
+  return result.rowCount ?? 0;
+}
+
+function retentionCutoff(retentionDays: number): string {
+  const boundedDays = Math.max(1, Math.floor(retentionDays));
+  return new Date(Date.now() - boundedDays * 24 * 60 * 60 * 1000).toISOString();
 }
 
 async function loadDisplayIdentityItem(db: PgQueryable, itemId: string): Promise<DisplayIdentityItem | null> {

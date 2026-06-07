@@ -67,6 +67,14 @@ describe("pricing marketplace source projection", () => {
     ]);
   });
 
+  it("does not handle Catalog metadata revisions as catalog input label changes", () => {
+    const handlers = buildPricingCatalogInputProjectionHandlers({
+      query: async () => ({ rows: [] }),
+    });
+
+    expect(handlers["catalog.catalog-item.metadata-revised"]).toBeUndefined();
+  });
+
   it("projects listing targets needed for repricing recommendations", async () => {
     const calls: Array<{ sql: string; params: readonly unknown[] }> = [];
     const handlers = buildPricingMarketplaceInputProjectionHandlers({

@@ -47,8 +47,10 @@ import { buildCatalogItemProjectionHandlers } from "../read-model/projection";
 import {
   getCatalogItemDisplayIdentityRecomputeHealth,
   processCatalogItemDisplayIdentityRecomputeBatch,
+  purgeCompletedCatalogItemDisplayIdentityRecomputeWork,
   type DisplayIdentityRecomputeBatchResult,
   type DisplayIdentityRecomputeHealth,
+  type DisplayIdentityRecomputeRetentionOptions,
 } from "../read-model/display-identity-recompute";
 
 export type BulkPublishSelection =
@@ -162,6 +164,7 @@ export type CatalogItemServices = Readonly<{
     options?: Readonly<{ limit?: number }>,
   ) => Promise<DisplayIdentityRecomputeBatchResult>;
   getDisplayIdentityRecomputeHealth: () => Promise<DisplayIdentityRecomputeHealth>;
+  purgeCompletedDisplayIdentityRecomputeWork: (options?: DisplayIdentityRecomputeRetentionOptions) => Promise<number>;
   bulkLifecycle: BulkLifecycleOperations<CatalogItemListParams, CatalogItemCommand, CatalogItemState, CatalogItemEvent>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -227,6 +230,8 @@ export function createCatalogItemRuntime(deps: CatalogRuntimeDeps): CatalogItemS
         afterPersist: (itemId) => refreshCatalogAdminCatalogItemPages(deps.db, itemId),
       }),
     getDisplayIdentityRecomputeHealth: async () => getCatalogItemDisplayIdentityRecomputeHealth(deps.db),
+    purgeCompletedDisplayIdentityRecomputeWork: async (options) =>
+      purgeCompletedCatalogItemDisplayIdentityRecomputeWork(deps.db, options),
     bulkLifecycle,
     projectors,
   };

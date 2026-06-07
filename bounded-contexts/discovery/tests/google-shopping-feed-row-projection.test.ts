@@ -100,6 +100,48 @@ describe("google shopping feed row projection", () => {
     });
   });
 
+  it("uses resolved Catalog display labels before Marketplace item fallbacks", async () => {
+    vi.stubEnv("CHASE_SETS_MARKETPLACE_INDEXING", "true");
+    const resolvedDb = projectionDb(
+      listingFacts({
+        item_title: "Marketplace fallback title",
+        item_subtitle: "Marketplace fallback subtitle",
+        catalog_title: "Resolved Catalog title",
+        catalog_subtitle: "Resolved Catalog subtitle",
+      }),
+    );
+
+    const resolvedRow = await refreshGoogleShoppingFeedRowForListing(resolvedDb, "lst_1", {
+      reason: "catalog",
+      requestedAt: "2026-06-03T10:00:00.000Z",
+      debounceMs: 0,
+    });
+
+    expect(resolvedRow?.payload).toMatchObject({
+      title: "Resolved Catalog title Resolved Catalog subtitle",
+      description: "A Base Set Charizard card.",
+    });
+
+    const fallbackDb = projectionDb(
+      listingFacts({
+        item_title: "Marketplace fallback title",
+        item_subtitle: "Marketplace fallback subtitle",
+        catalog_title: null,
+        catalog_subtitle: null,
+      }),
+    );
+
+    const fallbackRow = await refreshGoogleShoppingFeedRowForListing(fallbackDb, "lst_1", {
+      reason: "catalog",
+      requestedAt: "2026-06-03T10:00:00.000Z",
+      debounceMs: 0,
+    });
+
+    expect(fallbackRow?.payload).toMatchObject({
+      title: "Marketplace fallback title Marketplace fallback subtitle",
+    });
+  });
+
   it("requires active listings, stable slugs, and indexing before treating landing pages as crawlable", () => {
     expect(
       isGoogleShoppingListingLandingPageCrawlable({

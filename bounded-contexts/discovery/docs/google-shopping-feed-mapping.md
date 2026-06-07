@@ -51,7 +51,7 @@ Rows with any exclusion reason are not submitted as live product inputs. Later s
 
 ## Catalog Product Mapping
 
-Catalog display templates are the source of launch titles and subtitles. The Google title is the non-empty Catalog title plus subtitle when present. The description uses the Catalog description, falling back to the published product summary only when the description is empty.
+Resolved Display Identity is the source of launch titles and subtitles consumed by Google Shopping rows. Display Templates remain Catalog authoring policy; feed rows consume the resolved Catalog item title/subtitle, falling back to Marketplace item title/subtitle only when the resolved Catalog fields are unavailable. The description uses the Catalog description, falling back to the published product summary only when the description is empty.
 
 Selected Options become Google product details. For example, a selected `Condition: Near Mint` and `Finish: Holofoil` can be submitted as product details, while still keeping `condition` itself mapped through the policy below.
 

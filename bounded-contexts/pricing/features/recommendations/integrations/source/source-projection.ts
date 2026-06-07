@@ -49,29 +49,6 @@ export function buildPricingCatalogInputProjectionHandlers(db: PgQueryable): Pro
         [data.itemId, data.languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
       );
     },
-    "catalog.catalog-item.metadata-revised": async (event) => {
-      const data = event.data as {
-        languageCode?: string;
-        title: string | LocalizedTextMap;
-        subtitle?: string | LocalizedTextMap | null;
-      };
-      const itemId = extractIdFromStreamId(event.streamId, "catalog.item-");
-      const titleText = resolveLocalizedTextMap(coerceLocalizedTextMap(data.title));
-      const subtitleText =
-        data.subtitle === null || data.subtitle === undefined
-          ? null
-          : resolveLocalizedTextMap(coerceLocalizedTextMap(data.subtitle)) || null;
-
-      await db.query(
-        `UPDATE pricing_catalog_item_inputs
-         SET language_code = $2,
-             title = $3,
-             subtitle = $4,
-             updated_at = $5
-         WHERE catalog_item_id = $1`,
-        [itemId, data.languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
-      );
-    },
     "catalog.catalog-item.display-identity-resolved": async (event) => {
       const data = event.data as CatalogItemDisplayIdentityResolvedEventData;
 
