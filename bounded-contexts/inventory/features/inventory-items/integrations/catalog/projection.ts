@@ -270,31 +270,6 @@ export function buildInventoryCatalogItemProjectionHandlers(db: PgQueryable): Pr
 
       await refreshInventoryCatalogItem(db, data.catalogItemId);
     },
-    "catalog.catalog-item.metadata-revised": async (event) => {
-      const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
-      const { languageCode, title, subtitle } = event.data as {
-        languageCode?: string;
-        title: string | LocalizedTextMap;
-        subtitle?: string | LocalizedTextMap | null;
-      };
-      const titleText = resolveLocalizedTextMap(coerceLocalizedTextMap(title));
-      const subtitleText =
-        subtitle === null || subtitle === undefined
-          ? null
-          : resolveLocalizedTextMap(coerceLocalizedTextMap(subtitle)) || null;
-
-      await db.query(
-        `UPDATE inventory_catalog_items
-         SET language_code = $2,
-             title = $3,
-             subtitle = $4,
-             updated_at = $5
-         WHERE catalog_item_id = $1`,
-        [itemId, languageCode ?? "en", titleText, subtitleText, event.timing.recordedAt],
-      );
-
-      await refreshInventoryCatalogItem(db, itemId);
-    },
     "catalog.catalog-item.retired": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
 

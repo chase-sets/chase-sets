@@ -43,6 +43,16 @@ class DiscoveryProjectionDb implements PgQueryable {
       return { rows: [], rowCount: 1 };
     }
 
+    if (sql.includes("UPDATE discovery_search_catalog_items") && sql.includes("description_i18n = $2")) {
+      this.searchCatalogItems.set(String(values[0]), {
+        ...this.searchCatalogItems.get(String(values[0])),
+        description_i18n: JSON.parse(String(values[1])),
+        description: values[2],
+        updated_at: values[3],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
     if (sql.includes("UPDATE discovery_item_detail_catalog_items") && sql.includes("title = $5")) {
       this.detailCatalogItems.set(String(values[0]), {
         ...this.detailCatalogItems.get(String(values[0])),
@@ -53,6 +63,16 @@ class DiscoveryProjectionDb implements PgQueryable {
         subtitle_i18n: values[5] === null ? null : JSON.parse(String(values[5])),
         subtitle: values[6],
         updated_at: values[7],
+      });
+      return { rows: [], rowCount: 1 };
+    }
+
+    if (sql.includes("UPDATE discovery_item_detail_catalog_items") && sql.includes("description_i18n = $2")) {
+      this.detailCatalogItems.set(String(values[0]), {
+        ...this.detailCatalogItems.get(String(values[0])),
+        description_i18n: JSON.parse(String(values[1])),
+        description: values[2],
+        updated_at: values[3],
       });
       return { rows: [], rowCount: 1 };
     }
@@ -144,6 +164,33 @@ function displayIdentityEvent(): TransportEvent {
   };
 }
 
+function metadataRevisionEvent(): TransportEvent {
+  return {
+    id: "evt_2" as never,
+    type: "catalog.catalog-item.metadata-revised",
+    streamId: "catalog.item-cat_1" as never,
+    streamVersion: 3 as never,
+    globalPosition: 3 as never,
+    tenantId: "tnt_1" as never,
+    data: {
+      languageCode: "en",
+      title: { defaultLocale: "en", values: { en: "Fallback Title" } },
+      subtitle: { defaultLocale: "en", values: { en: "Fallback Subtitle" } },
+      description: { defaultLocale: "en", values: { en: "Revised description" } },
+    } as never,
+    metadata: {},
+    audit: {
+      performedByUserId: "usr_1" as never,
+      forAccountId: "acc_1" as never,
+    },
+    trace: {},
+    timing: {
+      occurredAt: "2026-06-06T23:00:00.000Z" as never,
+      recordedAt: "2026-06-06T23:00:00.000Z" as never,
+    },
+  };
+}
+
 describe("Discovery display identity projection", () => {
   it("updates search source and derived rows from Catalog display identity facts", async () => {
     const db = new DiscoveryProjectionDb();
@@ -172,6 +219,38 @@ describe("Discovery display identity projection", () => {
       subtitle: "Base Set Rare Holo",
     });
     expect(db.redirectWrites[0]?.slice(0, 3)).toEqual(["item", "old-title-cat-1", "cat_1"]);
+    expect(db.derivedWrites).toContain("detail");
+  });
+
+  it("keeps search display labels and slug stable when fallback metadata is revised", async () => {
+    const db = new DiscoveryProjectionDb();
+    const handlers = buildDiscoverySearchItemProjectionHandlers(db);
+
+    await handlers["catalog.catalog-item.metadata-revised"]?.(metadataRevisionEvent());
+
+    expect(db.searchCatalogItems.get("cat_1")).toMatchObject({
+      slug: "old-title-cat-1",
+      title: "Old Title",
+      subtitle: null,
+      description: "Revised description",
+    });
+    expect(db.redirectWrites).toHaveLength(0);
+    expect(db.derivedWrites).toContain("search");
+  });
+
+  it("keeps item detail display labels and slug stable when fallback metadata is revised", async () => {
+    const db = new DiscoveryProjectionDb();
+    const handlers = buildDiscoveryItemDetailProjectionHandlers(db);
+
+    await handlers["catalog.catalog-item.metadata-revised"]?.(metadataRevisionEvent());
+
+    expect(db.detailCatalogItems.get("cat_1")).toMatchObject({
+      slug: "old-title-cat-1",
+      title: "Old Title",
+      subtitle: null,
+      description: "Revised description",
+    });
+    expect(db.redirectWrites).toHaveLength(0);
     expect(db.derivedWrites).toContain("detail");
   });
 });

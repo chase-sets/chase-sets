@@ -156,6 +156,13 @@ describe("inventory catalog item projection", () => {
     });
   });
 
+  it("does not handle Catalog metadata revisions as display label changes", () => {
+    const db = new ProjectionDb();
+    const handlers = buildInventoryCatalogItemProjectionHandlers(db);
+
+    expect(handlers["catalog.catalog-item.metadata-revised"]).toBeUndefined();
+  });
+
   it("projects Catalog external product reference links and unlinks", async () => {
     const db = new ProjectionDb();
     const handlers = buildInventoryCatalogItemProjectionHandlers(db);

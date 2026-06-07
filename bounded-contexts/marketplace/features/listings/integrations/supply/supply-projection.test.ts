@@ -125,6 +125,13 @@ describe("marketplace catalog projection", () => {
       subtitle: "Base Set Rare Holo",
     });
   });
+
+  it("does not handle Catalog metadata revisions as display label changes", () => {
+    const db = new ProjectionDb();
+    const handlers = buildMarketplaceCatalogProjectionHandlers(db);
+
+    expect(handlers["catalog.catalog-item.metadata-revised"]).toBeUndefined();
+  });
 });
 
 describe("marketplace account projection", () => {

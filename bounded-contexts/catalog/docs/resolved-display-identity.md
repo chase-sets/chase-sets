@@ -117,6 +117,8 @@ Consumers update only their local projections from the item-level fact:
 
 Downstream contexts do not resolve templates and do not import Display Template code, types, or read models.
 
+`catalog.catalog-item.created` may bootstrap downstream rows with fallback title/subtitle values so replay can create complete local records before the first resolved identity fact arrives. After row creation, title/subtitle changes must come from `catalog.catalog-item.display-identity-resolved`, not from fallback metadata revisions. Contexts that need non-display metadata from `catalog.catalog-item.metadata-revised` should update only those non-display fields.
+
 ## Slug Policy
 
 Discovery owns public slug behavior. When Resolved Display Identity changes the public title/subtitle:
@@ -138,6 +140,8 @@ Seed reconciliation must:
 - preserve operator-authored templates
 - remain idempotent on repeated bootstrap
 - route changed definitions through the same recompute and publication path as operator edits
+
+Bootstrap may include a narrow idempotent publish guard when seeded template reconciliation reads stale projection state during the same run. That guard is not a general domain relaxation and must not become a downstream display propagation path.
 
 ## Backfill, Repair, And Rebuild
 

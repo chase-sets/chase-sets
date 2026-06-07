@@ -24,6 +24,8 @@ Catalog runtime exposes display identity recomputation health through `getDispla
 - `oldestPendingAt`: first pending work timestamp.
 - `latestFailureMessage`: most recent retry failure.
 
+Completed work rows are retained only for short-term operational diagnosis. Use `purgeCompletedDisplayIdentityRecomputeWork()` after a successful rollout or repair window to delete completed rows older than the default retention cutoff. Pending, running, and failed rows must remain visible until operators resolve them.
+
 Expected operator thresholds:
 
 - Investigate if pending work grows for more than one deploy window.
@@ -41,6 +43,7 @@ Metric/log labels must stay bounded. Do not label by item ID, template key, rend
 5. Confirm `catalog_item_display_identities` has the expected title, subtitle, template key, hash, resolver version, and resolved timestamp.
 6. Confirm a `catalog.catalog-item.display-identity-resolved` fact exists only when the hash changed.
 7. Confirm downstream projections have consumed the fact.
+8. After verification, purge completed recompute work beyond the retention cutoff so health summaries do not accumulate stale completed work forever.
 
 Downstream repair checks:
 
@@ -69,6 +72,8 @@ Staging must verify:
 - Downstream stale-data diagnosis and repair.
 - No unexpected `catalog_item_id` or `product_id` changes.
 - No stale title/subtitle snapshots in sampled downstream records.
+
+Seed reconciliation uses a narrow idempotent publish guard for stale seed projection reads. Treat that guard as bootstrap compatibility behavior only; normal downstream display updates still come from the item-level resolved display identity fact.
 
 Production rollout stops if:
 

@@ -789,56 +789,20 @@ export function buildDiscoverySearchItemProjectionHandlers(db: PgQueryable): Pro
     },
     "catalog.catalog-item.metadata-revised": async (event) => {
       const itemId = extractIdFromStreamId(event.streamId, ITEM_STREAM_PREFIX);
-      const { languageCode, title, subtitle, description } = event.data as {
-        languageCode?: string;
-        title: unknown;
-        subtitle: unknown;
+      const { description } = event.data as {
         description: unknown;
       };
-      const titleI18n = coerceLocalizedTextMap(title);
-      const subtitleI18n = subtitle ? coerceLocalizedTextMap(subtitle) : null;
       const descriptionI18n = coerceLocalizedTextMap(description);
-      const resolvedTitle = resolveLocalizedText(titleI18n);
-      const resolvedSubtitle = subtitleI18n ? resolveLocalizedText(subtitleI18n) : null;
       const resolvedDescription = resolveLocalizedText(descriptionI18n);
-      const slug = createMarketplaceSlug([resolvedTitle, resolvedSubtitle], itemId);
-      const current = await db.query<{ slug: string | null }>(
-        `SELECT slug FROM discovery_search_catalog_items WHERE catalog_item_id = $1`,
-        [itemId],
-      );
 
       await db.query(
         `UPDATE discovery_search_catalog_items
-         SET slug = $2,
-             language_code = $3,
-             title_i18n = $4,
-             title = $5,
-             subtitle_i18n = $6,
-             subtitle = $7,
-             description_i18n = $8,
-             description = $9,
-             updated_at = $10
+         SET description_i18n = $2,
+             description = $3,
+             updated_at = $4
          WHERE catalog_item_id = $1`,
-        [
-          itemId,
-          slug,
-          languageCode ?? "en",
-          JSON.stringify(titleI18n),
-          resolvedTitle,
-          subtitleI18n ? JSON.stringify(subtitleI18n) : null,
-          resolvedSubtitle,
-          JSON.stringify(descriptionI18n),
-          resolvedDescription,
-          event.timing.recordedAt,
-        ],
+        [itemId, JSON.stringify(descriptionI18n), resolvedDescription, event.timing.recordedAt],
       );
-      await rememberSlugRedirect(db, {
-        entityKind: "item",
-        entityId: itemId,
-        previousSlug: current.rows[0]?.slug,
-        nextSlug: slug,
-        updatedAt: event.timing.recordedAt,
-      });
 
       await refreshDiscoverySearchItem(db, itemId);
     },
