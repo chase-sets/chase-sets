@@ -68,7 +68,7 @@ function renderNavigationItem(
 
   if (item.href) {
     return (
-      <a key={item.key} href={item.href} className={className}>
+      <a key={item.key} href={item.href} aria-current={active ? "page" : undefined} className={className}>
         {active && groupId ? renderActivePill(groupId) : null}
         <span className="relative z-10 inline-flex items-center gap-2">{content}</span>
       </a>
@@ -242,7 +242,19 @@ export interface TopNavProps extends Omit<HTMLAttributes<HTMLElement>, "classNam
   width?: LayoutWidth;
 }
 
-function TopNavActionsMenu({ actions, label }: { actions: ReactNode; label: string }) {
+function TopNavActionsMenu({
+  actions,
+  activeKey,
+  items,
+  label,
+  onSelect,
+}: {
+  actions: ReactNode;
+  activeKey?: string;
+  items: NavigationItem[];
+  label: string;
+  onSelect?: (key: string) => void;
+}) {
   const detailsRef = useRef<HTMLDetailsElement>(null);
   const [open, setOpen] = useState(false);
 
@@ -297,6 +309,13 @@ function TopNavActionsMenu({ actions, label }: { actions: ReactNode; label: stri
       </summary>
       <div className="modern-surface absolute right-0 top-[calc(100%+0.5rem)] z-dropdown w-[min(16rem,calc(100vw-2rem))] rounded-tokenLg border border-muted p-2 shadow-overlay">
         <div className="flex flex-col gap-2 [&>div]:flex-col [&>div]:items-stretch [&>div]:gap-2 [&_a]:w-full [&_button]:w-full [&_form]:w-full [&_form>button]:w-full">
+          {items.length > 0 ? (
+            <div className="flex flex-col gap-1">
+              {items.map((item) =>
+                renderNavigationItem(item, isNavigationItemActive(item, activeKey), "vertical", undefined, onSelect),
+              )}
+            </div>
+          ) : null}
           {actions}
         </div>
       </div>
@@ -315,6 +334,7 @@ export function TopNav({
   ...rest
 }: TopNavProps) {
   const groupId = useId();
+  const navLabel = rest["aria-label"] ?? "Primary navigation";
   const primaryItems = items.filter((item) => item.placement !== "utility");
   const utilityItems = items
     .filter((item) => item.placement === "utility")
@@ -333,6 +353,7 @@ export function TopNav({
   return (
     <nav
       {...rest}
+      aria-label={navLabel}
       className="sticky top-0 z-sticky border-b border-muted bg-background/88 px-4 py-3 shadow-tokenSm backdrop-blur-xl"
     >
       <div className={cx("mx-auto flex w-full items-center justify-between gap-4", layoutWidthClasses[width])}>
@@ -357,7 +378,13 @@ export function TopNav({
           {actions && mobileActionsLabel ? (
             <>
               <div className="hidden items-center gap-2 md:flex">{actions}</div>
-              <TopNavActionsMenu actions={actions} label={mobileActionsLabel} />
+              <TopNavActionsMenu
+                actions={actions}
+                activeKey={activeKey}
+                items={[...primaryItems, ...utilityItems]}
+                label={mobileActionsLabel}
+                onSelect={onSelect}
+              />
             </>
           ) : (
             actions

@@ -8,7 +8,7 @@ import type {
 import type { NavigationItem } from "@chase-sets/design-system";
 
 export type WebHostName = "admin-web" | "marketplace-web" | "public-web";
-export type WebHostSection = "catalog" | "identity" | "experience" | "operations";
+export type WebHostSection = "catalog" | "identity" | "experience" | "operations" | "commercial";
 
 export type WebContextManifest = Readonly<{
   contextName: string;
@@ -35,14 +35,14 @@ type ShellActor =
   | undefined;
 
 export type WebHostRouteRecord = Readonly<
-  BcRouteModule & {
+  Omit<BcRouteModule, "section"> & {
     contextName: string;
     section?: WebHostSection;
   }
 >;
 
 type ShellContributionRecord = Readonly<
-  BcShellContribution & {
+  Omit<BcShellContribution, "section"> & {
     contextName: string;
     section?: WebHostSection;
   }
@@ -53,10 +53,27 @@ const ADMIN_WEB_SECTIONS = [
   "identity",
   "experience",
   "operations",
+  "commercial",
 ] as const satisfies readonly WebHostSection[];
 const catalogAdminMarker = ["catalog", "admin"].join("-");
 
-function resolveAdminWebSection(contextName: string, fileExportOrKey?: string): WebHostSection {
+function isWebHostSection(value: string): value is WebHostSection {
+  return (ADMIN_WEB_SECTIONS as readonly string[]).includes(value);
+}
+
+function resolveAdminWebSection(
+  contextName: string,
+  fileExportOrKey?: string,
+  explicitSection?: string,
+): WebHostSection {
+  if (explicitSection) {
+    if (isWebHostSection(explicitSection)) {
+      return explicitSection;
+    }
+
+    throw new Error(`Unknown admin-web section '${explicitSection}' for context '${contextName}'.`);
+  }
+
   if (contextName === "catalog") {
     return "catalog";
   }
@@ -148,18 +165,20 @@ export function resolveWebHostRouteRecords(
       .filter((contribution) => contribution.deployable === hostName)
       .flatMap((contribution) =>
         contribution.routes.map((route) => {
+          const { section: explicitSection, ...routeRecord } = route;
+
           if (hostName !== "admin-web") {
             return {
-              ...route,
+              ...routeRecord,
               contextName: entry.contextName,
             } satisfies WebHostRouteRecord;
           }
 
-          const section = resolveAdminWebSection(entry.contextName, route.fileExport);
+          const section = resolveAdminWebSection(entry.contextName, route.fileExport, explicitSection);
           const prefix = `/${section}`;
 
           return {
-            ...route,
+            ...routeRecord,
             routePath: withPrefixedRoutePath(route.routePath, prefix),
             contextName: entry.contextName,
             section,
@@ -187,18 +206,20 @@ export function resolveWebHostNavItems(
         resolveShellContributionPlacements(contribution)
           .filter((placement) => placement === slot)
           .map((placement) => {
+            const { section: explicitSection, ...contributionRecord } = contribution;
+
             if (hostName !== "admin-web") {
               return {
-                ...contribution,
+                ...contributionRecord,
                 slot: placement,
                 contextName: entry.contextName,
               } satisfies ShellContributionRecord;
             }
 
-            const section = resolveAdminWebSection(entry.contextName, contribution.key);
+            const section = resolveAdminWebSection(entry.contextName, contribution.key, explicitSection);
 
             return {
-              ...contribution,
+              ...contributionRecord,
               slot: placement,
               href: withPrefixedPath(contribution.href, `/${section}`),
               contextName: entry.contextName,

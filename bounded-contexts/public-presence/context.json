@@ -143,14 +143,16 @@
           "routePath": "waitlist",
           "fileExport": "./routes/admin/waitlist",
           "routeType": "route",
-          "sourceContext": "public-presence"
+          "sourceContext": "public-presence",
+          "section": "experience"
         },
         {
           "routeId": "promo-bar",
           "routePath": "promo-bar",
           "fileExport": "./routes/admin/promo-bar",
           "routeType": "route",
-          "sourceContext": "public-presence"
+          "sourceContext": "public-presence",
+          "section": "experience"
         }
       ]
     }
@@ -163,6 +165,7 @@
       "label": "Waitlist",
       "icon": "message",
       "href": "/waitlist",
+      "section": "experience",
       "order": 20,
       "visibility": "signed-in",
       "requiredPermissions": ["public-presence.view"]
@@ -174,6 +177,7 @@
       "label": "Promo Bar",
       "icon": "spark",
       "href": "/promo-bar",
+      "section": "experience",
       "order": 21,
       "visibility": "signed-in",
       "requiredPermissions": ["public-presence.view"]

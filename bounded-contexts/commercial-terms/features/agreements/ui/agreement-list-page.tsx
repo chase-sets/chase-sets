@@ -160,11 +160,7 @@ export function AgreementListPage({
               key: "actions",
               header: t("commercialTerms.features.agreements.ui.agreementListPage.actions"),
               cell: (row) => (
-                <LinkButton
-                  href={`/identity/commercial-terms/agreements/${row.agreement_id}`}
-                  tone="secondary"
-                  size="sm"
-                >
+                <LinkButton href={`/commercial/terms/agreements/${row.agreement_id}`} tone="secondary" size="sm">
                   {t("commercialTerms.features.agreements.ui.agreementListPage.open")}
                 </LinkButton>
               ),

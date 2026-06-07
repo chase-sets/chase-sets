@@ -187,14 +187,16 @@
           "routePath": "postage-policies",
           "fileExport": "./routes/admin/postage-policies",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "section": "identity"
         },
         {
           "routeId": "ordering-postage-policies-detail",
           "routePath": "postage-policies/:id",
           "fileExport": "./routes/admin/postage-policies-detail",
           "routeType": "route",
-          "sourceContext": "ordering"
+          "sourceContext": "ordering",
+          "section": "identity"
         }
       ]
     },
@@ -240,6 +242,7 @@
       "label": "Postage Policies",
       "icon": "settings",
       "href": "/postage-policies",
+      "section": "identity",
       "order": 75,
       "visibility": "signed-in",
       "requiredPermissions": ["postage-policies.view"]

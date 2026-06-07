@@ -195,6 +195,8 @@ export function MarketplaceShell({
 
 export interface AdminShellProps {
   brand: ReactNode;
+  topNavItems?: NavigationItem[];
+  topNavActiveKey?: string;
   navItems: NavigationItem[];
   activeKey?: string;
   actions?: ReactNode;
@@ -233,7 +235,16 @@ function isAdminNavigationItemActive(item: NavigationItem, activeKey?: string): 
   );
 }
 
-export function AdminShell({ brand, navItems, activeKey, actions, children, width = "full" }: AdminShellProps) {
+export function AdminShell({
+  brand,
+  topNavItems = [],
+  topNavActiveKey,
+  navItems,
+  activeKey,
+  actions,
+  children,
+  width = "full",
+}: AdminShellProps) {
   const mobileNavItems = compactAdminMobileNavItems(navItems, activeKey);
 
   return (
@@ -241,8 +252,8 @@ export function AdminShell({ brand, navItems, activeKey, actions, children, widt
       <SkipLink />
       <TopNav
         brand={brand}
-        items={[]}
-        activeKey={activeKey}
+        items={topNavItems}
+        activeKey={topNavActiveKey ?? activeKey}
         actions={actions}
         mobileActionsLabel="Admin menu"
         width={width}

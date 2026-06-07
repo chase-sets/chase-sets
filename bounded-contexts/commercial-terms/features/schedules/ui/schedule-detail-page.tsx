@@ -36,7 +36,7 @@ export function ScheduleDetailPage({
           "commercialTerms.features.schedules.ui.scheduleDetailPage.inspect.the.default.commercial.terms.for",
         )}
         actions={
-          <LinkButton href="/identity/commercial-terms/schedules" tone="secondary">
+          <LinkButton href="/commercial/terms/schedules" tone="secondary">
             {t("commercialTerms.features.schedules.ui.scheduleDetailPage.back.to.schedules")}
           </LinkButton>
         }

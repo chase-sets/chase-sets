@@ -7,6 +7,10 @@ export function ApiKeyDetailPage({ data }: { data: ApiKey }) {
   const user = data.user_display_name ?? data.user_primary_email ?? data.user_id;
   return (
     <AdminDetailPage
+      breadcrumbs={[
+        { label: t("identity.features.apiKeys.ui.apiKeyListPage.api.keys"), href: "/identity/api-keys" },
+        { label: data.name },
+      ]}
       title={data.name}
       status={data.status}
       actions={

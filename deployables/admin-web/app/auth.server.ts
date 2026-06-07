@@ -1,5 +1,6 @@
 import { defineAuthHost } from "@chase-sets/auth/server";
 import { catalogAdminAuthHostConfig, identityAdminAuthHostConfig } from "@chase-sets/auth/host-config";
+import { resolveAdminWebNavItems } from "./host";
 
 const catalogAdminPolicy = defineAuthHost(catalogAdminAuthHostConfig);
 const identityAdminPolicy = defineAuthHost(identityAdminAuthHostConfig);
@@ -13,6 +14,29 @@ export async function requireCatalogAdminActor(request: Request, permission = "c
 
 export async function requireIdentityAdminActor(request: Request) {
   return identityAdminPolicy.requireActor(request, "security.manage");
+}
+
+export async function requireCommercialTermsAdminActor(request: Request) {
+  return identityAdminPolicy.requireActor(request, "commercial-terms.view");
+}
+
+export async function requireSignedInAdminActor(request: Request) {
+  const actor = await identityAdminPolicy.resolveActor(request);
+  return actor ?? identityAdminPolicy.requireActor(request, "security.manage");
+}
+
+export async function requireOperationsAdminActor(request: Request) {
+  const actor = await identityAdminPolicy.resolveActor(request);
+
+  if (!actor) {
+    return identityAdminPolicy.requireActor(request, "security.manage");
+  }
+
+  if (resolveAdminWebNavItems(actor, { section: "operations" }).length === 0) {
+    throw new Response("Forbidden.", { status: 403 });
+  }
+
+  return actor;
 }
 
 export async function requireExperienceAdminActor(

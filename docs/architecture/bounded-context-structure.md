@@ -102,6 +102,16 @@ The platform host resolves route and shell composition directly from bounded-con
 - Deployables own only host routes, layout, auth wiring, and runtime bootstrap.
 - `infrastructure/platform-runtime` is the canonical projection of manifest-driven route and shell composition.
 
+Admin web route and shell contributions should declare explicit section placement when context ownership and admin IA differ from the context name. Use the manifest `section` field on admin-web route modules and shell contributions for these cases.
+
+- Use `catalog` for Catalog-owned admin authoring surfaces.
+- Use `identity` for Identity-owned account, user, membership, invitation, API key, and identity-management surfaces.
+- Use `experience` for internal platform feedback and public-presence review surfaces.
+- Use `operations` for cross-context operator workflows such as Platform Operations, Support operations, and Google Shopping operations.
+- Use `commercial` for Commercial Terms fee schedules, commercial agreements, and deterministic commercial terms resolution surfaces.
+
+Explicit admin section placement wins over context-name and file-name fallback heuristics. Fallbacks exist only for migration compatibility; new admin-web route and shell contributions should declare the section directly.
+
 ## Shared Typed IDs
 
 Cross-context references should use the canonical IDs defined in shared contracts or the owning bounded context.
