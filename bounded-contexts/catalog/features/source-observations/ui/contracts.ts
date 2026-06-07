@@ -365,8 +365,16 @@ export interface CatalogProviderProfileSemanticDiff {
     candidate: JsonValue;
     active: JsonValue;
     changed: boolean;
+    sectionKey: string;
+    domainConcept: string;
     severity: "info" | "warning" | "error";
     activationImpact: string;
+  }[];
+  sections: {
+    sectionKey: string;
+    domainConcept: string;
+    status: "valid" | "warning" | "error";
+    changes: CatalogProviderProfileSemanticDiff["changes"];
   }[];
 }
 
@@ -374,14 +382,38 @@ export interface CatalogProviderProfileActivationReadiness {
   status: "ready" | "blocked";
   checks: {
     checkKey: string;
+    code: string;
+    sectionKey: string;
+    domainConcept: string;
     status: "passed" | "blocked";
     path: string;
     diagnosticText: string;
     severity: "error" | "warning";
+    remediation: string;
+    blockingBehavior: string;
     flow?: string;
+  }[];
+  groups: {
+    domainConcept: string;
+    status: "ready" | "blocked";
+    checks: CatalogProviderProfileActivationReadiness["checks"];
   }[];
   requiresMigrationEvidence: boolean;
   referenceCount: number;
+}
+
+export interface CatalogProviderProfileSectionSummary {
+  sectionKey: string;
+  domainConcept: string;
+  editable: boolean;
+  status: "valid" | "warning" | "error" | "blocked";
+  diagnostics: {
+    path: string;
+    diagnosticText: string;
+    severity: "error" | "warning";
+  }[];
+  semanticChanges: CatalogProviderProfileSemanticDiff["changes"];
+  readinessChecks: CatalogProviderProfileActivationReadiness["checks"];
 }
 
 export interface CatalogProviderSelectedOptionAuthoringSchema {
@@ -415,6 +447,7 @@ export interface CatalogProviderPromotionTargetAuthoringRecord {
 export interface CatalogProviderProfileAuthoringModel {
   review: CatalogProviderProfileVersionReview;
   editableSections: CatalogProviderProfileEditableSection[];
+  sectionSummaries: CatalogProviderProfileSectionSummary[];
   fixtureCases: CatalogProviderProfileFixtureMetadata[];
   dryRunInputTemplate: CatalogProviderProfileDryRunInputTemplate;
   semanticDiff: CatalogProviderProfileSemanticDiff;
@@ -451,6 +484,13 @@ export interface CatalogProviderProfileDryRunResult {
     sourcePayload: JsonValue;
   } | null;
   diagnostics: CatalogProviderProfileDryRunDiagnostic[];
+  diagnosticLinks: {
+    code: string;
+    path: string;
+    sectionKey: string;
+    domainConcept: string;
+    fixtureFlow: string | null;
+  }[];
   hashMaterial: CatalogProviderProfileDryRunEvidence[];
   externalReferences: {
     catalogItemReferences: JsonValue;

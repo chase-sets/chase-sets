@@ -139,6 +139,16 @@ test.describe("catalog admin integrations", () => {
     await expectProfileAction(page, /^Rollback$/i);
     await expectProfileAction(page, /^Retire$/i);
 
+    await page.getByRole("tab", { name: "Validation" }).click();
+    await expectVisibleText(page, "Validation workbench");
+    await expect(page.getByRole("heading", { name: "Fixture validation workflow" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Dry-run evidence workflow" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Semantic comparison workflow" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Activation readiness workflow" })).toBeVisible();
+    await expectVisibleText(page, "Affected references");
+    await expectVisibleText(page, "Replay implication");
+    await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
+
     await openProfileDialog(page, /^Compare$/i, "Compare active profile");
     await expect(page.getByRole("heading", { name: "Activation Readiness" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Semantic Changes" })).toBeVisible();
@@ -162,7 +172,8 @@ test.describe("catalog admin integrations", () => {
     await clickDialogFooterButton(page, "Migration evidence", "Cancel");
 
     await openProfileDialog(page, /^Dry run$/i, /dry-run$/i);
-    await expect(page.getByLabel("Fixture flow")).toBeVisible();
+    const dryRunDialog = page.getByRole("dialog", { name: /dry-run$/i });
+    await expect(dryRunDialog.getByLabel("Fixture flow")).toBeVisible();
     await expect(page.getByRole("heading", { name: "Safe Payload Overrides" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Fixture Payload JSON" })).toHaveCount(0);
   });
