@@ -1706,6 +1706,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.plan": "Promotion Command Plan",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.preview":
     "Promotion Command Preview",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.plan": "Promotion Plan",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.input.expression.value":
     "Promotion input expression: {value}",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.input.key": "Promotion input key",

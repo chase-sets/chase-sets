@@ -1533,7 +1533,7 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Normalized Observation")).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { name: "Normalized Observation" })).toBeTruthy();
     expect(within(dialog).getByText("Sample Normalized Output")).toBeTruthy();
     expect(within(dialog).getByText("Fingerprint impact")).toBeTruthy();
     expect(within(dialog).getByText(/active_fingerprint -> candidate_fingerprint/i)).toBeTruthy();
@@ -1873,7 +1873,7 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Reference Hierarchy")).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { name: "Reference Hierarchy" })).toBeTruthy();
     expect(within(dialog).getByText(/expansion > series > product-line/i)).toBeTruthy();
 
     fireEvent.change(within(dialog).getByDisplayValue("ref_tcgdex"), {
@@ -1981,7 +1981,7 @@ describe("IntegrationManagementPage", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("Duplicate Prevention")).toBeTruthy();
+    expect(within(dialog).getByRole("heading", { name: "Duplicate Prevention" })).toBeTruthy();
     expect(within(dialog).getByText(/Rule 1: exact-external-catalog-item-reference/i)).toBeTruthy();
     expect(within(dialog).getByText(/Rule 2: source-observation-link/i)).toBeTruthy();
     expect(within(dialog).getByText(/Rule 3: pokemon-card-deterministic-fields/i)).toBeTruthy();
