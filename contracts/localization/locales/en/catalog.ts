@@ -1324,6 +1324,33 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.active.integration.jobs": "Active Integration Jobs",
   "catalog.features.sourceObservations.ui.integrationManagementPage.active.jobs": "Active jobs",
   "catalog.features.sourceObservations.ui.integrationManagementPage.active.profile.snapshot": "Active Profile Snapshot",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.activation.readiness.workflow":
+    "Activation readiness workflow",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.adapter.readiness.panel": "Adapter readiness panel",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.admin.control.plane.shell":
+    "Admin Control Plane shell",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.workbench": "Dry-run workbench",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.validation.workbench":
+    "Fixture validation workbench",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.import.workbench": "Import workbench",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.integration.audit.lifecycle":
+    "Integration audit lifecycle",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.integration.health.dashboard":
+    "Integration health dashboard",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.integration.job.monitor": "Integration job monitor",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.compare.panel": "Profile compare panel",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.lifecycle.actions":
+    "Profile lifecycle actions",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.editors": "Profile section editors",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.provider.profile.list": "Provider profile list",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.provider.profile.workspace":
+    "Provider profile workspace",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.promote.and.reapply.workflows":
+    "Promote and reapply workflows",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.and.retirement.workflow":
+    "Rollback and retirement workflow",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.review.workbench":
+    "Source Observation review workbench",
   "catalog.features.sourceObservations.ui.integrationManagementPage.add.attribute.rule": "Add attribute rule",
   "catalog.features.sourceObservations.ui.integrationManagementPage.add.command": "Add command",
   "catalog.features.sourceObservations.ui.integrationManagementPage.add.dimension": "Add dimension",
