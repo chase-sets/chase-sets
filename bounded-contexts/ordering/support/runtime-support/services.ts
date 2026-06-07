@@ -10,6 +10,7 @@ import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactiona
 import { createOrderingAccountRuntime } from "../account-support/runtime";
 import { createOrderingOrderRuntime } from "../../features/orders/api/runtime";
 import type { TaxQuoteResolver } from "../../features/orders/api/runtime";
+import { createPostagePolicyRuntime } from "../../features/postage-policies/api/runtime";
 import { defaultShippingQuotePolicy, type ShippingQuotePolicy } from "../../features/orders/domain/policies";
 
 export type OrderingServiceOptions = Readonly<{
@@ -20,6 +21,7 @@ export type OrderingServiceOptions = Readonly<{
 
 export type OrderingServices = Readonly<{
   orders: ReturnType<typeof createOrderingOrderRuntime>;
+  postagePolicies: ReturnType<typeof createPostagePolicyRuntime>;
   projectors: readonly ProjectionHandlerSet[];
   pool: PgTransactionalPool;
   db: PgQueryable;
@@ -34,18 +36,21 @@ export function createOrderingServices(
   const db = pool as PgQueryable;
   const transactionalEmailOutbox = options.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });
   const accounts = createOrderingAccountRuntime({ eventStore, checkpointStore, db });
+  const postagePolicies = createPostagePolicyRuntime({ eventStore, checkpointStore, db });
   const orders = createOrderingOrderRuntime({
     eventStore,
     checkpointStore,
     db,
     shippingQuotePolicy: options.shippingQuotePolicy ?? defaultShippingQuotePolicy,
+    postagePolicyResolver: postagePolicies.getActivePolicy,
     taxQuoteResolver: options.taxQuoteResolver,
     transactionalEmailOutbox,
   });
 
   return {
     orders,
-    projectors: [...accounts.projectors, ...orders.projectors],
+    postagePolicies,
+    projectors: [...accounts.projectors, ...postagePolicies.projectors, ...orders.projectors],
     pool,
     db,
   };

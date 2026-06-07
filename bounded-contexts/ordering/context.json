@@ -1,10 +1,10 @@
 {
   "contextName": "ordering",
   "packageName": "@chase-sets/ordering",
-  "ownedNouns": ["order"],
+  "ownedNouns": ["order", "postage-policy"],
   "streamPrefix": "ordering.",
   "apiBasePath": "/api/marketplace",
-  "slices": ["orders"],
+  "slices": ["orders", "postage-policies"],
   "allowedSupportDirectories": ["account-support", "request-support", "runtime-support", "seed-support", "ucp-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server"],
   "allowedContextDependencies": ["@chase-sets/reputation"],
@@ -148,6 +148,13 @@
       "ownedTables": ["ordering_fulfillment_cancellation_inputs"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "ordering-postage-policy-projection",
+      "sourceContextNames": ["ordering"],
+      "ownedTables": ["ordering_postage_policy_pages", "ordering_postage_policy_history"],
+      "requiredDuringBootstrap": true,
+      "resetStrategy": "replay-only"
     }
   ],
   "hostPorts": [
@@ -172,6 +179,25 @@
     }
   ],
   "deployableContributions": [
+    {
+      "deployable": "admin-web",
+      "routes": [
+        {
+          "routeId": "ordering-postage-policies",
+          "routePath": "postage-policies",
+          "fileExport": "./routes/admin/postage-policies",
+          "routeType": "route",
+          "sourceContext": "ordering"
+        },
+        {
+          "routeId": "ordering-postage-policies-detail",
+          "routePath": "postage-policies/:id",
+          "fileExport": "./routes/admin/postage-policies-detail",
+          "routeType": "route",
+          "sourceContext": "ordering"
+        }
+      ]
+    },
     {
       "deployable": "marketplace-web",
       "routes": [
@@ -207,6 +233,17 @@
     }
   ],
   "shellContributions": [
+    {
+      "deployable": "admin-web",
+      "slot": "primary-nav",
+      "key": "postage-policies",
+      "label": "Postage Policies",
+      "icon": "settings",
+      "href": "/postage-policies",
+      "order": 75,
+      "visibility": "signed-in",
+      "requiredPermissions": ["postage-policies.view"]
+    },
     {
       "deployable": "marketplace-web",
       "slot": "top-nav",
@@ -259,6 +296,12 @@
       "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
       "expectedConsumers": ["Internal ordering module composition"]
     },
+    "postage-policies": {
+      "classification": "slice",
+      "purpose": "Own postage-policy behavior, active policy resolution, admin lifecycle commands, read models, and UI contracts for Ordering package-plan policy.",
+      "allowedWhen": "Always; slice directories are the default root shape for implemented context features.",
+      "expectedConsumers": ["Internal ordering module composition", "Ordering order creation"]
+    },
     "account-support": {
       "classification": "support",
       "purpose": "Provide reusable account-support assets shared by ordering-owned features and composition seams.",
@@ -272,7 +315,7 @@
       "classification": "support",
       "purpose": "Provide reusable request-support assets shared by ordering-owned features and composition seams.",
       "allowedWhen": "Allowed only when capability cannot stay inside one feature and cross-feature reuse is explicit.",
-      "expectedConsumers": ["orders"],
+      "expectedConsumers": ["postage-policies"],
       "justification": "request-support centralizes context-local composition that should not duplicate across features.",
       "createdFor": "ordering workflows that span multiple features or public entrypoints.",
       "sunsetWhen": "Remove when all consumers can move the behavior back into feature-local modules.",

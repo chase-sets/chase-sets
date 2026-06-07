@@ -84,7 +84,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.product": "Product",
   "checkout.features.cart.ui.cartPage.postal.code": "Postal code",
   "checkout.features.cart.ui.cartPage.preview.landed.cost": "Preview landed cost",
-  "checkout.features.cart.ui.cartPage.priority.signature": "Priority signature",
+  "checkout.features.cart.ui.cartPage.priority": "Priority",
   "checkout.features.cart.ui.cartPage.product.image.alt": "{title} product",
   "checkout.features.cart.ui.cartPage.products": "Products",
   "checkout.features.cart.ui.cartPage.products.description":
@@ -203,6 +203,8 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee": "Marketplace checkout fee",
   "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee.description":
     "Marketplace Checkout Fee covers payment costs and order protection, and may be reduced by eligible lower-cost payment methods.",
+  "checkout.features.sessions.ui.checkoutPage.none": "none",
+  "checkout.features.sessions.ui.checkoutPage.not.required": "not required",
   "checkout.features.sessions.ui.checkoutPage.order.totals.created": "Order totals created",
   "checkout.features.sessions.ui.checkoutPage.offer.submitted.after.review": "Offer submitted after review",
   "checkout.features.sessions.ui.checkoutPage.payment": "Payment",
@@ -225,9 +227,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.package.plan": "Package plan",
   "checkout.features.sessions.ui.checkoutPage.package.plan.value":
     "{packageCount} package{packagePlural} - {serviceLevel}",
+  "checkout.features.sessions.ui.checkoutPage.parcel.postage": "Parcel postage",
   "checkout.features.sessions.ui.checkoutPage.preview.after.address": "Preview after address",
   "checkout.features.sessions.ui.checkoutPage.pricing": "Pricing",
-  "checkout.features.sessions.ui.checkoutPage.priority.signature": "Priority signature",
+  "checkout.features.sessions.ui.checkoutPage.priority": "Priority",
   "checkout.features.sessions.ui.checkoutPage.product": "Product",
   "checkout.features.sessions.ui.checkoutPage.purchase.intent": "Purchase intent",
   "checkout.features.sessions.ui.checkoutPage.purchase.intent.review": "Purchase intent review",
@@ -247,6 +250,11 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.recipient.name": "Recipient name",
   "checkout.features.sessions.ui.checkoutPage.recipient.placeholder": "Jane Smith",
   "checkout.features.sessions.ui.checkoutPage.refresh.totals": "Refresh totals",
+  "checkout.features.sessions.ui.checkoutPage.required": "required",
+  "checkout.features.sessions.ui.checkoutPage.reason.order.value": "order value",
+  "checkout.features.sessions.ui.checkoutPage.reason.package.fit": "package fit",
+  "checkout.features.sessions.ui.checkoutPage.reason.product.type": "product type",
+  "checkout.features.sessions.ui.checkoutPage.reason.shipping.option": "shipping option",
   "checkout.features.sessions.ui.checkoutPage.review.latest.total": "Review latest total",
   "checkout.features.sessions.ui.checkoutPage.review.updated": "Review updated",
   "checkout.features.sessions.ui.checkoutPage.review.updated.description":
@@ -256,6 +264,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.reviewed.before.payment": "Reviewed before payment",
   "checkout.features.sessions.ui.checkoutPage.secure.checkout": "Secure Checkout",
   "checkout.features.sessions.ui.checkoutPage.secure.payment": "Secure Payment",
+  "checkout.features.sessions.ui.checkoutPage.signature.confirmation": "Signature confirmation",
   "checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order":
     "Sellers can accept your purchase intent before an order and payment are created.",
   "checkout.features.sessions.ui.checkoutPage.same.seller.shipping.credit": "Same-seller shipping credit",

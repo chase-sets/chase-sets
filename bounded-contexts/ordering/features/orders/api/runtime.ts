@@ -8,7 +8,13 @@ import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { createFulfillmentDeliveryPromise } from "@chase-sets/fulfillment-delivery-promises";
-import { buildPackagePlan, type PackagePlan, type ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import {
+  buildPackagePlan,
+  defaultPostagePolicy,
+  type PackagePlan,
+  type PostagePolicy,
+  type ProductMeasureSnapshot,
+} from "@chase-sets/product-measures";
 import { createId } from "@chase-sets/primitives/typed-ids";
 import { normalizeAddressSnapshot, type AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, OrderId } from "@chase-sets/primitives/typed-ids";
@@ -85,6 +91,10 @@ export type TaxQuoteResolver = Readonly<{
   ): Promise<TaxQuote>;
 }>;
 
+export type PostagePolicyResolver = (effectiveAt?: string) => Promise<PostagePolicy>;
+
+const defaultPostagePolicyResolver: PostagePolicyResolver = async () => defaultPostagePolicy;
+
 const zeroTaxQuoteResolver: TaxQuoteResolver = {
   async quoteTax(input) {
     return {
@@ -108,6 +118,7 @@ type OrderRuntimeDeps = Readonly<{
   checkpointStore: ProjectionCheckpointStore;
   db: PgQueryable;
   shippingQuotePolicy: ShippingQuotePolicy;
+  postagePolicyResolver?: PostagePolicyResolver;
   taxQuoteResolver?: TaxQuoteResolver;
   transactionalEmailOutbox?: TransactionalEmailOutbox;
 }>;
@@ -207,6 +218,13 @@ export type CheckoutFulfillmentPreview = Readonly<{
     shippingChargeAmount: string;
     salesTaxAmount: string;
     totalAmount: string;
+    postageRequirements: Readonly<{
+      policyVersion: string;
+      parcelRequired: boolean;
+      parcelReasons: readonly string[];
+      signatureRequired: boolean;
+      signatureReasons: readonly string[];
+    }>;
     deliveryEstimate: Readonly<{
       earliestDate: string;
       latestDate: string;
@@ -483,6 +501,7 @@ function quotePlan(
   demandPlans: readonly DemandPlan[],
   shippingOption: ShippingOption,
   shippingQuotePolicy: ShippingQuotePolicy,
+  postagePolicy: PostagePolicy,
   priceOverrideAmount?: string,
   feeOverride?: Readonly<{
     marketplaceSalesFeeUnitAmount: string;
@@ -579,6 +598,7 @@ function quotePlan(
     const packagePlan = buildPackagePlan({
       shippingOption,
       itemSubtotalAmount: numberToMoneyAmount(draft.subtotal),
+      postagePolicy,
       lines: draft.lines.map((line) => ({
         productId: line.productId,
         quantity: line.quantity,
@@ -696,6 +716,7 @@ function chooseBestPlan(
   demandOptions: readonly DemandPlan[][],
   shippingOption: ShippingOption,
   shippingQuotePolicy: ShippingQuotePolicy,
+  postagePolicy: PostagePolicy,
   priceOverrideAmount?: string,
   feeOverride?: Readonly<{
     marketplaceSalesFeeUnitAmount: string;
@@ -716,6 +737,7 @@ function chooseBestPlan(
         chosen,
         shippingOption,
         shippingQuotePolicy,
+        postagePolicy,
         priceOverrideAmount,
         feeOverride,
         sourceType,
@@ -862,6 +884,11 @@ function previewRevision(preview: Omit<CheckoutFulfillmentPreview, "revision">) 
           group.sellerAccountId,
           group.sellerDisplayName ?? "",
           group.totalAmount,
+          group.postageRequirements.policyVersion,
+          group.postageRequirements.parcelRequired ? "parcel" : "letter-eligible",
+          group.postageRequirements.parcelReasons.join("+"),
+          group.postageRequirements.signatureRequired ? "signature" : "no-signature",
+          group.postageRequirements.signatureReasons.join("+"),
           group.deliveryEstimate.earliestDate,
           group.deliveryEstimate.latestDate,
           group.deliveryEstimate.basis,
@@ -888,13 +915,29 @@ function fulfillmentDeliveryPromiseForDraft(
   draft: SellerOrderDraft,
   shippingDestinationSnapshot: CheckoutShippingAddressSnapshot | null | undefined,
 ) {
+  const serviceLevels = [
+    ...draft.shippingPlanSnapshot.packages.map((pkg) => pkg.serviceLevel),
+    ...(draft.shippingPlanSnapshot.postagePolicySnapshot?.signatureRequired ? ["signature-required"] : []),
+  ];
+
   return createFulfillmentDeliveryPromise({
     shippingOption: draft.shippingOption,
     packageCount: draft.shippingPlanSnapshot.packageCount,
-    serviceLevels: draft.shippingPlanSnapshot.packages.map((pkg) => pkg.serviceLevel),
+    serviceLevels,
     shipFrom: draft.shippingOriginSnapshot,
     shipTo: shippingDestinationSnapshot,
   });
+}
+
+function postageRequirementsForDraft(draft: SellerOrderDraft) {
+  const snapshot = draft.shippingPlanSnapshot.postagePolicySnapshot;
+  return {
+    policyVersion: snapshot?.policyVersion ?? "legacy-package-plan",
+    parcelRequired: snapshot?.parcelRequired ?? !draft.shippingPlanSnapshot.letterEligibility.eligible,
+    parcelReasons: snapshot?.parcelReasons ?? draft.shippingPlanSnapshot.letterEligibility.reasons,
+    signatureRequired: snapshot?.signatureRequired ?? false,
+    signatureReasons: snapshot?.signatureReasons ?? [],
+  };
 }
 
 function planToPreview(
@@ -922,6 +965,7 @@ function planToPreview(
     shippingChargeAmount: draft.shippingChargeAmount,
     salesTaxAmount: draft.salesTaxAmount,
     totalAmount: draft.totalAmount,
+    postageRequirements: postageRequirementsForDraft(draft),
     deliveryEstimate: fulfillmentDeliveryPromiseForDraft(draft, params.shippingDestinationSnapshot),
     lines: draft.lines.map((line) => {
       const demandKey = buildDemandSignature(line.productId);
@@ -975,6 +1019,7 @@ function planToPreview(
 
 export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrderServices {
   const taxQuoteResolver = deps.taxQuoteResolver ?? zeroTaxQuoteResolver;
+  const postagePolicyResolver = deps.postagePolicyResolver ?? defaultPostagePolicyResolver;
   const transactionalEmailOutbox = deps.transactionalEmailOutbox ?? createNoopTransactionalEmailOutbox();
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
@@ -1112,6 +1157,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       },
     ];
     const demandOptions = await buildDemandOptions(deps.db, null, demandGroups, params.sellerAccountId);
+    const postagePolicy = await postagePolicyResolver();
     const acceptedOfferPriceAmount = normalizeMoneyAmount(params.priceAmount, {
       fieldName: "Accepted offer price",
     });
@@ -1119,6 +1165,7 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
       demandOptions,
       "standard",
       deps.shippingQuotePolicy,
+      postagePolicy,
       acceptedOfferPriceAmount,
       {
         marketplaceSalesFeeUnitAmount: normalizeMoneyAmount(params.marketplaceSalesFeeUnitAmount, {
@@ -1241,9 +1288,11 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         );
         const listingIds = new Set(lines.map((line) => line.listingId));
         const quantity = lines.reduce((sum, line) => sum + line.quantity, 0);
+        const postagePolicy = await postagePolicyResolver();
         const packagePlan = buildPackagePlan({
           shippingOption: draft.shippingOption,
           itemSubtotalAmount,
+          postagePolicy,
           lines: lines.map((line) => ({
             productId: line.productId,
             quantity: line.quantity,
@@ -1454,10 +1503,12 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         params.sourceType,
         params.checkoutSessionId,
       );
+      const postagePolicy = await postagePolicyResolver();
       const plan = chooseBestPlan(
         demandOptions,
         params.shippingOption,
         deps.shippingQuotePolicy,
+        postagePolicy,
         undefined,
         undefined,
         params.sourceType,
@@ -1519,10 +1570,12 @@ export function createOrderingOrderRuntime(deps: OrderRuntimeDeps): OrderingOrde
         params.sourceType,
         params.checkoutSessionId,
       );
+      const postagePolicy = await postagePolicyResolver();
       const plan = chooseBestPlan(
         demandOptions,
         params.shippingOption,
         deps.shippingQuotePolicy,
+        postagePolicy,
         undefined,
         undefined,
         params.sourceType,

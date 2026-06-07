@@ -5,10 +5,19 @@ This runbook covers postage label provider configuration and operational checks 
 ## System Boundaries
 
 - Fulfillment owns shipment state, package assembly, label references, tracking identifiers, and delivery outcomes.
+- Ordering owns postage policy authoring, active policy resolution, package-plan evaluation, and immutable order snapshots.
 - `@chase-sets/postage-labels` defines the provider-neutral postage label port.
 - EasyPost is the first USPS-compatible provider adapter.
 - Local development and tests use the sandbox adapter unless EasyPost configuration is supplied.
 - Deployables compose the configured provider into Fulfillment through the `postageLabelProvider` host port.
+
+## Admin Policy Changes
+
+Use Admin Web > Postage Policies to create and revise draft policies. Review parcel-required options, letter thresholds, physical flags, and signature requirements before activation.
+
+Activation affects new checkout and accepted-offer orders only. Existing orders and shipments keep their committed package-plan snapshot. Do not mutate existing orders to simulate a policy rollback.
+
+To roll back an active policy, create or revise a draft that matches the previous policy version and activate it. Fulfillment must continue using the shipment snapshot it received from Ordering.
 
 ## EasyPost Configuration
 
@@ -34,6 +43,14 @@ Manual package fields are an override path. Operators should only use them when 
 
 Letter mailpieces are not parcel labels. If an order is planned as a letter, Fulfillment should use the letter preparation path instead of buying a USPS parcel label.
 
+Package plans created by new orders include `postagePolicySnapshot` with policy version, parcel-required result and reasons, and signature-required result and reasons. Legacy package plans without that metadata remain fulfillable only through the explicit compatibility behavior covered by the milestone cleanup checklist.
+
+## Fulfillment Enforcement
+
+Fulfillment label purchase reads `shipping_plan_snapshot.postagePolicySnapshot`. If `signatureRequired` is true, the provider-neutral postage label request uses signature delivery confirmation. EasyPost maps that to the provider shipment option for signature confirmation.
+
+Address and package overrides remain operational overrides. They do not remove signature requirements committed by Ordering, and they must not convert a parcel-required shipment into a non-compliant letter flow.
+
 ## Label Flow
 
 The EasyPost adapter creates shipments from sender and recipient addresses plus package dimensions and weight, returns USPS rates, buys the selected rate, and provides the tracking number and label document URL.
@@ -54,6 +71,22 @@ Before enabling a real postage provider in a shared environment:
 6. Confirm `tracker.updated` callbacks create `fulfillment_postage_provider_events` rows and advance Fulfillment shipment state only.
 7. Confirm tracking updates do not mutate Ordering, Payments, or Settlement state directly.
 
+Before retiring legacy compatibility behavior:
+
+1. Confirm recent orders have `shipping_plan_snapshot.postagePolicySnapshot.policyVersion`.
+2. Confirm checkout copy does not imply signature outside the evaluated policy result.
+3. Confirm label operation requests include `deliveryConfirmation` only when the snapshot requires signature.
+4. Confirm no production shipment awaiting label depends on missing policy metadata for a policy-required decision.
+5. Confirm temporary migration scripts, backfill flags, and compatibility code are removed or documented as retained audit data.
+
+Run the read-only cleanup evidence report against the target environment before closing the cleanup gate:
+
+```powershell
+pnpm run postage-policy:cleanup-evidence -- --environment=production --ordering-database-url=$env:ORDERING_DATABASE_URL --fulfillment-database-url=$env:FULFILLMENT_DATABASE_URL
+```
+
+The report must show `readyToRetireLegacyCompatibility: true` before temporary compatibility behavior is removed. Historical immutable snapshots remain retained audit data; the cleanup gate is about active rows, runtime decision paths, and temporary migration artifacts.
+
 For production prelaunch proof, first deploy private proof mode with `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; DigitalOcean then routes `https://chasesets.com/api/fulfillment/provider/postage/webhooks` to `platform-api` while normal public/admin `/api/*` traffic remains on admin-support.
 
 Run `pnpm run marketplace:production-proof-readiness` before EasyPost dashboard setup and use `operatorSetup.easyPostWebhookSetup` from its JSON output as the canonical production setup checklist. The checklist carries the exact production webhook destination, the required GitHub secret name, provider-event kinds expected in Fulfillment proof, and the launch evidence fields that must be backed by the resulting EasyPost records. Do not hand-enter alternate callback URLs.
@@ -73,7 +106,8 @@ The rehearsal record must include:
 6. Tracking, delivery, and label lifecycle provider callbacks are processed and reflected only as Fulfillment-owned tracking state and integration facts, with redacted `fulfillment_postage_provider_events` query output showing at least four production EasyPost event rows matched to controlled shipments, at least three `tracking-status` rows, and at least one `refund-status` row attached.
 7. At least one delivery exception scenario is rehearsed or provider-simulated so downstream Support, Payments, and Settlement owners know which Fulfillment facts they will receive.
 8. A Letter Mailpiece order is rehearsed through the non-parcel preparation path. Fulfillment must not purchase a USPS parcel label for a shipment that Ordering planned as a letter.
-9. Operator rollback is documented: if EasyPost production proof fails after marketplace promotion, set `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` and redeploy while preserving the Fulfillment evidence record and failed provider references for investigation.
+9. A signature-required parcel label is rehearsed through the policy snapshot path. Fulfillment must pass provider-neutral signature delivery confirmation and keep provider-specific option names out of Ordering events.
+10. Operator rollback is documented: if EasyPost production proof fails after marketplace promotion, set `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false` and redeploy while preserving the Fulfillment evidence record and failed provider references for investigation.
 
 Do not commit live EasyPost labels, addresses, API keys, tracking URLs with private account data, or provider account screenshots to the repository. Store the evidence in the approved launch record and reference it with `PRODUCTION_FULFILLMENT_POSTAGE_REFERENCE`.
 

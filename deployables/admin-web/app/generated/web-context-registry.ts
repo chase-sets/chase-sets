@@ -8,6 +8,7 @@ import commercialTermsManifest from "@chase-sets/commercial-terms/context";
 import discoveryManifest from "@chase-sets/discovery/context";
 import experienceManifest from "@chase-sets/experience/context";
 import identityManifest from "@chase-sets/identity/context";
+import orderingManifest from "@chase-sets/ordering/context";
 import platformOperationsManifest from "@chase-sets/platform-operations/context";
 import publicPresenceManifest from "@chase-sets/public-presence/context";
 import supportManifest from "@chase-sets/support/context";
@@ -42,6 +43,11 @@ export const webContextRegistry = [
     contextName: "identity",
     packageName: "@chase-sets/identity",
     manifest: identityManifest as WebContextRegistry[number]["manifest"],
+  },
+  {
+    contextName: "ordering",
+    packageName: "@chase-sets/ordering",
+    manifest: orderingManifest as WebContextRegistry[number]["manifest"],
   },
   {
     contextName: "platform-operations",

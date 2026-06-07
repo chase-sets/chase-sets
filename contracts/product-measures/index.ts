@@ -14,6 +14,8 @@ export type ProductMeasureSource = "profile" | "catalog-item-override" | "produc
 
 export type ProductMeasureConfidence = "measured" | "provider" | "conservative-estimate";
 
+export type ShippingOption = "standard" | "expedited" | "priority";
+
 export type ProductMeasureSnapshot = Readonly<{
   catalogItemId: string;
   productId: string;
@@ -46,11 +48,20 @@ export type LetterEligibility = Readonly<{
   reasons: readonly string[];
 }>;
 
+export type PackagePlanPostagePolicySnapshot = Readonly<{
+  policyVersion: string;
+  parcelRequired: boolean;
+  parcelReasons: readonly string[];
+  signatureRequired: boolean;
+  signatureReasons: readonly string[];
+}>;
+
 export type PackagePlan = Readonly<{
   packagePlanVersion: string;
   packageCount: number;
   packages: readonly PackagePlanPackage[];
   letterEligibility: LetterEligibility;
+  postagePolicySnapshot?: PackagePlanPostagePolicySnapshot;
   missingProductIds: readonly string[];
 }>;
 
@@ -69,10 +80,22 @@ export type PackagePlanPolicy = Readonly<{
   parcelPackagingWeightOunces: number;
 }>;
 
+export type PostagePolicy = PackagePlanPolicy &
+  Readonly<{
+    policyVersion: string;
+    parcelRequiredShippingOptions: readonly ShippingOption[];
+    letterRequiredPhysicalFlags: readonly ProductPhysicalFlag[];
+    parcelRequiredPhysicalFlags: readonly ProductPhysicalFlag[];
+    signatureRequiredShippingOptions: readonly ShippingOption[];
+    signatureRequiredDeclaredValueAmount: number | null;
+    signatureRequiredPhysicalFlags: readonly ProductPhysicalFlag[];
+  }>;
+
 export type BuildPackagePlanInput = Readonly<{
-  shippingOption: "standard" | "expedited" | "priority";
+  shippingOption: ShippingOption;
   itemSubtotalAmount: string;
   lines: readonly PackagePlanLine[];
+  postagePolicy?: Partial<PostagePolicy>;
   policy?: Partial<PackagePlanPolicy>;
 }>;
 
@@ -85,19 +108,34 @@ export const defaultPackagePlanPolicy: PackagePlanPolicy = {
   parcelPackagingWeightOunces: 2,
 };
 
+export const defaultPostagePolicy: PostagePolicy = {
+  ...defaultPackagePlanPolicy,
+  policyVersion: "default-postage-policy-v1",
+  parcelRequiredShippingOptions: ["expedited", "priority"],
+  letterRequiredPhysicalFlags: ["raw-card"],
+  parcelRequiredPhysicalFlags: ["slab", "sealed", "rigid", "metal", "jumbo", "irregular"],
+  signatureRequiredShippingOptions: ["priority"],
+  signatureRequiredDeclaredValueAmount: null,
+  signatureRequiredPhysicalFlags: [],
+};
+
 export function buildPackagePlan(input: BuildPackagePlanInput): PackagePlan {
-  const policy = { ...defaultPackagePlanPolicy, ...input.policy };
+  const policy = normalizePostagePolicy(input);
   const missingProductIds = input.lines.filter((line) => line.measure === null).map((line) => line.productId);
+  const itemSubtotalAmount = moneyToNumber(input.itemSubtotalAmount);
 
   if (missingProductIds.length > 0) {
+    const letterEligibility = {
+      eligible: false,
+      reasons: ["missing-product-measures"],
+    };
+    const signatureRequirement = evaluateSignatureRequirement([], input.shippingOption, itemSubtotalAmount, policy);
     return {
       packagePlanVersion: "measured-package-plan-v1",
       packageCount: 0,
       packages: [],
-      letterEligibility: {
-        eligible: false,
-        reasons: ["missing-product-measures"],
-      },
+      letterEligibility,
+      postagePolicySnapshot: buildPostagePolicySnapshot(policy, letterEligibility, signatureRequirement),
       missingProductIds,
     };
   }
@@ -106,10 +144,11 @@ export function buildPackagePlan(input: BuildPackagePlanInput): PackagePlan {
     ...line,
     measure: line.measure as ProductMeasureSnapshot,
   }));
-  const letterEligibility = evaluateLetterEligibility(
+  const letterEligibility = evaluateLetterEligibility(measuredLines, input.shippingOption, itemSubtotalAmount, policy);
+  const signatureRequirement = evaluateSignatureRequirement(
     measuredLines,
     input.shippingOption,
-    moneyToNumber(input.itemSubtotalAmount),
+    itemSubtotalAmount,
     policy,
   );
   const packagePlanPackage = letterEligibility.eligible
@@ -121,22 +160,31 @@ export function buildPackagePlan(input: BuildPackagePlanInput): PackagePlan {
     packageCount: 1,
     packages: [packagePlanPackage],
     letterEligibility,
+    postagePolicySnapshot: buildPostagePolicySnapshot(policy, letterEligibility, signatureRequirement),
     missingProductIds,
+  };
+}
+
+function normalizePostagePolicy(input: BuildPackagePlanInput): PostagePolicy {
+  return {
+    ...defaultPostagePolicy,
+    ...input.policy,
+    ...input.postagePolicy,
   };
 }
 
 function evaluateLetterEligibility(
   lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[],
-  shippingOption: BuildPackagePlanInput["shippingOption"],
+  shippingOption: ShippingOption,
   itemSubtotalAmount: number,
-  policy: PackagePlanPolicy,
+  policy: PostagePolicy,
 ): LetterEligibility {
   const reasons: string[] = [];
   const totalQuantity = lines.reduce((sum, line) => sum + line.quantity, 0);
   const totalWeight = totalUnitWeight(lines) + policy.letterEnvelopeWeightOunces;
   const totalThickness = totalStackedHeight(lines);
 
-  if (shippingOption !== "standard") {
+  if (policy.parcelRequiredShippingOptions.includes(shippingOption)) {
     reasons.push("shipping-option-requires-parcel");
   }
   if (totalQuantity > policy.maxLetterUnits) {
@@ -154,13 +202,8 @@ function evaluateLetterEligibility(
   if (
     !lines.every(
       (line) =>
-        hasFlag(line.measure, "raw-card") &&
-        !hasFlag(line.measure, "slab") &&
-        !hasFlag(line.measure, "sealed") &&
-        !hasFlag(line.measure, "rigid") &&
-        !hasFlag(line.measure, "metal") &&
-        !hasFlag(line.measure, "jumbo") &&
-        !hasFlag(line.measure, "irregular"),
+        policy.letterRequiredPhysicalFlags.every((flag) => hasFlag(line.measure, flag)) &&
+        policy.parcelRequiredPhysicalFlags.every((flag) => !hasFlag(line.measure, flag)),
     )
   ) {
     reasons.push("product-type-requires-parcel");
@@ -169,6 +212,47 @@ function evaluateLetterEligibility(
   return {
     eligible: reasons.length === 0,
     reasons,
+  };
+}
+
+function evaluateSignatureRequirement(
+  lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[],
+  shippingOption: ShippingOption,
+  itemSubtotalAmount: number,
+  policy: PostagePolicy,
+) {
+  const reasons: string[] = [];
+
+  if (policy.signatureRequiredShippingOptions.includes(shippingOption)) {
+    reasons.push("shipping-option-requires-signature");
+  }
+  if (
+    policy.signatureRequiredDeclaredValueAmount != null &&
+    itemSubtotalAmount > policy.signatureRequiredDeclaredValueAmount
+  ) {
+    reasons.push("declared-value-requires-signature");
+  }
+  if (lines.some((line) => policy.signatureRequiredPhysicalFlags.some((flag) => hasFlag(line.measure, flag)))) {
+    reasons.push("product-type-requires-signature");
+  }
+
+  return {
+    required: reasons.length > 0,
+    reasons,
+  };
+}
+
+function buildPostagePolicySnapshot(
+  policy: PostagePolicy,
+  letterEligibility: LetterEligibility,
+  signatureRequirement: Readonly<{ required: boolean; reasons: readonly string[] }>,
+): PackagePlanPostagePolicySnapshot {
+  return {
+    policyVersion: policy.policyVersion,
+    parcelRequired: !letterEligibility.eligible,
+    parcelReasons: letterEligibility.reasons,
+    signatureRequired: signatureRequirement.required,
+    signatureReasons: signatureRequirement.reasons,
   };
 }
 
@@ -191,7 +275,7 @@ function buildLetterPackage(
 
 function buildParcelPackage(
   lines: readonly (PackagePlanLine & { measure: ProductMeasureSnapshot })[],
-  shippingOption: BuildPackagePlanInput["shippingOption"],
+  shippingOption: ShippingOption,
   policy: PackagePlanPolicy,
 ): PackagePlanPackage {
   const length = Math.max(...lines.map((line) => line.measure.unitLengthInches));

@@ -9,6 +9,7 @@ import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import { createNoopTransactionalEmailOutbox, type TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import {
   createNoopPostageProviderWebhookGateway,
+  PostageLabelProviderError,
   type PostageAddress,
   type PostageLabelProvider,
   type PostagePackage,
@@ -554,6 +555,38 @@ function postageLabelSizeFromPackage(pkg: PostagePackage) {
   return null;
 }
 
+function postageDeliveryConfirmationFromShippingPlan(plan: PackagePlan | null | undefined) {
+  return plan?.postagePolicySnapshot?.signatureRequired ? ("signature" as const) : null;
+}
+
+function postageProviderErrorCode(error: unknown) {
+  if (error instanceof PostageLabelProviderError) {
+    return error.name;
+  }
+  return error instanceof Error ? error.name : "postage_error";
+}
+
+function isLetterMailServiceLevel(serviceLevel: string) {
+  return ["first", "letter", "usps_first", "usps_first_class_mail"].includes(serviceLevel.trim().toLowerCase());
+}
+
+function assertPostagePolicyCompliance(
+  plan: PackagePlan | null | undefined,
+  pkg: PostagePackage,
+  serviceLevel: string,
+) {
+  const snapshot = plan?.postagePolicySnapshot;
+  if (!snapshot?.parcelRequired) {
+    return;
+  }
+
+  if (pkg.mailpieceClass === "letter" || pkg.mailpieceClass === "flat" || isLetterMailServiceLevel(serviceLevel)) {
+    throw new FulfillmentDomainError(
+      "Parcel postage is required by the committed postage policy snapshot for this shipment.",
+    );
+  }
+}
+
 export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices {
   const postageLabelProvider = deps.postageLabelProvider ?? createUnconfiguredPostageLabelProvider();
   const postageWebhookGateway = deps.postageWebhookGateway ?? createNoopPostageProviderWebhookGateway();
@@ -819,6 +852,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const sender = postageAddressFromSnapshot(submittedSender);
       const recipient = postageAddressFromSnapshot(submittedRecipient);
       const labelPackage = params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
+      assertPostagePolicyCompliance(shipment.shipping_plan_snapshot, labelPackage, params.serviceLevel);
+      const deliveryConfirmation = postageDeliveryConfirmationFromShippingPlan(shipment.shipping_plan_snapshot);
       const operationKey = `shipment:${params.shipmentId}:purchase-usps-label`;
       await recordFulfillmentPostageLabelOperationPending(deps.db, {
         operationKey,
@@ -831,6 +866,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           shipmentId: params.shipmentId,
           orderId: shipment.order_id,
           serviceLevel: params.serviceLevel,
+          deliveryConfirmation,
           labelSize: postageLabelSizeFromPackage(labelPackage),
           sender,
           recipient,
@@ -846,6 +882,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           shipmentId: params.shipmentId,
           orderId: shipment.order_id,
           serviceLevel: params.serviceLevel,
+          deliveryConfirmation,
           labelSize: postageLabelSizeFromPackage(labelPackage),
           sender,
           recipient,
@@ -862,7 +899,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             type: "RecordShipmentLabelPurchaseFailed",
             postageProviderName: postageLabelProvider.providerName,
             postageProviderMode: postageLabelProvider.providerMode,
-            errorCode: error instanceof Error ? error.name : "postage_error",
+            errorCode: postageProviderErrorCode(error),
             errorMessage: error instanceof Error ? error.message : "Label purchase failed.",
             failedAt: new Date().toISOString(),
           },

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { PostageLabelProviderError } from ".";
 import type { PostageLabelProvider } from ".";
 
 describe("postage label provider contract", () => {
@@ -31,5 +32,22 @@ describe("postage label provider contract", () => {
     } satisfies PostageLabelProvider;
 
     expect(provider.providerName).toBe("contract-test");
+  });
+
+  it("classifies provider capability failures without provider-specific payloads", () => {
+    const error = new PostageLabelProviderError({
+      kind: "capability",
+      capability: "signature-delivery-confirmation",
+      message: "Signature delivery confirmation is unavailable.",
+      providerName: "contract-test",
+      providerMode: "test",
+    });
+
+    expect(error.name).toBe("postage_provider_capability_failure");
+    expect(error.kind).toBe("capability");
+    expect(error.capability).toBe("signature-delivery-confirmation");
+    expect(error.providerName).toBe("contract-test");
+    expect(error.providerMode).toBe("test");
+    expect(error.message).toBe("Signature delivery confirmation is unavailable.");
   });
 });

@@ -40,7 +40,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, canary path, rollout controls, health metrics, and gate categories.
 - [Deployment Transitions](./runbooks/deployment-transitions.md): graceful shutdown, resumable streams, worker cancellation, and durable cadence.
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
-- [Postage Operations](./runbooks/postage-operations.md): postage label provider configuration and label smoke checks.
+- [Postage Operations](./runbooks/postage-operations.md): postage policy administration, label provider configuration, signature enforcement, and label smoke checks.
 - [Playwright E2E](./runbooks/playwright-e2e.md): local browser e2e setup and sandbox-aware run commands.
 - [Catalog Asset Storage](./runbooks/catalog-asset-storage.md): owned storage for provider-fed catalog imagery.
 - [Catalog Provider Integration Profiles](./runbooks/catalog-provider-integration-profiles.md): profile activation, rollback, retirement, and bootstrap failure response.

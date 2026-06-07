@@ -3,6 +3,7 @@ import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
 import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
+import { defaultPostagePolicy } from "@chase-sets/product-measures";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
 import { orderingReservedSeedIds } from "../seed-support/ids";
 import { createOrderingServices, type OrderingServices } from "./services";
@@ -77,6 +78,14 @@ async function hasOrderPage(db: PgQueryable, orderId: string) {
   const result = await db.query<{ exists: boolean }>(
     "SELECT EXISTS(SELECT 1 FROM ordering_order_pages WHERE order_id = $1) AS exists",
     [orderId],
+  );
+  return result.rows[0]?.exists ?? false;
+}
+
+async function hasPostagePolicyPage(db: PgQueryable, policyId: string) {
+  const result = await db.query<{ exists: boolean }>(
+    "SELECT EXISTS(SELECT 1 FROM ordering_postage_policy_pages WHERE policy_id = $1) AS exists",
+    [policyId],
   );
   return result.rows[0]?.exists ?? false;
 }
@@ -196,6 +205,33 @@ export async function seedOrderingDatabase(
 
   const buyerContext = createSeedContextFor(identitySeedIds.collector.accountId, identitySeedIds.collector.userId);
   const sellerContext = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
+  const systemContext = createSeedContextFor(identitySeedIds.demo.accountId, identitySeedIds.demo.userId);
+
+  if (!(await hasPostagePolicyPage(ordering.db, orderingReservedSeedIds.postagePolicies.default))) {
+    await ordering.postagePolicies.commandHandler({
+      streamId: `ordering.postage-policy-${orderingReservedSeedIds.postagePolicies.default}`,
+      command: {
+        type: "CreatePostagePolicy",
+        policyId: orderingReservedSeedIds.postagePolicies.default,
+        label: "Default postage policy",
+        payload: defaultPostagePolicy,
+        effectiveFrom: "2026-01-01T00:00:00.000Z",
+        effectiveUntil: null,
+        createdByUserId: identitySeedIds.demo.userId,
+      },
+      context: systemContext,
+    });
+    await ordering.postagePolicies.commandHandler({
+      streamId: `ordering.postage-policy-${orderingReservedSeedIds.postagePolicies.default}`,
+      command: {
+        type: "ActivatePostagePolicy",
+        activatedByUserId: identitySeedIds.demo.userId,
+        activationReason: "Seed default postage policy.",
+      },
+      context: systemContext,
+    });
+    console.log(`  Default postage policy seeded (${orderingReservedSeedIds.postagePolicies.default})`);
+  }
 
   if (!(await hasOrderPage(ordering.db, orderingReservedSeedIds.orders.checkoutPending))) {
     const checkoutResult = await ordering.orders.createOrdersFromCheckout(

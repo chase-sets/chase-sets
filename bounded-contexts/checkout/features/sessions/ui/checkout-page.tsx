@@ -92,6 +92,36 @@ function deliveryWindowLabel(group: CheckoutFulfillmentPreview["sellerGroups"][n
   return `${group.deliveryEstimate.earliestDate} - ${group.deliveryEstimate.latestDate}`;
 }
 
+function requirementLabel(required: boolean) {
+  return required
+    ? t("checkout.features.sessions.ui.checkoutPage.required")
+    : t("checkout.features.sessions.ui.checkoutPage.not.required");
+}
+
+function buyerReasonSummary(reasons: readonly string[]) {
+  if (reasons.length === 0) {
+    return t("checkout.features.sessions.ui.checkoutPage.none");
+  }
+
+  const mapped = reasons.map((reason) => {
+    switch (reason) {
+      case "shipping-option-requires-parcel":
+      case "shipping-option-requires-signature":
+        return t("checkout.features.sessions.ui.checkoutPage.reason.shipping.option");
+      case "declared-value-requires-parcel":
+      case "declared-value-requires-signature":
+        return t("checkout.features.sessions.ui.checkoutPage.reason.order.value");
+      case "product-type-requires-parcel":
+      case "product-type-requires-signature":
+        return t("checkout.features.sessions.ui.checkoutPage.reason.product.type");
+      default:
+        return t("checkout.features.sessions.ui.checkoutPage.reason.package.fit");
+    }
+  });
+
+  return Array.from(new Set(mapped)).join(", ");
+}
+
 function normalizedAddressSignature(
   address: Readonly<{
     shippingAddressId: string;
@@ -596,6 +626,18 @@ export function CheckoutSessionPage({
                                   }),
                                 },
                                 {
+                                  key: t("checkout.features.sessions.ui.checkoutPage.parcel.postage"),
+                                  value: `${requirementLabel(group.postageRequirements.parcelRequired)} - ${buyerReasonSummary(
+                                    group.postageRequirements.parcelReasons,
+                                  )}`,
+                                },
+                                {
+                                  key: t("checkout.features.sessions.ui.checkoutPage.signature.confirmation"),
+                                  value: `${requirementLabel(group.postageRequirements.signatureRequired)} - ${buyerReasonSummary(
+                                    group.postageRequirements.signatureReasons,
+                                  )}`,
+                                },
+                                {
                                   key: t("checkout.features.sessions.ui.checkoutPage.delivery.basis"),
                                   value: group.deliveryEstimate.basis,
                                 },
@@ -980,7 +1022,7 @@ export function CheckoutSessionPage({
                           { value: "expedited", label: t("checkout.features.sessions.ui.checkoutPage.expedited") },
                           {
                             value: "priority",
-                            label: t("checkout.features.sessions.ui.checkoutPage.priority.signature"),
+                            label: t("checkout.features.sessions.ui.checkoutPage.priority"),
                           },
                         ]}
                       />

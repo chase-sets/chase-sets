@@ -38,6 +38,11 @@ describe("measured package planning", () => {
     expect(plan.packageCount).toBe(1);
     expect(plan.packages[0]?.mailpieceClass).toBe("letter");
     expect(plan.letterEligibility.eligible).toBe(true);
+    expect(plan.postagePolicySnapshot).toMatchObject({
+      policyVersion: "default-postage-policy-v1",
+      parcelRequired: false,
+      signatureRequired: false,
+    });
   });
 
   it("moves raw singles to parcel when value exceeds the letter cap", () => {
@@ -49,6 +54,7 @@ describe("measured package planning", () => {
 
     expect(plan.packages[0]?.mailpieceClass).toBe("parcel");
     expect(plan.letterEligibility.reasons).toContain("declared-value-requires-parcel");
+    expect(plan.postagePolicySnapshot?.parcelReasons).toContain("declared-value-requires-parcel");
   });
 
   it("moves slabs to parcel even when quantity and value are small", () => {
@@ -60,6 +66,45 @@ describe("measured package planning", () => {
 
     expect(plan.packages[0]?.mailpieceClass).toBe("parcel");
     expect(plan.letterEligibility.reasons).toContain("product-type-requires-parcel");
+    expect(plan.postagePolicySnapshot?.parcelRequired).toBe(true);
+  });
+
+  it("records signature requirements from the active postage policy", () => {
+    const plan = buildPackagePlan({
+      shippingOption: "priority",
+      itemSubtotalAmount: "20.00",
+      lines: [{ productId: rawCardMeasure.productId, quantity: 1, measure: rawCardMeasure }],
+    });
+
+    expect(plan.packages[0]?.mailpieceClass).toBe("parcel");
+    expect(plan.postagePolicySnapshot).toMatchObject({
+      policyVersion: "default-postage-policy-v1",
+      parcelRequired: true,
+      signatureRequired: true,
+    });
+    expect(plan.postagePolicySnapshot?.parcelReasons).toContain("shipping-option-requires-parcel");
+    expect(plan.postagePolicySnapshot?.signatureReasons).toContain("shipping-option-requires-signature");
+  });
+
+  it("supports custom policy versions and declared-value signature thresholds", () => {
+    const plan = buildPackagePlan({
+      shippingOption: "standard",
+      itemSubtotalAmount: "75.00",
+      lines: [{ productId: rawCardMeasure.productId, quantity: 1, measure: rawCardMeasure }],
+      postagePolicy: {
+        policyVersion: "operator-policy-v2",
+        maxLetterDeclaredValueAmount: 100,
+        signatureRequiredDeclaredValueAmount: 50,
+      },
+    });
+
+    expect(plan.packages[0]?.mailpieceClass).toBe("letter");
+    expect(plan.postagePolicySnapshot).toMatchObject({
+      policyVersion: "operator-policy-v2",
+      parcelRequired: false,
+      signatureRequired: true,
+    });
+    expect(plan.postagePolicySnapshot?.signatureReasons).toContain("declared-value-requires-signature");
   });
 
   it("reports missing product measurements explicitly", () => {
@@ -72,5 +117,6 @@ describe("measured package planning", () => {
     expect(plan.packageCount).toBe(0);
     expect(plan.missingProductIds).toEqual(["cat_missing::raw"]);
     expect(plan.letterEligibility.reasons).toContain("missing-product-measures");
+    expect(plan.postagePolicySnapshot?.parcelRequired).toBe(true);
   });
 });

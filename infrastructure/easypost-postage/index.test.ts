@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
+import { PostageLabelProviderError } from "@chase-sets/postage-labels";
 import {
   createEasyPostPostageLabelProvider,
   createEasyPostPostageWebhookGateway,
@@ -218,6 +219,42 @@ describe("EasyPost postage adapter", () => {
     });
 
     await expect(provider.purchaseUspsLabel(sampleRequest)).rejects.toThrow("Invalid address.");
+  });
+
+  it("fails closed when EasyPost cannot provide the requested USPS service level", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/shipments")) {
+        return Response.json({
+          id: "shp_provider_1",
+          mode: "test",
+          rates: [
+            {
+              id: "rate_1",
+              carrier: "USPS",
+              service: "MEDIA_MAIL",
+              rate: "4.99",
+              currency: "USD",
+            },
+          ],
+        });
+      }
+
+      throw new Error("Buy should not be called when the requested service is unavailable.");
+    });
+    const provider = createEasyPostPostageLabelProvider({
+      apiKey: "EZTK_test",
+      fetch: fetch as typeof globalThis.fetch,
+    });
+
+    await expect(provider.purchaseUspsLabel(sampleRequest)).rejects.toMatchObject({
+      name: "postage_provider_capability_failure",
+      kind: "capability",
+      capability: "usps-service-level",
+      providerName: "easypost",
+      providerMode: "test",
+    } satisfies Partial<PostageLabelProviderError>);
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 
   it("verifies EasyPost webhook HMAC signatures", () => {

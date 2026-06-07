@@ -13,6 +13,8 @@ describe("auth role permissions", () => {
         "commercial-terms.view",
         "memberships.manage",
         "memberships.view",
+        "postage-policies.manage",
+        "postage-policies.view",
         "platform-feedback.manage",
         "platform-feedback.view",
         "public-presence.manage",
@@ -24,10 +26,20 @@ describe("auth role permissions", () => {
 
   it("mirrors commercial terms authority for live actor permissions", () => {
     expect(AUTH_ROLE_PERMISSIONS.owner).toEqual(
-      expect.arrayContaining(["commercial-terms.manage", "commercial-terms.view"]),
+      expect.arrayContaining([
+        "commercial-terms.manage",
+        "commercial-terms.view",
+        "postage-policies.manage",
+        "postage-policies.view",
+      ]),
     );
     expect(AUTH_ROLE_PERMISSIONS.manager).toEqual(
-      expect.arrayContaining(["commercial-terms.manage", "commercial-terms.view"]),
+      expect.arrayContaining([
+        "commercial-terms.manage",
+        "commercial-terms.view",
+        "postage-policies.manage",
+        "postage-policies.view",
+      ]),
     );
   });
 });

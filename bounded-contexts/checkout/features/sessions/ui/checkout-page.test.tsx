@@ -83,6 +83,13 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
       shippingChargeAmount: "0.00",
       salesTaxAmount: "0.00",
       totalAmount: "489.00",
+      postageRequirements: {
+        policyVersion: "operator-postage-v1",
+        parcelRequired: true,
+        parcelReasons: ["declared-value-requires-parcel"],
+        signatureRequired: true,
+        signatureReasons: ["declared-value-requires-signature"],
+      },
       deliveryEstimate: {
         earliestDate: "2026-05-03",
         latestDate: "2026-05-06",
@@ -206,6 +213,9 @@ describe("checkout session page", () => {
     expect(markup).toContain("Reviewed before payment");
     expect(markup).toContain("Refresh totals");
     expect(markup).toContain("Delivery estimate");
+    expect(markup).toContain("Parcel postage");
+    expect(markup).toContain("required - order value");
+    expect(markup).toContain("Signature confirmation");
     expect(markup).toContain("Payment review comes next");
     expect(markup).not.toContain("lst_card_vault");
     expect(markup).not.toContain("cat_bulbasaur");

@@ -9,7 +9,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
-import type { ProductMeasureSnapshot } from "@chase-sets/product-measures";
+import { defaultPostagePolicy, type PostagePolicy, type ProductMeasureSnapshot } from "@chase-sets/product-measures";
 import { createOrderingOrderRuntime } from "./runtime";
 
 function createInMemoryEventStore() {
@@ -395,6 +395,96 @@ describe("ordering order runtime", () => {
         }),
       ]),
     );
+  });
+
+  it("changes checkout preview revision when the active postage policy requirements change", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    let activePostagePolicy: PostagePolicy = {
+      ...defaultPostagePolicy,
+      policyVersion: "operator-postage-v1",
+      signatureRequiredShippingOptions: [],
+    };
+    const db = createSupplyDb(() => [
+      {
+        listingId: "lst_1",
+        sellerAccountId: "acc_seller",
+        inventoryItemId: "inv_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        storageLocationName: "North shelf",
+        shipFromCode: "CHI",
+        priceAmount: "10.00",
+        availableQuantity: 1,
+        updatedAt: "2026-03-31T00:00:00.000Z",
+      },
+    ]);
+
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postagePolicyResolver: vi.fn(async () => activePostagePolicy),
+      shippingQuotePolicy: {
+        quote: ({ packagePlan }) => ({
+          shippingOption: "standard",
+          baseAmount: packagePlan?.postagePolicySnapshot?.signatureRequired ? "6.99" : "4.99",
+          discountAmount: "0.00",
+          chargeAmount: packagePlan?.postagePolicySnapshot?.signatureRequired ? "6.99" : "4.99",
+        }),
+      },
+    });
+    const checkoutParams = {
+      buyerAccountId: "acc_buyer" as never,
+      checkoutSessionId: "chk_policy_revision",
+      sourceType: "cart-checkout" as const,
+      shippingOption: "standard" as const,
+      shippingAddress,
+      lines: [
+        {
+          listingId: null,
+          cartLineId: "cli_1",
+          catalogItemId: "cat_1",
+          productId: "cat_1::",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    };
+
+    const firstPreview = await services.previewCheckoutFulfillment(checkoutParams);
+    activePostagePolicy = {
+      ...activePostagePolicy,
+      policyVersion: "operator-postage-v2",
+      signatureRequiredShippingOptions: ["standard"],
+    };
+    const secondPreview = await services.previewCheckoutFulfillment(checkoutParams);
+
+    expect(firstPreview.sellerGroups[0]?.postageRequirements).toMatchObject({
+      policyVersion: "operator-postage-v1",
+      signatureRequired: false,
+    });
+    expect(secondPreview.sellerGroups[0]?.postageRequirements).toMatchObject({
+      policyVersion: "operator-postage-v2",
+      signatureRequired: true,
+      signatureReasons: ["shipping-option-requires-signature"],
+    });
+    expect(secondPreview.revision).not.toBe(firstPreview.revision);
+    await expect(
+      services.createOrdersFromCheckout(
+        {
+          ...checkoutParams,
+          fulfillmentPreviewRevision: firstPreview.revision,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Fulfillment changed. Review the latest checkout preview before continuing.");
   });
 
   it("keeps buyer cost lowest by rewarding same-seller checkout grouping", async () => {

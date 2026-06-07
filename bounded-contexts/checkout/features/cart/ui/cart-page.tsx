@@ -592,7 +592,7 @@ export function CheckoutCartPage({
                           items={[
                             { value: "standard", label: t("checkout.features.cart.ui.cartPage.standard.insured") },
                             { value: "expedited", label: t("checkout.features.cart.ui.cartPage.expedited") },
-                            { value: "priority", label: t("checkout.features.cart.ui.cartPage.priority.signature") },
+                            { value: "priority", label: t("checkout.features.cart.ui.cartPage.priority") },
                           ]}
                         />
                         <NativeSelect

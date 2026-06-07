@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import type { AuthenticatedApiEnv } from "@chase-sets/auth-context";
 import type { OrderingServices } from "./support/runtime-support/services";
 import { createAccountPurchaseOrderRoutes, createAccountSaleOrderRoutes } from "./features/orders/api/route";
+import { createPostagePolicyRoutes } from "./features/postage-policies/api/route";
 
 export type OrderingApiEnv = AuthenticatedApiEnv;
 
@@ -10,6 +11,7 @@ export function buildOrderingApi(services: OrderingServices) {
 
   app.route("/account", createAccountPurchaseOrderRoutes(services.orders));
   app.route("/account", createAccountSaleOrderRoutes(services.orders));
+  app.route("/admin/postage-policies", createPostagePolicyRoutes(services.postagePolicies));
 
   return app;
 }

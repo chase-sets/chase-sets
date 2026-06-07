@@ -1,12 +1,14 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type {
   PostageAddress,
+  PostageLabelCapability,
   PostageLabelProvider,
   PostagePackage,
   PostageProviderWebhookEvent,
   PostageProviderWebhookGateway,
   PostageProviderMode,
 } from "@chase-sets/postage-labels";
+import { PostageLabelProviderError } from "@chase-sets/postage-labels";
 
 function normalizeText(value: string, fieldName: string) {
   const normalized = value.trim();
@@ -71,12 +73,31 @@ function getEasyPostErrorMessage(body: unknown) {
   return "EasyPost request failed.";
 }
 
-async function parseEasyPostResponse<T>(response: Response): Promise<T> {
+async function parseEasyPostResponse<T>(response: Response, providerMode: PostageProviderMode): Promise<T> {
   const body = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(getEasyPostErrorMessage(body));
+    throw new PostageLabelProviderError({
+      kind: "provider",
+      message: getEasyPostErrorMessage(body),
+      providerName: "easypost",
+      providerMode,
+    });
   }
   return body as T;
+}
+
+function providerCapabilityError(
+  capability: PostageLabelCapability,
+  message: string,
+  providerMode: PostageProviderMode,
+) {
+  return new PostageLabelProviderError({
+    kind: "capability",
+    capability,
+    message,
+    providerName: "easypost",
+    providerMode,
+  });
 }
 
 type EasyPostRate = Readonly<{
@@ -133,23 +154,23 @@ export function createEasyPostPostageLabelProvider(
   const apiBaseUrl = options.apiBaseUrl ?? "https://api.easypost.com/v2";
   const fetchImpl = options.fetch ?? globalThis.fetch;
   const authorization = `Basic ${globalThis.btoa(`${options.apiKey}:`)}`;
+  const providerMode = options.mode ?? "test";
 
   async function easyPostRequest<T>(path: string, init: RequestInit = {}) {
-    return parseEasyPostResponse<T>(
-      await fetchImpl(`${apiBaseUrl}${path}`, {
-        ...init,
-        headers: {
-          Authorization: authorization,
-          "Content-Type": "application/json",
-          ...init.headers,
-        },
-      }),
-    );
+    const response = await fetchImpl(`${apiBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        Authorization: authorization,
+        "Content-Type": "application/json",
+        ...init.headers,
+      },
+    });
+    return parseEasyPostResponse<T>(response, providerMode);
   }
 
   return {
     providerName: "easypost",
-    providerMode: options.mode ?? "test",
+    providerMode,
     async purchaseUspsLabel(request) {
       const shipment = await easyPostRequest<EasyPostShipment>("/shipments", {
         method: "POST",
@@ -162,16 +183,23 @@ export function createEasyPostPostageLabelProvider(
             options: {
               label_format: "PDF",
               ...(request.labelSize ? { label_size: request.labelSize } : {}),
+              ...(request.deliveryConfirmation === "signature" ? { delivery_confirmation: "SIGNATURE" } : {}),
             },
           },
         }),
       });
       const normalizedService = request.serviceLevel.trim().toLowerCase();
       const uspsRates = (shipment.rates ?? []).filter((rate) => rate.carrier.toLowerCase() === "usps");
-      const selectedRate = uspsRates.find((rate) => rate.service.toLowerCase() === normalizedService) ?? uspsRates[0];
+      const selectedRate = uspsRates.find((rate) => rate.service.toLowerCase() === normalizedService) ?? null;
 
       if (!selectedRate) {
-        throw new Error("No USPS rates were returned for this shipment.");
+        throw providerCapabilityError(
+          uspsRates.length === 0 ? "usps-rate" : "usps-service-level",
+          uspsRates.length === 0
+            ? "No USPS rates were returned for this shipment."
+            : `USPS service level ${request.serviceLevel} is not available for this shipment.`,
+          providerMode,
+        );
       }
 
       const purchased = await easyPostRequest<EasyPostShipment>(`/shipments/${shipment.id}/buy`, {
@@ -180,13 +208,24 @@ export function createEasyPostPostageLabelProvider(
       });
       const label = purchased.postage_label;
       const labelDocumentUrl = label?.label_pdf_url ?? label?.label_url;
-      if (!labelDocumentUrl || !purchased.tracking_code) {
-        throw new Error("EasyPost did not return a label PDF and tracking number.");
+      if (!labelDocumentUrl) {
+        throw providerCapabilityError(
+          "label-document",
+          "EasyPost did not return a label PDF for this shipment.",
+          providerMode,
+        );
+      }
+      if (!purchased.tracking_code) {
+        throw providerCapabilityError(
+          "tracking",
+          "EasyPost did not return a tracking number for this shipment.",
+          providerMode,
+        );
       }
 
       return {
         providerName: "easypost",
-        providerMode: purchased.mode ?? options.mode ?? "test",
+        providerMode: purchased.mode ?? providerMode,
         providerShipmentId: purchased.id,
         providerLabelId: label?.id ?? purchased.id,
         providerRateId: purchased.selected_rate?.id ?? selectedRate.id,
@@ -207,7 +246,7 @@ export function createEasyPostPostageLabelProvider(
 
       return {
         providerName: "easypost",
-        providerMode: refunded.mode ?? options.mode ?? "test",
+        providerMode: refunded.mode ?? providerMode,
         refundReference: refunded.id,
         refundStatus: refunded.refund_status ?? "submitted",
         voidedAt: new Date().toISOString(),

@@ -42,6 +42,8 @@ export type PermissionKey =
   | "payouts.request"
   | "payouts.setup"
   | "payouts.view"
+  | "postage-policies.manage"
+  | "postage-policies.view"
   | "platform-feedback.manage"
   | "platform-feedback.view"
   | "public-presence.manage"
