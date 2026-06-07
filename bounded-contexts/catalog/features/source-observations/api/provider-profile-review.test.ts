@@ -542,7 +542,7 @@ describe("Catalog provider profile review", () => {
           fixtures: {
             fixtureRoot: "bounded-contexts/catalog/fixtures/source-observations/tcgdex",
             coveredFlows: ["normal"],
-            liveProviderCallsAllowed: true as false,
+            liveProviderCallsAllowed: true,
           },
         },
       }),

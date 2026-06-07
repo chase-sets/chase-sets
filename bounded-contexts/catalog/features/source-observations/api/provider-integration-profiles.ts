@@ -7,10 +7,8 @@ import type {
   CatalogProviderProfileFixtureContract,
   CatalogProviderProfileLifecycle,
 } from "./provider-integration-mapping-contract";
-import {
-  catalogProviderRequiredFixtureFlows,
-  validateCatalogProviderExecutableMappingContract,
-} from "./provider-integration-mapping-contract";
+import { validateCatalogProviderExecutableMappingContract } from "./provider-integration-mapping-contract";
+import { evaluateCatalogIntegrationFixtureCoverageFromProfileVersion } from "./catalog-integration-fixture-lifecycle";
 import type { CatalogProviderSourceObservationMappingContract } from "./provider-source-observation-normalizer";
 import { scrydexScryfallCardSourceObservationMappingContract } from "./scrydex-executable-mapping-contract";
 import { tcgplayerProviderProductSourceObservationMappingContract } from "./tcgplayer-executable-mapping-contract";
@@ -435,6 +433,7 @@ export type CatalogProviderIntegrationProfileVersionDiagnostic = Readonly<{
     | "provider-key-mismatch"
     | "missing-profile-version"
     | "missing-profile-fixture-flow"
+    | "fixture-live-provider-calls"
     | "missing-retirement-plan"
     | "missing-executable-mapping-contract"
     | "mapping-contract-mismatch"
@@ -1488,12 +1487,19 @@ export function validateCatalogProviderIntegrationProfileVersion(
     });
   }
 
-  for (const flow of catalogProviderRequiredFixtureFlows) {
-    if (!version.fixtures.coveredFlows.includes(flow)) {
+  for (const fixtureDiagnostic of evaluateCatalogIntegrationFixtureCoverageFromProfileVersion({ version })) {
+    if (fixtureDiagnostic.code === "fixture-missing-flow") {
       diagnostics.push({
         code: "missing-profile-fixture-flow",
-        path: "fixtures.coveredFlows",
-        diagnosticText: `Provider profile fixtures must cover the ${flow} flow before activation.`,
+        path: fixtureDiagnostic.path,
+        diagnosticText: fixtureDiagnostic.diagnosticText,
+      });
+    }
+    if (fixtureDiagnostic.code === "fixture-live-provider-calls") {
+      diagnostics.push({
+        code: "fixture-live-provider-calls",
+        path: fixtureDiagnostic.path,
+        diagnosticText: fixtureDiagnostic.diagnosticText,
       });
     }
   }

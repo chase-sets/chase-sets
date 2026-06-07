@@ -66,7 +66,7 @@ export const catalogProviderRequiredFixtureFlows = [
 export type CatalogProviderProfileFixtureContract = Readonly<{
   fixtureRoot: string;
   coveredFlows: readonly CatalogProviderProfileFixtureFlow[];
-  liveProviderCallsAllowed: false;
+  liveProviderCallsAllowed: boolean;
 }>;
 
 export type CatalogProviderMappingSelector =
