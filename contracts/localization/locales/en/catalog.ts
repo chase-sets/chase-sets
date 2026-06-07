@@ -1332,8 +1332,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.active.integration.jobs": "Active Integration Jobs",
   "catalog.features.sourceObservations.ui.integrationManagementPage.active.jobs": "Active jobs",
   "catalog.features.sourceObservations.ui.integrationManagementPage.active.profile.snapshot": "Active Profile Snapshot",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.active.fingerprint": "Active fingerprint",
   "catalog.features.sourceObservations.ui.integrationManagementPage.activation.readiness.workflow":
     "Activation readiness workflow",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.activation.blocked": "Activation blocked",
   "catalog.features.sourceObservations.ui.integrationManagementPage.adapter.readiness.panel": "Adapter readiness panel",
   "catalog.features.sourceObservations.ui.integrationManagementPage.admin.control.plane.shell":
     "Admin Control Plane shell",
@@ -1400,6 +1402,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.ambiguous.candidate.policy":
     "Ambiguous candidate policy",
   "catalog.features.sourceObservations.ui.integrationManagementPage.ambiguous.candidates": "Ambiguous candidates",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.audit.evidence": "Audit evidence",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.available": "Available",
   "catalog.features.sourceObservations.ui.integrationManagementPage.assign.blueprint": "Assign Blueprint",
   "catalog.features.sourceObservations.ui.integrationManagementPage.assign.category": "Assign Category",
   "catalog.features.sourceObservations.ui.integrationManagementPage.attribute": "Attribute",
@@ -1412,7 +1416,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.base.url": "Base URL",
   "catalog.features.sourceObservations.ui.integrationManagementPage.before.fingerprint": "Before fingerprint",
   "catalog.features.sourceObservations.ui.integrationManagementPage.block.promotion": "Block promotion",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.blocked": "Blocked",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.blocking.checks": "Blocking checks",
   "catalog.features.sourceObservations.ui.integrationManagementPage.candidate": "Candidate",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.candidate.fingerprint": "Candidate fingerprint",
   "catalog.features.sourceObservations.ui.integrationManagementPage.candidate.policy": "Candidate policy",
   "catalog.features.sourceObservations.ui.integrationManagementPage.capabilities": "Capabilities",
   "catalog.features.sourceObservations.ui.integrationManagementPage.catalog.integration.module.area":
@@ -1421,6 +1428,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.catalog.item.references": "Catalog Item references",
   "catalog.features.sourceObservations.ui.integrationManagementPage.catalog.option.schema": "Catalog option schema",
   "catalog.features.sourceObservations.ui.integrationManagementPage.change": "Change",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.changed": "Changed",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.changes": "Changes",
   "catalog.features.sourceObservations.ui.integrationManagementPage.check": "Check",
   "catalog.features.sourceObservations.ui.integrationManagementPage.code": "Code",
   "catalog.features.sourceObservations.ui.integrationManagementPage.comma.or.line.separated":
@@ -1436,7 +1445,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.command": "Command",
   "catalog.features.sourceObservations.ui.integrationManagementPage.command.count": "Command count",
   "catalog.features.sourceObservations.ui.integrationManagementPage.command.inputs": "Command Inputs",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.compatibility.mode": "Compatibility mode",
   "catalog.features.sourceObservations.ui.integrationManagementPage.commit": "Commit",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.condition.certification.evidence":
+    "Condition/certification evidence",
   "catalog.features.sourceObservations.ui.integrationManagementPage.compare.active": "Compare active",
   "catalog.features.sourceObservations.ui.integrationManagementPage.compare.server.plan": "Compare server plan",
   "catalog.features.sourceObservations.ui.integrationManagementPage.compatibility": "Compatibility",
@@ -1454,6 +1466,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.description": "Description",
   "catalog.features.sourceObservations.ui.integrationManagementPage.description.path": "Description path",
   "catalog.features.sourceObservations.ui.integrationManagementPage.detail": "Detail",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.default.flow": "Default flow",
   "catalog.features.sourceObservations.ui.integrationManagementPage.deterministic.field.match":
     "Deterministic field match",
   "catalog.features.sourceObservations.ui.integrationManagementPage.diagnostic": "Diagnostic",
@@ -1465,8 +1478,13 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.draft": "Draft",
   "catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.selected.profile":
     "Dry run selected profile",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.evidence.workflow":
+    "Dry-run evidence workflow",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.failed": "Dry-run failed",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.output.evidence": "Dry-run output evidence",
   "catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.summary": "Dry-Run Summary",
   "catalog.features.sourceObservations.ui.integrationManagementPage.duplicate": "Duplicate",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.candidates": "Duplicate candidates",
   "catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.prevention": "Duplicate Prevention",
   "catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.prevention.preview":
     "Duplicate Prevention Preview",
@@ -1477,6 +1495,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.edit.selected.profile": "Edit selected profile",
   "catalog.features.sourceObservations.ui.integrationManagementPage.editable.sections": "Editable sections",
   "catalog.features.sourceObservations.ui.integrationManagementPage.evidence": "Evidence",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.evidence.paths": "Evidence paths",
   "catalog.features.sourceObservations.ui.integrationManagementPage.exact.external.catalog.item.reference":
     "Exact external Catalog Item reference",
   "catalog.features.sourceObservations.ui.integrationManagementPage.exact.external.references.first":
@@ -1484,6 +1503,9 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.example.path": "Example Path",
   "catalog.features.sourceObservations.ui.integrationManagementPage.example.scopes": "Example scopes",
   "catalog.features.sourceObservations.ui.integrationManagementPage.excluded.evidence": "Excluded evidence",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.expected.evidence": "Expected evidence",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.expected.observation": "Expected observation",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.expected.status": "Expected status",
   "catalog.features.sourceObservations.ui.integrationManagementPage.executable.mapping.contract":
     "Executable mapping contract",
   "catalog.features.sourceObservations.ui.integrationManagementPage.executable.mapping.contract.activated":
@@ -1508,14 +1530,18 @@ export const catalogEnglishTranslations = {
     "Field expression: {value}",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fields": "Fields",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fingerprint.impact": "Fingerprint impact",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.first.path": "First path",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.command.inputs": "Fixture command inputs",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flow": "Fixture flow",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flow.2": "Fixture Flow",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flows": "Fixture flows",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.payload": "Fixture payload",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.root": "Fixture root",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.run.id": "Fixture run id",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.sample.fields": "Fixture Sample Fields",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.set.version": "Fixture set version",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.fixture.validation.workflow":
+    "Fixture validation workflow",
   "catalog.features.sourceObservations.ui.integrationManagementPage.fixtures": "Fixtures",
   "catalog.features.sourceObservations.ui.integrationManagementPage.first.slice.readiness": "First slice readiness",
   "catalog.features.sourceObservations.ui.integrationManagementPage.future.provider.bridge.match":
@@ -1570,7 +1596,11 @@ export const catalogEnglishTranslations = {
     "Loading TCGdex scope options...",
   "catalog.features.sourceObservations.ui.integrationManagementPage.loading.tcgplayer.scope.options":
     "Loading TCGplayer scope options...",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.loading.validation.workbench":
+    "Loading validation workbench",
   "catalog.features.sourceObservations.ui.integrationManagementPage.loading": "Loading",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.mapping.changed": "Mapping changed",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.mapping.unchanged": "Mapping unchanged",
   "catalog.features.sourceObservations.ui.integrationManagementPage.mapping": "Mapping",
   "catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.key": "Mapping dimension key",
   "catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.required":
@@ -1591,6 +1621,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.adapter.readiness.description":
     "Provider transport, credentials, option queries, cooldowns, and payload acquisition are shown separately from Catalog semantic readiness.",
   "catalog.features.sourceObservations.ui.integrationManagementPage.affected.units": "Affected units",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.affected.references": "Affected references",
   "catalog.features.sourceObservations.ui.integrationManagementPage.api.reachability": "API reachability",
   "catalog.features.sourceObservations.ui.integrationManagementPage.audit.event": "Audit event",
   "catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle": "Audit lifecycle",
@@ -1619,6 +1650,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.ready.providers": "Ready providers",
   "catalog.features.sourceObservations.ui.integrationManagementPage.summary": "Summary",
   "catalog.features.sourceObservations.ui.integrationManagementPage.unit": "Unit",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.unchanged": "Unchanged",
   "catalog.features.sourceObservations.ui.integrationManagementPage.control.plane.proof": "Control plane proof",
   "catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.source.observation.fact":
     "Dry-run Source Observation fact",
@@ -1638,6 +1670,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.metadata.paths": "Metadata paths",
   "catalog.features.sourceObservations.ui.integrationManagementPage.migration.evidence": "Migration evidence",
   "catalog.features.sourceObservations.ui.integrationManagementPage.migration.evidence.2": "Migration Evidence",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.missing": "Missing",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.missing.sample": "missing sample",
   "catalog.features.sourceObservations.ui.integrationManagementPage.missing.or.unknown.option.policy":
     "Missing or unknown option policy",
   "catalog.features.sourceObservations.ui.integrationManagementPage.missing.required.fixture.flows":
@@ -1656,13 +1690,18 @@ export const catalogEnglishTranslations = {
     "No active profile is available for",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.attribute.rules": "No attribute rules.",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.diagnostic.groups": "No diagnostic groups",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.diagnostic.links": "No diagnostic links",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.diagnostics": "No diagnostics",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.duplicate.prevention.decisions":
     "No duplicate-prevention decisions",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.fixture.cases": "No fixture cases",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.fixture.template.is.available.for.this.flow":
     "No fixture template is available for this flow.",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.grouped.failures": "No grouped failures",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.mapping.evidence": "No mapping evidence",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.readiness.groups": "No readiness groups",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.section.diagnostics": "No section diagnostics",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.semantic.sections": "No semantic sections",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.parent.reference.records":
     "No parent reference records.",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.promotion.commands": "No promotion commands",
@@ -1674,6 +1713,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.semantic.changes": "No semantic changes",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.validation.diagnostics":
     "No validation diagnostics",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.not.evaluated": "Not evaluated",
   "catalog.features.sourceObservations.ui.integrationManagementPage.none": "None",
   "catalog.features.sourceObservations.ui.integrationManagementPage.normalized.field.key": "Normalized field key",
   "catalog.features.sourceObservations.ui.integrationManagementPage.normalized.field.value": "Normalized Field {value}",
@@ -1696,6 +1736,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.operator.note": "Operator note",
   "catalog.features.sourceObservations.ui.integrationManagementPage.operator.reapplies.active.version":
     "Operator reapplies active version",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.open.override.dry.run": "Open override dry-run",
   "catalog.features.sourceObservations.ui.integrationManagementPage.option.aliases": "Option aliases",
   "catalog.features.sourceObservations.ui.integrationManagementPage.option.dimension.key": "Option dimension key",
   "catalog.features.sourceObservations.ui.integrationManagementPage.option.display.name": "Option display name",
@@ -1724,6 +1765,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.path": "Path",
   "catalog.features.sourceObservations.ui.integrationManagementPage.payload": "Payload",
   "catalog.features.sourceObservations.ui.integrationManagementPage.payload.path": "Payload path",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.passed": "Passed",
   "catalog.features.sourceObservations.ui.integrationManagementPage.planned": "Planned",
   "catalog.features.sourceObservations.ui.integrationManagementPage.planned.commands": "Planned commands",
   "catalog.features.sourceObservations.ui.integrationManagementPage.pokemon.card": "Pokemon card",
@@ -1750,6 +1792,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.preview":
     "Promotion Command Preview",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.plan": "Promotion Plan",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.plan.evidence": "Promotion plan evidence",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.input.expression.value":
     "Promotion input expression: {value}",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.input.key": "Promotion input key",
@@ -1776,6 +1819,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.readiness.checks": "Readiness checks",
   "catalog.features.sourceObservations.ui.integrationManagementPage.readiness.checks.2": "Readiness Checks",
   "catalog.features.sourceObservations.ui.integrationManagementPage.ready": "Ready",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.ready.to.activate": "Ready to activate",
   "catalog.features.sourceObservations.ui.integrationManagementPage.recent.jobs": "Recent jobs",
   "catalog.features.sourceObservations.ui.integrationManagementPage.reapplied": "Reapplied",
   "catalog.features.sourceObservations.ui.integrationManagementPage.reapply.promoted": "Reapply promoted",
@@ -1816,13 +1860,20 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.relationships": "Relationships",
   "catalog.features.sourceObservations.ui.integrationManagementPage.remove": "Remove",
   "catalog.features.sourceObservations.ui.integrationManagementPage.remove.after": "Remove after",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.remediation": "Remediation",
   "catalog.features.sourceObservations.ui.integrationManagementPage.replay.policy": "Replay policy",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.replay.implication": "Replay implication",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.replay.policy.not.configured":
+    "Replay policy not configured",
   "catalog.features.sourceObservations.ui.integrationManagementPage.replay.scope": "Replay scope",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.replay.uses.policy": "Replay uses {policy}",
   "catalog.features.sourceObservations.ui.integrationManagementPage.repository": "Repository",
   "catalog.features.sourceObservations.ui.integrationManagementPage.repository.commit": "Repository commit",
   "catalog.features.sourceObservations.ui.integrationManagementPage.repository.name": "Repository name",
   "catalog.features.sourceObservations.ui.integrationManagementPage.repository.owner": "Repository owner",
   "catalog.features.sourceObservations.ui.integrationManagementPage.requested": "Requested",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.required": "Required",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.not.required": "Not required",
   "catalog.features.sourceObservations.ui.integrationManagementPage.required.paths": "Required paths",
   "catalog.features.sourceObservations.ui.integrationManagementPage.required.source.keys": "Required source keys",
   "catalog.features.sourceObservations.ui.integrationManagementPage.resolve.the.blocking.checks.or.record.the.required":
@@ -1841,12 +1892,16 @@ export const catalogEnglishTranslations = {
     "Revise Catalog Item Metadata",
   "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.reactivates.this.previously.validated.profile.version.and":
     "Rollback reactivates this previously validated profile version and records lifecycle audit metadata. It does not edit historical profile rows or rewrite queued job profile snapshots.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.run.selected.fixture": "Run selected fixture",
   "catalog.features.sourceObservations.ui.integrationManagementPage.rule": "Rule",
   "catalog.features.sourceObservations.ui.integrationManagementPage.rule.evidence.value": "Rule Evidence: {value}",
   "catalog.features.sourceObservations.ui.integrationManagementPage.rule.order": "Rule order",
   "catalog.features.sourceObservations.ui.integrationManagementPage.safe.payload.overrides": "Safe Payload Overrides",
   "catalog.features.sourceObservations.ui.integrationManagementPage.same.profile.version": "Same profile version",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.sample": "Sample",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.sample.available": "Sample available",
   "catalog.features.sourceObservations.ui.integrationManagementPage.sample.diagnostics": "Sample diagnostics",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.sample.missing": "Sample missing",
   "catalog.features.sourceObservations.ui.integrationManagementPage.sample.normalized.output":
     "Sample Normalized Output",
   "catalog.features.sourceObservations.ui.integrationManagementPage.sample.output": "Sample output",
@@ -1864,6 +1919,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.search.domain": "Search domain",
   "catalog.features.sourceObservations.ui.integrationManagementPage.select.a.provider.profile.version.to.use.this":
     "Select a provider profile version to use this module area.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.selected.profile.context.not.loaded":
+    "Selected profile context is not loaded.",
   "catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.dimension.value":
     "Selected Option Dimension {value}",
   "catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.dimensions":
@@ -1877,7 +1934,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.value.expression.value":
     "Selected option value expression: {value}",
   "catalog.features.sourceObservations.ui.integrationManagementPage.selected.profile": "Selected profile",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.section": "Section",
   "catalog.features.sourceObservations.ui.integrationManagementPage.semantic.changes": "Semantic Changes",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.semantic.comparison.workflow":
+    "Semantic comparison workflow",
   "catalog.features.sourceObservations.ui.integrationManagementPage.series": "Series",
   "catalog.features.sourceObservations.ui.integrationManagementPage.series.detail.endpoint": "Series detail endpoint",
   "catalog.features.sourceObservations.ui.integrationManagementPage.series.list.endpoint": "Series list endpoint",
@@ -1897,6 +1957,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.source.contract.document":
     "Source contract document",
   "catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.link": "Source Observation link",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.facts":
+    "Source Observation facts",
   "catalog.features.sourceObservations.ui.integrationManagementPage.static.record.id": "Static record ID",
   "catalog.features.sourceObservations.ui.integrationManagementPage.static.reference.record.id":
     "Static reference record ID",
@@ -1938,6 +2000,9 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.used.by": "Used by",
   "catalog.features.sourceObservations.ui.integrationManagementPage.uses": "Uses",
   "catalog.features.sourceObservations.ui.integrationManagementPage.validation": "Validation",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.validation.workbench": "Validation workbench",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.validation.workbench.unavailable":
+    "Validation workbench unavailable",
   "catalog.features.sourceObservations.ui.integrationManagementPage.value": "Value",
   "catalog.features.sourceObservations.ui.integrationManagementPage.value.expression.value":
     "{value0} expression {value1}",

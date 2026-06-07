@@ -265,6 +265,15 @@ describe("IntegrationManagementPage", () => {
           redaction: "none",
         },
       ],
+      diagnosticLinks: [
+        {
+          code: "required",
+          path: "normalizedObservation.fields.name",
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
+          fixtureFlow: "normal",
+        },
+      ],
       hashMaterial: [
         {
           path: "normalizedObservation.hashMaterial.0",
@@ -993,6 +1002,46 @@ describe("IntegrationManagementPage", () => {
     expect(screen.getByRole("button", { name: "Edit selected profile" })).toBeTruthy();
   });
 
+  it("promotes validation, dry-run, comparison, and activation workflows into the profile workbench", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(
+      <IntegrationManagementPage
+        data={{ items: [integrationScope()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgdex", language: "en", setId: "base1" }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Validation" }));
+
+    expect(screen.getByText("Validation workbench")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Fixture validation workflow" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Dry-run evidence workflow" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Semantic comparison workflow" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Activation readiness workflow" })).toBeTruthy();
+    expect(screen.getAllByText("Normalized Observation").length).toBeGreaterThan(0);
+    expect(screen.getByText("Affected references")).toBeTruthy();
+    expect(screen.getByText("Replay implication")).toBeTruthy();
+    expect(screen.getByText("Replay uses same-profile-version")).toBeTruthy();
+    expect(document.body.innerHTML.includes("Profile JSON")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Run selected fixture" }));
+
+    await waitFor(() =>
+      expect(mockDryRunSourceObservationProviderProfile).toHaveBeenCalledWith(
+        "scrydex",
+        "2026.06.03",
+        expect.objectContaining({ id: "fixture_1", tcgplayer_id: 14240 }),
+      ),
+    );
+    expect(await screen.findByText("Dry-run output evidence")).toBeTruthy();
+    expect(screen.getAllByText("Source Observation facts").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Condition/certification evidence").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("normalizedObservation.fields.name").length).toBeGreaterThan(0);
+    expect(document.body.innerHTML.includes("Dry-run output JSON")).toBe(false);
+  });
+
   it("shows reference ingestion-unit readiness and dry-run Source Observation facts", () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
@@ -1149,10 +1198,35 @@ describe("IntegrationManagementPage", () => {
           checks: [
             {
               checkKey: "fixture-harness",
+              code: "fixture-harness-passed",
+              sectionKey: "fixture-contract",
+              domainConcept: "Fixture Coverage",
               status: "passed",
               path: "fixtures.coveredFlows",
               diagnosticText: "Fixture harness passed.",
               severity: "warning",
+              remediation: "No remediation required.",
+              blockingBehavior: "Activation can proceed.",
+            },
+          ],
+          groups: [
+            {
+              domainConcept: "Fixture Coverage",
+              status: "ready",
+              checks: [
+                {
+                  checkKey: "fixture-harness",
+                  code: "fixture-harness-passed",
+                  sectionKey: "fixture-contract",
+                  domainConcept: "Fixture Coverage",
+                  status: "passed",
+                  path: "fixtures.coveredFlows",
+                  diagnosticText: "Fixture harness passed.",
+                  severity: "warning",
+                  remediation: "No remediation required.",
+                  blockingBehavior: "Activation can proceed.",
+                },
+              ],
             },
           ],
           requiresMigrationEvidence: false,
@@ -1220,25 +1294,91 @@ describe("IntegrationManagementPage", () => {
           checks: [
             {
               checkKey: "fixture-live-calls",
+              code: "fixture-live-calls-blocked",
+              sectionKey: "fixture-contract",
+              domainConcept: "Fixture Coverage",
               status: "blocked",
               path: "fixtures.liveProviderCallsAllowed",
               diagnosticText: "Fixture validation must not require live provider calls.",
               severity: "error",
+              remediation: "Use fixture-backed payloads before activation.",
+              blockingBehavior: "Activation is blocked while live provider calls are required.",
             },
             {
               checkKey: "import-eligibility",
+              code: "import-eligibility-blocked",
+              sectionKey: "profile-identity",
+              domainConcept: "Profile Identity",
               status: "blocked",
               path: "profile.capabilities",
               diagnosticText:
                 "Activation requires the source-observation-import capability so new provider imports can use this profile.",
               severity: "error",
+              remediation: "Add source-observation-import capability before activation.",
+              blockingBehavior: "Activation is blocked while imports cannot use the profile.",
             },
             {
               checkKey: "profile-validation",
+              code: "profile-validation-blocked",
+              sectionKey: "profile-identity",
+              domainConcept: "Profile Identity",
               status: "blocked",
               path: "profile.status",
               diagnosticText: "Profile status must be activation-ready.",
               severity: "error",
+              remediation: "Resolve profile validation diagnostics before activation.",
+              blockingBehavior: "Activation is blocked until validation is activation-ready.",
+            },
+          ],
+          groups: [
+            {
+              domainConcept: "Fixture Coverage",
+              status: "blocked",
+              checks: [
+                {
+                  checkKey: "fixture-live-calls",
+                  code: "fixture-live-calls-blocked",
+                  sectionKey: "fixture-contract",
+                  domainConcept: "Fixture Coverage",
+                  status: "blocked",
+                  path: "fixtures.liveProviderCallsAllowed",
+                  diagnosticText: "Fixture validation must not require live provider calls.",
+                  severity: "error",
+                  remediation: "Use fixture-backed payloads before activation.",
+                  blockingBehavior: "Activation is blocked while live provider calls are required.",
+                },
+              ],
+            },
+            {
+              domainConcept: "Profile Identity",
+              status: "blocked",
+              checks: [
+                {
+                  checkKey: "import-eligibility",
+                  code: "import-eligibility-blocked",
+                  sectionKey: "profile-identity",
+                  domainConcept: "Profile Identity",
+                  status: "blocked",
+                  path: "profile.capabilities",
+                  diagnosticText:
+                    "Activation requires the source-observation-import capability so new provider imports can use this profile.",
+                  severity: "error",
+                  remediation: "Add source-observation-import capability before activation.",
+                  blockingBehavior: "Activation is blocked while imports cannot use the profile.",
+                },
+                {
+                  checkKey: "profile-validation",
+                  code: "profile-validation-blocked",
+                  sectionKey: "profile-identity",
+                  domainConcept: "Profile Identity",
+                  status: "blocked",
+                  path: "profile.status",
+                  diagnosticText: "Profile status must be activation-ready.",
+                  severity: "error",
+                  remediation: "Resolve profile validation diagnostics before activation.",
+                  blockingBehavior: "Activation is blocked until validation is activation-ready.",
+                },
+              ],
             },
           ],
           requiresMigrationEvidence: false,
@@ -4370,6 +4510,8 @@ function profileAuthoringModel(
           candidate: "candidate_fingerprint",
           active: "active_fingerprint",
           changed: true,
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
           severity: "error",
           activationImpact:
             "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
@@ -4380,8 +4522,49 @@ function profileAuthoringModel(
           candidate: ["source-observation-import", "external-reference-extraction"],
           active: ["source-observation-import"],
           changed: true,
+          sectionKey: "profile-identity",
+          domainConcept: "Profile Identity",
           severity: "warning",
           activationImpact: "Changes available import, reference extraction, and promotion workflows.",
+        },
+      ],
+      sections: [
+        {
+          sectionKey: "normalized-observation",
+          domainConcept: "Normalized Observation",
+          status: "error",
+          changes: [
+            {
+              path: "sourceMappingFingerprint",
+              label: "Source Mapping Fingerprint",
+              candidate: "candidate_fingerprint",
+              active: "active_fingerprint",
+              changed: true,
+              sectionKey: "normalized-observation",
+              domainConcept: "Normalized Observation",
+              severity: "error",
+              activationImpact:
+                "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
+            },
+          ],
+        },
+        {
+          sectionKey: "profile-identity",
+          domainConcept: "Profile Identity",
+          status: "warning",
+          changes: [
+            {
+              path: "profile.capabilities",
+              label: "Capabilities",
+              candidate: ["source-observation-import", "external-reference-extraction"],
+              active: ["source-observation-import"],
+              changed: true,
+              sectionKey: "profile-identity",
+              domainConcept: "Profile Identity",
+              severity: "warning",
+              activationImpact: "Changes available import, reference extraction, and promotion workflows.",
+            },
+          ],
         },
       ],
     },
@@ -4390,15 +4573,86 @@ function profileAuthoringModel(
       checks: [
         {
           checkKey: "migration-evidence",
+          code: "migration-evidence-required",
+          sectionKey: "migration-evidence",
+          domainConcept: "Migration Evidence",
           status: "blocked",
           path: "migrationEvidence.evidenceText",
           diagnosticText: "Source Observation mapping fingerprint changes require explicit migration evidence.",
           severity: "error",
+          remediation: "Record migration evidence before activation.",
+          blockingBehavior: "Activation is blocked until migration evidence is recorded.",
+        },
+      ],
+      groups: [
+        {
+          domainConcept: "Migration Evidence",
+          status: "blocked",
+          checks: [
+            {
+              checkKey: "migration-evidence",
+              code: "migration-evidence-required",
+              sectionKey: "migration-evidence",
+              domainConcept: "Migration Evidence",
+              status: "blocked",
+              path: "migrationEvidence.evidenceText",
+              diagnosticText: "Source Observation mapping fingerprint changes require explicit migration evidence.",
+              severity: "error",
+              remediation: "Record migration evidence before activation.",
+              blockingBehavior: "Activation is blocked until migration evidence is recorded.",
+            },
+          ],
         },
       ],
       requiresMigrationEvidence: true,
       referenceCount: 0,
     },
+    sectionSummaries: [
+      {
+        sectionKey: "normalized-observation",
+        domainConcept: "Normalized Observation",
+        editable: true,
+        status: "error",
+        diagnostics: [],
+        semanticChanges: [
+          {
+            path: "sourceMappingFingerprint",
+            label: "Source Mapping Fingerprint",
+            candidate: "candidate_fingerprint",
+            active: "active_fingerprint",
+            changed: true,
+            sectionKey: "normalized-observation",
+            domainConcept: "Normalized Observation",
+            severity: "error",
+            activationImpact:
+              "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
+          },
+        ],
+        readinessChecks: [],
+      },
+      {
+        sectionKey: "migration-evidence",
+        domainConcept: "Migration Evidence",
+        editable: true,
+        status: "blocked",
+        diagnostics: [],
+        semanticChanges: [],
+        readinessChecks: [
+          {
+            checkKey: "migration-evidence",
+            code: "migration-evidence-required",
+            sectionKey: "migration-evidence",
+            domainConcept: "Migration Evidence",
+            status: "blocked",
+            path: "migrationEvidence.evidenceText",
+            diagnosticText: "Source Observation mapping fingerprint changes require explicit migration evidence.",
+            severity: "error",
+            remediation: "Record migration evidence before activation.",
+            blockingBehavior: "Activation is blocked until migration evidence is recorded.",
+          },
+        ],
+      },
+    ],
     selectedOptionSchema: null,
     promotionTargetSchema: null,
     ...overrides,

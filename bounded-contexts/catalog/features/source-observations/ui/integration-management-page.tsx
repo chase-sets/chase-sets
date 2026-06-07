@@ -736,6 +736,10 @@ export function IntegrationManagementPage({
   const [dryRunResult, setDryRunResult] = useState<CatalogProviderProfileDryRunResult | null>(null);
   const [dryRunError, setDryRunError] = useState<string | null>(null);
   const [dryRunning, setDryRunning] = useState(false);
+  const [validationDryRunFlow, setValidationDryRunFlow] = useState("normal");
+  const [validationDryRunResult, setValidationDryRunResult] = useState<CatalogProviderProfileDryRunResult | null>(null);
+  const [validationDryRunError, setValidationDryRunError] = useState<string | null>(null);
+  const [validationDryRunning, setValidationDryRunning] = useState(false);
   const [profileActionKey, setProfileActionKey] = useState<string | null>(null);
   const [cloneProfile, setCloneProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [cloneProfileVersion, setCloneProfileVersion] = useState(nextProfileVersion());
@@ -835,6 +839,17 @@ export function IntegrationManagementPage({
     selectedProfile?.profileVersion ?? "",
     Boolean(selectedProfile && moduleArea !== "health"),
   );
+
+  useEffect(() => {
+    const model = selectedProfileAuthoringModel.data;
+    const defaultFlow =
+      model?.dryRunInputTemplate.defaultFlow ??
+      model?.fixtureCases.find((fixtureCase) => fixtureCase.samplePayloadAvailable)?.flow ??
+      "normal";
+    setValidationDryRunFlow(defaultFlow);
+    setValidationDryRunResult(null);
+    setValidationDryRunError(null);
+  }, [selectedProfileId, selectedProfileAuthoringModel.data]);
   const editCurrentProfile = useMemo(
     () =>
       editProfile
@@ -1320,6 +1335,38 @@ export function IntegrationManagementPage({
     }
   }
 
+  async function handleRunValidationDryRun() {
+    if (!selectedProfile || !selectedProfileAuthoringModel.data) {
+      return;
+    }
+
+    setValidationDryRunning(true);
+    setValidationDryRunError(null);
+
+    try {
+      const payload = selectedDryRunPayload(selectedProfileAuthoringModel.data, validationDryRunFlow);
+      if (!payload) {
+        throw new Error("Select a fixture flow with an available sample payload.");
+      }
+      const result = await dryRunSourceObservationProviderProfile(
+        selectedProfile.providerKey,
+        selectedProfile.profileVersion,
+        payload,
+      );
+      setValidationDryRunResult(result);
+    } catch (error) {
+      setValidationDryRunError(
+        error instanceof SyntaxError
+          ? t("catalog.features.sourceObservations.ui.integrations.profile.review.invalid.json")
+          : error instanceof Error
+            ? error.message
+            : t("catalog.features.sourceObservations.ui.integrations.profile.review.dry.run.failed"),
+      );
+    } finally {
+      setValidationDryRunning(false);
+    }
+  }
+
   async function handleActivateProfile() {
     if (!activationProfile) {
       return;
@@ -1576,6 +1623,16 @@ export function IntegrationManagementPage({
           loading={selectedProfileAuthoringModel.loading}
           error={selectedProfileAuthoringModel.error}
           canManageCatalog={canManageCatalog}
+          validationDryRunFlow={validationDryRunFlow}
+          validationDryRunResult={validationDryRunResult}
+          validationDryRunError={validationDryRunError}
+          validationDryRunning={validationDryRunning}
+          onValidationDryRunFlowChange={(flow) => {
+            setValidationDryRunFlow(flow);
+            setValidationDryRunResult(null);
+            setValidationDryRunError(null);
+          }}
+          onRunValidationDryRun={() => void handleRunValidationDryRun()}
           onEditProfile={openEditProfileDialog}
           onDryRun={openDryRunDialog}
           onCompare={setCompareProfile}
