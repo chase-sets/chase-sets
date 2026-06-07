@@ -1073,6 +1073,16 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async getCatalogIntegrationControlPlaneOverview<T>(): Promise<T> {
+      const response = await configuredFetch(
+        `${baseUrl.replace(/\/$/, "")}/source-observations/integration-control-plane/overview`,
+        {
+          method: "GET",
+          headers: headersToRecord(headers),
+        },
+      );
+      return parseJsonResponse<T>(response);
+    },
     async listSourceObservationProviderProfiles<T>(): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles`, {
         method: "GET",

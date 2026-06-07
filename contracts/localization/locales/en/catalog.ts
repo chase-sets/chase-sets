@@ -1536,6 +1536,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.job.scope": "Job scope",
   "catalog.features.sourceObservations.ui.integrationManagementPage.kind": "Kind",
   "catalog.features.sourceObservations.ui.integrationManagementPage.label.path": "Label path",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.latest.job": "Latest job",
   "catalog.features.sourceObservations.ui.integrationManagementPage.language": "Language",
   "catalog.features.sourceObservations.ui.integrationManagementPage.language.expression": "Language expression",
   "catalog.features.sourceObservations.ui.integrationManagementPage.language.options": "Language options",
@@ -1561,6 +1562,7 @@ export const catalogEnglishTranslations = {
     "Loading TCGdex scope options...",
   "catalog.features.sourceObservations.ui.integrationManagementPage.loading.tcgplayer.scope.options":
     "Loading TCGplayer scope options...",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.loading": "Loading",
   "catalog.features.sourceObservations.ui.integrationManagementPage.mapping": "Mapping",
   "catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.key": "Mapping dimension key",
   "catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.required":
@@ -1577,6 +1579,38 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.merge.evidence": "Merge evidence",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.ingestion.units.reported":
     "No ingestion units reported",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.adapter.readiness": "Adapter readiness",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.adapter.readiness.description":
+    "Provider transport, credentials, option queries, cooldowns, and payload acquisition are shown separately from Catalog semantic readiness.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.affected.units": "Affected units",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.api.reachability": "API reachability",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.audit.event": "Audit event",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle": "Audit lifecycle",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle.description":
+    "Profile lifecycle, section edit, import, and reapply evidence by ingestion unit.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle.partial":
+    "Audit lifecycle is partial",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle.unavailable":
+    "Audit lifecycle unavailable",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.audit.lifecycle.unavailable.description":
+    "The Catalog integration control plane did not return lifecycle audit entries.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.credential": "Credential",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.audit.lifecycle.entries":
+    "No audit lifecycle entries",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.provider.readiness.reported":
+    "No provider readiness reported",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.provider.readiness.reported.description":
+    "The Catalog integration control plane did not return provider adapter readiness records.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.not.assigned": "Not assigned",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.not.loaded": "Not loaded",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.occurred": "Occurred",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.option.query.health": "Option query health",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.payload.acquisition": "Payload acquisition",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.provider.adapters": "Provider adapters",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.rate.limit.cooldown": "Rate limit / cooldown",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.ready.providers": "Ready providers",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.summary": "Summary",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.unit": "Unit",
   "catalog.features.sourceObservations.ui.integrationManagementPage.control.plane.proof": "Control plane proof",
   "catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.source.observation.fact":
     "Dry-run Source Observation fact",
@@ -1607,6 +1641,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.needs.language": "Needs language",
   "catalog.features.sourceObservations.ui.integrationManagementPage.needs.review": "Needs review",
   "catalog.features.sourceObservations.ui.integrationManagementPage.needs.scope": "Needs scope",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.never": "Never",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.active.integration.jobs":
     "No active integration jobs",
   "catalog.features.sourceObservations.ui.integrationManagementPage.no.active.profile.is.available.for":
@@ -1733,6 +1768,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.readiness.checks": "Readiness checks",
   "catalog.features.sourceObservations.ui.integrationManagementPage.readiness.checks.2": "Readiness Checks",
   "catalog.features.sourceObservations.ui.integrationManagementPage.ready": "Ready",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.recent.jobs": "Recent jobs",
   "catalog.features.sourceObservations.ui.integrationManagementPage.reapplied": "Reapplied",
   "catalog.features.sourceObservations.ui.integrationManagementPage.reapply.promoted": "Reapply promoted",
   "catalog.features.sourceObservations.ui.integrationManagementPage.reason": "Reason",

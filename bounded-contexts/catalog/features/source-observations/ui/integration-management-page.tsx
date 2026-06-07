@@ -78,7 +78,7 @@ import {
   rollbackSourceObservationProviderProfile,
   updateSourceObservationProviderProfileSection,
   useActiveSourceObservationIntegrationJobs,
-  useCatalogIntegrationControlPlaneReadiness,
+  useCatalogIntegrationControlPlaneOverview,
   useSourceObservationProviderProfileAuthoringModel,
   useSourceObservationProviderProfiles,
   useSourceObservationIntegrationOptions,
@@ -781,7 +781,7 @@ export function IntegrationManagementPage({
   const [lastPromotionResult, setLastPromotionResult] = useState<LastPromotionResultSummary | null>(null);
   const summary = useMemo(() => summarizeScopes(data.items ?? []), [data.items]);
   const activeIntegrationJobs = useActiveSourceObservationIntegrationJobs();
-  const controlPlaneReadiness = useCatalogIntegrationControlPlaneReadiness();
+  const controlPlaneOverview = useCatalogIntegrationControlPlaneOverview();
   const profileWorkspaceItems = useMemo(() => buildProfileWorkspaceItems(profileRows), [profileRows]);
   const selectedProfile = useMemo(
     () => profileRows.find((profile) => profileActionIdentity(profile) === selectedProfileId) ?? null,
@@ -1563,10 +1563,10 @@ export function IntegrationManagementPage({
           onSelectedProfileChange={(value) => setSelectedProfileId(value === NO_PROFILE_WORKSPACE ? "" : value)}
           onRefresh={providerProfiles.refresh}
           getProfileRowId={profileActionIdentity}
-          controlPlaneReadiness={controlPlaneReadiness.data ?? null}
-          controlPlaneLoading={controlPlaneReadiness.loading}
-          controlPlaneError={controlPlaneReadiness.error}
-          onRefreshControlPlane={controlPlaneReadiness.refresh}
+          controlPlaneOverview={controlPlaneOverview.data ?? null}
+          controlPlaneLoading={controlPlaneOverview.loading}
+          controlPlaneError={controlPlaneOverview.error}
+          onRefreshControlPlane={controlPlaneOverview.refresh}
         />
 
         <CatalogIntegrationAreaWorkbench

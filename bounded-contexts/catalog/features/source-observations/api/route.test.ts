@@ -459,6 +459,144 @@ describe("source observation routes", () => {
     expect(getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledOnce();
   });
 
+  it("returns the Admin Control Plane overview with adapter readiness and lifecycle audit entries", async () => {
+    const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
+      generatedAt: "2026-06-05T00:00:00.000Z",
+      units: [
+        {
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          providerKey: "tcgdex",
+          displayName: "TCGdex Pokemon single-card Source Observation import",
+          productDomain: "pokemon",
+          productForm: "single-card",
+          ingestionPurpose: "source-observation-import",
+          profileVersion: "2026.06.04",
+          semanticReadiness: "ready",
+          credentialReadiness: "not-required",
+          credentialReadinessState: "not-required",
+          credentialRequirement: "not-required",
+          credentialDiagnosticCode: null,
+          transportReadiness: "ready",
+          fixtureValidationStatus: "ready",
+          dryRunStatus: "completed",
+          observationFacts: 1,
+          diagnosticCounts: { info: 1, warning: 0, error: 0 },
+          diagnostics: [
+            {
+              code: "tcgdex-payload-fetch-ready",
+              severity: "info",
+              message: "TCGdex payload acquisition is ready.",
+              unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+              retryAfterSeconds: null,
+              source: "provider-adapter",
+            },
+          ],
+          latestDiagnosticText: "TCGdex payload acquisition is ready.",
+          dryRunEvidence: [],
+        },
+      ],
+    }));
+    const listActiveIntegrationJobs = vi.fn(async () => [
+      integrationJobFixture({
+        jobId: "job_import_base",
+        action: "import",
+        scope: { provider: "tcgdex", language: "en", setId: "base1" },
+        profileSnapshot: {
+          providerKey: "tcgdex",
+          profileKey: "pokemon-tcg",
+          profileVersion: "2026.06.04",
+          lifecycle: "active",
+          connectorKind: "tcgdex-json",
+          connectorSourceVersion: null,
+          sourceMappingFingerprint: "fingerprint",
+        },
+        operatorStatus: "running",
+        progress: {
+          phase: "processing",
+          completed: 1,
+          total: 2,
+          currentName: "Base Set",
+          status: "imported",
+        },
+        startedAt: "2026-06-05T00:01:00.000Z",
+      }),
+    ]);
+    const services = {
+      getCatalogIntegrationControlPlaneReadiness,
+      listActiveIntegrationJobs,
+    } as unknown as SourceObservationRouteServices;
+    const store = mutableProfileStore([
+      profileVersion("tcgdex", {
+        profileVersion: "2026.06.04",
+        lifecycle: "active",
+        active: true,
+        authoringAudit: {
+          createdAt: "2026-06-05T00:00:00.000Z",
+          createdByUserId: "usr_test",
+          createdForAccountId: "acc_test",
+        },
+      }),
+    ]);
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/integration-control-plane/overview");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      readiness: {
+        units: [
+          {
+            unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+            semanticReadiness: "ready",
+          },
+        ],
+      },
+      unitActivity: {
+        units: [
+          {
+            unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+            recentJobs: [
+              {
+                jobId: "job_import_base",
+                action: "import",
+                operatorStatus: "running",
+                completed: 1,
+                total: 2,
+              },
+            ],
+          },
+        ],
+      },
+      providerReadiness: {
+        providers: [
+          {
+            providerKey: "tcgdex",
+            readiness: "ready",
+            payloadAcquisition: {
+              status: "ready",
+              diagnosticCodes: ["tcgdex-payload-fetch-ready"],
+            },
+          },
+        ],
+      },
+      auditLifecycle: {
+        projectionStatus: "partial",
+        entries: expect.arrayContaining([
+          expect.objectContaining({
+            eventName: "profile-created",
+            unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+            profileVersion: "2026.06.04",
+          }),
+          expect.objectContaining({
+            eventName: "import-job-started",
+            relatedJobId: "job_import_base",
+          }),
+        ]),
+      },
+    });
+    expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
+  });
+
   it("clones provider profile versions through the admin API", async () => {
     const services = {} as SourceObservationRouteServices;
     const store = mutableProfileStore();

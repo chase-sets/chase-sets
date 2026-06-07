@@ -40,6 +40,7 @@ const {
   mockRevalidate,
   mockUseSourceObservationProviderProfileAuthoringModel,
   mockUseSourceObservationProviderProfiles,
+  mockUseCatalogIntegrationControlPlaneOverview,
   mockUseCatalogIntegrationControlPlaneReadiness,
   mockUseSourceObservationIntegrationOptions,
   mockUseActiveSourceObservationIntegrationJobs,
@@ -62,6 +63,7 @@ const {
   mockRevalidate: vi.fn(),
   mockUseSourceObservationProviderProfileAuthoringModel: vi.fn(),
   mockUseSourceObservationProviderProfiles: vi.fn(),
+  mockUseCatalogIntegrationControlPlaneOverview: vi.fn(),
   mockUseCatalogIntegrationControlPlaneReadiness: vi.fn(),
   mockUseSourceObservationIntegrationOptions: vi.fn(),
   mockUseActiveSourceObservationIntegrationJobs: vi.fn(),
@@ -121,6 +123,7 @@ vi.mock("./use-source-observations", () => ({
   rollbackSourceObservationProviderProfile: mockRollbackSourceObservationProviderProfile,
   updateSourceObservationProviderProfileSection: mockUpdateSourceObservationProviderProfileSection,
   useActiveSourceObservationIntegrationJobs: mockUseActiveSourceObservationIntegrationJobs,
+  useCatalogIntegrationControlPlaneOverview: mockUseCatalogIntegrationControlPlaneOverview,
   useCatalogIntegrationControlPlaneReadiness: mockUseCatalogIntegrationControlPlaneReadiness,
   useSourceObservationProviderProfileAuthoringModel: mockUseSourceObservationProviderProfileAuthoringModel,
   useSourceObservationProviderProfiles: mockUseSourceObservationProviderProfiles,
@@ -190,6 +193,12 @@ describe("IntegrationManagementPage", () => {
     );
     mockUseActiveSourceObservationIntegrationJobs.mockReturnValue({
       data: { items: [], total: 0, count: 0 },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseCatalogIntegrationControlPlaneOverview.mockReturnValue({
+      data: controlPlaneOverview(),
       loading: false,
       error: null,
       refresh: vi.fn(),
@@ -996,8 +1005,20 @@ describe("IntegrationManagementPage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "First slice readiness" })).toBeTruthy();
-    expect(screen.getByText("reference-cards:pokemon:single-card:source-observation-proof")).toBeTruthy();
-    expect(screen.getByText("reference-proof-2026.06.05")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Adapter readiness" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Audit lifecycle" })).toBeTruthy();
+    expect(screen.getAllByText("reference-cards:pokemon:single-card:source-observation-proof").length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.getAllByText("reference-proof-2026.06.05").length).toBeGreaterThan(0);
+    expect(screen.getByText("Latest job")).toBeTruthy();
+    expect(screen.getByText("import running (1/2)")).toBeTruthy();
+    expect(
+      screen.getByText(/Provider transport, credentials, option queries, cooldowns, and payload acquisition/),
+    ).toBeTruthy();
+    expect(screen.getByText("Reference fixture payloads are available.")).toBeTruthy();
+    expect(screen.getAllByText("profile-created").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Reference profile was created.").length).toBeGreaterThan(0);
     expect(screen.getByText("pokemon:abra-43")).toBeTruthy();
     expect(screen.getByText("sha256:reference-cards-abra-43")).toBeTruthy();
     expect(
@@ -4397,11 +4418,25 @@ function controlPlaneReadiness() {
         ingestionPurpose: "source-observation-proof",
         profileVersion: "reference-proof-2026.06.05",
         semanticReadiness: "ready",
+        credentialReadiness: "not-required",
+        credentialReadinessState: "not-required",
+        credentialRequirement: "not-required",
+        credentialDiagnosticCode: null,
         transportReadiness: "ready",
         fixtureValidationStatus: "ready",
         dryRunStatus: "completed",
         observationFacts: 1,
         diagnosticCounts: { info: 1, warning: 0, error: 0 },
+        diagnostics: [
+          {
+            code: "reference-fixture-transport-ready",
+            severity: "info",
+            message: "Reference fixture payloads are available.",
+            unitKey: "reference-cards:pokemon:single-card:source-observation-proof",
+            retryAfterSeconds: null,
+            source: "provider-adapter",
+          },
+        ],
         latestDiagnosticText:
           "Reference provider uses fixture-backed payloads and does not require live provider transport.",
         dryRunEvidence: [
@@ -4419,6 +4454,94 @@ function controlPlaneReadiness() {
         ],
       },
     ],
+  };
+}
+
+function controlPlaneOverview() {
+  const readiness = controlPlaneReadiness();
+
+  return {
+    generatedAt: readiness.generatedAt,
+    readiness,
+    unitActivity: {
+      generatedAt: readiness.generatedAt,
+      units: [
+        {
+          unitKey: "reference-cards:pokemon:single-card:source-observation-proof",
+          recentJobs: [
+            {
+              jobId: "job_reference_import",
+              action: "import",
+              operatorStatus: "running",
+              phase: "processing",
+              completed: 1,
+              total: 2,
+              providerKey: "reference-cards",
+              profileVersion: "reference-proof-2026.06.05",
+              startedAt: "2026-06-05T00:01:00.000Z",
+              createdAt: "2026-06-05T00:00:30.000Z",
+              summary: "import job job_reference_import is running (1/2).",
+            },
+          ],
+        },
+      ],
+    },
+    providerReadiness: {
+      generatedAt: readiness.generatedAt,
+      providers: [
+        {
+          providerKey: "reference-cards",
+          adapterKey: "reference-cards",
+          readiness: "ready",
+          credentialReadiness: "not-required",
+          credentialReadinessState: "not-required",
+          credentialRequirement: "not-required",
+          unitKeys: ["reference-cards:pokemon:single-card:source-observation-proof"],
+          apiReachability: {
+            status: "unknown",
+            diagnosticCodes: [],
+            message: null,
+          },
+          optionQueryHealth: {
+            status: "unknown",
+            diagnosticCodes: [],
+            message: null,
+          },
+          rateLimitStatus: {
+            status: "unknown",
+            diagnosticCodes: [],
+            message: null,
+          },
+          payloadAcquisition: {
+            status: "ready",
+            diagnosticCodes: ["reference-fixture-transport-ready"],
+            message: "Reference fixture payloads are available.",
+          },
+          diagnostics: readiness.units[0].diagnostics,
+        },
+      ],
+    },
+    auditLifecycle: {
+      generatedAt: readiness.generatedAt,
+      projectionStatus: "partial",
+      statusMessage:
+        "Lifecycle audit is assembled from current profile and active job metadata until the append-only audit projection is available.",
+      entries: [
+        {
+          eventId: "profile-created:reference-cards:reference-proof-2026.06.05",
+          occurredAt: "2026-06-05T00:00:00.000Z",
+          eventName: "profile-created",
+          category: "profile",
+          providerKey: "reference-cards",
+          unitKey: "reference-cards:pokemon:single-card:source-observation-proof",
+          profileVersion: "reference-proof-2026.06.05",
+          actorUserId: "usr_test",
+          relatedJobId: null,
+          summary: "Reference profile was created.",
+          diagnosticCodes: [],
+        },
+      ],
+    },
   };
 }
 

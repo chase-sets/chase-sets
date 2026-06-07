@@ -94,6 +94,7 @@ import {
 import {
   catalogProviderCredentialReadinessToTransportDiagnostic,
   type CatalogProviderCredentialReadiness,
+  type CatalogProviderCredentialRequirement,
   type CatalogProviderCredentialReadinessState,
 } from "./catalog-integration-credential-readiness";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
@@ -419,6 +420,7 @@ export type CatalogIntegrationControlPlaneUnitReadiness = Readonly<{
   semanticReadiness: "ready" | "blocked";
   credentialReadiness: "ready" | "blocked" | "not-required";
   credentialReadinessState: CatalogProviderCredentialReadinessState;
+  credentialRequirement: CatalogProviderCredentialRequirement;
   credentialDiagnosticCode: string | null;
   transportReadiness: "ready" | "blocked";
   fixtureValidationStatus: "ready" | "blocked";
@@ -429,8 +431,18 @@ export type CatalogIntegrationControlPlaneUnitReadiness = Readonly<{
     warning: number;
     error: number;
   }>;
+  diagnostics: readonly CatalogIntegrationControlPlaneDiagnostic[];
   latestDiagnosticText: string | null;
   dryRunEvidence: readonly CatalogIntegrationControlPlaneDryRunEvidence[];
+}>;
+
+export type CatalogIntegrationControlPlaneDiagnostic = Readonly<{
+  code: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  unitKey: string | null;
+  retryAfterSeconds: number | null;
+  source: "catalog" | "provider-adapter";
 }>;
 
 export type CatalogIntegrationControlPlaneDryRunEvidence = Readonly<{
@@ -3168,20 +3180,22 @@ async function buildCatalogIntegrationControlPlaneReadiness(
           severity: diagnostic.severity,
           message: diagnostic.diagnosticText,
           unitKey: diagnostic.unitKey,
+          retryAfterSeconds: undefined,
         })) ?? [];
       const unitCredentialReadiness = selectUnitCredentialReadiness(credentialReadiness, descriptor.unitKey);
       const credentialDiagnostics = unitCredentialReadiness
         .map(catalogProviderCredentialReadinessToTransportDiagnostic)
         .filter((diagnostic): diagnostic is ProviderTransportDiagnostic => diagnostic !== null);
-      const unitDiagnostics = [
+      const providerDiagnostics = [
         ...transportDiagnostics.filter(
           (diagnostic) => !diagnostic.unitKey || diagnostic.unitKey === descriptor.unitKey,
         ),
         ...credentialDiagnostics,
-        ...dryRunDiagnostics,
-      ];
+      ].map((diagnostic) => toControlPlaneDiagnostic(diagnostic, "provider-adapter"));
+      const catalogDiagnostics = dryRunDiagnostics.map((diagnostic) => toControlPlaneDiagnostic(diagnostic, "catalog"));
+      const unitDiagnostics = [...providerDiagnostics, ...catalogDiagnostics];
       const errorCount = countDiagnostics(unitDiagnostics, "error");
-      const dryRunErrorCount = countDiagnostics(dryRunDiagnostics, "error");
+      const dryRunErrorCount = countDiagnostics(catalogDiagnostics, "error");
       const credentialStatus = summarizeUnitCredentialReadiness(unitCredentialReadiness);
 
       units.push({
@@ -3195,8 +3209,9 @@ async function buildCatalogIntegrationControlPlaneReadiness(
         semanticReadiness: dryRun && dryRunErrorCount === 0 && dryRun.observations.length > 0 ? "ready" : "blocked",
         credentialReadiness: credentialStatus.readiness,
         credentialReadinessState: credentialStatus.state,
+        credentialRequirement: credentialStatus.requirement,
         credentialDiagnosticCode: credentialStatus.diagnosticCode,
-        transportReadiness: countDiagnostics(transportDiagnostics, "error") === 0 ? "ready" : "blocked",
+        transportReadiness: countDiagnostics(providerDiagnostics, "error") === 0 ? "ready" : "blocked",
         fixtureValidationStatus: dryRun && dryRun.observations.length > 0 ? "ready" : "blocked",
         dryRunStatus: dryRun && dryRunErrorCount === 0 ? "completed" : "blocked",
         observationFacts: dryRun?.observations.length ?? 0,
@@ -3205,6 +3220,7 @@ async function buildCatalogIntegrationControlPlaneReadiness(
           warning: countDiagnostics(unitDiagnostics, "warning"),
           error: errorCount,
         },
+        diagnostics: unitDiagnostics,
         latestDiagnosticText: unitDiagnostics.at(-1)?.message ?? null,
         dryRunEvidence:
           dryRun?.observations.map((observation) => ({
@@ -3234,12 +3250,14 @@ function selectUnitCredentialReadiness(
 function summarizeUnitCredentialReadiness(readiness: readonly CatalogProviderCredentialReadiness[]): Readonly<{
   readiness: "ready" | "blocked" | "not-required";
   state: CatalogProviderCredentialReadinessState;
+  requirement: CatalogProviderCredentialRequirement;
   diagnosticCode: string | null;
 }> {
   if (readiness.length === 0) {
     return {
       readiness: "blocked",
       state: "unknown",
+      requirement: "required",
       diagnosticCode: "adapter-authentication-failed",
     };
   }
@@ -3249,6 +3267,7 @@ function summarizeUnitCredentialReadiness(readiness: readonly CatalogProviderCre
     return {
       readiness: "blocked",
       state: blocker.state,
+      requirement: blocker.requirement,
       diagnosticCode: blocker.diagnosticCode,
     };
   }
@@ -3258,6 +3277,7 @@ function summarizeUnitCredentialReadiness(readiness: readonly CatalogProviderCre
     return {
       readiness: "ready",
       state: required.state,
+      requirement: required.requirement,
       diagnosticCode: required.diagnosticCode,
     };
   }
@@ -3266,15 +3286,30 @@ function summarizeUnitCredentialReadiness(readiness: readonly CatalogProviderCre
   return {
     readiness: "not-required",
     state: notRequired?.state ?? "unknown",
+    requirement: notRequired?.requirement ?? "not-required",
     diagnosticCode: notRequired?.diagnosticCode ?? null,
   };
 }
 
 function countDiagnostics(
-  diagnostics: readonly Pick<ProviderTransportDiagnostic, "severity">[],
-  severity: ProviderTransportDiagnostic["severity"],
+  diagnostics: readonly Pick<CatalogIntegrationControlPlaneDiagnostic, "severity">[],
+  severity: CatalogIntegrationControlPlaneDiagnostic["severity"],
 ): number {
   return diagnostics.filter((diagnostic) => diagnostic.severity === severity).length;
+}
+
+function toControlPlaneDiagnostic(
+  diagnostic: Pick<ProviderTransportDiagnostic, "code" | "severity" | "message" | "unitKey" | "retryAfterSeconds">,
+  source: CatalogIntegrationControlPlaneDiagnostic["source"],
+): CatalogIntegrationControlPlaneDiagnostic {
+  return {
+    code: diagnostic.code,
+    severity: diagnostic.severity,
+    message: diagnostic.message,
+    unitKey: diagnostic.unitKey ?? null,
+    retryAfterSeconds: diagnostic.retryAfterSeconds ?? null,
+    source,
+  };
 }
 
 function normalizeIntegrationKey(value: string): string {

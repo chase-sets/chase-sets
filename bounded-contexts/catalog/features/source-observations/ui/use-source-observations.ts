@@ -20,6 +20,7 @@ import type {
   CatalogProviderProfileEditableSectionKey,
   CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileDryRunResult,
+  CatalogIntegrationControlPlaneOverview,
   CatalogIntegrationControlPlaneReadiness,
   CatalogProviderProfileSectionUpdateCommand,
   CatalogProviderProfileVersionReview,
@@ -84,6 +85,10 @@ export function useSourceObservationIntegrationOptions(input: {
 
 export function useCatalogIntegrationControlPlaneReadiness() {
   return useFetch(() => api.getCatalogIntegrationControlPlaneReadiness<CatalogIntegrationControlPlaneReadiness>(), []);
+}
+
+export function useCatalogIntegrationControlPlaneOverview() {
+  return useFetch(() => api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(), []);
 }
 
 export function useSourceObservationProviderProfiles(
