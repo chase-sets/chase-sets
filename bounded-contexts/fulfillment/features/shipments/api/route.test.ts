@@ -163,6 +163,8 @@ function createServices(): FulfillmentShipmentServices {
           ],
           exceptions: [],
           address_override_audits: [],
+          postage_label_operations: [],
+          postage_provider_events: [],
         })) as never,
     ),
     projectors: [],

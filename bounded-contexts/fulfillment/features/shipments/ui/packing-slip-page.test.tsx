@@ -116,6 +116,8 @@ const slip: FulfillmentPackingSlip = {
   ],
   exceptions: [],
   address_override_audits: [],
+  postage_label_operations: [],
+  postage_provider_events: [],
 };
 
 describe("fulfillment packing slip UI", () => {
@@ -149,6 +151,8 @@ describe("fulfillment packing slip UI", () => {
     expect(markup).toContain("Print packing slip");
     expect(markup).toContain("Start packing");
     expect(markup).toContain("Postage policy");
+    expect(markup).toContain("Postage diagnostics");
+    expect(markup).toContain("No postage operations recorded.");
     expect(markup).toContain("operator-postage-v1");
     expect(markup).toContain("Parcel required");
     expect(markup).toContain("declared-value-requires-parcel");

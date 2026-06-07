@@ -566,6 +566,13 @@ function postageProviderErrorCode(error: unknown) {
   return error instanceof Error ? error.name : "postage_error";
 }
 
+function postageLabelFailureErrorCode(error: unknown) {
+  if (error instanceof FulfillmentDomainError) {
+    return "postage_policy_validation_failed";
+  }
+  return postageProviderErrorCode(error);
+}
+
 function isLetterMailServiceLevel(serviceLevel: string) {
   return ["first", "letter", "usps_first", "usps_first_class_mail"].includes(serviceLevel.trim().toLowerCase());
 }
@@ -585,6 +592,44 @@ function assertPostagePolicyCompliance(
       "Parcel postage is required by the committed postage policy snapshot for this shipment.",
     );
   }
+}
+
+function postageLabelOperationRequest(
+  input: Readonly<{
+    shipmentId: string;
+    orderId: string;
+    serviceLevel: string;
+    deliveryConfirmation: "signature" | null;
+    labelPackage: PostagePackage;
+    labelSize: "7x3" | null;
+    addressOverrideAudit: {
+      changedSide: string;
+      reason: string;
+      actor: string;
+      timestamp: string;
+    } | null;
+    shippingPlanSnapshot: PackagePlan | null;
+  }>,
+) {
+  const policySnapshot = input.shippingPlanSnapshot?.postagePolicySnapshot ?? null;
+  return {
+    shipmentId: input.shipmentId,
+    orderId: input.orderId,
+    serviceLevel: input.serviceLevel,
+    deliveryConfirmation: input.deliveryConfirmation,
+    labelSize: input.labelSize,
+    package: input.labelPackage,
+    addressOverride: input.addressOverrideAudit,
+    postagePolicySnapshot: policySnapshot
+      ? {
+          policyVersion: policySnapshot.policyVersion,
+          parcelRequired: policySnapshot.parcelRequired,
+          parcelReasons: policySnapshot.parcelReasons,
+          signatureRequired: policySnapshot.signatureRequired,
+          signatureReasons: policySnapshot.signatureReasons,
+        }
+      : null,
+  };
 }
 
 export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): FulfillmentShipmentServices {
@@ -852,9 +897,9 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
       const sender = postageAddressFromSnapshot(submittedSender);
       const recipient = postageAddressFromSnapshot(submittedRecipient);
       const labelPackage = params.package ?? postagePackageFromShippingPlan(shipment.shipping_plan_snapshot);
-      assertPostagePolicyCompliance(shipment.shipping_plan_snapshot, labelPackage, params.serviceLevel);
       const deliveryConfirmation = postageDeliveryConfirmationFromShippingPlan(shipment.shipping_plan_snapshot);
-      const operationKey = `shipment:${params.shipmentId}:purchase-usps-label`;
+      const labelSize = postageLabelSizeFromPackage(labelPackage);
+      const operationKey = `shipment:${params.shipmentId}:purchase-usps-label:${purchasedAt}`;
       await recordFulfillmentPostageLabelOperationPending(deps.db, {
         operationKey,
         operationKind: "purchase-usps-label",
@@ -862,28 +907,35 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         providerName: postageLabelProvider.providerName,
         providerMode: postageLabelProvider.providerMode,
         idempotencyKey: operationKey,
-        request: {
+        request: postageLabelOperationRequest({
           shipmentId: params.shipmentId,
           orderId: shipment.order_id,
           serviceLevel: params.serviceLevel,
           deliveryConfirmation,
-          labelSize: postageLabelSizeFromPackage(labelPackage),
-          sender,
-          recipient,
-          package: labelPackage,
-          addressOverrideAudit,
-        },
+          labelSize,
+          labelPackage,
+          addressOverrideAudit: addressOverrideAudit
+            ? {
+                changedSide: addressOverrideAudit.changedSide,
+                reason: addressOverrideAudit.reason,
+                actor: addressOverrideAudit.actor,
+                timestamp: addressOverrideAudit.timestamp,
+              }
+            : null,
+          shippingPlanSnapshot: shipment.shipping_plan_snapshot,
+        }),
         createdAt: purchasedAt,
       });
 
       let purchasedLabel;
       try {
+        assertPostagePolicyCompliance(shipment.shipping_plan_snapshot, labelPackage, params.serviceLevel);
         purchasedLabel = await postageLabelProvider.purchaseUspsLabel({
           shipmentId: params.shipmentId,
           orderId: shipment.order_id,
           serviceLevel: params.serviceLevel,
           deliveryConfirmation,
-          labelSize: postageLabelSizeFromPackage(labelPackage),
+          labelSize,
           sender,
           recipient,
           package: labelPackage,
@@ -899,7 +951,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
             type: "RecordShipmentLabelPurchaseFailed",
             postageProviderName: postageLabelProvider.providerName,
             postageProviderMode: postageLabelProvider.providerMode,
-            errorCode: postageProviderErrorCode(error),
+            errorCode: postageLabelFailureErrorCode(error),
             errorMessage: error instanceof Error ? error.message : "Label purchase failed.",
             failedAt: new Date().toISOString(),
           },
@@ -954,7 +1006,8 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
         throw new FulfillmentDomainError("Shipment does not have a purchased label.");
       }
 
-      const operationKey = `shipment:${params.shipmentId}:void-label`;
+      const voidRequestedAt = new Date().toISOString();
+      const operationKey = `shipment:${params.shipmentId}:void-label:${voidRequestedAt}`;
       await recordFulfillmentPostageLabelOperationPending(deps.db, {
         operationKey,
         operationKind: "void-label",
@@ -967,6 +1020,7 @@ export function createFulfillmentShipmentRuntime(deps: ShipmentRuntimeDeps): Ful
           providerLabelId: shipment.postage_provider_label_id,
           trackingIdentifier: shipment.tracking_identifier,
         },
+        createdAt: voidRequestedAt,
       });
 
       let voidedLabel;

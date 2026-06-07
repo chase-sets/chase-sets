@@ -43,6 +43,20 @@ function formatPostagePolicyReasons(reasons: readonly string[]) {
     : t("fulfillment.features.shipments.ui.shipmentDetailPage.policy.no.reasons");
 }
 
+function formatDiagnosticValue(value: string | number | null | undefined) {
+  return value ?? t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet");
+}
+
+function formatDiagnosticBoolean(value: string | null) {
+  if (value === "true") {
+    return t("fulfillment.features.shipments.ui.shipmentDetailPage.policy.required");
+  }
+  if (value === "false") {
+    return t("fulfillment.features.shipments.ui.shipmentDetailPage.policy.not.required");
+  }
+  return t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet");
+}
+
 const uspsServiceLevels = [
   {
     value: "USPS_GROUND_ADVANTAGE",
@@ -344,6 +358,165 @@ export function FulfillmentShipmentDetailPage({
           ) : null}
         </Stack>
       </PageSection>
+
+      {role === "seller" ? (
+        <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.diagnostics")}>
+          <Stack gap={3}>
+            <DetailConfidenceModule
+              title={t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.diagnostics")}
+              items={[
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.buyer.shipping.option"),
+                  value: shipment.shipping_option,
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.policy.version"),
+                  value:
+                    postagePolicySnapshot?.policyVersion ??
+                    t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.parcel.required"),
+                  value: postagePolicySnapshot
+                    ? formatPostagePolicyRequirement(postagePolicySnapshot.parcelRequired)
+                    : t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
+                  tone: postagePolicySnapshot?.parcelRequired ? "warning" : "success",
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.signature.required"),
+                  value: postagePolicySnapshot
+                    ? formatPostagePolicyRequirement(postagePolicySnapshot.signatureRequired)
+                    : t("fulfillment.features.shipments.ui.shipmentDetailPage.not.recorded.yet"),
+                  tone: postagePolicySnapshot?.signatureRequired ? "warning" : "success",
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status"),
+                  value: shipment.label_error_code
+                    ? `${shipment.label_status} (${shipment.label_error_code})`
+                    : shipment.label_status,
+                  tone: shipment.label_error_code ? "warning" : "neutral",
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.outcome"),
+                  value: shipment.postage_provider_name
+                    ? t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.name.mode", {
+                        providerName: shipment.postage_provider_name,
+                        providerMode: shipment.postage_provider_mode ?? "",
+                      })
+                    : t("fulfillment.features.shipments.ui.shipmentDetailPage.not.selected.yet.4"),
+                },
+              ]}
+            />
+
+            {shipment.postage_label_operations.length === 0 ? (
+              <MarketplaceEmptyState
+                title={t("fulfillment.features.shipments.ui.shipmentDetailPage.no.postage.operations.recorded")}
+                description={t("fulfillment.features.shipments.ui.shipmentDetailPage.no.postage.operations.recorded")}
+              />
+            ) : (
+              shipment.postage_label_operations.map((operation) => (
+                <Card key={operation.operation_key}>
+                  <Stack gap={2}>
+                    <Text weight="semibold">
+                      {t("fulfillment.features.shipments.ui.shipmentDetailPage.operation.kind.status", {
+                        operationKind: operation.operation_kind,
+                        status: operation.status,
+                      })}
+                    </Text>
+                    <DetailConfidenceModule
+                      title={operation.operation_key}
+                      items={[
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.service"),
+                          value: formatDiagnosticValue(operation.requested_service_level),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.delivery.confirmation"),
+                          value: formatDiagnosticValue(operation.requested_delivery_confirmation),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.mailpiece.class"),
+                          value: formatDiagnosticValue(operation.requested_mailpiece_class),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.policy.version"),
+                          value: formatDiagnosticValue(operation.policy_version),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.parcel.required"),
+                          value: formatDiagnosticBoolean(operation.parcel_required),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.signature.required"),
+                          value: formatDiagnosticBoolean(operation.signature_required),
+                        },
+                      ]}
+                    />
+                    {operation.address_override_changed_side ? (
+                      <Text size="sm" tone="secondary">
+                        {operation.address_override_reason
+                          ? t("fulfillment.features.shipments.ui.shipmentDetailPage.address.override.with.reason", {
+                              side: operation.address_override_changed_side,
+                              reason: operation.address_override_reason,
+                            })
+                          : t("fulfillment.features.shipments.ui.shipmentDetailPage.address.override.with.side", {
+                              side: operation.address_override_changed_side,
+                            })}
+                      </Text>
+                    ) : null}
+                    {operation.error_message ? (
+                      <MarketplaceNotice
+                        tone="warning"
+                        title={t("fulfillment.features.shipments.ui.shipmentDetailPage.label.status")}
+                        description={operation.error_message}
+                      />
+                    ) : null}
+                  </Stack>
+                </Card>
+              ))
+            )}
+
+            {shipment.postage_provider_events.length > 0 ? (
+              <Stack gap={2}>
+                <Text weight="semibold">
+                  {t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.events")}
+                </Text>
+                {shipment.postage_provider_events.map((event) => (
+                  <Card key={event.provider_event_id}>
+                    <DetailConfidenceModule
+                      title={t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.event.kind.status", {
+                        eventKind: event.event_kind,
+                        status: event.status,
+                      })}
+                      items={[
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.provider"),
+                          value: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.name.mode", {
+                            providerName: event.provider_name,
+                            providerMode: event.provider_mode,
+                          }),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.tracking"),
+                          value: formatDiagnosticValue(event.tracking_identifier),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.processing.result"),
+                          value: formatDiagnosticValue(event.processing_result),
+                        },
+                        {
+                          label: t("fulfillment.features.shipments.ui.shipmentDetailPage.provider.status.detail"),
+                          value: formatDiagnosticValue(event.status_detail),
+                        },
+                      ]}
+                    />
+                  </Card>
+                ))}
+              </Stack>
+            ) : null}
+          </Stack>
+        </PageSection>
+      ) : null}
 
       <PageSection title={t("fulfillment.features.shipments.ui.shipmentDetailPage.lines")}>
         <Stack gap={3}>
