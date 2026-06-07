@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Button,
   DataTable,
@@ -82,7 +83,7 @@ export function WaitlistAdminPage({
         <Stat label={t("publicPresence.waitlist.role.both")} value={metrics.both_count} />
       </StatGrid>
       <PageSection title={t("publicPresence.admin.filters")}>
-        <form method="get">
+        <Form spacing="none" method="get">
           <Grid columns={{ base: 1, md: 4 }} gap={3}>
             <SearchInput label={t("publicPresence.admin.search")} name="search" defaultValue={filters.search} />
             <NativeSelect
@@ -103,7 +104,7 @@ export function WaitlistAdminPage({
               </Button>
             </Stack>
           </Grid>
-        </form>
+        </Form>
       </PageSection>
       <PageSection title={t("publicPresence.admin.signups")}>
         <DataTable<WaitlistSignupListItem>

@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  Form,
   Badge,
   Button,
   FileDropzone,
@@ -398,7 +399,7 @@ export function MarketplaceListingDetailPage({
           tone={(feeHistory?.length ?? 0) > 0 ? "info" : "neutral"}
         >
           <Card>
-            <form method="post" encType="multipart/form-data">
+            <Form spacing="none" method="post" encType="multipart/form-data">
               <Stack gap={3}>
                 <input type="hidden" name="intent" value="add-photos" />
                 <FileDropzone
@@ -414,7 +415,7 @@ export function MarketplaceListingDetailPage({
                   {t("marketplace.features.listings.ui.listingDetailPage.add.photos")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
           </Card>
 
           <Card>
@@ -471,7 +472,7 @@ export function MarketplaceListingDetailPage({
       <PageSection id="update-listing" title={t("marketplace.features.listings.ui.listingDetailPage.update.listing")}>
         <Stack gap={4}>
           <Card>
-            <form method="post">
+            <Form spacing="none" method="post">
               <Stack gap={3}>
                 <TextInput
                   label={t("marketplace.features.listings.ui.listingDetailPage.price.2")}
@@ -494,7 +495,7 @@ export function MarketplaceListingDetailPage({
                   </Button>
                 </Stack>
               </Stack>
-            </form>
+            </Form>
             {pricePreview ? (
               <Stack gap={2}>
                 <Text weight="semibold">
@@ -520,7 +521,7 @@ export function MarketplaceListingDetailPage({
           </Card>
 
           <Card>
-            <form method="post">
+            <Form spacing="none" method="post">
               <Stack gap={3}>
                 <input type="hidden" name="intent" value="update-quantity-cap" />
                 <input type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
@@ -538,7 +539,7 @@ export function MarketplaceListingDetailPage({
                   {t("marketplace.features.listings.ui.listingDetailPage.save.quantity.cap")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
           </Card>
 
           <ProgressiveDisclosure
@@ -547,7 +548,7 @@ export function MarketplaceListingDetailPage({
             tone="info"
           >
             <Card>
-              <form method="post">
+              <Form spacing="none" method="post">
                 <Stack gap={3}>
                   <input type="hidden" name="intent" value="update-purchase-limits" />
                   <Inline>
@@ -581,25 +582,25 @@ export function MarketplaceListingDetailPage({
                     {t("marketplace.features.listings.ui.listingDetailPage.save.purchase.limits")}
                   </Button>
                 </Stack>
-              </form>
+              </Form>
             </Card>
           </ProgressiveDisclosure>
 
           <Card>
             <Stack gap={3}>
-              <form method="post">
+              <Form spacing="none" method="post">
                 <input type="hidden" name="intent" value="publish" />
                 <input type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
                 <Button type="submit" disabled={listing.status === "active" || listing.status === "withdrawn"}>
                   {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}
                 </Button>
-              </form>
-              <form method="post">
+              </Form>
+              <Form spacing="none" method="post">
                 <input type="hidden" name="intent" value="pause" />
                 <Button type="submit" tone="secondary" disabled={listing.status !== "active"}>
                   {t("marketplace.features.listings.ui.listingDetailPage.pause.listing")}
                 </Button>
-              </form>
+              </Form>
               <ModalDialog
                 title={t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}
                 description={t("marketplace.features.listings.ui.listingDetailPage.withdraw.confirm.description")}
@@ -609,14 +610,14 @@ export function MarketplaceListingDetailPage({
                   </Button>
                 }
               >
-                <form method="post">
+                <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <input type="hidden" name="intent" value="withdraw" />
                     <Button type="submit" tone="danger">
                       {t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}
                     </Button>
                   </Stack>
-                </form>
+                </Form>
               </ModalDialog>
             </Stack>
           </Card>

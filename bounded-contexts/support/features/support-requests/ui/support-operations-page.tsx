@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
-import { Form } from "react-router";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
+  Form,
   Button,
   UiBadge,
   UiEmptyState,
@@ -256,12 +257,12 @@ export function SupportOperationsPage({
                 total: queue.total,
               })}
             </span>
-            <Form method="post">
+            <RouterForm method="post" spacing="none">
               <input type="hidden" name="intent" value="escalate-overdue" />
               <Button type="submit" disabled={Boolean(unavailableMessage)}>
                 {t("support.features.supportRequests.ui.supportOperationsPage.escalate.overdue")}
               </Button>
-            </Form>
+            </RouterForm>
           </UiInline>
         </UiSurface>
         <SupportOperationsQueue requests={queue.items} />

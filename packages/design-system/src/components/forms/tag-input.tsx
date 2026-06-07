@@ -1,9 +1,11 @@
 import { useId, useState, type KeyboardEvent } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { FieldChrome, compoundControlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
+import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface TagInputProps extends BaseInputProps {
+  name?: string;
+  form?: string;
   values: string[];
   onValuesChange?: (values: string[]) => void;
   placeholder?: string;
@@ -11,9 +13,14 @@ export interface TagInputProps extends BaseInputProps {
 }
 
 export function TagInput({
+  id,
+  name,
+  form,
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
   values,
@@ -22,7 +29,8 @@ export function TagInput({
   maxTags,
 }: TagInputProps) {
   const [input, setInput] = useState("");
-  const inputId = useId();
+  const fallbackId = useId();
+  const inputId = id ?? fallbackId;
 
   function addTag(raw: string) {
     const tag = raw.trim();
@@ -51,10 +59,13 @@ export function TagInput({
       label={label}
       description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
+      {name ? values.map((tag) => <input key={tag} type="hidden" name={name} form={form} value={tag} />) : null}
       <div className={cx(compoundControlClass, !!error && controlErrorClass, "flex flex-wrap items-center gap-2")}>
         {values.map((tag) => (
           <span
@@ -79,7 +90,7 @@ export function TagInput({
           onKeyDown={handleKeyDown}
           onBlur={() => addTag(input)}
           placeholder={values.length === 0 ? placeholder : undefined}
-          aria-describedby={error || description ? fieldHintId(inputId) : undefined}
+          aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
           aria-invalid={!!error || undefined}
           className="min-w-20 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-secondary"
         />

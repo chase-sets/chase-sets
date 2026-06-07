@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Button, Inline } from "@chase-sets/design-system";
+import { Form, Button, Inline } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { ApiKey } from "./contracts";
 
@@ -13,18 +13,18 @@ export function ApiKeyDetailPage({ data }: { data: ApiKey }) {
         <Inline gap={2}>
           {data.status === "active" ? (
             <>
-              <form method="post">
+              <Form spacing="none" method="post">
                 <input type="hidden" name="intent" value="rotate" readOnly />
                 <Button type="submit" tone="secondary">
                   {t("identity.features.apiKeys.ui.apiKeyDetailPage.rotate")}
                 </Button>
-              </form>
-              <form method="post">
+              </Form>
+              <Form spacing="none" method="post">
                 <input type="hidden" name="intent" value="revoke" readOnly />
                 <Button type="submit" tone="danger">
                   {t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke")}
                 </Button>
-              </form>
+              </Form>
             </>
           ) : null}
         </Inline>

@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "mode": "baseline",
+  "description": "Temporary baseline for milestone #10. Counts must decrease as forms migrate to the shared design-system Form pattern.",
+  "allowedRawFormImplementationFiles": ["packages/design-system/src/components/forms/form.tsx"],
+  "approvedFrameworkFormAdapterFiles": ["packages/design-system/src/components/forms/router-form.tsx"],
+  "entries": []
+}

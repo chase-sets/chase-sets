@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
+  Form,
   OrderProtectionModule,
   Button,
   Card,
@@ -111,7 +112,7 @@ export function ReviewSubmissionPage({
                 description={errorMessage}
               />
             ) : null}
-            <form method="post">
+            <Form spacing="none" method="post">
               <Stack gap={3}>
                 <input type="hidden" name="rating" value={rating} />
                 <Stack gap={1}>
@@ -136,7 +137,7 @@ export function ReviewSubmissionPage({
                     : t("reputation.features.reviews.ui.reviewSubmissionPage.submit.account.review")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
           </Stack>
         </Card>
       </PageSection>

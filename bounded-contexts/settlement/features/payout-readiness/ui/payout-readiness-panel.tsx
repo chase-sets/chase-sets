@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Banner,
   Button,
@@ -350,25 +351,25 @@ export function PayoutReadinessPanel({
       {showActions ? (
         <UiInline>
           {payoutReadiness.status === "ready" ? null : (
-            <form method="post">
+            <Form spacing="none" method="post">
               <input type="hidden" name="intent" value="start-payout-setup" />
               <Button type="submit">{primaryActionLabel(payoutReadiness.status)}</Button>
-            </form>
+            </Form>
           )}
           {hasProviderAccount ? (
-            <form method="post">
+            <Form spacing="none" method="post">
               <input type="hidden" name="intent" value="manage-payout-account" />
               <Button type="submit" tone="secondary">
                 {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.manage.payout.account")}
               </Button>
-            </form>
+            </Form>
           ) : null}
-          <form method="post">
+          <Form spacing="none" method="post">
             <input type="hidden" name="intent" value="refresh-payout-setup" />
             <Button type="submit" tone="secondary">
               {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.check.setup.status")}
             </Button>
-          </form>
+          </Form>
         </UiInline>
       ) : null}
     </Stack>

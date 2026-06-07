@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLoaderData, useLocation } from "react-router";
-import { Button, Inline, LinkButton } from "@chase-sets/design-system";
+import { Button, Form, Inline, LinkButton } from "@chase-sets/design-system";
 import { ExperienceAdminLayout } from "@chase-sets/experience/web";
 import { requireExperienceAdminActor } from "../auth.server";
 import { resolveAdminWebNavItems } from "../host";
@@ -36,11 +36,11 @@ export default function ExperienceAdminLayoutRoute() {
           <LinkButton href="/operations/projections" tone="secondary">
             {t("adminWeb.app.routes.experienceLayout.operations")}
           </LinkButton>
-          <form action="/identity/sign-out" method="post">
+          <Form action="/identity/sign-out" method="post" spacing="none">
             <Button type="submit" tone="secondary">
               {t("adminWeb.app.routes.experienceLayout.sign.out")}
             </Button>
-          </form>
+          </Form>
         </Inline>
       }
     >

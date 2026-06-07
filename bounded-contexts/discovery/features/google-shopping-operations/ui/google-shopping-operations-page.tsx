@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
-import { Form, Link } from "react-router";
+import { Link } from "react-router";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
   ActionBar,
   AppliedFilterChips,
@@ -9,6 +10,7 @@ import {
   DataTable,
   DetailPanel,
   FilterArea,
+  Form,
   Inline,
   KeyValueList,
   LinkButton,
@@ -60,28 +62,28 @@ export function GoogleShoppingOperationsPage({
       />
 
       <ActionBar>
-        <Form method="post">
+        <RouterForm method="post" spacing="none">
           <input type="hidden" name="intent" value="dry-run-full-sync" readOnly />
           <input type="hidden" name="batchSize" value={filters.limit} readOnly />
           <Button type="submit" leadingIcon="play">
             {t(`${routeKey}.dryRunFullSync`)}
           </Button>
-        </Form>
-        <Form method="post">
+        </RouterForm>
+        <RouterForm method="post" spacing="none">
           <input type="hidden" name="intent" value="dry-run-maintenance-sync" readOnly />
           <input type="hidden" name="limit" value={filters.limit} readOnly />
           <input type="hidden" name="refreshWindowDays" value={filters.refreshWindowDays} readOnly />
           <Button type="submit" tone="secondary" leadingIcon="refreshCcw">
             {t(`${routeKey}.dryRunMaintenance`)}
           </Button>
-        </Form>
-        <Form method="post">
+        </RouterForm>
+        <RouterForm method="post" spacing="none">
           <input type="hidden" name="intent" value="dry-run-diagnostics-refresh" readOnly />
           <input type="hidden" name="batchSize" value={filters.limit} readOnly />
           <Button type="submit" tone="secondary" leadingIcon="refreshCcw">
             {t(`${routeKey}.dryRunDiagnostics`)}
           </Button>
-        </Form>
+        </RouterForm>
         <LinkButton href="/operations/projections?contextName=discovery" tone="secondary">
           {t(`${routeKey}.projections`)}
         </LinkButton>
@@ -212,7 +214,7 @@ function GoogleShoppingFilters({ filters }: Readonly<{ filters: GoogleShoppingOp
 
   return (
     <Stack gap={2}>
-      <form method="get">
+      <Form method="get" spacing="none">
         <FilterArea
           activeFilterCount={appliedFilters.length}
           overflowTriggerLabel={t(`${routeKey}.moreFilters`)}
@@ -258,7 +260,7 @@ function GoogleShoppingFilters({ filters }: Readonly<{ filters: GoogleShoppingOp
             </Inline>
           }
         />
-      </form>
+      </Form>
       <AppliedFilterChips
         filters={appliedFilters}
         clearAction={

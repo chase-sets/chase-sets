@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  Form,
   AccountReputationSummary,
   Badge,
   Button,
@@ -87,21 +88,21 @@ export function MarketplaceOfferMatchDetailPage({
       ? t("marketplace.features.offers.ui.offerMatchDetailPage.listings.unavailable")
       : t("marketplace.features.offers.ui.offerMatchDetailPage.needs.supply");
   const acceptOfferAction = canAcceptSubmitted ? (
-    <form method="post">
+    <Form spacing="none" method="post">
       <input type="hidden" name="feeQuoteFingerprint" value={acceptanceTerms?.fee_quote_fingerprint ?? ""} />
       <Button type="submit" name="intent" value="accept-offer" disabled={!offer.can_fulfill}>
         {t("marketplace.features.offers.ui.offerMatchDetailPage.accept.offer.match")}
       </Button>
-    </form>
+    </Form>
   ) : null;
   const addToSellListAction = canAcceptSubmitted ? (
-    <form method="post" action="/account/sell-list">
+    <Form spacing="none" method="post" action="/account/sell-list">
       <input type="hidden" name="intent" value="add-selected-offer" />
       <input type="hidden" name="offerId" value={offer.offer_id} />
       <Button type="submit" tone="secondary" disabled={!offer.can_fulfill}>
         {t("marketplace.features.offers.ui.offerMatchDetailPage.add.to.sell.list")}
       </Button>
-    </form>
+    </Form>
   ) : null;
   return (
     <Page>

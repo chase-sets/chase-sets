@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Button, Card, Stack, Text } from "@chase-sets/design-system";
+import { Form, Button, Card, Stack, Text } from "@chase-sets/design-system";
 
 export function AccountSelectionPage({
   memberships,
@@ -29,7 +29,7 @@ export function AccountSelectionPage({
       ) : null}
       {memberships.map((membership) => (
         <Card key={membership.accountId}>
-          <form action={action} method="post">
+          <Form spacing="none" action={action} method="post">
             <Stack gap={3}>
               <input type="hidden" name="accountId" value={membership.accountId} readOnly />
               <Stack gap={1}>
@@ -41,7 +41,7 @@ export function AccountSelectionPage({
               </Stack>
               <Button type="submit">{submitLabel}</Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       ))}
     </Stack>

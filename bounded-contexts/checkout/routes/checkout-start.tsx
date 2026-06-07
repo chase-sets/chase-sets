@@ -1,11 +1,13 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { redirect, redirectDocument } from "react-router";
-import { Form, useActionData, useLoaderData } from "react-router";
+import { useActionData, useLoaderData } from "react-router";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { AuthApiError, createAuthRequestApiClient } from "@chase-sets/auth/server";
 import {
+  Form,
   Banner,
   Button,
   OrderProtectionModule,
@@ -593,7 +595,7 @@ export default function CheckoutStartRoute() {
               }
             >
               <Surface elevated glow>
-                <Form method="post">
+                <RouterForm method="post" spacing="none">
                   <Stack gap={3}>
                     <Text tone="secondary">
                       {data.isGuestBuyer
@@ -605,7 +607,7 @@ export default function CheckoutStartRoute() {
                       {t("checkout.routes.checkoutStart.continue.to.checkout")}
                     </Button>
                   </Stack>
-                </Form>
+                </RouterForm>
               </Surface>
             </PageSection>
           ) : isOfferIntent ? (
@@ -628,7 +630,7 @@ export default function CheckoutStartRoute() {
             <>
               <PageSection title={t("checkout.routes.checkoutStart.guest.checkout")}>
                 <Surface elevated glow>
-                  <Form method="post">
+                  <RouterForm method="post" spacing="none">
                     <Stack gap={3}>
                       <Text tone="secondary">{t("checkout.routes.checkoutStart.continue.as.guest.fast.path")}</Text>
                       <TextInput label={t("checkout.routes.checkoutStart.contact.name")} name="contactName" required />
@@ -638,7 +640,7 @@ export default function CheckoutStartRoute() {
                         {t("checkout.routes.checkoutStart.continue.as.guest")}
                       </Button>
                     </Stack>
-                  </Form>
+                  </RouterForm>
                 </Surface>
               </PageSection>
               <PageSection title={t("checkout.routes.checkoutStart.account")}>

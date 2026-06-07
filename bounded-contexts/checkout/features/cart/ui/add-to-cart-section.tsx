@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Button,
   Card,
   NumberInput,
@@ -30,7 +31,7 @@ export function CheckoutAddToCartSection({
   return (
     <PageSection title={t("checkout.features.cart.ui.addToCartSection.add.to.cart")}>
       <Card>
-        <form method="post">
+        <Form spacing="none" method="post">
           <Stack gap={3}>
             <input type="hidden" name="intent" value="add-to-cart" />
             <input type="hidden" name="catalogItemId" value={catalogItemId} />
@@ -67,7 +68,7 @@ export function CheckoutAddToCartSection({
             />
             <Button type="submit">{t("checkout.features.cart.ui.addToCartSection.add.to.cart.2")}</Button>
           </Stack>
-        </form>
+        </Form>
       </Card>
     </PageSection>
   );

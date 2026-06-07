@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLoaderData, useLocation } from "react-router";
-import { Button, Inline, LinkButton } from "@chase-sets/design-system";
+import { Button, Form, Inline, LinkButton } from "@chase-sets/design-system";
 import { CatalogAdminLayout } from "@chase-sets/catalog/web";
 import { requireCatalogAdminActor } from "../auth.server";
 import { resolveAdminWebNavItems } from "../host";
@@ -37,11 +37,11 @@ export default function CatalogAdminLayoutRoute() {
           <LinkButton href="/operations/projections" tone="secondary">
             {t("adminWeb.app.routes.catalogLayout.operations")}
           </LinkButton>
-          <form action="/catalog/sign-out" method="post">
+          <Form action="/catalog/sign-out" method="post" spacing="none">
             <Button type="submit" tone="secondary">
               {t("adminWeb.app.routes.catalogLayout.sign.out")}
             </Button>
-          </form>
+          </Form>
         </Inline>
       }
     >

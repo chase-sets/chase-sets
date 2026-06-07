@@ -1,11 +1,12 @@
 import { useId, useRef, useState } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { FieldChrome, type BaseInputProps } from "./shared";
+import { FieldChrome, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface FileDropzoneProps extends BaseInputProps {
   id?: string;
   name?: string;
+  form?: string;
   accept?: string;
   multiple?: boolean;
   onFilesChange?: (files: FileList | null) => void;
@@ -19,8 +20,11 @@ export function FileDropzone({
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
+  form,
   accept,
   multiple = false,
   onFilesChange,
@@ -59,6 +63,8 @@ export function FileDropzone({
       label={label}
       description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
       htmlFor={inputId}
@@ -83,10 +89,13 @@ export function FileDropzone({
           ref={inputRef}
           id={inputId}
           name={name}
+          form={form}
           accept={accept}
           multiple={multiple}
           required={required}
           type="file"
+          aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
+          aria-invalid={!!error || undefined}
           className="sr-only"
           onChange={(event) => onFilesChange?.(event.target.files)}
         />

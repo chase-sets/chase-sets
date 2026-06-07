@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  Form,
   Button,
   Badge,
   Card,
@@ -167,7 +168,7 @@ export function InventoryItemListPage({
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemListPage.create.inventory.item")}>
         <Card>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Grid columns={{ base: 1, lg: 2 }} gap={5}>
               <input type="hidden" name="intent" value="create-item" />
               <Stack gap={3}>
@@ -277,7 +278,7 @@ export function InventoryItemListPage({
                 )}
               </Inset>
             </Grid>
-          </form>
+          </Form>
         </Card>
       </PageSection>
 

@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Button,
   OrderProtectionModule,
   Card,
@@ -185,11 +186,11 @@ export function FulfillmentShipmentDetailPage({
               </LinkButton>
             ) : null}
             {role === "seller" && shipment.status === "awaiting-package" ? (
-              <form method="post" action={packingFlowHref}>
+              <Form spacing="none" method="post" action={packingFlowHref}>
                 <Button type="submit" name="intent" value="start-packing" leadingIcon="package">
                   {t("fulfillment.features.shipments.ui.shipmentDetailPage.start.packing")}
                 </Button>
-              </form>
+              </Form>
             ) : null}
             {role === "seller" && shipment.status === "packing" ? (
               <LinkButton href={packingFlowHref} tone="primary" leadingIcon="package">
@@ -574,7 +575,7 @@ export function FulfillmentShipmentDetailPage({
           <Stack gap={3}>
             {shipment.status === "awaiting-label" && letterMailpiece ? (
               <Card>
-                <form method="post">
+                <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <MarketplaceNotice
                       tone="info"
@@ -588,13 +589,13 @@ export function FulfillmentShipmentDetailPage({
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.purchase.letter.mail.label")}
                     </Button>
                   </Stack>
-                </form>
+                </Form>
               </Card>
             ) : null}
 
             {shipment.status === "awaiting-label" && !letterMailpiece ? (
               <Card>
-                <form method="post">
+                <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <NativeSelect
                       label={t("fulfillment.features.shipments.ui.shipmentDetailPage.usps.service")}
@@ -648,13 +649,13 @@ export function FulfillmentShipmentDetailPage({
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.purchase.usps.label")}
                     </Button>
                   </Stack>
-                </form>
+                </Form>
               </Card>
             ) : null}
 
             {shipment.status === "label-attached" ? (
               <Card>
-                <form method="post">
+                <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <Button type="submit" name="intent" value="dispatch-shipment">
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.dispatched")}
@@ -669,19 +670,19 @@ export function FulfillmentShipmentDetailPage({
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.void.label")}
                     </Button>
                   </Stack>
-                </form>
+                </Form>
               </Card>
             ) : null}
 
             {shipment.status === "dispatched" || shipment.status === "exception" ? (
               <Card>
                 <Stack gap={3}>
-                  <form method="post">
+                  <Form spacing="none" method="post">
                     <Button type="submit" name="intent" value="deliver-shipment">
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.delivered")}
                     </Button>
-                  </form>
-                  <form method="post">
+                  </Form>
+                  <Form spacing="none" method="post">
                     <Stack gap={3}>
                       <Textarea
                         label={t("fulfillment.features.shipments.ui.shipmentDetailPage.return.notes")}
@@ -693,14 +694,14 @@ export function FulfillmentShipmentDetailPage({
                         {t("fulfillment.features.shipments.ui.shipmentDetailPage.mark.returned")}
                       </Button>
                     </Stack>
-                  </form>
+                  </Form>
                 </Stack>
               </Card>
             ) : null}
 
             {canRaiseException(shipment.status) ? (
               <Card>
-                <form method="post">
+                <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <TextInput
                       label={t("fulfillment.features.shipments.ui.shipmentDetailPage.exception.type")}
@@ -718,7 +719,7 @@ export function FulfillmentShipmentDetailPage({
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.raise.exception")}
                     </Button>
                   </Stack>
-                </form>
+                </Form>
               </Card>
             ) : null}
           </Stack>

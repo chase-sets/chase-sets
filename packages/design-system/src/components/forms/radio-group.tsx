@@ -5,9 +5,13 @@ import type { SelectItem } from "./select";
 
 export interface RadioGroupProps extends BaseInputProps {
   items: SelectItem[];
+  name?: string;
+  form?: string;
   value?: string;
   defaultValue?: string;
   onValueChange?: (value: string) => void;
+  disabled?: boolean;
+  readOnly?: boolean;
 }
 
 export function RadioGroup({
@@ -17,16 +21,25 @@ export function RadioGroup({
   required,
   hideLabel,
   items,
+  name,
+  form,
   value,
   defaultValue,
   onValueChange,
+  disabled = false,
+  readOnly = false,
 }: RadioGroupProps) {
   return (
     <FieldChrome label={label} description={description} error={error} required={required} hideLabel={hideLabel}>
       <RadioGroupPrimitive
+        name={name}
+        form={form}
         value={value}
         defaultValue={defaultValue}
         onValueChange={(nextValue) => onValueChange?.(nextValue)}
+        required={required}
+        disabled={disabled}
+        readOnly={readOnly}
         className="space-y-2"
       >
         {items.map((item) => (

@@ -1,9 +1,9 @@
-import { useId, useMemo, type SelectHTMLAttributes } from "react";
+import { useId, useMemo, useState, type SelectHTMLAttributes } from "react";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { Icon as ChaseIcon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
-import { FieldChrome, controlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
+import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface SelectItem {
   value: string;
@@ -23,10 +23,13 @@ export function NativeSelect({
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
   items,
   placeholder,
+  "aria-describedby": ariaDescribedBy,
   ...rest
 }: NativeSelectProps) {
   const fallbackId = useId();
@@ -37,6 +40,8 @@ export function NativeSelect({
       label={label}
       description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
       htmlFor={inputId}
@@ -45,7 +50,14 @@ export function NativeSelect({
         {...rest}
         id={inputId}
         required={required}
-        aria-describedby={error || description ? fieldHintId(inputId) : undefined}
+        aria-describedby={fieldDescribedBy({
+          inputId,
+          description,
+          error,
+          status,
+          counter,
+          describedBy: ariaDescribedBy,
+        })}
         aria-invalid={!!error || undefined}
         className={cx(controlClass, !!error && controlErrorClass)}
       >
@@ -62,6 +74,8 @@ export function NativeSelect({
 
 export interface SelectProps extends BaseInputProps {
   id?: string;
+  name?: string;
+  form?: string;
   items: SelectItem[];
   value?: string;
   defaultValue?: string;
@@ -71,9 +85,14 @@ export interface SelectProps extends BaseInputProps {
 }
 
 export function Select({
+  id,
+  name,
+  form,
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
   items,
@@ -84,32 +103,45 @@ export function Select({
   disabled = false,
 }: SelectProps) {
   const fallbackId = useId();
+  const inputId = id ?? fallbackId;
   const { overlayNode } = usePortalRoots();
   const itemLabels = useMemo(() => Object.fromEntries(items.map((item) => [item.value, item.label])), [items]);
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? "");
+  const selectedValue = value ?? uncontrolledValue;
 
   return (
     <FieldChrome
       label={label}
       description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
-      htmlFor={fallbackId}
+      htmlFor={inputId}
     >
+      {name ? <input type="hidden" name={name} form={form} value={selectedValue} disabled={disabled} /> : null}
       <SelectPrimitive.Root
         items={itemLabels}
         value={value}
         defaultValue={defaultValue}
         onValueChange={(nextValue) => {
           if (nextValue !== null) {
+            setUncontrolledValue(nextValue);
             onValueChange?.(nextValue);
           }
         }}
         disabled={disabled}
       >
         <SelectPrimitive.Trigger
-          id={fallbackId}
-          aria-describedby={error || description ? fieldHintId(fallbackId) : undefined}
+          id={inputId}
+          aria-describedby={fieldDescribedBy({
+            inputId,
+            description,
+            error,
+            status,
+            counter,
+          })}
           aria-invalid={!!error || undefined}
           className={cx(
             controlClass,

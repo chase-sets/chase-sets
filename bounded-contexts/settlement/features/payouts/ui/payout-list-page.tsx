@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Button,
   Card,
@@ -220,7 +221,7 @@ export function SettlementPayoutListPage({
             ) : null}
             {payoutConfirmation ? (
               <Stack gap={2}>
-                <form method="post">
+                <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <input type="hidden" name="intent" value="confirm-payout" />
                     <input type="hidden" name="amount" value={payoutConfirmation.amount} />
@@ -275,18 +276,18 @@ export function SettlementPayoutListPage({
                       {t("settlement.features.payouts.ui.payoutListPage.confirm.payout")}
                     </Button>
                   </Stack>
-                </form>
-                <form method="post">
+                </Form>
+                <Form spacing="none" method="post">
                   <input type="hidden" name="intent" value="edit-payout" />
                   <input type="hidden" name="amount" value={payoutConfirmation.amount} />
                   {payoutConfirmation.note ? <input type="hidden" name="note" value={payoutConfirmation.note} /> : null}
                   <Button type="submit" tone="secondary">
                     {t("settlement.features.payouts.ui.payoutListPage.back.to.edit")}
                   </Button>
-                </form>
+                </Form>
               </Stack>
             ) : (
-              <form method="post">
+              <Form spacing="none" method="post">
                 <Stack gap={3}>
                   <input type="hidden" name="intent" value="preview-payout" />
                   <input type="hidden" name="availableAmount" value={wallet.available_balance_amount} />
@@ -347,7 +348,7 @@ export function SettlementPayoutListPage({
                     {t("settlement.features.payouts.ui.payoutListPage.preview.payout")}
                   </Button>
                 </Stack>
-              </form>
+              </Form>
             )}
           </Stack>
         </Card>

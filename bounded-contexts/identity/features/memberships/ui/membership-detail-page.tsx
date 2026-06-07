@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
+import { Form, Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { Membership } from "./contracts";
 
@@ -13,7 +13,7 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
       status={data.status}
       actions={
         <Inline gap={2}>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack direction="row" align="end" gap={2}>
               <input type="hidden" name="intent" value="change-role" readOnly />
               <NativeSelect
@@ -31,21 +31,21 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
                 {t("identity.features.memberships.ui.membershipDetailPage.change.role")}
               </Button>
             </Stack>
-          </form>
+          </Form>
           {data.status === "active" ? (
-            <form method="post">
+            <Form spacing="none" method="post">
               <input type="hidden" name="intent" value="revoke" readOnly />
               <Button type="submit" tone="danger">
                 {t("identity.features.memberships.ui.membershipDetailPage.revoke")}
               </Button>
-            </form>
+            </Form>
           ) : (
-            <form method="post">
+            <Form spacing="none" method="post">
               <input type="hidden" name="intent" value="reinstate" readOnly />
               <Button type="submit" tone="primary">
                 {t("identity.features.memberships.ui.membershipDetailPage.reinstate")}
               </Button>
-            </form>
+            </Form>
           )}
         </Inline>
       }

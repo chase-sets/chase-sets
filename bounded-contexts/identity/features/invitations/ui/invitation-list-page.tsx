@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Button, NativeSelect, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
+import { Form, Button, NativeSelect, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import type { Invitation } from "./contracts";
 
@@ -29,7 +29,7 @@ export function InvitationListPage({ initialData }: { initialData: { items: Invi
       items={initialData.items}
       columns={columns}
       actions={
-        <form method="post">
+        <Form spacing="none" method="post">
           <Stack direction="row" align="end" gap={2}>
             <input type="hidden" name="intent" value="create" readOnly />
             <TextInput
@@ -58,7 +58,7 @@ export function InvitationListPage({ initialData }: { initialData: { items: Invi
               {t("identity.features.invitations.ui.invitationListPage.create")}
             </Button>
           </Stack>
-        </form>
+        </Form>
       }
       emptyMessage={t("identity.features.invitations.ui.invitationListPage.no.invitations.yet")}
       getHref={(row) => `/identity/invitations/${row.invitation_id}`}

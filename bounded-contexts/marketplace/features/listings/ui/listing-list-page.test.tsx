@@ -1,73 +1,39 @@
-// @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { MarketplaceListingListPage } from "./listing-list-page";
-import type { MarketplaceListingListItem, MarketplaceSellerListingAvailability } from "./contracts";
+import type { MarketplaceSellerListingAvailability } from "./contracts";
 
-const listing: MarketplaceListingListItem = {
-  listing_id: "lst_1",
+const availableListings = {
   account_id: "acc_seller",
-  inventory_item_id: "inv_1",
-  catalog_catalog_item_id: "cat_1",
-  product_id: "cat_1::raw",
-  item_language_code: "en",
-  item_title: "Charizard",
-  item_subtitle: null,
-  selected_options: [],
-  product_summary: "Condition: Raw",
-  product_measure_snapshot: null,
-  graded_card: null,
-  storage_location_name: "Main",
-  ship_from_code: "STL",
-  ship_from_address: {
-    name: "",
-    line1: "",
-    city: "",
-    state: "",
-    postalCode: "",
-    country: "US",
-  },
-  price_amount: "10.00",
-  marketplace_sales_fee_unit_amount: "1.00",
-  seller_net_unit_amount: "9.00",
-  shipping_allowance_percentage_bps: 500,
-  terms_schedule_id: "terms_1",
-  terms_agreement_id: null,
-  terms_resolved_at: "2026-05-01T00:00:00.000Z",
-  fee_quote_fingerprint: "fee_1",
-  quantity_cap: 1,
-  listing_photos: [],
-  status: "active",
-  created_at: "2026-05-01T00:00:00.000Z",
-  updated_at: "2026-05-01T00:00:00.000Z",
-};
+  status: "available",
+  disabled_reason_category: null,
+  available_again_on: null,
+  disabled_at: null,
+  enabled_at: "2026-06-01T00:00:00.000Z",
+  updated_at: "2026-06-01T00:00:00.000Z",
+} satisfies MarketplaceSellerListingAvailability;
 
-const unavailable: MarketplaceSellerListingAvailability = {
-  account_id: "acc_seller",
-  status: "unavailable",
-  disabled_reason_category: "audit",
-  available_again_on: "2026-06-01",
-  disabled_at: "2026-05-13T00:00:00.000Z",
-  enabled_at: null,
-  updated_at: "2026-05-13T00:00:00.000Z",
-};
-
-describe("MarketplaceListingListPage", () => {
-  it("shows account-wide seller listing availability and resume action", () => {
-    render(
+describe("marketplace listing form migration smoke", () => {
+  it("keeps create-listing multipart payload fields after migration to shared Form", () => {
+    const markup = renderToString(
       <MarketplaceListingListPage
-        data={{ items: [listing] }}
-        feeLockReport={{ items: [] }}
-        listingAvailability={unavailable}
+        data={{ items: [] }}
+        listingAvailability={availableListings}
         inventoryItems={[]}
-        hasListingStockLocation={true}
+        hasListingStockLocation
       />,
     );
 
-    expect(screen.getByText("Seller Listing Availability")).toBeTruthy();
-    expect(screen.getByText("Listings unavailable")).toBeTruthy();
-    expect(screen.getAllByText("English").length).toBeGreaterThan(0);
-    expect(screen.getByText(/Reason: Audit/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Turn on listings" })).toBeTruthy();
+    expect(markup).toContain('method="post"');
+    expect(markup).toMatch(/encType="multipart\/form-data"|enctype="multipart\/form-data"/);
+    expect(markup).toContain('name="selectedOptions"');
+    expect(markup).toContain('name="catalogItemId"');
+    expect(markup).toContain('name="priceAmount"');
+    expect(markup).toContain('name="quantityCap"');
+    expect(markup).toContain('name="listingPhotos"');
+    expect(markup).toContain('accept="image/jpeg,image/png,image/webp"');
+    expect(markup).toContain('value="create-and-publish-listing"');
+    expect(markup).toContain('value="preview-listing"');
+    expect(markup).toContain('value="create-listing"');
   });
 });

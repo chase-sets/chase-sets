@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Button,
   Card,
@@ -129,7 +130,7 @@ export function StorageLocationPage({
 
       <PageSection title={t("inventory.features.storageLocations.ui.storageLocationPage.create.location")}>
         <Card>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="create-location" />
               <TextInput
@@ -152,7 +153,7 @@ export function StorageLocationPage({
                 {t("inventory.features.storageLocations.ui.storageLocationPage.create.location.2")}
               </Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       </PageSection>
 
@@ -170,7 +171,7 @@ export function StorageLocationPage({
                       : t("inventory.features.storageLocations.ui.storageLocationPage.active")}
                   </Badge>
                 </Stack>
-                <form method="post">
+                <Form spacing="none" method="post">
                   <Stack gap={3}>
                     <input type="hidden" name="intent" value="update-location" />
                     <input type="hidden" name="storageLocationId" value={location.storage_location_id} />
@@ -197,9 +198,9 @@ export function StorageLocationPage({
                       {t("inventory.features.storageLocations.ui.storageLocationPage.save.location")}
                     </Button>
                   </Stack>
-                </form>
+                </Form>
                 {!location.is_archived ? (
-                  <form method="post">
+                  <Form spacing="none" method="post">
                     <input type="hidden" name="intent" value="archive-location" />
                     <input type="hidden" name="storageLocationId" value={location.storage_location_id} />
                     <input type="hidden" name="name" value={location.name} />
@@ -209,7 +210,7 @@ export function StorageLocationPage({
                     <Button type="submit" tone="danger">
                       {t("inventory.features.storageLocations.ui.storageLocationPage.archive.location")}
                     </Button>
-                  </form>
+                  </Form>
                 ) : null}
               </Stack>
             </Card>

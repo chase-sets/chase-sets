@@ -1,4 +1,5 @@
 import {
+  Form,
   Badge,
   Banner,
   Button,
@@ -505,7 +506,7 @@ export function CheckoutSellListPage({
 
                       return (
                         <Surface key={line.line_id} elevated>
-                          <form method="post">
+                          <Form spacing="none" method="post">
                             <input type="hidden" name="intent" value="remove-sell-list-line" />
                             <input type="hidden" name="lineId" value={line.line_id} />
                             <Stack gap={3}>
@@ -586,7 +587,7 @@ export function CheckoutSellListPage({
                                 </Button>
                               </Inline>
                             </Stack>
-                          </form>
+                          </Form>
                         </Surface>
                       );
                     })}
@@ -836,7 +837,7 @@ export function CheckoutSellListPage({
                   </Text>
                   <Inline gap={2}>
                     {isSignedIn ? (
-                      <form id="sell-list-checkout-form" method="post">
+                      <Form spacing="none" id="sell-list-checkout-form" method="post">
                         <input type="hidden" name="sellListExecutionId" value={sellListExecutionId ?? ""} />
                         <Button
                           type="submit"
@@ -847,7 +848,7 @@ export function CheckoutSellListPage({
                         >
                           {t("checkout.features.sellList.ui.sellListPage.execute.sale.checkout")}
                         </Button>
-                      </form>
+                      </Form>
                     ) : (
                       <LinkButton href="/register?returnTo=%2Faccount%2Fsell-list">
                         {t("checkout.features.sellList.ui.sellListPage.create.account")}

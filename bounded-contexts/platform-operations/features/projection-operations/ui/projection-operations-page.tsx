@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  Form,
   ActionBar,
   AppliedFilterChips,
   Badge,
@@ -80,12 +81,12 @@ export function ProjectionOperationsPage({
       />
 
       <ActionBar>
-        <form method="post">
+        <Form spacing="none" method="post">
           <input type="hidden" name="intent" value="refresh-status" readOnly />
           <Button type="submit" leadingIcon="refreshCcw">
             {t(`${routeKey}.refresh`)}
           </Button>
-        </form>
+        </Form>
         <LinkButton href="/catalog/dimensions" tone="secondary">
           {t(`${routeKey}.catalog`)}
         </LinkButton>
@@ -254,7 +255,7 @@ function ProjectionOperationFilters({
 
   return (
     <Stack gap={2}>
-      <form method="get">
+      <Form spacing="none" method="get">
         <FilterArea
           activeFilterCount={activeFilterCount}
           overflowTriggerLabel={t(`${routeKey}.moreFilters`)}
@@ -320,7 +321,7 @@ function ProjectionOperationFilters({
             </Inline>
           }
         />
-      </form>
+      </Form>
       <AppliedFilterChips
         filters={appliedFilters}
         clearAction={
@@ -790,13 +791,13 @@ function SelectedDetail({ detail }: Readonly<{ detail: SelectedRecord }>) {
 
 function CancelOperationForm({ operationId }: Readonly<{ operationId: string }>) {
   return (
-    <form method="post">
+    <Form spacing="none" method="post">
       <input type="hidden" name="intent" value="cancel-operation" readOnly />
       <input type="hidden" name="operationId" value={operationId} readOnly />
       <Button type="submit" size="sm" tone="secondary">
         {t(`${routeKey}.cancel`)}
       </Button>
-    </form>
+    </Form>
   );
 }
 
@@ -814,7 +815,7 @@ function RebuildGroupDialog({ group }: Readonly<{ group: ProjectionGroupStatus }
         </Button>
       }
     >
-      <form method="post">
+      <Form spacing="none" method="post">
         <Stack gap={3}>
           <input type="hidden" name="intent" value="rebuild-group" readOnly />
           <input type="hidden" name="contextName" value={group.targetContextName} readOnly />
@@ -824,7 +825,7 @@ function RebuildGroupDialog({ group }: Readonly<{ group: ProjectionGroupStatus }
             {t(`${routeKey}.confirmRebuild`)}
           </Button>
         </Stack>
-      </form>
+      </Form>
     </Dialog>
   );
 }
@@ -840,7 +841,7 @@ function RebuildContextDialog({ contextName }: Readonly<{ contextName: string }>
         </Button>
       }
     >
-      <form method="post">
+      <Form spacing="none" method="post">
         <Stack gap={3}>
           <input type="hidden" name="intent" value="rebuild-context" readOnly />
           <input type="hidden" name="contextName" value={contextName} readOnly />
@@ -849,21 +850,21 @@ function RebuildContextDialog({ contextName }: Readonly<{ contextName: string }>
             {t(`${routeKey}.confirmRebuildContext`)}
           </Button>
         </Stack>
-      </form>
+      </Form>
     </Dialog>
   );
 }
 
 function RetryStreamForm({ row }: Readonly<{ row: BlockedStream }>) {
   return (
-    <form method="post">
+    <Form spacing="none" method="post">
       <input type="hidden" name="intent" value="retry-stream" readOnly />
       <input type="hidden" name="projectionKey" value={row.projectionKey} readOnly />
       <input type="hidden" name="streamId" value={row.streamId} readOnly />
       <Button type="submit" size="sm" leadingIcon="refreshCcw">
         {t(`${routeKey}.retry`)}
       </Button>
-    </form>
+    </Form>
   );
 }
 

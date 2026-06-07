@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
+  Form,
   AccountReputationSummary,
   Badge,
   Banner,
@@ -508,7 +509,7 @@ export function CheckoutSessionPage({
                         </Text>
                       </Stack>
                     ) : (
-                      <form method="post">
+                      <Form spacing="none" method="post">
                         <Stack gap={3}>
                           <input type="hidden" name="intent" value="select-optimization-goal" />
                           <NativeSelect
@@ -530,7 +531,7 @@ export function CheckoutSessionPage({
                             {t("checkout.features.sessions.ui.checkoutPage.recalculate.fulfillment")}
                           </Button>
                         </Stack>
-                      </form>
+                      </Form>
                     )}
                   </Surface>
 
@@ -817,7 +818,7 @@ export function CheckoutSessionPage({
                 }
               >
                 <Surface elevated glow>
-                  <form id="checkout-confirmation-form" method="post">
+                  <Form spacing="none" id="checkout-confirmation-form" method="post">
                     <Stack gap={3}>
                       <input type="hidden" name="fulfillmentPreviewRevision" value={preview?.revision ?? ""} />
                       <input
@@ -1135,7 +1136,7 @@ export function CheckoutSessionPage({
                         </Button>
                       </Inline>
                     </Stack>
-                  </form>
+                  </Form>
                 </Surface>
               </PageSection>
             )}

@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Banner,
   Button,
@@ -52,7 +53,7 @@ export function AgreementListPage({
 
       <PageSection title={t("commercialTerms.features.agreements.ui.agreementListPage.create.agreement")}>
         <Card>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack gap={3}>
               <TextInput
                 label={t("commercialTerms.features.agreements.ui.agreementListPage.label")}
@@ -110,7 +111,7 @@ export function AgreementListPage({
                 {t("commercialTerms.features.agreements.ui.agreementListPage.create.agreement.2")}
               </Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       </PageSection>
 

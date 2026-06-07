@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useFetcher } from "react-router";
 import {
+  Form,
   AccordionOptionTrigger,
   AccountReputationSummary,
   Badge,
@@ -243,7 +244,7 @@ export function ProductAlertCreationSection({
 
   return (
     <FormPanel variant={panelVariant}>
-      <form id={formId} method="post">
+      <Form spacing="none" id={formId} method="post">
         <Stack gap={3}>
           <input type="hidden" name="intent" value="create-product-alert" />
           <input type="hidden" name="marketSide" value={marketSide} />
@@ -283,7 +284,7 @@ export function ProductAlertCreationSection({
           />
           {actions !== undefined ? actions : defaultActions}
         </Stack>
-      </form>
+      </Form>
     </FormPanel>
   );
 }
@@ -321,7 +322,7 @@ export function MarketplaceOfferSubmissionSection({
     </Button>
   );
   const form = (
-    <form id={formId} method="post">
+    <Form spacing="none" id={formId} method="post">
       <Stack gap={3}>
         <input type="hidden" name="intent" value="submit-offer" />
         <input type="hidden" name="catalogItemId" value={catalogItemId} />
@@ -381,7 +382,7 @@ export function MarketplaceOfferSubmissionSection({
         />
         {actions !== undefined ? actions : defaultActions}
       </Stack>
-    </form>
+    </Form>
   );
 
   return <FormPanel variant={panelVariant}>{form}</FormPanel>;
@@ -613,7 +614,7 @@ export function CheckoutPurchaseIntentSection({
       </>
     );
   const form = (
-    <form id={formId} method="post" ref={formRef}>
+    <Form spacing="none" id={formId} method="post" ref={formRef}>
       <Stack gap={3}>
         <input type="hidden" name="catalogItemId" value={catalogItemId} />
         <input type="hidden" name="listingId" value="" />
@@ -704,7 +705,7 @@ export function CheckoutPurchaseIntentSection({
         />
         {actions !== undefined ? actions : defaultActions}
       </Stack>
-    </form>
+    </Form>
   );
 
   return (
@@ -802,7 +803,7 @@ export function MarketplaceOfferMatchSection({
       </>
     );
   const form = (
-    <form id={formId} method="post">
+    <Form spacing="none" id={formId} method="post">
       <Stack gap={3}>
         <input type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
         <input
@@ -896,7 +897,7 @@ export function MarketplaceOfferMatchSection({
         {errorMessage ? <Text>{errorMessage}</Text> : null}
         {actions !== undefined ? actions : defaultActions}
       </Stack>
-    </form>
+    </Form>
   );
 
   return (
@@ -931,7 +932,7 @@ export function ProductSellListIntentSection({
 }) {
   return (
     <FormPanel variant={panelVariant} glow={Boolean(productId)}>
-      <form id={formId} method="post">
+      <Form spacing="none" id={formId} method="post">
         <Stack gap={3}>
           <input type="hidden" name="intent" value="add-product-to-sell-list" />
           <input type="hidden" name="catalogItemId" value={catalogItemId} />
@@ -963,7 +964,7 @@ export function ProductSellListIntentSection({
             {t("discovery.routes.itemDetail.add.product.to.sell.list")}
           </Button>
         </Stack>
-      </form>
+      </Form>
     </FormPanel>
   );
 }
@@ -1197,7 +1198,7 @@ export function ListingStockShipFromSetupSection({
 }) {
   return (
     <FormPanel variant="card">
-      <form id={formId} method="post">
+      <Form spacing="none" id={formId} method="post">
         <Stack gap={3}>
           <input type="hidden" name="intent" value="create-listing-stock-location" />
           <Stack gap={1}>
@@ -1230,7 +1231,7 @@ export function ListingStockShipFromSetupSection({
             {t("discovery.routes.itemDetail.save.ship.from.setup")}
           </Button>
         </Stack>
-      </form>
+      </Form>
     </FormPanel>
   );
 }
@@ -1285,7 +1286,7 @@ export function MarketplaceListingSubmissionSection({
   );
 
   const form = (
-    <form id={formId} method="post">
+    <Form spacing="none" id={formId} method="post">
       <Stack gap={3}>
         <input type="hidden" name="productId" value={productId ?? ""} />
         <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
@@ -1340,7 +1341,7 @@ export function MarketplaceListingSubmissionSection({
         {errorMessage ? <Text>{errorMessage}</Text> : null}
         {actions !== undefined ? actions : defaultActions}
       </Stack>
-    </form>
+    </Form>
   );
 
   return (

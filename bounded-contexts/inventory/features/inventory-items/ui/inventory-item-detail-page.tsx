@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  Form,
   Button,
   Badge,
   Card,
@@ -101,7 +102,7 @@ export function InventoryItemDetailPage({
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.adjust.quantity")}>
         <Card>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="adjust-item" />
               <NumberInput
@@ -119,13 +120,13 @@ export function InventoryItemDetailPage({
                 {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.apply.adjustment")}
               </Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       </PageSection>
 
       <PageSection title={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.hold")}>
         <Card>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="create-hold" />
               <NumberInput
@@ -148,7 +149,7 @@ export function InventoryItemDetailPage({
                 {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.create.hold.2")}
               </Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       </PageSection>
 
@@ -178,13 +179,13 @@ export function InventoryItemDetailPage({
                     {hold.created_at}
                   </Text>
                   {hold.status === "active" ? (
-                    <form method="post">
+                    <Form spacing="none" method="post">
                       <input type="hidden" name="intent" value="release-hold" />
                       <input type="hidden" name="holdId" value={hold.hold_id} />
                       <Button type="submit" tone="secondary">
                         {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.release.hold")}
                       </Button>
-                    </form>
+                    </Form>
                   ) : null}
                 </Stack>
               </Card>

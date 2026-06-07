@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Button, Inline, Stack, TextInput } from "@chase-sets/design-system";
+import { Form, Button, Inline, Stack, TextInput } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { User } from "./contracts";
 
@@ -10,7 +10,7 @@ export function UserDetailPage({ data }: { data: User }) {
       status={data.status}
       actions={
         <Inline gap={2}>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack direction="row" align="end" gap={2}>
               <input type="hidden" name="intent" value="update-profile" readOnly />
               <TextInput
@@ -33,21 +33,21 @@ export function UserDetailPage({ data }: { data: User }) {
                 {t("identity.features.users.ui.userDetailPage.update.profile")}
               </Button>
             </Stack>
-          </form>
+          </Form>
           {data.status === "active" ? (
-            <form method="post">
+            <Form spacing="none" method="post">
               <input type="hidden" name="intent" value="suspend" readOnly />
               <Button type="submit" tone="danger">
                 {t("identity.features.users.ui.userDetailPage.suspend")}
               </Button>
-            </form>
+            </Form>
           ) : (
-            <form method="post">
+            <Form spacing="none" method="post">
               <input type="hidden" name="intent" value="reactivate" readOnly />
               <Button type="submit" tone="primary">
                 {t("identity.features.users.ui.userDetailPage.reactivate")}
               </Button>
-            </form>
+            </Form>
           )}
         </Inline>
       }
