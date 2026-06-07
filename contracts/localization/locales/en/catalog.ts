@@ -1341,7 +1341,28 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.profile.compare.panel": "Profile compare panel",
   "catalog.features.sourceObservations.ui.integrationManagementPage.profile.lifecycle.actions":
     "Profile lifecycle actions",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.area.governance": "Governance",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.area.identity": "Identity",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.area.mapping": "Mapping",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.area.transport": "Transport",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.basics": "Basics",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.catalog.field.mapping":
+    "Catalog field mapping",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.editor.framework":
+    "Profile section editor framework",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.editor.pending":
+    "{section} is registered for lazy editor extraction.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.registry":
+    "Profile section registry",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.registry.editable":
+    "Editable · {area}",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.registry.framework.ready":
+    "Framework ready · {area}",
   "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.editors": "Profile section editors",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.selected.options":
+    "Selected options",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.profile.section.source.observation":
+    "Source Observation",
   "catalog.features.sourceObservations.ui.integrationManagementPage.provider.profile.list": "Provider profile list",
   "catalog.features.sourceObservations.ui.integrationManagementPage.provider.profile.workspace":
     "Provider profile workspace",
@@ -1685,6 +1706,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.plan": "Promotion Command Plan",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.preview":
     "Promotion Command Preview",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.plan": "Promotion Plan",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.input.expression.value":
     "Promotion input expression: {value}",
   "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.input.key": "Promotion input key",
