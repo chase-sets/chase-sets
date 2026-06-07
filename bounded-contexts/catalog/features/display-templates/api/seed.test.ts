@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { catalogSeedIds } from "../../../support/seed-support/ids";
+import { CatalogDomainError } from "../../../support/runtime-support/common";
 import { seedDisplayTemplates } from "./seed";
 
 describe("seedDisplayTemplates", () => {
@@ -62,6 +63,54 @@ describe("seedDisplayTemplates", () => {
       }),
     );
     expect(db.queueTouched).toBe(true);
+  });
+
+  it("publishes existing draft seed templates", async () => {
+    const commandHandler = vi.fn(async () => undefined);
+    const db = seedDb(
+      matchingSeedRows({
+        [catalogSeedIds.displayTemplates.pokemonSingleCardDefault]: {
+          status: "draft",
+        },
+      }),
+    );
+
+    await seedDisplayTemplates({ db, displayTemplates: { commandHandler } } as never);
+
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+    expect(commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.pokemonSingleCardDefault}`,
+        command: { type: "PublishDisplayTemplate" },
+      }),
+    );
+    expect(db.queueTouched).toBe(true);
+  });
+
+  it("treats stale draft read model publish attempts as idempotent", async () => {
+    const commandHandler = vi.fn(async (input: { command: { type: string } }) => {
+      if (input.command.type === "PublishDisplayTemplate") {
+        throw new CatalogDomainError("Only draft Display Templates can be published.");
+      }
+    });
+    const db = seedDb(
+      matchingSeedRows({
+        [catalogSeedIds.displayTemplates.pokemonSingleCardDefault]: {
+          status: "draft",
+        },
+      }),
+    );
+
+    await seedDisplayTemplates({ db, displayTemplates: { commandHandler } } as never);
+
+    expect(commandHandler).toHaveBeenCalledTimes(1);
+    expect(commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        streamId: `catalog.display-template-${catalogSeedIds.displayTemplates.pokemonSingleCardDefault}`,
+        command: { type: "PublishDisplayTemplate" },
+      }),
+    );
+    expect(db.queueTouched).toBe(false);
   });
 });
 
