@@ -18,6 +18,8 @@ import { providerCompatibilityRoutes } from "./provider-compatibility-routes";
 import { providerOptionRoutes } from "./provider-options-routes";
 import { providerProfileRoutes } from "./provider-profile-routes";
 import { sourceObservationReadReviewRoutes } from "./source-observation-review-routes";
+import { buildCatalogIntegrationControlPlaneOverview } from "./admin-control-plane-overview";
+import { listCatalogProviderProfileVersionReviews } from "./provider-profile-review";
 
 export type SourceObservationRouteServices = SourceObservationReadServices &
   ProviderOptionQueryServices &
@@ -41,6 +43,15 @@ export function sourceObservationRoutes(
   app.route("/", bulkReviewJobRoutes(services));
   app.route("/", integrationJobRoutes(services));
   app.route("/", sourceObservationReadReviewRoutes(services));
+  app.get("/integration-control-plane/overview", async (c) => {
+    const [readiness, profiles, activeJobs] = await Promise.all([
+      services.getCatalogIntegrationControlPlaneReadiness(),
+      profileVersions ? listCatalogProviderProfileVersionReviews(profileVersions) : Promise.resolve([]),
+      services.listActiveIntegrationJobs({ context: c.get("context") }),
+    ]);
+
+    return c.json(buildCatalogIntegrationControlPlaneOverview({ readiness, profiles, activeJobs }));
+  });
 
   return app;
 }

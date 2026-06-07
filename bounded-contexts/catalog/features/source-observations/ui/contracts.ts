@@ -123,6 +123,7 @@ export interface CatalogIntegrationControlPlaneUnitReadiness {
   semanticReadiness: "ready" | "blocked";
   credentialReadiness: "ready" | "blocked" | "not-required";
   credentialReadinessState: "not-required" | "configured" | "missing" | "invalid" | "expired" | "revoked" | "unknown";
+  credentialRequirement: "not-required" | "required";
   credentialDiagnosticCode: string | null;
   transportReadiness: "ready" | "blocked";
   fixtureValidationStatus: "ready" | "blocked";
@@ -133,6 +134,7 @@ export interface CatalogIntegrationControlPlaneUnitReadiness {
     warning: number;
     error: number;
   };
+  diagnostics: CatalogIntegrationControlPlaneDiagnostic[];
   latestDiagnosticText: string | null;
   dryRunEvidence: {
     externalKey: string;
@@ -140,6 +142,96 @@ export interface CatalogIntegrationControlPlaneUnitReadiness {
     sourceHash: string | null;
     normalizedFacts: Record<string, string>;
   }[];
+}
+
+export interface CatalogIntegrationControlPlaneDiagnostic {
+  code: string;
+  severity: "info" | "warning" | "error";
+  message: string;
+  unitKey: string | null;
+  retryAfterSeconds: number | null;
+  source: "catalog" | "provider-adapter";
+}
+
+export interface CatalogIntegrationControlPlaneOverview {
+  generatedAt: string;
+  readiness: CatalogIntegrationControlPlaneReadiness;
+  unitActivity: {
+    generatedAt: string;
+    units: CatalogIntegrationUnitActivity[];
+  };
+  providerReadiness: {
+    generatedAt: string;
+    providers: CatalogIntegrationProviderReadiness[];
+  };
+  auditLifecycle: {
+    generatedAt: string;
+    projectionStatus: "partial" | "unavailable";
+    statusMessage: string;
+    entries: CatalogIntegrationAuditLifecycleEntry[];
+  };
+}
+
+export interface CatalogIntegrationUnitActivity {
+  unitKey: string;
+  recentJobs: CatalogIntegrationRecentJobSummary[];
+}
+
+export interface CatalogIntegrationRecentJobSummary {
+  jobId: string;
+  action: SourceObservationIntegrationJobAction;
+  operatorStatus: SourceObservationIntegrationJobOperatorStatus;
+  phase: SourceObservationIntegrationJobPhase;
+  completed: number;
+  total: number;
+  providerKey: string;
+  profileVersion: string | null;
+  startedAt: string | null;
+  createdAt: string;
+  summary: string;
+}
+
+export interface CatalogIntegrationProviderReadiness {
+  providerKey: string;
+  adapterKey: string;
+  readiness: "ready" | "blocked" | "degraded";
+  credentialReadiness: "ready" | "blocked" | "not-required";
+  credentialReadinessState: CatalogIntegrationControlPlaneUnitReadiness["credentialReadinessState"];
+  credentialRequirement: CatalogIntegrationControlPlaneUnitReadiness["credentialRequirement"];
+  unitKeys: string[];
+  apiReachability: CatalogIntegrationProviderCapabilityStatus;
+  optionQueryHealth: CatalogIntegrationProviderCapabilityStatus;
+  rateLimitStatus: CatalogIntegrationProviderCapabilityStatus;
+  payloadAcquisition: CatalogIntegrationProviderCapabilityStatus;
+  diagnostics: CatalogIntegrationControlPlaneDiagnostic[];
+}
+
+export interface CatalogIntegrationProviderCapabilityStatus {
+  status: "ready" | "blocked" | "degraded" | "unknown";
+  diagnosticCodes: string[];
+  message: string | null;
+}
+
+export interface CatalogIntegrationAuditLifecycleEntry {
+  eventId: string;
+  occurredAt: string;
+  eventName:
+    | "profile-created"
+    | "profile-section-edited"
+    | "profile-activated"
+    | "profile-deprecated"
+    | "profile-rolled-back"
+    | "profile-retired"
+    | "import-job-started"
+    | "reapply-run-executed";
+  category: "profile" | "profile-section" | "activation" | "import-job" | "reapply";
+  providerKey: string;
+  unitKey: string | null;
+  profileVersion: string | null;
+  actorUserId: string | null;
+  relatedJobId: string | null;
+  summary: string;
+  diagnosticCodes: string[];
 }
 
 export interface CatalogProviderProfileReviewDiagnostic {
@@ -453,6 +545,13 @@ export interface BulkSourceObservationReapplyResult {
 }
 
 export type SourceObservationIntegrationJobAction = "import" | "reapply";
+export type SourceObservationIntegrationJobPhase =
+  | "enqueued"
+  | "fetching"
+  | "processing"
+  | "persisting"
+  | "completed"
+  | "failed";
 export type SourceObservationIntegrationJobOperatorStatus =
   | "queued"
   | "running"
