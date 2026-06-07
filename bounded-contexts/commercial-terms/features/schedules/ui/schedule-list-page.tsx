@@ -25,9 +25,11 @@ function statusTone(status: string) {
 export function ScheduleListPage({
   items,
   errorMessage,
+  loadErrorMessage,
 }: {
   items: readonly CommercialTermsScheduleViewModel[];
   errorMessage?: string | null;
+  loadErrorMessage?: string | null;
 }) {
   return (
     <Page>
@@ -44,6 +46,14 @@ export function ScheduleListPage({
         title={t("commercialTerms.features.schedules.ui.scheduleListPage.fee.lock.permanence")}
         description={t("commercialTerms.features.schedules.ui.scheduleListPage.fee.lock.permanence.description")}
       />
+
+      {loadErrorMessage ? (
+        <Banner
+          tone="danger"
+          title={t("commercialTerms.features.schedules.ui.scheduleListPage.schedules.unavailable")}
+          description={loadErrorMessage}
+        />
+      ) : null}
 
       {errorMessage ? (
         <Card>

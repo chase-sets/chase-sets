@@ -9,5 +9,6 @@ describe("admin web dev proxy", () => {
   it("proxies bounded-context admin API mounts used by contributed routes", () => {
     expect(configSource).toContain('"/api/experience"');
     expect(configSource).toContain('"/api/marketplace"');
+    expect(configSource).toContain('"/api/commercial-terms"');
   });
 });

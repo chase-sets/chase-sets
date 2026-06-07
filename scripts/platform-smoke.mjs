@@ -305,6 +305,33 @@ async function expectMarketplaceSurface(label, origin) {
   await expectUcpEndpoints(origin);
 }
 
+async function expectAdminCommercialTermsApis(adminOrigin, sessionToken) {
+  for (const path of [
+    "/api/commercial-terms/schedules?limit=1&offset=0",
+    "/api/commercial-terms/agreements?limit=1&offset=0",
+  ]) {
+    const response = await expectOk(`admin Commercial Terms API ${path}`, `${adminOrigin}${path}`, {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    });
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      throw new Error(`Admin Commercial Terms API ${path} returned '${contentType}' instead of JSON.`);
+    }
+  }
+}
+
+async function expectAdminCommercialTermsPages(adminOrigin, sessionToken) {
+  for (const path of ["/commercial/terms/schedules", "/commercial/terms/agreements"]) {
+    await expectOk(`admin Commercial Terms page ${path}`, `${adminOrigin}${path}`, {
+      headers: {
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    });
+  }
+}
+
 async function expectRedirect(label, input, expectedAuthority) {
   const response = await fetchWithRetry(label, input, { redirect: "manual" }, (candidate) => candidate.status === 302);
 
@@ -426,6 +453,9 @@ async function main() {
           `synthetic waitlist signup '${syntheticEmail}' was not found in ${waitlistBody.items?.length ?? 0} item(s)`,
       );
     }
+
+    await expectAdminCommercialTermsApis(adminUrl, authBody.sessionToken);
+    await expectAdminCommercialTermsPages(adminUrl, authBody.sessionToken);
   } else {
     console.warn("Skipping authenticated admin smoke; admin credentials were not provided.");
   }

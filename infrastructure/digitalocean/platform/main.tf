@@ -464,7 +464,7 @@ resource "digitalocean_app" "platform" {
 
       env {
         key   = "CHASE_SETS_INTERNAL_API_ORIGIN"
-        value = local.api_private_url
+        value = local.admin_web_internal_api_origin
         scope = "RUN_TIME"
       }
 

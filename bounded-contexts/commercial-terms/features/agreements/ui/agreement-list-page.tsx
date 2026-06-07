@@ -25,9 +25,11 @@ function statusTone(status: string) {
 export function AgreementListPage({
   items,
   errorMessage,
+  loadErrorMessage,
 }: {
   items: readonly CommercialAgreementViewModel[];
   errorMessage?: string | null;
+  loadErrorMessage?: string | null;
 }) {
   return (
     <Page>
@@ -44,6 +46,14 @@ export function AgreementListPage({
         title={t("commercialTerms.features.agreements.ui.agreementListPage.fee.lock.permanence")}
         description={t("commercialTerms.features.agreements.ui.agreementListPage.fee.lock.permanence.description")}
       />
+
+      {loadErrorMessage ? (
+        <Banner
+          tone="danger"
+          title={t("commercialTerms.features.agreements.ui.agreementListPage.agreements.unavailable")}
+          description={loadErrorMessage}
+        />
+      ) : null}
 
       {errorMessage ? (
         <Card>
