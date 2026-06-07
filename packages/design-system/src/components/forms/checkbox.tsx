@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Check, Minus } from "lucide-react";
 import { cx } from "../../utils/cx";
-import { FieldChrome, fieldHintId, type BaseInputProps } from "./shared";
+import { FieldChrome, fieldDescribedBy, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
 
 type CheckedState = boolean | "indeterminate";
@@ -11,26 +11,32 @@ export interface CheckboxProps extends BaseInputProps {
   defaultChecked?: CheckedState;
   onCheckedChange?: (checked: CheckedState) => void;
   disabled?: boolean;
+  readOnly?: boolean;
   name?: string;
   value?: string;
   form?: string;
 }
 
 export function Checkbox({
+  id,
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
   checked,
   defaultChecked,
   onCheckedChange,
   disabled = false,
+  readOnly = false,
   name,
   value,
   form,
 }: CheckboxProps) {
-  const inputId = useId();
+  const fallbackId = useId();
+  const inputId = id ?? fallbackId;
   const inputRef = useRef<HTMLInputElement>(null);
   const controlled = checked !== undefined;
   const [uncontrolledChecked, setUncontrolledChecked] = useState(defaultChecked === true);
@@ -39,7 +45,6 @@ export function Checkbox({
   const visualChecked = controlled ? checked === true : uncontrolledChecked;
   const indeterminate = controlled ? checked === "indeterminate" : uncontrolledIndeterminate;
   const IndicatorIcon = indeterminate ? Minus : Check;
-  const descriptionId = description && !error ? fieldHintId(inputId) : undefined;
 
   useEffect(() => {
     if (inputRef.current) {
@@ -50,8 +55,10 @@ export function Checkbox({
   return (
     <FieldChrome
       label={undefined}
-      description={error ? undefined : description}
+      description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
       htmlFor={inputId}
@@ -69,10 +76,22 @@ export function Checkbox({
           form={form}
           className="peer sr-only"
           disabled={disabled}
+          readOnly={readOnly}
           required={required}
-          aria-describedby={descriptionId}
+          aria-readonly={readOnly || undefined}
+          aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
+          aria-invalid={!!error || undefined}
           {...(controlled ? { checked: checked === true } : { defaultChecked: defaultChecked === true })}
+          onClick={(event) => {
+            if (readOnly) {
+              event.preventDefault();
+            }
+          }}
           onChange={(event) => {
+            if (readOnly) {
+              event.preventDefault();
+              return;
+            }
             const nextChecked = event.currentTarget.checked;
             if (!controlled) {
               setUncontrolledChecked(nextChecked);
@@ -118,38 +137,86 @@ export interface CheckboxGroupProps extends BaseInputProps {
   items: SelectItem[];
   values: string[];
   onValuesChange?: (values: string[]) => void;
+  name?: string;
+  form?: string;
+  disabled?: boolean;
+  readOnly?: boolean;
 }
 
 export function CheckboxGroup({
+  id,
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
   items,
   values,
   onValuesChange,
+  name,
+  form,
+  disabled = false,
+  readOnly = false,
 }: CheckboxGroupProps) {
-  return (
-    <FieldChrome label={label} description={description} error={error} required={required} hideLabel={hideLabel}>
-      <div className="space-y-2">
-        {items.map((item) => {
-          const checked = values.includes(item.value);
+  const fallbackId = useId();
+  const groupId = id ?? fallbackId;
+  const legendId = `${groupId}-legend`;
 
-          return (
-            <Checkbox
-              key={item.value}
-              label={item.label}
-              description={item.description}
-              checked={checked}
-              onCheckedChange={(state) => {
-                const next = state ? [...values, item.value] : values.filter((entry) => entry !== item.value);
-                onValuesChange?.(Array.from(new Set(next)));
-              }}
-            />
-          );
-        })}
-      </div>
+  return (
+    <FieldChrome
+      label={undefined}
+      description={description}
+      error={error}
+      status={status}
+      counter={counter}
+      required={required}
+      hideLabel={hideLabel}
+      htmlFor={groupId}
+    >
+      <fieldset
+        id={groupId}
+        disabled={disabled}
+        aria-labelledby={label ? legendId : undefined}
+        aria-describedby={fieldDescribedBy({ inputId: groupId, description, error, status, counter })}
+        aria-invalid={!!error || undefined}
+        className="min-w-0 border-0 p-0"
+      >
+        {label ? (
+          <legend id={legendId} className={cx("mb-2 text-sm font-medium text-foreground", hideLabel && "sr-only")}>
+            {label}
+            {required ? (
+              <span aria-hidden="true" className="ml-1 text-accent">
+                *
+              </span>
+            ) : null}
+          </legend>
+        ) : null}
+        <div className="space-y-2">
+          {items.map((item) => {
+            const checked = values.includes(item.value);
+
+            return (
+              <Checkbox
+                key={item.value}
+                label={item.label}
+                description={item.description}
+                disabled={disabled}
+                readOnly={readOnly}
+                name={name}
+                value={item.value}
+                form={form}
+                checked={checked}
+                onCheckedChange={(state) => {
+                  const next = state ? [...values, item.value] : values.filter((entry) => entry !== item.value);
+                  onValuesChange?.(Array.from(new Set(next)));
+                }}
+              />
+            );
+          })}
+        </div>
+      </fieldset>
     </FieldChrome>
   );
 }

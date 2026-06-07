@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import {
+  Form,
   Accordion,
   Badge,
   Banner,
@@ -395,15 +396,15 @@ export function MarketplaceListingListPage({
                     })}
               </Text>
               {listingAvailability.status === "unavailable" ? (
-                <form method="post">
+                <Form spacing="none" method="post">
                   <Button type="submit" name="intent" value="enable-listing-availability">
                     {t("marketplace.features.listings.ui.listingListPage.turn.on.listings")}
                   </Button>
-                </form>
+                </Form>
               ) : null}
             </Stack>
             {listingAvailability.status === "available" ? (
-              <form method="post">
+              <Form spacing="none" method="post">
                 <Stack gap={3}>
                   <Grid columns={{ base: 1, md: 2 }} gap={3}>
                     <NativeSelect
@@ -433,7 +434,7 @@ export function MarketplaceListingListPage({
                     </Button>
                   </Inline>
                 </Stack>
-              </form>
+              </Form>
             ) : null}
           </Grid>
         </Card>
@@ -463,7 +464,7 @@ export function MarketplaceListingListPage({
 
       <PageSection title={t("marketplace.features.listings.ui.listingListPage.create.listing")}>
         <Card>
-          <form method="post" encType="multipart/form-data">
+          <Form spacing="none" method="post" encType="multipart/form-data">
             <Stack gap={3}>
               <Banner
                 title={t("marketplace.features.listings.ui.listingListPage.list.without.managing.inventory")}
@@ -672,7 +673,7 @@ export function MarketplaceListingListPage({
                 </Button>
               </Stack>
             </Stack>
-          </form>
+          </Form>
         </Card>
         {createPreview ? (
           <PriceBreakdown

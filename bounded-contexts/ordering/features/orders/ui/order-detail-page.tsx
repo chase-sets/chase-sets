@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   OrderProtectionModule,
   Button,
@@ -229,13 +230,13 @@ export function OrderingOrderDetailPage({
                   </LinkButton>
                 ) : null}
                 {canCancel ? (
-                  <form method="post">
+                  <Form spacing="none" method="post">
                     <Button type="submit" name="intent" value={cancelIntent} tone="danger">
                       {t("ordering.features.orders.ui.orderDetailPage.cancel.projection", {
                         projectionLabel: projectionLabel.toLowerCase(),
                       })}
                     </Button>
-                  </form>
+                  </Form>
                 ) : null}
               </Stack>
             </Stack>

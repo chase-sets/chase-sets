@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
+  Form,
   Badge,
   Button,
   Card,
@@ -85,11 +86,11 @@ export function PricingRecommendationListPage({
         description={t("pricing.features.recommendations.ui.recommendationListPage.review.market.signals.and.copy")}
         actions={
           <Inline>
-            <form method="post">
+            <Form spacing="none" method="post">
               <Button type="submit" name="intent" value="refresh-recommendations" tone="primary">
                 {t("pricing.features.recommendations.ui.recommendationListPage.refresh")}
               </Button>
-            </form>
+            </Form>
             <LinkButton href="/account/listings" tone="secondary">
               {t("pricing.features.recommendations.ui.recommendationListPage.listings")}
             </LinkButton>
@@ -144,7 +145,7 @@ export function PricingRecommendationListPage({
       ) : null}
 
       <PageSection title={t("pricing.features.recommendations.ui.recommendationListPage.recommendations")}>
-        <form method="post">
+        <Form spacing="none" method="post">
           <Stack gap={4}>
             <Card>
               <Inline align="center">
@@ -281,7 +282,7 @@ export function PricingRecommendationListPage({
               emptyDescription={t("pricing.features.recommendations.ui.recommendationListPage.feed.data.will.appear")}
             />
           </Stack>
-        </form>
+        </Form>
       </PageSection>
     </Page>
   );

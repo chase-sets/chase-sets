@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Banner,
   Button,
@@ -52,7 +53,7 @@ export function ScheduleListPage({
 
       <PageSection title={t("commercialTerms.features.schedules.ui.scheduleListPage.create.schedule")}>
         <Card>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack gap={3}>
               <TextInput
                 label={t("commercialTerms.features.schedules.ui.scheduleListPage.label")}
@@ -119,7 +120,7 @@ export function ScheduleListPage({
                 {t("commercialTerms.features.schedules.ui.scheduleListPage.create.schedule.2")}
               </Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       </PageSection>
 

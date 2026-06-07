@@ -29,6 +29,21 @@ describe("sign-in page two-step journey", () => {
     expect(screen.queryByRole("button", { name: "Send Phone Code" })).toBeNull();
   });
 
+  it("preserves the identifier form payload after migrating to the shared Form pattern", () => {
+    render(<SignInPage />);
+
+    const identifier = screen.getByLabelText(/Email or phone/);
+    fireEvent.change(identifier, { target: { value: "buyer@example.com" } });
+
+    const form = identifier.closest("form");
+    if (!form) {
+      throw new Error("Expected identifier field to belong to a form.");
+    }
+
+    expect(new FormData(form).get("signInIdentifier")).toBe("buyer@example.com");
+    expect(form.querySelector('button[type="submit"]')?.textContent).toBe("Continue");
+  });
+
   it("can render an admin Google Workspace SSO entry point", () => {
     render(
       <SignInPage

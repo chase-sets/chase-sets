@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Banner,
   Badge,
   Button,
@@ -135,7 +136,7 @@ function RegistrationFormCard({
 }: RegistrationFormCardProps) {
   return (
     <Card glow={glow}>
-      <form ref={formRef} action={action} method="post" onSubmit={onSubmit}>
+      <Form spacing="none" ref={formRef} action={action} method="post" onSubmit={onSubmit}>
         <Stack gap={3}>
           <HiddenFields fields={hiddenFields} />
           <input type="hidden" name="registrationMethod" value={method} readOnly />
@@ -143,7 +144,7 @@ function RegistrationFormCard({
           <input type="hidden" name="intent" value={intent} readOnly />
           {children}
         </Stack>
-      </form>
+      </Form>
     </Card>
   );
 }

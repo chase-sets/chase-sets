@@ -155,6 +155,10 @@ describe("marketplace route layout", () => {
     expect(screen.getByRole("button", { name: "Sign Out" }).getAttribute("form")).toBe(
       "marketplace-account-menu-sign-out",
     );
+    const signOutForm = document.getElementById("marketplace-account-menu-sign-out");
+    expect(signOutForm?.tagName).toBe("FORM");
+    expect(signOutForm?.getAttribute("method")).toBe("post");
+    expect(signOutForm?.getAttribute("action")).toBe("/sign-out");
     expect(screen.queryByText("Acting as")).toBeNull();
     expect(screen.queryByText("Signed in as")).toBeNull();
   });
@@ -306,5 +310,25 @@ describe("marketplace route layout", () => {
 
     expect(html).toContain("Add a passkey to secure your account");
     expect(html).toContain("Passkeys help protect your account");
+  });
+
+  it("keeps guest checkout exit as a post form after migration", () => {
+    const actor = {
+      roleKey: "guest-buyer",
+      permissions: ["guest-checkout.manage"],
+    };
+    mockUseRouteLoaderData.mockReturnValue({
+      actor,
+      actorDisplay,
+      cartCount: 2,
+    });
+
+    render(<MarketplaceLayoutRoute />);
+
+    const exitButton = screen.getByRole("button", { name: "Exit guest checkout" });
+    const form = exitButton.closest("form");
+
+    expect(form?.getAttribute("method")).toBe("post");
+    expect(form?.getAttribute("action")).toBe("/guest-checkout/exit");
   });
 });

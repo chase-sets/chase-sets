@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useNavigate, useRouteLoaderData } from "react-router";
-import { AccountMenu, Banner, Button, LinkButton, Stack } from "@chase-sets/design-system";
+import { AccountMenu, Banner, Button, Form, LinkButton, Stack } from "@chase-sets/design-system";
 import { DiscoveryShellLayout } from "@chase-sets/discovery/web";
 import type { CurrentActorDisplay } from "@chase-sets/identity/server";
 import { NotificationCenterShell } from "@chase-sets/notification-center/web";
@@ -171,14 +171,14 @@ export default function MarketplaceLayoutRoute() {
         rootData?.actor ? (
           <>
             {isGuestCheckoutActor ? (
-              <form action="/guest-checkout/exit" method="post">
+              <Form action="/guest-checkout/exit" method="post" spacing="none">
                 <Button type="submit" tone="secondary">
                   {t("marketplace.app.routes.layout.exit.guest.checkout")}
                 </Button>
-              </form>
+              </Form>
             ) : rootData.actorDisplay ? (
               <>
-                <form id={signOutFormId} action="/sign-out" method="post" className="hidden" />
+                <Form id={signOutFormId} action="/sign-out" method="post" spacing="none" className="hidden" />
                 <AccountMenu
                   menuLabel={t("identity.features.accounts.ui.currentActorDisplayCue.account.menu")}
                   accountLabel={t("identity.features.accounts.ui.currentActorDisplayCue.account")}
@@ -193,11 +193,11 @@ export default function MarketplaceLayoutRoute() {
                 />
               </>
             ) : (
-              <form action="/sign-out" method="post">
+              <Form action="/sign-out" method="post" spacing="none">
                 <Button type="submit" tone="secondary">
                   {t("marketplace.app.routes.layout.sign.out")}
                 </Button>
-              </form>
+              </Form>
             )}
           </>
         ) : null

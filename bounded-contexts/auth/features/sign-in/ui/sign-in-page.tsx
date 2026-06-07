@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Banner,
   Button,
   Card,
@@ -233,7 +234,7 @@ export function SignInPage(
           </Card>
 
           <Card>
-            <form onSubmit={handleIdentifierSubmit}>
+            <Form spacing="none" onSubmit={handleIdentifierSubmit}>
               <Stack gap={3}>
                 <TextInput
                   label={t("auth.features.signIn.ui.signInPage.email.or.phone")}
@@ -243,7 +244,7 @@ export function SignInPage(
                 />
                 <Button type="submit">{t("auth.features.signIn.ui.signInPage.continue")}</Button>
               </Stack>
-            </form>
+            </Form>
           </Card>
         </>
       ) : null}
@@ -281,7 +282,7 @@ export function SignInPage(
 
       {hasIdentifier && identifierKind === "email" && method === "password" && signInMethods.includes("password") ? (
         <Card>
-          <form action={props.action} method="post">
+          <Form spacing="none" action={props.action} method="post">
             <Stack gap={3}>
               <HiddenFields fields={props.hiddenFields} />
               <input type="hidden" name="intent" value="password" readOnly />
@@ -291,7 +292,7 @@ export function SignInPage(
                 {t("auth.features.signIn.ui.signInPage.sign.in.2")}
               </Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       ) : null}
 
@@ -301,7 +302,7 @@ export function SignInPage(
       signInMethods.includes("phone-code") ? (
         <Card>
           <Stack gap={4}>
-            <form action={props.action} method="post">
+            <Form spacing="none" action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <input type="hidden" name="intent" value="phone-code-request" readOnly />
@@ -310,8 +311,8 @@ export function SignInPage(
                   {t("auth.features.signIn.ui.signInPage.send.phone.code")}
                 </Button>
               </Stack>
-            </form>
-            <form action={props.action} method="post">
+            </Form>
+            <Form spacing="none" action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <input type="hidden" name="intent" value="phone-code-consume" readOnly />
@@ -326,7 +327,7 @@ export function SignInPage(
                   {t("auth.features.signIn.ui.signInPage.continue.with.code")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
           </Stack>
         </Card>
       ) : null}
@@ -337,7 +338,7 @@ export function SignInPage(
       signInMethods.includes("magic-link") ? (
         <Card>
           <Stack gap={4}>
-            <form action={props.action} method="post">
+            <Form spacing="none" action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
                 <input type="hidden" name="intent" value="magic-link-request" readOnly />
@@ -346,9 +347,9 @@ export function SignInPage(
                   {t("auth.features.signIn.ui.signInPage.send.magic.link")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
             {props.allowManualMagicLinkTokenEntry ? (
-              <form action={props.action} method="post">
+              <Form spacing="none" action={props.action} method="post">
                 <Stack gap={3}>
                   <HiddenFields fields={props.hiddenFields} />
                   <input type="hidden" name="intent" value="magic-link-consume" readOnly />
@@ -357,7 +358,7 @@ export function SignInPage(
                     {t("auth.features.signIn.ui.signInPage.continue.with.token")}
                   </Button>
                 </Stack>
-              </form>
+              </Form>
             ) : null}
           </Stack>
         </Card>
@@ -365,7 +366,7 @@ export function SignInPage(
 
       {hasIdentifier && identifierKind === "email" && method === "passkey" && signInMethods.includes("passkey") ? (
         <Card>
-          <form ref={passkeyFormRef} action={props.action} method="post" onSubmit={handlePasskeySubmit}>
+          <Form spacing="none" ref={passkeyFormRef} action={props.action} method="post" onSubmit={handlePasskeySubmit}>
             <Stack gap={3}>
               <HiddenFields fields={props.hiddenFields} />
               <input type="hidden" name="intent" value="passkey-sign-in" readOnly />
@@ -383,7 +384,7 @@ export function SignInPage(
                 {t("auth.features.signIn.ui.signInPage.use.passkey")}
               </Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       ) : null}
     </Stack>

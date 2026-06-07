@@ -1,7 +1,7 @@
 import { useId, useState } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
-import { FieldChrome, controlClass, controlErrorClass, fieldHintId } from "./shared";
+import { FieldChrome, controlClass, controlErrorClass, fieldDescribedBy } from "./shared";
 import type { TextInputProps } from "./text-input";
 
 export interface PasswordInputProps extends TextInputProps {
@@ -16,6 +16,8 @@ export function PasswordInput({
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
   ...rest
@@ -29,6 +31,8 @@ export function PasswordInput({
       label={label}
       description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
       htmlFor={inputId}
@@ -39,7 +43,7 @@ export function PasswordInput({
           id={inputId}
           required={required}
           type={visible ? "text" : "password"}
-          aria-describedby={error || description ? fieldHintId(inputId) : undefined}
+          aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
           aria-invalid={!!error || undefined}
           className={cx(controlClass, !!error && controlErrorClass, "pr-[calc(var(--control-md-px)+2rem)]")}
         />

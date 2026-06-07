@@ -1,10 +1,10 @@
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Autocomplete as AutocompletePrimitive } from "@base-ui/react/autocomplete";
 import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { controlIconButtonSizeClasses } from "../control-sizing";
-import { FieldChrome, compoundControlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
+import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface AutocompleteItem {
   value: string;
@@ -14,6 +14,8 @@ export interface AutocompleteItem {
 }
 
 export interface AutocompleteProps extends BaseInputProps {
+  name?: string;
+  form?: string;
   items: AutocompleteItem[];
   value?: string;
   defaultValue?: string;
@@ -23,9 +25,14 @@ export interface AutocompleteProps extends BaseInputProps {
 }
 
 export function Autocomplete({
+  id,
+  name,
+  form,
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
   items,
@@ -35,26 +42,33 @@ export function Autocomplete({
   placeholder = "Search",
   noMatchesLabel = "No matches",
 }: AutocompleteProps) {
-  const inputId = useId();
+  const fallbackId = useId();
+  const inputId = id ?? fallbackId;
   const listboxId = useId();
   const { overlayNode } = usePortalRoots();
   const values = items.map((item) => item.value);
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? "");
+  const selectedValue = value ?? uncontrolledValue;
 
   return (
     <FieldChrome
       label={label}
       description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
+      {name ? <input type="hidden" name={name} form={form} value={selectedValue} /> : null}
       <AutocompletePrimitive.Root
         items={values}
         value={value}
         defaultValue={defaultValue}
         onValueChange={(nextValue) => {
           if (nextValue !== null) {
+            setUncontrolledValue(nextValue);
             onValueChange?.(nextValue);
           }
         }}
@@ -72,7 +86,7 @@ export function Autocomplete({
             id={inputId}
             placeholder={placeholder}
             aria-controls={listboxId}
-            aria-describedby={error || description ? fieldHintId(inputId) : undefined}
+            aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
             aria-invalid={!!error || undefined}
             className="min-w-0 flex-1 self-stretch bg-transparent px-[var(--control-md-px)] py-0 outline-none"
           />

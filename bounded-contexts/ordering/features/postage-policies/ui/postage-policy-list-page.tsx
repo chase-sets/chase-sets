@@ -1,4 +1,5 @@
 import {
+  Form,
   Badge,
   Banner,
   Button,
@@ -68,7 +69,7 @@ export function PostagePolicyListPage({
 
       <PageSection title={t("ordering.features.postagePolicies.ui.list.create.draft")}>
         <Card>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack gap={4}>
               <TextInput
                 label={t("ordering.features.postagePolicies.ui.common.label")}
@@ -89,7 +90,7 @@ export function PostagePolicyListPage({
               <PostagePolicyFormFields policy={defaultPostagePolicy} />
               <Button type="submit">{t("ordering.features.postagePolicies.ui.list.create.draft.action")}</Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       </PageSection>
 

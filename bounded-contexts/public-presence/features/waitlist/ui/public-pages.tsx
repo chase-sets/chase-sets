@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
+  Form,
   Banner,
   Badge,
   BrandLink,
@@ -955,7 +956,7 @@ function WaitlistSignupPanel({
         {actionData?.status === "error" ? (
           <Banner tone="danger" title={t("publicPresence.waitlist.error.title")} description={actionData.message} />
         ) : null}
-        <form method="post" action="?index" onSubmit={handleSubmit}>
+        <Form spacing="none" method="post" action="?index" onSubmit={handleSubmit}>
           <Stack gap={isHero ? 2 : 4}>
             {isHero ? (
               <Stack gap={1}>
@@ -1044,7 +1045,7 @@ function WaitlistSignupPanel({
               </Text>
             )}
           </Stack>
-        </form>
+        </Form>
       </Stack>
     </Surface>
   );

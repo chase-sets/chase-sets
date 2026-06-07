@@ -1,7 +1,8 @@
 import { t } from "@chase-sets/localization";
-import { Form } from "react-router";
 import { useMemo, useState } from "react";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
+  Form,
   Button,
   Select,
   TextInput,
@@ -135,7 +136,7 @@ function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFl
 
   return (
     <UiSurface>
-      <Form method="post" className="grid gap-4">
+      <RouterForm method="post" spacing="none" className="grid gap-4">
         <input type="hidden" name="openedByRole" value={openedByRole} />
         <input type="hidden" name="flowType" value={selectedFlowType} />
         <UiGrid className="md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)]">
@@ -193,7 +194,7 @@ function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFl
         <UiInline className="justify-end">
           <Button type="submit">{t("support.features.supportRequests.ui.supportRequestListPage.open.submit")}</Button>
         </UiInline>
-      </Form>
+      </RouterForm>
     </UiSurface>
   );
 }

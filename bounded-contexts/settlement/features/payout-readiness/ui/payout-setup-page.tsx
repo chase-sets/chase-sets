@@ -6,6 +6,7 @@ import {
 } from "@stripe/connect-js/pure";
 import { useEffect, useRef, useState } from "react";
 import {
+  Form,
   Badge,
   Banner,
   Button,
@@ -372,13 +373,13 @@ export function PayoutSetupPage({
                 </Stack>
               </ProgressiveDisclosure>
             ) : null}
-            <form method="post">
+            <Form spacing="none" method="post">
               <input type="hidden" name="intent" value="refresh-payout-setup" />
               <input type="hidden" name="mode" value={mode} />
               <Button type="submit" tone="secondary">
                 {t("settlement.features.payoutReadiness.ui.payoutSetupPage.refresh.setup.status")}
               </Button>
-            </form>
+            </Form>
           </Stack>
         </Card>
       </PageSection>

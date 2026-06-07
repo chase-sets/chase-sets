@@ -2,7 +2,6 @@ import { t } from "@chase-sets/localization";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
 import {
-  Form,
   isRouteErrorResponse,
   redirect,
   useActionData,
@@ -10,6 +9,7 @@ import {
   useRevalidator,
   useRouteError,
 } from "react-router";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -21,6 +21,7 @@ import {
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "@chase-sets/auth/web";
 import { appendClearedGuestCheckoutCookie } from "@chase-sets/checkout/server";
 import {
+  Form,
   Badge,
   Banner,
   OrderProtectionModule,
@@ -726,7 +727,7 @@ function GuestClaimPrompt({
               tone="warning"
             />
           ) : null}
-          <Form ref={passkeyFormRef} method="post" onSubmit={handlePasskeySubmit}>
+          <RouterForm ref={passkeyFormRef} method="post" onSubmit={handlePasskeySubmit} spacing="none">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="claim-passkey" readOnly />
               <input type="hidden" name="email" value={claimContext.contactEmail} readOnly />
@@ -749,9 +750,9 @@ function GuestClaimPrompt({
                 {t("payments.routes.marketplace.accountPayment.save.with.passkey")}
               </Button>
             </Stack>
-          </Form>
+          </RouterForm>
           <Divider />
-          <Form method="post">
+          <RouterForm method="post" spacing="none">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="claim-link-request" readOnly />
               <input type="hidden" name="displayName" value={displayName} readOnly />
@@ -764,10 +765,10 @@ function GuestClaimPrompt({
                 {t("payments.routes.marketplace.accountPayment.email.me.a.claim.link")}
               </Button>
             </Stack>
-          </Form>
+          </RouterForm>
           {actionData && "status" in actionData ? (
             <Inset>
-              <Form method="post">
+              <RouterForm method="post" spacing="none">
                 <Stack gap={2}>
                   <Text size="sm" tone="secondary">
                     {t("payments.routes.marketplace.accountPayment.local.recovery.token.in.production")}
@@ -784,7 +785,7 @@ function GuestClaimPrompt({
                     {t("payments.routes.marketplace.accountPayment.verify.email.and.save.order")}
                   </Button>
                 </Stack>
-              </Form>
+              </RouterForm>
             </Inset>
           ) : null}
           <ProgressiveDisclosure
@@ -956,12 +957,12 @@ export default function MarketplaceAccountPaymentRoute() {
                           tone="danger"
                         />
                       ) : null}
-                      <Form method="post">
+                      <RouterForm method="post" spacing="none">
                         <input type="hidden" name="intent" value="retry-payment" readOnly />
                         <Button type="submit" leadingIcon="creditCard">
                           {t("payments.routes.marketplace.accountPayment.retry.payment")}
                         </Button>
-                      </Form>
+                      </RouterForm>
                     </Stack>
                   ) : (
                     <LinkButton

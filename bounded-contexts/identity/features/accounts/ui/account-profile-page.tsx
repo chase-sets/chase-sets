@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   ActorIdentityCue,
   Button,
   LinkButton,
@@ -59,7 +60,7 @@ export function AccountProfilePage({
         description={t("identity.features.accounts.ui.accountProfilePage.profile.and.commercial.ownership.details.for")}
         actions={
           <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
-            <form method="post">
+            <Form spacing="none" method="post">
               <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
                 <input type="hidden" name="intent" value="update-profile" readOnly />
                 <TextInput
@@ -78,7 +79,7 @@ export function AccountProfilePage({
                   {t("identity.features.accounts.ui.accountProfilePage.update.profile")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
             <LinkButton href="/account/shipping-addresses" tone="secondary">
               {t("identity.features.accounts.ui.accountProfilePage.manage.shipping.addresses")}
             </LinkButton>

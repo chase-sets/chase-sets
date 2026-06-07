@@ -1,4 +1,5 @@
 import {
+  Form,
   Badge,
   Button,
   Card,
@@ -106,7 +107,7 @@ export function PostagePolicyDetailPage({
 
       <PageSection title={t("ordering.features.postagePolicies.ui.detail.revise.policy")}>
         <Card>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack gap={4}>
               <input type="hidden" name="intent" value="revise" readOnly />
               <TextInput
@@ -129,13 +130,13 @@ export function PostagePolicyDetailPage({
               <PostagePolicyFormFields policy={policy.payload} />
               <Button type="submit">{t("ordering.features.postagePolicies.ui.detail.save.revision")}</Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
       </PageSection>
 
       <PageSection title={t("ordering.features.postagePolicies.ui.detail.preview")}>
         <Card>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack gap={4}>
               <input type="hidden" name="intent" value="preview" readOnly />
               <TextInput
@@ -224,7 +225,7 @@ export function PostagePolicyDetailPage({
               </div>
               <Button type="submit">{t("ordering.features.postagePolicies.ui.detail.preview.result.action")}</Button>
             </Stack>
-          </form>
+          </Form>
         </Card>
 
         {previewResult ? (
@@ -276,7 +277,7 @@ export function PostagePolicyDetailPage({
       <PageSection title={t("ordering.features.postagePolicies.ui.detail.lifecycle")}>
         <div className="grid gap-3 md:grid-cols-2">
           <Card>
-            <form method="post">
+            <Form spacing="none" method="post">
               <Stack gap={3}>
                 <input type="hidden" name="intent" value="activate" readOnly />
                 <TextInput
@@ -289,10 +290,10 @@ export function PostagePolicyDetailPage({
                   {t("ordering.features.postagePolicies.ui.detail.activate")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
           </Card>
           <Card>
-            <form method="post">
+            <Form spacing="none" method="post">
               <Stack gap={3}>
                 <input type="hidden" name="intent" value="retire" readOnly />
                 <TextInput
@@ -305,10 +306,10 @@ export function PostagePolicyDetailPage({
                   {t("ordering.features.postagePolicies.ui.detail.retire")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
           </Card>
           <Card>
-            <form method="post">
+            <Form spacing="none" method="post">
               <Stack gap={3}>
                 <input type="hidden" name="intent" value="clone" readOnly />
                 <TextInput
@@ -333,7 +334,7 @@ export function PostagePolicyDetailPage({
                   {t("ordering.features.postagePolicies.ui.detail.clone.rollback.draft")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
           </Card>
         </div>
       </PageSection>

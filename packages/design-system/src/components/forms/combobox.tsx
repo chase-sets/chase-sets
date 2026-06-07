@@ -4,12 +4,15 @@ import { Icon } from "../../icons";
 import { usePortalRoots } from "../../theme/provider";
 import { cx } from "../../utils/cx";
 import { controlIconButtonSizeClasses } from "../control-sizing";
-import { FieldChrome, compoundControlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
+import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 import type { SelectItem } from "./select";
 
 export interface ComboboxProps extends BaseInputProps {
+  name?: string;
+  form?: string;
   items: SelectItem[];
   value?: string;
+  defaultValue?: string;
   onValueChange?: (value: string) => void;
   placeholder?: string;
   noMatchesLabel?: string;
@@ -17,23 +20,32 @@ export interface ComboboxProps extends BaseInputProps {
 }
 
 export function Combobox({
+  id,
+  name,
+  form,
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
   items,
   value,
+  defaultValue,
   onValueChange,
   placeholder = "Search options",
   noMatchesLabel = "No matches",
   disabled = false,
 }: ComboboxProps) {
   const [open, setOpen] = useState(false);
+  const [uncontrolledValue, setUncontrolledValue] = useState(defaultValue ?? "");
   const [query, setQuery] = useState("");
-  const inputId = useId();
+  const fallbackId = useId();
+  const inputId = id ?? fallbackId;
   const listboxId = useId();
-  const selected = items.find((item) => item.value === value);
+  const selectedValue = value ?? uncontrolledValue;
+  const selected = items.find((item) => item.value === selectedValue);
   const selectedLabel = selected?.label ?? "";
   const itemValues = useMemo(() => items.map((item) => item.value), [items]);
   const filteredItems = useMemo(
@@ -53,13 +65,16 @@ export function Combobox({
       label={label}
       description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
+      {name ? <input type="hidden" name={name} form={form} value={selectedValue} disabled={disabled} /> : null}
       <ComboboxPrimitive.Root
         items={itemValues}
-        value={value ?? null}
+        value={selectedValue || null}
         inputValue={query}
         open={open}
         disabled={disabled}
@@ -70,6 +85,7 @@ export function Combobox({
         onInputValueChange={setQuery}
         onValueChange={(nextValue) => {
           if (nextValue !== null) {
+            setUncontrolledValue(nextValue);
             onValueChange?.(nextValue);
             setQuery(items.find((item) => item.value === nextValue)?.label ?? "");
           }
@@ -92,7 +108,7 @@ export function Combobox({
             id={inputId}
             placeholder={placeholder}
             aria-controls={listboxId}
-            aria-describedby={error || description ? fieldHintId(inputId) : undefined}
+            aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
             aria-invalid={!!error || undefined}
             disabled={disabled}
             className="min-w-0 flex-1 self-stretch bg-transparent px-[var(--control-md-px)] py-0 outline-none"

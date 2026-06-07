@@ -1,11 +1,13 @@
 import { t } from "@chase-sets/localization";
 import { useEffect, useRef } from "react";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { Form, redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
+import { redirect, useActionData, useLoaderData, useNavigation, useSubmit } from "react-router";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import {
+  Form,
   Badge,
   OrderProtectionModule,
   Button,
@@ -325,7 +327,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                   <Text>{actionData.error}</Text>
                 </Inset>
               ) : null}
-              <Form id="payment-start-form" method="post" ref={formRef}>
+              <RouterForm id="payment-start-form" method="post" ref={formRef} spacing="none">
                 <Stack gap={3}>
                   <input type="hidden" name="orderIds" value={data.orderIds.join(",")} />
                   <input type="hidden" name="totalAmount" value={totalAmount} />
@@ -397,7 +399,7 @@ export default function MarketplaceAccountPaymentNewRoute() {
                       : t("payments.routes.marketplace.accountPaymentNew.continue.to.payment")}
                   </Button>
                 </Stack>
-              </Form>
+              </RouterForm>
             </Stack>
           </Surface>
 

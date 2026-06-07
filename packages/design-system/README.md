@@ -38,6 +38,95 @@ Application code should not introduce:
 - `BulkActionBar` should keep the selected-count fact visible, place the most likely safe action or configuration trigger in `primaryActions`, place supporting actions such as clearing selection in `secondaryActions`, and move advanced, rare, risky, or large action sets into `BulkActionPanel` or `overflowActions`.
 - `DetailPanel` applies default vertical spacing between direct child content blocks.
 
+## Forms
+
+Production forms must use the exported `Form` primitive or an approved design-system adapter. Application code must not render lowercase JSX/HTML `<form>` directly, and route modules must not import framework `Form` directly outside an approved adapter boundary. The complete primitive acceptance checklist lives in [Form Acceptance Matrix](./FORM_TEST_MATRIX.md), and the milestone traceability artifact lives in [Form System Milestone 10 Audit](./FORM_SYSTEM_AUDIT.md).
+
+Use `Form` for native-post, GET filter, multipart upload, destructive action, sign-out, checkout, and external-submit flows:
+
+```tsx
+import { Button, Form, TextInput } from "@chase-sets/design-system";
+
+export function ListingForm() {
+  return (
+    <Form id="listing-form" action="/account/listings" method="post" encType="multipart/form-data">
+      <TextInput label="Listing name" name="listing_name" required />
+      <input type="hidden" name="intent" value="publish" />
+      <Button type="submit">Publish listing</Button>
+    </Form>
+  );
+}
+```
+
+The primitive preserves native form behavior for `id`, `method`, `action`, `encType`, `target`, `ref`, hidden fields, external controls using the `form` attribute, `FormData`, and browser submission. Use `disabled`, `submitting`, `status`, and `validationSummaryId` to expose form-level state consistently while field adapters and higher-level patterns adopt the shared context.
+
+Use `ValidationSummary`, `useFormState`, and `normalizeFormErrors` for controlled client forms that need dirty/touched state, validation timing, server error mapping, status text, counters, and form-level messages:
+
+```tsx
+import { Button, Form, TextInput, ValidationSummary, useFormState } from "@chase-sets/design-system";
+
+export function ContactForm() {
+  const form = useFormState(
+    { email: "", name: "" },
+    {
+      validate: (values) => ({
+        email: values.email.includes("@") ? undefined : "Enter a valid email.",
+        _form: values.name.trim() ? undefined : "Add a contact name.",
+      }),
+    },
+  );
+
+  return (
+    <Form
+      id="contact-form"
+      validationSummaryId="contact-errors"
+      onSubmit={(event) => {
+        event.preventDefault();
+        form.submitAttempted();
+      }}
+    >
+      <ValidationSummary
+        id="contact-errors"
+        errors={[
+          ...Object.entries(form.errors.fieldErrors).flatMap(([fieldId, messages]) =>
+            (messages ?? []).map((message) => ({ fieldId, fieldName: fieldId, message })),
+          ),
+          ...form.errors.formErrors.map((message) => ({ message })),
+        ]}
+      />
+      <TextInput id="email" label="Email" description="Used for receipts." {...form.fieldProps("email")} />
+      <TextInput id="name" label="Name" counter={`${form.values.name.length} characters`} {...form.fieldProps("name")} />
+      <Button type="submit">Save</Button>
+    </Form>
+  );
+}
+```
+
+Field controls should keep helper text visible when errors are present. Controls that expose `description`, `error`, `status`, or `counter` compose those IDs into `aria-describedby` in that order so validation summaries, async status, and character counts remain predictable.
+
+`useFormState` supports synchronous validation through `validate()`/`submitAttempted()` and asynchronous validation through `validateAsync()`/`submitAttemptedAsync()`. Async validation exposes `validating`, suppresses stale results after field edits or reset, maps rejected validators into form-level errors, and clears stale field/form errors when the user edits. Use `reset()` after successful saves to clear dirty/touched/submitted metadata, and use `setSubmitting()` to coordinate long-running save state with `Form submitting`.
+
+`ValidationSummary` links focus the invalid field target. If the target is a grouped control such as a fieldset, focus delegates to the first focusable control inside the group.
+
+For React Router route actions, import `RouterForm` from `@chase-sets/design-system/react-router` instead of importing `Form` from `react-router` directly:
+
+```tsx
+import { RouterForm } from "@chase-sets/design-system/react-router";
+
+export function CheckoutActionForm() {
+  return <RouterForm method="post" action="/checkout/start" />;
+}
+```
+
+The router adapter is a separate optional subpath so the core design-system entrypoint stays framework-neutral. `pnpm run check:no-legacy-forms` runs the final blocking guardrail: production code may not render lowercase `<form>` directly or import/use framework `Form` directly outside the approved design-system adapter. The historical migration baseline lives in `scripts/no-legacy-forms.baseline.json` and should remain empty.
+
+Migration cleanup checklist:
+
+- Replace production lowercase `<form>` with `Form` and direct `react-router` `Form` imports with `RouterForm`.
+- Preserve `method`, `action`, `encType`, `target`, refs, hidden fields, external submit controls, and submitted field names.
+- Remove obsolete route-local wrappers, duplicated parsing helpers, temporary compatibility shims, and baseline entries.
+- Run `pnpm run check:no-legacy-forms` before completion; final mode must pass with an empty baseline.
+
 ## Progressive Disclosure
 
 Progressive disclosure is the package-wide default for advanced use cases. Keep required decision facts and the current primary action visible, then disclose supporting controls or deeper explanation through the exported disclosure primitives.

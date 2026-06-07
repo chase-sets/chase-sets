@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import type { ApiKey } from "./contracts";
 import type { User } from "../../users/ui/contracts";
 import {
+  Form,
   Button,
   MarketplaceDashboardPanel,
   NativeSelect,
@@ -34,7 +35,7 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
         )}
         actions={
           <Stack direction="row" gap={2}>
-            <form method="post">
+            <Form spacing="none" method="post">
               <Stack direction="row" align="end" gap={2}>
                 <input type="hidden" name="intent" value="update-user" readOnly />
                 <TextInput
@@ -57,8 +58,8 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
                   {t("identity.features.apiKeys.ui.accountSecurityPage.update.profile")}
                 </Button>
               </Stack>
-            </form>
-            <form method="post">
+            </Form>
+            <Form spacing="none" method="post">
               <Stack direction="row" align="end" gap={2}>
                 <input type="hidden" name="intent" value="create-api-key" readOnly />
                 <TextInput
@@ -81,7 +82,7 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
                   {t("identity.features.apiKeys.ui.accountSecurityPage.create.api.key")}
                 </Button>
               </Stack>
-            </form>
+            </Form>
           </Stack>
         }
       />
@@ -142,20 +143,20 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
                 />
                 {apiKey.status === "active" ? (
                   <Stack direction="row" gap={2}>
-                    <form method="post">
+                    <Form spacing="none" method="post">
                       <input type="hidden" name="intent" value="rotate-api-key" readOnly />
                       <input type="hidden" name="apiKeyId" value={apiKey.api_key_id} readOnly />
                       <Button type="submit" tone="secondary">
                         {t("identity.features.apiKeys.ui.accountSecurityPage.rotate")}
                       </Button>
-                    </form>
-                    <form method="post">
+                    </Form>
+                    <Form spacing="none" method="post">
                       <input type="hidden" name="intent" value="revoke-api-key" readOnly />
                       <input type="hidden" name="apiKeyId" value={apiKey.api_key_id} readOnly />
                       <Button type="submit" tone="danger">
                         {t("identity.features.apiKeys.ui.accountSecurityPage.revoke")}
                       </Button>
-                    </form>
+                    </Form>
                   </Stack>
                 ) : null}
               </Stack>

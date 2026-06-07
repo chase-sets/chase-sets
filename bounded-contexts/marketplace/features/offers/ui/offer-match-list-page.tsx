@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   AccountReputationSummary,
   Badge,
   Banner,
@@ -269,7 +270,7 @@ export function MarketplaceOfferMatchListPage({
               header: t("marketplace.features.offers.ui.offerMatchListPage.actions"),
               cell: (row) => (
                 <Stack gap={2}>
-                  <form method="post" action="/account/sell-list">
+                  <Form spacing="none" method="post" action="/account/sell-list">
                     <input type="hidden" name="intent" value="add-selected-offer" />
                     <input type="hidden" name="offerId" value={row.offer_id} />
                     <Button
@@ -280,7 +281,7 @@ export function MarketplaceOfferMatchListPage({
                     >
                       {t("marketplace.features.offers.ui.offerMatchListPage.add.to.sell.list")}
                     </Button>
-                  </form>
+                  </Form>
                   <LinkButton href={`/account/offers/matches/${row.offer_id}`} tone="secondary" size="sm">
                     {t("marketplace.features.offers.ui.offerMatchListPage.open")}
                   </LinkButton>

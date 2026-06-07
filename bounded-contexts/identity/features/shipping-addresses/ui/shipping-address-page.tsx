@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Button,
   Grid,
@@ -142,7 +143,7 @@ export function ShippingAddressPage({
         description={t("identity.features.shippingAddresses.ui.shippingAddressPage.add.description")}
       >
         <Surface elevated>
-          <form method="post">
+          <Form spacing="none" method="post">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="create" />
               <AddressFields />
@@ -150,7 +151,7 @@ export function ShippingAddressPage({
                 {t("identity.features.shippingAddresses.ui.shippingAddressPage.save.address")}
               </Button>
             </Stack>
-          </form>
+          </Form>
         </Surface>
       </PageSection>
 
@@ -193,7 +194,7 @@ export function ShippingAddressPage({
                         </Button>
                       }
                     >
-                      <form method="post">
+                      <Form spacing="none" method="post">
                         <Stack gap={3}>
                           <input type="hidden" name="intent" value="update" />
                           <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
@@ -202,16 +203,16 @@ export function ShippingAddressPage({
                             {t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")}
                           </Button>
                         </Stack>
-                      </form>
+                      </Form>
                     </ResponsiveEditSheet>
                     {!address.is_default ? (
-                      <form method="post">
+                      <Form spacing="none" method="post">
                         <input type="hidden" name="intent" value="default" />
                         <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
                         <Button type="submit" tone="secondary">
                           {t("identity.features.shippingAddresses.ui.shippingAddressPage.set.default")}
                         </Button>
-                      </form>
+                      </Form>
                     ) : null}
                     <ModalDialog
                       title={t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}
@@ -224,7 +225,7 @@ export function ShippingAddressPage({
                         </Button>
                       }
                     >
-                      <form method="post">
+                      <Form spacing="none" method="post">
                         <Stack gap={3}>
                           <input type="hidden" name="intent" value="archive" />
                           <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
@@ -232,7 +233,7 @@ export function ShippingAddressPage({
                             {t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}
                           </Button>
                         </Stack>
-                      </form>
+                      </Form>
                     </ModalDialog>
                   </Inline>
                 </Stack>

@@ -114,6 +114,9 @@
       "@chase-sets/design-system": [
         "./packages/design-system/src/index.ts"
       ],
+      "@chase-sets/design-system/react-router": [
+        "./packages/design-system/src/components/forms/router-form.tsx"
+      ],
       "@chase-sets/design-system/styles.css": [
         "./packages/design-system/src/styles/styles.css"
       ],

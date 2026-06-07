@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   ActionBar,
   Badge,
   Button,
@@ -98,7 +99,7 @@ function ReleaseLockPanel({ data }: Readonly<{ data: ReleaseControlsSnapshot }>)
     <PageSection title={t(`${routeKey}.releaseLockCommands`)}>
       <Surface>
         <Stack gap={4}>
-          <form method="get">
+          <Form spacing="none" method="get">
             <Stack gap={3}>
               <NativeSelect
                 label={t(`${routeKey}.action`)}
@@ -122,7 +123,7 @@ function ReleaseLockPanel({ data }: Readonly<{ data: ReleaseControlsSnapshot }>)
                 {t(`${routeKey}.persistReleaseLock`)}
               </Button>
             </Stack>
-          </form>
+          </Form>
 
           {data.releaseLockCommandPlan.errors.length > 0 ? (
             <Stack gap={2}>
@@ -146,7 +147,7 @@ function RolloutEvaluationPanel({ data }: Readonly<{ data: ReleaseControlsSnapsh
     <PageSection title={t(`${routeKey}.rolloutEvaluation`)}>
       <Surface>
         <Stack gap={4}>
-          <form method="get">
+          <Form spacing="none" method="get">
             <Stack gap={3}>
               <TextInput
                 label={t(`${routeKey}.featureKey`)}
@@ -216,7 +217,7 @@ function RolloutEvaluationPanel({ data }: Readonly<{ data: ReleaseControlsSnapsh
                 {t(`${routeKey}.persistRolloutPolicy`)}
               </Button>
             </Stack>
-          </form>
+          </Form>
 
           <RolloutResult data={data} />
         </Stack>

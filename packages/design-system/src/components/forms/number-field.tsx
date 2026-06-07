@@ -3,9 +3,11 @@ import { NumberField as NumberFieldPrimitive } from "@base-ui/react/number-field
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { controlIconButtonSizeClasses } from "../control-sizing";
-import { FieldChrome, compoundControlClass, controlErrorClass, fieldHintId, type BaseInputProps } from "./shared";
+import { FieldChrome, compoundControlClass, controlErrorClass, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface NumberFieldProps extends BaseInputProps {
+  name?: string;
+  form?: string;
   value?: number | null;
   defaultValue?: number;
   onValueChange?: (value: number | null) => void;
@@ -24,8 +26,12 @@ export function NumberField({
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
+  name,
+  form,
   value,
   defaultValue,
   onValueChange,
@@ -46,12 +52,16 @@ export function NumberField({
       label={label}
       description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
       htmlFor={inputId}
     >
       <NumberFieldPrimitive.Root
         id={inputId}
+        name={name}
+        form={form}
         value={value}
         defaultValue={defaultValue}
         onValueChange={(nextValue) => onValueChange?.(nextValue)}
@@ -80,7 +90,7 @@ export function NumberField({
           </NumberFieldPrimitive.Decrement>
           <NumberFieldPrimitive.Input
             placeholder={placeholder}
-            aria-describedby={error || description ? fieldHintId(inputId) : undefined}
+            aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
             aria-invalid={!!error || undefined}
             className="min-w-0 bg-transparent px-2 py-[var(--control-sm-py)] text-center outline-none"
           />

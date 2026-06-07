@@ -4,6 +4,7 @@ import { cx } from "../../utils/cx";
 import { Button, IconButton } from "../actions/button";
 import { CopyButton } from "../actions/copy-button";
 import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
+import { Form, type FormProps } from "../forms/form";
 import { Progress } from "../ui/progress";
 
 export interface WorkstationLayoutProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
@@ -301,7 +302,7 @@ export function QuantityChecklistControl({
   );
 }
 
-export interface TaskScanInputProps extends Omit<HTMLAttributes<HTMLFormElement>, "className" | "style" | "onSubmit"> {
+export interface TaskScanInputProps extends Omit<FormProps, "children" | "className" | "onSubmit" | "style"> {
   label: ReactNode;
   value: string;
   onValueChange: (value: string) => void;
@@ -333,7 +334,13 @@ export function TaskScanInput({
   }
 
   return (
-    <form {...rest} className="rounded-tokenMd border border-muted bg-elevated p-3" onSubmit={handleSubmit}>
+    <Form
+      {...rest}
+      disabled={disabled}
+      spacing="none"
+      className="rounded-tokenMd border border-muted bg-elevated p-3"
+      onSubmit={handleSubmit}
+    >
       <div className="grid gap-2 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
         <label className="grid min-w-0 gap-1 text-sm font-medium text-foreground">
           <span>{label}</span>
@@ -374,7 +381,7 @@ export function TaskScanInput({
           {feedback}
         </div>
       ) : null}
-    </form>
+    </Form>
   );
 }
 

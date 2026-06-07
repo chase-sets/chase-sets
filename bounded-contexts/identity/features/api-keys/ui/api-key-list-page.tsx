@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Button, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
+import { Form, Button, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import type { ApiKey } from "./contracts";
 
@@ -21,7 +21,7 @@ export function ApiKeyListPage({ initialData }: { initialData: { items: ApiKey[]
       items={initialData.items}
       columns={columns}
       actions={
-        <form method="post">
+        <Form spacing="none" method="post">
           <Stack direction="row" align="end" gap={2}>
             <input type="hidden" name="intent" value="create" readOnly />
             <TextInput name="userId" label={t("identity.features.apiKeys.ui.apiKeyListPage.user")} required />
@@ -30,7 +30,7 @@ export function ApiKeyListPage({ initialData }: { initialData: { items: ApiKey[]
               {t("identity.features.apiKeys.ui.apiKeyListPage.create")}
             </Button>
           </Stack>
-        </form>
+        </Form>
       }
       emptyMessage={t("identity.features.apiKeys.ui.apiKeyListPage.no.api.keys.yet")}
       getHref={(row) => `/identity/api-keys/${row.api_key_id}`}

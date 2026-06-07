@@ -1,5 +1,6 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
+  Form,
   AccountReputationSummary,
   Badge,
   Banner,
@@ -211,7 +212,7 @@ export function CheckoutCartPage({
 
   function renderCartLine(line: CheckoutCartLineGroup) {
     return (
-      <form key={line.line_id} method="post">
+      <Form spacing="none" key={line.line_id} method="post">
         <input type="hidden" name="intent" value="update-cart-line" />
         {line.lineIds.map((lineId) => (
           <input key={lineId} type="hidden" name="lineId" value={lineId} />
@@ -369,7 +370,7 @@ export function CheckoutCartPage({
             </>
           }
         />
-      </form>
+      </Form>
     );
   }
 
@@ -556,7 +557,7 @@ export function CheckoutCartPage({
                   <Text size="sm" tone="secondary">
                     {t("checkout.features.cart.ui.cartPage.landed.cost.preview.description")}
                   </Text>
-                  <form method="get">
+                  <Form spacing="none" method="get">
                     <Stack gap={3}>
                       <Grid columns={{ base: 1, md: 2 }} gap={2}>
                         <TextInput
@@ -625,7 +626,7 @@ export function CheckoutCartPage({
                         {t("checkout.features.cart.ui.cartPage.preview.landed.cost")}
                       </Button>
                     </Stack>
-                  </form>
+                  </Form>
                 </Stack>
               </Card>
               <Card variant="feature">
@@ -680,12 +681,12 @@ export function CheckoutCartPage({
             <StickyCtaBar
               context={t("checkout.features.cart.ui.cartPage.no.payment.until.totals")}
               primaryAction={
-                <form method="post" action="/checkout/start">
+                <Form spacing="none" method="post" action="/checkout/start">
                   <input type="hidden" name="source" value="cart" />
                   <Button type="submit" leadingIcon="lock" block>
                     {t("checkout.features.cart.ui.cartPage.start.checkout")}
                   </Button>
-                </form>
+                </Form>
               }
               secondaryAction={
                 <LinkButton href="/search" tone="secondary" block>

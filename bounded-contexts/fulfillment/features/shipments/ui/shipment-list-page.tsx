@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Button,
   Card,
@@ -75,7 +76,7 @@ export function FulfillmentShipmentListPage({
       />
 
       <PageSection title={t("fulfillment.features.shipments.ui.shipmentListPage.shipments")}>
-        <form method="get" action={batchPrintActionPath} target="_blank">
+        <Form spacing="none" method="get" action={batchPrintActionPath} target="_blank">
           <Stack gap={3}>
             {batchPrintActionPath && shipments.length > 0 ? (
               <Card>
@@ -167,7 +168,7 @@ export function FulfillmentShipmentListPage({
               ))
             )}
           </Stack>
-        </form>
+        </Form>
       </PageSection>
     </Page>
   );

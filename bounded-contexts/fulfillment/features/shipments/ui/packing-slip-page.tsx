@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { Form } from "@chase-sets/design-system";
 import type { FulfillmentPackingSlip, FulfillmentPackingSlipFormat } from "./contracts";
 
 function formatAddress(address: FulfillmentPackingSlip["shipping_destination_snapshot"]) {
@@ -477,7 +478,7 @@ export function FulfillmentPackingSlipPrintPage({
           </p>
         </div>
         <div className="fulfillment-packing-slip-toolbar__actions">
-          <form className="fulfillment-packing-slip-toolbar__form" method="get">
+          <Form className="fulfillment-packing-slip-toolbar__form" method="get" spacing="none">
             {slips.map((slip) => (
               <input key={slip.shipment_id} type="hidden" name="shipmentIds" value={slip.shipment_id} />
             ))}
@@ -498,7 +499,7 @@ export function FulfillmentPackingSlipPrintPage({
             >
               {t("fulfillment.features.shipments.ui.packingSlipPage.change.format")}
             </button>
-          </form>
+          </Form>
           <button className="fulfillment-packing-slip-button" type="button" onClick={() => globalThis.print?.()}>
             {t("fulfillment.features.shipments.ui.packingSlipPage.print")}
           </button>

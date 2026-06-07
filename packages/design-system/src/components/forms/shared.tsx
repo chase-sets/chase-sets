@@ -12,6 +12,8 @@ export interface FieldChromeProps {
   label?: ReactNode;
   description?: ReactNode;
   error?: ReactNode;
+  status?: ReactNode;
+  counter?: ReactNode;
   required?: boolean;
   hideLabel?: boolean;
 }
@@ -43,20 +45,69 @@ export const compoundControlClass = cx(
 export const controlErrorClass = "border-danger focus-visible:ring-danger/30";
 
 export function fieldHintId(inputId: string | undefined): string | undefined {
-  return inputId ? `${inputId}-hint` : undefined;
+  return fieldDescriptionId(inputId);
+}
+
+export function fieldDescriptionId(inputId: string | undefined): string | undefined {
+  return inputId ? `${inputId}-description` : undefined;
+}
+
+export function fieldErrorId(inputId: string | undefined): string | undefined {
+  return inputId ? `${inputId}-error` : undefined;
+}
+
+export function fieldStatusId(inputId: string | undefined): string | undefined {
+  return inputId ? `${inputId}-status` : undefined;
+}
+
+export function fieldCounterId(inputId: string | undefined): string | undefined {
+  return inputId ? `${inputId}-counter` : undefined;
+}
+
+export function fieldDescribedBy({
+  inputId,
+  description,
+  error,
+  status,
+  counter,
+  describedBy,
+}: {
+  inputId: string | undefined;
+  description?: ReactNode;
+  error?: ReactNode;
+  status?: ReactNode;
+  counter?: ReactNode;
+  describedBy?: string;
+}): string | undefined {
+  return (
+    [
+      describedBy,
+      description ? fieldDescriptionId(inputId) : undefined,
+      error ? fieldErrorId(inputId) : undefined,
+      status ? fieldStatusId(inputId) : undefined,
+      counter ? fieldCounterId(inputId) : undefined,
+    ]
+      .filter(Boolean)
+      .join(" ") || undefined
+  );
 }
 
 export function FieldChrome({
   label,
   description,
   error,
+  status,
+  counter,
   required = false,
   hideLabel = false,
   htmlFor,
   children,
   ...rest
 }: FieldFrameProps) {
-  const hintId = fieldHintId(htmlFor);
+  const descriptionId = fieldDescriptionId(htmlFor);
+  const errorId = fieldErrorId(htmlFor);
+  const statusId = fieldStatusId(htmlFor);
+  const counterId = fieldCounterId(htmlFor);
 
   return (
     <BaseField.Root {...rest} invalid={!!error} className="grid gap-2">
@@ -66,18 +117,33 @@ export function FieldChrome({
           className={cx("block text-sm font-medium text-foreground", hideLabel && "sr-only")}
         >
           {label}
-          {required ? <span className="ml-1 text-accent">*</span> : null}
+          {required ? (
+            <span aria-hidden="true" className="ml-1 text-accent">
+              *
+            </span>
+          ) : null}
         </BaseField.Label>
       ) : null}
       {children}
-      {error ? (
-        <BaseField.Error id={hintId} match className="text-xs font-medium text-danger">
-          {error}
-        </BaseField.Error>
-      ) : description ? (
-        <BaseField.Description id={hintId} className="text-xs text-secondary">
+      {description ? (
+        <BaseField.Description id={descriptionId} className="text-xs text-secondary">
           {description}
         </BaseField.Description>
+      ) : null}
+      {error ? (
+        <BaseField.Error id={errorId} match role="alert" className="text-xs font-medium text-danger">
+          {error}
+        </BaseField.Error>
+      ) : null}
+      {status ? (
+        <div id={statusId} className="text-xs text-secondary" aria-live="polite">
+          {status}
+        </div>
+      ) : null}
+      {counter ? (
+        <div id={counterId} className="text-xs text-tertiary">
+          {counter}
+        </div>
       ) : null}
     </BaseField.Root>
   );

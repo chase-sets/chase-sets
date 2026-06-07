@@ -1,35 +1,52 @@
 import { useId } from "react";
 import { Switch as SwitchPrimitive } from "@base-ui/react/switch";
 import { cx } from "../../utils/cx";
-import { FieldChrome, type BaseInputProps } from "./shared";
+import { FieldChrome, fieldDescribedBy, type BaseInputProps } from "./shared";
 
 export interface SwitchProps extends BaseInputProps {
   checked?: boolean;
   defaultChecked?: boolean;
   onCheckedChange?: (checked: boolean) => void;
   disabled?: boolean;
+  readOnly?: boolean;
+  name?: string;
+  form?: string;
+  value?: string;
+  uncheckedValue?: string;
 }
 
 export function Switch({
+  id,
   label,
   description,
   error,
+  status,
+  counter,
   required,
   hideLabel,
   checked,
   defaultChecked,
   onCheckedChange,
   disabled = false,
+  readOnly = false,
+  name,
+  form,
+  value,
+  uncheckedValue,
 }: SwitchProps) {
-  const inputId = useId();
+  const fallbackId = useId();
+  const inputId = id ?? fallbackId;
 
   return (
     <FieldChrome
       label={undefined}
-      description={error ? undefined : description}
+      description={description}
       error={error}
+      status={status}
+      counter={counter}
       required={required}
       hideLabel={hideLabel}
+      htmlFor={inputId}
     >
       <label
         htmlFor={inputId}
@@ -39,17 +56,28 @@ export function Switch({
           {label ? (
             <div className="text-sm font-medium text-foreground">
               {label}
-              {required ? <span className="ml-1 text-accent">*</span> : null}
+              {required ? (
+                <span aria-hidden="true" className="ml-1 text-accent">
+                  *
+                </span>
+              ) : null}
             </div>
           ) : null}
-          {description ? <div className="text-xs text-secondary">{description}</div> : null}
         </div>
         <SwitchPrimitive.Root
           id={inputId}
+          name={name}
+          form={form}
+          value={value}
+          uncheckedValue={uncheckedValue}
           checked={checked}
           defaultChecked={defaultChecked}
           onCheckedChange={(nextChecked) => onCheckedChange?.(nextChecked)}
           disabled={disabled}
+          readOnly={readOnly}
+          required={required}
+          aria-describedby={fieldDescribedBy({ inputId, description, error, status, counter })}
+          aria-invalid={!!error || undefined}
           className={(state) =>
             cx(
               "focus-ring relative inline-flex h-7 w-12 items-center rounded-full bg-muted transition",

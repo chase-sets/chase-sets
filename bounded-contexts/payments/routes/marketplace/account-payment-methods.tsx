@@ -1,9 +1,11 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { Form, redirect, useActionData, useLoaderData } from "react-router";
+import { redirect, useActionData, useLoaderData } from "react-router";
+import { RouterForm } from "@chase-sets/design-system/react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
+  Form,
   Badge,
   Banner,
   Button,
@@ -116,16 +118,16 @@ export default function AccountPaymentMethodsRoute() {
         description={t("payments.routes.marketplace.accountPaymentMethods.manage.payment.methods")}
         actions={
           <Inline gap={2}>
-            <Form method="post">
+            <RouterForm method="post" spacing="none">
               <Button type="submit" name="intent" value="reconcile" tone="secondary" leadingIcon="refreshCcw">
                 {t("payments.routes.marketplace.accountPaymentMethods.refresh")}
               </Button>
-            </Form>
-            <Form method="post">
+            </RouterForm>
+            <RouterForm method="post" spacing="none">
               <Button type="submit" name="intent" value="add" leadingIcon="plus">
                 {t("payments.routes.marketplace.accountPaymentMethods.add")}
               </Button>
-            </Form>
+            </RouterForm>
           </Inline>
         }
       />
@@ -156,11 +158,11 @@ export default function AccountPaymentMethodsRoute() {
             title={t("payments.routes.marketplace.accountPaymentMethods.no.saved.payment.methods")}
             description={t("payments.routes.marketplace.accountPaymentMethods.no.saved.payment.methods.description")}
             recoveryActions={
-              <Form method="post">
+              <RouterForm method="post" spacing="none">
                 <Button type="submit" name="intent" value="add" leadingIcon="plus">
                   {t("payments.routes.marketplace.accountPaymentMethods.add.payment.method")}
                 </Button>
-              </Form>
+              </RouterForm>
             }
           />
         ) : (
@@ -186,19 +188,19 @@ export default function AccountPaymentMethodsRoute() {
                   {method.readiness !== "removed" ? (
                     <Inline gap={2}>
                       {!method.is_default ? (
-                        <Form method="post">
+                        <RouterForm method="post" spacing="none">
                           <input type="hidden" name="instrumentId" value={method.instrument_id} />
                           <Button type="submit" name="intent" value="default" tone="secondary">
                             {t("payments.routes.marketplace.accountPaymentMethods.set.default")}
                           </Button>
-                        </Form>
+                        </RouterForm>
                       ) : null}
-                      <Form method="post">
+                      <RouterForm method="post" spacing="none">
                         <input type="hidden" name="instrumentId" value={method.instrument_id} />
                         <Button type="submit" name="intent" value="remove" tone="danger">
                           {t("payments.routes.marketplace.accountPaymentMethods.remove")}
                         </Button>
-                      </Form>
+                      </RouterForm>
                     </Inline>
                   ) : null}
                 </Stack>

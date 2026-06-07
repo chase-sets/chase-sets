@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Button,
   Card,
@@ -119,12 +120,12 @@ export function SettlementPayoutOperationsPage({
       <PageSection title={t("settlement.features.payouts.ui.payoutOperationsPage.reconciliation")}>
         <Card>
           <Stack gap={3}>
-            <form method="post">
+            <Form spacing="none" method="post">
               <input type="hidden" name="intent" value="run-reconciliation" />
               <Button type="submit">
                 {t("settlement.features.payouts.ui.payoutOperationsPage.run.reconciliation")}
               </Button>
-            </form>
+            </Form>
             <Text size="sm" tone="secondary">
               {t("settlement.features.payouts.ui.payoutOperationsPage.last.checked")}
               {lastCheckedAt

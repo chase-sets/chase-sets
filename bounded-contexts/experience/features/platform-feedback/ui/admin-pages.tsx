@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   Badge,
   Button,
   ActionBar,
@@ -136,7 +137,7 @@ export function PlatformFeedbackAdminListPage({
       </StatGrid>
 
       <PageSection title={t("experience.platformFeedbackAdmin.filters")}>
-        <form method="get">
+        <Form spacing="none" method="get">
           <Stack gap={3}>
             <FilterBar sticky={false}>
               <NativeSelect
@@ -164,7 +165,7 @@ export function PlatformFeedbackAdminListPage({
               </Button>
             </ActionBar>
           </Stack>
-        </form>
+        </Form>
       </PageSection>
 
       <PageSection title={t("experience.platformFeedbackAdmin.reviewQueue")}>
@@ -236,20 +237,20 @@ export function PlatformFeedbackAdminDetailPage({ feedback }: { feedback: Platfo
           {t("experience.platformFeedbackAdmin.back")}
         </LinkButton>
         {feedback.status === "new" ? (
-          <form method="post">
+          <Form spacing="none" method="post">
             <input type="hidden" name="intent" value="review" readOnly />
             <Button type="submit" leadingIcon="check">
               {t("experience.platformFeedbackAdmin.markReviewed")}
             </Button>
-          </form>
+          </Form>
         ) : null}
         {feedback.status !== "archived" ? (
-          <form method="post">
+          <Form spacing="none" method="post">
             <input type="hidden" name="intent" value="archive" readOnly />
             <Button type="submit" tone="secondary" leadingIcon="package">
               {t("experience.platformFeedbackAdmin.archive")}
             </Button>
-          </form>
+          </Form>
         ) : null}
       </ActionBar>
       <Grid columns={{ base: 1, xl: 2 }} gap={4}>

@@ -53,6 +53,15 @@ describe("platform feedback admin UI", () => {
     expect(screen.getByLabelText("Status")).toMatchObject({ value: "new" });
     expect(screen.getByLabelText("Topic")).toMatchObject({ value: "checkout-payment" });
     expect(screen.getByLabelText("Workflow")).toMatchObject({ value: "checkout-payment" });
+    const form = screen.getByLabelText("Status").closest("form");
+    if (!form) {
+      throw new Error("Expected platform feedback filters to render inside a GET form.");
+    }
+    const formData = new FormData(form);
+    expect(form.getAttribute("method")).toBe("get");
+    expect(formData.get("status")).toBe("new");
+    expect(formData.get("topic")).toBe("checkout-payment");
+    expect(formData.get("workflow")).toBe("checkout-payment");
     expect(screen.getAllByRole("link", { name: "Open" })[0]?.getAttribute("href")).toBe(
       "/experience/platform-feedback/pfb_test",
     );

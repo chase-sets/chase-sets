@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { t } from "@chase-sets/localization";
 import {
+  Form,
   AddressBlock,
   Badge,
   Button,
@@ -510,11 +511,11 @@ export function FulfillmentShipmentPackingPage({
           title={t("fulfillment.features.shipments.ui.shipmentPackingPage.ready.title")}
           description={t("fulfillment.features.shipments.ui.shipmentPackingPage.ready.description")}
           action={
-            <form method="post">
+            <Form spacing="none" method="post">
               <Button type="submit" name="intent" value="start-packing" leadingIcon="package">
                 {t("fulfillment.features.shipments.ui.shipmentPackingPage.start.packing")}
               </Button>
-            </form>
+            </Form>
           }
         />
       ) : null}
@@ -597,7 +598,7 @@ export function FulfillmentShipmentPackingPage({
 
             {isPacking ? (
               <>
-                <form id="complete-packing-form" method="post" />
+                <Form spacing="none" id="complete-packing-form" method="post" />
                 <StickyTaskFooter
                   mobileOffset="in-flow"
                   summary={t("fulfillment.features.shipments.ui.shipmentPackingPage.progress", {

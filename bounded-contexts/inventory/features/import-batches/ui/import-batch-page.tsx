@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
+  Form,
   Badge,
   Button,
   Card,
@@ -169,7 +170,7 @@ export function InventoryImportBatchPage({
 
       <PageSection title={t("inventory.features.importBatches.ui.importBatchPage.upload.csv")}>
         <Card>
-          <form method="post" encType="multipart/form-data">
+          <Form spacing="none" method="post" encType="multipart/form-data">
             <Stack gap={3}>
               <input type="hidden" name="intent" value="create-batch" />
               <Inline>
@@ -232,7 +233,7 @@ export function InventoryImportBatchPage({
                 ) : null}
               </Inline>
             </Stack>
-          </form>
+          </Form>
         </Card>
       </PageSection>
 
@@ -241,7 +242,7 @@ export function InventoryImportBatchPage({
           <Stack gap={3}>
             {canCommit ? (
               <Card>
-                <form method="post">
+                <Form spacing="none" method="post">
                   <input type="hidden" name="intent" value="commit-batch" />
                   <input type="hidden" name="batchId" value={detail.batch_id} />
                   <Inline>
@@ -254,7 +255,7 @@ export function InventoryImportBatchPage({
                       {t("inventory.features.importBatches.ui.importBatchPage.commit.accepted.rows")}
                     </Button>
                   </Inline>
-                </form>
+                </Form>
               </Card>
             ) : null}
             <DataTable
