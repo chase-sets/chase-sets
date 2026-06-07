@@ -31,3 +31,26 @@ export type CatalogProviderProfileSectionRegistryItem = Readonly<{
   module: CatalogProviderProfileSectionModule;
   editableSection: CatalogProviderProfileEditableSection | null;
 }>;
+
+export type CatalogProviderProfileSectionSaveStatus =
+  | "clean"
+  | "dirty"
+  | "blocked"
+  | "saving"
+  | "saved"
+  | "error"
+  | "stale";
+
+export type CatalogProviderProfileSectionSaveState = Readonly<{
+  status: CatalogProviderProfileSectionSaveStatus;
+  dirty: boolean;
+  valid: boolean;
+  stale: boolean;
+  saving: boolean;
+  saved: boolean;
+  error: string | null;
+  blockedReason: string | null;
+  diagnostics: readonly string[];
+  canSave: boolean;
+  onSave?: () => void;
+}>;

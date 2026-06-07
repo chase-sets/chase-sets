@@ -94,7 +94,11 @@ import {
 } from "./mapping-expression-editor";
 import { CatalogIntegrationProfileHealthPanel } from "./admin-control-plane/health/integration-health-dashboard";
 import { ProfileSectionRegistrySummary } from "./admin-control-plane/profile-sections/profile-section-registry-summary";
-import { CATALOG_PROVIDER_PROFILE_SECTION_SAVE_ORDER } from "./admin-control-plane/profile-sections/registry";
+import {
+  CATALOG_PROVIDER_PROFILE_SECTION_SAVE_ORDER,
+  getProfileSectionModule,
+} from "./admin-control-plane/profile-sections/registry";
+import type { CatalogProviderProfileSectionSaveState } from "./admin-control-plane/profile-sections/types";
 import { CatalogIntegrationAreaWorkbench } from "./admin-control-plane/profiles/profile-workflow-workbench";
 import type { CatalogIntegrationModuleArea } from "./admin-control-plane/registry";
 import { CatalogIntegrationModuleShell } from "./admin-control-plane/shell/catalog-integration-module-shell";
@@ -412,6 +416,19 @@ type ProfileBasicsForm = Readonly<{
   promotionPlan: ProfilePromotionPlanForm;
 }>;
 
+type ProfileSectionFingerprintBaselines = Partial<Record<CatalogProviderProfileEditableSectionKey, string>>;
+
+type ProfileSectionRuntimeState = Partial<
+  Record<
+    CatalogProviderProfileEditableSectionKey,
+    Readonly<{
+      saving: boolean;
+      saved: boolean;
+      error: string | null;
+    }>
+  >
+>;
+
 type DryRunSafeOverrides = Readonly<{
   name: string;
   language: string;
@@ -728,6 +745,9 @@ export function IntegrationManagementPage({
     useState<MigrationEvidenceForm>(emptyMigrationEvidenceForm());
   const [editProfile, setEditProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [editBasicsForm, setEditBasicsForm] = useState<ProfileBasicsForm | null>(null);
+  const [editSectionBaselines, setEditSectionBaselines] = useState<ProfileSectionFingerprintBaselines>({});
+  const [editProfileAcceptedFingerprints, setEditProfileAcceptedFingerprints] = useState<readonly string[]>([]);
+  const [editSectionRuntimeState, setEditSectionRuntimeState] = useState<ProfileSectionRuntimeState>({});
   const [editProfileError, setEditProfileError] = useState<string | null>(null);
   const [compareProfile, setCompareProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
   const [deprecateProfile, setDeprecateProfile] = useState<CatalogProviderProfileVersionReview | null>(null);
@@ -814,6 +834,54 @@ export function IntegrationManagementPage({
     selectedProfile?.providerKey ?? "",
     selectedProfile?.profileVersion ?? "",
     Boolean(selectedProfile && moduleArea !== "health"),
+  );
+  const editCurrentProfile = useMemo(
+    () =>
+      editProfile
+        ? (profileRows.find((profile) => profileActionIdentity(profile) === profileActionIdentity(editProfile)) ?? null)
+        : null,
+    [editProfile, profileRows],
+  );
+  const editProfileStale = Boolean(
+    editCurrentProfile && !editProfileAcceptedFingerprints.includes(profileEditFingerprint(editCurrentProfile)),
+  );
+  const editSectionStates = useMemo(() => {
+    const states = buildProfileSectionSaveStates({
+      form: editBasicsForm,
+      baselines: editSectionBaselines,
+      runtimeState: editSectionRuntimeState,
+      authoringModel: editAuthoringModel.data ?? null,
+      stale: editProfileStale,
+      editable: Boolean(editProfile && profileLifecycleEditable(editProfile)),
+    });
+
+    const statesWithActions = new Map<
+      CatalogProviderProfileEditableSectionKey,
+      CatalogProviderProfileSectionSaveState
+    >();
+    for (const [section, state] of states) {
+      statesWithActions.set(section, {
+        ...state,
+        onSave: state.canSave ? () => void handleSaveProfileSection(section) : undefined,
+      });
+    }
+    return statesWithActions;
+  }, [
+    editAuthoringModel.data,
+    editBasicsForm,
+    editProfile,
+    editProfileStale,
+    editSectionBaselines,
+    editSectionRuntimeState,
+  ]);
+  const editChangedSections = useMemo(
+    () =>
+      CATALOG_PROVIDER_PROFILE_SECTION_SAVE_ORDER.filter((section) => editSectionStates.get(section)?.dirty ?? false),
+    [editSectionStates],
+  );
+  const editChangedSectionLabels = useMemo(
+    () => editChangedSections.map((section) => getProfileSectionModule(section).label),
+    [editChangedSections],
   );
   const profileColumns = useMemo(
     () =>
@@ -1004,8 +1072,21 @@ export function IntegrationManagementPage({
   }
 
   function openEditProfileDialog(profile: CatalogProviderProfileVersionReview) {
+    const form = profileBasicsForm(profile);
     setEditProfile(profile);
-    setEditBasicsForm(profileBasicsForm(profile));
+    setEditBasicsForm(form);
+    setEditSectionBaselines(profileSectionCommandFingerprints(buildProfileBasicsSectionCommands(form)));
+    setEditProfileAcceptedFingerprints([profileEditFingerprint(profile)]);
+    setEditSectionRuntimeState({});
+    setEditProfileError(null);
+  }
+
+  function closeEditProfileDialog() {
+    setEditProfile(null);
+    setEditBasicsForm(null);
+    setEditSectionBaselines({});
+    setEditProfileAcceptedFingerprints([]);
+    setEditSectionRuntimeState({});
     setEditProfileError(null);
   }
 
@@ -1063,137 +1144,105 @@ export function IntegrationManagementPage({
     }
   }
 
-  async function handleSaveProfileBasics() {
+  async function handleSaveProfileSection(section: CatalogProviderProfileEditableSectionKey) {
+    await handleSaveProfileSections([section]);
+  }
+
+  async function handleSaveChangedProfileSections() {
+    await handleSaveProfileSections(editChangedSections);
+  }
+
+  async function handleSaveProfileSections(sections: readonly CatalogProviderProfileEditableSectionKey[]) {
     if (!editProfile || !editBasicsForm) {
       return;
     }
+    const sectionCommands = buildProfileBasicsSectionCommands(editBasicsForm);
+    const targetSections = CATALOG_PROVIDER_PROFILE_SECTION_SAVE_ORDER.filter((section) => {
+      if (!sections.includes(section) || !sectionCommands.has(section)) {
+        return false;
+      }
+      const state = editSectionStates.get(section);
+      return Boolean(state?.canSave);
+    });
+
+    if (targetSections.length === 0) {
+      return;
+    }
+
     const key = profileActionIdentity(editProfile);
     setProfileActionKey(key);
     setEditProfileError(null);
+    setEditSectionRuntimeState((current) => {
+      const next = { ...current };
+      for (const section of targetSections) {
+        next[section] = { saving: true, saved: false, error: null };
+      }
+      return next;
+    });
 
-    try {
-      const command: CatalogProviderProfileBasicsUpdateCommand = {
-        section: "basics",
-        displayName: editBasicsForm.displayName.trim(),
-        lifecycle: editBasicsForm.lifecycle,
-        status: editBasicsForm.status,
-        compatibilityMode: editBasicsForm.compatibilityMode,
-        capabilities: [...editBasicsForm.capabilities],
-        supportedScopes: [...editBasicsForm.supportedScopes],
-        languageOptions: parseListInput(editBasicsForm.languageOptionsText),
-      };
-      const sourceContractCommand: CatalogProviderProfileSourceContractUpdateCommand = {
-        section: "source-contract",
-        sourceContract: {
-          owner: editBasicsForm.sourceContract.owner.trim(),
-          repository: nullableTrimmedValue(editBasicsForm.sourceContract.repository),
-          commit: nullableTrimmedValue(editBasicsForm.sourceContract.commit),
-          documentPath: editBasicsForm.sourceContract.documentPath.trim(),
-          fixtureSetVersion: editBasicsForm.sourceContract.fixtureSetVersion.trim(),
-        },
-      };
-      const retirementPlanCommand: CatalogProviderProfileRetirementPlanUpdateCommand = {
-        section: "retirement-plan",
-        retirementPlan: editBasicsForm.retirementPlan.enabled
-          ? {
-              trackingIssue: Number(editBasicsForm.retirementPlan.trackingIssueText),
-              removeAfter: "executable-mapping-contract-activated",
-              diagnosticText: editBasicsForm.retirementPlan.diagnosticText.trim(),
-            }
-          : null,
-      };
-      const providerOptionsCommand: CatalogProviderProfileProviderOptionsUpdateCommand = {
-        section: "provider-options",
-        optionQueries: editBasicsForm.optionQueries.map(optionQueryFormToCommand),
-      };
-      const connectorCommand: CatalogProviderProfileConnectorUpdateCommand = {
-        section: "connector",
-        connector: connectorFormToCommand(editBasicsForm.connector),
-      };
-      const fixturesCommand: CatalogProviderProfileFixturesUpdateCommand = {
-        section: "fixtures",
-        fixtures: {
-          fixtureRoot: editBasicsForm.fixtures.fixtureRoot.trim(),
-          coveredFlows: [...editBasicsForm.fixtures.coveredFlows],
-          liveProviderCallsAllowed: false,
-        },
-      };
-      const normalizedObservationCommand: CatalogProviderProfileNormalizedObservationUpdateCommand = {
-        section: "normalized-observation",
-        normalizedObservationMapping: normalizedObservationMappingFormToCommand(editBasicsForm.normalizedObservation),
-        normalizedObservationContract: normalizedObservationContractFormToCommand(editBasicsForm.normalizedObservation),
-      };
-      const externalReferencesCommand: CatalogProviderProfileExternalReferencesUpdateCommand = {
-        section: "external-references",
-        externalReferenceExtractionRules: externalReferenceExtractionRulesFormToCommand(
-          editBasicsForm.externalReferences,
-        ),
-        externalReferenceContracts: externalReferenceContractsFormToCommand(editBasicsForm.externalReferences),
-      };
-      const selectedOptionsCommand: CatalogProviderProfileSelectedOptionsUpdateCommand = {
-        section: "selected-options",
-        selectedOptionMapping: selectedOptionMappingFormToCommand(
-          editBasicsForm.externalReferences.selectedOptionMapping,
-        ),
-      };
-      const referenceHierarchyCommand: CatalogProviderProfileReferenceHierarchyUpdateCommand = {
-        section: "reference-hierarchy",
-        referenceHierarchyMapping: referenceHierarchyMappingFormToCommand(editBasicsForm.referenceHierarchy),
-        referenceHierarchyContracts: referenceHierarchyContractsFormToCommand(editBasicsForm.referenceHierarchy),
-      };
-      const duplicatePreventionCommand: CatalogProviderProfileDuplicatePreventionUpdateCommand = {
-        section: "duplicate-prevention",
-        duplicatePreventionMapping: duplicatePreventionMappingFormToCommand(editBasicsForm.duplicatePrevention),
-        ambiguityRules: duplicatePreventionAmbiguityRulesFormToCommand(editBasicsForm.duplicatePrevention),
-        duplicatePreventionContract: duplicatePreventionContractFormToCommand(editBasicsForm.duplicatePrevention),
-      };
-      const promotionPlanCommand: CatalogProviderProfilePromotionPlanUpdateCommand = {
-        section: "promotion-plan",
-        promotionCommandPlan: promotionPlanFormToCommand(editBasicsForm.promotionPlan),
-      };
-      const sectionCommands = new Map<
-        CatalogProviderProfileEditableSectionKey,
-        CatalogProviderProfileSectionUpdateCommand
-      >([
-        ["basics", command],
-        ["source-contract", sourceContractCommand],
-        ["retirement-plan", retirementPlanCommand],
-        ["provider-options", providerOptionsCommand],
-        ["connector", connectorCommand],
-        ["fixtures", fixturesCommand],
-        ["normalized-observation", normalizedObservationCommand],
-        ["external-references", externalReferencesCommand],
-        ["selected-options", selectedOptionsCommand],
-        ["reference-hierarchy", referenceHierarchyCommand],
-        ["duplicate-prevention", duplicatePreventionCommand],
-        ["promotion-plan", promotionPlanCommand],
-      ]);
+    const succeededSections: CatalogProviderProfileEditableSectionKey[] = [];
+    const failedSections: { section: CatalogProviderProfileEditableSectionKey; message: string }[] = [];
 
-      for (const section of CATALOG_PROVIDER_PROFILE_SECTION_SAVE_ORDER) {
-        const sectionCommand = sectionCommands.get(section);
-        if (!sectionCommand) {
-          continue;
-        }
+    for (const section of targetSections) {
+      const sectionCommand = sectionCommands.get(section);
+      if (!sectionCommand) {
+        continue;
+      }
 
-        await updateSourceObservationProviderProfileSection(
+      try {
+        const updatedProfile = await updateSourceObservationProviderProfileSection(
           editProfile.providerKey,
           editProfile.profileVersion,
           section,
           sectionCommand,
         );
+        succeededSections.push(section);
+        setEditSectionBaselines((current) => ({
+          ...current,
+          [section]: profileSectionCommandFingerprint(sectionCommand),
+        }));
+        setEditSectionRuntimeState((current) => ({
+          ...current,
+          [section]: { saving: false, saved: true, error: null },
+        }));
+        setEditProfileAcceptedFingerprints((current) => [
+          ...new Set([...current, profileEditFingerprint(updatedProfile)]),
+        ]);
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message : `${getProfileSectionModule(section).label} save failed.`;
+        failedSections.push({ section, message });
+        setEditSectionRuntimeState((current) => ({
+          ...current,
+          [section]: { saving: false, saved: false, error: message },
+        }));
       }
-      addToast("Profile basics saved.", "success");
-      setEditProfile(null);
-      setEditBasicsForm(null);
-      providerProfiles.refresh();
-      revalidator.revalidate();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Profile basics save failed.";
+    }
+
+    providerProfiles.refresh();
+    revalidator.revalidate();
+
+    if (failedSections.length === 0) {
+      addToast(
+        succeededSections.length === 1
+          ? `${getProfileSectionModule(succeededSections[0]).label} saved.`
+          : `${succeededSections.length} profile sections saved.`,
+        "success",
+      );
+    } else {
+      const message =
+        succeededSections.length > 0
+          ? `${formatProfileSectionCount(succeededSections.length)} saved; ${failedSections.length} failed.`
+          : `${formatProfileSectionCount(failedSections.length)} failed.`;
       setEditProfileError(message);
       addToast(message, "danger");
-    } finally {
-      setProfileActionKey(null);
     }
+
+    setProfileActionKey(null);
+  }
+
+  async function handleSaveProfileBasics() {
+    await handleSaveChangedProfileSections();
   }
 
   async function handleRollbackProfile() {
@@ -1856,24 +1905,22 @@ export function IntegrationManagementPage({
         open={Boolean(editProfile)}
         onOpenChange={(open) => {
           if (!open) {
-            setEditProfile(null);
-            setEditBasicsForm(null);
-            setEditProfileError(null);
+            closeEditProfileDialog();
           }
         }}
         title={t("catalog.features.sourceObservations.ui.integrationManagementPage.edit.profile.basics")}
         footer={
           <Inline gap={2} align="end">
-            <Button tone="secondary" onClick={() => setEditProfile(null)} disabled={Boolean(profileActionKey)}>
+            <Button tone="secondary" onClick={closeEditProfileDialog} disabled={Boolean(profileActionKey)}>
               {t("catalog.features.sourceObservations.ui.list.cancel")}
             </Button>
             <Button
               leadingIcon="settings"
               onClick={handleSaveProfileBasics}
-              disabled={profileBasicsSaveDisabled(editProfile, editBasicsForm, editAuthoringModel.data)}
+              disabled={profileChangedSectionsSaveDisabled(editChangedSections, editSectionStates)}
               loading={Boolean(editProfile && profileActionKey === profileActionIdentity(editProfile))}
             >
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.save.basics")}
+              {t("catalog.features.sourceObservations.ui.integrationManagementPage.save.changed.sections")}
             </Button>
           </Inline>
         }
@@ -1885,6 +1932,8 @@ export function IntegrationManagementPage({
             onChange={setEditBasicsForm}
             error={editProfileError}
             authoringModel={editAuthoringModel.data ?? null}
+            sectionStates={editSectionStates}
+            changedSectionLabels={editChangedSectionLabels}
             previewPayload={selectedDryRunPayload(
               editAuthoringModel.data,
               editAuthoringModel.data?.dryRunInputTemplate.defaultFlow ?? "normal",
@@ -3176,6 +3225,8 @@ function ProfileBasicsEditor({
   onChange,
   error,
   authoringModel,
+  sectionStates,
+  changedSectionLabels,
   previewPayload,
 }: Readonly<{
   profile: CatalogProviderProfileVersionReview;
@@ -3183,6 +3234,8 @@ function ProfileBasicsEditor({
   onChange: (form: ProfileBasicsForm) => void;
   error: string | null;
   authoringModel: CatalogProviderProfileAuthoringModel | null;
+  sectionStates: ReadonlyMap<CatalogProviderProfileEditableSectionKey, CatalogProviderProfileSectionSaveState>;
+  changedSectionLabels: readonly string[];
   previewPayload: JsonValue | null;
 }>) {
   const setForm = (patch: Partial<ProfileBasicsForm>) => onChange({ ...form, ...patch });
@@ -3243,7 +3296,18 @@ function ProfileBasicsEditor({
           },
         ]}
       />
-      <ProfileSectionRegistrySummary editableSections={authoringModel?.editableSections ?? []} />
+      <ProfileSectionRegistrySummary
+        editableSections={authoringModel?.editableSections ?? []}
+        sectionStates={sectionStates}
+      />
+      <KeyValueList
+        items={[
+          {
+            key: "Changed sections",
+            value: changedSectionLabels.length > 0 ? changedSectionLabels.join(", ") : "None",
+          },
+        ]}
+      />
 
       {!editable ? (
         <p className="text-sm text-secondary">
@@ -7166,36 +7230,307 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
   };
 }
 
-function profileBasicsSaveDisabled(
-  profile: CatalogProviderProfileVersionReview | null,
-  form: ProfileBasicsForm | null,
+function buildProfileBasicsSectionCommands(
+  form: ProfileBasicsForm,
+): Map<CatalogProviderProfileEditableSectionKey, CatalogProviderProfileSectionUpdateCommand> {
+  const command: CatalogProviderProfileBasicsUpdateCommand = {
+    section: "basics",
+    displayName: form.displayName.trim(),
+    lifecycle: form.lifecycle,
+    status: form.status,
+    compatibilityMode: form.compatibilityMode,
+    capabilities: [...form.capabilities],
+    supportedScopes: [...form.supportedScopes],
+    languageOptions: parseListInput(form.languageOptionsText),
+  };
+  const sourceContractCommand: CatalogProviderProfileSourceContractUpdateCommand = {
+    section: "source-contract",
+    sourceContract: {
+      owner: form.sourceContract.owner.trim(),
+      repository: nullableTrimmedValue(form.sourceContract.repository),
+      commit: nullableTrimmedValue(form.sourceContract.commit),
+      documentPath: form.sourceContract.documentPath.trim(),
+      fixtureSetVersion: form.sourceContract.fixtureSetVersion.trim(),
+    },
+  };
+  const retirementPlanCommand: CatalogProviderProfileRetirementPlanUpdateCommand = {
+    section: "retirement-plan",
+    retirementPlan: form.retirementPlan.enabled
+      ? {
+          trackingIssue: Number(form.retirementPlan.trackingIssueText),
+          removeAfter: "executable-mapping-contract-activated",
+          diagnosticText: form.retirementPlan.diagnosticText.trim(),
+        }
+      : null,
+  };
+  const providerOptionsCommand: CatalogProviderProfileProviderOptionsUpdateCommand = {
+    section: "provider-options",
+    optionQueries: form.optionQueries.map(optionQueryFormToCommand),
+  };
+  const connectorCommand: CatalogProviderProfileConnectorUpdateCommand = {
+    section: "connector",
+    connector: connectorFormToCommand(form.connector),
+  };
+  const fixturesCommand: CatalogProviderProfileFixturesUpdateCommand = {
+    section: "fixtures",
+    fixtures: {
+      fixtureRoot: form.fixtures.fixtureRoot.trim(),
+      coveredFlows: [...form.fixtures.coveredFlows],
+      liveProviderCallsAllowed: false,
+    },
+  };
+  const normalizedObservationCommand: CatalogProviderProfileNormalizedObservationUpdateCommand = {
+    section: "normalized-observation",
+    normalizedObservationMapping: normalizedObservationMappingFormToCommand(form.normalizedObservation),
+    normalizedObservationContract: normalizedObservationContractFormToCommand(form.normalizedObservation),
+  };
+  const externalReferencesCommand: CatalogProviderProfileExternalReferencesUpdateCommand = {
+    section: "external-references",
+    externalReferenceExtractionRules: externalReferenceExtractionRulesFormToCommand(form.externalReferences),
+    externalReferenceContracts: externalReferenceContractsFormToCommand(form.externalReferences),
+  };
+  const selectedOptionsCommand: CatalogProviderProfileSelectedOptionsUpdateCommand = {
+    section: "selected-options",
+    selectedOptionMapping: selectedOptionMappingFormToCommand(form.externalReferences.selectedOptionMapping),
+  };
+  const referenceHierarchyCommand: CatalogProviderProfileReferenceHierarchyUpdateCommand = {
+    section: "reference-hierarchy",
+    referenceHierarchyMapping: referenceHierarchyMappingFormToCommand(form.referenceHierarchy),
+    referenceHierarchyContracts: referenceHierarchyContractsFormToCommand(form.referenceHierarchy),
+  };
+  const duplicatePreventionCommand: CatalogProviderProfileDuplicatePreventionUpdateCommand = {
+    section: "duplicate-prevention",
+    duplicatePreventionMapping: duplicatePreventionMappingFormToCommand(form.duplicatePrevention),
+    ambiguityRules: duplicatePreventionAmbiguityRulesFormToCommand(form.duplicatePrevention),
+    duplicatePreventionContract: duplicatePreventionContractFormToCommand(form.duplicatePrevention),
+  };
+  const promotionPlanCommand: CatalogProviderProfilePromotionPlanUpdateCommand = {
+    section: "promotion-plan",
+    promotionCommandPlan: promotionPlanFormToCommand(form.promotionPlan),
+  };
+
+  return new Map<CatalogProviderProfileEditableSectionKey, CatalogProviderProfileSectionUpdateCommand>([
+    ["basics", command],
+    ["source-contract", sourceContractCommand],
+    ["retirement-plan", retirementPlanCommand],
+    ["provider-options", providerOptionsCommand],
+    ["connector", connectorCommand],
+    ["fixtures", fixturesCommand],
+    ["normalized-observation", normalizedObservationCommand],
+    ["external-references", externalReferencesCommand],
+    ["selected-options", selectedOptionsCommand],
+    ["reference-hierarchy", referenceHierarchyCommand],
+    ["duplicate-prevention", duplicatePreventionCommand],
+    ["promotion-plan", promotionPlanCommand],
+  ]);
+}
+
+function buildProfileSectionSaveStates({
+  form,
+  baselines,
+  runtimeState,
+  authoringModel,
+  stale,
+  editable,
+}: Readonly<{
+  form: ProfileBasicsForm | null;
+  baselines: ProfileSectionFingerprintBaselines;
+  runtimeState: ProfileSectionRuntimeState;
+  authoringModel: CatalogProviderProfileAuthoringModel | null;
+  stale: boolean;
+  editable: boolean;
+}>): Map<CatalogProviderProfileEditableSectionKey, CatalogProviderProfileSectionSaveState> {
+  const commands = form ? buildProfileBasicsSectionCommands(form) : new Map();
+  const states = new Map<CatalogProviderProfileEditableSectionKey, CatalogProviderProfileSectionSaveState>();
+
+  for (const section of CATALOG_PROVIDER_PROFILE_SECTION_SAVE_ORDER) {
+    const command = commands.get(section);
+    const fingerprint = command ? profileSectionCommandFingerprint(command) : null;
+    const dirty = Boolean(fingerprint && baselines[section] && baselines[section] !== fingerprint);
+    const diagnostics = form ? profileSectionDiagnostics(section, form, authoringModel) : [];
+    const runtime = runtimeState[section];
+    const saving = Boolean(runtime?.saving);
+    const error = runtime?.error ?? null;
+    const valid = diagnostics.length === 0;
+    const blockedReason = profileSectionBlockedReason({
+      editable,
+      commandAvailable: Boolean(command),
+      dirty,
+      valid,
+      stale,
+      diagnostics,
+    });
+    const status: CatalogProviderProfileSectionSaveState["status"] = saving
+      ? "saving"
+      : error
+        ? "error"
+        : stale
+          ? "stale"
+          : blockedReason && dirty
+            ? "blocked"
+            : dirty
+              ? "dirty"
+              : runtime?.saved
+                ? "saved"
+                : "clean";
+
+    states.set(section, {
+      status,
+      dirty,
+      valid,
+      stale,
+      saving,
+      saved: Boolean(runtime?.saved),
+      error,
+      blockedReason,
+      diagnostics,
+      canSave: Boolean(dirty && !blockedReason && !saving),
+    });
+  }
+
+  return states;
+}
+
+function profileSectionDiagnostics(
+  section: CatalogProviderProfileEditableSectionKey,
+  form: ProfileBasicsForm,
   authoringModel: CatalogProviderProfileAuthoringModel | null = null,
+): string[] {
+  switch (section) {
+    case "basics":
+      return [
+        ...(!form.displayName.trim() ? ["Display name is required."] : []),
+        ...(form.capabilities.length === 0 ? ["At least one capability is required."] : []),
+      ];
+    case "source-contract":
+      return [
+        ...(!form.sourceContract.owner.trim() ? ["Contract owner is required."] : []),
+        ...(!form.sourceContract.documentPath.trim() ? ["Document path is required."] : []),
+        ...(!form.sourceContract.fixtureSetVersion.trim() ? ["Fixture set version is required."] : []),
+      ];
+    case "retirement-plan":
+      return form.retirementPlan.enabled &&
+        (!positiveIntegerText(form.retirementPlan.trackingIssueText) || !form.retirementPlan.diagnosticText.trim())
+        ? ["Retirement plan requires a positive tracking issue and diagnostic."]
+        : [];
+    case "provider-options":
+      return validateOptionQueryForms(form.optionQueries);
+    case "connector":
+      return validateConnectorForm(form.connector);
+    case "fixtures":
+      return !form.fixtures.fixtureRoot.trim() ? ["Fixture root is required."] : [];
+    case "normalized-observation":
+      return validateNormalizedObservationForm(form.normalizedObservation);
+    case "external-references":
+      return validateExternalReferenceContractsForm(
+        form.externalReferences,
+        authoringModel?.selectedOptionSchema ?? null,
+      );
+    case "selected-options":
+      return validateSelectedOptionMappingForm(form.externalReferences, authoringModel?.selectedOptionSchema ?? null);
+    case "reference-hierarchy":
+      return validateReferenceHierarchyForm(form.referenceHierarchy);
+    case "duplicate-prevention":
+      return validateDuplicatePreventionForm(form.duplicatePrevention);
+    case "promotion-plan":
+      return validatePromotionPlanForm(form.promotionPlan, form);
+    case "catalog-field-mapping":
+    case "source-observation":
+    case "migration-evidence":
+      return [];
+  }
+}
+
+function profileSectionBlockedReason({
+  editable,
+  commandAvailable,
+  dirty,
+  valid,
+  stale,
+  diagnostics,
+}: Readonly<{
+  editable: boolean;
+  commandAvailable: boolean;
+  dirty: boolean;
+  valid: boolean;
+  stale: boolean;
+  diagnostics: readonly string[];
+}>): string | null {
+  if (!commandAvailable) {
+    return "Framework section is not editable in this dialog.";
+  }
+  if (!editable) {
+    return "Profile lifecycle blocks editing.";
+  }
+  if (stale) {
+    return "Profile changed after this editor opened. Close and reopen before saving.";
+  }
+  if (!dirty) {
+    return null;
+  }
+  if (!valid) {
+    return diagnostics[0] ?? "Section validation failed.";
+  }
+  return null;
+}
+
+function profileChangedSectionsSaveDisabled(
+  changedSections: readonly CatalogProviderProfileEditableSectionKey[],
+  sectionStates: ReadonlyMap<CatalogProviderProfileEditableSectionKey, CatalogProviderProfileSectionSaveState>,
 ): boolean {
-  if (!profile || !form || !profileLifecycleEditable(profile)) {
-    return true;
-  }
-
-  if (
-    !form.displayName.trim() ||
-    form.capabilities.length === 0 ||
-    !form.sourceContract.owner.trim() ||
-    !form.sourceContract.documentPath.trim() ||
-    !form.sourceContract.fixtureSetVersion.trim()
-  ) {
-    return true;
-  }
-
   return (
-    (form.retirementPlan.enabled &&
-      (!positiveIntegerText(form.retirementPlan.trackingIssueText) || !form.retirementPlan.diagnosticText.trim())) ||
-    validateOptionQueryForms(form.optionQueries).length > 0 ||
-    validateConnectorForm(form.connector).length > 0 ||
-    validateNormalizedObservationForm(form.normalizedObservation).length > 0 ||
-    validateExternalReferencesForm(form.externalReferences, authoringModel?.selectedOptionSchema ?? null).length > 0 ||
-    validateReferenceHierarchyForm(form.referenceHierarchy).length > 0 ||
-    validateDuplicatePreventionForm(form.duplicatePrevention).length > 0 ||
-    validatePromotionPlanForm(form.promotionPlan, form).length > 0 ||
-    !form.fixtures.fixtureRoot.trim()
+    changedSections.length === 0 ||
+    changedSections.some((section) => {
+      const state = sectionStates.get(section);
+      return !state?.canSave;
+    })
+  );
+}
+
+function formatProfileSectionCount(count: number): string {
+  return `${count} profile section${count === 1 ? "" : "s"}`;
+}
+
+function profileSectionCommandFingerprints(
+  commands: ReadonlyMap<CatalogProviderProfileEditableSectionKey, CatalogProviderProfileSectionUpdateCommand>,
+): ProfileSectionFingerprintBaselines {
+  const baselines: ProfileSectionFingerprintBaselines = {};
+  for (const [section, command] of commands) {
+    baselines[section] = profileSectionCommandFingerprint(command);
+  }
+  return baselines;
+}
+
+function profileSectionCommandFingerprint(command: CatalogProviderProfileSectionUpdateCommand): string {
+  return stableJsonFingerprint(command);
+}
+
+function profileEditFingerprint(profile: CatalogProviderProfileVersionReview): string {
+  return stableJsonFingerprint({
+    providerKey: profile.providerKey,
+    profileVersion: profile.profileVersion,
+    lifecycle: profile.lifecycle,
+    active: profile.active,
+    authoringAudit: profile.authoringAudit,
+    editable: profileEditableJson(profile),
+  });
+}
+
+function stableJsonFingerprint(value: unknown): string {
+  return JSON.stringify(sortJsonValue(value));
+}
+
+function sortJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(sortJsonValue);
+  }
+  if (!isRecord(value)) {
+    return value;
+  }
+  return Object.fromEntries(
+    Object.keys(value)
+      .sort()
+      .map((key) => [key, sortJsonValue(value[key])]),
   );
 }
 
@@ -7662,6 +7997,16 @@ function validateExternalReferencesForm(
   form: ProfileExternalReferencesForm,
   selectedOptionSchema: CatalogProviderProfileAuthoringModel["selectedOptionSchema"] = null,
 ): string[] {
+  return [
+    ...validateExternalReferenceContractsForm(form, selectedOptionSchema),
+    ...validateSelectedOptionMappingForm(form, selectedOptionSchema),
+  ];
+}
+
+function validateExternalReferenceContractsForm(
+  form: ProfileExternalReferencesForm,
+  selectedOptionSchema: CatalogProviderProfileAuthoringModel["selectedOptionSchema"] = null,
+): string[] {
   const diagnostics: string[] = [];
   form.contracts.forEach((contract, index) => {
     const label = `${contract.target === "product-reference" ? "Product reference" : "Catalog Item reference"} ${index + 1}`;
@@ -7686,6 +8031,14 @@ function validateExternalReferencesForm(
     }
   });
 
+  return diagnostics;
+}
+
+function validateSelectedOptionMappingForm(
+  form: ProfileExternalReferencesForm,
+  selectedOptionSchema: CatalogProviderProfileAuthoringModel["selectedOptionSchema"] = null,
+): string[] {
+  const diagnostics: string[] = [];
   if (form.selectedOptionMapping) {
     if (!form.selectedOptionMapping.providerKey.trim() || !form.selectedOptionMapping.externalKeyPrefix.trim()) {
       diagnostics.push("Selected option mapping: product reference provider key and prefix are required.");

@@ -1807,6 +1807,8 @@ export const catalogEnglishTranslations = {
     "Sample Normalized Output",
   "catalog.features.sourceObservations.ui.integrationManagementPage.sample.output": "Sample output",
   "catalog.features.sourceObservations.ui.integrationManagementPage.save.basics": "Save Basics",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.save.changed.sections": "Save changed sections",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.save.section": "Save section",
   "catalog.features.sourceObservations.ui.integrationManagementPage.scope": "Scope",
   "catalog.features.sourceObservations.ui.integrationManagementPage.scope.type": "Scope type",
   "catalog.features.sourceObservations.ui.integrationManagementPage.scopes": "Scopes",
