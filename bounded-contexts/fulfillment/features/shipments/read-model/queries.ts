@@ -32,6 +32,45 @@ export type FulfillmentLabelAddressOverrideAuditRow = Readonly<{
   submitted_recipient_address: AddressSnapshot;
 }>;
 
+export type FulfillmentPostageLabelOperationDiagnosticRow = Readonly<{
+  operation_key: string;
+  operation_kind: string;
+  provider_name: string;
+  provider_mode: string;
+  status: string;
+  requested_service_level: string | null;
+  requested_delivery_confirmation: string | null;
+  requested_label_size: string | null;
+  requested_mailpiece_class: string | null;
+  requested_weight_ounces: string | null;
+  address_override_changed_side: string | null;
+  address_override_reason: string | null;
+  policy_version: string | null;
+  parcel_required: string | null;
+  signature_required: string | null;
+  provider_shipment_id: string | null;
+  provider_label_id: string | null;
+  tracking_identifier: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}>;
+
+export type FulfillmentPostageProviderEventDiagnosticRow = Readonly<{
+  provider_event_id: string;
+  provider_name: string;
+  provider_mode: string;
+  event_kind: string;
+  provider_object_reference: string | null;
+  tracking_identifier: string | null;
+  status: string;
+  status_detail: string | null;
+  processing_result: string | null;
+  occurred_at: string;
+  received_at: string;
+}>;
+
 export type FulfillmentShipmentListRow = Readonly<{
   shipment_id: string;
   order_id: string;
@@ -86,6 +125,8 @@ export type FulfillmentShipmentDetailRow = FulfillmentShipmentListRow &
     lines: readonly FulfillmentShipmentLineRow[];
     exceptions: readonly FulfillmentShipmentExceptionRow[];
     address_override_audits: readonly FulfillmentLabelAddressOverrideAuditRow[];
+    postage_label_operations: readonly FulfillmentPostageLabelOperationDiagnosticRow[];
+    postage_provider_events: readonly FulfillmentPostageProviderEventDiagnosticRow[];
   }>;
 
 export async function recordFulfillmentPostageLabelOperationPending(
@@ -284,23 +325,14 @@ export async function listBuyerShipments(
   };
 }
 
-export async function getBuyerShipment(
-  db: PgQueryable,
-  shipmentId: string,
-  buyerAccountId: string,
-): Promise<FulfillmentShipmentDetailRow | null> {
-  const result = await db.query<BaseShipmentPageRow>(
-    `${baseShipmentSelect}
-     WHERE page.shipment_id = $1
-       AND page.buyer_account_id = $2`,
-    [shipmentId, buyerAccountId],
-  );
-  const row = result.rows[0];
-  if (!row) {
-    return null;
-  }
-
-  const [linesResult, exceptionsResult, addressOverrideAuditsResult] = await Promise.all([
+async function loadShipmentDetailCollections(db: PgQueryable, shipmentId: string) {
+  const [
+    linesResult,
+    exceptionsResult,
+    addressOverrideAuditsResult,
+    postageLabelOperationsResult,
+    postageProviderEventsResult,
+  ] = await Promise.all([
     db.query<FulfillmentShipmentLineRow>(
       `SELECT
          line_id,
@@ -343,14 +375,88 @@ export async function getBuyerShipment(
        ORDER BY recorded_at DESC`,
       [shipmentId],
     ),
+    db.query<FulfillmentPostageLabelOperationDiagnosticRow>(
+      `SELECT
+         operation_key,
+         operation_kind,
+         provider_name,
+         provider_mode,
+         status,
+         request_json #>> '{serviceLevel}' AS requested_service_level,
+         request_json #>> '{deliveryConfirmation}' AS requested_delivery_confirmation,
+         request_json #>> '{labelSize}' AS requested_label_size,
+         request_json #>> '{package,mailpieceClass}' AS requested_mailpiece_class,
+         request_json #>> '{package,weightOunces}' AS requested_weight_ounces,
+         request_json #>> '{addressOverride,changedSide}' AS address_override_changed_side,
+         request_json #>> '{addressOverride,reason}' AS address_override_reason,
+         request_json #>> '{postagePolicySnapshot,policyVersion}' AS policy_version,
+         request_json #>> '{postagePolicySnapshot,parcelRequired}' AS parcel_required,
+         request_json #>> '{postagePolicySnapshot,signatureRequired}' AS signature_required,
+         provider_shipment_id,
+         provider_label_id,
+         tracking_identifier,
+         error_message,
+         created_at,
+         updated_at,
+         completed_at
+       FROM fulfillment_postage_label_operations
+       WHERE shipment_id = $1
+       ORDER BY created_at DESC, operation_key DESC
+       LIMIT 25`,
+      [shipmentId],
+    ),
+    db.query<FulfillmentPostageProviderEventDiagnosticRow>(
+      `SELECT
+         provider_event_id,
+         provider_name,
+         provider_mode,
+         event_kind,
+         provider_object_reference,
+         tracking_identifier,
+         status,
+         status_detail,
+         processing_result,
+         occurred_at,
+         received_at
+       FROM fulfillment_postage_provider_events
+       WHERE shipment_id = $1
+       ORDER BY occurred_at DESC, provider_event_id DESC
+       LIMIT 25`,
+      [shipmentId],
+    ),
   ]);
+
+  return {
+    lines: linesResult.rows,
+    exceptions: exceptionsResult.rows,
+    address_override_audits: addressOverrideAuditsResult.rows,
+    postage_label_operations: postageLabelOperationsResult.rows,
+    postage_provider_events: postageProviderEventsResult.rows,
+  };
+}
+
+export async function getBuyerShipment(
+  db: PgQueryable,
+  shipmentId: string,
+  buyerAccountId: string,
+): Promise<FulfillmentShipmentDetailRow | null> {
+  const result = await db.query<BaseShipmentPageRow>(
+    `${baseShipmentSelect}
+     WHERE page.shipment_id = $1
+       AND page.buyer_account_id = $2`,
+    [shipmentId, buyerAccountId],
+  );
+  const row = result.rows[0];
+  if (!row) {
+    return null;
+  }
+
+  const detailCollections = await loadShipmentDetailCollections(db, shipmentId);
 
   return {
     ...row,
     shipping_origin_snapshot: null,
-    lines: linesResult.rows,
-    exceptions: exceptionsResult.rows,
-    address_override_audits: addressOverrideAuditsResult.rows,
+    ...detailCollections,
   };
 }
 
@@ -399,56 +505,11 @@ export async function getSellerShipment(
     return null;
   }
 
-  const [linesResult, exceptionsResult, addressOverrideAuditsResult] = await Promise.all([
-    db.query<FulfillmentShipmentLineRow>(
-      `SELECT
-         line_id,
-         order_line_id,
-         catalog_catalog_item_id,
-         product_id,
-         item_title,
-         item_subtitle,
-         product_summary,
-         quantity,
-         packing_confirmed_quantity,
-         packing_confirmed_at
-       FROM fulfillment_shipment_line_pages
-       WHERE shipment_id = $1
-       ORDER BY line_index ASC, line_id ASC`,
-      [shipmentId],
-    ),
-    db.query<FulfillmentShipmentExceptionRow>(
-      `SELECT
-         raised_at,
-         exception_type,
-         notes
-       FROM fulfillment_shipment_exception_pages
-       WHERE shipment_id = $1
-       ORDER BY raised_at DESC`,
-      [shipmentId],
-    ),
-    db.query<FulfillmentLabelAddressOverrideAuditRow>(
-      `SELECT
-         recorded_at,
-         changed_side,
-         reason,
-         actor,
-         original_sender_snapshot,
-         submitted_sender_address,
-         original_recipient_snapshot,
-         submitted_recipient_address
-       FROM fulfillment_label_address_override_audit_pages
-       WHERE shipment_id = $1
-       ORDER BY recorded_at DESC`,
-      [shipmentId],
-    ),
-  ]);
+  const detailCollections = await loadShipmentDetailCollections(db, shipmentId);
 
   return {
     ...row,
-    lines: linesResult.rows,
-    exceptions: exceptionsResult.rows,
-    address_override_audits: addressOverrideAuditsResult.rows,
+    ...detailCollections,
   };
 }
 

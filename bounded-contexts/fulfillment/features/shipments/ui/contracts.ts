@@ -12,6 +12,45 @@ export interface FulfillmentLabelAddressOverrideAudit {
   submitted_recipient_address: AddressSnapshot;
 }
 
+export interface FulfillmentPostageLabelOperationDiagnostic {
+  operation_key: string;
+  operation_kind: string;
+  provider_name: string;
+  provider_mode: string;
+  status: string;
+  requested_service_level: string | null;
+  requested_delivery_confirmation: string | null;
+  requested_label_size: string | null;
+  requested_mailpiece_class: string | null;
+  requested_weight_ounces: string | null;
+  address_override_changed_side: string | null;
+  address_override_reason: string | null;
+  policy_version: string | null;
+  parcel_required: string | null;
+  signature_required: string | null;
+  provider_shipment_id: string | null;
+  provider_label_id: string | null;
+  tracking_identifier: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface FulfillmentPostageProviderEventDiagnostic {
+  provider_event_id: string;
+  provider_name: string;
+  provider_mode: string;
+  event_kind: string;
+  provider_object_reference: string | null;
+  tracking_identifier: string | null;
+  status: string;
+  status_detail: string | null;
+  processing_result: string | null;
+  occurred_at: string;
+  received_at: string;
+}
+
 export interface FulfillmentShipmentListItem {
   shipment_id: string;
   order_id: string;
@@ -84,6 +123,8 @@ export interface FulfillmentShipmentDetail extends FulfillmentShipmentListItem {
   lines: readonly FulfillmentShipmentLine[];
   exceptions: readonly FulfillmentShipmentException[];
   address_override_audits: readonly FulfillmentLabelAddressOverrideAudit[];
+  postage_label_operations: readonly FulfillmentPostageLabelOperationDiagnostic[];
+  postage_provider_events: readonly FulfillmentPostageProviderEventDiagnostic[];
 }
 
 export type FulfillmentPackingSlipFormat = "letter" | "thermal-4x6";

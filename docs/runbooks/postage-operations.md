@@ -51,11 +51,15 @@ Fulfillment label purchase reads `shipping_plan_snapshot.postagePolicySnapshot`.
 
 Address and package overrides remain operational overrides. They do not remove signature requirements committed by Ordering, and they must not convert a parcel-required shipment into a non-compliant letter flow.
 
+Validation failures are recorded as failed postage label operations before any provider call. Provider capability failures and generic provider errors are also recorded as failed operations and reflected on the shipment label status. The support-facing shipment detail page exposes only bounded diagnostic facts: buyer shipping option, committed policy version, parcel/signature requirements, requested mailpiece class, requested service level, delivery confirmation, label status, provider outcome, and redacted provider event status. Raw provider payloads, sender addresses, and recipient addresses must not be copied from operation tables into support diagnostics.
+
 ## Label Flow
 
 The EasyPost adapter creates shipments from sender and recipient addresses plus package dimensions and weight, returns USPS rates, buys the selected rate, and provides the tracking number and label document URL.
 
 USPS label refunds are modeled as label void requests. A voided label moves the shipment back to awaiting a label while preserving provider refund metadata on the shipment read model.
+
+Rebuy after void must use the original Fulfillment shipment `shipping_plan_snapshot`; do not re-evaluate the active Ordering postage policy for the shipment. If the original snapshot required parcel or signature, the rebuy path must continue enforcing those requirements even after operators activate a newer Admin postage policy.
 
 EasyPost can complete USPS refunds asynchronously after the void request. EasyPost's [shipping refund](https://docs.easypost.com/docs/shipments/shipping-refund) and [event](https://docs.easypost.com/docs/events) docs describe USPS refund processing as delayed and `refund.successful` as the Event created when a non-instantaneous refund completes. Fulfillment launch proof therefore needs both the synchronous void result and the later EasyPost refund lifecycle callback. The EasyPost adapter normalizes `refund.*` webhook events, including `refund.successful`, into `refund-status` rows in `fulfillment_postage_provider_events`; the launch gate is not satisfied by `label_refund_status` alone.
 
@@ -71,13 +75,47 @@ Before enabling a real postage provider in a shared environment:
 6. Confirm `tracker.updated` callbacks create `fulfillment_postage_provider_events` rows and advance Fulfillment shipment state only.
 7. Confirm tracking updates do not mutate Ordering, Payments, or Settlement state directly.
 
+When diagnosing a failed label purchase:
+
+1. Open the seller shipment detail page and inspect Postage diagnostics.
+2. Compare buyer shipping option with the committed policy version, parcel-required result, signature-required result, and policy reasons.
+3. Check the latest postage label operation. A `postage_policy_validation_failed` shipment label error means Fulfillment rejected a non-compliant label request before the provider was called.
+4. If the operation failed with `postage_provider_capability_failure`, confirm whether the provider mode supports the requested bounded capability, such as signature delivery confirmation.
+5. If the operation failed with another provider error, use the provider-neutral shipment id, label id, tracking identifier, provider event id, and redacted provider status fields to investigate in the provider console.
+6. Do not expose `request_json` address contents or `payload_json` provider payloads in tickets, logs, launch evidence, or GitHub issues. Redact provider account internals and private address data.
+
+Use this query shape for support diagnostics when a database check is necessary:
+
+```sql
+SELECT operation_kind,
+       provider_name,
+       provider_mode,
+       status,
+       request_json #>> '{serviceLevel}' AS requested_service_level,
+       request_json #>> '{deliveryConfirmation}' AS requested_delivery_confirmation,
+       request_json #>> '{package,mailpieceClass}' AS requested_mailpiece_class,
+       request_json #>> '{postagePolicySnapshot,policyVersion}' AS policy_version,
+       request_json #>> '{postagePolicySnapshot,parcelRequired}' AS parcel_required,
+       request_json #>> '{postagePolicySnapshot,signatureRequired}' AS signature_required,
+       error_message,
+       created_at,
+       completed_at
+FROM fulfillment_postage_label_operations
+WHERE shipment_id = '<shipmentId>'
+ORDER BY created_at DESC
+LIMIT 25;
+```
+
+Provider event diagnostics should select bounded event columns only. Do not select `payload_json` for routine support work.
+
 Before retiring legacy compatibility behavior:
 
 1. Confirm recent orders have `shipping_plan_snapshot.postagePolicySnapshot.policyVersion`.
 2. Confirm checkout copy does not imply signature outside the evaluated policy result.
 3. Confirm label operation requests include `deliveryConfirmation` only when the snapshot requires signature.
 4. Confirm no production shipment awaiting label depends on missing policy metadata for a policy-required decision.
-5. Confirm temporary migration scripts, backfill flags, and compatibility code are removed or documented as retained audit data.
+5. Confirm new label operation requests no longer persist sender or recipient address bodies in `request_json`; historical rows that predate this cleanup remain retained audit data and must not be exposed through support diagnostics.
+6. Confirm temporary migration scripts, backfill flags, and compatibility code are removed or documented as retained audit data.
 
 Run the read-only cleanup evidence report against the target environment before closing the cleanup gate:
 

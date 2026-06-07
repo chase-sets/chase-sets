@@ -254,7 +254,7 @@ describe("fulfillment shipment runtime", () => {
       })),
     };
     const db = {
-      query: vi.fn(async (sql: string) => {
+      query: vi.fn(async (sql: string, _params?: readonly unknown[]) => {
         if (sql.includes("FROM fulfillment_shipment_pages")) {
           return {
             rows: [
@@ -379,6 +379,13 @@ describe("fulfillment shipment runtime", () => {
       String(sql).includes("INSERT INTO fulfillment_postage_label_operations"),
     );
     expect(providerOperationCall).toBeTruthy();
+    const operationRequest = String(providerOperationCall?.[1]?.[6]);
+    expect(operationRequest).toContain('"postagePolicySnapshot"');
+    expect(operationRequest).toContain('"signatureRequired":true');
+    expect(operationRequest).not.toContain("1 Main St");
+    expect(operationRequest).not.toContain("2 Market St");
+    expect(operationRequest).not.toContain('"sender"');
+    expect(operationRequest).not.toContain('"recipient"');
     expect(db.query.mock.invocationCallOrder[db.query.mock.calls.indexOf(providerOperationCall!)]).toBeLessThan(
       vi.mocked(postageLabelProvider.purchaseUspsLabel).mock.invocationCallOrder[0],
     );
@@ -393,7 +400,7 @@ describe("fulfillment shipment runtime", () => {
   });
 
   it("rejects parcel-required shipments when a label override attempts Letter Mail", async () => {
-    const { eventStore } = createInMemoryEventStore();
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
     const postageLabelProvider: PostageLabelProvider = {
       providerName: "sandbox-usps",
       providerMode: "test" as const,
@@ -428,6 +435,68 @@ describe("fulfillment shipment runtime", () => {
       db: db as never,
       postageLabelProvider,
     });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        shippingPlanSnapshot: parcelShippingPlan,
+        lines: [
+          {
+            lineId: "spl_1" as never,
+            orderLineId: "oli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-04-02T00:00:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "StartShipmentPacking",
+        startedAt: "2026-04-02T00:03:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "ConfirmShipmentPackingLine",
+        lineId: "spl_1" as never,
+        confirmedAt: "2026-04-02T00:04:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "PrepareShipmentPackage",
+        packageCount: 1,
+        preparedAt: "2026-04-02T00:05:00.000Z",
+      },
+      context,
+    });
 
     await expect(
       services.purchaseUspsLabel(
@@ -443,20 +512,25 @@ describe("fulfillment shipment runtime", () => {
             weightOunces: 1,
           },
         },
-        {
-          tenantId: "tnt_test" as never,
-          audit: {
-            performedByUserId: "usr_test" as never,
-            forAccountId: "acc_seller" as never,
-          },
-        },
+        context,
       ),
     ).rejects.toThrow("Parcel postage is required by the committed postage policy snapshot for this shipment.");
     expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
-    expect(db.query).not.toHaveBeenCalledWith(
+    expect(db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO fulfillment_postage_label_operations"),
       expect.anything(),
     );
+    expect(db.query).toHaveBeenCalledWith(
+      expect.stringContaining("UPDATE fulfillment_postage_label_operations"),
+      expect.anything(),
+    );
+    const failedEvent = readAllEvents().find(
+      (event) => event.eventType === "fulfillment.shipment.label-purchase-failed",
+    );
+    expect(failedEvent?.payload).toMatchObject({
+      errorCode: "postage_policy_validation_failed",
+      errorMessage: "Parcel postage is required by the committed postage policy snapshot for this shipment.",
+    });
   });
 
   it("records provider capability failures with a distinct label error code", async () => {
@@ -586,6 +660,183 @@ describe("fulfillment shipment runtime", () => {
       postageProviderName: "sandbox-usps",
       postageProviderMode: "test",
     });
+  });
+
+  it("uses the original shipping plan snapshot when a voided label is re-bought", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    let purchaseCount = 0;
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(async () => {
+        purchaseCount += 1;
+        return {
+          providerName: "sandbox-usps",
+          providerMode: "test" as const,
+          providerShipmentId: `sandbox_shipment_${purchaseCount}`,
+          providerLabelId: `sandbox_label_${purchaseCount}`,
+          providerRateId: "sandbox_rate_1",
+          carrierName: "USPS",
+          serviceLevel: "USPS_GROUND_ADVANTAGE",
+          labelReference: `sandbox_label_${purchaseCount}`,
+          labelDocumentUrl: "https://sandbox.test/label.pdf",
+          trackingIdentifier: "940000000000000000",
+          postageAmountCents: 499,
+          postageCurrency: "USD",
+          purchasedAt: "2026-04-02T00:10:00.000Z",
+        };
+      }),
+      voidLabel: vi.fn(async () => ({
+        providerName: "sandbox-usps",
+        providerMode: "test" as const,
+        refundReference: "sandbox_refund_1",
+        refundStatus: "submitted",
+        voidedAt: "2026-04-02T00:15:00.000Z",
+      })),
+    };
+    const awaitingLabelRow = {
+      shipment_id: "shp_1",
+      order_id: "ord_1",
+      seller_account_id: "acc_seller",
+      status: "awaiting-label",
+      package_status: "packed",
+      shipping_destination_snapshot: shippingDestinationSnapshot,
+      shipping_origin_snapshot: shippingOriginSnapshot,
+      shipping_plan_snapshot: parcelShippingPlan,
+    };
+    const labelAttachedRow = {
+      ...awaitingLabelRow,
+      status: "label-attached",
+      postage_provider_shipment_id: "sandbox_shipment_1",
+      postage_provider_label_id: "sandbox_label_1",
+      tracking_identifier: "940000000000000000",
+    };
+    const shipmentRows = [awaitingLabelRow, labelAttachedRow, awaitingLabelRow, awaitingLabelRow];
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return { rows: [shipmentRows.shift() ?? awaitingLabelRow] };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        shippingPlanSnapshot: parcelShippingPlan,
+        lines: [
+          {
+            lineId: "spl_1" as never,
+            orderLineId: "oli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-04-02T00:00:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "StartShipmentPacking",
+        startedAt: "2026-04-02T00:03:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "ConfirmShipmentPackingLine",
+        lineId: "spl_1" as never,
+        confirmedAt: "2026-04-02T00:04:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "PrepareShipmentPackage",
+        packageCount: 1,
+        preparedAt: "2026-04-02T00:05:00.000Z",
+      },
+      context,
+    });
+
+    await services.purchaseUspsLabel(
+      {
+        shipmentId: "shp_1",
+        sellerAccountId: "acc_seller",
+        serviceLevel: "USPS_GROUND_ADVANTAGE",
+      },
+      context,
+    );
+    await services.voidLabel({ shipmentId: "shp_1", sellerAccountId: "acc_seller" }, context);
+    await expect(
+      services.purchaseUspsLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          serviceLevel: "First",
+          package: {
+            mailpieceClass: "letter",
+            lengthInches: 9.5,
+            widthInches: 4.125,
+            heightInches: 0.25,
+            weightOunces: 1,
+          },
+        },
+        context,
+      ),
+    ).rejects.toThrow("Parcel postage is required by the committed postage policy snapshot for this shipment.");
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledTimes(1);
+
+    await services.purchaseUspsLabel(
+      {
+        shipmentId: "shp_1",
+        sellerAccountId: "acc_seller",
+        serviceLevel: "USPS_GROUND_ADVANTAGE",
+      },
+      context,
+    );
+
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledTimes(2);
+    expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        deliveryConfirmation: "signature",
+        package: expect.objectContaining({
+          mailpieceClass: "parcel",
+          weightOunces: 5.25,
+        }),
+      }),
+    );
   });
 
   it("purchases Letter Mail postage from the committed package plan weight", async () => {
