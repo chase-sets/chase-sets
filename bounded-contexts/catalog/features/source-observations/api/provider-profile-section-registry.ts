@@ -80,7 +80,7 @@ export type CatalogProviderProfileFixturesUpdateCommand = Readonly<{
   fixtures: Readonly<{
     fixtureRoot: string;
     coveredFlows: readonly string[];
-    liveProviderCallsAllowed: false;
+    liveProviderCallsAllowed: boolean;
   }>;
 }>;
 

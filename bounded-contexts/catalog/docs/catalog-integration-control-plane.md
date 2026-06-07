@@ -2,7 +2,7 @@
 
 Catalog provider integrations are a Catalog-owned control plane for turning external provider facts into reviewed Catalog truth. They are not a generic low-code provider platform, and they are not separate provider systems that bypass Source Observations and call Catalog APIs directly.
 
-Control-plane diagnostics use the canonical [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md) so adapters, profile sections, fixtures, engine checks, jobs, read models, credential readiness, and projection lag share stable codes, severity, remediation, blocking behavior, visibility, metrics, and redaction rules. Provider-controlled payload, fixture, dry-run, diagnostic, audit, credential-readiness, and job evidence follows [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Provider credential ownership, storage, validation, rotation, and Admin readiness behavior is documented in [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md).
+Control-plane diagnostics use the canonical [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md) so adapters, profile sections, fixtures, engine checks, jobs, read models, credential readiness, and projection lag share stable codes, severity, remediation, blocking behavior, visibility, metrics, and redaction rules. Provider-controlled payload, fixture, dry-run, diagnostic, audit, credential-readiness, and job evidence follows [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Fixture repository records, coverage sufficiency, provenance, sampling, validation input selection, and activation-readiness integration are documented in [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md). Provider credential ownership, storage, validation, rotation, and Admin readiness behavior is documented in [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md).
 
 ## Boundary
 
@@ -160,6 +160,7 @@ The URL section key is authoritative for section update routes. Request bodies m
 - [Provider Integration Admin Module](./provider-integration-admin-module.md)
 - [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md)
 - [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
+- [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)
 - [Source Observation Integration](./source-observation-integration.md)
