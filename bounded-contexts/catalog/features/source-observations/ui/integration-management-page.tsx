@@ -43,6 +43,7 @@ import type {
   CatalogProviderProfileConnectorUpdateCommand,
   CatalogProviderProfileDryRunResult,
   CatalogProviderProfileDuplicatePreventionUpdateCommand,
+  CatalogProviderProfileEditableSectionKey,
   CatalogProviderProfileFixturesUpdateCommand,
   CatalogProviderProfileExternalReferencesUpdateCommand,
   CatalogProviderProfileNormalizedObservationUpdateCommand,
@@ -50,6 +51,7 @@ import type {
   CatalogProviderProfilePromotionPlanUpdateCommand,
   CatalogProviderProfileReferenceHierarchyUpdateCommand,
   CatalogProviderProfileRetirementPlanUpdateCommand,
+  CatalogProviderProfileSectionUpdateCommand,
   CatalogProviderProfileSelectedOptionsUpdateCommand,
   CatalogProviderProfileSourceContractUpdateCommand,
   CatalogProviderProfileVersionReview,
@@ -91,6 +93,8 @@ import {
   type MappingExpressionValue,
 } from "./mapping-expression-editor";
 import { CatalogIntegrationProfileHealthPanel } from "./admin-control-plane/health/integration-health-dashboard";
+import { ProfileSectionRegistrySummary } from "./admin-control-plane/profile-sections/profile-section-registry-summary";
+import { CATALOG_PROVIDER_PROFILE_SECTION_SAVE_ORDER } from "./admin-control-plane/profile-sections/registry";
 import { CatalogIntegrationAreaWorkbench } from "./admin-control-plane/profiles/profile-workflow-workbench";
 import type { CatalogIntegrationModuleArea } from "./admin-control-plane/registry";
 import { CatalogIntegrationModuleShell } from "./admin-control-plane/shell/catalog-integration-module-shell";
@@ -1147,78 +1151,37 @@ export function IntegrationManagementPage({
         section: "promotion-plan",
         promotionCommandPlan: promotionPlanFormToCommand(editBasicsForm.promotionPlan),
       };
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "basics",
-        command,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "source-contract",
-        sourceContractCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "retirement-plan",
-        retirementPlanCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "provider-options",
-        providerOptionsCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "connector",
-        connectorCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "fixtures",
-        fixturesCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "normalized-observation",
-        normalizedObservationCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "external-references",
-        externalReferencesCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "selected-options",
-        selectedOptionsCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "reference-hierarchy",
-        referenceHierarchyCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "duplicate-prevention",
-        duplicatePreventionCommand,
-      );
-      await updateSourceObservationProviderProfileSection(
-        editProfile.providerKey,
-        editProfile.profileVersion,
-        "promotion-plan",
-        promotionPlanCommand,
-      );
+      const sectionCommands = new Map<
+        CatalogProviderProfileEditableSectionKey,
+        CatalogProviderProfileSectionUpdateCommand
+      >([
+        ["basics", command],
+        ["source-contract", sourceContractCommand],
+        ["retirement-plan", retirementPlanCommand],
+        ["provider-options", providerOptionsCommand],
+        ["connector", connectorCommand],
+        ["fixtures", fixturesCommand],
+        ["normalized-observation", normalizedObservationCommand],
+        ["external-references", externalReferencesCommand],
+        ["selected-options", selectedOptionsCommand],
+        ["reference-hierarchy", referenceHierarchyCommand],
+        ["duplicate-prevention", duplicatePreventionCommand],
+        ["promotion-plan", promotionPlanCommand],
+      ]);
+
+      for (const section of CATALOG_PROVIDER_PROFILE_SECTION_SAVE_ORDER) {
+        const sectionCommand = sectionCommands.get(section);
+        if (!sectionCommand) {
+          continue;
+        }
+
+        await updateSourceObservationProviderProfileSection(
+          editProfile.providerKey,
+          editProfile.profileVersion,
+          section,
+          sectionCommand,
+        );
+      }
       addToast("Profile basics saved.", "success");
       setEditProfile(null);
       setEditBasicsForm(null);
@@ -3280,6 +3243,7 @@ function ProfileBasicsEditor({
           },
         ]}
       />
+      <ProfileSectionRegistrySummary editableSections={authoringModel?.editableSections ?? []} />
 
       {!editable ? (
         <p className="text-sm text-secondary">

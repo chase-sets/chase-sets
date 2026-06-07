@@ -1382,6 +1382,8 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     let dialog = screen.getByRole("dialog");
     expect(dialog.innerHTML.includes("Profile JSON")).toBe(false);
+    expect(within(dialog).getByText("Profile section registry")).toBeTruthy();
+    expect(within(dialog).getByText("Catalog field mapping")).toBeTruthy();
     fireEvent.change(fieldControl(dialog, "Display name"), { target: { value: "Scrydex Draft" } });
     fireEvent.change(fieldControl(dialog, /^Contract owner/i), { target: { value: "Catalog Ops" } });
     fireEvent.change(fieldControl(dialog, "Repository"), {
