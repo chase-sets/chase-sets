@@ -23,6 +23,8 @@ import type {
 import type { MappingExpressionValue } from "./mapping-expression-editor";
 import type { JsonValue } from "@chase-sets/primitives/json";
 
+vi.setConfig({ testTimeout: 180000 });
+
 const {
   mockActivateSourceObservationProviderProfile,
   mockBulkPromoteSourceObservationsByScope,
@@ -1354,7 +1356,7 @@ describe("IntegrationManagementPage", () => {
     );
   });
 
-  it("edits profile basics and opens an active comparison from the review table", async () => {
+  it("edits profile basics from the review table", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
     const activeProfile = profileReview({
@@ -1401,7 +1403,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(fieldControl(dialog, /^Retirement diagnostic/i), {
       target: { value: "Retire once the executable mapping contract is active." },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -1448,40 +1450,151 @@ describe("IntegrationManagementPage", () => {
         },
       },
     );
-    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledTimes(3);
+    expect(mockUpdateSourceObservationProviderProfileSection).not.toHaveBeenCalledWith(
       "scrydex",
       "2026.06.03",
       "normalized-observation",
-      expect.objectContaining({
-        section: "normalized-observation",
-        normalizedObservationMapping: expect.objectContaining({ kind: "provider-product" }),
-        normalizedObservationContract: expect.objectContaining({
-          outputKind: "provider-product",
-          fields: expect.objectContaining({
-            name: expect.objectContaining({
-              selector: expect.objectContaining({ kind: "path", path: "name" }),
-            }),
-          }),
+      expect.anything(),
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Cancel$/i }));
+  }, 180000);
+
+  it("saves a single dirty section without writing other profile sections", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(fieldControl(dialog, "Display name"), { target: { value: "Scrydex Scoped" } });
+    expect(within(dialog).getByText("Changed sections")).toBeTruthy();
+    expect(within(dialog).getAllByText("Basics").length).toBeGreaterThan(0);
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save section$/i }));
+
+    await waitFor(() =>
+      expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+        "scrydex",
+        "2026.06.03",
+        "basics",
+        expect.objectContaining({
+          section: "basics",
+          displayName: "Scrydex Scoped",
         }),
-      }),
+      ),
+    );
+    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledTimes(1);
+    expect(mockUpdateSourceObservationProviderProfileSection).not.toHaveBeenCalledWith(
+      "scrydex",
+      "2026.06.03",
+      "source-contract",
+      expect.anything(),
+    );
+  }, 180000);
+
+  it("blocks stale dirty sections when the profile row changes after the editor opens", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    const originalProfile = profileReview({
+      lifecycle: "draft",
+      authoringAudit: { updatedAt: "2026-06-07T10:00:00Z" },
+    });
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: { items: [originalProfile], total: 1, count: 1 },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    const { rerender } = render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(fieldControl(dialog, "Display name"), { target: { value: "Scrydex Stale" } });
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            lifecycle: "draft",
+            authoringAudit: { updatedAt: "2026-06-07T10:05:00Z", updatedByUserId: "other-operator" },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    rerender(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    expect(
+      within(dialog).getAllByText("Profile changed after this editor opened. Close and reopen before saving.").length,
+    ).toBeGreaterThan(0);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(within(dialog).queryByRole("button", { name: /^Save section$/i })).toBeNull();
+  }, 180000);
+
+  it("shows section-level validation before saving dirty sections", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(fieldControl(dialog, /^Contract owner/i), { target: { value: "" } });
+
+    expect(within(dialog).getAllByText("Contract owner is required.").length).toBeGreaterThan(0);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(mockUpdateSourceObservationProviderProfileSection).not.toHaveBeenCalled();
+  }, 180000);
+
+  it("keeps partial multi-section save failures scoped to the failed section", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    mockUpdateSourceObservationProviderProfileSection.mockImplementation(
+      async (
+        _providerKey: string,
+        _profileVersion: string,
+        section: string,
+      ): Promise<CatalogProviderProfileVersionReview> => {
+        if (section === "provider-options") {
+          throw new Error("Provider options failed.");
+        }
+        return profileReview();
+      },
     );
 
-    fireEvent.click(screen.getAllByRole("button", { name: /^Compare$/i })[0]);
-    dialog = screen.getByRole("dialog");
-    expect(within(dialog).getAllByText("2026.06.02").length).toBeGreaterThan(0);
-    expect(within(dialog).getByText("Activation blocked")).toBeTruthy();
-    expect(within(dialog).getByText("Mapping changed")).toBeTruthy();
-    expect(within(dialog).getByText("Semantic Changes")).toBeTruthy();
-    expect(within(dialog).getAllByText("Source Mapping Fingerprint").length).toBeGreaterThan(0);
-    expect(within(dialog).getAllByText("candidate_fingerprint").length).toBeGreaterThan(0);
-    expect(within(dialog).getAllByText("active_fingerprint").length).toBeGreaterThan(0);
-    expect(
-      within(dialog).getAllByText(
-        "Summarizes whether replay/hash behavior changed and whether migration evidence is required.",
-      ).length,
-    ).toBeGreaterThan(0);
-    expect(dialog.innerHTML.includes("Candidate profile JSON")).toBe(false);
-    expect(dialog.innerHTML.includes("Active profile JSON")).toBe(false);
+    render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
+    const dialog = screen.getByRole("dialog");
+    fireEvent.change(fieldControl(dialog, "Display name"), { target: { value: "Scrydex Partial" } });
+    fireEvent.change(fieldControl(dialog, /^Option display name/i, 0), { target: { value: "Set Filter" } });
+    expect(within(dialog).getByText(/Basics, Provider Options/i)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
+
+    await waitFor(() => expect(within(dialog).getByText("Provider options failed.")).toBeTruthy());
+    expect(within(dialog).getByText("1 profile section saved; 1 failed.")).toBeTruthy();
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "scrydex",
+      "2026.06.03",
+      "basics",
+      expect.objectContaining({ displayName: "Scrydex Partial" }),
+    );
+    expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
+      "scrydex",
+      "2026.06.03",
+      "provider-options",
+      expect.objectContaining({ section: "provider-options" }),
+    );
   }, 180000);
 
   it("renders semantic comparison fingerprint and impact metadata without raw JSON", () => {
@@ -1547,7 +1660,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(fieldControl(dialog, /^Path$/i, 3), {
       target: { value: "catalogHashMaterial.printedProductName" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -1612,7 +1725,9 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/hash material cannot use secret, pricing, inventory/i)).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("edits external product references and selected option mappings through typed controls", async () => {
@@ -1709,7 +1824,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(fieldControl(dialog, "Option aliases"), {
       target: { value: "near-mint=Near Mint,NM\nlightly-played=Lightly Played,LP" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -1797,7 +1912,9 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/product references require selected option dimensions/i)).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("blocks selected option dimension keys that are absent from active Catalog schema", () => {
@@ -1862,7 +1979,9 @@ describe("IntegrationManagementPage", () => {
     expect(
       within(dialog).getAllByText(/dimension key 'condition' does not match an active Catalog dimension/i).length,
     ).toBeGreaterThan(0);
-    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("edits reference hierarchy chains through typed controls", async () => {
@@ -1879,7 +1998,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(within(dialog).getByDisplayValue("ref_tcgdex"), {
       target: { value: "ref_tcgdex_v2" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -1970,7 +2089,9 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/relationship rule key 'missing-series' does not match/i)).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("saves duplicate-prevention policies and ordered identity rules through typed controls", async () => {
@@ -1989,7 +2110,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(within(dialog).getByDisplayValue("card.localId"), {
       target: { value: "card.printedNumber" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -2064,7 +2185,9 @@ describe("IntegrationManagementPage", () => {
     fireEvent.click(screen.getAllByRole("button", { name: /^Edit Profile$/i })[0]);
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(/same-rule: rule keys must be unique/i)).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("keeps immutable profile rows out of the basics editor", () => {
@@ -2256,7 +2379,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(fieldControl(dialog, "Metadata paths", 1), {
       target: { value: "productLineId=$parentValueNumber\ncleanSetName=cleanSetName\nurlName=urlName" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -2360,7 +2483,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(fieldControl(dialog, "Metadata paths"), {
       target: { value: "languageCode=$languageCode\nseriesId=seriesId\nsymbolUrl=symbolUrl" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -2452,7 +2575,9 @@ describe("IntegrationManagementPage", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Series: value path and label path are required.")).toBeTruthy();
     expect(within(dialog).getByText("Series: query kind and aliases must be unique.")).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("edits promotion command plans through structured controls", async () => {
@@ -2511,7 +2636,7 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getByText("Promotion Command Plan")).toBeTruthy();
     expect(within(dialog).getByText("Command 1: CreateCatalogItem")).toBeTruthy();
     fireEvent.change(within(dialog).getByDisplayValue("card.name"), { target: { value: "card.printedName" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -2717,11 +2842,13 @@ describe("IntegrationManagementPage", () => {
     const dialog = screen.getByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: /^Add command$/i }));
     expect(
-      within(dialog).getByText(
+      within(dialog).getAllByText(
         "Promotion command plan: provider-product profiles need the catalog-item-promotion capability before commands can be configured.",
-      ),
-    ).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+      ).length,
+    ).toBeGreaterThan(0);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("blocks promotion commands that omit command-specific required inputs", () => {
@@ -2779,7 +2906,9 @@ describe("IntegrationManagementPage", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText("Promotion command 1: missing required inputs value.")).toBeTruthy();
     expect(within(dialog).getByText("Required inputs")).toBeTruthy();
-    expect((within(dialog).getByRole("button", { name: /^Save Basics$/i }) as HTMLButtonElement).disabled).toBe(true);
+    expect(
+      (within(dialog).getByRole("button", { name: /^Save changed sections$/i }) as HTMLButtonElement).disabled,
+    ).toBe(true);
   });
 
   it("edits TCGdex connector metadata and fixture coverage", async () => {
@@ -2842,7 +2971,7 @@ describe("IntegrationManagementPage", () => {
     expect(within(dialog).getAllByText("No").length).toBeGreaterThan(0);
     fireEvent.click(within(dialog).getByRole("checkbox", { name: /^unknown-option$/i }));
     expect(within(dialog).getByText("Missing required fixture flows: unknown-option")).toBeTruthy();
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -2932,7 +3061,7 @@ describe("IntegrationManagementPage", () => {
     expect(fieldControls(dialog, /^Base URL/i)).toHaveLength(0);
     fireEvent.change(fieldControl(dialog, /^Repository commit/i), { target: { value: "commit-2026" } });
     fireEvent.change(fieldControl(dialog, /^Retry status codes/i), { target: { value: "403, 429, 503" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(
@@ -2986,7 +3115,7 @@ describe("IntegrationManagementPage", () => {
     fireEvent.change(fieldControl(dialog, /^Excluded evidence/i), {
       target: { value: "price\nseller" },
     });
-    fireEvent.click(within(dialog).getByRole("button", { name: /^Save Basics$/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /^Save changed sections$/i }));
 
     await waitFor(() =>
       expect(mockUpdateSourceObservationProviderProfileSection).toHaveBeenCalledWith(

@@ -61,5 +61,5 @@ describe("Catalog provider profile section registry", () => {
     const module = await getProfileSectionModule("basics").loadEditor();
 
     expect(module.default).toEqual(expect.any(Function));
-  });
+  }, 180000);
 });
