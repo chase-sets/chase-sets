@@ -1,6 +1,9 @@
 import type { OrderId } from "@chase-sets/primitives/typed-ids";
 
 export const orderingReservedSeedIds = {
+  postagePolicies: {
+    default: "opp_seed_default",
+  },
   orders: {
     checkoutPending: "ord_seed_checkout_pending" as OrderId,
     cancelled: "ord_seed_cancelled" as OrderId,

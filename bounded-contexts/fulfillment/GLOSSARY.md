@@ -34,6 +34,7 @@ Notes:
 - Fulfillment stores the Package Plan on the shipment.
 - USPS label purchase defaults to the planned parcel package.
 - Operator-supplied package dimensions are an override path, not the normal fulfillment path.
+- Fulfillment enforces postage-policy outputs already committed to the Package Plan, including signature delivery confirmation. It does not resolve the current active Postage Policy.
 
 ## Letter Mailpiece
 

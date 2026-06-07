@@ -55,6 +55,13 @@ const slip: FulfillmentPackingSlip = {
       },
     ],
     letterEligibility: { eligible: false, reasons: ["parcel-required"] },
+    postagePolicySnapshot: {
+      policyVersion: "operator-postage-v1",
+      parcelRequired: true,
+      parcelReasons: ["declared-value-requires-parcel"],
+      signatureRequired: true,
+      signatureReasons: ["declared-value-requires-signature"],
+    },
     missingProductIds: [],
   },
   shipping_method: null,
@@ -141,6 +148,12 @@ describe("fulfillment packing slip UI", () => {
 
     expect(markup).toContain("Print packing slip");
     expect(markup).toContain("Start packing");
+    expect(markup).toContain("Postage policy");
+    expect(markup).toContain("operator-postage-v1");
+    expect(markup).toContain("Parcel required");
+    expect(markup).toContain("declared-value-requires-parcel");
+    expect(markup).toContain("Signature required");
+    expect(markup).toContain("declared-value-requires-signature");
     expect(markup).toContain("/account/sales/shipments/shp_1/packing");
     expect(markup).toContain("/account/sales/shipments/packing-slips");
     expect(markup).toContain("shipmentIds=shp_1");

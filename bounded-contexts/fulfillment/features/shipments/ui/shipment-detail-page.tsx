@@ -31,6 +31,18 @@ function isLetterMailpiece(shipment: FulfillmentShipmentDetail) {
   return packages.length > 0 && packages.every((candidate) => candidate.mailpieceClass === "letter");
 }
 
+function formatPostagePolicyRequirement(required: boolean) {
+  return required
+    ? t("fulfillment.features.shipments.ui.shipmentDetailPage.policy.required")
+    : t("fulfillment.features.shipments.ui.shipmentDetailPage.policy.not.required");
+}
+
+function formatPostagePolicyReasons(reasons: readonly string[]) {
+  return reasons.length > 0
+    ? reasons.join(", ")
+    : t("fulfillment.features.shipments.ui.shipmentDetailPage.policy.no.reasons");
+}
+
 const uspsServiceLevels = [
   {
     value: "USPS_GROUND_ADVANTAGE",
@@ -136,6 +148,7 @@ export function FulfillmentShipmentDetailPage({
   const packingSlipHref = `/account/sales/shipments/packing-slips?shipmentIds=${encodeURIComponent(shipment.shipment_id)}&format=letter`;
   const packingFlowHref = `/account/sales/shipments/${shipment.shipment_id}/packing`;
   const letterMailpiece = isLetterMailpiece(shipment);
+  const postagePolicySnapshot = shipment.shipping_plan_snapshot?.postagePolicySnapshot;
 
   return (
     <Page>
@@ -270,6 +283,39 @@ export function FulfillmentShipmentDetailPage({
               },
             ]}
           />
+
+          {postagePolicySnapshot ? (
+            <DetailConfidenceModule
+              title={t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.policy")}
+              description={t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.policy.description")}
+              items={[
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.postage.policy.version"),
+                  value: postagePolicySnapshot.policyVersion,
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.parcel.required"),
+                  value: formatPostagePolicyRequirement(postagePolicySnapshot.parcelRequired),
+                  tone: postagePolicySnapshot.parcelRequired ? "warning" : "success",
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.parcel.reasons"),
+                  value: formatPostagePolicyReasons(postagePolicySnapshot.parcelReasons),
+                  tone: postagePolicySnapshot.parcelReasons.length > 0 ? "warning" : "success",
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.signature.required"),
+                  value: formatPostagePolicyRequirement(postagePolicySnapshot.signatureRequired),
+                  tone: postagePolicySnapshot.signatureRequired ? "warning" : "success",
+                },
+                {
+                  label: t("fulfillment.features.shipments.ui.shipmentDetailPage.signature.reasons"),
+                  value: formatPostagePolicyReasons(postagePolicySnapshot.signatureReasons),
+                  tone: postagePolicySnapshot.signatureReasons.length > 0 ? "warning" : "success",
+                },
+              ]}
+            />
+          ) : null}
 
           {shipment.label_document_url ? (
             <LinkButton href={shipment.label_document_url} tone="secondary">

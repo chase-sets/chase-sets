@@ -53,4 +53,33 @@ describe("admin web host context registry", () => {
       }),
     );
   });
+
+  it("contributes Ordering postage policies to the identity section", () => {
+    expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
+      expect.objectContaining({
+        routeId: "ordering-postage-policies",
+        routePath: "identity/postage-policies",
+      }),
+    );
+    expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
+      expect.objectContaining({
+        routeId: "ordering-postage-policies-detail",
+        routePath: "identity/postage-policies/:id",
+      }),
+    );
+
+    expect(
+      resolveAdminWebNavItems(
+        {
+          permissions: ["postage-policies.view"],
+        },
+        { section: "identity" },
+      ),
+    ).toContainEqual(
+      expect.objectContaining({
+        href: "/identity/postage-policies",
+        label: "Postage Policies",
+      }),
+    );
+  });
 });

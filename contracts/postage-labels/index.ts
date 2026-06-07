@@ -1,5 +1,42 @@
 export type PostageProviderMode = "test" | "production";
 
+export type PostageLabelProviderErrorKind = "validation" | "capability" | "provider";
+
+export type PostageLabelCapability =
+  | "usps-rate"
+  | "usps-service-level"
+  | "signature-delivery-confirmation"
+  | "label-document"
+  | "tracking";
+
+export class PostageLabelProviderError extends Error {
+  readonly kind: PostageLabelProviderErrorKind;
+  readonly capability: PostageLabelCapability | null;
+  readonly providerName: string | null;
+  readonly providerMode: PostageProviderMode | null;
+
+  constructor(input: {
+    kind: PostageLabelProviderErrorKind;
+    message: string;
+    capability?: PostageLabelCapability | null;
+    providerName?: string | null;
+    providerMode?: PostageProviderMode | null;
+    cause?: unknown;
+  }) {
+    super(input.message, { cause: input.cause });
+    this.name =
+      input.kind === "capability"
+        ? "postage_provider_capability_failure"
+        : input.kind === "validation"
+          ? "postage_provider_validation_failed"
+          : "postage_provider_error";
+    this.kind = input.kind;
+    this.capability = input.capability ?? null;
+    this.providerName = input.providerName ?? null;
+    this.providerMode = input.providerMode ?? null;
+  }
+}
+
 export type PostageAddress = Readonly<{
   name: string;
   company?: string | null;
@@ -25,6 +62,7 @@ export type PurchaseUspsLabelRequest = Readonly<{
   shipmentId: string;
   orderId: string;
   serviceLevel: string;
+  deliveryConfirmation?: "signature" | null;
   labelSize?: "4x6" | "6x4" | "7x3" | null;
   sender: PostageAddress;
   recipient: PostageAddress;

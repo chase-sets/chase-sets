@@ -9,6 +9,7 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import type { PostageLabelProvider, PostageProviderWebhookGateway } from "@chase-sets/postage-labels";
+import { PostageLabelProviderError } from "@chase-sets/postage-labels";
 import type { PackagePlan } from "@chase-sets/product-measures";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import { createFulfillmentShipmentRuntime } from "./runtime";
@@ -105,6 +106,13 @@ const parcelShippingPlan: PackagePlan = {
   letterEligibility: {
     eligible: false,
     reasons: ["declared-value-requires-parcel"],
+  },
+  postagePolicySnapshot: {
+    policyVersion: "operator-postage-v1",
+    parcelRequired: true,
+    parcelReasons: ["declared-value-requires-parcel"],
+    signatureRequired: true,
+    signatureReasons: ["declared-value-requires-signature"],
   },
   packages: [
     {
@@ -347,6 +355,7 @@ describe("fulfillment shipment runtime", () => {
 
     expect(postageLabelProvider.purchaseUspsLabel).toHaveBeenCalledWith(
       expect.objectContaining({
+        deliveryConfirmation: "signature",
         sender: expect.objectContaining({
           name: "Seller",
           street1: "1 Main St",
@@ -378,6 +387,202 @@ describe("fulfillment shipment runtime", () => {
       carrierName: "USPS",
       labelDocumentUrl: "https://sandbox.test/label.pdf",
       trackingIdentifier: "940000000000000000",
+      postageProviderName: "sandbox-usps",
+      postageProviderMode: "test",
+    });
+  });
+
+  it("rejects parcel-required shipments when a label override attempts Letter Mail", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(),
+      voidLabel: vi.fn(),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                shipment_id: "shp_1",
+                order_id: "ord_1",
+                seller_account_id: "acc_seller",
+                status: "awaiting-label",
+                package_status: "packed",
+                shipping_destination_snapshot: shippingDestinationSnapshot,
+                shipping_origin_snapshot: shippingOriginSnapshot,
+                shipping_plan_snapshot: parcelShippingPlan,
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+
+    await expect(
+      services.purchaseUspsLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          serviceLevel: "First",
+          package: {
+            mailpieceClass: "letter",
+            lengthInches: 9.5,
+            widthInches: 4.125,
+            heightInches: 0.25,
+            weightOunces: 1,
+          },
+        },
+        {
+          tenantId: "tnt_test" as never,
+          audit: {
+            performedByUserId: "usr_test" as never,
+            forAccountId: "acc_seller" as never,
+          },
+        },
+      ),
+    ).rejects.toThrow("Parcel postage is required by the committed postage policy snapshot for this shipment.");
+    expect(postageLabelProvider.purchaseUspsLabel).not.toHaveBeenCalled();
+    expect(db.query).not.toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO fulfillment_postage_label_operations"),
+      expect.anything(),
+    );
+  });
+
+  it("records provider capability failures with a distinct label error code", async () => {
+    const { eventStore, readAllEvents } = createInMemoryEventStore();
+    const postageLabelProvider: PostageLabelProvider = {
+      providerName: "sandbox-usps",
+      providerMode: "test" as const,
+      purchaseUspsLabel: vi.fn(async () => {
+        throw new PostageLabelProviderError({
+          kind: "capability",
+          capability: "signature-delivery-confirmation",
+          message: "Signature delivery confirmation is unavailable.",
+          providerName: "sandbox-usps",
+          providerMode: "test",
+        });
+      }),
+      voidLabel: vi.fn(),
+    };
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("FROM fulfillment_shipment_pages")) {
+          return {
+            rows: [
+              {
+                shipment_id: "shp_1",
+                order_id: "ord_1",
+                seller_account_id: "acc_seller",
+                status: "awaiting-label",
+                package_status: "packed",
+                shipping_destination_snapshot: shippingDestinationSnapshot,
+                shipping_origin_snapshot: shippingOriginSnapshot,
+                shipping_plan_snapshot: parcelShippingPlan,
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const services = createFulfillmentShipmentRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      postageLabelProvider,
+    });
+    const context = {
+      tenantId: "tnt_test" as never,
+      audit: {
+        performedByUserId: "usr_test" as never,
+        forAccountId: "acc_seller" as never,
+      },
+    };
+
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "CreateShipment",
+        shipmentId: "shp_1" as never,
+        orderId: "ord_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sellerAccountId: "acc_seller" as never,
+        shippingOption: "standard",
+        shippingDestinationSnapshot,
+        shippingOriginSnapshot,
+        shippingPlanSnapshot: parcelShippingPlan,
+        lines: [
+          {
+            lineId: "spl_1" as never,
+            orderLineId: "oli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+        createdAt: "2026-04-02T00:00:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "StartShipmentPacking",
+        startedAt: "2026-04-02T00:03:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "ConfirmShipmentPackingLine",
+        lineId: "spl_1" as never,
+        confirmedAt: "2026-04-02T00:04:00.000Z",
+      },
+      context,
+    });
+    await services.commandHandler({
+      streamId: "fulfillment.shipment-shp_1",
+      command: {
+        type: "PrepareShipmentPackage",
+        packageCount: 1,
+        preparedAt: "2026-04-02T00:05:00.000Z",
+      },
+      context,
+    });
+
+    await expect(
+      services.purchaseUspsLabel(
+        {
+          shipmentId: "shp_1",
+          sellerAccountId: "acc_seller",
+          serviceLevel: "USPS_GROUND_ADVANTAGE",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Signature delivery confirmation is unavailable.");
+
+    const failedEvent = readAllEvents().find(
+      (event) => event.eventType === "fulfillment.shipment.label-purchase-failed",
+    );
+    expect(failedEvent?.payload).toMatchObject({
+      errorCode: "postage_provider_capability_failure",
+      errorMessage: "Signature delivery confirmation is unavailable.",
       postageProviderName: "sandbox-usps",
       postageProviderMode: "test",
     });

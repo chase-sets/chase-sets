@@ -36,7 +36,7 @@ export async function createCheckoutOrdersThroughOrdering(
     shippingOption: session.shipping_option,
     shippingAddress: session.shipping_address,
     optimizationGoal: session.optimization_goal,
-    fulfillmentPreviewRevision: options.fulfillmentPreviewRevision,
+    fulfillmentPreviewRevision: options.fulfillmentPreviewRevision ?? preview.revision,
     acknowledgedMaterialChanges: options.acknowledgedMaterialChanges,
     lines: session.lines,
   });

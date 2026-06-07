@@ -15,6 +15,7 @@ export type {
 } from "./features/orders/api/contracts";
 
 import type { PurchaseDetail, PurchaseListItem, SaleDetail, SaleListItem } from "./features/orders/api/contracts";
+import type { PackagePlan, PostagePolicy, ProductPhysicalFlag, ShippingOption } from "@chase-sets/product-measures";
 
 type OrderingApiApp = ReturnType<typeof buildOrderingApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
@@ -76,6 +77,13 @@ export type CheckoutFulfillmentPreview = Readonly<{
     shippingChargeAmount: string;
     salesTaxAmount: string;
     totalAmount: string;
+    postageRequirements: Readonly<{
+      policyVersion: string;
+      parcelRequired: boolean;
+      parcelReasons: readonly string[];
+      signatureRequired: boolean;
+      signatureReasons: readonly string[];
+    }>;
     deliveryEstimate: Readonly<{
       earliestDate: string;
       latestDate: string;
@@ -124,6 +132,59 @@ export type CheckoutFulfillmentPreview = Readonly<{
     reason: string;
   }>[];
   materialChangeReasons: readonly string[];
+}>;
+
+export type PostagePolicyAdminRecord = Readonly<{
+  policy_id: string;
+  label: string;
+  status: string;
+  policy_version: string;
+  payload: PostagePolicy;
+  effective_from: string;
+  effective_until: string | null;
+  activation_reason: string | null;
+  created_by_user_id: string;
+  created_at: string;
+  updated_at: string;
+  activated_at: string | null;
+  retired_at: string | null;
+  history?: readonly Readonly<{
+    history_id: string;
+    policy_id: string;
+    event_type: string;
+    actor_user_id: string;
+    reason: string | null;
+    status: string;
+    policy_version: string;
+    payload: PostagePolicy;
+    effective_from: string;
+    effective_until: string | null;
+    recorded_at: string;
+  }>[];
+  activeComparison?: readonly Readonly<{
+    field: string;
+    activeValue: string;
+    candidateValue: string;
+  }>[];
+}>;
+
+export type PostagePolicyCommandRequest = Partial<PostagePolicy> &
+  Readonly<{
+    label: string;
+    effectiveFrom: string;
+    effectiveUntil?: string | null;
+  }>;
+
+export type PostagePolicyPreviewRequest = Readonly<{
+  policy: Partial<PostagePolicy>;
+  shippingOption: ShippingOption;
+  itemSubtotalAmount: string;
+  quantity: number;
+  unitLengthInches: number;
+  unitWidthInches: number;
+  unitHeightInches: number;
+  unitWeightOunces: number;
+  physicalFlags: readonly ProductPhysicalFlag[];
 }>;
 
 export class OrderingApiError extends Error {
@@ -244,6 +305,80 @@ export function createOrderingApiClient({
           param: { id: saleId },
           json: {},
           header: headers,
+        }),
+      );
+    },
+    async listPostagePolicies(query = ""): Promise<ListResponse<PostagePolicyAdminRecord>> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/postage-policies?${query}`, {
+          headers,
+        }),
+      );
+    },
+    async getPostagePolicy(policyId: string): Promise<PostagePolicyAdminRecord> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}`, {
+          headers,
+        }),
+      );
+    },
+    async createPostagePolicy(body: PostagePolicyCommandRequest): Promise<{ id: string; version: number }> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/postage-policies`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async previewPostagePolicy(body: PostagePolicyPreviewRequest): Promise<{ packagePlan: PackagePlan }> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/postage-policies/preview`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async revisePostagePolicy(
+      policyId: string,
+      body: PostagePolicyCommandRequest,
+    ): Promise<{ id: string; version: number }> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}`, {
+          method: "PUT",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async activatePostagePolicy(policyId: string, activationReason: string): Promise<{ id: string; version: number }> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}/activate`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ activationReason }),
+        }),
+      );
+    },
+    async clonePostagePolicy(
+      policyId: string,
+      body: Readonly<{ label: string; effectiveFrom: string; effectiveUntil?: string | null }>,
+    ): Promise<{ id: string; version: number }> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}/clone`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    },
+    async retirePostagePolicy(policyId: string, retirementReason: string): Promise<{ id: string; version: number }> {
+      return parseJsonResponse(
+        await configuredFetch(`${baseUrl}/admin/postage-policies/${encodeURIComponent(policyId)}/retire`, {
+          method: "POST",
+          headers: { ...headers, "Content-Type": "application/json" },
+          body: JSON.stringify({ retirementReason }),
         }),
       );
     },
