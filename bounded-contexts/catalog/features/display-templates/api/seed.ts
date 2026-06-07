@@ -1,4 +1,4 @@
-import { localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
+import { CatalogDomainError, localizedTextMapFromEnglish } from "../../../support/runtime-support/common";
 import { catalogSeedIds } from "../../../support/seed-support/ids";
 import { seedContext } from "../../../support/seed-support/context";
 import type { CatalogServices } from "../../../support/authoring-support";
@@ -93,17 +93,32 @@ export async function seedDisplayTemplates(services: CatalogServices): Promise<v
     }
 
     if (current.status === "draft") {
-      await services.displayTemplates.commandHandler({
-        streamId,
-        command: { type: "PublishDisplayTemplate" },
-        context: seedContext,
-      });
-      reconciled += 1;
+      const published = await publishExistingSeedDisplayTemplate(services, streamId);
+      if (published) {
+        reconciled += 1;
+      }
     }
   }
 
   if (reconciled > 0) {
     await enqueueAllCatalogItemDisplayIdentityRecomputeWork(services.db, "seed-template-reconciled");
+  }
+}
+
+async function publishExistingSeedDisplayTemplate(services: CatalogServices, streamId: string): Promise<boolean> {
+  try {
+    await services.displayTemplates.commandHandler({
+      streamId,
+      command: { type: "PublishDisplayTemplate" },
+      context: seedContext,
+    });
+    return true;
+  } catch (error) {
+    if (error instanceof CatalogDomainError && error.message === "Only draft Display Templates can be published.") {
+      return false;
+    }
+
+    throw error;
   }
 }
 
