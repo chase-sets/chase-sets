@@ -1,3 +1,4 @@
+import { t } from "@chase-sets/localization";
 import type { CatalogIntegrationUnitKey } from "./integration-unit";
 import type {
   CatalogIntegrationControlPlaneDiagnostic,
@@ -218,7 +219,10 @@ function profileAuditEntries(
       profileVersion: profile.profileVersion,
       actorUserId: profile.authoringAudit?.createdByUserId ?? null,
       relatedJobId: null,
-      summary: `${profile.displayName} profile ${profile.profileVersion} was created.`,
+      summary: t("catalog.features.sourceObservations.api.adminControlPlaneOverview.profile.created", {
+        displayName: profile.displayName,
+        profileVersion: profile.profileVersion,
+      }),
       diagnosticCodes: profile.validation.diagnostics.map((diagnostic) => diagnostic.code),
     });
   }
@@ -234,7 +238,10 @@ function profileAuditEntries(
       profileVersion: profile.profileVersion,
       actorUserId: profile.authoringAudit?.updatedByUserId ?? null,
       relatedJobId: null,
-      summary: `${profile.displayName} profile ${profile.profileVersion} sections were edited.`,
+      summary: t("catalog.features.sourceObservations.api.adminControlPlaneOverview.profile.sections.edited", {
+        displayName: profile.displayName,
+        profileVersion: profile.profileVersion,
+      }),
       diagnosticCodes: profile.validation.diagnostics.map((diagnostic) => diagnostic.code),
     });
   }
@@ -251,7 +258,11 @@ function profileAuditEntries(
       profileVersion: profile.profileVersion,
       actorUserId: profile.authoringAudit?.updatedByUserId ?? profile.authoringAudit?.createdByUserId ?? null,
       relatedJobId: null,
-      summary: `${profile.displayName} profile ${profile.profileVersion} is ${profile.lifecycle}.`,
+      summary: t("catalog.features.sourceObservations.api.adminControlPlaneOverview.profile.lifecycle", {
+        displayName: profile.displayName,
+        profileVersion: profile.profileVersion,
+        lifecycle: profile.lifecycle,
+      }),
       diagnosticCodes: profile.validation.diagnostics.map((diagnostic) => diagnostic.code),
     });
   }
@@ -274,7 +285,13 @@ function jobAuditEntry(
     profileVersion: job.profileSnapshot?.profileVersion ?? null,
     actorUserId: null,
     relatedJobId: job.jobId,
-    summary: `${job.action} job ${job.jobId} is ${job.operatorStatus} (${job.progress.completed}/${job.progress.total}).`,
+    summary: t("catalog.features.sourceObservations.api.adminControlPlaneOverview.job.summary", {
+      action: job.action,
+      jobId: job.jobId,
+      operatorStatus: job.operatorStatus,
+      completed: String(job.progress.completed),
+      total: String(job.progress.total),
+    }),
     diagnosticCodes: job.errorMessage ? ["job-error"] : [],
   };
 }
@@ -291,7 +308,13 @@ function jobSummary(job: SourceObservationIntegrationJob, providerKey: string): 
     profileVersion: job.profileSnapshot?.profileVersion ?? null,
     startedAt: job.startedAt ?? null,
     createdAt: job.createdAt,
-    summary: `${job.action} job ${job.jobId} is ${job.operatorStatus} (${job.progress.completed}/${job.progress.total}).`,
+    summary: t("catalog.features.sourceObservations.api.adminControlPlaneOverview.job.summary", {
+      action: job.action,
+      jobId: job.jobId,
+      operatorStatus: job.operatorStatus,
+      completed: String(job.progress.completed),
+      total: String(job.progress.total),
+    }),
   };
 }
 

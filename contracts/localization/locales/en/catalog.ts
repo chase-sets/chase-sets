@@ -181,6 +181,14 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.bulk.job.not.found": "Bulk job was not found.",
   "catalog.features.sourceObservations.api.route.integration.job.invalid.action": "Unknown integration job action.",
   "catalog.features.sourceObservations.api.route.integration.job.not.found": "Integration job was not found.",
+  "catalog.features.sourceObservations.api.adminControlPlaneOverview.job.summary":
+    "{action} job {jobId} is {operatorStatus} ({completed}/{total}).",
+  "catalog.features.sourceObservations.api.adminControlPlaneOverview.profile.created":
+    "{displayName} profile {profileVersion} was created.",
+  "catalog.features.sourceObservations.api.adminControlPlaneOverview.profile.lifecycle":
+    "{displayName} profile {profileVersion} is {lifecycle}.",
+  "catalog.features.sourceObservations.api.adminControlPlaneOverview.profile.sections.edited":
+    "{displayName} profile {profileVersion} sections were edited.",
   "catalog.features.sourceObservations.ui.detail.card.illustrator": "Card Illustrator",
   "catalog.features.sourceObservations.ui.detail.card.image": "Card image",
   "catalog.features.sourceObservations.ui.detail.card.number": "Card Number",
