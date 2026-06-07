@@ -90,7 +90,8 @@
           "fileExport": "./routes/admin/operations-queue",
           "routeType": "route",
           "sourceContext": "support",
-          "placement": "root"
+          "placement": "root",
+          "section": "operations"
         },
         {
           "routeId": "support-operations-detail",
@@ -98,7 +99,8 @@
           "fileExport": "./routes/admin/operations-request-detail",
           "routeType": "route",
           "sourceContext": "support",
-          "placement": "root"
+          "placement": "root",
+          "section": "operations"
         }
       ]
     }
@@ -133,6 +135,7 @@
       "label": "Support",
       "icon": "help",
       "href": "/support-requests",
+      "section": "operations",
       "order": 30,
       "visibility": "signed-in",
       "requiredPermissions": ["support.manage"]

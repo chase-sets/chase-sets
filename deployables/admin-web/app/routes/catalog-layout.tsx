@@ -1,10 +1,10 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { Outlet, useLoaderData, useLocation } from "react-router";
-import { Button, Form, Inline, LinkButton } from "@chase-sets/design-system";
+import { Button, Form, Inline } from "@chase-sets/design-system";
 import { CatalogAdminLayout } from "@chase-sets/catalog/web";
 import { requireCatalogAdminActor } from "../auth.server";
-import { resolveAdminWebNavItems } from "../host";
+import { resolveAdminWebNavItems, resolveAdminWebSectionNavItems } from "../host";
 
 function resolveActiveKey(pathname: string) {
   const segments = pathname.split("/").filter(Boolean);
@@ -24,19 +24,12 @@ export default function CatalogAdminLayoutRoute() {
 
   return (
     <CatalogAdminLayout
+      topNavItems={resolveAdminWebSectionNavItems(actor)}
+      topNavActiveKey="catalog"
       activeKey={resolveActiveKey(location.pathname)}
       navItems={navItems}
       actions={
         <Inline gap={2}>
-          <LinkButton href="/experience/waitlist" tone="secondary">
-            {t("adminWeb.app.routes.catalogLayout.experience")}
-          </LinkButton>
-          <LinkButton href="/identity/accounts" tone="secondary">
-            {t("adminWeb.app.routes.catalogLayout.identity")}
-          </LinkButton>
-          <LinkButton href="/operations/projections" tone="secondary">
-            {t("adminWeb.app.routes.catalogLayout.operations")}
-          </LinkButton>
           <Form action="/catalog/sign-out" method="post" spacing="none">
             <Button type="submit" tone="secondary">
               {t("adminWeb.app.routes.catalogLayout.sign.out")}

@@ -59,6 +59,14 @@ const experienceLayoutRoutes = contextRoutes
       route,
     }),
   );
+const commercialLayoutRoutes = contextRoutes
+  .filter((routeRecord) => routeRecord.section === "commercial" && (routeRecord.placement ?? "layout") === "layout")
+  .map((routeRecord) =>
+    toRouteConfigEntry(routeRecord, {
+      index,
+      route,
+    }),
+  );
 
 export default [
   route("manifest.webmanifest", "routes/manifest.ts"),
@@ -68,6 +76,10 @@ export default [
   route("health/ready", "routes/health-ready.ts"),
   route("offline", "routes/offline.tsx"),
   route("/", "routes/index.tsx"),
+  route("identity/commercial-terms/schedules", "routes/commercial-terms-legacy-schedules.tsx"),
+  route("identity/commercial-terms/schedules/:id", "routes/commercial-terms-legacy-schedule-detail.tsx"),
+  route("identity/commercial-terms/agreements", "routes/commercial-terms-legacy-agreements.tsx"),
+  route("identity/commercial-terms/agreements/:id", "routes/commercial-terms-legacy-agreement-detail.tsx"),
   ...catalogRootRoutes,
   ...identityRootRoutes,
   ...experienceRootRoutes,
@@ -77,5 +89,9 @@ export default [
   layout("routes/experience-layout.tsx", [
     route("experience", "routes/experience-home.tsx"),
     ...experienceLayoutRoutes,
+  ]),
+  layout("routes/commercial-layout.tsx", [
+    route("commercial", "routes/commercial-home.tsx"),
+    ...commercialLayoutRoutes,
   ]),
 ] satisfies RouteConfig;

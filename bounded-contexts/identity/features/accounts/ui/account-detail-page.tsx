@@ -8,12 +8,12 @@ export function AccountDetailPage({ data }: { data: Account }) {
   const hasFoundingBadge = data.badges.includes("founding-account");
   return (
     <AdminDetailPage
-      title={
-        <Inline gap={2}>
-          <span>{data.display_name}</span>
-          <AccountBadgeList badges={data.badges} />
-        </Inline>
-      }
+      breadcrumbs={[
+        { label: t("identity.features.accounts.ui.accountListPage.accounts"), href: "/identity/accounts" },
+        { label: data.display_name },
+      ]}
+      title={data.display_name}
+      titleAside={<AccountBadgeList badges={data.badges} />}
       status={data.status}
       actions={
         <Inline gap={2}>

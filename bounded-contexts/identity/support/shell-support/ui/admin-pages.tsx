@@ -2,15 +2,21 @@ import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
   ActionBar,
+  Banner,
+  Breadcrumbs,
   Card,
   DataTable,
+  EmptyState,
+  Inline,
   LinkButton,
+  LoadingSpinner,
   Page,
   PageHeader,
   PageSection,
   Stack,
   StatusPill,
   Text,
+  type BreadcrumbItem,
   type DataColumn,
 } from "@chase-sets/design-system";
 
@@ -67,36 +73,67 @@ export function AdminListPage<T>({
 
 export function AdminDetailPage({
   actions,
+  breadcrumbs,
+  error = null,
+  loading = false,
+  notFound = false,
+  notFoundDescription = t(
+    "identity.support.shellSupport.ui.adminPages.the.requested.identity.record.does.not.exist.or.is.no.longer.available",
+  ),
+  notFoundTitle = t("identity.support.shellSupport.ui.adminPages.identity.record.not.found"),
   title,
+  titleAside,
   status,
   sections,
 }: {
   actions?: ReactNode;
+  breadcrumbs?: readonly BreadcrumbItem[];
+  error?: string | null;
+  loading?: boolean;
+  notFound?: boolean;
+  notFoundDescription?: string;
+  notFoundTitle?: string;
   title: ReactNode;
+  titleAside?: ReactNode;
   status?: string | null;
-  sections: readonly { label: string; value: string }[];
+  sections: readonly { label: string; value: ReactNode }[];
 }) {
   return (
-    <Stack gap={4}>
-      <Stack direction="row" align="center" justify="between" gap={3}>
-        <Stack direction="row" align="center" gap={3}>
-          <Text element="div" size="lg" weight="semibold">
-            {title}
-          </Text>
-          {status ? <StatusPill>{status}</StatusPill> : null}
-        </Stack>
+    <Page>
+      {breadcrumbs && breadcrumbs.length > 0 ? <Breadcrumbs items={[...breadcrumbs]} /> : null}
+      <PageHeader title={title} />
+      <Stack gap={4}>
+        {titleAside || status ? (
+          <Inline align="center" gap={3}>
+            {titleAside}
+            {status ? <StatusPill>{status}</StatusPill> : null}
+          </Inline>
+        ) : null}
         {actions ? <ActionBar>{actions}</ActionBar> : null}
-      </Stack>
-      <Card>
-        <Stack gap={3}>
-          {sections.map((section) => (
-            <Stack key={section.label} gap={1}>
-              <Text weight="semibold">{section.label}</Text>
-              <Text tone="secondary">{section.value}</Text>
+        {error ? (
+          <Banner
+            tone="danger"
+            title={t("identity.support.shellSupport.ui.adminPages.unable.to.load.identity.record")}
+            description={error}
+          />
+        ) : null}
+        {loading ? (
+          <LoadingSpinner label={t("identity.support.shellSupport.ui.adminPages.loading.identity.record")} />
+        ) : notFound ? (
+          <EmptyState title={notFoundTitle} description={notFoundDescription} icon="search" />
+        ) : (
+          <Card>
+            <Stack gap={3}>
+              {sections.map((section) => (
+                <Stack key={section.label} gap={1}>
+                  <Text weight="semibold">{section.label}</Text>
+                  <Text tone="secondary">{section.value}</Text>
+                </Stack>
+              ))}
             </Stack>
-          ))}
-        </Stack>
-      </Card>
-    </Stack>
+          </Card>
+        )}
+      </Stack>
+    </Page>
   );
 }

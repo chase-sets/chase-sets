@@ -1449,6 +1449,39 @@ describe("design system", () => {
     expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
   });
 
+  it("renders admin top-level section navigation through the top app bar", () => {
+    render(
+      <ChaseRoot>
+        <AdminShell
+          brand={<div>Brand</div>}
+          topNavItems={[
+            { key: "catalog", label: "Catalog", href: "/catalog/dimensions" },
+            { key: "operations", label: "Operations", href: "/operations/projections" },
+          ]}
+          topNavActiveKey="operations"
+          navItems={marketplaceNav}
+          activeKey="browse"
+          actions={<Button>Sign out</Button>}
+        >
+          <div>Body</div>
+        </AdminShell>
+      </ChaseRoot>,
+    );
+
+    const topNav = screen.getByRole("navigation", { name: "Primary navigation" });
+
+    expect(within(topNav).getAllByRole("link", { name: "Catalog" })[0]?.getAttribute("href")).toBe(
+      "/catalog/dimensions",
+    );
+    expect(within(topNav).getAllByRole("link", { name: "Operations" })[0]?.getAttribute("aria-current")).toBe("page");
+    expect(within(topNav).getByLabelText("Admin menu")).toBeTruthy();
+    expect(within(topNav).getAllByRole("link", { name: "Catalog" })[1]?.getAttribute("href")).toBe(
+      "/catalog/dimensions",
+    );
+    expect(within(topNav).getAllByRole("link", { name: "Operations" })[1]?.getAttribute("aria-current")).toBe("page");
+    expect(within(topNav).getAllByRole("button", { name: "Sign out" })).toHaveLength(2);
+  });
+
   it("renders i18n props with custom labels", () => {
     const markup = renderToString(
       <OrderSummary lines={[{ label: "Subtotal", value: "$10" }]} total="$10" totalLabel="Grand Total" />,

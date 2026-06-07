@@ -1,23 +1,19 @@
 import { t } from "@chase-sets/localization";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
-  Form,
+  Badge,
   Button,
-  UiBadge,
-  UiEmptyState,
-  UiInline,
-  UiPage,
-  UiPageHeader,
-  UiPageSection,
-  UiStack,
-  UiSurface,
-  UiTable,
-  UiTableBody,
-  UiTableCell,
-  UiTableHead,
-  UiTableHeader,
-  UiTableRow,
+  Cluster,
+  DataTable,
+  EmptyState,
+  Inline,
   LinkButton,
+  Page,
+  PageHeader,
+  PageSection,
+  Stack,
+  Surface,
+  Text,
 } from "@chase-sets/design-system";
 import type { SupportRequestDetail, SupportRequestListItem } from "./contracts";
 
@@ -28,12 +24,16 @@ type SupportOperationsPageProps = Readonly<{
   actionError?: string | null;
 }>;
 
+type SupportTone = "neutral" | "warning" | "danger";
+
 function statusTone(status: string) {
-  return status === "ready-for-support" ? "warning" : status === "escalated" ? "destructive" : "secondary";
+  return (
+    status === "ready-for-support" ? "warning" : status === "escalated" ? "danger" : "neutral"
+  ) satisfies SupportTone;
 }
 
 function priorityTone(priority: string) {
-  return priority === "urgent" ? "destructive" : "secondary";
+  return (priority === "urgent" ? "danger" : "neutral") satisfies SupportTone;
 }
 
 function formatDateTime(value: string | null) {
@@ -65,7 +65,7 @@ function checklistSummary(request: SupportRequestListItem) {
 function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly SupportRequestListItem[] }>) {
   if (requests.length === 0) {
     return (
-      <UiEmptyState
+      <EmptyState
         title={t("support.features.supportRequests.ui.supportOperationsPage.no.requests")}
         description={t("support.features.supportRequests.ui.supportOperationsPage.no.requests.description")}
       />
@@ -73,56 +73,70 @@ function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly Supp
   }
 
   return (
-    <UiTable>
-      <UiTableHeader>
-        <UiTableRow>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.issue")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.order")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.accounts")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.status")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.priority")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.next.deadline")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.checklist")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.action")}</UiTableHead>
-        </UiTableRow>
-      </UiTableHeader>
-      <UiTableBody>
-        {requests.map((request) => (
-          <UiTableRow key={request.support_request_id}>
-            <UiTableCell>
-              <UiStack>
-                <span className="font-semibold">{request.flow_type}</span>
-                <span className="text-xs text-[var(--muted-foreground)]">{request.support_request_id}</span>
-              </UiStack>
-            </UiTableCell>
-            <UiTableCell>{request.order_id}</UiTableCell>
-            <UiTableCell>
-              <UiStack>
-                <span>{request.buyer_account_id}</span>
-                <span className="text-xs text-[var(--muted-foreground)]">{request.seller_account_id}</span>
-              </UiStack>
-            </UiTableCell>
-            <UiTableCell>
-              <UiBadge variant={statusTone(request.status)}>{request.status}</UiBadge>
-            </UiTableCell>
-            <UiTableCell>
-              <UiBadge variant={priorityTone(request.priority)}>{request.priority}</UiBadge>
-            </UiTableCell>
-            <UiTableCell>{formatDateTime(nextDeadline(request))}</UiTableCell>
-            <UiTableCell>{checklistSummary(request)}</UiTableCell>
-            <UiTableCell>
-              <LinkButton
-                href={`/operations/support-requests/${request.support_request_id}`}
-                size="sm"
-                tone="secondary"
-              >
-                {t("support.features.supportRequests.ui.supportOperationsPage.open")}
-              </LinkButton>
-            </UiTableCell>
-          </UiTableRow>
-        ))}
-      </UiTableBody>
-    </UiTable>
+    <DataTable
+      density="compact"
+      rows={[...requests]}
+      getRowId={(request) => request.support_request_id}
+      emptyTitle={t("support.features.supportRequests.ui.supportOperationsPage.no.requests")}
+      emptyDescription={t("support.features.supportRequests.ui.supportOperationsPage.no.requests.description")}
+      columns={[
+        {
+          key: "issue",
+          header: t("support.features.supportRequests.ui.supportOperationsPage.issue"),
+          cell: (request) => (
+            <Stack gap={1}>
+              <span className="font-semibold">{request.flow_type}</span>
+              <span className="text-xs text-secondary">{request.support_request_id}</span>
+            </Stack>
+          ),
+        },
+        {
+          key: "order",
+          header: t("support.features.supportRequests.ui.supportOperationsPage.order"),
+          cell: (request) => request.order_id,
+        },
+        {
+          key: "accounts",
+          header: t("support.features.supportRequests.ui.supportOperationsPage.accounts"),
+          cell: (request) => (
+            <Stack gap={1}>
+              <span>{request.buyer_account_id}</span>
+              <span className="text-xs text-secondary">{request.seller_account_id}</span>
+            </Stack>
+          ),
+        },
+        {
+          key: "status",
+          header: t("support.features.supportRequests.ui.supportOperationsPage.status"),
+          cell: (request) => <Badge tone={statusTone(request.status)}>{request.status}</Badge>,
+        },
+        {
+          key: "priority",
+          header: t("support.features.supportRequests.ui.supportOperationsPage.priority"),
+          cell: (request) => <Badge tone={priorityTone(request.priority)}>{request.priority}</Badge>,
+        },
+        {
+          key: "deadline",
+          header: t("support.features.supportRequests.ui.supportOperationsPage.next.deadline"),
+          cell: (request) => formatDateTime(nextDeadline(request)),
+        },
+        {
+          key: "checklist",
+          header: t("support.features.supportRequests.ui.supportOperationsPage.checklist"),
+          cell: (request) => checklistSummary(request),
+        },
+        {
+          key: "action",
+          header: t("support.features.supportRequests.ui.supportOperationsPage.action"),
+          align: "right",
+          cell: (request) => (
+            <LinkButton href={`/operations/support-requests/${request.support_request_id}`} size="sm" tone="secondary">
+              {t("support.features.supportRequests.ui.supportOperationsPage.open")}
+            </LinkButton>
+          ),
+        },
+      ]}
+    />
   );
 }
 
@@ -141,8 +155,8 @@ function detailRows(request: SupportRequestDetail) {
 
 export function SupportOperationsDetailPage({ request }: Readonly<{ request: SupportRequestDetail }>) {
   return (
-    <UiPage>
-      <UiPageHeader
+    <Page>
+      <PageHeader
         title={t("support.features.supportRequests.ui.supportOperationsPage.detail.title")}
         description={t("support.features.supportRequests.ui.supportOperationsPage.detail.description", {
           id: request.support_request_id,
@@ -154,56 +168,56 @@ export function SupportOperationsDetailPage({ request }: Readonly<{ request: Sup
         }
       />
 
-      <UiPageSection title={t("support.features.supportRequests.ui.supportOperationsPage.detail.summary")}>
-        <UiSurface>
-          <UiStack>
+      <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.detail.summary")}>
+        <Surface>
+          <Stack gap={3}>
             {detailRows(request).map(([label, value]) => (
-              <UiInline
-                key={label}
-                className="flex-col items-start gap-1 sm:flex-row sm:items-center sm:justify-between"
-              >
-                <span className="text-sm font-semibold">{label}</span>
-                <span className="max-w-full break-words text-left text-sm text-[var(--muted-foreground)] [overflow-wrap:anywhere] sm:text-right">
+              <div key={label} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <Text size="sm" weight="semibold">
+                  {label}
+                </Text>
+                <span className="max-w-full break-words text-left text-sm text-secondary [overflow-wrap:anywhere] sm:text-right">
                   {value}
                 </span>
-              </UiInline>
+              </div>
             ))}
-          </UiStack>
-        </UiSurface>
-      </UiPageSection>
+          </Stack>
+        </Surface>
+      </PageSection>
 
-      <UiPageSection title={t("support.features.supportRequests.ui.supportOperationsPage.accounts")}>
-        <UiSurface>
-          <UiStack>
+      <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.accounts")}>
+        <Surface>
+          <Stack>
             <span className="break-words [overflow-wrap:anywhere]">{request.buyer_account_id}</span>
             <span className="break-words [overflow-wrap:anywhere]">{request.seller_account_id}</span>
-          </UiStack>
-        </UiSurface>
-      </UiPageSection>
+          </Stack>
+        </Surface>
+      </PageSection>
 
-      <UiPageSection title={t("support.features.supportRequests.ui.supportOperationsPage.checklist")}>
-        <UiTable>
-          <UiTableHeader>
-            <UiTableRow>
-              <UiTableHead>
-                {t("support.features.supportRequests.ui.supportOperationsPage.detail.requirement")}
-              </UiTableHead>
-              <UiTableHead>{t("support.features.supportRequests.ui.supportOperationsPage.status")}</UiTableHead>
-            </UiTableRow>
-          </UiTableHeader>
-          <UiTableBody>
-            {request.checklist.map((item) => (
-              <UiTableRow key={item.key}>
-                <UiTableCell className="break-words [overflow-wrap:anywhere]">{item.label}</UiTableCell>
-                <UiTableCell className="break-words [overflow-wrap:anywhere]">
+      <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.checklist")}>
+        <DataTable
+          density="compact"
+          rows={[...request.checklist]}
+          getRowId={(item) => item.key}
+          columns={[
+            {
+              key: "requirement",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.detail.requirement"),
+              cell: (item) => <span className="break-words [overflow-wrap:anywhere]">{item.label}</span>,
+            },
+            {
+              key: "status",
+              header: t("support.features.supportRequests.ui.supportOperationsPage.status"),
+              cell: (item) => (
+                <span className="break-words [overflow-wrap:anywhere]">
                   {item.satisfiedAt ?? t("support.features.supportRequests.ui.supportOperationsPage.not.applicable")}
-                </UiTableCell>
-              </UiTableRow>
-            ))}
-          </UiTableBody>
-        </UiTable>
-      </UiPageSection>
-    </UiPage>
+                </span>
+              ),
+            },
+          ]}
+        />
+      </PageSection>
+    </Page>
   );
 }
 
@@ -214,59 +228,72 @@ export function SupportOperationsPage({
   actionError,
 }: SupportOperationsPageProps) {
   return (
-    <UiPage>
-      <UiPageHeader
+    <Page>
+      <PageHeader
         title={t("support.features.supportRequests.ui.supportOperationsPage.title")}
         description={t("support.features.supportRequests.ui.supportOperationsPage.description")}
       />
 
       {unavailableMessage ? (
-        <UiSurface className="border-[var(--warning)]">
-          <UiStack>
-            <span className="text-sm font-semibold">
+        <Surface tone="muted">
+          <Stack gap={2}>
+            <Inline gap={2}>
+              <Badge tone="warning">{t("support.features.supportRequests.ui.supportOperationsPage.unavailable")}</Badge>
+            </Inline>
+            <Text size="sm" weight="semibold">
               {t("support.features.supportRequests.ui.supportOperationsPage.unavailable")}
-            </span>
-            <span className="text-sm text-[var(--muted-foreground)]">{unavailableMessage}</span>
-          </UiStack>
-        </UiSurface>
+            </Text>
+            <Text size="sm" tone="secondary">
+              {unavailableMessage}
+            </Text>
+          </Stack>
+        </Surface>
       ) : null}
 
       {escalationResult ? (
-        <UiSurface className="border-[var(--success)]">
-          <span className="text-sm font-semibold">
-            {t("support.features.supportRequests.ui.supportOperationsPage.escalation.result", escalationResult)}
-          </span>
-        </UiSurface>
+        <Surface tone="muted">
+          <Inline gap={2}>
+            <Badge tone="success">{t("support.features.supportRequests.ui.supportOperationsPage.success")}</Badge>
+            <Text size="sm" weight="semibold">
+              {t("support.features.supportRequests.ui.supportOperationsPage.escalation.result", escalationResult)}
+            </Text>
+          </Inline>
+        </Surface>
       ) : null}
 
       {actionError ? (
-        <UiSurface className="border-[var(--destructive)]">
-          <span className="text-sm font-semibold">{actionError}</span>
-        </UiSurface>
+        <Surface tone="muted">
+          <Inline gap={2}>
+            <Badge tone="danger">{t("support.features.supportRequests.ui.supportOperationsPage.error")}</Badge>
+            <Text size="sm" weight="semibold">
+              {actionError}
+            </Text>
+          </Inline>
+        </Surface>
       ) : null}
 
-      <UiPageSection
+      <PageSection
         title={t("support.features.supportRequests.ui.supportOperationsPage.queue.title")}
         description={t("support.features.supportRequests.ui.supportOperationsPage.queue.description")}
       >
-        <UiSurface>
-          <UiInline className="justify-between">
-            <span className="text-sm font-semibold">
+        <Surface>
+          <Cluster>
+            <Text size="sm" weight="semibold">
               {t("support.features.supportRequests.ui.supportOperationsPage.queue.count", {
                 count: queue.count,
                 total: queue.total,
               })}
-            </span>
+            </Text>
             <RouterForm method="post" spacing="none">
               <input type="hidden" name="intent" value="escalate-overdue" />
               <Button type="submit" disabled={Boolean(unavailableMessage)}>
                 {t("support.features.supportRequests.ui.supportOperationsPage.escalate.overdue")}
               </Button>
             </RouterForm>
-          </UiInline>
-        </UiSurface>
+          </Cluster>
+        </Surface>
         <SupportOperationsQueue requests={queue.items} />
-      </UiPageSection>
-    </UiPage>
+      </PageSection>
+    </Page>
   );
 }

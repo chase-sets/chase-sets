@@ -13,6 +13,10 @@ export function InvitationDetailPage({ data }: { data: Invitation }) {
 
   return (
     <AdminDetailPage
+      breadcrumbs={[
+        { label: t("identity.features.invitations.ui.invitationListPage.invitations"), href: "/identity/invitations" },
+        { label: data.email },
+      ]}
       title={data.email}
       status={data.status}
       actions={

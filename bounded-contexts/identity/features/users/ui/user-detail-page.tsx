@@ -6,6 +6,10 @@ import type { User } from "./contracts";
 export function UserDetailPage({ data }: { data: User }) {
   return (
     <AdminDetailPage
+      breadcrumbs={[
+        { label: t("identity.features.users.ui.userListPage.users"), href: "/identity/users" },
+        { label: data.display_name },
+      ]}
       title={data.display_name}
       status={data.status}
       actions={
