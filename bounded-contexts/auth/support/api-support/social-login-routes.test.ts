@@ -640,6 +640,35 @@ describe("social login routes", () => {
     expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
   });
 
+  it("allows admin SSO root entry for catalog-only actors", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+      memberships: [
+        {
+          membershipId: "mbr_catalog",
+          accountId: "acc_catalog",
+          roleKey: "catalog-admin",
+          status: "active",
+          rolePermissions: ["catalog.view"],
+        },
+      ],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=access-admin&returnTo=/");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
+  });
+
   it("rejects admin SSO when memberships do not match the requested route permission", async () => {
     const services = createServices({
       existingUser: { user_id: "usr_existing", status: "active" },

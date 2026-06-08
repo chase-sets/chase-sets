@@ -53,6 +53,21 @@ const ACCESS_ADMIN_ROUTE_REQUIRED_PERMISSIONS = [
 ] as const satisfies readonly { path: string; permissions: readonly string[] }[];
 
 const ACCESS_ADMIN_SECTION_ROOT_REQUIRED_PERMISSIONS = [
+  {
+    path: "/",
+    permissions: [
+      "accounts.view",
+      "memberships.view",
+      "security.manage",
+      "catalog.view",
+      "commercial-terms.view",
+      "postage-policies.view",
+      "google-shopping.view",
+      "public-presence.view",
+      "support.manage",
+      "platform-feedback.view",
+    ],
+  },
   { path: "/access", permissions: ["accounts.view", "memberships.view", "security.manage"] },
   { path: "/growth", permissions: ["google-shopping.view", "public-presence.view"] },
   { path: "/commerce", permissions: ["commercial-terms.view", "postage-policies.view"] },

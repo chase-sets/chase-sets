@@ -57,4 +57,13 @@ describe("admin web auth helpers", () => {
     await expect(requireSignedInAdminActor(new Request("https://admin.test/"))).resolves.toBe(actor);
     expect(mockRequireActor).not.toHaveBeenCalled();
   });
+
+  it("challenges signed-out root hub entry without requiring Access permissions", async () => {
+    const challengedActor = { permissions: ["platform-feedback.view"] };
+    mockResolveActor.mockResolvedValue(null);
+    mockRequireActor.mockResolvedValue(challengedActor);
+
+    await expect(requireSignedInAdminActor(new Request("https://admin.test/"))).resolves.toBe(challengedActor);
+    expect(mockRequireActor).toHaveBeenCalledWith(expect.any(Request), "");
+  });
 });

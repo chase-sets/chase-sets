@@ -19,7 +19,7 @@ export async function requireAccessAdminActor(request: Request) {
 
 export async function requireSignedInAdminActor(request: Request) {
   const actor = await accessAdminPolicy.resolveActor(request);
-  return actor ?? accessAdminPolicy.requireActor(request, "accounts.view");
+  return actor ?? accessAdminPolicy.requireActor(request, "");
 }
 
 export async function requireAdminSectionActor(request: Request, section: WebHostSection, fallbackPermission: string) {
