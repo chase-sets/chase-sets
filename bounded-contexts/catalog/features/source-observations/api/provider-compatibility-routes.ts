@@ -1,10 +1,12 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { IntegrationJobServices, ProviderOptionQueryServices } from "./runtime";
 import {
   CatalogIntegrationRolloutControlError,
   rolloutControlErrorResponse,
 } from "./catalog-integration-rollout-controls";
+import { CatalogProviderOptionQueryUnavailableError } from "./provider-option-query-cache";
 
 export type ProviderCompatibilityRouteServices = ProviderOptionQueryServices &
   Pick<IntegrationJobServices, "enqueueIntegrationJob">;
@@ -36,46 +38,110 @@ export function providerCompatibilityRoutes(services: ProviderCompatibilityRoute
   });
 
   app.get("/tcgdex/languages", async (c) => {
-    let items;
     try {
-      items = await services.listTcgdexLanguages();
-    } catch (error) {
-      if (error instanceof CatalogIntegrationRolloutControlError) {
-        return c.json(rolloutControlErrorResponse(error), 403);
+      if (typeof services.queryIntegrationOptions === "function") {
+        const page = await services.queryIntegrationOptions({
+          providerKey: "tcgdex",
+          queryKind: "languages",
+        });
+        const items = page.items.map((item) => ({ languageCode: item.value }));
+        return c.json({ items, total: page.total, count: items.length, page: page.page, cache: page.cache });
       }
-      throw error;
+
+      const items = await services.listTcgdexLanguages();
+      return c.json({ items, total: items.length, count: items.length });
+    } catch (error) {
+      return providerOptionErrorResponse(c, error);
     }
-    return c.json({ items, total: items.length, count: items.length });
   });
 
   app.get("/tcgdex/series", async (c) => {
     const languageCode = String(c.req.query("languageCode") ?? c.req.query("language") ?? "en");
-    let items;
     try {
-      items = await services.listTcgdexSeries({ languageCode });
-    } catch (error) {
-      if (error instanceof CatalogIntegrationRolloutControlError) {
-        return c.json(rolloutControlErrorResponse(error), 403);
+      if (typeof services.queryIntegrationOptions === "function") {
+        const page = await services.queryIntegrationOptions({
+          providerKey: "tcgdex",
+          queryKind: "series",
+          languageCode,
+        });
+        const items = page.items.map((item) => ({
+          seriesId: item.value,
+          name: item.label,
+          logoUrl: metadataString(item.metadata.logoUrl),
+        }));
+        return c.json({ items, total: page.total, count: items.length, page: page.page, cache: page.cache });
       }
-      throw error;
+
+      const items = await services.listTcgdexSeries({ languageCode });
+      return c.json({ items, total: items.length, count: items.length });
+    } catch (error) {
+      return providerOptionErrorResponse(c, error);
     }
-    return c.json({ items, total: items.length, count: items.length });
   });
 
   app.get("/tcgdex/expansions", async (c) => {
     const languageCode = String(c.req.query("languageCode") ?? c.req.query("language") ?? "en");
     const seriesId = c.req.query("seriesId") ?? c.req.query("series");
-    let items;
     try {
-      items = await services.listTcgdexExpansions({ languageCode, seriesId });
-    } catch (error) {
-      if (error instanceof CatalogIntegrationRolloutControlError) {
-        return c.json(rolloutControlErrorResponse(error), 403);
+      if (typeof services.queryIntegrationOptions === "function") {
+        const page = await services.queryIntegrationOptions({
+          providerKey: "tcgdex",
+          queryKind: "expansions",
+          languageCode,
+          parentValue: seriesId,
+        });
+        const items = page.items.map((item) => ({
+          expansionId: item.value,
+          name: item.label,
+          seriesId: item.parentValue,
+          seriesName: metadataString(item.metadata.seriesName),
+          logoUrl: metadataString(item.metadata.logoUrl),
+          symbolUrl: metadataString(item.metadata.symbolUrl),
+          cardCount: metadataNumber(item.metadata.cardCount),
+          officialCardCount: metadataNumber(item.metadata.officialCardCount),
+        }));
+        return c.json({ items, total: page.total, count: items.length, page: page.page, cache: page.cache });
       }
-      throw error;
+
+      const items = await services.listTcgdexExpansions({ languageCode, seriesId });
+      return c.json({ items, total: items.length, count: items.length });
+    } catch (error) {
+      return providerOptionErrorResponse(c, error);
     }
-    return c.json({ items, total: items.length, count: items.length });
   });
 
   return app;
+}
+
+function providerOptionErrorResponse(c: Context<CatalogAuthoringEnv>, error: unknown) {
+  if (error instanceof CatalogIntegrationRolloutControlError) {
+    return c.json(rolloutControlErrorResponse(error), 403);
+  }
+  if (error instanceof CatalogProviderOptionQueryUnavailableError) {
+    return c.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+        },
+      },
+      503,
+    );
+  }
+  throw error;
+}
+
+function metadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function metadataNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }

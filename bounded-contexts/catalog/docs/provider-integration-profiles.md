@@ -111,7 +111,9 @@ Provider option queries are profile-driven. The TCGdex profile declares language
 Series, and Expansion query aliases, parent value policy, named transport
 operations, and option DTO output selectors. Runtime supplies those operations
 through the registered TCGdex ProviderAdapter; profile data decides which
-operation and mapping are used.
+operation and mapping are used. Cache keys, TTLs, stale fallback, cursor
+pagination, cache-only rollout behavior, and degraded Admin display are governed
+by [Catalog Integration Provider Option Query Controls](./catalog-integration-provider-option-query-controls.md).
 
 Reference hierarchy provisioning is profile-driven. The TCGdex profile declares
 Reference Types for Manufacturer, Product Line, Series, and Expansion, static

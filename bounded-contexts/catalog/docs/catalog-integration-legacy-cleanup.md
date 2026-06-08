@@ -28,6 +28,7 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-le
 | Profile section projections and diagnostics | rebuild from profile version | Section rows and diagnostics regenerate from retained or seeded profile versions. |
 | Source Observations and legacy profile references | wipe | Clean release reset leaves zero Source Observations and zero `legacy` profile markers. |
 | Integration jobs, bulk review jobs, work units, and events | wipe | Job and work-unit tables are empty before launch verification. |
+| Provider option query cache | wipe | Provider option query cache rows are zero after reset. |
 | Learned provider option rate limits | wipe | Provider throttling cache rows are zero after reset. |
 | Fixture contract metadata and payloads | retain with explicit exception | Fixture metadata remains with profile versions; raw payload retention requires [Catalog Integration Data Governance](./catalog-integration-data-governance.md) and #804 retained-data evidence. |
 

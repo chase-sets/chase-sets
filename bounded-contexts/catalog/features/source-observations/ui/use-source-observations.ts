@@ -13,7 +13,7 @@ import type {
   SourceObservationIntegrationScope,
   SourceObservationIntegrationJobResult,
   SourceObservationIntegrationJobScope,
-  SourceObservationIntegrationOption,
+  SourceObservationIntegrationOptionResponse,
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
   SourceObservationReapplyPreview,
@@ -56,6 +56,9 @@ export function useSourceObservationIntegrationOptions(input: {
   queryKind: string;
   languageCode?: string;
   parentValue?: string;
+  cursor?: string;
+  limit?: number;
+  forceRefresh?: boolean;
   enabled?: boolean;
 }) {
   const query = new URLSearchParams({
@@ -70,6 +73,15 @@ export function useSourceObservationIntegrationOptions(input: {
   if (input.parentValue) {
     query.set("parentValue", input.parentValue);
   }
+  if (input.cursor) {
+    query.set("cursor", input.cursor);
+  }
+  if (input.limit) {
+    query.set("limit", String(input.limit));
+  }
+  if (input.forceRefresh) {
+    query.set("forceRefresh", "true");
+  }
 
   const queryString = query.toString();
   const enabled = input.enabled ?? true;
@@ -77,7 +89,7 @@ export function useSourceObservationIntegrationOptions(input: {
   return useFetch(
     () =>
       enabled
-        ? api.listSourceObservationIntegrationOptions<ListResponse<SourceObservationIntegrationOption>>(queryString)
+        ? api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(queryString)
         : Promise.resolve({ items: [], count: 0, total: 0 }),
     [enabled, queryString],
   );

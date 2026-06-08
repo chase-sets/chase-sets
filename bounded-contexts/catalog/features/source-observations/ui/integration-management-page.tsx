@@ -57,6 +57,7 @@ import type {
   CatalogProviderProfileVersionReview,
   BulkSourceObservationPromotionResult,
   SourceObservationIntegrationOption,
+  SourceObservationIntegrationOptionResponse,
   SourceObservationIntegrationJobOutcome,
   SourceObservationIntegrationJobResult,
   SourceObservationIntegrationJobScope,
@@ -2207,6 +2208,13 @@ export function IntegrationManagementPage({
             profile={activeProviderProfile(providerProfiles.data?.items ?? [], importProviderKey)}
             providerKey={importProviderKey}
           />
+          <OptionQueryStatusBanner
+            responses={
+              importProviderKey === TCGPLAYER_PROVIDER
+                ? [tcgplayerProductLines.data, tcgplayerSetNames.data]
+                : [importLanguages.data, importSeries.data]
+            }
+          />
           {importProviderKey === TCGPLAYER_PROVIDER ? (
             <TcgplayerImportScopeCard
               scopeKind={tcgplayerScopeKind}
@@ -2879,6 +2887,61 @@ function ImportActiveProfileSnapshot({
       />
     </Stack>
   );
+}
+
+function OptionQueryStatusBanner({
+  responses,
+}: Readonly<{
+  responses: readonly (SourceObservationIntegrationOptionResponse | null | undefined)[];
+}>) {
+  const details = optionQueryStatusDetails(responses);
+  if (!details) {
+    return null;
+  }
+
+  return (
+    <OperationalStatusBanner
+      tone={details.degraded ? "warning" : "success"}
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.option.query.status")}
+      description={details.description}
+    />
+  );
+}
+
+export function optionQueryStatusDetails(
+  responses: readonly (SourceObservationIntegrationOptionResponse | null | undefined)[],
+): { degraded: boolean; description: string } | null {
+  const caches = responses.flatMap((response) => (response?.cache ? [response.cache] : []));
+  const paginated = responses.some((response) => response?.page?.hasMore);
+  if (caches.length === 0 && !paginated) {
+    return null;
+  }
+
+  const degraded = caches.some((cache) => cache.degraded || cache.status === "stale" || cache.status === "unavailable");
+  const cacheOnly = caches.some((cache) => cache.cacheOnly);
+  const stale = caches.some((cache) => cache.status === "stale");
+  const cached = caches.some((cache) => cache.source === "cache");
+  const latestFetchedAt = caches
+    .map((cache) => cache.fetchedAt)
+    .filter((value): value is string => Boolean(value))
+    .sort()
+    .at(-1);
+  const details = [
+    cacheOnly ? t("catalog.features.sourceObservations.ui.integrationManagementPage.option.query.cache.only") : null,
+    stale ? t("catalog.features.sourceObservations.ui.integrationManagementPage.option.query.stale") : null,
+    cached && !stale ? t("catalog.features.sourceObservations.ui.integrationManagementPage.option.query.cached") : null,
+    paginated ? t("catalog.features.sourceObservations.ui.integrationManagementPage.option.query.paginated") : null,
+    latestFetchedAt
+      ? t("catalog.features.sourceObservations.ui.integrationManagementPage.option.query.fetched", {
+          value: formatDateTime(latestFetchedAt),
+        })
+      : null,
+  ].filter((value): value is string => Boolean(value));
+  if (details.length === 0) {
+    return null;
+  }
+
+  return { degraded: degraded || cacheOnly, description: details.join(" ") };
 }
 
 function TcgdexImportScopeCard({

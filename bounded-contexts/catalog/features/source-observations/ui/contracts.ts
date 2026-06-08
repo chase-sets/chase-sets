@@ -107,6 +107,39 @@ export interface SourceObservationIntegrationOption {
   metadata: Record<string, JsonValue>;
 }
 
+export interface SourceObservationIntegrationOptionQueryPage {
+  cursor: string | null;
+  nextCursor: string | null;
+  limit: number;
+  hasMore: boolean;
+}
+
+export interface SourceObservationIntegrationOptionQueryCache {
+  status: "fresh" | "stale" | "miss" | "bypass" | "unavailable";
+  source: "cache" | "live" | "none";
+  cacheKey: string;
+  fetchedAt: string | null;
+  expiresAt: string | null;
+  staleUntil: string | null;
+  cacheOnly: boolean;
+  forceRefresh: boolean;
+  degraded: boolean;
+  diagnostics: {
+    code: string;
+    severity: "info" | "warning" | "error";
+    message: string;
+    retryAfterSeconds: number | null;
+  }[];
+}
+
+export interface SourceObservationIntegrationOptionResponse {
+  items: SourceObservationIntegrationOption[];
+  total: number;
+  count: number;
+  page?: SourceObservationIntegrationOptionQueryPage;
+  cache?: SourceObservationIntegrationOptionQueryCache;
+}
+
 export interface CatalogIntegrationControlPlaneReadiness {
   generatedAt: string;
   rolloutControls: CatalogIntegrationRolloutControlSnapshot;

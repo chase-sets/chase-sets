@@ -75,7 +75,7 @@ Primary issues:
 - #794 provider payload and diagnostics data governance, documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - #795 read-model performance and freshness SLOs
 - #796 diagnostic taxonomy
-- #797 option query caching, pagination, and backpressure
+- #797 option query caching, pagination, and backpressure, documented in [Catalog Integration Provider Option Query Controls](./catalog-integration-provider-option-query-controls.md)
 - #798 activation/replay impact analysis
 - #807 source conflict resolution and field precedence
 

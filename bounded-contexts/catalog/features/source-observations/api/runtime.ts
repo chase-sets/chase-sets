@@ -100,6 +100,7 @@ import {
   type CatalogProviderCredentialReadinessState,
 } from "./catalog-integration-credential-readiness";
 import {
+  CatalogIntegrationRolloutControlError,
   createCatalogIntegrationRolloutControlPolicyFromEnv,
   type CatalogIntegrationRolloutControlPolicy,
   type CatalogIntegrationRolloutControlSnapshot,
@@ -136,6 +137,11 @@ import type {
   ProviderTransportDiagnostic,
 } from "./provider-adapters/provider-adapter";
 import { listCatalogProviderIntegrationOptionsFromProfiles } from "./provider-option-query-resolver";
+import {
+  createPgCatalogProviderOptionQueryCacheStore,
+  queryCatalogProviderIntegrationOptionsWithCache,
+  type CatalogProviderOptionQueryPage,
+} from "./provider-option-query-cache";
 import {
   planCatalogProviderPromotionCommands,
   type CatalogProviderPromotionResolvedCatalogMapping,
@@ -502,6 +508,15 @@ export type ProviderOptionQueryServices = Readonly<{
     languageCode: string;
     seriesId?: string | null;
   }) => Promise<readonly TcgdexExpansionOption[]>;
+  queryIntegrationOptions: (input: {
+    providerKey: string;
+    queryKind: string;
+    languageCode?: string | null;
+    parentValue?: string | null;
+    cursor?: string | null;
+    limit?: number | null;
+    forceRefresh?: boolean | null;
+  }) => Promise<CatalogProviderOptionQueryPage>;
   listIntegrationOptions: (input: {
     providerKey: string;
     queryKind: string;
@@ -2805,6 +2820,15 @@ export function createSourceObservationRuntime(
       rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
       return listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId });
     },
+    queryIntegrationOptions: (input) =>
+      queryProviderIntegrationOptions(
+        input,
+        deps.db,
+        rolloutControlPolicy,
+        deps.tcgplayerAutomationCatalogClient,
+        profileVersions,
+        providerAdapterRegistry,
+      ),
     listIntegrationOptions: (input) => {
       rolloutControlPolicy.assertAllowed({
         capability: "provider-option-query",
@@ -2996,6 +3020,110 @@ async function listProviderIntegrationOptions(
         listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
     },
   });
+}
+
+async function queryProviderIntegrationOptions(
+  input: {
+    providerKey: string;
+    queryKind: string;
+    languageCode?: string | null;
+    parentValue?: string | null;
+    cursor?: string | null;
+    limit?: number | null;
+    forceRefresh?: boolean | null;
+  },
+  db: PgQueryable | null,
+  rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy | null,
+  tcgplayerAutomationCatalogClient?: TcgplayerAutomationCatalogClient,
+  profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
+  providerAdapterRegistry: ProviderAdapterRegistry = new ProviderAdapterRegistry([
+    createReferenceCardsProviderAdapter(),
+    createTcgdexProviderAdapter({
+      loadActiveProfileVersion: () => requireCatalogImportProfileVersion(profileVersions, "tcgdex"),
+    }),
+    createTcgplayerProviderAdapter({
+      loadProfileVersions: () => profileVersions.listProfileVersions("tcgplayer"),
+      client: tcgplayerAutomationCatalogClient,
+    }),
+  ]),
+): Promise<CatalogProviderOptionQueryPage> {
+  const decision = rolloutControlPolicy?.decide({
+    capability: "provider-option-query",
+    providerKey: input.providerKey,
+  });
+  const blockingControls = decision?.controls ?? [];
+  const cacheOnly =
+    blockingControls.length > 0 &&
+    blockingControls.every((control) => control.controlId === "provider-option-queries-cache-only");
+  if (decision && !decision.allowed && !cacheOnly) {
+    throw new CatalogIntegrationRolloutControlError(decision);
+  }
+
+  const versions = await profileVersions.listProfileVersions();
+  const activeOptionQueryVersions = versions.filter(isActiveProviderOptionQueryProfileVersion);
+  const providerKey = input.providerKey.trim().toLowerCase();
+  const queryKind = input.queryKind.trim().toLowerCase();
+  const profileVersion = profileVersionForProviderOptionQuery(activeOptionQueryVersions, providerKey, queryKind);
+
+  return queryCatalogProviderIntegrationOptionsWithCache({
+    request: {
+      providerKey,
+      profileVersion,
+      queryKind,
+      languageCode: input.languageCode,
+      parentValue: input.parentValue,
+      cursor: input.cursor,
+      limit: input.limit,
+      forceRefresh: input.forceRefresh,
+      cacheOnly,
+    },
+    cacheStore: createPgCatalogProviderOptionQueryCacheStore(db),
+    loadLive: () =>
+      listCatalogProviderIntegrationOptionsFromProfiles({
+        profiles: activeOptionQueryVersions.map((version) => version.profile),
+        providerKey: input.providerKey,
+        queryKind: input.queryKind,
+        languageCode: input.languageCode,
+        parentValue: input.parentValue,
+        defaultProviderKey: defaultSourceObservationImportProviderKeyFromVersions(activeOptionQueryVersions),
+        transports: {
+          listTcgdexLanguages: () => listTcgdexLanguageOptionRecordsThroughAdapter(providerAdapterRegistry),
+          listTcgdexSeries: ({ languageCode }) =>
+            listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode }),
+          listTcgdexExpansions: ({ languageCode, seriesId }) =>
+            listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
+          listTcgplayerProductLines: () => listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry),
+          listTcgplayerSetNames: ({ productLineId }) =>
+            listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, { productLineId }),
+          listTcgplayerProducts: ({ setName }) =>
+            listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
+          listTcgplayerSkus: ({ productId }) =>
+            listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
+        },
+      }),
+  });
+}
+
+function profileVersionForProviderOptionQuery(
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+  providerKey: string,
+  queryKind: string,
+): string {
+  if (queryKind === "providers" || queryKind === "provider") {
+    return `catalog-providers:${versions.map((version) => `${version.providerKey}@${version.profileVersion}`).join("|")}`;
+  }
+  return (
+    versions.find((version) => version.providerKey.trim().toLowerCase() === providerKey)?.profileVersion ??
+    "unregistered"
+  );
+}
+
+function defaultSourceObservationImportProviderKeyFromVersions(
+  versions: readonly CatalogProviderIntegrationProfileVersionRecord[],
+): string {
+  return (
+    versions.find((version) => version.providerKey === "tcgdex")?.providerKey ?? versions[0]?.providerKey ?? "tcgdex"
+  );
 }
 
 async function listTcgdexLanguagesThroughAdapter(

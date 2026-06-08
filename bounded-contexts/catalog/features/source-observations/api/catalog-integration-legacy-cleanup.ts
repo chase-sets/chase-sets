@@ -62,6 +62,7 @@ export type CatalogIntegrationLegacyCleanupReadinessFinding = Readonly<{
     | "legacy-source-observation-references"
     | "integration-jobs-not-reset"
     | "bulk-review-jobs-not-reset"
+    | "provider-option-query-cache-not-reset"
     | "provider-option-rate-limits-not-reset"
     | "seeded-profiles-missing"
     | "profile-sections-missing"
@@ -183,6 +184,16 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
     resetSurfaceKey: "bulk-review-work-unit",
     reason: "Pre-launch bulk review work units are execution state tied to wipeable Source Observations.",
     releaseExpectation: "Bulk review work-unit rows are empty before launch verification.",
+  },
+  {
+    key: "provider-option-query-cache",
+    kind: "data-surface",
+    action: "wipe",
+    owner: "catalog-source-observations",
+    implementationReference: "bounded-contexts/catalog/features/source-observations/api/provider-option-query-cache.ts",
+    resetSurfaceKey: "provider-option-query-cache",
+    reason: "Provider option query results are operational cache and must not carry launch semantics.",
+    releaseExpectation: "Provider option query cache rows are zero after pre-launch reset.",
   },
   {
     key: "learned-provider-option-rate-limits",
@@ -315,6 +326,14 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
       code: "provider-option-rate-limits-not-reset",
       severity: "p2",
       releaseCheck: "Learned provider option rate-limit cache must not be carried into launch.",
+    });
+  }
+
+  if (report.providerOptionQueryCacheEntries > 0) {
+    findings.push({
+      code: "provider-option-query-cache-not-reset",
+      severity: "p2",
+      releaseCheck: "Provider option query cache rows must not be carried into launch.",
     });
   }
 
