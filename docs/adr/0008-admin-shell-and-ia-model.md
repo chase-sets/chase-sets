@@ -31,7 +31,7 @@ Admin web has six top-level workflow sections:
 
 Access contains accounts, users, memberships, invitations, API keys, sessions, and concrete admin auth routes. Commerce contains commercial terms and postage policies. Growth contains public-market activation surfaces, including Google Shopping, Waitlist, and Promo Bar. Support contains support requests and platform feedback review. Platform contains projection operations, release dashboard, and release controls.
 
-Bounded-context manifests may explicitly declare admin section placement for route and shell contributions. Explicit placement wins over context-name and file-name fallback heuristics. Fallbacks remain only as migration compatibility and should be minimized as manifests are updated.
+Bounded-context manifests must explicitly declare admin section placement for route and shell contributions. The platform runtime rejects missing or unknown admin-web section metadata instead of relying on context-name or file-name fallback heuristics.
 
 The final admin IA has no compatibility redirects for retired Identity, Experience, Operations, or Commercial admin sections. Retired section names may remain only as bounded-context, API, event, package, or localization terminology, not as admin route placement.
 

@@ -56,7 +56,6 @@ const ADMIN_WEB_SECTIONS = [
   "support",
   "platform",
 ] as const satisfies readonly WebHostSection[];
-const catalogAdminMarker = ["catalog", "admin"].join("-");
 
 function isWebHostSection(value: string): value is WebHostSection {
   return (ADMIN_WEB_SECTIONS as readonly string[]).includes(value);
@@ -67,57 +66,17 @@ function resolveAdminWebSection(
   fileExportOrKey?: string,
   explicitSection?: string,
 ): WebHostSection {
-  if (explicitSection) {
-    if (isWebHostSection(explicitSection)) {
-      return explicitSection;
-    }
-
-    throw new Error(`Unknown admin-web section '${explicitSection}' for context '${contextName}'.`);
+  if (!explicitSection) {
+    throw new Error(
+      `Missing explicit admin-web section for context '${contextName}' route or shell contribution '${fileExportOrKey ?? "unknown"}'.`,
+    );
   }
 
-  if (contextName === "catalog") {
-    return "catalog";
+  if (isWebHostSection(explicitSection)) {
+    return explicitSection;
   }
 
-  if (fileExportOrKey?.includes(catalogAdminMarker)) {
-    return "catalog";
-  }
-
-  if (contextName === "identity") {
-    return "access";
-  }
-
-  if (contextName === "auth") {
-    return "access";
-  }
-
-  if (contextName === "experience") {
-    return "support";
-  }
-
-  if (contextName === "platform-operations") {
-    return "platform";
-  }
-
-  if (contextName === "support") {
-    return "support";
-  }
-
-  if (contextName === "discovery" && fileExportOrKey?.includes("google-shopping")) {
-    return "growth";
-  }
-
-  if (contextName === "public-presence") {
-    return "growth";
-  }
-
-  if (contextName === "commercial-terms") {
-    return "commerce";
-  }
-
-  throw new Error(
-    `Missing explicit admin-web section for context '${contextName}' route or shell contribution '${fileExportOrKey ?? "unknown"}'.`,
-  );
+  throw new Error(`Unknown admin-web section '${explicitSection}' for context '${contextName}'.`);
 }
 
 function withPrefixedPath(pathname: string, prefix: string) {

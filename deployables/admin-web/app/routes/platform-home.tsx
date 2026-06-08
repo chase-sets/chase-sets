@@ -1,8 +1,6 @@
-import { redirect } from "react-router";
+import { createAdminSectionHomeLoader } from "../admin-section-loader.server";
 
-export function loader() {
-  throw redirect("/platform/projections");
-}
+export const loader = createAdminSectionHomeLoader({ section: "platform", fallbackPermission: "security.manage" });
 
 export default function PlatformHomeRoute() {
   return null;

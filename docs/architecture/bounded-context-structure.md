@@ -102,15 +102,16 @@ The platform host resolves route and shell composition directly from bounded-con
 - Deployables own only host routes, layout, auth wiring, and runtime bootstrap.
 - `infrastructure/platform-runtime` is the canonical projection of manifest-driven route and shell composition.
 
-Admin web route and shell contributions should declare explicit section placement when context ownership and admin IA differ from the context name. Use the manifest `section` field on admin-web route modules and shell contributions for these cases.
+Admin web route and shell contributions must declare explicit section placement with the manifest `section` field on every admin-web route module and shell contribution.
 
+- Use `access` for accounts, users, memberships, invitations, API keys, sessions, and concrete admin auth journeys.
 - Use `catalog` for Catalog-owned admin authoring surfaces.
-- Use `identity` for Identity-owned account, user, membership, invitation, API key, and identity-management surfaces.
-- Use `experience` for internal platform feedback and public-presence review surfaces.
-- Use `operations` for cross-context operator workflows such as Platform Operations, Support operations, and Google Shopping operations.
-- Use `commercial` for Commercial Terms fee schedules, commercial agreements, and deterministic commercial terms resolution surfaces.
+- Use `commerce` for Commercial Terms fee schedules, commercial agreements, deterministic commercial terms resolution surfaces, and postage policies.
+- Use `growth` for public-market activation surfaces such as Google Shopping, Waitlist, and Promo Bar.
+- Use `support` for support requests and platform feedback review.
+- Use `platform` for cross-context platform operations such as projections, release dashboard, and release controls.
 
-Explicit admin section placement wins over context-name and file-name fallback heuristics. Fallbacks exist only for migration compatibility; new admin-web route and shell contributions should declare the section directly.
+The platform runtime rejects missing or unknown admin-web section metadata. Do not rely on context-name or file-name fallback heuristics for route placement.
 
 ## Shared Typed IDs
 

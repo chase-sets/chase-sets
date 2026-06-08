@@ -24,6 +24,15 @@ const adminSectionIcons: Record<WebHostSection, NavigationItem["icon"]> = {
 
 const adminSections: readonly WebHostSection[] = ["access", "catalog", "commerce", "growth", "support", "platform"];
 
+const adminSectionHrefs: Record<WebHostSection, string> = {
+  access: "/access",
+  catalog: "/catalog",
+  commerce: "/commerce",
+  growth: "/growth",
+  support: "/support",
+  platform: "/platform",
+};
+
 export function resolveAdminWebRouteConfigRecords() {
   return resolveWebHostRouteConfigRecords(webContextRegistry, "admin-web");
 }
@@ -40,9 +49,8 @@ export function resolveAdminWebSectionNavItems(
 ): NavigationItem[] {
   return adminSections.flatMap((section) => {
     const sectionNavItems = resolveAdminWebNavItems(actor, { section });
-    const firstVisibleItem = sectionNavItems[0];
 
-    if (!firstVisibleItem) {
+    if (sectionNavItems.length === 0) {
       return [];
     }
 
@@ -51,7 +59,7 @@ export function resolveAdminWebSectionNavItems(
         key: section,
         label: adminSectionLabels[section],
         icon: adminSectionIcons[section],
-        href: firstVisibleItem.href,
+        href: adminSectionHrefs[section],
       },
     ];
   });

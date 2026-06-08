@@ -374,7 +374,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain('"/api/marketplace/account/payments"');
     expect(platformLocals).toContain('"/api/settlement/payout-setup"');
     expect(platformLocals).toContain("proof_admin_api_ingress_routes = {");
+    expect(platformLocals).toContain('"/api/catalog"');
     expect(platformLocals).toContain('"/api/commercial-terms"');
+    expect(platformLocals).toContain('"/api/platform"');
+    expect(platformLocals).toContain('"/api/public-presence"');
+    expect(platformLocals).toContain('"/api/realtime"');
     expect(platformLocals).toContain("proof_admin_api_route_domains = local.is_production");
     expect(platformLocals).toContain("local.admin_domain");
     expect(platformLocals).toContain("proof_web_ingress_routes = {");
@@ -389,6 +393,8 @@ describe("DigitalOcean platform configuration", () => {
     const adminWebService = terraformServiceBlock(platformMain, "admin-web");
     expect(adminWebService).toContain('key   = "CHASE_SETS_INTERNAL_API_ORIGIN"');
     expect(adminWebService).toContain("value = local.admin_web_internal_api_origin");
+    expect(adminWebService).toContain('key   = "CHASE_SETS_MARKETPLACE_ORIGIN"');
+    expect(adminWebService).toContain("value = local.marketplace_origin");
     expect(platformLocals).toContain("context_names = local.marketplace_platform_enabled");
     expect(platformMain).toContain('check "production_marketplace_proof"');
     expect(platformMain).toContain(

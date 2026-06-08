@@ -30,7 +30,6 @@
           "fileExport": "./routes/admin/projection-operations",
           "routeType": "route",
           "sourceContext": "platform-operations",
-          "placement": "root",
           "section": "platform"
         },
         {
@@ -39,7 +38,6 @@
           "fileExport": "./routes/admin/release-controls",
           "routeType": "route",
           "sourceContext": "platform-operations",
-          "placement": "root",
           "section": "platform"
         },
         {
@@ -48,7 +46,6 @@
           "fileExport": "./routes/admin/release-dashboard",
           "routeType": "route",
           "sourceContext": "platform-operations",
-          "placement": "root",
           "section": "platform"
         }
       ]

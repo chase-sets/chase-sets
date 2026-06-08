@@ -1,8 +1,6 @@
-import { redirect } from "react-router";
+import { createAdminSectionHomeLoader } from "../admin-section-loader.server";
 
-export function loader() {
-  throw redirect("/support/requests");
-}
+export const loader = createAdminSectionHomeLoader({ section: "support", fallbackPermission: "support.manage" });
 
 export default function SupportHomeRoute() {
   return null;

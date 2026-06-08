@@ -277,7 +277,11 @@ locals {
     }
   }
   proof_admin_api_route_prefixes = [
+    "/api/catalog",
     "/api/commercial-terms",
+    "/api/platform",
+    "/api/public-presence",
+    "/api/realtime",
   ]
   proof_admin_api_route_domains = local.is_production && var.production_marketplace_proof_enabled && !var.production_marketplace_public_enabled ? [
     local.admin_domain,

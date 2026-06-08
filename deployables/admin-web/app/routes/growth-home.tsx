@@ -1,8 +1,6 @@
-import { redirect } from "react-router";
+import { createAdminSectionHomeLoader } from "../admin-section-loader.server";
 
-export function loader() {
-  throw redirect("/growth/google-shopping");
-}
+export const loader = createAdminSectionHomeLoader({ section: "growth", fallbackPermission: "google-shopping.view" });
 
 export default function GrowthHomeRoute() {
   return null;

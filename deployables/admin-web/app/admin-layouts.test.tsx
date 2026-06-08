@@ -27,6 +27,12 @@ import PlatformLayout from "./routes/platform-layout";
 import SupportLayout from "./routes/support-layout";
 
 const allSectionsActor = {
+  sessionId: "session_admin",
+  tenantId: "tenant_chase_sets",
+  userId: "user_admin",
+  accountId: "account_platform",
+  membershipId: "membership_admin",
+  roleKey: "platform-admin",
   permissions: [
     "accounts.view",
     "catalog.view",
@@ -109,7 +115,9 @@ describe("admin web section layouts", () => {
       expect(html).toContain("Platform");
       expect(html).toContain(`href="${activeHref}" aria-current="page"`);
       expect(html).toContain(localNavLabel);
-      expect(html).toMatch(/Sign [Oo]ut/);
+      expect(html).toContain('aria-label="Account menu"');
+      expect(html).toContain('action="/access/sign-out"');
+      expect(html).not.toContain("Verified");
     },
   );
 });
@@ -122,23 +130,23 @@ describe("admin web root hub", () => {
   it("renders all actor-visible sections", () => {
     mockUseLoaderData.mockReturnValue({
       sections: [
-        { key: "access", label: "Access", href: "/access/accounts" },
-        { key: "catalog", label: "Catalog", href: "/catalog/dimensions" },
-        { key: "commerce", label: "Commerce", href: "/commerce/terms/schedules" },
-        { key: "growth", label: "Growth", href: "/growth/google-shopping" },
-        { key: "support", label: "Support", href: "/support/requests" },
-        { key: "platform", label: "Platform", href: "/platform/projections" },
+        { key: "access", label: "Access", href: "/access" },
+        { key: "catalog", label: "Catalog", href: "/catalog" },
+        { key: "commerce", label: "Commerce", href: "/commerce" },
+        { key: "growth", label: "Growth", href: "/growth" },
+        { key: "support", label: "Support", href: "/support" },
+        { key: "platform", label: "Platform", href: "/platform" },
       ],
     });
 
     const html = renderToString(<AdminIndex />);
 
     expect(html).toContain("Admin sections");
-    expect(html).toContain("/access/accounts");
-    expect(html).toContain("/commerce/terms/schedules");
-    expect(html).toContain("/growth/google-shopping");
-    expect(html).toContain("/support/requests");
-    expect(html).toContain("/platform/projections");
+    expect(html).toContain("/access");
+    expect(html).toContain("/commerce");
+    expect(html).toContain("/growth");
+    expect(html).toContain("/support");
+    expect(html).toContain("/platform");
   });
 
   it("renders a no-access state when no sections are visible", () => {

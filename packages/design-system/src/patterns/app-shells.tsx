@@ -270,7 +270,7 @@ export function AdminShell({
             <SideNav items={navItems} activeKey={activeKey} />
           </div>
         </div>
-        <div className="space-y-6">{children}</div>
+        <div className="min-w-0 max-w-full space-y-6 overflow-x-clip">{children}</div>
       </main>
       <BottomNav items={mobileNavItems} activeKey={activeKey} width={width} />
     </div>

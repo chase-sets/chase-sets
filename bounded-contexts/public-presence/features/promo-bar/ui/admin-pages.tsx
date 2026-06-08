@@ -47,6 +47,14 @@ function messageStatus(message: PromoBarMessage) {
   return t("publicPresence.promoBar.status.active");
 }
 
+function resolveAdminPreviewHref(href: string | null, marketplaceOrigin: string | null) {
+  if (!href || !href.startsWith("/") || !marketplaceOrigin) {
+    return href;
+  }
+
+  return new URL(href, `${marketplaceOrigin.replace(/\/+$/, "")}/`).toString();
+}
+
 function PromoBarMessageFields({ message }: { message?: PromoBarMessage }) {
   return (
     <Grid columns={{ base: 1, md: 2, xl: 4 }} gap={3}>
@@ -109,9 +117,11 @@ function PromoBarMessageFields({ message }: { message?: PromoBarMessage }) {
 export function PromoBarAdminPage({
   messages,
   actionMessage,
+  marketplaceOrigin,
 }: {
   messages: readonly PromoBarMessage[];
   actionMessage?: string | null;
+  marketplaceOrigin?: string | null;
 }) {
   const activeMessages = messages.filter(
     (message) => messageStatus(message) === t("publicPresence.promoBar.status.active"),
@@ -138,7 +148,7 @@ export function PromoBarAdminPage({
             id: message.id,
             title: message.title,
             description: message.description,
-            href: message.href,
+            href: resolveAdminPreviewHref(message.href, marketplaceOrigin ?? null),
             linkLabel: message.link_label,
             tone: message.tone,
           }))}

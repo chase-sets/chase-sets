@@ -23,9 +23,19 @@ function messageBody(formData: FormData) {
   };
 }
 
+function resolveMarketplaceOrigin(request: Request) {
+  const configured = process.env.CHASE_SETS_MARKETPLACE_ORIGIN?.trim();
+  if (configured) {
+    return configured;
+  }
+
+  return new URL(request.url).origin;
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createPublicPresenceRequestApiClient(request);
-  return api.listPromoBarMessages();
+  const messages = await api.listPromoBarMessages();
+  return { ...messages, marketplaceOrigin: resolveMarketplaceOrigin(request) };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -68,5 +78,11 @@ export default function PromoBarAdminRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
-  return <PromoBarAdminPage messages={data.items} actionMessage={actionData?.message ?? null} />;
+  return (
+    <PromoBarAdminPage
+      messages={data.items}
+      actionMessage={actionData?.message ?? null}
+      marketplaceOrigin={data.marketplaceOrigin}
+    />
+  );
 }

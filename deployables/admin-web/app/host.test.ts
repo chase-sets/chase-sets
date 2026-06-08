@@ -19,25 +19,25 @@ describe("admin web host context registry", () => {
   it("resolves top-level admin section navigation from visible section entries", () => {
     expect(resolveAdminWebSectionNavItems(allSectionsActor)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ key: "access", label: "Access", href: "/access/accounts" }),
-        expect.objectContaining({ key: "catalog", label: "Catalog", href: "/catalog/dimensions" }),
-        expect.objectContaining({ key: "commerce", label: "Commerce", href: "/commerce/terms/schedules" }),
-        expect.objectContaining({ key: "growth", label: "Growth", href: "/growth/google-shopping" }),
-        expect.objectContaining({ key: "support", label: "Support", href: "/support/requests" }),
-        expect.objectContaining({ key: "platform", label: "Platform", href: "/platform/projections" }),
+        expect.objectContaining({ key: "access", label: "Access", href: "/access" }),
+        expect.objectContaining({ key: "catalog", label: "Catalog", href: "/catalog" }),
+        expect.objectContaining({ key: "commerce", label: "Commerce", href: "/commerce" }),
+        expect.objectContaining({ key: "growth", label: "Growth", href: "/growth" }),
+        expect.objectContaining({ key: "support", label: "Support", href: "/support" }),
+        expect.objectContaining({ key: "platform", label: "Platform", href: "/platform" }),
       ]),
     );
   });
 
   it("keeps section navigation actor-visible", () => {
     expect(resolveAdminWebSectionNavItems({ permissions: ["support.manage"] })).toContainEqual(
-      expect.objectContaining({ key: "support", href: "/support/requests" }),
+      expect.objectContaining({ key: "support", href: "/support" }),
     );
     expect(resolveAdminWebSectionNavItems({ permissions: ["support.manage"] })).not.toContainEqual(
       expect.objectContaining({ key: "commerce" }),
     );
     expect(resolveAdminWebSectionNavItems({ permissions: ["commercial-terms.view"] })).toContainEqual(
-      expect.objectContaining({ key: "commerce", href: "/commerce/terms/schedules" }),
+      expect.objectContaining({ key: "commerce", href: "/commerce" }),
     );
     expect(resolveAdminWebSectionNavItems({ permissions: ["commercial-terms.view"] })).not.toContainEqual(
       expect.objectContaining({ key: "platform" }),
