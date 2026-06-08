@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { readFreshWriteToken } from "@chase-sets/http/responses";
+import { appendFreshWriteToken, readFreshWriteToken } from "@chase-sets/http/responses";
 
 const {
   mockRequireActorFromAuthApi,
@@ -190,6 +190,10 @@ describe("checkout web routes", () => {
         },
       ],
     };
+  }
+
+  function freshCheckoutRequest(path = "/checkout/chk_1") {
+    return new Request(`http://localhost${appendFreshWriteToken(path, checkoutCommit("42", "evt_checkout"))}`);
   }
 
   it("starts cart checkout through the canonical checkout session API", async () => {
@@ -2108,6 +2112,114 @@ describe("checkout web routes", () => {
     };
     expect(recoveryBody.description).toContain("We could not find this checkout session.");
     expect(recoveryBody.primaryAction?.href).toBe("/search");
+  });
+
+  it("returns temporary recovery when a fresh checkout handoff has not projected yet", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(404, {
+          error: { code: "not_found", message: "Checkout session not found." },
+        });
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: freshCheckoutRequest(),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(503);
+    expect(recoveryResponse?.statusText).toBe("Preparing checkout");
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      description?: string;
+      primaryAction?: { href?: string; label?: string };
+      trustCue?: string;
+    };
+    expect(recoveryBody.description).toContain("getting your checkout ready");
+    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
+    expect(recoveryBody.primaryAction?.href).toContain("/checkout/chk_1?afterWrite=");
+    expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
+  });
+
+  it("returns temporary recovery when a fresh checkout handoff hits projection freshness timeout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(503, {
+          error: {
+            code: "projection_freshness_timeout",
+            message: "Projection read model did not catch up before the freshness timeout.",
+          },
+        });
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: freshCheckoutRequest(),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(503);
+    expect(recoveryResponse?.statusText).toBe("Preparing checkout");
+    await expect(recoveryResponse?.text()).resolves.toContain("Refresh checkout");
+  });
+
+  it("retries a fresh checkout handoff until the session read model appears", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    const getCheckoutSession = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new MockCheckoutApiError(404, {
+          error: { code: "not_found", message: "Checkout session not found." },
+        }),
+      )
+      .mockResolvedValue({
+        session_id: "chk_1",
+        buyer_account_id: "acc_guest",
+        source_type: "offer-intent",
+        payment_id: null,
+        submitted_offer_id: null,
+        shipping_option: "standard",
+        shipping_address: null,
+        optimization_goal: "lowest-total",
+        fulfillment_preview_revision: null,
+        order_ids: [],
+        lines: [],
+        created_at: "2026-04-01T00:00:00.000Z",
+        updated_at: "2026-04-01T00:00:00.000Z",
+      });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession,
+    });
+
+    const result = await checkoutSessionLoader({
+      request: freshCheckoutRequest(),
+      params: { sessionId: "chk_1" },
+      context: undefined,
+    } as never);
+
+    expect(getCheckoutSession).toHaveBeenCalledTimes(2);
+    expect(result).toEqual(
+      expect.objectContaining({
+        session: expect.objectContaining({
+          session_id: "chk_1",
+          buyer_account_id: "acc_guest",
+        }),
+      }),
+    );
   });
 
   it("redirects completed checkout sessions to payment detail", async () => {

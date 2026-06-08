@@ -1,16 +1,18 @@
+import { readFreshWriteToken } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { CheckoutApiError } from "./api-client";
 
 export type CheckoutRecoveryAction = Readonly<{
   href: string;
   label: string;
-  leadingIcon: "cart" | "lock" | "search";
+  leadingIcon: "cart" | "lock" | "refreshCcw" | "search";
   tone?: "secondary";
 }>;
 
 export type CheckoutRecoveryKind =
   | "access-required"
   | "cart-empty"
+  | "checkout-preparing"
   | "guest-access-expired"
   | "request-validation"
   | "session-not-found"
@@ -60,6 +62,11 @@ export function checkoutRecoveryForKind(kind: CheckoutRecoveryKind, currentPath 
     "lock",
     "secondary",
   );
+  const refreshAction = checkoutRecoveryAction(
+    currentPath,
+    t("checkout.routes.checkoutRecovery.refresh.checkout"),
+    "refreshCcw",
+  );
 
   switch (kind) {
     case "access-required":
@@ -80,6 +87,16 @@ export function checkoutRecoveryForKind(kind: CheckoutRecoveryKind, currentPath 
         description: t("checkout.routes.checkoutRecovery.buy.cart.empty.description"),
         trustCue: t("checkout.routes.checkoutSession.payment.has.not.started"),
         primaryAction: cartAction,
+        secondaryAction: browseAction,
+      };
+    case "checkout-preparing":
+      return {
+        kind,
+        status: 503,
+        title: t("checkout.routes.checkoutRecovery.checkout.preparing"),
+        description: t("checkout.routes.checkoutRecovery.checkout.preparing.description"),
+        trustCue: t("checkout.routes.checkoutSession.payment.has.not.started"),
+        primaryAction: refreshAction,
         secondaryAction: browseAction,
       };
     case "guest-access-expired":
@@ -173,6 +190,27 @@ export function checkoutRecoveryForError(
   }
 
   return null;
+}
+
+function isProjectionFreshnessTimeout(error: CheckoutApiError) {
+  return error.status === 503 && errorBodyCode(error) === "projection_freshness_timeout";
+}
+
+export function checkoutRecoveryForFreshWriteError(
+  error: unknown,
+  actor: CheckoutActor,
+  request: Request,
+  currentPath = "/checkout/start",
+): CheckoutRecovery | null {
+  if (!(error instanceof CheckoutApiError) || !readFreshWriteToken(request)) {
+    return checkoutRecoveryForError(error, actor, currentPath);
+  }
+
+  if (error.status === 404 || isProjectionFreshnessTimeout(error)) {
+    return checkoutRecoveryForKind("checkout-preparing", currentPath);
+  }
+
+  return checkoutRecoveryForError(error, actor, currentPath);
 }
 
 function isCheckoutRecoveryAction(value: unknown): value is CheckoutRecoveryAction {
