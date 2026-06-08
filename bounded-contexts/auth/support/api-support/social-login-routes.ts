@@ -26,18 +26,54 @@ const SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH = "/register";
 const SOCIAL_LOGIN_SUCCESS_PATH = "/account";
 const SOCIAL_LOGIN_ACCOUNT_SELECTION_PATH = "/account/select";
 const ACCESS_ADMIN_SIGN_IN_FALLBACK_PATH = "/access/sign-in";
+const ACCESS_ADMIN_SUCCESS_PATH = "/access/accounts";
 const ACCESS_ADMIN_ACCOUNT_SELECTION_PATH = "/access/account-select";
 const CATALOG_ADMIN_SIGN_IN_FALLBACK_PATH = "/catalog/sign-in";
+const CATALOG_ADMIN_SUCCESS_PATH = "/catalog/dimensions";
 const CATALOG_ADMIN_ACCOUNT_SELECTION_PATH = "/catalog/account-select";
 
 type SocialLoginJourney = "sign-in" | "registration" | "access-admin" | "catalog-admin";
 
 type AdminSocialLoginJourney = Extract<SocialLoginJourney, "access-admin" | "catalog-admin">;
 
-const ADMIN_JOURNEY_REQUIRED_PERMISSIONS = {
-  "access-admin": "accounts.view",
-  "catalog-admin": "catalog.view",
-} satisfies Readonly<Record<AdminSocialLoginJourney, string>>;
+const ACCESS_ADMIN_ROUTE_REQUIRED_PERMISSIONS = [
+  { path: "/access/users", permissions: ["security.manage"] },
+  { path: "/access/api-keys", permissions: ["security.manage"] },
+  { path: "/access/sessions", permissions: ["security.manage"] },
+  { path: "/access/memberships", permissions: ["memberships.view"] },
+  { path: "/access/invitations", permissions: ["memberships.view"] },
+  { path: "/growth/google-shopping", permissions: ["google-shopping.view"] },
+  { path: "/growth/waitlist", permissions: ["public-presence.view"] },
+  { path: "/growth/promo-bar", permissions: ["public-presence.view"] },
+  { path: "/commerce/terms", permissions: ["commercial-terms.view"] },
+  { path: "/commerce/postage-policies", permissions: ["postage-policies.view"] },
+  { path: "/support/requests", permissions: ["support.manage"] },
+  { path: "/support/platform-feedback", permissions: ["platform-feedback.view"] },
+  { path: "/platform", permissions: ["security.manage"] },
+] as const satisfies readonly { path: string; permissions: readonly string[] }[];
+
+const ACCESS_ADMIN_SECTION_ROOT_REQUIRED_PERMISSIONS = [
+  {
+    path: "/",
+    permissions: [
+      "accounts.view",
+      "memberships.view",
+      "security.manage",
+      "catalog.view",
+      "commercial-terms.view",
+      "postage-policies.view",
+      "google-shopping.view",
+      "public-presence.view",
+      "support.manage",
+      "platform-feedback.view",
+    ],
+  },
+  { path: "/access", permissions: ["accounts.view", "memberships.view", "security.manage"] },
+  { path: "/growth", permissions: ["google-shopping.view", "public-presence.view"] },
+  { path: "/commerce", permissions: ["commercial-terms.view", "postage-policies.view"] },
+  { path: "/support", permissions: ["support.manage", "platform-feedback.view"] },
+  { path: "/platform", permissions: ["security.manage"] },
+] as const satisfies readonly { path: string; permissions: readonly string[] }[];
 
 function isSocialLoginProviderName(value: string): value is SocialLoginProviderName {
   return value === "google" || value === "facebook";
@@ -55,9 +91,19 @@ function getSocialLoginProvider(services: AuthServices, providerName: string) {
   return services.socialLoginProviders.find((provider) => provider.providerName === providerName);
 }
 
-function getSafeReturnToFromUrl(url: URL) {
+function getDefaultSuccessPath(journey: SocialLoginJourney) {
+  if (journey === "access-admin") {
+    return ACCESS_ADMIN_SUCCESS_PATH;
+  }
+  if (journey === "catalog-admin") {
+    return CATALOG_ADMIN_SUCCESS_PATH;
+  }
+  return SOCIAL_LOGIN_SUCCESS_PATH;
+}
+
+function getSafeReturnToFromUrl(url: URL, journey: SocialLoginJourney) {
   const returnTo = url.searchParams.get("returnTo");
-  return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : SOCIAL_LOGIN_SUCCESS_PATH;
+  return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : getDefaultSuccessPath(journey);
 }
 
 function firstForwardedValue(value: string | null) {
@@ -179,8 +225,38 @@ function hasRequiredAdminPermission(
     rolePermissions: readonly string[];
   }>,
   journey: AdminSocialLoginJourney,
+  returnTo: string,
 ) {
-  return membership.rolePermissions.includes(ADMIN_JOURNEY_REQUIRED_PERMISSIONS[journey]);
+  const requiredPermissions = getRequiredAdminPermissions(journey, returnTo);
+  return requiredPermissions.some((permission) => membership.rolePermissions.includes(permission));
+}
+
+function getReturnToPathname(returnTo: string) {
+  return new URL(returnTo, "https://chase-sets.local").pathname;
+}
+
+function isSameRouteFamily(pathname: string, routePath: string) {
+  return pathname === routePath || pathname.startsWith(`${routePath}/`);
+}
+
+function getRequiredAdminPermissions(journey: AdminSocialLoginJourney, returnTo: string) {
+  if (journey === "catalog-admin") {
+    return ["catalog.view"];
+  }
+
+  const pathname = getReturnToPathname(returnTo);
+  const sectionRootPermissions = ACCESS_ADMIN_SECTION_ROOT_REQUIRED_PERMISSIONS.find(
+    (entry) => pathname === entry.path,
+  )?.permissions;
+  if (sectionRootPermissions) {
+    return sectionRootPermissions;
+  }
+
+  return (
+    ACCESS_ADMIN_ROUTE_REQUIRED_PERMISSIONS.find((entry) => isSameRouteFamily(pathname, entry.path))?.permissions ?? [
+      "accounts.view",
+    ]
+  );
 }
 
 export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthServices) {
@@ -217,7 +293,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
       stateHash: services.auth.hashSecret(state),
       providerName,
       journey,
-      returnTo: getSafeReturnToFromUrl(requestUrl),
+      returnTo: getSafeReturnToFromUrl(requestUrl, journey),
       expiresAt: createExpiryTimestamp(AUTH_SOCIAL_LOGIN_STATE_TTL_MS),
     });
 
@@ -328,7 +404,7 @@ export function registerSocialLoginRoutes(app: AuthApiApp, services: AuthService
 
     const membershipsOverride = isAdminSocialLoginJourney(journey)
       ? (await services.identity.listActiveMembershipsForUser(user.user_id)).filter((membership) =>
-          hasRequiredAdminPermission(membership, journey),
+          hasRequiredAdminPermission(membership, journey, stateRecord.return_to),
         )
       : undefined;
     if (isAdminSocialLoginJourney(journey) && membershipsOverride?.length === 0) {

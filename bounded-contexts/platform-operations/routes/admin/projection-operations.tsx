@@ -1,5 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useLoaderData } from "react-router";
+import { redirect, useLoaderData, useMatches } from "react-router";
 import { t } from "@chase-sets/localization";
 import {
   cancelProjectionOperation,
@@ -54,5 +54,16 @@ export async function action({ request }: ActionFunctionArgs) {
 
 export default function ProjectionOperationsRoute() {
   const { data, filters } = useLoaderData<typeof loader>();
-  return <ProjectionOperationsPage data={data} filters={filters} />;
+  return <ProjectionOperationsPage data={data} filters={filters} actorPermissions={useAdminActorPermissions()} />;
+}
+
+function useAdminActorPermissions() {
+  for (const match of useMatches()) {
+    if (match.data && typeof match.data === "object" && "actor" in match.data) {
+      const actor = (match.data as { actor?: { permissions?: readonly string[] } }).actor;
+      return actor?.permissions ?? [];
+    }
+  }
+
+  return [];
 }

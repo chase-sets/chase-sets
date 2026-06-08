@@ -468,6 +468,12 @@ resource "digitalocean_app" "platform" {
         scope = "RUN_TIME"
       }
 
+      env {
+        key   = "CHASE_SETS_MARKETPLACE_ORIGIN"
+        value = local.marketplace_origin
+        scope = "RUN_TIME"
+      }
+
       health_check {
         http_path = "/health/ready"
       }

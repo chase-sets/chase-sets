@@ -15,9 +15,15 @@ describe("auth host config", () => {
       allowManualMagicLinkTokenEntry: false,
     });
     expect(accessAdminAuthHostConfig).toMatchObject({
+      hostLabel: "Admin",
       requiredPermission: "accounts.view",
       accountSelectionPath: "/access/account-select",
       allowManualMagicLinkTokenEntry: false,
+      titles: expect.objectContaining({
+        signIn: "Sign In | Admin",
+        accountSelection: "Select Account | Admin",
+        sessions: "Sessions | Access Admin",
+      }),
     });
   });
 });

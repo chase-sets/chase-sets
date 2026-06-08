@@ -23,10 +23,17 @@ import CatalogLayout from "./routes/catalog-layout";
 import CommerceLayout from "./routes/commerce-layout";
 import GrowthLayout from "./routes/growth-layout";
 import AdminIndex from "./routes/index";
+import OfflineRoute from "./routes/offline";
 import PlatformLayout from "./routes/platform-layout";
 import SupportLayout from "./routes/support-layout";
 
 const allSectionsActor = {
+  sessionId: "session_admin",
+  tenantId: "tenant_chase_sets",
+  userId: "user_admin",
+  accountId: "account_platform",
+  membershipId: "membership_admin",
+  roleKey: "platform-admin",
   permissions: [
     "accounts.view",
     "catalog.view",
@@ -45,6 +52,20 @@ function renderAdminRoute(Component: () => React.ReactElement, pathname: string)
   mockUseLocation.mockReturnValue({ pathname });
 
   return renderToString(<Component />);
+}
+
+function occurrenceCount(source: string, value: string) {
+  return source.split(value).length - 1;
+}
+
+function mobileBottomNavMarkup(html: string) {
+  const start = html.indexOf('class="fixed inset-x-0 bottom-0');
+  expect(start).not.toBe(-1);
+
+  const end = html.indexOf("</nav>", start);
+  expect(end).not.toBe(-1);
+
+  return html.slice(start, end);
 }
 
 describe("admin web section layouts", () => {
@@ -109,9 +130,53 @@ describe("admin web section layouts", () => {
       expect(html).toContain("Platform");
       expect(html).toContain(`href="${activeHref}" aria-current="page"`);
       expect(html).toContain(localNavLabel);
-      expect(html).toMatch(/Sign [Oo]ut/);
+      expect(html).toContain('aria-label="Account menu"');
+      expect(html).toContain('action="/access/sign-out"');
+      expect(html).not.toContain("Verified");
     },
   );
+
+  it("keeps Reference Data active for Catalog reference type routes", () => {
+    const html = renderAdminRoute(CatalogLayout, "/catalog/reference-types");
+
+    expect(html).toContain('href="/catalog/reference-records" aria-current="page"');
+    expect(html).toContain("Reference Data");
+  });
+
+  it.each([
+    [AccessLayout, "/access/accounts", "Accounts"],
+    [CatalogLayout, "/catalog/dimensions", "Dimensions"],
+    [CommerceLayout, "/commerce/postage-policies", "Postage Policies"],
+    [GrowthLayout, "/growth/google-shopping", "Google Shopping"],
+    [SupportLayout, "/support/requests", "Support"],
+    [PlatformLayout, "/platform/release-dashboard", "Release Dashboard"],
+  ] as const)(
+    "wires mobile section switching, local nav, active state, and account actions for %s",
+    (Component, pathname, localNavLabel) => {
+      const html = renderAdminRoute(Component, pathname);
+      const bottomNav = mobileBottomNavMarkup(html);
+
+      expect(html).toContain('aria-label="Admin menu"');
+      for (const href of ["/access", "/catalog", "/commerce", "/growth", "/support", "/platform"]) {
+        expect(occurrenceCount(html, `href="${href}"`)).toBeGreaterThanOrEqual(2);
+      }
+      expect(occurrenceCount(html, 'action="/access/sign-out"')).toBeGreaterThanOrEqual(2);
+      expect(bottomNav).toContain(localNavLabel);
+      expect(bottomNav).toContain("bg-surface-2 text-accent");
+    },
+  );
+
+  it("keeps Catalog mobile local navigation compact with active overflow access", () => {
+    const html = renderAdminRoute(CatalogLayout, "/catalog/reference-types");
+    const bottomNav = mobileBottomNavMarkup(html);
+
+    expect(bottomNav).toContain("grid-cols-4");
+    expect(bottomNav).toContain("Reference Data");
+    expect(bottomNav).toContain("More");
+    expect(bottomNav).toContain("Catalog Items");
+    expect(bottomNav).toContain('href="/catalog/reference-records"');
+    expect(bottomNav).toContain("bg-surface-2 text-accent");
+  });
 });
 
 describe("admin web root hub", () => {
@@ -121,32 +186,44 @@ describe("admin web root hub", () => {
 
   it("renders all actor-visible sections", () => {
     mockUseLoaderData.mockReturnValue({
+      actor: allSectionsActor,
       sections: [
-        { key: "access", label: "Access", href: "/access/accounts" },
-        { key: "catalog", label: "Catalog", href: "/catalog/dimensions" },
-        { key: "commerce", label: "Commerce", href: "/commerce/terms/schedules" },
-        { key: "growth", label: "Growth", href: "/growth/google-shopping" },
-        { key: "support", label: "Support", href: "/support/requests" },
-        { key: "platform", label: "Platform", href: "/platform/projections" },
+        { key: "access", label: "Access", href: "/access" },
+        { key: "catalog", label: "Catalog", href: "/catalog" },
+        { key: "commerce", label: "Commerce", href: "/commerce" },
+        { key: "growth", label: "Growth", href: "/growth" },
+        { key: "support", label: "Support", href: "/support" },
+        { key: "platform", label: "Platform", href: "/platform" },
       ],
     });
 
     const html = renderToString(<AdminIndex />);
 
     expect(html).toContain("Admin sections");
-    expect(html).toContain("/access/accounts");
-    expect(html).toContain("/commerce/terms/schedules");
-    expect(html).toContain("/growth/google-shopping");
-    expect(html).toContain("/support/requests");
-    expect(html).toContain("/platform/projections");
+    expect(html).toContain('aria-label="Account menu"');
+    expect(html).toContain("/access");
+    expect(html).toContain("/commerce");
+    expect(html).toContain("/growth");
+    expect(html).toContain("/support");
+    expect(html).toContain("/platform");
   });
 
   it("renders a no-access state when no sections are visible", () => {
-    mockUseLoaderData.mockReturnValue({ sections: [] });
+    mockUseLoaderData.mockReturnValue({ actor: allSectionsActor, sections: [] });
 
     const html = renderToString(<AdminIndex />);
 
+    expect(html).toContain("Admin");
+    expect(html).toContain('aria-label="Account menu"');
     expect(html).toContain("No admin sections available");
     expect(html).toContain("does not have permission to view any admin sections");
+  });
+
+  it("renders the offline fallback inside the admin shell", () => {
+    const html = renderToString(<OfflineRoute />);
+
+    expect(html).toContain("Admin");
+    expect(html).toContain("Admin is offline");
+    expect(html).toContain('id="main-content"');
   });
 });

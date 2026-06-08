@@ -1,8 +1,9 @@
-import { redirect } from "react-router";
+import { createAdminSectionHomeLoader } from "../admin-section-loader.server";
 
-export function loader() {
-  throw redirect("/commerce/terms/schedules");
-}
+export const loader = createAdminSectionHomeLoader({
+  section: "commerce",
+  fallbackPermission: "commercial-terms.view",
+});
 
 export default function CommerceHomeRoute() {
   return null;

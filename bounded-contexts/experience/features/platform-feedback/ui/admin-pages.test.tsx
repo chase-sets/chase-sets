@@ -68,15 +68,25 @@ describe("platform feedback admin UI", () => {
     expect(screen.getByText("4.33")).toBeTruthy();
   });
 
-  it("renders detail attribution, related links, and status actions", () => {
-    render(<PlatformFeedbackAdminDetailPage feedback={feedbackItem} />);
+  it("renders detail attribution, marketplace related links, and status actions", () => {
+    render(
+      <PlatformFeedbackAdminDetailPage feedback={feedbackItem} marketplaceOrigin="https://marketplace.chasesets.com" />,
+    );
 
     expect(screen.getByRole("heading", { name: "Feedback pfb_test" })).toBeTruthy();
     expect(screen.getByText("Checkout was clear.")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "payment: pay_test" }).getAttribute("href")).toBe(
-      "/account/payments/pay_test",
-    );
+    const relatedLink = screen.getByRole("link", { name: "payment: pay_test" });
+    expect(relatedLink.getAttribute("href")).toBe("https://marketplace.chasesets.com/account/payments/pay_test");
+    expect(relatedLink.getAttribute("target")).toBe("_blank");
+    expect(relatedLink.getAttribute("rel")).toBe("noreferrer");
     expect(screen.getByRole("button", { name: "Mark reviewed" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Archive" })).toBeTruthy();
+  });
+
+  it("renders related entity text instead of an admin-host account link when no marketplace origin is configured", () => {
+    render(<PlatformFeedbackAdminDetailPage feedback={feedbackItem} />);
+
+    expect(screen.queryByRole("link", { name: "payment: pay_test" })).toBeNull();
+    expect(screen.getByText("payment: pay_test")).toBeTruthy();
   });
 });

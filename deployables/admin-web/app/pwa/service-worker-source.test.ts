@@ -11,6 +11,12 @@ describe("admin service worker source", () => {
     expect(adminServiceWorkerPolicy.excludedPathPrefixes).toEqual(expect.arrayContaining(["/api/", "/health/"]));
     expect(isAdminServiceWorkerExcludedPath("/api/catalog/items")).toBe(true);
     expect(isAdminServiceWorkerExcludedPath("/sign-out")).toBe(true);
+    expect(isAdminServiceWorkerExcludedPath("/access/sign-in")).toBe(true);
+    expect(isAdminServiceWorkerExcludedPath("/access/sign-out")).toBe(true);
+    expect(isAdminServiceWorkerExcludedPath("/access/account-select")).toBe(true);
+    expect(isAdminServiceWorkerExcludedPath("/catalog/sign-in")).toBe(true);
+    expect(isAdminServiceWorkerExcludedPath("/catalog/sign-out")).toBe(true);
+    expect(isAdminServiceWorkerExcludedPath("/catalog/account-select")).toBe(true);
     expect(isAdminServiceWorkerExcludedPath("/catalog-items")).toBe(false);
   });
 

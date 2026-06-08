@@ -85,7 +85,7 @@ function statusLabel(status: string) {
   return statusItems.find((item) => item.value === status)?.label ?? status;
 }
 
-function relatedEntityHref(entity: Readonly<{ type: string; id: string }>) {
+function accountRelativeRelatedEntityHref(entity: Readonly<{ type: string; id: string }>) {
   switch (entity.type) {
     case "payment":
       return `/account/payments/${entity.id}`;
@@ -98,6 +98,18 @@ function relatedEntityHref(entity: Readonly<{ type: string; id: string }>) {
     default:
       return null;
   }
+}
+
+function resolveMarketplaceHref(pathname: string | null, marketplaceOrigin: string | null | undefined) {
+  if (!pathname) {
+    return null;
+  }
+
+  if (!marketplaceOrigin) {
+    return null;
+  }
+
+  return new URL(pathname, `${marketplaceOrigin.replace(/\/+$/, "")}/`).toString();
 }
 
 function formatDate(value: string | null) {
@@ -223,7 +235,13 @@ export function PlatformFeedbackAdminListPage({
   );
 }
 
-export function PlatformFeedbackAdminDetailPage({ feedback }: { feedback: PlatformFeedbackDetail }) {
+export function PlatformFeedbackAdminDetailPage({
+  feedback,
+  marketplaceOrigin,
+}: {
+  feedback: PlatformFeedbackDetail;
+  marketplaceOrigin?: string | null;
+}) {
   return (
     <Page>
       <PageHeader
@@ -304,9 +322,16 @@ export function PlatformFeedbackAdminDetailPage({ feedback }: { feedback: Platfo
                 <Text tone="secondary">{t("experience.platformFeedbackAdmin.noRelatedEntities")}</Text>
               ) : (
                 feedback.related_entities.map((entity) => {
-                  const href = relatedEntityHref(entity);
+                  const href = resolveMarketplaceHref(accountRelativeRelatedEntityHref(entity), marketplaceOrigin);
                   return href ? (
-                    <LinkButton key={`${entity.type}:${entity.id}`} href={href} tone="secondary">
+                    <LinkButton
+                      key={`${entity.type}:${entity.id}`}
+                      href={href}
+                      tone="secondary"
+                      target={marketplaceOrigin ? "_blank" : undefined}
+                      rel={marketplaceOrigin ? "noreferrer" : undefined}
+                      trailingIcon={marketplaceOrigin ? "externalLink" : undefined}
+                    >
                       {entityLabel(entity)}
                     </LinkButton>
                   ) : (

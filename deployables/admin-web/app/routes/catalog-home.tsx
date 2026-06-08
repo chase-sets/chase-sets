@@ -1,8 +1,6 @@
-import { redirect } from "react-router";
+import { createAdminSectionHomeLoader } from "../admin-section-loader.server";
 
-export function loader() {
-  throw redirect("/catalog/dimensions");
-}
+export const loader = createAdminSectionHomeLoader({ section: "catalog", fallbackPermission: "catalog.view" });
 
 export default function CatalogHomeRoute() {
   return null;

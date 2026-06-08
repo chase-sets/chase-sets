@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { Outlet, useLoaderData, useLocation } from "react-router";
-import { t } from "@chase-sets/localization";
+import type { ResolvedActor } from "@chase-sets/platform-runtime/auth";
 import type { WebHostSection } from "@chase-sets/platform-runtime/web";
-import { AdminShell, Button, ChaseRoot, Form, Inline, SellerBadge, type ColorMode } from "@chase-sets/design-system";
+import { AdminShell, ChaseRoot, Text, type ColorMode } from "@chase-sets/design-system";
+import { AdminAccountMenu } from "./admin-account-menu";
 import { resolveAdminWebNavItems, resolveAdminWebSectionNavItems } from "./host";
 
 type SectionConfig = Readonly<{
@@ -14,13 +15,13 @@ type SectionConfig = Readonly<{
 }>;
 
 type AdminSectionLoaderData = Readonly<{
-  actor: Readonly<{ permissions?: readonly string[] }>;
+  actor: ResolvedActor;
 }>;
 
 function resolveActiveKey(pathname: string, config: SectionConfig) {
   const segments = pathname.split("/").filter(Boolean);
   const sectionPath = segments[1] ?? "";
-  return config.activeKeys?.[sectionPath] ?? sectionPath ?? config.defaultActiveKey;
+  return config.activeKeys?.[sectionPath] ?? (sectionPath || config.defaultActiveKey);
 }
 
 export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig }>) {
@@ -31,20 +32,12 @@ export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig 
   return (
     <ChaseRoot colorMode={colorMode}>
       <AdminShell
-        brand={<SellerBadge name={config.brand} verified />}
+        brand={<Text weight="semibold">{config.brand}</Text>}
         topNavItems={resolveAdminWebSectionNavItems(actor)}
         topNavActiveKey={config.section}
         activeKey={resolveActiveKey(location.pathname, config)}
         navItems={resolveAdminWebNavItems(actor, { section: config.section })}
-        actions={
-          <Inline gap={2}>
-            <Form action="/access/sign-out" method="post" spacing="none">
-              <Button type="submit" tone="secondary">
-                {t("adminWeb.app.adminSectionLayout.sign.out")}
-              </Button>
-            </Form>
-          </Inline>
-        }
+        actions={<AdminAccountMenu actor={actor} />}
       >
         <Outlet />
       </AdminShell>

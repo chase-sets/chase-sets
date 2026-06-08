@@ -402,7 +402,6 @@
           "fileExport": "./routes/admin/google-shopping",
           "routeType": "route",
           "sourceContext": "discovery",
-          "placement": "root",
           "section": "growth"
         }
       ]

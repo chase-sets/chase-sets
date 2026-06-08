@@ -54,9 +54,11 @@ const routeKey = "platformOperations.projectionOperations";
 export function ProjectionOperationsPage({
   data,
   filters,
+  actorPermissions = [],
 }: Readonly<{
   data: ProjectionOperationsSnapshot;
   filters: ProjectionOperationsFilters;
+  actorPermissions?: readonly string[];
 }>) {
   const blockedRows = buildBlockedRows(data);
   const subscriptionRows = buildProjectionSubscriptionRows(data);
@@ -88,12 +90,16 @@ export function ProjectionOperationsPage({
             {t(`${routeKey}.refresh`)}
           </Button>
         </Form>
-        <LinkButton href="/catalog/dimensions" tone="secondary">
-          {t(`${routeKey}.catalog`)}
-        </LinkButton>
-        <LinkButton href="/access/accounts" tone="secondary">
-          {t(`${routeKey}.identity`)}
-        </LinkButton>
+        {hasPermission(actorPermissions, "catalog.view") ? (
+          <LinkButton href="/catalog/dimensions" tone="secondary">
+            {t(`${routeKey}.catalog`)}
+          </LinkButton>
+        ) : null}
+        {hasPermission(actorPermissions, "accounts.view") ? (
+          <LinkButton href="/access/accounts" tone="secondary">
+            {t(`${routeKey}.identity`)}
+          </LinkButton>
+        ) : null}
         <LinkButton href="/platform/release-dashboard" tone="secondary">
           {t(`${routeKey}.releaseDashboard`)}
         </LinkButton>
@@ -181,6 +187,10 @@ export function ProjectionOperationsPage({
       />
     </Page>
   );
+}
+
+function hasPermission(actorPermissions: readonly string[], permission: string) {
+  return actorPermissions.includes(permission);
 }
 
 function OperationsSummary({

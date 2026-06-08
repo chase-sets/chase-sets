@@ -24,8 +24,49 @@ const adminSectionIcons: Record<WebHostSection, NavigationItem["icon"]> = {
 
 const adminSections: readonly WebHostSection[] = ["access", "catalog", "commerce", "growth", "support", "platform"];
 
+const adminSectionHrefs: Record<WebHostSection, string> = {
+  access: "/access",
+  catalog: "/catalog",
+  commerce: "/commerce",
+  growth: "/growth",
+  support: "/support",
+  platform: "/platform",
+};
+
 export function resolveAdminWebRouteConfigRecords() {
   return resolveWebHostRouteConfigRecords(webContextRegistry, "admin-web");
+}
+
+function withAdminSectionPrefix(pathname: string, section: WebHostSection) {
+  const normalizedPath = pathname.startsWith("/") ? pathname : `/${pathname}`;
+  return `/${section}${normalizedPath}`.replace(/\/+/g, "/");
+}
+
+function isSameRouteFamily(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+export function resolveAdminWebRouteFallbackPermission(
+  section: WebHostSection,
+  pathname: string,
+  defaultPermission: string,
+) {
+  const sectionPrefix = `/${section}`;
+  const sectionPath = pathname.startsWith(sectionPrefix) ? pathname : withAdminSectionPrefix(pathname, section);
+  const matches = webContextRegistry.flatMap((entry) =>
+    (entry.manifest.shellContributions ?? [])
+      .filter((contribution) => contribution.deployable === "admin-web")
+      .filter((contribution) => contribution.slot === "primary-nav")
+      .filter((contribution) => contribution.section === section)
+      .filter((contribution) => contribution.requiredPermissions.length > 0)
+      .map((contribution) => ({
+        href: withAdminSectionPrefix(contribution.href, section),
+        permission: contribution.requiredPermissions[0] ?? defaultPermission,
+      }))
+      .filter((candidate) => isSameRouteFamily(sectionPath, candidate.href)),
+  );
+
+  return matches.sort((left, right) => right.href.length - left.href.length)[0]?.permission ?? defaultPermission;
 }
 
 export function resolveAdminWebNavItems(
@@ -40,9 +81,8 @@ export function resolveAdminWebSectionNavItems(
 ): NavigationItem[] {
   return adminSections.flatMap((section) => {
     const sectionNavItems = resolveAdminWebNavItems(actor, { section });
-    const firstVisibleItem = sectionNavItems[0];
 
-    if (!firstVisibleItem) {
+    if (sectionNavItems.length === 0) {
       return [];
     }
 
@@ -51,7 +91,7 @@ export function resolveAdminWebSectionNavItems(
         key: section,
         label: adminSectionLabels[section],
         icon: adminSectionIcons[section],
-        href: firstVisibleItem.href,
+        href: adminSectionHrefs[section],
       },
     ];
   });

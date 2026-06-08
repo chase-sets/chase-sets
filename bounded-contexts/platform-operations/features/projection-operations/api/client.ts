@@ -1,4 +1,4 @@
-import { createForwardedAuthHeaders } from "@chase-sets/platform-runtime/http";
+import { createForwardedAuthHeaders, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import {
   normalizeProjectionOperationsSnapshot,
   type ProjectionOperationsFilters,
@@ -61,7 +61,7 @@ export async function cancelProjectionOperation(request: Request, input: Readonl
 }
 
 function resolveProjectionOperationsApiUrl(request: Request) {
-  return new URL("/api/platform/projections", request.url);
+  return new URL(resolveRequestApiBaseUrl(request, "/api/platform/projections"));
 }
 
 async function postProjectionOperation(

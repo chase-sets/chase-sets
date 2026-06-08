@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV } from "@chase-sets/platform-runtime/http";
 import {
   cancelProjectionOperation,
   readProjectionOperationsFilters,
@@ -11,6 +12,7 @@ import {
 describe("projection operations API client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("reads route filters from query state", () => {
@@ -60,5 +62,20 @@ describe("projection operations API client", () => {
       method: "POST",
       body: JSON.stringify({ confirm: "rebuild-all" }),
     });
+  });
+
+  it("uses the configured internal API origin for production-safe server calls", async () => {
+    const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>(
+      async () => new Response("{}", { status: 202 }),
+    );
+    vi.stubEnv(CHASE_SETS_INTERNAL_API_ORIGIN_ENV, "http://platform-api:8080");
+    vi.stubGlobal("fetch", fetchMock);
+    const request = new Request("https://admin.example.com/platform/projections", {
+      headers: { cookie: "session=abc" },
+    });
+
+    await refreshProjectionStatus(request);
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe("http://platform-api:8080/api/platform/projections/refresh");
   });
 });

@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
 import "@chase-sets/design-system/styles.css";
 import { useEffect, type ReactNode } from "react";
-import { ChaseRoot, EmptyState, LinkButton, Page } from "@chase-sets/design-system";
+import { EmptyState, LinkButton, Page } from "@chase-sets/design-system";
 import type { LoaderFunctionArgs } from "react-router";
 import {
   isRouteErrorResponse,
@@ -14,6 +14,7 @@ import {
   useLocation,
   useRouteError,
 } from "react-router";
+import { AdminRootShell } from "./admin-root-shell";
 import { registerAdminServiceWorker } from "./pwa/register-service-worker";
 
 export async function loader({ request }: LoaderFunctionArgs) {
@@ -93,29 +94,27 @@ export function ErrorBoundary() {
   const retryHref = `${location.pathname}${location.search}${location.hash}` || "/";
 
   return (
-    <ChaseRoot colorMode="system">
-      <main id="main-content">
-        <Page width="content">
-          <EmptyState
-            title={title}
-            description={t("adminWeb.app.root.admin.error.description")}
-            actions={
-              <>
-                <LinkButton href="/catalog" tone="primary">
-                  {t("adminWeb.app.root.go.to.catalog")}
-                </LinkButton>
-                <LinkButton href={retryHref} tone="secondary">
-                  {t("adminWeb.app.root.retry")}
-                </LinkButton>
-              </>
-            }
-          />
-          <details>
-            <summary>{t("adminWeb.app.root.technical.detail")}</summary>
-            <p>{message}</p>
-          </details>
-        </Page>
-      </main>
-    </ChaseRoot>
+    <AdminRootShell>
+      <Page width="content">
+        <EmptyState
+          title={title}
+          description={t("adminWeb.app.root.admin.error.description")}
+          actions={
+            <>
+              <LinkButton href="/" tone="primary">
+                {t("adminWeb.app.root.go.to.admin.home")}
+              </LinkButton>
+              <LinkButton href={retryHref} tone="secondary">
+                {t("adminWeb.app.root.retry")}
+              </LinkButton>
+            </>
+          }
+        />
+        <details>
+          <summary>{t("adminWeb.app.root.technical.detail")}</summary>
+          <p>{message}</p>
+        </details>
+      </Page>
+    </AdminRootShell>
   );
 }

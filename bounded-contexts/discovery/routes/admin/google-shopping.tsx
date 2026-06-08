@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
 import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useSearchParams } from "react-router";
+import { redirect, useActionData, useLoaderData, useMatches, useSearchParams } from "react-router";
 import {
   createGoogleShoppingOperationsRequestApiClient,
   googleShoppingOperationsListQuery,
@@ -111,8 +111,20 @@ export default function GoogleShoppingOperationsRoute() {
       unavailableMessage={data.unavailableMessage}
       notice={noticeFromSearchParams(searchParams)}
       actionError={actionData?.error ?? null}
+      actorPermissions={useAdminActorPermissions()}
     />
   );
+}
+
+function useAdminActorPermissions() {
+  for (const match of useMatches()) {
+    if (match.data && typeof match.data === "object" && "actor" in match.data) {
+      const actor = (match.data as { actor?: { permissions?: readonly string[] } }).actor;
+      return actor?.permissions ?? [];
+    }
+  }
+
+  return [];
 }
 
 function readPositiveInteger(formData: FormData, key: string) {

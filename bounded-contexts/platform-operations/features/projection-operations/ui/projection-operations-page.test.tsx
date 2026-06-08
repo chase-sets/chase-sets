@@ -140,6 +140,36 @@ describe("ProjectionOperationsPage", () => {
     expect(screen.getByText("No attention signals")).toBeTruthy();
   });
 
+  it("hides cross-section shortcuts when the platform actor lacks target permissions", () => {
+    const data = normalizeProjectionOperationsSnapshot({
+      summary: { status: "ok" },
+    });
+
+    render(<ProjectionOperationsPage data={data} filters={emptyFilters} actorPermissions={["security.manage"]} />);
+
+    expect(screen.queryByRole("link", { name: "Catalog" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Identity" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Release dashboard" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Release controls" })).toBeTruthy();
+  });
+
+  it("shows cross-section shortcuts when the platform actor has target permissions", () => {
+    const data = normalizeProjectionOperationsSnapshot({
+      summary: { status: "ok" },
+    });
+
+    render(
+      <ProjectionOperationsPage
+        data={data}
+        filters={emptyFilters}
+        actorPermissions={["security.manage", "catalog.view", "accounts.view"]}
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Catalog" }).getAttribute("href")).toBe("/catalog/dimensions");
+    expect(screen.getByRole("link", { name: "Identity" }).getAttribute("href")).toBe("/access/accounts");
+  });
+
   it("surfaces cancel-requested and stale worker attention", () => {
     const data = normalizeProjectionOperationsSnapshot({
       summary: { status: "ok", outstandingEventCount: "0" },

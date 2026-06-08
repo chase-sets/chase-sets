@@ -45,12 +45,14 @@ export function GoogleShoppingOperationsPage({
   notice,
   unavailableMessage,
   actionError,
+  actorPermissions = [],
 }: Readonly<{
   data: GoogleShoppingFeedRowList;
   filters: GoogleShoppingOperationsFilters;
   notice?: GoogleShoppingOperationsNotice | null;
   unavailableMessage?: string | null;
   actionError?: string | null;
+  actorPermissions?: readonly string[];
 }>) {
   const selectedRow = resolveSelectedRow(data.rows, filters.selected);
 
@@ -85,9 +87,11 @@ export function GoogleShoppingOperationsPage({
             {t(`${routeKey}.dryRunDiagnostics`)}
           </Button>
         </RouterForm>
-        <LinkButton href="/platform/projections?contextName=discovery" tone="secondary">
-          {t(`${routeKey}.projections`)}
-        </LinkButton>
+        {hasPermission(actorPermissions, "security.manage") ? (
+          <LinkButton href="/platform/projections?contextName=discovery" tone="secondary">
+            {t(`${routeKey}.projections`)}
+          </LinkButton>
+        ) : null}
         <LinkButton
           href="https://github.com/chase-sets/chase-sets/blob/main/docs/runbooks/google-shopping-operations.md"
           tone="secondary"
@@ -155,7 +159,7 @@ export function GoogleShoppingOperationsPage({
             {
               key: "listing",
               header: t(`${routeKey}.listing`),
-              cell: (row) => <ListingCell row={row} />,
+              cell: (row) => <ListingCell row={row} actorPermissions={actorPermissions} />,
             },
             {
               key: "eligibility",
@@ -276,7 +280,10 @@ function GoogleShoppingFilters({ filters }: Readonly<{ filters: GoogleShoppingOp
   );
 }
 
-function ListingCell({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem }>) {
+function ListingCell({
+  row,
+  actorPermissions,
+}: Readonly<{ row: GoogleShoppingFeedRowListItem; actorPermissions: readonly string[] }>) {
   return (
     <Stack gap={1}>
       <LinkText href={withSelected(row.rowId)}>{row.listingId}</LinkText>
@@ -287,15 +294,23 @@ function ListingCell({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem }>) 
         <LinkButton href={row.canonicalUrl} size="sm" tone="ghost" target="_blank" rel="noreferrer">
           {t(`${routeKey}.publicListing`)}
         </LinkButton>
-        <LinkButton href={`/access/accounts/${row.accountId}`} size="sm" tone="ghost">
-          {t(`${routeKey}.account`)}
-        </LinkButton>
-        <LinkButton href={`/catalog/catalog-items/${row.catalogItemId}`} size="sm" tone="ghost">
-          {t(`${routeKey}.catalogItem`)}
-        </LinkButton>
+        {hasPermission(actorPermissions, "accounts.view") ? (
+          <LinkButton href={`/access/accounts/${row.accountId}`} size="sm" tone="ghost">
+            {t(`${routeKey}.account`)}
+          </LinkButton>
+        ) : null}
+        {hasPermission(actorPermissions, "catalog.view") ? (
+          <LinkButton href={`/catalog/catalog-items/${row.catalogItemId}`} size="sm" tone="ghost">
+            {t(`${routeKey}.catalogItem`)}
+          </LinkButton>
+        ) : null}
       </Inline>
     </Stack>
   );
+}
+
+function hasPermission(actorPermissions: readonly string[], permission: string) {
+  return actorPermissions.includes(permission);
 }
 
 function EligibilityCell({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem }>) {

@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
@@ -21,6 +22,7 @@ const platformRepresentativeWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-representative-commerce-state.yml"),
   "utf8",
 );
+const adminWebViteConfig = readFileSync(resolve("deployables/admin-web/vite.config.ts"), "utf8");
 
 function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
@@ -59,6 +61,17 @@ function terraformStringMap(source, localName) {
   const match = new RegExp(`${localName} = \\{([\\s\\S]*?)\\n  \\}`).exec(source);
   expect(match).not.toBeNull();
   return Object.fromEntries([...match[1].matchAll(/"([^"]+)"\s+=\s+"([^"]+)"/g)].map((entry) => [entry[1], entry[2]]));
+}
+
+function viteProxyPrefixes() {
+  return [...adminWebViteConfig.matchAll(/"([^"]+)"\s*:\s*\{/g)]
+    .map((entry) => entry[1])
+    .filter((prefix) => prefix.startsWith("/api/"))
+    .sort();
+}
+
+function pathCoveredByPrefix(path, prefix) {
+  return path === prefix || path.startsWith(`${prefix}/`);
 }
 
 function platformApiContextNames() {
@@ -374,7 +387,11 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain('"/api/marketplace/account/payments"');
     expect(platformLocals).toContain('"/api/settlement/payout-setup"');
     expect(platformLocals).toContain("proof_admin_api_ingress_routes = {");
+    expect(platformLocals).toContain('"/api/catalog"');
     expect(platformLocals).toContain('"/api/commercial-terms"');
+    expect(platformLocals).toContain('"/api/platform"');
+    expect(platformLocals).toContain('"/api/public-presence"');
+    expect(platformLocals).toContain('"/api/realtime"');
     expect(platformLocals).toContain("proof_admin_api_route_domains = local.is_production");
     expect(platformLocals).toContain("local.admin_domain");
     expect(platformLocals).toContain("proof_web_ingress_routes = {");
@@ -389,6 +406,8 @@ describe("DigitalOcean platform configuration", () => {
     const adminWebService = terraformServiceBlock(platformMain, "admin-web");
     expect(adminWebService).toContain('key   = "CHASE_SETS_INTERNAL_API_ORIGIN"');
     expect(adminWebService).toContain("value = local.admin_web_internal_api_origin");
+    expect(adminWebService).toContain('key   = "CHASE_SETS_MARKETPLACE_ORIGIN"');
+    expect(adminWebService).toContain("value = local.marketplace_origin");
     expect(platformLocals).toContain("context_names = local.marketplace_platform_enabled");
     expect(platformMain).toContain('check "production_marketplace_proof"');
     expect(platformMain).toContain(
@@ -703,6 +722,62 @@ describe("DigitalOcean platform configuration", () => {
       "Production marketplace promotion requires NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
     );
     expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_MARKETPLACE="true"');
+  });
+
+  it("keeps admin-web API dependency inventory aligned with local proxy and proof ingress", () => {
+    const localProxyPrefixes = viteProxyPrefixes();
+    const proofAdminApiPrefixes = terraformStringList(platformLocals, "proof_admin_api_route_prefixes");
+
+    expect(ADMIN_WEB_API_DEPENDENCIES.map((dependency) => dependency.callerType)).toEqual(
+      expect.arrayContaining(["server-loader/action", "direct-download", "event-source", "durable-job-event-source"]),
+    );
+
+    const missingIds = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) => !dependency.id || !dependency.smokeCoverageId,
+    ).map((dependency) => dependency.surface);
+    expect(missingIds).toEqual([]);
+
+    const missingTopologyModes = ADMIN_WEB_API_DEPENDENCIES.filter((dependency) =>
+      ["staging", "production-proof", "public-marketplace", "production-platform-disabled"].some(
+        (mode) => !dependency.topologyExpectations?.[mode],
+      ),
+    ).map((dependency) => dependency.id);
+    expect(missingTopologyModes).toEqual([]);
+
+    const missingSourceFiles = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) => !existsSync(resolve(dependency.sourceFile)),
+    ).map((dependency) => `${dependency.surface}: ${dependency.sourceFile}`);
+    expect(missingSourceFiles).toEqual([]);
+
+    const missingSourceEvidence = ADMIN_WEB_API_DEPENDENCIES.filter((dependency) => {
+      const source = readFileSync(resolve(dependency.sourceFile), "utf8");
+      return dependency.sourceEvidence.some((needle) => !source.includes(needle));
+    }).map(
+      (dependency) =>
+        `${dependency.surface} (${dependency.callerType}) is missing source evidence for ${dependency.apiPath}`,
+    );
+    expect(missingSourceEvidence).toEqual([]);
+
+    const missingProxy = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) => !pathCoveredByPrefix(dependency.apiPath, dependency.localProxyPrefix),
+    ).map(
+      (dependency) => `${dependency.surface}: ${dependency.apiPath} is not covered by ${dependency.localProxyPrefix}`,
+    );
+    expect(missingProxy).toEqual([]);
+
+    const missingConfiguredProxy = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) => !localProxyPrefixes.includes(dependency.localProxyPrefix),
+    ).map((dependency) => `${dependency.surface}: ${dependency.localProxyPrefix}`);
+    expect(missingConfiguredProxy).toEqual([]);
+
+    const missingProofIngress = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) =>
+        dependency.proofAdminIngressPrefix && !proofAdminApiPrefixes.includes(dependency.proofAdminIngressPrefix),
+    ).map(
+      (dependency) =>
+        `${dependency.surface} (${dependency.callerType}) from ${dependency.sourceFile} requires ${dependency.proofAdminIngressPrefix} for ${dependency.apiPath}`,
+    );
+    expect(missingProofIngress).toEqual([]);
   });
 
   it("adds Shipit-like PR release status without replacing merge queue", () => {

@@ -152,7 +152,8 @@
           "fileExport": "./routes/catalog-admin/account-select",
           "routeType": "route",
           "sourceContext": "auth",
-          "placement": "root"
+          "placement": "root",
+          "section": "catalog"
         },
         {
           "routeId": "sign-in",
@@ -160,7 +161,8 @@
           "fileExport": "./routes/catalog-admin/sign-in",
           "routeType": "route",
           "sourceContext": "auth",
-          "placement": "root"
+          "placement": "root",
+          "section": "catalog"
         },
         {
           "routeId": "sign-out",
@@ -168,7 +170,8 @@
           "fileExport": "./routes/catalog-admin/sign-out",
           "routeType": "route",
           "sourceContext": "auth",
-          "placement": "root"
+          "placement": "root",
+          "section": "catalog"
         }
       ]
     },

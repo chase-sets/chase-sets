@@ -53,6 +53,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Remote Dev](./runbooks/remote-dev.md): disposable DigitalOcean preview sessions.
 - [Social Login Operations](./runbooks/social-login-operations.md): Google and Facebook provider setup, callback URLs, smoke tests, and secret rotation.
 - [DigitalOcean Platform Deployment](./runbooks/digitalocean-platform-deployment.md): staging full-system platform and production deployment workflow.
+- [Admin Shell Smoke Matrix](./runbooks/admin-shell-smoke-matrix.md): Milestone #13 admin shell, actor, link, API topology, download, SSE, and durable-job release evidence matrix.
 - [UCP Agent Commerce](./runbooks/ucp-agent-commerce.md): UCP smoke checks, signed write expectations, and readiness gates.
 - [Google Shopping Operations](./runbooks/google-shopping-operations.md): Merchant Center launch checklist, worker config, operating cadence, pause/withdrawal, diagnostics owner routing, and provider incident response.
 - [Catalog Display Identity Propagation](./runbooks/catalog-display-identity-propagation.md): recomputation health, backfill, repair, downstream projection diagnosis, and rollout verification for resolved display identity.

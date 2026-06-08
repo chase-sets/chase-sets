@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resolveAdminWebNavItems, resolveAdminWebRouteConfigRecords, resolveAdminWebSectionNavItems } from "./host";
+import {
+  resolveAdminWebNavItems,
+  resolveAdminWebRouteConfigRecords,
+  resolveAdminWebRouteFallbackPermission,
+  resolveAdminWebSectionNavItems,
+} from "./host";
 
 describe("admin web host context registry", () => {
   const allSectionsActor = {
@@ -19,25 +24,25 @@ describe("admin web host context registry", () => {
   it("resolves top-level admin section navigation from visible section entries", () => {
     expect(resolveAdminWebSectionNavItems(allSectionsActor)).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ key: "access", label: "Access", href: "/access/accounts" }),
-        expect.objectContaining({ key: "catalog", label: "Catalog", href: "/catalog/dimensions" }),
-        expect.objectContaining({ key: "commerce", label: "Commerce", href: "/commerce/terms/schedules" }),
-        expect.objectContaining({ key: "growth", label: "Growth", href: "/growth/google-shopping" }),
-        expect.objectContaining({ key: "support", label: "Support", href: "/support/requests" }),
-        expect.objectContaining({ key: "platform", label: "Platform", href: "/platform/projections" }),
+        expect.objectContaining({ key: "access", label: "Access", href: "/access" }),
+        expect.objectContaining({ key: "catalog", label: "Catalog", href: "/catalog" }),
+        expect.objectContaining({ key: "commerce", label: "Commerce", href: "/commerce" }),
+        expect.objectContaining({ key: "growth", label: "Growth", href: "/growth" }),
+        expect.objectContaining({ key: "support", label: "Support", href: "/support" }),
+        expect.objectContaining({ key: "platform", label: "Platform", href: "/platform" }),
       ]),
     );
   });
 
   it("keeps section navigation actor-visible", () => {
     expect(resolveAdminWebSectionNavItems({ permissions: ["support.manage"] })).toContainEqual(
-      expect.objectContaining({ key: "support", href: "/support/requests" }),
+      expect.objectContaining({ key: "support", href: "/support" }),
     );
     expect(resolveAdminWebSectionNavItems({ permissions: ["support.manage"] })).not.toContainEqual(
       expect.objectContaining({ key: "commerce" }),
     );
     expect(resolveAdminWebSectionNavItems({ permissions: ["commercial-terms.view"] })).toContainEqual(
-      expect.objectContaining({ key: "commerce", href: "/commerce/terms/schedules" }),
+      expect.objectContaining({ key: "commerce", href: "/commerce" }),
     );
     expect(resolveAdminWebSectionNavItems({ permissions: ["commercial-terms.view"] })).not.toContainEqual(
       expect.objectContaining({ key: "platform" }),
@@ -119,4 +124,41 @@ describe("admin web host context registry", () => {
       ]),
     );
   });
+
+  it("treats security.manage as intentionally shared by Access security and Platform operations", () => {
+    const sectionItems = resolveAdminWebSectionNavItems({ permissions: ["security.manage"] });
+
+    expect(sectionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "access", href: "/access" }),
+        expect.objectContaining({ key: "platform", href: "/platform" }),
+      ]),
+    );
+    expect(resolveAdminWebNavItems({ permissions: ["security.manage"] }, { section: "access" })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ href: "/access/users", label: "Users" }),
+        expect.objectContaining({ href: "/access/api-keys", label: "API Keys" }),
+        expect.objectContaining({ href: "/access/sessions", label: "Sessions" }),
+      ]),
+    );
+  });
+
+  it.each([
+    ["access", "/access/users", "accounts.view", "security.manage"],
+    ["access", "/access/api-keys/key_1", "accounts.view", "security.manage"],
+    ["access", "/access/sessions", "accounts.view", "security.manage"],
+    ["access", "/access/memberships/member_1", "accounts.view", "memberships.view"],
+    ["access", "/access/invitations/inv_1", "accounts.view", "memberships.view"],
+    ["growth", "/growth/waitlist", "google-shopping.view", "public-presence.view"],
+    ["growth", "/growth/promo-bar", "google-shopping.view", "public-presence.view"],
+    ["commerce", "/commerce/terms/schedules/schedule_1", "commercial-terms.view", "commercial-terms.view"],
+    ["commerce", "/commerce/postage-policies/policy_1", "commercial-terms.view", "postage-policies.view"],
+    ["support", "/support/platform-feedback/pfb_1", "support.manage", "platform-feedback.view"],
+    ["support", "/support/requests/request_1", "support.manage", "support.manage"],
+  ] as const)(
+    "resolves %s direct route %s to its route-specific fallback permission",
+    (section, pathname, defaultPermission, expectedPermission) => {
+      expect(resolveAdminWebRouteFallbackPermission(section, pathname, defaultPermission)).toBe(expectedPermission);
+    },
+  );
 });

@@ -18,6 +18,7 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
+import { toCatalogAdminHref } from "../../../support/shell-support/ui/catalog-admin-hrefs";
 import { LifecycleControls, type Transition } from "../../../support/shell-support/ui/lifecycle-controls";
 import {
   useCatalogItem,
@@ -186,7 +187,7 @@ function ReferenceValueCue({
 
   return (
     <LinkText
-      href={`/reference-records/${reference.referenceId}`}
+      href={toCatalogAdminHref(`/reference-records/${reference.referenceId}`)}
       trailingIcon="info"
       onClick={(event) => {
         event.preventDefault();

@@ -90,7 +90,6 @@
           "fileExport": "./routes/admin/requests",
           "routeType": "route",
           "sourceContext": "support",
-          "placement": "root",
           "section": "support"
         },
         {
@@ -99,7 +98,6 @@
           "fileExport": "./routes/admin/request-detail",
           "routeType": "route",
           "sourceContext": "support",
-          "placement": "root",
           "section": "support"
         }
       ]

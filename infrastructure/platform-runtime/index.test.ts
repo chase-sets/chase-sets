@@ -117,6 +117,7 @@ const webRegistry = [
               fileExport: "catalog-dimensions",
               routeType: "route",
               sourceContext: "catalog",
+              section: "catalog",
             },
           ],
         },
@@ -132,6 +133,7 @@ const webRegistry = [
           order: 10,
           visibility: "always",
           requiredPermissions: [],
+          section: "catalog",
         },
       ],
     },
@@ -203,6 +205,7 @@ const webRegistry = [
               fileExport: "./routes/admin/waitlist",
               routeType: "route",
               sourceContext: "public-presence",
+              section: "growth",
             },
           ],
         },
@@ -218,6 +221,7 @@ const webRegistry = [
           order: 20,
           visibility: "signed-in",
           requiredPermissions: ["public-presence.view"],
+          section: "growth",
         },
       ],
     },
@@ -594,6 +598,37 @@ describe("platform host web registry", () => {
         "admin-web",
       ),
     ).toThrow(/Unknown admin-web section 'unknown'/);
+  });
+
+  it("rejects missing explicit admin sections", () => {
+    expect(() =>
+      resolveWebHostRouteRecords(
+        [
+          {
+            contextName: "test-context",
+            packageName: "@test/context",
+            manifest: {
+              contextName: "test-context",
+              deployableContributions: [
+                {
+                  deployable: "admin-web",
+                  routes: [
+                    {
+                      routeId: "missing-section",
+                      routePath: "missing-section",
+                      fileExport: "./routes/admin/missing-section",
+                      routeType: "route",
+                      sourceContext: "test-context",
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        ],
+        "admin-web",
+      ),
+    ).toThrow(/Missing explicit admin-web section/);
   });
 
   it("filters marketplace nav items by actor visibility and permissions", () => {
