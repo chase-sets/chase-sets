@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -21,6 +21,80 @@ const platformRepresentativeWorkflow = readFileSync(
   resolve(".github/workflows/platform-staging-representative-commerce-state.yml"),
   "utf8",
 );
+const adminWebViteConfig = readFileSync(resolve("deployables/admin-web/vite.config.ts"), "utf8");
+
+const adminWebApiDependencies = [
+  {
+    surface: "Platform Projections",
+    callerType: "server-loader/action",
+    sourceFile: "bounded-contexts/platform-operations/features/projection-operations/api/client.ts",
+    apiPath: "/api/platform/projections",
+    sourceEvidence: ["/api/platform/projections"],
+    contract: "internal-origin server call",
+    localProxyPrefix: "/api/platform",
+    proofAdminIngressPrefix: "/api/platform",
+  },
+  {
+    surface: "Platform Release Controls",
+    callerType: "server-loader/action",
+    sourceFile: "bounded-contexts/platform-operations/features/release-controls/api/request-client.ts",
+    apiPath: "/api/platform/release-controls",
+    sourceEvidence: ['resolveRequestApiBaseUrl(request, "/api/platform")'],
+    contract: "internal-origin server call",
+    localProxyPrefix: "/api/platform",
+    proofAdminIngressPrefix: "/api/platform",
+  },
+  {
+    surface: "Public Presence Waitlist Export",
+    callerType: "direct-download",
+    sourceFile: "bounded-contexts/public-presence/routes/admin/waitlist.tsx",
+    apiPath: "/api/public-presence/admin/waitlist/export",
+    sourceEvidence: ["/api/public-presence/admin/waitlist/export"],
+    contract: "admin public ingress",
+    localProxyPrefix: "/api/public-presence",
+    proofAdminIngressPrefix: "/api/public-presence",
+  },
+  {
+    surface: "Catalog Realtime Account Events",
+    callerType: "event-source",
+    sourceFile: "infrastructure/platform-runtime/realtime-web.ts",
+    apiPath: "/api/realtime/account/events",
+    sourceEvidence: ["/api/realtime/account/events", "EventSource"],
+    contract: "admin public ingress",
+    localProxyPrefix: "/api/realtime",
+    proofAdminIngressPrefix: "/api/realtime",
+  },
+  {
+    surface: "Catalog Source Observation Integration Job Events",
+    callerType: "durable-job-event-source",
+    sourceFile: "bounded-contexts/catalog/support/shell-support/api/client.ts",
+    apiPath: "/api/catalog/source-observations/integration-jobs/:jobId/events",
+    sourceEvidence: ["/source-observations/integration-jobs/", "/events"],
+    contract: "admin public ingress",
+    localProxyPrefix: "/api/catalog",
+    proofAdminIngressPrefix: "/api/catalog",
+  },
+  {
+    surface: "Catalog Source Observation Bulk Job Events",
+    callerType: "durable-job-event-source",
+    sourceFile: "bounded-contexts/catalog/support/shell-support/api/client.ts",
+    apiPath: "/api/catalog/source-observations/bulk-jobs/:jobId/events",
+    sourceEvidence: ["/source-observations/bulk-jobs/", "/events"],
+    contract: "admin public ingress",
+    localProxyPrefix: "/api/catalog",
+    proofAdminIngressPrefix: "/api/catalog",
+  },
+  {
+    surface: "Catalog Authoring Bulk Job Events",
+    callerType: "durable-job-event-source",
+    sourceFile: "bounded-contexts/catalog/support/shell-support/api/client.ts",
+    apiPath: "/api/catalog/bulk-authoring-jobs/:jobId/events",
+    sourceEvidence: ["/bulk-authoring-jobs/", "/events"],
+    contract: "admin public ingress",
+    localProxyPrefix: "/api/catalog",
+    proofAdminIngressPrefix: "/api/catalog",
+  },
+];
 
 function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
@@ -59,6 +133,17 @@ function terraformStringMap(source, localName) {
   const match = new RegExp(`${localName} = \\{([\\s\\S]*?)\\n  \\}`).exec(source);
   expect(match).not.toBeNull();
   return Object.fromEntries([...match[1].matchAll(/"([^"]+)"\s+=\s+"([^"]+)"/g)].map((entry) => [entry[1], entry[2]]));
+}
+
+function viteProxyPrefixes() {
+  return [...adminWebViteConfig.matchAll(/"([^"]+)"\s*:\s*\{/g)]
+    .map((entry) => entry[1])
+    .filter((prefix) => prefix.startsWith("/api/"))
+    .sort();
+}
+
+function pathCoveredByPrefix(path, prefix) {
+  return path === prefix || path.startsWith(`${prefix}/`);
 }
 
 function platformApiContextNames() {
@@ -709,6 +794,51 @@ describe("DigitalOcean platform configuration", () => {
       "Production marketplace promotion requires NOTIFICATION_EMAIL_PROVIDER=amazon-ses.",
     );
     expect(platformProductionWorkflow).toContain('export SMOKE_REQUIRE_MARKETPLACE="true"');
+  });
+
+  it("keeps admin-web API dependency inventory aligned with local proxy and proof ingress", () => {
+    const localProxyPrefixes = viteProxyPrefixes();
+    const proofAdminApiPrefixes = terraformStringList(platformLocals, "proof_admin_api_route_prefixes");
+
+    expect(adminWebApiDependencies.map((dependency) => dependency.callerType)).toEqual(
+      expect.arrayContaining(["server-loader/action", "direct-download", "event-source", "durable-job-event-source"]),
+    );
+
+    const missingSourceFiles = adminWebApiDependencies
+      .filter((dependency) => !existsSync(resolve(dependency.sourceFile)))
+      .map((dependency) => `${dependency.surface}: ${dependency.sourceFile}`);
+    expect(missingSourceFiles).toEqual([]);
+
+    const missingSourceEvidence = adminWebApiDependencies
+      .filter((dependency) => {
+        const source = readFileSync(resolve(dependency.sourceFile), "utf8");
+        return dependency.sourceEvidence.some((needle) => !source.includes(needle));
+      })
+      .map(
+        (dependency) =>
+          `${dependency.surface} (${dependency.callerType}) is missing source evidence for ${dependency.apiPath}`,
+      );
+    expect(missingSourceEvidence).toEqual([]);
+
+    const missingProxy = adminWebApiDependencies
+      .filter((dependency) => !pathCoveredByPrefix(dependency.apiPath, dependency.localProxyPrefix))
+      .map(
+        (dependency) => `${dependency.surface}: ${dependency.apiPath} is not covered by ${dependency.localProxyPrefix}`,
+      );
+    expect(missingProxy).toEqual([]);
+
+    const missingConfiguredProxy = adminWebApiDependencies
+      .filter((dependency) => !localProxyPrefixes.includes(dependency.localProxyPrefix))
+      .map((dependency) => `${dependency.surface}: ${dependency.localProxyPrefix}`);
+    expect(missingConfiguredProxy).toEqual([]);
+
+    const missingProofIngress = adminWebApiDependencies
+      .filter((dependency) => !proofAdminApiPrefixes.includes(dependency.proofAdminIngressPrefix))
+      .map(
+        (dependency) =>
+          `${dependency.surface} (${dependency.callerType}) from ${dependency.sourceFile} requires ${dependency.proofAdminIngressPrefix} for ${dependency.apiPath}`,
+      );
+    expect(missingProofIngress).toEqual([]);
   });
 
   it("adds Shipit-like PR release status without replacing merge queue", () => {
