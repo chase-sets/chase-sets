@@ -22,10 +22,11 @@ Deliver changes from inside an isolated git worktree, using the repo's bounded c
 6. Resolve decisions in dependency order: ownership, language, invariants, events, read models, APIs, UI, operations.
 7. Ask exactly one blocking question at a time. Include the decision, why it matters, recommended answer, repo evidence, and consequence of choosing differently. Use `request_user_input` when available.
 8. Update the plan after each answer, repo finding, contradiction, recommendation, and doc change.
-9. When planning is complete, create a goal that references the worktree path, branch, plan path, implementation checklist, verification, durable doc promotion, PR details containing the finished plan, CI, GitHub merge queue, merge, deployment checks, generated plan deletion, local container deletion, worktree deletion, remote PR branch deletion, local branch deletion, and `main/` refresh.
+9. When planning is complete, create a goal that references the worktree path, branch, plan path, implementation checklist, verification, tech debt review, durable doc promotion, PR details containing the finished plan, CI, GitHub merge queue, merge, deployment checks, generated plan deletion, local container deletion, worktree deletion, remote PR branch deletion, local branch deletion, and `main/` refresh.
 10. Implement the checklist in the worktree, update checklist status as work completes, and keep edits scoped to the approved implementation.
-11. Before PR readiness, run a release hardening loop: review the complete feature, including behavior outside the diffs and upstream/downstream impacts, for user value, correctness, simplicity, maintainability, reliability, security, performance, and cost; fix every P0-P2 finding; rerun targeted verification; repeat until no P0-P2 findings remain. Document any remaining P3+ items as accepted follow-up with rationale.
-12. Open a ready PR with the finished plan in the PR body/details, wait for required review and checks, enqueue the PR in the GitHub merge queue, wait for the queue to merge it, verify staging and production deployments, then complete Cleanup.
+11. Before release hardening, run a comprehensive tech debt review across the implemented scope and its touched dependencies: look for unnecessary complexity, duplicated logic, dead code, stale abstractions, weak naming, ownership leaks between contexts, brittle tests, missing test seams, migration or schema cleanup, dependency drift, slow paths, and operational footguns. Address every in-scope finding before continuing; document any deliberately deferred out-of-scope findings with rationale, owner, and follow-up path.
+12. Before PR readiness, run a release hardening loop: review the complete feature, including behavior outside the diffs and upstream/downstream impacts, for user value, correctness, simplicity, maintainability, reliability, security, performance, and cost; fix every P0-P2 finding; rerun targeted verification; repeat until no P0-P2 findings remain. Document any remaining P3+ items as accepted follow-up with rationale.
+13. Open a ready PR with the finished plan in the PR body/details, wait for required review and checks, enqueue the PR in the GitHub merge queue, wait for the queue to merge it, verify staging and production deployments, then complete Cleanup.
 
 ## Worktree Setup
 
@@ -75,6 +76,7 @@ The `Goal Completion Criteria` section must always include:
 
 - PR submitted for the completed implementation or scoped non-product change, with the finished plan included in the PR body/details.
 - Implementation Checklist completed.
+- Comprehensive tech debt review completed before release hardening; every in-scope finding addressed, with any deferred out-of-scope findings documented with rationale, owner, and follow-up path.
 - Release hardening loop completed with no unresolved P0-P2 findings; any remaining P3+ items documented as accepted follow-up with rationale.
 - CI passing on the PR before merge queue entry.
 - PR entered into the GitHub merge queue after required review and passing checks.
