@@ -3,6 +3,10 @@ import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import { redactCatalogIntegrationProviderData } from "./catalog-integration-data-governance";
 import type { SourceObservationReadServices, SourceObservationReviewServices } from "./runtime";
+import {
+  CatalogIntegrationRolloutControlError,
+  rolloutControlErrorResponse,
+} from "./catalog-integration-rollout-controls";
 
 export type SourceObservationReadReviewRouteServices = SourceObservationReadServices & SourceObservationReviewServices;
 
@@ -44,10 +48,18 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
   });
 
   app.post("/:id/promote", async (c) => {
-    const result = await services.promoteObservation({
-      observationId: c.req.param("id"),
-      context: c.get("context"),
-    });
+    let result;
+    try {
+      result = await services.promoteObservation({
+        observationId: c.req.param("id"),
+        context: c.get("context"),
+      });
+    } catch (error) {
+      if (error instanceof CatalogIntegrationRolloutControlError) {
+        return c.json(rolloutControlErrorResponse(error), 403);
+      }
+      throw error;
+    }
 
     return c.json(result);
   });

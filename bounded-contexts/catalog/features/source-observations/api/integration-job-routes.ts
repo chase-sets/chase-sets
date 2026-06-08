@@ -3,6 +3,10 @@ import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { IntegrationJobServices } from "./runtime";
 import { isIntegrationJobValidationError, parseIntegrationJobScope, streamIntegrationJobEvents } from "./route-helpers";
+import {
+  CatalogIntegrationRolloutControlError,
+  rolloutControlErrorResponse,
+} from "./catalog-integration-rollout-controls";
 
 export type IntegrationJobRouteServices = IntegrationJobServices;
 
@@ -36,6 +40,9 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
         context: c.get("context"),
       });
     } catch (error) {
+      if (error instanceof CatalogIntegrationRolloutControlError) {
+        return c.json(rolloutControlErrorResponse(error), 403);
+      }
       if (!isIntegrationJobValidationError(error)) {
         throw error;
       }

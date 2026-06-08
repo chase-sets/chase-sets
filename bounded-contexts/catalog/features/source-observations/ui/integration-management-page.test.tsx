@@ -1058,6 +1058,7 @@ describe("IntegrationManagementPage", () => {
     );
 
     expect(screen.getByRole("heading", { name: "First slice readiness" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Rollout controls" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Adapter readiness" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Audit lifecycle" })).toBeTruthy();
     expect(screen.getAllByText("reference-cards:pokemon:single-card:source-observation-proof").length).toBeGreaterThan(
@@ -1077,6 +1078,53 @@ describe("IntegrationManagementPage", () => {
     expect(
       screen.getByText("Reference provider uses fixture-backed payloads and does not require live provider transport."),
     ).toBeTruthy();
+  });
+
+  it("surfaces active rollout controls in the health dashboard", () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    const overview = controlPlaneOverview();
+    const blockedImportControl = {
+      controlId: "imports-disabled",
+      owner: "catalog-source-observations" as const,
+      ownerIssue: 801 as const,
+      defaultState: "open" as const,
+      status: "blocked" as const,
+      severity: "error" as const,
+      capabilities: ["import"],
+      providerKeys: ["tcgdex"],
+      profileKeys: [],
+      unitKeys: [],
+      message: "Catalog integration imports are disabled for the configured provider scope.",
+      auditEventName: "rollout-control-denied" as const,
+      metricKey: "catalog.integration.rollout.imports_disabled",
+    };
+    mockUseCatalogIntegrationControlPlaneOverview.mockReturnValue({
+      data: {
+        ...overview,
+        readiness: {
+          ...overview.readiness,
+          rolloutControls: {
+            generatedAt: overview.generatedAt,
+            controls: [blockedImportControl],
+          },
+        },
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <IntegrationManagementPage
+        data={{ items: [integrationScope()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgdex", language: "en", setId: "base1" }}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Rollout controls" })).toBeTruthy();
+    expect(screen.getByText("imports-disabled")).toBeTruthy();
+    expect(screen.getByText(/catalog.integration.rollout.imports_disabled #801/)).toBeTruthy();
   });
 
   it("searches and selects an integration expansion filter", async () => {
@@ -4860,6 +4908,26 @@ function profileAuthoringModel(
 function controlPlaneReadiness() {
   return {
     generatedAt: "2026-06-05T00:00:00.000Z",
+    rolloutControls: {
+      generatedAt: "2026-06-05T00:00:00.000Z",
+      controls: [
+        {
+          controlId: "control-plane-read-only",
+          owner: "catalog-source-observations",
+          ownerIssue: 801,
+          defaultState: "open",
+          status: "open",
+          severity: "info",
+          capabilities: ["import", "promotion", "reapply", "activation"],
+          providerKeys: [],
+          profileKeys: [],
+          unitKeys: [],
+          message: "Catalog Integration Control Plane write workflows are open.",
+          auditEventName: "rollout-control-evaluated",
+          metricKey: "catalog.integration.rollout.control_plane_read_only",
+        },
+      ],
+    },
     units: [
       {
         unitKey: "reference-cards:pokemon:single-card:source-observation-proof",

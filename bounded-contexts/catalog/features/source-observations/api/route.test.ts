@@ -9,6 +9,10 @@ import {
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfileVersionRecord,
 } from "./provider-integration-profiles";
+import {
+  CatalogIntegrationRolloutControlError,
+  createCatalogIntegrationRolloutControlPolicy,
+} from "./catalog-integration-rollout-controls";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -17,6 +21,23 @@ const context: EventStoreContext = {
     forAccountId: "acc_test" as never,
   },
 };
+
+function rolloutDenied(
+  input: Parameters<ReturnType<typeof createCatalogIntegrationRolloutControlPolicy>["decide"]>[0],
+) {
+  const policy = createCatalogIntegrationRolloutControlPolicy({
+    disabledProviderAdapters: ["tcgdex"],
+    disabledImports: ["tcgdex"],
+    disabledPromotion: ["tcgdex"],
+    disabledReapply: ["tcgdex"],
+    activationMode: "disabled",
+  });
+  const decision = policy.decide(input);
+  if (decision.allowed) {
+    throw new Error("Expected rollout control policy to deny the test operation.");
+  }
+  return new CatalogIntegrationRolloutControlError(decision);
+}
 
 function buildApp(
   services: SourceObservationRouteServices,
@@ -259,6 +280,35 @@ describe("source observation routes", () => {
     });
   });
 
+  it("returns rollout evidence when TCGdex imports are disabled", async () => {
+    const enqueueIntegrationJob = vi.fn(async () => {
+      throw rolloutDenied({ capability: "import", providerKey: "tcgdex" });
+    });
+    const services = {
+      enqueueIntegrationJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/imports/tcgdex-set", {
+      method: "POST",
+      body: JSON.stringify({ languageCode: "en", expansionId: "base1" }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "catalog_integration_rollout_control_denied",
+        diagnosticCode: "catalog-integration-rollout-control-denied",
+        capability: "import",
+        controlId: "provider-adapter-disabled",
+        ownerIssue: 801,
+        auditEventName: "rollout-control-denied",
+        metricKey: "catalog.integration.rollout.provider_adapter_disabled",
+      },
+    });
+  });
+
   it("streams TCGdex import job status events", async () => {
     const job = integrationJobFixture({
       jobId: "job_import_base1",
@@ -349,6 +399,28 @@ describe("source observation routes", () => {
     expect(listTcgdexExpansions).toHaveBeenCalledWith({
       languageCode: "en",
       seriesId: "me",
+    });
+  });
+
+  it("returns rollout evidence when provider adapter option queries are disabled", async () => {
+    const listTcgdexLanguages = vi.fn(async () => {
+      throw rolloutDenied({ capability: "provider-option-query", providerKey: "tcgdex" });
+    });
+    const services = {
+      listTcgdexLanguages,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/tcgdex/languages");
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "catalog_integration_rollout_control_denied",
+        capability: "provider-option-query",
+        controlId: "provider-adapter-disabled",
+        controls: [expect.objectContaining({ ownerIssue: 801 })],
+      },
     });
   });
 
@@ -1041,6 +1113,37 @@ describe("source observation routes", () => {
     expect(listActiveBulkReviewJobs).toHaveBeenCalledWith({ context });
   });
 
+  it("returns rollout evidence when provider profile activation is disabled", async () => {
+    const assertCatalogIntegrationRolloutAllowed = vi.fn(() => {
+      throw rolloutDenied({ capability: "activation", providerKey: "tcgdex", profileLifecycle: "test" });
+    });
+    const services = {
+      assertCatalogIntegrationRolloutAllowed,
+    } as unknown as SourceObservationRouteServices;
+    const store = mutableProfileStore();
+    const app = buildApp(services, store);
+
+    const response = await app.request("/source-observations/provider-profiles/tcgdex/2026.06.03/activate", {
+      method: "POST",
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "catalog_integration_rollout_control_denied",
+        capability: "activation",
+        controlId: "activation-disabled",
+      },
+    });
+    expect(assertCatalogIntegrationRolloutAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capability: "activation",
+        providerKey: "tcgdex",
+        profileLifecycle: "active",
+      }),
+    );
+  });
+
   it("enqueues provider integration jobs with normalized scope aliases", async () => {
     const job = integrationJob({ status: "queued" });
     const enqueueIntegrationJob = vi.fn(async () => job);
@@ -1228,6 +1331,33 @@ describe("source observation routes", () => {
     });
   });
 
+  it("returns rollout evidence when bulk promotion is disabled", async () => {
+    const enqueueBulkReviewJob = vi.fn(async () => {
+      throw rolloutDenied({ capability: "promotion", providerKey: "tcgdex" });
+    });
+    const services = {
+      enqueueBulkReviewJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/bulk-promote", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: { source: "tcgdex", status: "observed", language: "en", setId: "base1" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "catalog_integration_rollout_control_denied",
+        capability: "promotion",
+        controlId: "promotion-disabled",
+      },
+    });
+  });
+
   it("previews filter-scoped reapply for promoted observations", async () => {
     const previewReapplyObservationScope = vi.fn(async () => ({
       matched: 102,
@@ -1305,6 +1435,33 @@ describe("source observation routes", () => {
         setId: "base1",
       },
       context,
+    });
+  });
+
+  it("returns rollout evidence when reapply is disabled", async () => {
+    const enqueueIntegrationJob = vi.fn(async () => {
+      throw rolloutDenied({ capability: "reapply", providerKey: "tcgdex" });
+    });
+    const services = {
+      enqueueIntegrationJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/reapply", {
+      method: "POST",
+      body: JSON.stringify({
+        scope: { source: "tcgdex", language: "en", setId: "base1" },
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "catalog_integration_rollout_control_denied",
+        capability: "reapply",
+        controlId: "reapply-disabled",
+      },
     });
   });
 

@@ -74,6 +74,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Integration Audit Evidence](../bounded-contexts/catalog/docs/catalog-integration-audit-evidence.md)
 - [Catalog Integration Fixture Lifecycle](../bounded-contexts/catalog/docs/catalog-integration-fixture-lifecycle.md)
 - [Catalog Integration Job Consistency](../bounded-contexts/catalog/docs/catalog-integration-job-consistency.md)
+- [Catalog Integration Rollout Controls](../bounded-contexts/catalog/docs/catalog-integration-rollout-controls.md)
 - [Catalog Integration Schema Compatibility](../bounded-contexts/catalog/docs/catalog-integration-schema-compatibility.md)
 - [Catalog Integration Data Migration Reset](../bounded-contexts/catalog/docs/catalog-integration-data-migration-reset.md)
 - [Catalog Integration Legacy Cleanup](../bounded-contexts/catalog/docs/catalog-integration-legacy-cleanup.md)

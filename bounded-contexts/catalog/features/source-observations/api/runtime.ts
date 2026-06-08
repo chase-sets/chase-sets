@@ -97,6 +97,11 @@ import {
   type CatalogProviderCredentialRequirement,
   type CatalogProviderCredentialReadinessState,
 } from "./catalog-integration-credential-readiness";
+import {
+  createCatalogIntegrationRolloutControlPolicyFromEnv,
+  type CatalogIntegrationRolloutControlPolicy,
+  type CatalogIntegrationRolloutControlSnapshot,
+} from "./catalog-integration-rollout-controls";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import {
   createReferenceCardsProviderAdapter,
@@ -406,6 +411,7 @@ export type SourceObservationDuplicatePreventionCandidatePreview = Readonly<{
 
 export type CatalogIntegrationControlPlaneReadiness = Readonly<{
   generatedAt: string;
+  rolloutControls: CatalogIntegrationRolloutControlSnapshot;
   units: readonly CatalogIntegrationControlPlaneUnitReadiness[];
 }>;
 
@@ -504,6 +510,8 @@ export type CatalogIntegrationEngineServices = Readonly<{
     observedAt?: string;
   }) => Promise<SourceObservationDuplicatePreventionCandidatePreview>;
   getCatalogIntegrationControlPlaneReadiness: () => Promise<CatalogIntegrationControlPlaneReadiness>;
+  getCatalogIntegrationRolloutControls: () => CatalogIntegrationRolloutControlSnapshot;
+  assertCatalogIntegrationRolloutAllowed: CatalogIntegrationRolloutControlPolicy["assertAllowed"];
 }>;
 
 export type SourceObservationReviewServices = Readonly<{
@@ -658,6 +666,7 @@ export function createSourceObservationRuntime(
   items: CatalogItemServices,
   referenceData: ReferenceDataServices,
   profileVersions: CatalogProviderIntegrationProfileVersionReader = staticCatalogProviderIntegrationProfileVersions,
+  rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(),
 ): SourceObservationServices {
   const commandHandler = createCommandHandler({
     repository: createAggregateRepository({
@@ -925,6 +934,7 @@ export function createSourceObservationRuntime(
     onProgress?: SourceObservationProgressHandler;
     runPromoteObservation?: DurableSideEffectRunner;
   }): Promise<BulkSourceObservationPromotionResult> {
+    rolloutControlPolicy.assertAllowed({ capability: "promotion" });
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationPromotionOutcome[] = [];
     await input.onProgress?.(bulkProgress(0, requestedIds.length));
@@ -945,6 +955,7 @@ export function createSourceObservationRuntime(
           });
           continue;
         }
+        rolloutControlPolicy.assertAllowed({ capability: "promotion", providerKey: observation.provider_key });
 
         if (!isPromotableObservationStatus(observation.status)) {
           const recovered = await recoverAlreadyPromotedObservationOutcome(observationId);
@@ -1081,6 +1092,7 @@ export function createSourceObservationRuntime(
     reapplyProfileMode?: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   }): Promise<BulkSourceObservationReapplyResult> {
+    rolloutControlPolicy.assertAllowed({ capability: "reapply" });
     const requestedIds = uniqueObservationIds(input.observationIds);
     const outcomes: BulkSourceObservationReapplyOutcome[] = [];
     await input.onProgress?.(bulkProgress(0, requestedIds.length));
@@ -1101,6 +1113,7 @@ export function createSourceObservationRuntime(
           });
           continue;
         }
+        rolloutControlPolicy.assertAllowed({ capability: "reapply", providerKey: observation.provider_key });
 
         if (observation.status !== "promoted") {
           outcomes.push({
@@ -1239,6 +1252,8 @@ export function createSourceObservationRuntime(
     beforeRecordObservation?: () => Promise<void>;
     runRecordObservation?: DurableSideEffectRunner;
   }): Promise<TcgdexSetImportResult> {
+    rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: "tcgdex" });
+    rolloutControlPolicy.assertAllowed({ capability: "provider-transport", providerKey: "tcgdex" });
     const profileVersion =
       input.providerProfileVersion ?? (await requireCatalogImportProfileVersion(profileVersions, "tcgdex"));
     const profile = profileVersion.profile;
@@ -1314,6 +1329,12 @@ export function createSourceObservationRuntime(
     reason?: string | null;
     context: EventStoreContext;
   }): Promise<SourceObservationBulkJob> {
+    if (input.action === "promote") {
+      rolloutControlPolicy.assertAllowed({ capability: "promotion", providerKey: input.scope?.provider });
+    }
+    if (input.action === "reapply") {
+      rolloutControlPolicy.assertAllowed({ capability: "reapply", providerKey: input.scope?.provider });
+    }
     const observationIds = uniqueObservationIds(input.observationIds ?? []);
     const selectionMode = observationIds.length > 0 ? "ids" : "filter";
     const scope = selectionMode === "filter" ? normalizeBulkJobScope(input.scope ?? {}) : {};
@@ -1659,6 +1680,10 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const scope = normalizeIntegrationJobScope(input.scope);
+    rolloutControlPolicy.assertAllowed({
+      capability: input.action === "import" ? "import" : "reapply",
+      providerKey: scope.provider,
+    });
     const importProfileVersion =
       input.action === "import" ? await requireCatalogImportProfileVersion(profileVersions, scope.provider) : null;
     const reapplyProfileMode: SourceObservationReapplyProfileMode | null =
@@ -1722,6 +1747,9 @@ export function createSourceObservationRuntime(
     } & SourceObservationJobRunContext,
   ): Promise<number> {
     if (isJobRunCancelled(input)) {
+      return 0;
+    }
+    if (!rolloutControlPolicy.decide({ capability: "worker-job-processing" }).allowed) {
       return 0;
     }
 
@@ -1954,6 +1982,8 @@ export function createSourceObservationRuntime(
   > {
     throwIfJobRunCancelled(input.context);
     const scope = normalizeIntegrationJobScope(input.job.scope);
+    rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: scope.provider });
+    rolloutControlPolicy.assertAllowed({ capability: "provider-transport", providerKey: scope.provider });
     const providerProfileVersion = await requireCatalogImportProfileVersionForJob(
       profileVersions,
       scope.provider,
@@ -2070,6 +2100,7 @@ export function createSourceObservationRuntime(
     }>
   > {
     throwIfJobRunCancelled(input.context);
+    rolloutControlPolicy.assertAllowed({ capability: "reapply", providerKey: input.job.scope.provider });
     const scope = integrationScopeToObservationScope(input.job.scope);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(input.job.progress.total, []);
     const completedObservationIds = new Set(
@@ -2373,6 +2404,11 @@ export function createSourceObservationRuntime(
     onProgress?: SourceObservationProgressHandler;
   }): Promise<SourceObservationIntegrationJobResult> {
     const scope = normalizeIntegrationJobScope(input.scope);
+    rolloutControlPolicy.assertAllowed({ capability: "import", providerKey: scope.provider ?? "tcgplayer" });
+    rolloutControlPolicy.assertAllowed({
+      capability: "provider-transport",
+      providerKey: scope.provider ?? "tcgplayer",
+    });
     const providerProfileVersion =
       input.providerProfileVersion ?? (await requireCatalogImportProfileVersion(profileVersions, scope.provider));
     const providerProfile = providerProfileVersion.profile;
@@ -2619,17 +2655,30 @@ export function createSourceObservationRuntime(
     providerAdapterRegistry,
     importTcgdexSet: importTcgdexSetScope,
     importTcgplayerScope: processTcgplayerIntegrationImportJob,
-    listTcgdexLanguages: () => listTcgdexLanguagesThroughAdapter(providerAdapterRegistry),
-    listTcgdexSeries: ({ languageCode }) => listTcgdexSeriesThroughAdapter(providerAdapterRegistry, { languageCode }),
-    listTcgdexExpansions: ({ languageCode, seriesId }) =>
-      listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
-    listIntegrationOptions: (input) =>
-      listProviderIntegrationOptions(
+    listTcgdexLanguages: () => {
+      rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
+      return listTcgdexLanguagesThroughAdapter(providerAdapterRegistry);
+    },
+    listTcgdexSeries: ({ languageCode }) => {
+      rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
+      return listTcgdexSeriesThroughAdapter(providerAdapterRegistry, { languageCode });
+    },
+    listTcgdexExpansions: ({ languageCode, seriesId }) => {
+      rolloutControlPolicy.assertAllowed({ capability: "provider-option-query", providerKey: "tcgdex" });
+      return listTcgdexExpansionsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId });
+    },
+    listIntegrationOptions: (input) => {
+      rolloutControlPolicy.assertAllowed({
+        capability: "provider-option-query",
+        providerKey: input.providerKey,
+      });
+      return listProviderIntegrationOptions(
         input,
         deps.tcgplayerAutomationCatalogClient,
         profileVersions,
         providerAdapterRegistry,
-      ),
+      );
+    },
     getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
     getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),
     previewDuplicatePreventionCandidates,
@@ -2638,6 +2687,7 @@ export function createSourceObservationRuntime(
       if (!observation) {
         throw new Error("Source observation was not found.");
       }
+      rolloutControlPolicy.assertAllowed({ capability: "promotion", providerKey: observation.provider_key });
 
       if (!isPromotableObservationStatus(observation.status)) {
         const recovered = await recoverAlreadyPromotedObservationOutcome(observationId);
@@ -2746,7 +2796,9 @@ export function createSourceObservationRuntime(
     listSourceObservations: (params) => listSourceObservations(deps.db, params),
     listIntegrationScopes: (params) => listSourceObservationIntegrationScopes(deps.db, params),
     getCatalogIntegrationControlPlaneReadiness: async () =>
-      buildCatalogIntegrationControlPlaneReadiness(providerAdapterRegistry, dryRunProofRegistry),
+      buildCatalogIntegrationControlPlaneReadiness(providerAdapterRegistry, dryRunProofRegistry, rolloutControlPolicy),
+    getCatalogIntegrationRolloutControls: () => rolloutControlPolicy.snapshot(),
+    assertCatalogIntegrationRolloutAllowed: rolloutControlPolicy.assertAllowed,
     pruneSourceObservationJobRetention: async (input = {}) => {
       const completedBefore = input.completedBefore ?? sourceObservationRetentionCutoff(7);
       const [bulkReviewJobs, integrationJobs] = await Promise.all([
@@ -3099,8 +3151,10 @@ function booleanFromString(value: string | null | undefined): boolean | null {
 async function buildCatalogIntegrationControlPlaneReadiness(
   providerAdapterRegistry: ProviderAdapterRegistry,
   dryRunProofRegistry: CatalogIntegrationDryRunProofRegistry = createCatalogIntegrationDryRunProofRegistry(),
+  rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy = createCatalogIntegrationRolloutControlPolicyFromEnv(),
 ): Promise<CatalogIntegrationControlPlaneReadiness> {
   const units: CatalogIntegrationControlPlaneUnitReadiness[] = [];
+  const rolloutControls = rolloutControlPolicy.snapshot();
 
   for (const providerKey of providerAdapterRegistry.listProviderKeys()) {
     const adapter = providerAdapterRegistry.require(providerKey);
@@ -3130,11 +3184,22 @@ async function buildCatalogIntegrationControlPlaneReadiness(
         ),
         ...credentialDiagnostics,
       ].map((diagnostic) => toControlPlaneDiagnostic(diagnostic, "provider-adapter"));
+      const rolloutDiagnostics = rolloutControlDiagnosticsForUnit(rolloutControlPolicy, {
+        providerKey: descriptor.providerKey,
+        unitKey: descriptor.unitKey,
+      });
       const catalogDiagnostics = dryRunDiagnostics.map((diagnostic) => toControlPlaneDiagnostic(diagnostic, "catalog"));
-      const unitDiagnostics = [...providerDiagnostics, ...catalogDiagnostics];
+      const unitDiagnostics = [...providerDiagnostics, ...catalogDiagnostics, ...rolloutDiagnostics];
       const errorCount = countDiagnostics(unitDiagnostics, "error");
       const dryRunErrorCount = countDiagnostics(catalogDiagnostics, "error");
       const credentialStatus = summarizeUnitCredentialReadiness(unitCredentialReadiness);
+      const transportRolloutBlocked = rolloutControlPolicy.decide({
+        capability: "provider-transport",
+        providerKey: descriptor.providerKey,
+        unitKey: descriptor.unitKey,
+      }).allowed
+        ? false
+        : true;
 
       units.push({
         unitKey: descriptor.unitKey,
@@ -3149,7 +3214,8 @@ async function buildCatalogIntegrationControlPlaneReadiness(
         credentialReadinessState: credentialStatus.state,
         credentialRequirement: credentialStatus.requirement,
         credentialDiagnosticCode: credentialStatus.diagnosticCode,
-        transportReadiness: countDiagnostics(providerDiagnostics, "error") === 0 ? "ready" : "blocked",
+        transportReadiness:
+          !transportRolloutBlocked && countDiagnostics(providerDiagnostics, "error") === 0 ? "ready" : "blocked",
         fixtureValidationStatus: dryRun && dryRun.observations.length > 0 ? "ready" : "blocked",
         dryRunStatus: dryRun && dryRunErrorCount === 0 ? "completed" : "blocked",
         observationFacts: dryRun?.observations.length ?? 0,
@@ -3173,8 +3239,42 @@ async function buildCatalogIntegrationControlPlaneReadiness(
 
   return {
     generatedAt: new Date().toISOString(),
+    rolloutControls,
     units,
   };
+}
+
+function rolloutControlDiagnosticsForUnit(
+  rolloutControlPolicy: CatalogIntegrationRolloutControlPolicy,
+  input: Readonly<{ providerKey: string; unitKey: string }>,
+): readonly CatalogIntegrationControlPlaneDiagnostic[] {
+  const controls = [
+    rolloutControlPolicy.decide({
+      capability: "provider-transport",
+      providerKey: input.providerKey,
+      unitKey: input.unitKey,
+    }),
+    rolloutControlPolicy.decide({
+      capability: "provider-option-query",
+      providerKey: input.providerKey,
+      unitKey: input.unitKey,
+    }),
+    rolloutControlPolicy.decide({
+      capability: "import",
+      providerKey: input.providerKey,
+      unitKey: input.unitKey,
+    }),
+  ].flatMap((decision) => decision.controls);
+  const uniqueControls = new Map(controls.map((control) => [control.controlId, control]));
+
+  return [...uniqueControls.values()].map((control) => ({
+    code: "catalog-integration-rollout-control-denied",
+    severity: control.severity === "error" ? "error" : "warning",
+    message: control.message,
+    unitKey: input.unitKey,
+    retryAfterSeconds: null,
+    source: "catalog",
+  }));
 }
 
 function selectUnitCredentialReadiness(

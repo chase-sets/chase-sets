@@ -109,7 +109,29 @@ export interface SourceObservationIntegrationOption {
 
 export interface CatalogIntegrationControlPlaneReadiness {
   generatedAt: string;
+  rolloutControls: CatalogIntegrationRolloutControlSnapshot;
   units: CatalogIntegrationControlPlaneUnitReadiness[];
+}
+
+export interface CatalogIntegrationRolloutControlSnapshot {
+  generatedAt: string;
+  controls: CatalogIntegrationRolloutControl[];
+}
+
+export interface CatalogIntegrationRolloutControl {
+  controlId: string;
+  owner: "catalog-source-observations" | "ops-release";
+  ownerIssue: 801;
+  defaultState: "open" | "quarantined";
+  status: "open" | "degraded" | "blocked";
+  severity: "info" | "warning" | "error";
+  capabilities: string[];
+  providerKeys: string[];
+  profileKeys: string[];
+  unitKeys: string[];
+  message: string;
+  auditEventName: "rollout-control-evaluated" | "rollout-control-denied";
+  metricKey: string;
 }
 
 export interface CatalogIntegrationControlPlaneUnitReadiness {

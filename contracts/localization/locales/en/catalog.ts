@@ -1396,6 +1396,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.add.record.rule": "Add record rule",
   "catalog.features.sourceObservations.ui.integrationManagementPage.add.reference": "Add reference",
   "catalog.features.sourceObservations.ui.integrationManagementPage.add.reference.type": "Add reference type",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.active.controls": "Active controls",
   "catalog.features.sourceObservations.ui.integrationManagementPage.after.fingerprint": "After fingerprint",
   "catalog.features.sourceObservations.ui.integrationManagementPage.aliases": "Aliases",
   "catalog.features.sourceObservations.ui.integrationManagementPage.ambiguity.policy": "Ambiguity policy",
@@ -1417,6 +1418,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.before.fingerprint": "Before fingerprint",
   "catalog.features.sourceObservations.ui.integrationManagementPage.block.promotion": "Block promotion",
   "catalog.features.sourceObservations.ui.integrationManagementPage.blocked": "Blocked",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.blocked.controls": "Blocked controls",
   "catalog.features.sourceObservations.ui.integrationManagementPage.blocking.checks": "Blocking checks",
   "catalog.features.sourceObservations.ui.integrationManagementPage.candidate": "Candidate",
   "catalog.features.sourceObservations.ui.integrationManagementPage.candidate.fingerprint": "Candidate fingerprint",
@@ -1547,6 +1549,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.future.provider.bridge.match":
     "Future provider bridge match",
   "catalog.features.sourceObservations.ui.integrationManagementPage.generated": "Generated",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.degraded": "Degraded",
   "catalog.features.sourceObservations.ui.integrationManagementPage.hash.material": "Hash Material",
   "catalog.features.sourceObservations.ui.integrationManagementPage.hash.material.2": "Hash material",
   "catalog.features.sourceObservations.ui.integrationManagementPage.health": "Health",
@@ -1762,6 +1765,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.implication": "Rollback implication",
   "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.reactivates.a.previous.profile.version.and.keeps.observation.replay.explicit":
     "Rollback reactivates a previous profile version and keeps observation replay explicit.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.rollout.control.description":
+    "{message} {metricKey} #{ownerIssue}",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.rollout.control.summary": "Rollout control summary",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.rollout.controls": "Rollout controls",
   "catalog.features.sourceObservations.ui.integrationManagementPage.retirement.gate": "Retirement gate",
   "catalog.features.sourceObservations.ui.integrationManagementPage.blocked.until.source.observation.references.are.migrated.or.archived":
     "Blocked until Source Observation references are migrated or archived.",

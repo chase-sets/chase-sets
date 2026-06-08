@@ -2,7 +2,7 @@
 
 Catalog provider integrations are a Catalog-owned control plane for turning external provider facts into reviewed Catalog truth. They are not a generic low-code provider platform, and they are not separate provider systems that bypass Source Observations and call Catalog APIs directly.
 
-Control-plane diagnostics use the canonical [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md) so adapters, profile sections, fixtures, engine checks, jobs, read models, credential readiness, and projection lag share stable codes, severity, remediation, blocking behavior, visibility, metrics, and redaction rules. Provider-controlled payload, fixture, dry-run, diagnostic, audit, credential-readiness, and job evidence follows [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Fixture repository records, coverage sufficiency, provenance, sampling, validation input selection, and activation-readiness integration are documented in [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md). Provider credential ownership, storage, validation, rotation, and Admin readiness behavior is documented in [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md).
+Control-plane diagnostics use the canonical [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md) so adapters, profile sections, fixtures, engine checks, jobs, read models, credential readiness, and projection lag share stable codes, severity, remediation, blocking behavior, visibility, metrics, and redaction rules. Provider-controlled payload, fixture, dry-run, diagnostic, audit, credential-readiness, and job evidence follows [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Fixture repository records, coverage sufficiency, provenance, sampling, validation input selection, and activation-readiness integration are documented in [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md). Provider credential ownership, storage, validation, rotation, and Admin readiness behavior is documented in [Catalog Integration Credential Readiness](./catalog-integration-credential-readiness.md). Rollout modes, feature flags, kill switches, staged enablement, rollback stops, and Admin surfacing are documented in [Catalog Integration Rollout Controls](./catalog-integration-rollout-controls.md).
 
 ## Boundary
 
@@ -130,6 +130,7 @@ GET /api/catalog/source-observations/integration-control-plane/readiness
 
 The response is grouped by ingestion unit and includes:
 
+- active rollout controls and kill-switch evidence for the control plane.
 - `unitKey`, provider, product domain, product form, ingestion purpose, display name, and proof profile version.
 - Catalog semantic readiness, provider transport readiness, fixture validation status, and dry-run status.
 - Diagnostic counts by severity plus the latest diagnostic text.
@@ -165,6 +166,7 @@ The URL section key is authoritative for section update routes. Request bodies m
 - [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md)
 - [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md)
+- [Catalog Integration Rollout Controls](./catalog-integration-rollout-controls.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)

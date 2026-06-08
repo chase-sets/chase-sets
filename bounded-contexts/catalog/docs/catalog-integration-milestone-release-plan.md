@@ -144,7 +144,7 @@ Primary issues:
 - #770 migration and release plan
 - #787 observability and runbooks
 - #789 raw JSON fallback retirement
-- #801 rollout modes, feature flags, and kill switches
+- #801 rollout modes, feature flags, and kill switches, documented in [Catalog Integration Rollout Controls](./catalog-integration-rollout-controls.md)
 - #803 provider-data policy/legal signoff, documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - #804 legacy data and compatibility cleanup
 
@@ -153,6 +153,7 @@ Exit criteria:
 - Release verification covers empty integration-data bootstrap, reset/migration, rollback, compatibility/deploy skew, idempotency, API compatibility, adapter/engine behavior, conflict precedence, admin workflows, credentials, audit/evidence, fixtures, governance/redaction/signoff, read-model freshness, diagnostics, backpressure, impact analysis, observability, RBAC, raw JSON retirement, UX/accessibility, operator journeys, E2E smoke tests, and worker/job verification.
 - Legacy cleanup verification covers zero old Source Observations, zero legacy profile references, empty integration and bulk-review jobs/work units, rebuilt seeded profiles, rebuilt profile sections, `rawJsonBacked=false` section editors, and an owner/reason/removal-date launch gate for every retained compatibility path.
 - No unresolved P0-P2 release hardening findings remain.
+- Rollout controls expose default-open staged modes, provider/API emergency stops, import/promotion/reapply/activation kill switches, worker stops, raw JSON fallback quarantine, Admin surfacing, and rollback evidence.
 - CI passes before merge queue entry.
 - Staging and production deployments are verified green after merge and rollout.
 
