@@ -13,7 +13,8 @@ export const adminWebEnglishTranslations = {
   "adminWeb.app.root.admin.error.2": "Admin Error",
   "adminWeb.app.root.admin.error.description":
     "The admin surface could not finish loading. Retry the page or return to a stable admin section.",
-  "adminWeb.app.root.go.to.catalog": "Go to Catalog",
+  "adminWeb.app.root.brand": "Admin",
+  "adminWeb.app.root.go.to.admin.home": "Go to admin home",
   "adminWeb.app.root.not.found.title": "Admin page not found",
   "adminWeb.app.root.retry": "Retry",
   "adminWeb.app.root.technical.detail": "Technical detail",

@@ -1449,6 +1449,20 @@ describe("design system", () => {
     expect(screen.getByRole("link", { name: "Skip to main content" }).getAttribute("href")).toBe("#main-content");
   });
 
+  it("renders sectionless admin shells without empty local navigation chrome", () => {
+    render(
+      <ChaseRoot>
+        <AdminShell brand={<div>Admin</div>} navItems={[]}>
+          <div>Root state</div>
+        </AdminShell>
+      </ChaseRoot>,
+    );
+
+    expect(screen.getByRole("main").getAttribute("class")).not.toContain("lg:grid-cols-[16rem_minmax(0,1fr)]");
+    expect(screen.queryByRole("navigation", { name: "Section navigation" })).toBeNull();
+    expect(screen.getByText("Root state")).toBeTruthy();
+  });
+
   it("renders admin top-level section navigation through the top app bar", () => {
     render(
       <ChaseRoot>

@@ -245,6 +245,7 @@ export function AdminShell({
   children,
   width = "full",
 }: AdminShellProps) {
+  const hasLocalNav = navItems.length > 0;
   const mobileNavItems = compactAdminMobileNavItems(navItems, activeKey);
 
   return (
@@ -261,18 +262,21 @@ export function AdminShell({
       <main
         id="main-content"
         className={cx(
-          "mx-auto grid min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-5 pb-24 lg:grid-cols-[16rem_minmax(0,1fr)] lg:py-6 lg:pb-8",
+          "mx-auto min-h-[calc(100vh-4rem)] w-full gap-6 px-4 py-5 pb-24 lg:py-6 lg:pb-8",
+          hasLocalNav && "grid lg:grid-cols-[16rem_minmax(0,1fr)]",
           layoutWidthClasses[width],
         )}
       >
-        <div className="hidden lg:block">
-          <div className="sticky top-20 self-start">
-            <SideNav items={navItems} activeKey={activeKey} />
+        {hasLocalNav ? (
+          <div className="hidden lg:block">
+            <div className="sticky top-20 self-start">
+              <SideNav items={navItems} activeKey={activeKey} />
+            </div>
           </div>
-        </div>
+        ) : null}
         <div className="min-w-0 max-w-full space-y-6 overflow-x-clip">{children}</div>
       </main>
-      <BottomNav items={mobileNavItems} activeKey={activeKey} width={width} />
+      {mobileNavItems.length > 0 ? <BottomNav items={mobileNavItems} activeKey={activeKey} width={width} /> : null}
     </div>
   );
 }

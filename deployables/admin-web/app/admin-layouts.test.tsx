@@ -23,6 +23,7 @@ import CatalogLayout from "./routes/catalog-layout";
 import CommerceLayout from "./routes/commerce-layout";
 import GrowthLayout from "./routes/growth-layout";
 import AdminIndex from "./routes/index";
+import OfflineRoute from "./routes/offline";
 import PlatformLayout from "./routes/platform-layout";
 import SupportLayout from "./routes/support-layout";
 
@@ -136,6 +137,7 @@ describe("admin web root hub", () => {
 
   it("renders all actor-visible sections", () => {
     mockUseLoaderData.mockReturnValue({
+      actor: allSectionsActor,
       sections: [
         { key: "access", label: "Access", href: "/access" },
         { key: "catalog", label: "Catalog", href: "/catalog" },
@@ -149,6 +151,7 @@ describe("admin web root hub", () => {
     const html = renderToString(<AdminIndex />);
 
     expect(html).toContain("Admin sections");
+    expect(html).toContain('aria-label="Account menu"');
     expect(html).toContain("/access");
     expect(html).toContain("/commerce");
     expect(html).toContain("/growth");
@@ -157,11 +160,21 @@ describe("admin web root hub", () => {
   });
 
   it("renders a no-access state when no sections are visible", () => {
-    mockUseLoaderData.mockReturnValue({ sections: [] });
+    mockUseLoaderData.mockReturnValue({ actor: allSectionsActor, sections: [] });
 
     const html = renderToString(<AdminIndex />);
 
+    expect(html).toContain("Admin");
+    expect(html).toContain('aria-label="Account menu"');
     expect(html).toContain("No admin sections available");
     expect(html).toContain("does not have permission to view any admin sections");
+  });
+
+  it("renders the offline fallback inside the admin shell", () => {
+    const html = renderToString(<OfflineRoute />);
+
+    expect(html).toContain("Admin");
+    expect(html).toContain("Admin is offline");
+    expect(html).toContain('id="main-content"');
   });
 });

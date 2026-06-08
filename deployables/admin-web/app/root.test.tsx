@@ -1,9 +1,10 @@
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockUseLoaderData, mockUseLocation } = vi.hoisted(() => ({
+const { mockUseLoaderData, mockUseLocation, mockUseRouteError } = vi.hoisted(() => ({
   mockUseLoaderData: vi.fn(),
   mockUseLocation: vi.fn(),
+  mockUseRouteError: vi.fn(),
 }));
 
 vi.mock("react-router", async () => {
@@ -18,10 +19,11 @@ vi.mock("react-router", async () => {
     ScrollRestoration: () => null,
     useLoaderData: mockUseLoaderData,
     useLocation: mockUseLocation,
+    useRouteError: mockUseRouteError,
   };
 });
 
-import { Layout } from "./root";
+import { ErrorBoundary, Layout } from "./root";
 
 describe("admin root layout", () => {
   beforeEach(() => {
@@ -64,5 +66,18 @@ describe("admin root layout", () => {
     );
 
     expect(html).toContain('href="https://admin.example/catalog/catalog-items?status=draft"');
+  });
+
+  it("renders root errors inside the admin shell without a Catalog-specific recovery action", () => {
+    mockUseRouteError.mockReturnValue(new Error("boom"));
+
+    const html = renderToString(<ErrorBoundary />);
+
+    expect(html).toContain("Admin");
+    expect(html).toContain("Admin Error");
+    expect(html).toContain('href="/"');
+    expect(html).toContain("Go to admin home");
+    expect(html).not.toContain("Go to Catalog");
+    expect(html).not.toContain('href="/catalog"');
   });
 });
