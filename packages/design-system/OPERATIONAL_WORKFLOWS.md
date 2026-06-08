@@ -11,6 +11,26 @@ Use `WorkstationLayout` when one primary checklist or work surface needs support
 - On mobile, supporting details collapse below the primary task so the work stays first.
 - Do not nest cards inside the workstation primary area. Use `ChecklistCard`, `TaskLineItem`, and flat supporting rows.
 
+## Workflow Modules
+
+Use `WorkflowModule` for dense admin workbench sections that combine a title, status, summary facts, tables, and scoped actions.
+
+- Keep the `title` short and specific to the operator task.
+- Put workflow state in `status`; pass an existing status pill or badge instead of inventing new chrome.
+- Put only scoped module actions in `actions`.
+- Use `WorkflowActionBar` for action rows inside a module when the controls depend on the module content.
+- Use `headingLevel={3}` when modules sit under a page or workbench summary heading.
+
+## Readiness Checklists
+
+Use `WorkflowReadinessChecklist` for activation gates, fixture coverage, diagnostics, and other pass/block/pending checks.
+
+- Each row should describe one actionable gate.
+- Use `statusLabel` for the visible operator state, such as Passed, Blocked, Warning, or Pending.
+- Put identifiers, paths, and compact evidence chips in `meta`.
+- Put one row-specific remediation action in `action` when it is available.
+- Keep the underlying diagnostic or evidence tables nearby when operators need sortable or comparable detail.
+
 ## Task Progress
 
 Use `TaskProgress` for visible completion state in a checklist header or sticky footer.
