@@ -129,7 +129,7 @@ export const CATALOG_INTEGRATION_WORKFLOW_MODULES = [
     key: "source-observation-review-workbench",
     label: t("catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.review.workbench"),
     area: "operations",
-    status: "planned-child-issue",
+    status: "implemented",
     childIssue: 779,
   },
   {
