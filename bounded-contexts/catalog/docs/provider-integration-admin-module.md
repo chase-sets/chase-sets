@@ -84,6 +84,8 @@ Diagnostics must be actionable without leaking provider-sensitive material:
 
 The module needs dense, repeatable operational controls rather than marketing layouts. Prefer compact tables, tabs, drawers, split workbenches, section diagnostics, inline status pills, constrained form controls, and compare panels built for scanning.
 
+The measurable UX, accessibility, responsive, keyboard, dense-state, and no-raw-JSON release checks for these workflows are documented in [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md). New Admin Control Plane workflow slices should cite that checklist in their test plan.
+
 Expected primitives include:
 
 - nested expression editor rows with duplicate, reorder, remove, and inline diagnostics

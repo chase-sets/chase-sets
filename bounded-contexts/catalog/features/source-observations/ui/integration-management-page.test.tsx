@@ -1020,6 +1020,10 @@ describe("IntegrationManagementPage", () => {
     expect(screen.getByRole("heading", { name: "Dry-run evidence workflow" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Semantic comparison workflow" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Activation readiness workflow" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Fixture validation workflow" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Dry-run evidence workflow" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Semantic comparison workflow" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Activation readiness workflow" })).toBeTruthy();
     expect(screen.getAllByText("Normalized Observation").length).toBeGreaterThan(0);
     expect(screen.getByText("Affected references")).toBeTruthy();
     expect(screen.getByText("Replay implication")).toBeTruthy();
@@ -1287,6 +1291,10 @@ describe("IntegrationManagementPage", () => {
   it("surfaces fixture and import eligibility blockers in activation readiness", () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);
+    const longReadinessPath =
+      "sourceObservation.normalized.references.externalProductReferences[0].selectedOptions.conditionCertification.evidence.providerPayloadPaths[0]";
+    const longReadinessDiagnostic =
+      "Activation is blocked because condition and certification evidence points at a deeply nested provider payload path that must stay readable without opening raw profile JSON.";
     mockUseSourceObservationProviderProfileAuthoringModel.mockReturnValue({
       data: profileAuthoringModel({
         activationReadiness: {
@@ -1323,10 +1331,10 @@ describe("IntegrationManagementPage", () => {
               sectionKey: "profile-identity",
               domainConcept: "Profile Identity",
               status: "blocked",
-              path: "profile.status",
-              diagnosticText: "Profile status must be activation-ready.",
+              path: longReadinessPath,
+              diagnosticText: longReadinessDiagnostic,
               severity: "error",
-              remediation: "Resolve profile validation diagnostics before activation.",
+              remediation: longReadinessDiagnostic,
               blockingBehavior: "Activation is blocked until validation is activation-ready.",
             },
           ],
@@ -1372,10 +1380,10 @@ describe("IntegrationManagementPage", () => {
                   sectionKey: "profile-identity",
                   domainConcept: "Profile Identity",
                   status: "blocked",
-                  path: "profile.status",
-                  diagnosticText: "Profile status must be activation-ready.",
+                  path: longReadinessPath,
+                  diagnosticText: longReadinessDiagnostic,
                   severity: "error",
-                  remediation: "Resolve profile validation diagnostics before activation.",
+                  remediation: longReadinessDiagnostic,
                   blockingBehavior: "Activation is blocked until validation is activation-ready.",
                 },
               ],
@@ -1392,6 +1400,12 @@ describe("IntegrationManagementPage", () => {
 
     render(<IntegrationManagementPage data={{ items: [], total: 0, count: 0 }} query={query} />);
 
+    fireEvent.click(screen.getByRole("tab", { name: "Validation" }));
+    const readinessRegion = screen.getByRole("region", { name: "Activation readiness workflow" });
+    expect(within(readinessRegion).getAllByText(longReadinessPath).length).toBeGreaterThan(0);
+    expect(within(readinessRegion).getAllByText(longReadinessDiagnostic).length).toBeGreaterThan(0);
+    expect(document.body.innerHTML.includes("Profile JSON")).toBe(false);
+
     fireEvent.click(screen.getAllByRole("button", { name: /^Activate$/i })[0]);
     const dialog = screen.getByRole("dialog", { name: "Activate profile" });
     expect(within(dialog).getByText("Fixture readiness")).toBeTruthy();
@@ -1405,6 +1419,9 @@ describe("IntegrationManagementPage", () => {
         "Activation requires the source-observation-import capability so new provider imports can use this profile.",
       ).length,
     ).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText(longReadinessPath).length).toBeGreaterThan(0);
+    expect(within(dialog).getAllByText(longReadinessDiagnostic).length).toBeGreaterThan(0);
+    expect(dialog.innerHTML.includes("Profile JSON")).toBe(false);
     expect((within(dialog).getByRole("button", { name: /^Confirm activation$/i }) as HTMLButtonElement).disabled).toBe(
       true,
     );
