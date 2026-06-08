@@ -60,9 +60,12 @@ Typed commands currently cover the first section-level slices for basics, provid
 
 Catalog API reads require `catalog.view`. Profile authoring, lifecycle writes, production imports, promotion, reapply, rollback, retirement, and migration-evidence saves require `catalog.manage`.
 
+The full action matrix, destructive-action safeguards, denied-state behavior, and audit expectations are documented in [Catalog Integration Admin Control Plane RBAC](./catalog-integration-admin-control-plane-rbac.md).
+
 The admin module should make that boundary visible:
 
-- View-only operators can browse profiles, review observations, run safe dry-run/compare workflows when backed by read endpoints, and inspect diagnostics.
+- View-only operators can browse profiles, review observations, inspect redacted diagnostics, compare/read existing evidence, and inspect impact summaries exposed by read endpoints.
+- New dry-run, fixture override, POST preview, import, reapply, promotion, rejection, activation, rollback, deprecation, and retirement submissions require `catalog.manage`.
 - Write actions are disabled or hidden for view-only operators and should explain the missing `catalog.manage` permission.
 - Server-side authorization remains the source of truth; UI permission behavior is an operator clarity layer, not an enforcement replacement.
 - Audit metadata should record actor, account, and timestamp for lifecycle and authoring changes.

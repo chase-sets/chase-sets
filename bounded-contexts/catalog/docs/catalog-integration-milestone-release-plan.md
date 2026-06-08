@@ -112,7 +112,7 @@ Primary issues:
 Exit criteria:
 
 - Operators can complete supported authoring, validation, dry-run, activation, import, review, promote/reapply, rollback, and retirement workflows without raw JSON editing.
-- View/manage permission boundaries are visible in UI and enforced server-side.
+- View/manage permission boundaries are visible in UI and enforced server-side by both deployable host middleware and Catalog-owned control-plane route guards.
 - Dense workflows pass UX, accessibility, and operator journey checks.
 
 ## Phase 4: Provider Migration And Proofs

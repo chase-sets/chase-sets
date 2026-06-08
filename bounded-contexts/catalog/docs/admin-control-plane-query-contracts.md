@@ -132,6 +132,8 @@ Contracts declare operator-facing error states instead of leaking storage except
 
 UI modules should render these states as blocked, degraded, or empty workflows. They should not recover by querying lower-level tables or profile JSON directly.
 
+Admin Control Plane route authorization, action keys, destructive permissions, denied-state behavior, and confirmation safeguards are documented in [Catalog Integration Admin Control Plane RBAC](./catalog-integration-admin-control-plane-rbac.md).
+
 The SLO contract narrows degraded rendering into `fresh`, `stale`, `lagging`, `partial`, and `unavailable` UI states. Views backed by durable job checkpoints or eventual projections must show lag reason and last generated timestamp when the model is stale or lagging.
 
 ## Adding Providers Or Product Categories

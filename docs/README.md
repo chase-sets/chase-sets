@@ -77,6 +77,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Integration Rollout Controls](../bounded-contexts/catalog/docs/catalog-integration-rollout-controls.md)
 - [Catalog Integration Provider Option Query Controls](../bounded-contexts/catalog/docs/catalog-integration-provider-option-query-controls.md)
 - [Catalog Integration Impact Analysis](../bounded-contexts/catalog/docs/catalog-integration-impact-analysis.md)
+- [Catalog Integration Admin Control Plane RBAC](../bounded-contexts/catalog/docs/catalog-integration-admin-control-plane-rbac.md)
 - [Catalog Integration Schema Compatibility](../bounded-contexts/catalog/docs/catalog-integration-schema-compatibility.md)
 - [Catalog Integration Data Migration Reset](../bounded-contexts/catalog/docs/catalog-integration-data-migration-reset.md)
 - [Catalog Integration Legacy Cleanup](../bounded-contexts/catalog/docs/catalog-integration-legacy-cleanup.md)

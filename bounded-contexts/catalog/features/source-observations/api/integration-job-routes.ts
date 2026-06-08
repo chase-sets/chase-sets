@@ -7,6 +7,7 @@ import {
   CatalogIntegrationRolloutControlError,
   rolloutControlErrorResponse,
 } from "./catalog-integration-rollout-controls";
+import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type IntegrationJobRouteServices = IntegrationJobServices;
 
@@ -14,6 +15,11 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/integration-jobs", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = (await c.req.json().catch(() => ({}))) as {
       action?: unknown;
       scope?: unknown;
@@ -62,6 +68,11 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
   });
 
   app.get("/integration-jobs/active", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const items = await services.listActiveIntegrationJobs({
       context: c.get("context"),
     });
@@ -70,6 +81,11 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
   });
 
   app.get("/integration-jobs/:jobId", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const job = await services.getIntegrationJob(c.req.param("jobId"), c.get("context"));
     if (!job) {
       return c.json(
@@ -87,6 +103,11 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
   });
 
   app.get("/integration-jobs/:jobId/events", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const jobId = c.req.param("jobId");
     const job = await services.getIntegrationJob(jobId, c.get("context"));
     if (!job) {

@@ -10,6 +10,7 @@ import {
   rolloutControlErrorResponse,
 } from "./catalog-integration-rollout-controls";
 import { CatalogProviderOptionQueryUnavailableError } from "./provider-option-query-cache";
+import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type ProviderOptionRouteServices = SourceObservationReadServices &
   ProviderOptionQueryServices &
@@ -19,6 +20,11 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.get("/integration-scopes", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-option-query-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const { provider, source, language, setId, expansionId } = c.req.query();
     const items = await services.listIntegrationScopes({
       provider: provider ?? source,
@@ -30,6 +36,11 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
   });
 
   app.get("/integration-options", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-option-query-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const providerKey = String(c.req.query("providerKey") ?? c.req.query("provider") ?? "tcgdex");
     const queryKind = String(c.req.query("queryKind") ?? c.req.query("kind") ?? "");
     const languageCode = c.req.query("languageCode") ?? c.req.query("language");
@@ -79,6 +90,11 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
   });
 
   app.get("/integration-control-plane/readiness", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const result = await services.getCatalogIntegrationControlPlaneReadiness();
     return c.json(result);
   });
