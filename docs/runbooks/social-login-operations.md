@@ -67,9 +67,9 @@ Local sandbox callback examples:
 ## Admin Google Workspace SSO Smoke Test
 
 1. Configure `GOOGLE_SOCIAL_LOGIN_CLIENT_ID`, `GOOGLE_SOCIAL_LOGIN_CLIENT_SECRET`, and `ADMIN_GOOGLE_WORKSPACE_HOSTED_DOMAINS`.
-2. Open an admin sign-in route, such as `/identity/sign-in`.
+2. Open an admin sign-in route, such as `/access/sign-in`.
 3. Select Continue with Google Workspace.
-4. Confirm the provider redirect starts from `/api/auth/social/google/start?journey=identity-admin` and includes a Google hosted-domain hint.
+4. Confirm the provider redirect starts from `/api/auth/social/google/start?journey=access-admin` and includes a Google hosted-domain hint.
 5. Complete Google authentication with an approved Workspace account that matches an existing active Chase Sets user.
 6. Confirm Chase Sets redirects to the intended admin return path, or to the admin account-selection path when the user has more than one eligible admin account.
 7. Repeat with a personal Google account or non-allowed Workspace domain and confirm the flow returns to the admin sign-in route with a domain error.
