@@ -2,25 +2,24 @@ import { t } from "@chase-sets/localization";
 import { useMemo, useState } from "react";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
-  Form,
+  HiddenInput,
+  Badge,
+  Banner,
   Button,
+  Cluster,
+  DataTable,
+  Grid,
+  Inset,
+  Inline,
+  Page,
+  PageHeader,
+  PageSection,
   Select,
+  Stack,
+  Surface,
+  Text,
   TextInput,
-  UiBadge,
-  UiEmptyState,
-  UiGrid,
-  UiInline,
-  UiPage,
-  UiPageHeader,
-  UiPageSection,
-  UiStack,
-  UiSurface,
-  UiTable,
-  UiTableBody,
-  UiTableCell,
-  UiTableHead,
-  UiTableHeader,
-  UiTableRow,
+  type DataColumn,
 } from "@chase-sets/design-system";
 import type { SupportFlowSummary, SupportRequestListItem } from "./contracts";
 
@@ -37,11 +36,11 @@ function statusTone(status: string) {
     ? "success"
     : status === "ready-for-support"
       ? "warning"
-      : "secondary";
+      : "neutral";
 }
 
 function priorityTone(priority: string) {
-  return priority === "urgent" ? "destructive" : "secondary";
+  return priority === "urgent" ? "danger" : "neutral";
 }
 
 function formatDateTime(value: string | null) {
@@ -71,45 +70,76 @@ function checklistSummary(request: SupportRequestListItem) {
 }
 
 function SupportRequestTable({ requests }: Readonly<{ requests: readonly SupportRequestListItem[] }>) {
-  if (requests.length === 0) {
-    return (
-      <UiEmptyState
-        title={t("support.features.supportRequests.ui.supportRequestListPage.no.requests")}
-        description={t("support.features.supportRequests.ui.supportRequestListPage.no.requests.description")}
-      />
-    );
-  }
+  const columns: DataColumn<SupportRequestListItem>[] = [
+    {
+      key: "issue",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.issue"),
+      cell: (request) => request.flow_type,
+    },
+    {
+      key: "order",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.order"),
+      cell: (request) => request.order_id,
+    },
+    {
+      key: "status",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.status"),
+      cell: (request) => <Badge tone={statusTone(request.status)}>{request.status}</Badge>,
+    },
+    {
+      key: "priority",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.priority"),
+      cell: (request) => <Badge tone={priorityTone(request.priority)}>{request.priority}</Badge>,
+    },
+    {
+      key: "nextDeadline",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.next.deadline"),
+      mobileLabel: t("support.features.supportRequests.ui.supportRequestListPage.next.deadline"),
+      cell: (request) => formatDateTime(nextDeadline(request)),
+    },
+    {
+      key: "checklist",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.checklist"),
+      cell: (request) => checklistSummary(request),
+    },
+  ];
 
   return (
-    <UiTable>
-      <UiTableHeader>
-        <UiTableRow>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.issue")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.order")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.status")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.priority")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.next.deadline")}</UiTableHead>
-          <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.checklist")}</UiTableHead>
-        </UiTableRow>
-      </UiTableHeader>
-      <UiTableBody>
-        {requests.map((request) => (
-          <UiTableRow key={request.support_request_id}>
-            <UiTableCell>{request.flow_type}</UiTableCell>
-            <UiTableCell>{request.order_id}</UiTableCell>
-            <UiTableCell>
-              <UiBadge variant={statusTone(request.status)}>{request.status}</UiBadge>
-            </UiTableCell>
-            <UiTableCell>
-              <UiBadge variant={priorityTone(request.priority)}>{request.priority}</UiBadge>
-            </UiTableCell>
-            <UiTableCell>{formatDateTime(nextDeadline(request))}</UiTableCell>
-            <UiTableCell>{checklistSummary(request)}</UiTableCell>
-          </UiTableRow>
-        ))}
-      </UiTableBody>
-    </UiTable>
+    <DataTable
+      rows={[...requests]}
+      columns={columns}
+      getRowId={(request) => request.support_request_id}
+      emptyTitle={t("support.features.supportRequests.ui.supportRequestListPage.no.requests")}
+      emptyDescription={t("support.features.supportRequests.ui.supportRequestListPage.no.requests.description")}
+    />
   );
+}
+
+function SupportFlowTable({ flows }: Readonly<{ flows: readonly SupportFlowSummary[] }>) {
+  const columns: DataColumn<SupportFlowSummary>[] = [
+    {
+      key: "flow",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.flow"),
+      cell: (flow) => flow.title,
+    },
+    {
+      key: "defaultOutcome",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.default.outcome"),
+      cell: (flow) => flow.defaultResolution,
+    },
+    {
+      key: "responseWindow",
+      header: t("support.features.supportRequests.ui.supportRequestListPage.response.window"),
+      cell: (flow) =>
+        flow.sellerResponseHours === null
+          ? t("support.features.supportRequests.ui.supportRequestListPage.support.owned")
+          : t("support.features.supportRequests.ui.supportRequestListPage.hours", {
+              hours: flow.sellerResponseHours,
+            }),
+    },
+  ];
+
+  return <DataTable rows={[...flows]} columns={columns} getRowId={(flow) => flow.flowType} />;
 }
 
 function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFlowSummary[] }>) {
@@ -135,11 +165,11 @@ function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFl
   }
 
   return (
-    <UiSurface>
-      <RouterForm method="post" spacing="none" className="grid gap-4">
-        <input type="hidden" name="openedByRole" value={openedByRole} />
-        <input type="hidden" name="flowType" value={selectedFlowType} />
-        <UiGrid className="md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)]">
+    <Surface>
+      <RouterForm method="post" spacing="md">
+        <HiddenInput type="hidden" name="openedByRole" value={openedByRole} />
+        <HiddenInput type="hidden" name="flowType" value={selectedFlowType} />
+        <Grid columns={{ base: 1, md: 3 }}>
           <TextInput
             label={t("support.features.supportRequests.ui.supportRequestListPage.open.order")}
             name="orderId"
@@ -167,35 +197,39 @@ function SupportRequestOpenPanel({ flows }: Readonly<{ flows: readonly SupportFl
             onValueChange={(nextValue) => setSelectedFlowType(nextValue as typeof selectedFlowType)}
             items={flowItems}
           />
-        </UiGrid>
+        </Grid>
         {selectedFlow ? (
-          <div className="grid gap-4 rounded-[var(--radius)] border border-[var(--border)] bg-[var(--secondary)] p-4">
-            <UiStack>
-              <UiInline>
-                <UiBadge variant={priorityTone(selectedFlow.priority)}>{selectedFlow.priority}</UiBadge>
-                <span className="text-sm font-semibold">{selectedFlow.title}</span>
-              </UiInline>
-              <p className="m-0 text-sm leading-6 text-[var(--muted-foreground)]">{selectedFlow.automationSummary}</p>
-              <UiInline>
-                <span className="text-xs font-semibold uppercase text-[var(--muted-foreground)]">
+          <Inset>
+            <Stack>
+              <Inline>
+                <Badge tone={priorityTone(selectedFlow.priority)}>{selectedFlow.priority}</Badge>
+                <Text element="span" size="sm" weight="semibold">
+                  {selectedFlow.title}
+                </Text>
+              </Inline>
+              <Text size="sm" tone="secondary">
+                {selectedFlow.automationSummary}
+              </Text>
+              <Inline>
+                <Text element="span" size="xs" tone="secondary" weight="semibold">
                   {t("support.features.supportRequests.ui.supportRequestListPage.response.window")}
-                </span>
-                <span className="text-sm">
+                </Text>
+                <Text element="span" size="sm">
                   {selectedFlow.sellerResponseHours === null
                     ? t("support.features.supportRequests.ui.supportRequestListPage.support.owned")
                     : t("support.features.supportRequests.ui.supportRequestListPage.hours", {
                         hours: selectedFlow.sellerResponseHours,
                       })}
-                </span>
-              </UiInline>
-            </UiStack>
-          </div>
+                </Text>
+              </Inline>
+            </Stack>
+          </Inset>
         ) : null}
-        <UiInline className="justify-end">
+        <Cluster justify="end">
           <Button type="submit">{t("support.features.supportRequests.ui.supportRequestListPage.open.submit")}</Button>
-        </UiInline>
+        </Cluster>
       </RouterForm>
-    </UiSurface>
+    </Surface>
   );
 }
 
@@ -207,80 +241,44 @@ export function SupportRequestListPage({
   openedSupportRequestId,
 }: SupportRequestListPageProps) {
   return (
-    <UiPage>
-      <UiPageHeader
+    <Page>
+      <PageHeader
         title={t("support.features.supportRequests.ui.supportRequestListPage.title")}
         description={t("support.features.supportRequests.ui.supportRequestListPage.description")}
       />
 
       {openedSupportRequestId ? (
-        <UiSurface className="border-[var(--success)]">
-          <UiInline>
-            <span className="text-sm font-semibold">
-              {t("support.features.supportRequests.ui.supportRequestListPage.open.success", {
-                id: openedSupportRequestId,
-              })}
-            </span>
-          </UiInline>
-        </UiSurface>
+        <Banner
+          tone="success"
+          title={t("support.features.supportRequests.ui.supportRequestListPage.open.success", {
+            id: openedSupportRequestId,
+          })}
+        />
       ) : null}
 
-      {actionError ? (
-        <UiSurface className="border-[var(--destructive)]">
-          <UiInline>
-            <span className="text-sm font-semibold">{actionError}</span>
-          </UiInline>
-        </UiSurface>
-      ) : null}
+      {actionError ? <Banner tone="danger" title={actionError} /> : null}
 
-      <UiPageSection
+      <PageSection
         title={t("support.features.supportRequests.ui.supportRequestListPage.open.title")}
         description={t("support.features.supportRequests.ui.supportRequestListPage.open.description")}
       >
         <SupportRequestOpenPanel flows={flows} />
-      </UiPageSection>
+      </PageSection>
 
-      <UiPageSection title={t("support.features.supportRequests.ui.supportRequestListPage.buyer.requests")}>
+      <PageSection title={t("support.features.supportRequests.ui.supportRequestListPage.buyer.requests")}>
         <SupportRequestTable requests={buyerRequests} />
-      </UiPageSection>
+      </PageSection>
 
-      <UiPageSection title={t("support.features.supportRequests.ui.supportRequestListPage.seller.requests")}>
+      <PageSection title={t("support.features.supportRequests.ui.supportRequestListPage.seller.requests")}>
         <SupportRequestTable requests={sellerRequests} />
-      </UiPageSection>
+      </PageSection>
 
-      <UiPageSection
+      <PageSection
         title={t("support.features.supportRequests.ui.supportRequestListPage.available.flows")}
         description={t("support.features.supportRequests.ui.supportRequestListPage.available.flows.description")}
       >
-        <UiTable>
-          <UiTableHeader>
-            <UiTableRow>
-              <UiTableHead>{t("support.features.supportRequests.ui.supportRequestListPage.flow")}</UiTableHead>
-              <UiTableHead>
-                {t("support.features.supportRequests.ui.supportRequestListPage.default.outcome")}
-              </UiTableHead>
-              <UiTableHead>
-                {t("support.features.supportRequests.ui.supportRequestListPage.response.window")}
-              </UiTableHead>
-            </UiTableRow>
-          </UiTableHeader>
-          <UiTableBody>
-            {flows.map((flow) => (
-              <UiTableRow key={flow.flowType}>
-                <UiTableCell>{flow.title}</UiTableCell>
-                <UiTableCell>{flow.defaultResolution}</UiTableCell>
-                <UiTableCell>
-                  {flow.sellerResponseHours === null
-                    ? t("support.features.supportRequests.ui.supportRequestListPage.support.owned")
-                    : t("support.features.supportRequests.ui.supportRequestListPage.hours", {
-                        hours: flow.sellerResponseHours,
-                      })}
-                </UiTableCell>
-              </UiTableRow>
-            ))}
-          </UiTableBody>
-        </UiTable>
-      </UiPageSection>
-    </UiPage>
+        <SupportFlowTable flows={flows} />
+      </PageSection>
+    </Page>
   );
 }

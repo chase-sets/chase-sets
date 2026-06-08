@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Form, Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
 import { AdminDetailPage } from "./admin-pages";
 import type { Session } from "./contracts";
 
@@ -17,7 +17,7 @@ export function SessionDetailPage({ data }: { data: Session }) {
             <>
               <Form spacing="none" method="post">
                 <Stack direction="row" align="end" gap={2}>
-                  <input type="hidden" name="intent" value="switch-account" readOnly />
+                  <HiddenInput type="hidden" name="intent" value="switch-account" readOnly />
                   <NativeSelect
                     name="accountId"
                     label={t("auth.features.sessions.ui.sessionDetailPage.active.account")}
@@ -33,7 +33,7 @@ export function SessionDetailPage({ data }: { data: Session }) {
                 </Stack>
               </Form>
               <Form spacing="none" method="post">
-                <input type="hidden" name="intent" value="revoke" readOnly />
+                <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
                 <Button type="submit" tone="danger">
                   {t("auth.features.sessions.ui.sessionDetailPage.revoke")}
                 </Button>

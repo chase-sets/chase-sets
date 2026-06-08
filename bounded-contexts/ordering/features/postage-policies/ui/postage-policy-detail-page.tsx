@@ -1,4 +1,6 @@
 import {
+  Grid,
+  HiddenInput,
   Form,
   Badge,
   Button,
@@ -109,7 +111,7 @@ export function PostagePolicyDetailPage({
         <Card>
           <Form spacing="none" method="post">
             <Stack gap={4}>
-              <input type="hidden" name="intent" value="revise" readOnly />
+              <HiddenInput type="hidden" name="intent" value="revise" readOnly />
               <TextInput
                 label={t("ordering.features.postagePolicies.ui.common.label")}
                 name="label"
@@ -138,7 +140,7 @@ export function PostagePolicyDetailPage({
         <Card>
           <Form spacing="none" method="post">
             <Stack gap={4}>
-              <input type="hidden" name="intent" value="preview" readOnly />
+              <HiddenInput type="hidden" name="intent" value="preview" readOnly />
               <TextInput
                 label={t("ordering.features.postagePolicies.ui.common.label")}
                 name="label"
@@ -157,7 +159,7 @@ export function PostagePolicyDetailPage({
                 defaultValue={policy.effective_until ?? ""}
               />
               <PostagePolicyFormFields policy={policy.payload} />
-              <div className="grid gap-3 md:grid-cols-2">
+              <Grid columns={{ base: 1, md: 2 }} gap={3}>
                 <NativeSelect
                   label={t("ordering.features.postagePolicies.ui.detail.shipping.option")}
                   name="previewShippingOption"
@@ -209,8 +211,8 @@ export function PostagePolicyDetailPage({
                   defaultValue="0.05"
                   required
                 />
-              </div>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              </Grid>
+              <Grid columns={{ base: 1, sm: 2, lg: 4 }} gap={2}>
                 {postagePolicyPhysicalFlags
                   .filter((flag) => flag.value !== "bendable")
                   .map((flag) => (
@@ -222,7 +224,7 @@ export function PostagePolicyDetailPage({
                       defaultChecked={flag.value === "raw-card"}
                     />
                   ))}
-              </div>
+              </Grid>
               <Button type="submit">{t("ordering.features.postagePolicies.ui.detail.preview.result.action")}</Button>
             </Stack>
           </Form>
@@ -275,11 +277,11 @@ export function PostagePolicyDetailPage({
       </PageSection>
 
       <PageSection title={t("ordering.features.postagePolicies.ui.detail.lifecycle")}>
-        <div className="grid gap-3 md:grid-cols-2">
+        <Grid columns={{ base: 1, md: 2 }} gap={3}>
           <Card>
             <Form spacing="none" method="post">
               <Stack gap={3}>
-                <input type="hidden" name="intent" value="activate" readOnly />
+                <HiddenInput type="hidden" name="intent" value="activate" readOnly />
                 <TextInput
                   label={t("ordering.features.postagePolicies.ui.detail.activation.reason.label")}
                   name="activationReason"
@@ -295,7 +297,7 @@ export function PostagePolicyDetailPage({
           <Card>
             <Form spacing="none" method="post">
               <Stack gap={3}>
-                <input type="hidden" name="intent" value="retire" readOnly />
+                <HiddenInput type="hidden" name="intent" value="retire" readOnly />
                 <TextInput
                   label={t("ordering.features.postagePolicies.ui.detail.retirement.reason.label")}
                   name="retirementReason"
@@ -311,7 +313,7 @@ export function PostagePolicyDetailPage({
           <Card>
             <Form spacing="none" method="post">
               <Stack gap={3}>
-                <input type="hidden" name="intent" value="clone" readOnly />
+                <HiddenInput type="hidden" name="intent" value="clone" readOnly />
                 <TextInput
                   label={t("ordering.features.postagePolicies.ui.detail.draft.label")}
                   name="cloneLabel"
@@ -336,7 +338,7 @@ export function PostagePolicyDetailPage({
               </Stack>
             </Form>
           </Card>
-        </div>
+        </Grid>
       </PageSection>
 
       <PageSection title={t("ordering.features.postagePolicies.ui.detail.history")}>

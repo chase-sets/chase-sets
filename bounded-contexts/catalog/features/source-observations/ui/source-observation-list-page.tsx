@@ -5,6 +5,7 @@ import {
   BulkActionBar,
   Button,
   Dialog,
+  FlexItem,
   Inline,
   KeyValueList,
   ProgressBar,
@@ -483,12 +484,12 @@ export function SourceObservationListPage({ data, query, realtimeReloadActionBar
     }
 
     return (
-      <div className="min-w-[14rem] max-w-full flex-1">
+      <FlexItem minWidth="control" grow>
         <ProgressBar
           value={bulkActionProgressPercent(bulkActionProgress)}
           formatLabel={() => formatBulkActionProgress(bulkActionProgress)}
         />
-      </div>
+      </FlexItem>
     );
   }
 
@@ -502,12 +503,12 @@ export function SourceObservationListPage({ data, query, realtimeReloadActionBar
         count={bulkActionProgress.total}
         formatSelectedLabel={() => formatRunningBulkActionLabel(runningBulkAction)}
         primaryActions={
-          <div className="min-w-[14rem] max-w-full flex-1">
+          <FlexItem minWidth="control" grow>
             <ProgressBar
               value={bulkActionProgressPercent(bulkActionProgress)}
               formatLabel={() => formatBulkActionProgress(bulkActionProgress)}
             />
-          </div>
+          </FlexItem>
         }
       />
     );

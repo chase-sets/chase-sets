@@ -2,18 +2,19 @@ import { t } from "@chase-sets/localization";
 import type { ApiKey } from "./contracts";
 import type { User } from "../../users/ui/contracts";
 import {
+  HiddenInput,
   Form,
   Button,
   MarketplaceDashboardPanel,
   NativeSelect,
+  Page,
+  PageHeader,
+  PageSection,
   PlatformCredibilityCue,
   SecurePaymentCue,
   SpecificationList,
   Stack,
   TextInput,
-  UiPage,
-  UiPageHeader,
-  UiPageSection,
 } from "@chase-sets/design-system";
 
 export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly ApiKey[] }) {
@@ -26,8 +27,8 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
     : t("identity.features.apiKeys.ui.accountSecurityPage.not.available");
 
   return (
-    <UiPage>
-      <UiPageHeader
+    <Page>
+      <PageHeader
         eyebrow={t("identity.features.apiKeys.ui.accountSecurityPage.account")}
         title={t("identity.features.apiKeys.ui.accountSecurityPage.security")}
         description={t(
@@ -37,7 +38,7 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
           <Stack direction="row" gap={2}>
             <Form spacing="none" method="post">
               <Stack direction="row" align="end" gap={2}>
-                <input type="hidden" name="intent" value="update-user" readOnly />
+                <HiddenInput type="hidden" name="intent" value="update-user" readOnly />
                 <TextInput
                   name="displayName"
                   label={t("identity.features.users.ui.userDetailPage.display.name")}
@@ -61,7 +62,7 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
             </Form>
             <Form spacing="none" method="post">
               <Stack direction="row" align="end" gap={2}>
-                <input type="hidden" name="intent" value="create-api-key" readOnly />
+                <HiddenInput type="hidden" name="intent" value="create-api-key" readOnly />
                 <TextInput
                   name="name"
                   label={t("identity.features.apiKeys.ui.accountSecurityPage.api.key.name")}
@@ -111,7 +112,7 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
           },
         ]}
       />
-      <UiPageSection
+      <PageSection
         title={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals")}
         description={t("identity.features.apiKeys.ui.accountSecurityPage.security.signals.description")}
       >
@@ -144,15 +145,15 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
                 {apiKey.status === "active" ? (
                   <Stack direction="row" gap={2}>
                     <Form spacing="none" method="post">
-                      <input type="hidden" name="intent" value="rotate-api-key" readOnly />
-                      <input type="hidden" name="apiKeyId" value={apiKey.api_key_id} readOnly />
+                      <HiddenInput type="hidden" name="intent" value="rotate-api-key" readOnly />
+                      <HiddenInput type="hidden" name="apiKeyId" value={apiKey.api_key_id} readOnly />
                       <Button type="submit" tone="secondary">
                         {t("identity.features.apiKeys.ui.accountSecurityPage.rotate")}
                       </Button>
                     </Form>
                     <Form spacing="none" method="post">
-                      <input type="hidden" name="intent" value="revoke-api-key" readOnly />
-                      <input type="hidden" name="apiKeyId" value={apiKey.api_key_id} readOnly />
+                      <HiddenInput type="hidden" name="intent" value="revoke-api-key" readOnly />
+                      <HiddenInput type="hidden" name="apiKeyId" value={apiKey.api_key_id} readOnly />
                       <Button type="submit" tone="danger">
                         {t("identity.features.apiKeys.ui.accountSecurityPage.revoke")}
                       </Button>
@@ -167,7 +168,7 @@ export function SecurityPage({ user, apiKeys }: { user: User; apiKeys: readonly 
             description={t("identity.features.apiKeys.ui.accountSecurityPage.checkout.safety.description")}
           />
         </Stack>
-      </UiPageSection>
-    </UiPage>
+      </PageSection>
+    </Page>
   );
 }

@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import {
   Card,
+  Inline,
   LinkButton,
   MarketplaceNotice,
   MarketplaceStatusTimeline,
@@ -10,7 +11,6 @@ import {
   PriceBreakdown,
   Stack,
   Text,
-  UiInline,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutRow } from "../read-model/queries";
 
@@ -94,14 +94,14 @@ export function SettlementPayoutDetailPage({
               title={t("settlement.features.payouts.ui.payoutDetailPage.payout.account.needs.review")}
               description={t("settlement.features.payouts.ui.payoutDetailPage.review.payout.details.before.requesting")}
               action={
-                <UiInline>
+                <Inline>
                   <LinkButton href="/account/payouts/setup?mode=manage" tone="secondary" size="sm">
                     {t("settlement.features.payouts.ui.payoutDetailPage.review.payout.details")}
                   </LinkButton>
                   <LinkButton href="/account/support" tone="secondary" size="sm">
                     {t("settlement.features.payouts.ui.payoutDetailPage.contact.support")}
                   </LinkButton>
-                </UiInline>
+                </Inline>
               }
             />
           ) : null}

@@ -15,7 +15,13 @@ export {
   type UseFormStateOptions,
   type UseFormStateResult,
 } from "./form-state";
-export { ValidationSummary, type ValidationSummaryError, type ValidationSummaryProps } from "./validation-summary";
+export {
+  ValidationMessageList,
+  ValidationSummary,
+  type ValidationMessageListProps,
+  type ValidationSummaryError,
+  type ValidationSummaryProps,
+} from "./validation-summary";
 export {
   Field,
   type FieldProps,
@@ -25,6 +31,7 @@ export {
   type InlineMessageProps,
 } from "./field";
 export { Fieldset, type FieldsetProps, FormSection, type FormSectionProps } from "./fieldset";
+export { HiddenInput, HoneypotInput, type HiddenInputProps, type HoneypotInputProps } from "./hidden-input";
 export {
   TextInput,
   type TextInputProps,

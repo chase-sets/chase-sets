@@ -1,7 +1,17 @@
 import { t } from "@chase-sets/localization";
 import type { LoaderFunctionArgs } from "react-router";
 import { redirect, useLoaderData } from "react-router";
-import { Card, ChaseRoot, EmptyState, LinkButton, Page, PageHeader } from "@chase-sets/design-system";
+import {
+  Grid,
+  Heading,
+  Stack,
+  Card,
+  ChaseRoot,
+  EmptyState,
+  LinkButton,
+  Page,
+  PageHeader,
+} from "@chase-sets/design-system";
 import { requireSignedInAdminActor } from "../auth.server";
 import { resolveAdminWebSectionNavItems } from "../host";
 
@@ -45,18 +55,18 @@ export default function AdminIndexRoute() {
             "adminWeb.app.routes.index.choose.a.section.to.continue.with.the.tools.available.to.your.account",
           )}
         />
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        <Grid columns={{ base: 1, md: 2, xl: 3 }} gap={4}>
           {sections.map((section) => (
             <Card key={section.key} interactive>
-              <div className="space-y-3">
-                <div className="font-heading text-xl font-semibold text-foreground">{section.label}</div>
+              <Stack gap={3}>
+                <Heading level={4}>{section.label}</Heading>
                 <LinkButton href={section.href ?? "/"} tone="primary">
                   {t("adminWeb.app.routes.index.open")}
                 </LinkButton>
-              </div>
+              </Stack>
             </Card>
           ))}
-        </div>
+        </Grid>
       </Page>
     </ChaseRoot>
   );

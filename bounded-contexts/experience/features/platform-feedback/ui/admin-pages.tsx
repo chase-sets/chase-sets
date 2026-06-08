@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Badge,
   Button,
@@ -238,7 +239,7 @@ export function PlatformFeedbackAdminDetailPage({ feedback }: { feedback: Platfo
         </LinkButton>
         {feedback.status === "new" ? (
           <Form spacing="none" method="post">
-            <input type="hidden" name="intent" value="review" readOnly />
+            <HiddenInput type="hidden" name="intent" value="review" readOnly />
             <Button type="submit" leadingIcon="check">
               {t("experience.platformFeedbackAdmin.markReviewed")}
             </Button>
@@ -246,7 +247,7 @@ export function PlatformFeedbackAdminDetailPage({ feedback }: { feedback: Platfo
         ) : null}
         {feedback.status !== "archived" ? (
           <Form spacing="none" method="post">
-            <input type="hidden" name="intent" value="archive" readOnly />
+            <HiddenInput type="hidden" name="intent" value="archive" readOnly />
             <Button type="submit" tone="secondary" leadingIcon="package">
               {t("experience.platformFeedbackAdmin.archive")}
             </Button>

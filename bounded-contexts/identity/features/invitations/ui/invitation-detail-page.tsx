@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Form, Button, DateInput, Inline, Stack } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, DateInput, Inline, Stack } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { Invitation } from "./contracts";
 
@@ -25,7 +25,7 @@ export function InvitationDetailPage({ data }: { data: Invitation }) {
             <>
               <Form spacing="none" method="post">
                 <Stack direction="row" align="end" gap={2}>
-                  <input type="hidden" name="intent" value="resend" readOnly />
+                  <HiddenInput type="hidden" name="intent" value="resend" readOnly />
                   <DateInput
                     name="expiresAt"
                     label={t("identity.features.invitations.ui.invitationDetailPage.expires.at")}
@@ -38,13 +38,13 @@ export function InvitationDetailPage({ data }: { data: Invitation }) {
                 </Stack>
               </Form>
               <Form spacing="none" method="post">
-                <input type="hidden" name="intent" value="cancel" readOnly />
+                <HiddenInput type="hidden" name="intent" value="cancel" readOnly />
                 <Button type="submit" tone="danger">
                   {t("identity.features.invitations.ui.invitationDetailPage.cancel")}
                 </Button>
               </Form>
               <Form spacing="none" method="post">
-                <input type="hidden" name="intent" value="decline" readOnly />
+                <HiddenInput type="hidden" name="intent" value="decline" readOnly />
                 <Button type="submit" tone="secondary">
                   {t("identity.features.invitations.ui.invitationDetailPage.decline")}
                 </Button>

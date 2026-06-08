@@ -6,6 +6,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   DataTable,
   Inline,
   LinkButton,
@@ -168,14 +169,11 @@ export function PricingRecommendationListPage({
                   key: "select",
                   header: t("pricing.features.recommendations.ui.recommendationListPage.select"),
                   cell: (row) => (
-                    <input
-                      aria-label={t(
-                        "pricing.features.recommendations.ui.recommendationListPage.select.recommendation",
-                        {
-                          item: title(row),
-                        },
-                      )}
-                      type="checkbox"
+                    <Checkbox
+                      label={t("pricing.features.recommendations.ui.recommendationListPage.select.recommendation", {
+                        item: title(row),
+                      })}
+                      hideLabel
                       name="recommendationId"
                       value={row.recommendation_id}
                       disabled={row.status === "applied" || row.status === "dismissed"}

@@ -32,16 +32,16 @@ import { cn } from "../../lib/utils";
 import { Inset } from "../../primitives/layout";
 import { Button, IconButton } from "../actions";
 import { ProductMediaImage, type ResponsiveImageSource } from "../data-display/product-media";
-import { SearchInput } from "../forms";
-import { Badge } from "./badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
-import { Progress, Skeleton } from "./progress";
 import {
   ProductOptions,
   type ProductOptionDisplayValue,
   productOptionsFromSummary,
   formatProductImageAltText,
-} from "./marketplace-product-options";
+} from "../data-display/product-options";
+import { SearchInput } from "../forms";
+import { Badge } from "./badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./card";
+import { Progress, Skeleton } from "./progress";
 
 export {
   ProductOptions,
@@ -52,7 +52,7 @@ export {
   type ProductOptionDisplayValue,
   type ProductOptionsProps,
   type ProductOptionsVariant,
-} from "./marketplace-product-options";
+} from "../data-display/product-options";
 
 export type MarketplaceDensity = "compact" | "comfortable" | "focused";
 export type ListingModel = "product" | "service" | "rental" | "booking" | "digital" | "quote" | "local";
@@ -367,6 +367,7 @@ export interface AccountReputationSummaryProps {
   emptyLabel?: ReactNode;
   emptyAccessibleLabel?: string;
   variant?: "inline" | "framed";
+  align?: "start" | "end";
   ratingLabel?: string;
   onLinkClick?: MouseEventHandler<HTMLAnchorElement>;
   className?: string;
@@ -406,6 +407,7 @@ export function AccountReputationSummary({
   emptyLabel = "New",
   emptyAccessibleLabel = "No feedback yet",
   variant = "inline",
+  align = "start",
   ratingLabel,
   onLinkClick,
   className,
@@ -439,6 +441,7 @@ export function AccountReputationSummary({
     <span
       className={cn(
         "inline-flex min-w-0 max-w-full flex-col items-start gap-0.5 text-left",
+        align === "end" && "items-end text-right",
         variant === "framed"
           ? "rounded-[var(--radius-sm)] border border-[var(--border)] bg-[var(--surface-2)] px-2.5 py-2 shadow-[var(--shadow-sm)]"
           : null,

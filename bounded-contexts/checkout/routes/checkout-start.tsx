@@ -7,6 +7,7 @@ import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { AuthApiError, createAuthRequestApiClient } from "@chase-sets/auth/server";
 import {
+  HiddenInput,
   Form,
   Banner,
   Button,
@@ -388,31 +389,37 @@ export default function CheckoutStartRoute() {
   const registerPath = `/register?returnTo=${encodeURIComponent(signInReturnTo)}`;
   const sourceFields = source ? (
     <>
-      <input type="hidden" name="source" value={source.type} />
-      {"listingId" in source ? <input type="hidden" name="listingId" value={source.listingId} /> : null}
+      <HiddenInput type="hidden" name="source" value={source.type} />
+      {"listingId" in source ? <HiddenInput type="hidden" name="listingId" value={source.listingId} /> : null}
       {"fulfillmentMode" in source ? (
-        <input type="hidden" name="fulfillmentMode" value={source.fulfillmentMode} />
+        <HiddenInput type="hidden" name="fulfillmentMode" value={source.fulfillmentMode} />
       ) : null}
       {"lockedListingId" in source ? (
-        <input type="hidden" name="lockedListingId" value={source.lockedListingId ?? ""} />
+        <HiddenInput type="hidden" name="lockedListingId" value={source.lockedListingId ?? ""} />
       ) : null}
-      <input type="hidden" name="catalogItemId" value={source.catalogItemId} />
-      <input type="hidden" name="productId" value={source.productId} />
-      <input type="hidden" name="itemTitle" value={source.itemTitle} />
-      <input type="hidden" name="itemSubtitle" value={source.itemSubtitle ?? ""} />
-      <input type="hidden" name="selectedOptions" value={JSON.stringify(source.selectedOptions)} />
-      <input type="hidden" name="productSummary" value={source.productSummary ?? ""} />
-      <input type="hidden" name="quantity" value={source.quantity} />
+      <HiddenInput type="hidden" name="catalogItemId" value={source.catalogItemId} />
+      <HiddenInput type="hidden" name="productId" value={source.productId} />
+      <HiddenInput type="hidden" name="itemTitle" value={source.itemTitle} />
+      <HiddenInput type="hidden" name="itemSubtitle" value={source.itemSubtitle ?? ""} />
+      <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(source.selectedOptions)} />
+      <HiddenInput type="hidden" name="productSummary" value={source.productSummary ?? ""} />
+      <HiddenInput type="hidden" name="quantity" value={source.quantity} />
       {"offerPriceAmount" in source ? (
-        <input type="hidden" name="offerPriceAmount" value={source.offerPriceAmount} />
+        <HiddenInput type="hidden" name="offerPriceAmount" value={source.offerPriceAmount} />
       ) : null}
-      {"priceAmount" in source ? <input type="hidden" name="priceAmount" value={source.priceAmount ?? ""} /> : null}
-      {"sellerName" in source ? <input type="hidden" name="sellerName" value={source.sellerName ?? ""} /> : null}
-      {"availability" in source ? <input type="hidden" name="availability" value={source.availability ?? ""} /> : null}
-      {"fulfillment" in source ? <input type="hidden" name="fulfillment" value={source.fulfillment ?? ""} /> : null}
+      {"priceAmount" in source ? (
+        <HiddenInput type="hidden" name="priceAmount" value={source.priceAmount ?? ""} />
+      ) : null}
+      {"sellerName" in source ? <HiddenInput type="hidden" name="sellerName" value={source.sellerName ?? ""} /> : null}
+      {"availability" in source ? (
+        <HiddenInput type="hidden" name="availability" value={source.availability ?? ""} />
+      ) : null}
+      {"fulfillment" in source ? (
+        <HiddenInput type="hidden" name="fulfillment" value={source.fulfillment ?? ""} />
+      ) : null}
     </>
   ) : (
-    <input type="hidden" name="source" value="cart" />
+    <HiddenInput type="hidden" name="source" value="cart" />
   );
   const sourceSummary = source ? (
     <OrderIntentSummary

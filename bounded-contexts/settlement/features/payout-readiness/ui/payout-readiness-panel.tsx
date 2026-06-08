@@ -1,16 +1,17 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Badge,
   Banner,
   Button,
   LinkButton,
+  Inline,
   ProgressiveDisclosure,
   SpecificationList,
   Stack,
+  Surface,
   Text,
-  UiInline,
-  UiSurface,
   type Tone,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
@@ -283,7 +284,7 @@ export function PayoutReadinessPanel({
 
       <Stack gap={3}>
         {progress.steps.map((step) => (
-          <UiSurface key={step.id}>
+          <Surface key={step.id}>
             <Stack gap={1}>
               <Badge tone={progressTone(step.status)}>{progressLabel(step.status)}</Badge>
               <Text size="sm" weight="semibold">
@@ -293,7 +294,7 @@ export function PayoutReadinessPanel({
                 {step.detail}
               </Text>
             </Stack>
-          </UiSurface>
+          </Surface>
         ))}
       </Stack>
 
@@ -349,28 +350,28 @@ export function PayoutReadinessPanel({
         </Text>
       ) : null}
       {showActions ? (
-        <UiInline>
+        <Inline>
           {payoutReadiness.status === "ready" ? null : (
             <Form spacing="none" method="post">
-              <input type="hidden" name="intent" value="start-payout-setup" />
+              <HiddenInput type="hidden" name="intent" value="start-payout-setup" />
               <Button type="submit">{primaryActionLabel(payoutReadiness.status)}</Button>
             </Form>
           )}
           {hasProviderAccount ? (
             <Form spacing="none" method="post">
-              <input type="hidden" name="intent" value="manage-payout-account" />
+              <HiddenInput type="hidden" name="intent" value="manage-payout-account" />
               <Button type="submit" tone="secondary">
                 {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.manage.payout.account")}
               </Button>
             </Form>
           ) : null}
           <Form spacing="none" method="post">
-            <input type="hidden" name="intent" value="refresh-payout-setup" />
+            <HiddenInput type="hidden" name="intent" value="refresh-payout-setup" />
             <Button type="submit" tone="secondary">
               {t("settlement.features.payoutReadiness.ui.payoutReadinessPanel.check.setup.status")}
             </Button>
           </Form>
-        </UiInline>
+        </Inline>
       ) : null}
     </Stack>
   );

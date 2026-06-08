@@ -178,7 +178,7 @@ export default function MarketplaceLayoutRoute() {
               </Form>
             ) : rootData.actorDisplay ? (
               <>
-                <Form id={signOutFormId} action="/sign-out" method="post" spacing="none" className="hidden" />
+                <Form id={signOutFormId} action="/sign-out" method="post" spacing="none" hidden />
                 <AccountMenu
                   menuLabel={t("identity.features.accounts.ui.currentActorDisplayCue.account.menu")}
                   accountLabel={t("identity.features.accounts.ui.currentActorDisplayCue.account")}

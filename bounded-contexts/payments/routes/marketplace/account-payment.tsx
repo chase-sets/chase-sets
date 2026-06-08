@@ -21,6 +21,7 @@ import {
 import { createPasskeyCredential, type PasskeyCredentialPayload } from "@chase-sets/auth/web";
 import { appendClearedGuestCheckoutCookie } from "@chase-sets/checkout/server";
 import {
+  HiddenInput,
   Form,
   Badge,
   Banner,
@@ -656,11 +657,11 @@ function StripeConfirmationCard({
 function PasskeyHiddenFields({ payload }: { payload: PasskeyCredentialPayload | null }) {
   return (
     <>
-      <input type="hidden" name="challengeId" value={payload?.challengeId ?? ""} readOnly />
-      <input type="hidden" name="challenge" value={payload?.challenge ?? ""} readOnly />
-      <input type="hidden" name="externalCredentialId" value={payload?.externalCredentialId ?? ""} readOnly />
-      <input type="hidden" name="label" value={payload?.label ?? ""} readOnly />
-      <input type="hidden" name="publicKey" value={payload?.publicKey ?? ""} readOnly />
+      <HiddenInput type="hidden" name="challengeId" value={payload?.challengeId ?? ""} readOnly />
+      <HiddenInput type="hidden" name="challenge" value={payload?.challenge ?? ""} readOnly />
+      <HiddenInput type="hidden" name="externalCredentialId" value={payload?.externalCredentialId ?? ""} readOnly />
+      <HiddenInput type="hidden" name="label" value={payload?.label ?? ""} readOnly />
+      <HiddenInput type="hidden" name="publicKey" value={payload?.publicKey ?? ""} readOnly />
     </>
   );
 }
@@ -729,8 +730,8 @@ function GuestClaimPrompt({
           ) : null}
           <RouterForm ref={passkeyFormRef} method="post" onSubmit={handlePasskeySubmit} spacing="none">
             <Stack gap={3}>
-              <input type="hidden" name="intent" value="claim-passkey" readOnly />
-              <input type="hidden" name="email" value={claimContext.contactEmail} readOnly />
+              <HiddenInput type="hidden" name="intent" value="claim-passkey" readOnly />
+              <HiddenInput type="hidden" name="email" value={claimContext.contactEmail} readOnly />
               <PasskeyHiddenFields payload={passkeyPayload} />
               <TextInput
                 label={t("payments.routes.marketplace.accountPayment.contact.name")}
@@ -754,8 +755,8 @@ function GuestClaimPrompt({
           <Divider />
           <RouterForm method="post" spacing="none">
             <Stack gap={3}>
-              <input type="hidden" name="intent" value="claim-link-request" readOnly />
-              <input type="hidden" name="displayName" value={displayName} readOnly />
+              <HiddenInput type="hidden" name="intent" value="claim-link-request" readOnly />
+              <HiddenInput type="hidden" name="displayName" value={displayName} readOnly />
               <Text size="sm" tone="secondary">
                 {t("payments.routes.marketplace.accountPayment.send.a.claim.link.to", {
                   email: claimContext.contactEmail,
@@ -773,8 +774,8 @@ function GuestClaimPrompt({
                   <Text size="sm" tone="secondary">
                     {t("payments.routes.marketplace.accountPayment.local.recovery.token.in.production")}
                   </Text>
-                  <input type="hidden" name="intent" value="claim-link-consume" readOnly />
-                  <input type="hidden" name="displayName" value={actionData.displayName} readOnly />
+                  <HiddenInput type="hidden" name="intent" value="claim-link-consume" readOnly />
+                  <HiddenInput type="hidden" name="displayName" value={actionData.displayName} readOnly />
                   <TextInput
                     label={t("payments.routes.marketplace.accountPayment.claim.token")}
                     name="token"
@@ -958,7 +959,7 @@ export default function MarketplaceAccountPaymentRoute() {
                         />
                       ) : null}
                       <RouterForm method="post" spacing="none">
-                        <input type="hidden" name="intent" value="retry-payment" readOnly />
+                        <HiddenInput type="hidden" name="intent" value="retry-payment" readOnly />
                         <Button type="submit" leadingIcon="creditCard">
                           {t("payments.routes.marketplace.accountPayment.retry.payment")}
                         </Button>

@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useEffect, useRef, useState } from "react";
 import {
+  Text,
   AppliedFilterChips,
   Button,
   CommerceSheet,
@@ -947,22 +948,32 @@ export function SearchPage({
                 })}
               />
             ) : null}
-            <div className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
-              <div>
-                <div className="font-semibold text-foreground">
+            <Grid columns={{ base: 1, sm: 3 }} gap={3}>
+              <Stack gap={1}>
+                <Text element="div" weight="semibold">
                   {bulkPreview.totalMatches ?? bulkPreview.eligibleCount + bulkPreview.skippedCount}
-                </div>
-                <div>{t("discovery.features.search.ui.searchPage.bulk.matches")}</div>
-              </div>
-              <div>
-                <div className="font-semibold text-foreground">{bulkPreview.eligibleCount}</div>
-                <div>{t("discovery.features.search.ui.searchPage.bulk.ready")}</div>
-              </div>
-              <div>
-                <div className="font-semibold text-foreground">{bulkPreview.skippedCount}</div>
-                <div>{t("discovery.features.search.ui.searchPage.bulk.need.options")}</div>
-              </div>
-            </div>
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {t("discovery.features.search.ui.searchPage.bulk.matches")}
+                </Text>
+              </Stack>
+              <Stack gap={1}>
+                <Text element="div" weight="semibold">
+                  {bulkPreview.eligibleCount}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {t("discovery.features.search.ui.searchPage.bulk.ready")}
+                </Text>
+              </Stack>
+              <Stack gap={1}>
+                <Text element="div" weight="semibold">
+                  {bulkPreview.skippedCount}
+                </Text>
+                <Text size="sm" tone="secondary">
+                  {t("discovery.features.search.ui.searchPage.bulk.need.options")}
+                </Text>
+              </Stack>
+            </Grid>
             {bulkPreview.skippedItems.length > 0 ? (
               <Banner
                 tone="info"

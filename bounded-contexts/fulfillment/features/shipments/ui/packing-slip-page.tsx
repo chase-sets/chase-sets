@@ -1,8 +1,8 @@
 import { t } from "@chase-sets/localization";
-import { Form } from "@chase-sets/design-system";
+import { PackingSlipPrintDocument, type PackingSlipPrintSlip } from "@chase-sets/design-system";
 import type { FulfillmentPackingSlip, FulfillmentPackingSlipFormat } from "./contracts";
 
-function formatAddress(address: FulfillmentPackingSlip["shipping_destination_snapshot"]) {
+function formatAddress(address: FulfillmentPackingSlip["shipping_destination_snapshot"]): string[] {
   return [
     address.name,
     address.company,
@@ -10,447 +10,28 @@ function formatAddress(address: FulfillmentPackingSlip["shipping_destination_sna
     address.line2,
     `${address.city}, ${address.state} ${address.postalCode}`,
     address.country,
-  ].filter(Boolean);
+  ].filter((line): line is string => Boolean(line));
 }
 
-function printSizeClass(format: FulfillmentPackingSlipFormat) {
-  return format === "thermal-4x6" ? "fulfillment-packing-slip--thermal" : "fulfillment-packing-slip--letter";
-}
-
-function printPageSize(format: FulfillmentPackingSlipFormat) {
-  return format === "thermal-4x6" ? "4in 6in" : "letter";
-}
-
-function packingSlipPageStyles(format: FulfillmentPackingSlipFormat) {
-  return `
-        .fulfillment-packing-slip-page {
-          --packing-slip-shell-background: #f8fafc;
-          --packing-slip-shell-text: #0f172a;
-          --packing-slip-shell-secondary-text: #334155;
-          --packing-slip-shell-muted-text: #475569;
-          --packing-slip-shell-trust-text: #0f766e;
-          --packing-slip-shell-control-background: #ffffff;
-          --packing-slip-shell-control-border: #94a3b8;
-          --packing-slip-shell-primary-background: #0f172a;
-          --packing-slip-shell-primary-border: #0f172a;
-          --packing-slip-shell-primary-text: #ffffff;
-          --packing-slip-shell-secondary-background: #ffffff;
-          --packing-slip-shell-secondary-border: #0f172a;
-          --packing-slip-shell-secondary-action-text: #0f172a;
-          --packing-slip-shell-focus-ring: #0f766e;
-
-          background: var(--packing-slip-shell-background);
-          color: var(--packing-slip-shell-text);
-          color-scheme: light;
-          margin: 0;
-          min-height: 100vh;
-          padding: 1.5rem;
-        }
-
-        [data-theme="dark"] .fulfillment-packing-slip-page {
-          --packing-slip-shell-background: #020617;
-          --packing-slip-shell-text: #f8fafc;
-          --packing-slip-shell-secondary-text: #cbd5e1;
-          --packing-slip-shell-muted-text: #94a3b8;
-          --packing-slip-shell-trust-text: #2dd4bf;
-          --packing-slip-shell-control-background: #111827;
-          --packing-slip-shell-control-border: #475569;
-          --packing-slip-shell-primary-background: #f8fafc;
-          --packing-slip-shell-primary-border: #f8fafc;
-          --packing-slip-shell-primary-text: #020617;
-          --packing-slip-shell-secondary-background: transparent;
-          --packing-slip-shell-secondary-border: #64748b;
-          --packing-slip-shell-secondary-action-text: #f8fafc;
-          --packing-slip-shell-focus-ring: #93c5fd;
-
-          color-scheme: dark;
-        }
-
-        @media (prefers-color-scheme: dark) {
-          :root:not([data-theme="light"]) .fulfillment-packing-slip-page {
-            --packing-slip-shell-background: #020617;
-            --packing-slip-shell-text: #f8fafc;
-            --packing-slip-shell-secondary-text: #cbd5e1;
-            --packing-slip-shell-muted-text: #94a3b8;
-            --packing-slip-shell-trust-text: #2dd4bf;
-            --packing-slip-shell-control-background: #111827;
-            --packing-slip-shell-control-border: #475569;
-            --packing-slip-shell-primary-background: #f8fafc;
-            --packing-slip-shell-primary-border: #f8fafc;
-            --packing-slip-shell-primary-text: #020617;
-            --packing-slip-shell-secondary-background: transparent;
-            --packing-slip-shell-secondary-border: #64748b;
-            --packing-slip-shell-secondary-action-text: #f8fafc;
-            --packing-slip-shell-focus-ring: #93c5fd;
-
-            color-scheme: dark;
-          }
-        }
-
-        .fulfillment-packing-slip-toolbar {
-          align-items: end;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 1rem;
-          justify-content: space-between;
-          margin-inline: auto;
-          margin-bottom: 1rem;
-          max-width: 72rem;
-        }
-
-        .fulfillment-packing-slip-toolbar__copy {
-          min-width: 16rem;
-        }
-
-        .fulfillment-packing-slip-toolbar__eyebrow {
-          color: var(--packing-slip-shell-trust-text);
-          font-size: 0.75rem;
-          font-weight: 700;
-          letter-spacing: 0.08em;
-          margin: 0 0 0.25rem;
-          text-transform: uppercase;
-        }
-
-        .fulfillment-packing-slip-toolbar__title {
-          color: var(--packing-slip-shell-text);
-          font-size: 2rem;
-          font-weight: 700;
-          line-height: 1.1;
-          margin: 0;
-        }
-
-        .fulfillment-packing-slip-toolbar__description {
-          color: var(--packing-slip-shell-muted-text);
-          margin: 0.5rem 0 0;
-        }
-
-        .fulfillment-packing-slip-toolbar__actions,
-        .fulfillment-packing-slip-toolbar__form {
-          align-items: end;
-          display: flex;
-          flex-wrap: wrap;
-          gap: 0.75rem;
-        }
-
-        .fulfillment-packing-slip-field {
-          display: grid;
-          gap: 0.25rem;
-        }
-
-        .fulfillment-packing-slip-field label {
-          color: var(--packing-slip-shell-secondary-text);
-          font-size: 0.875rem;
-          font-weight: 600;
-        }
-
-        .fulfillment-packing-slip-field select {
-          background: var(--packing-slip-shell-control-background);
-          border: 1px solid var(--packing-slip-shell-control-border);
-          border-radius: 0.375rem;
-          color: var(--packing-slip-shell-text);
-          min-height: 2.5rem;
-          padding: 0 0.75rem;
-        }
-
-        .fulfillment-packing-slip-field select:focus-visible,
-        .fulfillment-packing-slip-button:focus-visible {
-          outline: 2px solid var(--packing-slip-shell-focus-ring);
-          outline-offset: 2px;
-        }
-
-        .fulfillment-packing-slip-button {
-          background: var(--packing-slip-shell-primary-background);
-          border: 1px solid var(--packing-slip-shell-primary-border);
-          border-radius: 0.375rem;
-          color: var(--packing-slip-shell-primary-text);
-          cursor: pointer;
-          font: inherit;
-          font-weight: 700;
-          min-height: 2.5rem;
-          padding: 0 0.9rem;
-        }
-
-        .fulfillment-packing-slip-button--secondary {
-          background: var(--packing-slip-shell-secondary-background);
-          border-color: var(--packing-slip-shell-secondary-border);
-          color: var(--packing-slip-shell-secondary-action-text);
-        }
-
-        .fulfillment-packing-slip-print-root {
-          display: grid;
-          gap: 1rem;
-          margin-inline: auto;
-          max-width: 8.5in;
-        }
-
-        .fulfillment-packing-slip {
-          aspect-ratio: 8.5 / 11;
-          background: white;
-          border: 1px solid #cbd5e1;
-          box-shadow: 0 1.5rem 3rem rgb(15 23 42 / 0.12);
-          color: #0f172a;
-          display: grid;
-          gap: 1rem;
-          justify-self: center;
-          max-width: 8.5in;
-          min-width: 0;
-          page-break-after: always;
-          width: 100%;
-        }
-
-        .fulfillment-packing-slip--letter {
-          padding: 0.5in;
-        }
-
-        .fulfillment-packing-slip--thermal {
-          aspect-ratio: 4 / 6;
-          max-width: 4in;
-          padding: 0.18in;
-        }
-
-        .fulfillment-packing-slip__header {
-          align-items: start;
-          border-bottom: 1px solid #cbd5e1;
-          display: grid;
-          gap: 0.5rem;
-          grid-template-columns: 1fr auto;
-          padding-bottom: 0.75rem;
-        }
-
-        .fulfillment-packing-slip__title {
-          font-size: 1.25rem;
-          font-weight: 700;
-          margin: 0;
-        }
-
-        .fulfillment-packing-slip__reference {
-          font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-          font-size: 0.75rem;
-          overflow-wrap: anywhere;
-          text-align: right;
-        }
-
-        .fulfillment-packing-slip__grid {
-          display: grid;
-          gap: 1rem;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .fulfillment-packing-slip__section-title {
-          font-size: 0.75rem;
-          font-weight: 700;
-          letter-spacing: 0.04em;
-          margin: 0 0 0.35rem;
-          text-transform: uppercase;
-        }
-
-        .fulfillment-packing-slip__address-line,
-        .fulfillment-packing-slip__meta-line {
-          font-size: 0.82rem;
-          line-height: 1.25rem;
-          overflow-wrap: anywhere;
-        }
-
-        .fulfillment-packing-slip__table {
-          border-collapse: collapse;
-          font-size: 0.82rem;
-          width: 100%;
-        }
-
-        .fulfillment-packing-slip__table th,
-        .fulfillment-packing-slip__table td {
-          border-bottom: 1px solid #e2e8f0;
-          overflow-wrap: anywhere;
-          padding: 0.35rem 0.25rem;
-          text-align: left;
-          vertical-align: top;
-        }
-
-        .fulfillment-packing-slip__qty {
-          text-align: right;
-          white-space: nowrap;
-          width: 3rem;
-        }
-
-        .fulfillment-packing-slip__footer {
-          color: #475569;
-          font-size: 0.875rem;
-          overflow-wrap: anywhere;
-        }
-
-        .fulfillment-packing-slip--thermal {
-          gap: 0.5rem;
-        }
-
-        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__header {
-          grid-template-columns: 1fr;
-        }
-
-        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__reference {
-          text-align: left;
-        }
-
-        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__grid {
-          gap: 0.35rem;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-
-        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__title {
-          font-size: 1rem;
-        }
-
-        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__section-title {
-          margin-bottom: 0.2rem;
-        }
-
-        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__address-line,
-        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__meta-line,
-        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__table,
-        .fulfillment-packing-slip--thermal .fulfillment-packing-slip__footer {
-          font-size: 0.72rem;
-          line-height: 1rem;
-        }
-
-        @media screen and (max-width: 700px) {
-          .fulfillment-packing-slip-page {
-            padding: 1rem;
-          }
-
-          .fulfillment-packing-slip-toolbar {
-            align-items: stretch;
-          }
-
-          .fulfillment-packing-slip-toolbar__copy {
-            min-width: 0;
-          }
-
-          .fulfillment-packing-slip-toolbar__title {
-            font-size: 1.6rem;
-          }
-
-          .fulfillment-packing-slip-toolbar__actions,
-          .fulfillment-packing-slip-toolbar__form,
-          .fulfillment-packing-slip-field,
-          .fulfillment-packing-slip-field select,
-          .fulfillment-packing-slip-button {
-            width: 100%;
-          }
-
-          .fulfillment-packing-slip-button {
-            justify-content: center;
-          }
-
-          .fulfillment-packing-slip {
-            aspect-ratio: auto;
-            gap: 1.25rem;
-            padding: 1rem;
-          }
-
-          .fulfillment-packing-slip__header,
-          .fulfillment-packing-slip__grid {
-            grid-template-columns: 1fr;
-          }
-
-          .fulfillment-packing-slip--thermal .fulfillment-packing-slip__grid {
-            gap: 0.35rem;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-          }
-
-          .fulfillment-packing-slip__reference {
-            text-align: left;
-          }
-
-          .fulfillment-packing-slip__table,
-          .fulfillment-packing-slip__table tbody,
-          .fulfillment-packing-slip__table tr,
-          .fulfillment-packing-slip__table td {
-            display: block;
-          }
-
-          .fulfillment-packing-slip__table thead {
-            display: none;
-          }
-
-          .fulfillment-packing-slip__table tr {
-            border-bottom: 1px solid #e2e8f0;
-            padding: 0.5rem 0;
-          }
-
-          .fulfillment-packing-slip__table td {
-            border-bottom: 0;
-            padding: 0.15rem 0;
-          }
-
-          .fulfillment-packing-slip__qty {
-            text-align: left;
-            width: auto;
-          }
-
-          .fulfillment-packing-slip__qty::before {
-            content: "Qty: ";
-            font-weight: 700;
-          }
-        }
-
-        @media print {
-          @page {
-            margin: 0;
-            size: ${printPageSize(format)};
-          }
-
-          body {
-            background: white !important;
-          }
-
-          body * {
-            visibility: hidden;
-          }
-
-          .fulfillment-packing-slip-print-root,
-          .fulfillment-packing-slip-print-root * {
-            visibility: visible;
-          }
-
-          .fulfillment-packing-slip-toolbar {
-            display: none !important;
-          }
-
-          .fulfillment-packing-slip-print-root {
-            display: block;
-            inset: 0;
-            max-width: none;
-            position: absolute;
-          }
-
-          .fulfillment-packing-slip {
-            aspect-ratio: auto;
-            border: 0;
-            box-shadow: none;
-            break-after: page;
-            margin: 0;
-            max-width: none;
-          }
-
-          .fulfillment-packing-slip--letter {
-            height: 11in;
-            width: 8.5in;
-          }
-
-          .fulfillment-packing-slip--thermal {
-            height: 6in;
-            width: 4in;
-          }
-
-          .fulfillment-packing-slip-print-root[data-format="thermal-4x6"] {
-            width: 4in;
-          }
-
-          .fulfillment-packing-slip-print-root[data-format="thermal-4x6"] .fulfillment-packing-slip {
-            break-after: page;
-          }
-        }
-
-  `;
+function mapPackingSlip(slip: FulfillmentPackingSlip): PackingSlipPrintSlip {
+  return {
+    id: slip.shipment_id,
+    orderId: slip.order_id,
+    referenceLabel: t("fulfillment.features.shipments.ui.packingSlipPage.shipment"),
+    shipToTitle: t("fulfillment.features.shipments.ui.packingSlipPage.ship.to"),
+    shipToLines: formatAddress(slip.shipping_destination_snapshot),
+    shipFromTitle: t("fulfillment.features.shipments.ui.packingSlipPage.ship.from"),
+    shipFromLines: slip.shipping_origin_snapshot ? formatAddress(slip.shipping_origin_snapshot) : undefined,
+    itemsTitle: t("fulfillment.features.shipments.ui.packingSlipPage.items"),
+    lines: slip.lines.map((line) => ({
+      id: line.line_id,
+      title: line.item_title,
+      subtitle: line.item_subtitle,
+      summary: line.product_summary,
+      quantity: line.quantity,
+    })),
+    footer: t("fulfillment.features.shipments.ui.packingSlipPage.no.prices"),
+  };
 }
 
 export function FulfillmentPackingSlipPrintPage({
@@ -461,135 +42,31 @@ export function FulfillmentPackingSlipPrintPage({
   format: FulfillmentPackingSlipFormat;
 }) {
   return (
-    <div className="fulfillment-packing-slip-page">
-      <style dangerouslySetInnerHTML={{ __html: packingSlipPageStyles(format) }} />
-      <div className="fulfillment-packing-slip-toolbar">
-        <div className="fulfillment-packing-slip-toolbar__copy">
-          <p className="fulfillment-packing-slip-toolbar__eyebrow">
-            {t("fulfillment.features.shipments.ui.packingSlipPage.seller")}
-          </p>
-          <h1 className="fulfillment-packing-slip-toolbar__title">
-            {t("fulfillment.features.shipments.ui.packingSlipPage.packing.slips")}
-          </h1>
-          <p className="fulfillment-packing-slip-toolbar__description">
-            {t("fulfillment.features.shipments.ui.packingSlipPage.ready.to.print", {
-              count: slips.length,
-            })}
-          </p>
-        </div>
-        <div className="fulfillment-packing-slip-toolbar__actions">
-          <Form className="fulfillment-packing-slip-toolbar__form" method="get" spacing="none">
-            {slips.map((slip) => (
-              <input key={slip.shipment_id} type="hidden" name="shipmentIds" value={slip.shipment_id} />
-            ))}
-            <div className="fulfillment-packing-slip-field">
-              <label htmlFor="packing-slip-format">
-                {t("fulfillment.features.shipments.ui.packingSlipPage.format")}
-              </label>
-              <select id="packing-slip-format" name="format" defaultValue={format}>
-                <option value="letter">{t("fulfillment.features.shipments.ui.packingSlipPage.letter")}</option>
-                <option value="thermal-4x6">
-                  {t("fulfillment.features.shipments.ui.packingSlipPage.thermal.4x6")}
-                </option>
-              </select>
-            </div>
-            <button
-              className="fulfillment-packing-slip-button fulfillment-packing-slip-button--secondary"
-              type="submit"
-            >
-              {t("fulfillment.features.shipments.ui.packingSlipPage.change.format")}
-            </button>
-          </Form>
-          <button className="fulfillment-packing-slip-button" type="button" onClick={() => globalThis.print?.()}>
-            {t("fulfillment.features.shipments.ui.packingSlipPage.print")}
-          </button>
-        </div>
-      </div>
-
-      <div className="fulfillment-packing-slip-print-root" data-format={format}>
-        {slips.map((slip) => (
-          <article
-            key={slip.shipment_id}
-            className={`fulfillment-packing-slip ${printSizeClass(format)}`}
-            data-packing-slip-page
-          >
-            <header className="fulfillment-packing-slip__header">
-              <div>
-                <h1 className="fulfillment-packing-slip__title">
-                  {t("fulfillment.features.shipments.ui.packingSlipPage.packing.slip")}
-                </h1>
-                <div className="fulfillment-packing-slip__meta-line">
-                  {t("fulfillment.features.shipments.ui.packingSlipPage.order")}: {slip.order_id}
-                </div>
-              </div>
-              <div className="fulfillment-packing-slip__reference">
-                <div>{t("fulfillment.features.shipments.ui.packingSlipPage.shipment")}</div>
-                <div>{slip.shipment_id}</div>
-              </div>
-            </header>
-
-            <section className="fulfillment-packing-slip__grid">
-              <div>
-                <h2 className="fulfillment-packing-slip__section-title">
-                  {t("fulfillment.features.shipments.ui.packingSlipPage.ship.to")}
-                </h2>
-                {formatAddress(slip.shipping_destination_snapshot).map((line) => (
-                  <div key={line} className="fulfillment-packing-slip__address-line">
-                    {line}
-                  </div>
-                ))}
-              </div>
-              {slip.shipping_origin_snapshot ? (
-                <div>
-                  <h2 className="fulfillment-packing-slip__section-title">
-                    {t("fulfillment.features.shipments.ui.packingSlipPage.ship.from")}
-                  </h2>
-                  {formatAddress(slip.shipping_origin_snapshot).map((line) => (
-                    <div key={line} className="fulfillment-packing-slip__address-line">
-                      {line}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </section>
-
-            <section>
-              <h2 className="fulfillment-packing-slip__section-title">
-                {t("fulfillment.features.shipments.ui.packingSlipPage.items")}
-              </h2>
-              <table className="fulfillment-packing-slip__table">
-                <thead>
-                  <tr>
-                    <th>{t("fulfillment.features.shipments.ui.packingSlipPage.item")}</th>
-                    <th>{t("fulfillment.features.shipments.ui.packingSlipPage.product")}</th>
-                    <th className="fulfillment-packing-slip__qty">
-                      {t("fulfillment.features.shipments.ui.packingSlipPage.qty")}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {slip.lines.map((line) => (
-                    <tr key={line.line_id}>
-                      <td>
-                        <strong>{line.item_title}</strong>
-                        {line.item_subtitle ? <div>{line.item_subtitle}</div> : null}
-                      </td>
-                      <td>{line.product_summary ?? t("fulfillment.features.shipments.ui.packingSlipPage.standard")}</td>
-                      <td className="fulfillment-packing-slip__qty">{line.quantity}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </section>
-
-            <footer>
-              <p className="fulfillment-packing-slip__footer">
-                {t("fulfillment.features.shipments.ui.packingSlipPage.no.prices")}
-              </p>
-            </footer>
-          </article>
-        ))}
-      </div>
-    </div>
+    <PackingSlipPrintDocument
+      format={format}
+      toolbar={{
+        eyebrow: t("fulfillment.features.shipments.ui.packingSlipPage.seller"),
+        title: t("fulfillment.features.shipments.ui.packingSlipPage.packing.slips"),
+        description: t("fulfillment.features.shipments.ui.packingSlipPage.ready.to.print", {
+          count: slips.length,
+        }),
+        formatLabel: t("fulfillment.features.shipments.ui.packingSlipPage.format"),
+        format,
+        letterLabel: t("fulfillment.features.shipments.ui.packingSlipPage.letter"),
+        thermalLabel: t("fulfillment.features.shipments.ui.packingSlipPage.thermal.4x6"),
+        changeFormatLabel: t("fulfillment.features.shipments.ui.packingSlipPage.change.format"),
+        printLabel: t("fulfillment.features.shipments.ui.packingSlipPage.print"),
+        shipmentIds: slips.map((slip) => slip.shipment_id),
+      }}
+      labels={{
+        packingSlip: t("fulfillment.features.shipments.ui.packingSlipPage.packing.slip"),
+        order: t("fulfillment.features.shipments.ui.packingSlipPage.order"),
+        item: t("fulfillment.features.shipments.ui.packingSlipPage.item"),
+        product: t("fulfillment.features.shipments.ui.packingSlipPage.product"),
+        quantity: t("fulfillment.features.shipments.ui.packingSlipPage.qty"),
+        standardProduct: t("fulfillment.features.shipments.ui.packingSlipPage.standard"),
+      }}
+      slips={slips.map(mapPackingSlip)}
+    />
   );
 }

@@ -1,0 +1,156 @@
+{
+  "schemaVersion": "design-system-legacy-visual-accessibility-evidence/v1",
+  "milestone": 12,
+  "checkedAt": "2026-06-08T13:26:41.367Z",
+  "generatedBy": "pnpm run design-system:legacy-evidence -- --write",
+  "retainedArtifact": "packages/design-system/DESIGN_SYSTEM_LEGACY_VISUAL_ACCESSIBILITY_EVIDENCE.json",
+  "summary": {
+    "representativeSurfaceCount": 8,
+    "visualEvidenceCount": 9,
+    "accessibilityEvidenceCount": 8,
+    "legacyInventoryFileCount": 0,
+    "legacyInventoryEntryCount": 0
+  },
+  "verificationCommands": [
+    "pnpm run design-system:legacy-inventory -- --write-ledger",
+    "pnpm run design-system:legacy-evidence -- --write",
+    "pnpm run test:design-system-legacy-inventory",
+    "pnpm run test:design-system-legacy-evidence",
+    "pnpm exec tsc -p ./tsconfig.json --noEmit",
+    "pnpm run verify:static"
+  ],
+  "checks": [
+    {
+      "id": "fulfillment-print-document",
+      "owner": "Fulfillment",
+      "file": "packages/design-system/src/components/print/packing-slip.tsx",
+      "visualEvidence": [
+        "Design-system-owned print stylesheet includes paged print media.",
+        "Packing slip document owns print table, page sizing, toolbar, and print action layout."
+      ],
+      "accessibilityEvidence": [
+        "Print document uses semantic headings, sections, article pages, table headers, and labeled format control."
+      ],
+      "requiredSignals": [
+        "@media print",
+        "PackingSlipPrintDocument",
+        "PackingSlipPrintToolbar",
+        "<Button",
+        "<HiddenInput",
+        "<NativeSelect",
+        "<article",
+        "<table",
+        "<th>"
+      ],
+      "forbiddenSignals": ["UiTable", "UiButton", "<button", "<input key={shipmentId} type=\"hidden\""],
+      "status": "passed"
+    },
+    {
+      "id": "support-request-tables",
+      "owner": "Support",
+      "file": "bounded-contexts/support/features/support-requests/ui/support-request-list-page.tsx",
+      "visualEvidence": ["Support request lists render through DataTable instead of legacy responsive table markup."],
+      "accessibilityEvidence": ["Table headers and row identity are owned by DataTable column metadata and getRowId."],
+      "requiredSignals": ["DataTable", "getRowId", "columns"],
+      "forbiddenSignals": ["UiTable", "<table", "className="],
+      "status": "passed"
+    },
+    {
+      "id": "catalog-authoring-controls",
+      "owner": "Catalog",
+      "file": "bounded-contexts/catalog/features/source-observations/ui/integration-management-page.tsx",
+      "visualEvidence": [
+        "Dense source-observation editors use design-system subheadings, validation messages, tables, and form controls."
+      ],
+      "accessibilityEvidence": [
+        "Diagnostics render through shared validation primitives and provider controls keep explicit labels."
+      ],
+      "requiredSignals": ["Subheading", "ValidationMessageList", "DataTable", "CheckboxGroup", "aria-label"],
+      "forbiddenSignals": ["<input type=\"checkbox\"", "className=\"text-sm text-danger\""],
+      "status": "passed"
+    },
+    {
+      "id": "discovery-commerce-comparison-list",
+      "owner": "Discovery",
+      "file": "bounded-contexts/discovery/features/item-detail/ui/item-detail-page.tsx",
+      "visualEvidence": [
+        "Listing and offer rows use design-system comparison-list primitives for responsive price/account/product/action layout."
+      ],
+      "accessibilityEvidence": ["Selectable listing/offer rows and buttons carry aria-label and aria-pressed state."],
+      "requiredSignals": ["ComparisonList", "ComparisonListHeader", "ComparisonListRow", "aria-label", "aria-pressed"],
+      "forbiddenSignals": ["className={cx(", "grid-cols-[minmax(5.5rem"],
+      "status": "passed"
+    },
+    {
+      "id": "public-waitlist-mobile-cta",
+      "owner": "Public Presence",
+      "file": "bounded-contexts/public-presence/features/waitlist/ui/public-pages.tsx",
+      "visualEvidence": [
+        "Public waitlist uses design-system mobile sticky layout, discounted value, segmented control, and marketing sections."
+      ],
+      "accessibilityEvidence": [
+        "Hero intent segmented control and honeypot/hidden fields retain accessible labels and hiding rules."
+      ],
+      "requiredSignals": [
+        "MobileStickyBar",
+        "MobileStickyInset",
+        "DiscountValue",
+        "SegmentedControl",
+        "aria-label={t(\"publicPresence.waitlist.heroIntent.label\")}",
+        "HoneypotInput",
+        "HiddenInput"
+      ],
+      "forbiddenSignals": [
+        "className=\"fixed inset-x-0 bottom-0",
+        "<input type=\"hidden\"",
+        "<input type=\"text\" name=\"website\""
+      ],
+      "status": "passed"
+    },
+    {
+      "id": "identity-account-badges",
+      "owner": "Identity",
+      "file": "bounded-contexts/identity/features/accounts/ui/account-badges.tsx",
+      "visualEvidence": ["Account badge icon sizing is owned by SVG attributes and Badge/Inline composition."],
+      "accessibilityEvidence": ["Compact badge labels use the shared VisuallyHidden primitive."],
+      "requiredSignals": ["VisuallyHidden", "height={16}", "width={16}", "aria-hidden=\"true\""],
+      "forbiddenSignals": ["className=\"h-4 w-4", "className=\"sr-only\""],
+      "status": "passed"
+    },
+    {
+      "id": "design-system-primitives",
+      "owner": "Design System",
+      "file": "packages/design-system/src/components/forms/validation-summary.tsx",
+      "visualEvidence": ["Validation message visuals are centralized under design-system form primitives."],
+      "accessibilityEvidence": ["ValidationSummary keeps role=alert, aria-live, and focusable error-link behavior."],
+      "requiredSignals": [
+        "ValidationMessageList",
+        "role=\"alert\"",
+        "aria-live=\"assertive\"",
+        "focusValidationTarget"
+      ],
+      "forbiddenSignals": [],
+      "status": "passed"
+    },
+    {
+      "id": "hidden-input-policy",
+      "owner": "Design System",
+      "file": "packages/design-system/src/components/forms/hidden-input.tsx",
+      "visualEvidence": ["Non-visible form metadata is centralized as a design-system form primitive."],
+      "accessibilityEvidence": [
+        "Honeypot inputs are aria-hidden, hidden, non-tabbable, and autocomplete off by default."
+      ],
+      "requiredSignals": [
+        "HiddenInput",
+        "HoneypotInput",
+        "aria-hidden",
+        "hidden",
+        "tabIndex = -1",
+        "autoComplete = \"off\""
+      ],
+      "forbiddenSignals": ["className=", "style="],
+      "status": "passed"
+    }
+  ],
+  "passesDesignSystemLegacyEvidence": true
+}

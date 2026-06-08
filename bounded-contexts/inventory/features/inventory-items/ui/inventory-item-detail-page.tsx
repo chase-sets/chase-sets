@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  HiddenInput,
   Form,
   Button,
   Badge,
@@ -104,7 +105,7 @@ export function InventoryItemDetailPage({
         <Card>
           <Form spacing="none" method="post">
             <Stack gap={3}>
-              <input type="hidden" name="intent" value="adjust-item" />
+              <HiddenInput type="hidden" name="intent" value="adjust-item" />
               <NumberInput
                 label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.quantity.delta")}
                 name="quantityDelta"
@@ -128,7 +129,7 @@ export function InventoryItemDetailPage({
         <Card>
           <Form spacing="none" method="post">
             <Stack gap={3}>
-              <input type="hidden" name="intent" value="create-hold" />
+              <HiddenInput type="hidden" name="intent" value="create-hold" />
               <NumberInput
                 label={t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.hold.quantity")}
                 name="quantity"
@@ -180,8 +181,8 @@ export function InventoryItemDetailPage({
                   </Text>
                   {hold.status === "active" ? (
                     <Form spacing="none" method="post">
-                      <input type="hidden" name="intent" value="release-hold" />
-                      <input type="hidden" name="holdId" value={hold.hold_id} />
+                      <HiddenInput type="hidden" name="intent" value="release-hold" />
+                      <HiddenInput type="hidden" name="holdId" value={hold.hold_id} />
                       <Button type="submit" tone="secondary">
                         {t("inventory.features.inventoryItems.ui.inventoryItemDetailPage.release.hold")}
                       </Button>

@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
+  HiddenInput,
   Badge,
   Button,
   Cluster,
@@ -85,8 +86,12 @@ function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly Supp
           header: t("support.features.supportRequests.ui.supportOperationsPage.issue"),
           cell: (request) => (
             <Stack gap={1}>
-              <span className="font-semibold">{request.flow_type}</span>
-              <span className="text-xs text-secondary">{request.support_request_id}</span>
+              <Text element="span" weight="semibold">
+                {request.flow_type}
+              </Text>
+              <Text element="span" size="xs" tone="secondary">
+                {request.support_request_id}
+              </Text>
             </Stack>
           ),
         },
@@ -100,8 +105,10 @@ function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly Supp
           header: t("support.features.supportRequests.ui.supportOperationsPage.accounts"),
           cell: (request) => (
             <Stack gap={1}>
-              <span>{request.buyer_account_id}</span>
-              <span className="text-xs text-secondary">{request.seller_account_id}</span>
+              <Text element="span">{request.buyer_account_id}</Text>
+              <Text element="span" size="xs" tone="secondary">
+                {request.seller_account_id}
+              </Text>
             </Stack>
           ),
         },
@@ -172,14 +179,14 @@ export function SupportOperationsDetailPage({ request }: Readonly<{ request: Sup
         <Surface>
           <Stack gap={3}>
             {detailRows(request).map(([label, value]) => (
-              <div key={label} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+              <Cluster key={label} align="start" justify="between" gap={1}>
                 <Text size="sm" weight="semibold">
                   {label}
                 </Text>
-                <span className="max-w-full break-words text-left text-sm text-secondary [overflow-wrap:anywhere] sm:text-right">
+                <Text element="span" size="sm" tone="secondary" wrap="anywhere" align="right">
                   {value}
-                </span>
-              </div>
+                </Text>
+              </Cluster>
             ))}
           </Stack>
         </Surface>
@@ -188,8 +195,12 @@ export function SupportOperationsDetailPage({ request }: Readonly<{ request: Sup
       <PageSection title={t("support.features.supportRequests.ui.supportOperationsPage.accounts")}>
         <Surface>
           <Stack>
-            <span className="break-words [overflow-wrap:anywhere]">{request.buyer_account_id}</span>
-            <span className="break-words [overflow-wrap:anywhere]">{request.seller_account_id}</span>
+            <Text element="span" wrap="anywhere">
+              {request.buyer_account_id}
+            </Text>
+            <Text element="span" wrap="anywhere">
+              {request.seller_account_id}
+            </Text>
           </Stack>
         </Surface>
       </PageSection>
@@ -203,15 +214,19 @@ export function SupportOperationsDetailPage({ request }: Readonly<{ request: Sup
             {
               key: "requirement",
               header: t("support.features.supportRequests.ui.supportOperationsPage.detail.requirement"),
-              cell: (item) => <span className="break-words [overflow-wrap:anywhere]">{item.label}</span>,
+              cell: (item) => (
+                <Text element="span" wrap="anywhere">
+                  {item.label}
+                </Text>
+              ),
             },
             {
               key: "status",
               header: t("support.features.supportRequests.ui.supportOperationsPage.status"),
               cell: (item) => (
-                <span className="break-words [overflow-wrap:anywhere]">
+                <Text element="span" wrap="anywhere">
                   {item.satisfiedAt ?? t("support.features.supportRequests.ui.supportOperationsPage.not.applicable")}
-                </span>
+                </Text>
               ),
             },
           ]}
@@ -285,7 +300,7 @@ export function SupportOperationsPage({
               })}
             </Text>
             <RouterForm method="post" spacing="none">
-              <input type="hidden" name="intent" value="escalate-overdue" />
+              <HiddenInput type="hidden" name="intent" value="escalate-overdue" />
               <Button type="submit" disabled={Boolean(unavailableMessage)}>
                 {t("support.features.supportRequests.ui.supportOperationsPage.escalate.overdue")}
               </Button>

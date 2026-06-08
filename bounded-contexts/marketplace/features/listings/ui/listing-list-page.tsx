@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import {
+  HiddenInput,
   Form,
   Accordion,
   Badge,
@@ -483,7 +484,7 @@ export function MarketplaceListingListPage({
                   }
                 />
               ) : null}
-              <input type="hidden" name="selectedOptions" value={serializedSelectedOptions} />
+              <HiddenInput type="hidden" name="selectedOptions" value={serializedSelectedOptions} />
               <Grid columns={{ base: 1, lg: 2 }} gap={5}>
                 <Stack gap={3}>
                   <TextInput

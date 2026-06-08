@@ -338,7 +338,7 @@ function PublicListingRealtimeView({ data }: { data: Awaited<ReturnType<typeof l
                     href={accountHref ? `${accountHref}#feedback` : null}
                     averageRating={sellerRating}
                     reviewCount={listing.seller_review_count ?? 0}
-                    className="justify-items-end text-right"
+                    align="end"
                   />
                   <Badge tone={listing.status === "active" && sellerListingsAvailable ? "success" : "neutral"}>
                     {listing.status === "active" && sellerListingsAvailable

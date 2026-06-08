@@ -1,7 +1,7 @@
 import { t } from "@chase-sets/localization";
-import { Link } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
+  HiddenInput,
   ActionBar,
   AppliedFilterChips,
   Badge,
@@ -14,6 +14,7 @@ import {
   Inline,
   KeyValueList,
   LinkButton,
+  LinkText,
   NativeSelect,
   Page,
   PageHeader,
@@ -63,23 +64,23 @@ export function GoogleShoppingOperationsPage({
 
       <ActionBar>
         <RouterForm method="post" spacing="none">
-          <input type="hidden" name="intent" value="dry-run-full-sync" readOnly />
-          <input type="hidden" name="batchSize" value={filters.limit} readOnly />
+          <HiddenInput type="hidden" name="intent" value="dry-run-full-sync" readOnly />
+          <HiddenInput type="hidden" name="batchSize" value={filters.limit} readOnly />
           <Button type="submit" leadingIcon="play">
             {t(`${routeKey}.dryRunFullSync`)}
           </Button>
         </RouterForm>
         <RouterForm method="post" spacing="none">
-          <input type="hidden" name="intent" value="dry-run-maintenance-sync" readOnly />
-          <input type="hidden" name="limit" value={filters.limit} readOnly />
-          <input type="hidden" name="refreshWindowDays" value={filters.refreshWindowDays} readOnly />
+          <HiddenInput type="hidden" name="intent" value="dry-run-maintenance-sync" readOnly />
+          <HiddenInput type="hidden" name="limit" value={filters.limit} readOnly />
+          <HiddenInput type="hidden" name="refreshWindowDays" value={filters.refreshWindowDays} readOnly />
           <Button type="submit" tone="secondary" leadingIcon="refreshCcw">
             {t(`${routeKey}.dryRunMaintenance`)}
           </Button>
         </RouterForm>
         <RouterForm method="post" spacing="none">
-          <input type="hidden" name="intent" value="dry-run-diagnostics-refresh" readOnly />
-          <input type="hidden" name="batchSize" value={filters.limit} readOnly />
+          <HiddenInput type="hidden" name="intent" value="dry-run-diagnostics-refresh" readOnly />
+          <HiddenInput type="hidden" name="batchSize" value={filters.limit} readOnly />
           <Button type="submit" tone="secondary" leadingIcon="refreshCcw">
             {t(`${routeKey}.dryRunDiagnostics`)}
           </Button>
@@ -278,9 +279,7 @@ function GoogleShoppingFilters({ filters }: Readonly<{ filters: GoogleShoppingOp
 function ListingCell({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem }>) {
   return (
     <Stack gap={1}>
-      <Link to={withSelected(row.rowId)} className="font-semibold text-[var(--accent)]">
-        {row.listingId}
-      </Link>
+      <LinkText href={withSelected(row.rowId)}>{row.listingId}</LinkText>
       <Text size="xs" tone="secondary">
         {row.merchantOfferId}
       </Text>
@@ -498,5 +497,9 @@ function formatDateTime(value: string | null) {
 }
 
 function breakable(value: string | null) {
-  return <span className="break-words [overflow-wrap:anywhere]">{value ?? t(`${routeKey}.none`)}</span>;
+  return (
+    <Text element="span" wrap="anywhere">
+      {value ?? t(`${routeKey}.none`)}
+    </Text>
+  );
 }

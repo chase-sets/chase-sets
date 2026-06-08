@@ -1,4 +1,5 @@
 import {
+  HiddenInput,
   Form,
   Badge,
   Banner,
@@ -507,8 +508,8 @@ export function CheckoutSellListPage({
                       return (
                         <Surface key={line.line_id} elevated>
                           <Form spacing="none" method="post">
-                            <input type="hidden" name="intent" value="remove-sell-list-line" />
-                            <input type="hidden" name="lineId" value={line.line_id} />
+                            <HiddenInput type="hidden" name="intent" value="remove-sell-list-line" />
+                            <HiddenInput type="hidden" name="lineId" value={line.line_id} />
                             <Stack gap={3}>
                               <Inline gap={2}>
                                 <Badge tone="success">
@@ -574,7 +575,7 @@ export function CheckoutSellListPage({
                                 ]}
                               />
                               {review?.terms ? (
-                                <input
+                                <HiddenInput
                                   type="hidden"
                                   form="sell-list-checkout-form"
                                   name={`offerFeeQuoteFingerprint:${line.line_id}`}
@@ -724,7 +725,7 @@ export function CheckoutSellListPage({
                                             },
                                           )}
                                         />
-                                        <input
+                                        <HiddenInput
                                           form="sell-list-checkout-form"
                                           type="hidden"
                                           name={`productOfferFeeQuoteFingerprint:${line.line_id}:${offer.offer_id}`}
@@ -787,7 +788,7 @@ export function CheckoutSellListPage({
                                 step="0.01"
                                 required={Boolean(defaultInventoryItem)}
                               />
-                              <input
+                              <HiddenInput
                                 form="sell-list-checkout-form"
                                 type="hidden"
                                 name={`quantityCap:${line.line_id}`}
@@ -838,7 +839,7 @@ export function CheckoutSellListPage({
                   <Inline gap={2}>
                     {isSignedIn ? (
                       <Form spacing="none" id="sell-list-checkout-form" method="post">
-                        <input type="hidden" name="sellListExecutionId" value={sellListExecutionId ?? ""} />
+                        <HiddenInput type="hidden" name="sellListExecutionId" value={sellListExecutionId ?? ""} />
                         <Button
                           type="submit"
                           name="intent"

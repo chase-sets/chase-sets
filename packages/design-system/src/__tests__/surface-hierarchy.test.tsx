@@ -20,7 +20,7 @@ interface SurfaceViolation {
   reason: string;
 }
 
-const cardLikeExports = new Set(["Card", "UiCard", "Surface", "UiSurface", "DetailPanel"]);
+const cardLikeExports = new Set(["Card", "Surface", "DetailPanel"]);
 const insetExports = new Set(["Inset"]);
 const rowListExports = new Set(["KeyValueList"]);
 const scanRoots = ["bounded-contexts", "packages/design-system/src"];

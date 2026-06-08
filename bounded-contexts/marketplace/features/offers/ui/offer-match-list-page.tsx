@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   AccountReputationSummary,
   Badge,
@@ -268,8 +269,8 @@ export function MarketplaceOfferMatchListPage({
               cell: (row) => (
                 <Stack gap={2}>
                   <Form spacing="none" method="post" action="/account/sell-list">
-                    <input type="hidden" name="intent" value="add-selected-offer" />
-                    <input type="hidden" name="offerId" value={row.offer_id} />
+                    <HiddenInput type="hidden" name="intent" value="add-selected-offer" />
+                    <HiddenInput type="hidden" name="offerId" value={row.offer_id} />
                     <Button
                       type="submit"
                       tone="secondary"

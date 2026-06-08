@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Form, Button, Card, Stack, Text } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Card, Stack, Text } from "@chase-sets/design-system";
 
 export function AccountSelectionPage({
   memberships,
@@ -31,7 +31,7 @@ export function AccountSelectionPage({
         <Card key={membership.accountId}>
           <Form spacing="none" action={action} method="post">
             <Stack gap={3}>
-              <input type="hidden" name="accountId" value={membership.accountId} readOnly />
+              <HiddenInput type="hidden" name="accountId" value={membership.accountId} readOnly />
               <Stack gap={1}>
                 <Text weight="semibold">{membership.accountId}</Text>
                 <Text tone="secondary">

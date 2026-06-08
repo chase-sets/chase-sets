@@ -8,6 +8,12 @@ import {
   Card,
   CommerceActionBar,
   CommerceBottomSheet,
+  ComparisonList,
+  ComparisonListCell,
+  ComparisonListHeader,
+  ComparisonListPrice,
+  ComparisonListRow,
+  ComparisonListRowGrid,
   Container,
   Dialog,
   Heading,
@@ -28,7 +34,6 @@ import {
   Surface,
   Tabs,
   Text,
-  cx,
   formatMarketplaceNumber,
 } from "@chase-sets/design-system";
 import type {
@@ -1064,11 +1069,11 @@ function LoadedItemDetailPage({
       ? formatMoney(getHighestOfferPrice(matchingOffers))
       : formatMoney(selectedMarketSummary.lowest_price_amount);
   const mobileCommerceSummary = (
-    <div className="min-w-0 space-y-1">
-      <div className="font-heading text-base font-semibold leading-tight text-foreground">
+    <Stack gap={1}>
+      <Text element="div" weight="semibold">
         {marketIntent === "buy" && selectedListing ? formatMoney(selectedListing.price_amount) : marketSummaryPrice}
-      </div>
-      <div className="truncate text-xs font-medium text-secondary">
+      </Text>
+      <Text element="div" size="xs" tone="secondary" weight="medium" truncate>
         {marketIntent === "buy" && selectedListing ? (
           [selectedListingAvailability, selectedListingProductSummary].filter(Boolean).join(" · ")
         ) : (
@@ -1078,8 +1083,8 @@ function LoadedItemDetailPage({
             {currentOptionSummary}
           </>
         )}
-      </div>
-    </div>
+      </Text>
+    </Stack>
   );
   const marketSummaryFacts =
     marketIntent === "sell"
@@ -1351,18 +1356,15 @@ function LoadedItemDetailPage({
                           ) : null}
                         </Inline>
                         {visibleListings.length > 0 ? (
-                          <div className="grid gap-3">
-                            <div
-                              className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
-                              aria-hidden="true"
-                            >
-                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
-                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.seller")}</span>
-                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.product")}</span>
-                              <span className="text-right">
-                                {t("discovery.features.itemDetail.ui.itemDetailPage.action")}
-                              </span>
-                            </div>
+                          <ComparisonList>
+                            <ComparisonListHeader
+                              labels={[
+                                t("discovery.features.itemDetail.ui.itemDetailPage.price"),
+                                t("discovery.features.itemDetail.ui.itemDetailPage.seller"),
+                                t("discovery.features.itemDetail.ui.itemDetailPage.product"),
+                                t("discovery.features.itemDetail.ui.itemDetailPage.action"),
+                              ]}
+                            />
                             {visibleListings.map((listing) => {
                               const isSelected = selectedListing?.listing_id === listing.listing_id;
                               const purchaseLimit = formatListingPurchaseLimit(listing);
@@ -1391,62 +1393,53 @@ function LoadedItemDetailPage({
                               );
 
                               return (
-                                <article
+                                <ComparisonListRow
                                   key={listing.listing_id}
-                                  className={cx(
-                                    "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
-                                    isSelected
-                                      ? "border-accent bg-surface-2 shadow-[0_0_28px_-18px_var(--glow-accent)]"
-                                      : "border-muted",
-                                  )}
+                                  selected={isSelected}
                                   aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.listing.row.label", {
                                     price: formatMoney(listing.price_amount),
                                     seller: sellerName,
                                   })}
                                 >
-                                  {isSelected ? (
-                                    <span className="absolute inset-y-0 left-0 w-1 rounded-l-tokenLg bg-accent" />
-                                  ) : null}
-                                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
-                                    <div className="min-w-0">
-                                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                        <span className="font-heading text-lg font-bold leading-tight text-foreground tabular-nums lg:text-base">
-                                          {formatMoney(listing.price_amount)}
-                                        </span>
+                                  <ComparisonListRowGrid>
+                                    <ComparisonListCell>
+                                      <Inline gap={2}>
+                                        <ComparisonListPrice>{formatMoney(listing.price_amount)}</ComparisonListPrice>
                                         {isLowestPrice ? (
                                           <Badge tone="success">
                                             {t("discovery.features.itemDetail.ui.itemDetailPage.lowest.price")}
                                           </Badge>
                                         ) : null}
-                                      </div>
-                                    </div>
-                                    <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
+                                      </Inline>
+                                    </ComparisonListCell>
+                                    <ComparisonListCell area="account">
                                       <ListingTrustSignal
                                         accountName={sellerName}
                                         feedbackHref={sellerFeedbackHref}
                                         rating={listing.seller_average_rating}
                                         reviewCount={listing.seller_review_count ?? 0}
                                       />
-                                    </div>
-                                    <div className="col-span-2 col-start-1 row-start-3 min-w-0 lg:col-span-1 lg:col-start-auto lg:row-start-auto">
+                                    </ComparisonListCell>
+                                    <ComparisonListCell area="product">
                                       <ProductOptions
                                         options={productOptionsFromSelectionDetails(
                                           getProductSelectionDetails(listing.selected_options),
                                         )}
                                         emptyLabel={compactProductSummary}
                                         variant="compact"
-                                        className="block max-w-full truncate text-sm font-semibold leading-5"
+                                        size="sm"
+                                        truncate
                                       />
-                                      <span className="mt-0.5 block text-xs font-medium text-secondary">
+                                      <Text element="span" size="xs" tone="secondary" weight="medium">
                                         {formatListingAvailability(listing)}
-                                      </span>
+                                      </Text>
                                       {purchaseLimit ? (
-                                        <div className="mt-1">
+                                        <Stack gap={1}>
                                           <Badge tone="neutral">{purchaseLimit}</Badge>
-                                        </div>
+                                        </Stack>
                                       ) : null}
-                                    </div>
-                                    <div className="col-start-2 row-start-1 flex min-w-0 justify-end self-start lg:col-start-auto lg:row-start-auto lg:self-center [&>button]:min-h-11 lg:[&>button]:min-h-8">
+                                    </ComparisonListCell>
+                                    <ComparisonListCell area="action">
                                       <Button
                                         type="button"
                                         tone={isSelected ? "primary" : "secondary"}
@@ -1465,12 +1458,12 @@ function LoadedItemDetailPage({
                                           ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
                                           : t("discovery.features.itemDetail.ui.itemDetailPage.select")}
                                       </Button>
-                                    </div>
-                                  </div>
-                                </article>
+                                    </ComparisonListCell>
+                                  </ComparisonListRowGrid>
+                                </ComparisonListRow>
                               );
                             })}
-                          </div>
+                          </ComparisonList>
                         ) : (
                           <MarketplaceEmptyState
                             title={t("discovery.features.itemDetail.ui.itemDetailPage.no.active.listings")}
@@ -1529,18 +1522,15 @@ function LoadedItemDetailPage({
                           ) : null}
                         </Inline>
                         {matchingOffers.length > 0 ? (
-                          <div className="grid gap-3">
-                            <div
-                              className="hidden min-w-0 grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] items-center gap-3 px-3 text-xs font-semibold uppercase text-secondary lg:grid"
-                              aria-hidden="true"
-                            >
-                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.price")}</span>
-                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.buyer")}</span>
-                              <span>{t("discovery.features.itemDetail.ui.itemDetailPage.product")}</span>
-                              <span className="text-right">
-                                {t("discovery.features.itemDetail.ui.itemDetailPage.action")}
-                              </span>
-                            </div>
+                          <ComparisonList>
+                            <ComparisonListHeader
+                              labels={[
+                                t("discovery.features.itemDetail.ui.itemDetailPage.price"),
+                                t("discovery.features.itemDetail.ui.itemDetailPage.buyer"),
+                                t("discovery.features.itemDetail.ui.itemDetailPage.product"),
+                                t("discovery.features.itemDetail.ui.itemDetailPage.action"),
+                              ]}
+                            />
                             {matchingOffers.map((offer) => {
                               const isViewerOffer =
                                 viewerAccountId !== null && offer.buyer_account_id === viewerAccountId;
@@ -1568,28 +1558,18 @@ function LoadedItemDetailPage({
                               };
 
                               return (
-                                <article
+                                <ComparisonListRow
                                   key={offer.offer_id}
-                                  className={cx(
-                                    "glass-surface relative min-w-0 overflow-hidden rounded-tokenLg border p-3 shadow-tokenSm transition",
-                                    isSelected
-                                      ? "border-accent bg-surface-2 shadow-[0_0_28px_-18px_var(--glow-accent)]"
-                                      : "border-muted",
-                                  )}
+                                  selected={isSelected}
                                   aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.offer.row.label", {
                                     price: formatMoney(offer.price_amount),
                                     buyer: buyerName,
                                   })}
                                 >
-                                  {isSelected ? (
-                                    <span className="absolute inset-y-0 left-0 w-1 rounded-l-tokenLg bg-accent" />
-                                  ) : null}
-                                  <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-2 pl-2 lg:grid-cols-[minmax(5.5rem,0.8fr)_minmax(8rem,1.15fr)_minmax(10rem,1.25fr)_minmax(6.5rem,auto)] lg:items-center lg:gap-3 lg:pl-0">
-                                    <div className="min-w-0">
-                                      <div className="flex min-w-0 flex-wrap items-center gap-2">
-                                        <span className="font-heading text-lg font-bold leading-tight text-foreground tabular-nums lg:text-base">
-                                          {formatMoney(offer.price_amount)}
-                                        </span>
+                                  <ComparisonListRowGrid>
+                                    <ComparisonListCell>
+                                      <Inline gap={2}>
+                                        <ComparisonListPrice>{formatMoney(offer.price_amount)}</ComparisonListPrice>
                                         {isBestOfferPrice ? (
                                           <Badge tone="success">
                                             {t("discovery.features.itemDetail.ui.itemDetailPage.best.offer")}
@@ -1600,9 +1580,9 @@ function LoadedItemDetailPage({
                                             {t("discovery.features.itemDetail.ui.itemDetailPage.your.offer")}
                                           </Badge>
                                         ) : null}
-                                      </div>
-                                    </div>
-                                    <div className="col-start-1 row-start-2 min-w-0 lg:col-start-auto lg:row-start-auto">
+                                      </Inline>
+                                    </ComparisonListCell>
+                                    <ComparisonListCell area="account">
                                       <AccountReputationSummary
                                         accountName={buyerName}
                                         href={buyerFeedbackHref}
@@ -1618,21 +1598,22 @@ function LoadedItemDetailPage({
                                           {t("discovery.features.itemDetail.ui.itemDetailPage.own.offer.visibility")}
                                         </Text>
                                       ) : null}
-                                    </div>
-                                    <div className="col-span-2 col-start-1 row-start-3 min-w-0 lg:col-span-1 lg:col-start-auto lg:row-start-auto">
+                                    </ComparisonListCell>
+                                    <ComparisonListCell area="product">
                                       <ProductOptions
                                         options={productOptionsFromSelectionDetails(
                                           getProductSelectionDetails(offer.selected_options),
                                         )}
                                         emptyLabel={compactProductSummary}
                                         variant="compact"
-                                        className="block max-w-full truncate text-sm font-semibold leading-5"
+                                        size="sm"
+                                        truncate
                                       />
-                                      <span className="mt-0.5 block text-xs font-medium text-secondary">
+                                      <Text element="span" size="xs" tone="secondary" weight="medium">
                                         {formatOfferRequestedQuantity(offer)}
-                                      </span>
-                                    </div>
-                                    <div className="col-start-2 row-start-1 flex min-w-0 justify-end self-start lg:col-start-auto lg:row-start-auto lg:self-center [&>button]:min-h-11 lg:[&>button]:min-h-8">
+                                      </Text>
+                                    </ComparisonListCell>
+                                    <ComparisonListCell area="action">
                                       <Button
                                         type="button"
                                         tone={isSelected ? "primary" : "secondary"}
@@ -1651,12 +1632,12 @@ function LoadedItemDetailPage({
                                           ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
                                           : t("discovery.features.itemDetail.ui.itemDetailPage.select")}
                                       </Button>
-                                    </div>
-                                  </div>
-                                </article>
+                                    </ComparisonListCell>
+                                  </ComparisonListRowGrid>
+                                </ComparisonListRow>
                               );
                             })}
-                          </div>
+                          </ComparisonList>
                         ) : (
                           <MarketplaceEmptyState
                             title={t("discovery.features.itemDetail.ui.itemDetailPage.no.matching.offers")}

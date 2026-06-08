@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Badge,
   Button,
@@ -146,7 +147,7 @@ export function PromoBarAdminPage({
       <PageSection title={t("publicPresence.promoBar.create.title")}>
         <Form spacing="none" method="post">
           <Stack gap={3}>
-            <input type="hidden" name="intent" value="create" />
+            <HiddenInput type="hidden" name="intent" value="create" />
             <PromoBarMessageFields />
             <Inline>
               <Button type="submit" leadingIcon="plus">
@@ -195,7 +196,7 @@ export function PromoBarAdminPage({
               cell: (message) => (
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
-                    <input type="hidden" name="id" value={message.id} />
+                    <HiddenInput type="hidden" name="id" value={message.id} />
                     <PromoBarMessageFields message={message} />
                     <Inline gap={2}>
                       <Button type="submit" name="intent" value="update" size="sm" leadingIcon="check">

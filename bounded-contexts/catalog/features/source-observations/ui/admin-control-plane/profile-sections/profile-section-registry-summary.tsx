@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Button, Inline, Stack, StatusPill, TaskSummary } from "@chase-sets/design-system";
+import { Text, Button, Inline, Stack, StatusPill, TaskSummary } from "@chase-sets/design-system";
 import type { CatalogProviderProfileEditableSection } from "../../contracts";
 import { profileSectionRegistryItems } from "./registry";
 import type {
@@ -62,7 +62,11 @@ function ProfileSectionStateValue({
         <StatusPill tone={sectionStatusTone(state.status)}>{sectionStatusLabel(state.status)}</StatusPill>
         <span>{needsOperatorAttention ? (state.blockedReason ?? fallbackText) : fallbackText}</span>
       </Inline>
-      {state.error ? <p className="m-0 text-sm text-danger">{state.error}</p> : null}
+      {state.error ? (
+        <Text size="sm" tone="danger">
+          {state.error}
+        </Text>
+      ) : null}
       {state.canSave && state.onSave ? (
         <Inline gap={2}>
           <Button size="sm" tone="secondary" leadingIcon="check" onClick={state.onSave} loading={state.saving}>
