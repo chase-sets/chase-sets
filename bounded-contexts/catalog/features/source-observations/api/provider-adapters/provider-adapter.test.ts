@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 
 import type {
   CatalogIntegrationUnitDescriptor,
@@ -11,7 +12,19 @@ import {
   REFERENCE_CARDS_POKEMON_SINGLE_CARD_SOURCE_OBSERVATION_PROOF_UNIT_KEY,
   runReferenceCardsSourceObservationProofDryRun,
 } from "./reference-cards";
+import {
+  createMtgjsonValidationProviderAdapter,
+  MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
+  MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+  runMtgjsonSourceObservationValidationDryRun,
+} from "./mtgjson";
 import { ProviderAdapterRegistry } from "./registry";
+import {
+  createScryfallValidationProviderAdapter,
+  runScryfallSourceObservationValidationDryRun,
+  SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
+  SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+} from "./scryfall";
 import {
   createTcgdexProviderAdapter,
   runTcgdexSourceObservationImportProofDryRun,
@@ -528,6 +541,214 @@ describe("ProviderAdapterRegistry", () => {
     expect(JSON.stringify([...configured, ...unconfigured])).not.toMatch(
       /TCGAuthTicket|password|Bearer|authorization/i,
     );
+  });
+
+  it("validates MTGJSON reference data through ProviderAdapter extension points", async () => {
+    const adapter = createMtgjsonValidationProviderAdapter();
+    const units = await adapter.listIntegrationUnits();
+    const sets = await adapter.listOptions({
+      unitKey: MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
+      optionKind: "sets",
+    });
+    const cards = await adapter.listOptions({
+      unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      optionKind: "cards",
+      parentValues: { setCode: "TSP" },
+    });
+    const plan = await adapter.planImport({
+      unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      scopeKey: "single-card",
+      values: { setCode: "TSP", cardName: "Fury Sliver", collectorNumber: "157" },
+    });
+    const payloads = await collectPayloads(adapter.fetchPayloads(plan));
+    const dryRun = await runMtgjsonSourceObservationValidationDryRun(adapter);
+
+    expect(units.map((unit) => unit.unitKey)).toEqual([
+      MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      MTGJSON_MTG_SET_REFERENCE_DATA_UNIT_KEY,
+    ]);
+    expect(sets.items).toContainEqual(
+      expect.objectContaining({
+        value: "TSP",
+        label: "Time Spiral",
+        metadata: expect.objectContaining({ mtgjsonVersion: "5.3.0+20260605" }),
+      }),
+    );
+    expect(cards.items).toContainEqual(
+      expect.objectContaining({
+        label: "Fury Sliver #157",
+        parentValue: "TSP",
+        metadata: expect.objectContaining({ scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe" }),
+      }),
+    );
+    expect(plan.transportSteps).toEqual([
+      "Fetch MTGJSON set file",
+      "Select card payload",
+      "Attach card reference provenance",
+    ]);
+    expect(payloads).toEqual([
+      expect.objectContaining({
+        unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+        providerKey: "mtgjson",
+        externalKey: "card:13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+        provenance: expect.objectContaining({
+          fetchedAt: "2026-06-08T00:00:00.000Z",
+          sourceUrl: "https://mtgjson.com/api/v5/TSP.json",
+          contentHash: expect.stringMatching(/^sha256:/),
+        }),
+      }),
+    ]);
+    expect(dryRun).toMatchObject({
+      unitKey: MTGJSON_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      profileVersion: "mtgjson-validation-2026.06.08",
+      observations: [
+        {
+          providerKey: "mtgjson",
+          normalizedFacts: {
+            name: "Fury Sliver",
+            cardNumber: "157",
+            setCode: "TSP",
+            setName: "Time Spiral",
+            rarity: "uncommon",
+            layout: "normal",
+            scryfallId: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+  });
+
+  it("validates Scryfall reference and image evidence through ProviderAdapter extension points", async () => {
+    const adapter = createScryfallValidationProviderAdapter();
+    const units = await adapter.listIntegrationUnits();
+    const cards = await adapter.listOptions({
+      unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      optionKind: "cards",
+      parentValues: { query: '!"Fury Sliver"' },
+    });
+    const bulk = await adapter.listOptions({
+      unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      optionKind: "bulk-data",
+    });
+    const imagePlan = await adapter.planImport({
+      unitKey: SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
+      scopeKey: "image-evidence",
+      values: { cardId: "0000579f-7b35-4ed3-b44c-db2a538066fe" },
+    });
+    const imagePayloads = await collectPayloads(adapter.fetchPayloads(imagePlan));
+    const dryRun = await runScryfallSourceObservationValidationDryRun(adapter);
+
+    expect(units.map((unit) => unit.unitKey)).toEqual([
+      SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
+    ]);
+    expect(cards.items).toEqual([
+      expect.objectContaining({
+        value: "0000579f-7b35-4ed3-b44c-db2a538066fe",
+        label: "Fury Sliver - TSP - 157",
+        metadata: expect.objectContaining({ imageStatus: "highres_scan" }),
+      }),
+    ]);
+    expect(bulk.items).toEqual([
+      expect.objectContaining({
+        value: "default_cards",
+        label: "Default Cards",
+        metadata: expect.objectContaining({ updatedAt: "2026-06-08T09:13:03.704+00:00" }),
+      }),
+    ]);
+    expect(imagePayloads).toEqual([
+      expect.objectContaining({
+        unitKey: SCRYFALL_MTG_IMAGE_EVIDENCE_UNIT_KEY,
+        providerKey: "scryfall",
+        externalKey: "image:0000579f-7b35-4ed3-b44c-db2a538066fe",
+        payload: expect.objectContaining({
+          kind: "image-evidence",
+          imageUris: expect.objectContaining({ normal: expect.stringContaining("cards.scryfall.io/normal") }),
+        }),
+      }),
+    ]);
+    expect(dryRun).toMatchObject({
+      unitKey: SCRYFALL_MTG_SINGLE_CARD_REFERENCE_DATA_UNIT_KEY,
+      profileVersion: "scryfall-validation-2026.06.08",
+      observations: [
+        {
+          providerKey: "scryfall",
+          normalizedFacts: {
+            name: "Fury Sliver",
+            cardNumber: "157",
+            setCode: "tsp",
+            setName: "Time Spiral",
+            rarity: "uncommon",
+            layout: "normal",
+            oracleId: "44623693-51d6-49ad-8cd7-140505caf02f",
+            imageStatus: "highres_scan",
+          },
+        },
+      ],
+      diagnostics: [],
+    });
+  });
+
+  it("records MTGJSON/Scryfall source conflict evidence without adapter-side precedence", async () => {
+    const mtgjson = await runMtgjsonSourceObservationValidationDryRun();
+    const scryfall = await runScryfallSourceObservationValidationDryRun();
+    const mtgjsonConflictObservation = {
+      ...mtgjson.observations[0],
+      normalizedFacts: {
+        ...mtgjson.observations[0]?.normalizedFacts,
+        rarity: "special",
+      },
+    };
+    const conflictEvidence = {
+      field: "rarity",
+      winningValue: scryfall.observations[0]?.normalizedFacts.rarity,
+      winningSource: scryfall.observations[0]?.providerKey,
+      losingValues: [
+        {
+          value: mtgjsonConflictObservation.normalizedFacts.rarity,
+          source: mtgjsonConflictObservation.providerKey,
+          externalKey: mtgjsonConflictObservation.externalKey,
+        },
+      ],
+      rule: "field-precedence.mtg-card-print.v1",
+      explanation:
+        "Scryfall print data wins card-print rarity conflicts; MTGJSON retains the losing source value as evidence for operator review.",
+    };
+
+    expect(conflictEvidence).toEqual({
+      field: "rarity",
+      winningValue: "uncommon",
+      winningSource: "scryfall",
+      losingValues: [
+        {
+          value: "special",
+          source: "mtgjson",
+          externalKey: "card:13fd9d47-9aa7-5f7c-8f47-fury-sliver",
+        },
+      ],
+      rule: "field-precedence.mtg-card-print.v1",
+      explanation:
+        "Scryfall print data wins card-print rarity conflicts; MTGJSON retains the losing source value as evidence for operator review.",
+    });
+    expect(JSON.stringify(conflictEvidence)).not.toMatch(/adapter.*wins|provider.*decides/i);
+  });
+
+  it("keeps MTGJSON and Scryfall validation out of core runtime, routes, Admin branches, and raw JSON paths", () => {
+    const guardedFiles = [
+      "features/source-observations/api/runtime.ts",
+      "features/source-observations/api/route.ts",
+      "features/source-observations/api/route-helpers.ts",
+      "features/source-observations/ui/integration-management-page.tsx",
+      "features/source-observations/api/provider-integration-profiles.ts",
+    ];
+
+    for (const file of guardedFiles) {
+      const source = readFileSync(file, "utf8");
+
+      expect(source, file).not.toMatch(/mtgjson/i);
+      expect(source, file).not.toMatch(/SCRYFALL_MTG_|scryfall:mtg|createScryfallProviderAdapter/i);
+    }
   });
 });
 
