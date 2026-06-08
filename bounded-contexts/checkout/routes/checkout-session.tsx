@@ -21,7 +21,7 @@ import { subscribeRealtimePatches } from "@chase-sets/platform-runtime/realtime-
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import { CheckoutApiError, createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import {
-  checkoutRecoveryForError,
+  checkoutRecoveryForFreshWriteError,
   createCheckoutRecoveryResponse,
   isCheckoutRecovery,
 } from "../support/request-support/checkout-recovery";
@@ -341,7 +341,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     isNotFound: (error) => error instanceof CheckoutApiError && error.status === 404,
     load: () => api.getCheckoutSession(params.sessionId!),
   }).catch((error) => {
-    const recovery = checkoutRecoveryForError(error, actor, currentPathWithSearch(request));
+    const recovery = checkoutRecoveryForFreshWriteError(error, actor, request, currentPathWithSearch(request));
     if (recovery) {
       throw createCheckoutRecoveryResponse(recovery);
     }
@@ -576,7 +576,7 @@ export function ErrorBoundary() {
   const error = useRouteError();
   const location = useLocation();
 
-  if (!isRouteErrorResponse(error) || ![401, 403, 404].includes(error.status)) {
+  if (!isRouteErrorResponse(error) || ![401, 403, 404, 503].includes(error.status)) {
     throw error;
   }
 

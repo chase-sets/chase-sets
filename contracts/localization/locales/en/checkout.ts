@@ -519,9 +519,13 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutRecovery.browse.marketplace": "Browse marketplace",
   "checkout.routes.checkoutRecovery.buy.cart.empty": "Your Buy Cart is empty",
   "checkout.routes.checkoutRecovery.buy.cart.empty.description": "Add items to your Buy Cart before starting checkout.",
+  "checkout.routes.checkoutRecovery.checkout.preparing": "Preparing checkout",
+  "checkout.routes.checkoutRecovery.checkout.preparing.description":
+    "We are getting your checkout ready. Refresh this page in a moment to continue.",
   "checkout.routes.checkoutRecovery.checkout.needs.attention": "Checkout needs attention",
   "checkout.routes.checkoutRecovery.checkout.needs.attention.description":
     "We could not start checkout from the current cart or item. Review your Buy Cart or browse for another item.",
+  "checkout.routes.checkoutRecovery.refresh.checkout": "Refresh checkout",
   "checkout.routes.checkoutRecovery.view.buy.cart": "View Buy Cart",
   "checkout.features.sessions.ui.checkoutPage.wallet.available.description":
     "{amount} {currency} available for platform purchases",
