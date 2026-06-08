@@ -569,6 +569,26 @@ export interface SourceObservationReapplyPreview {
   eligible: number;
   ineligible: number;
   scope: Required<SourceObservationPromotionScope>;
+  impact?: SourceObservationReplayImpactSummary;
+}
+
+export interface SourceObservationExternalReferenceImpactSample {
+  observationId: string;
+  referenceKind: "catalog-item-reference" | "product-reference";
+  providerKey: string;
+  externalKey: string;
+  catalogItemId: string | null;
+}
+
+export interface SourceObservationReplayImpactSummary {
+  matchedObservations: number;
+  eligibleObservations: number;
+  blockedObservations: number;
+  impactedCatalogItemCount: number;
+  impactedCatalogItemIds: string[];
+  externalReferenceCount: number;
+  externalReferenceSamples: SourceObservationExternalReferenceImpactSample[];
+  sampleObservationIds: string[];
 }
 
 export type BulkSourceObservationPromotionStatus = "promoted" | "rejected" | "skipped" | "failed";

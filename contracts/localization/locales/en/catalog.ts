@@ -181,6 +181,10 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.bulk.job.not.found": "Bulk job was not found.",
   "catalog.features.sourceObservations.api.route.integration.job.invalid.action": "Unknown integration job action.",
   "catalog.features.sourceObservations.api.route.integration.job.not.found": "Integration job was not found.",
+  "catalog.features.sourceObservations.api.route.impact.profile.version.required":
+    "Provider key and profile version are required for impact analysis.",
+  "catalog.features.sourceObservations.api.route.impact.lifecycle.operation.invalid":
+    "Lifecycle impact operation must be activation, rollback, deprecate, or retire.",
   "catalog.features.sourceObservations.api.adminControlPlaneOverview.job.summary":
     "{action} job {jobId} is {operatorStatus} ({completed}/{total}).",
   "catalog.features.sourceObservations.api.adminControlPlaneOverview.profile.created":
@@ -189,6 +193,14 @@ export const catalogEnglishTranslations = {
     "{displayName} profile {profileVersion} is {lifecycle}.",
   "catalog.features.sourceObservations.api.adminControlPlaneOverview.profile.sections.edited":
     "{displayName} profile {profileVersion} sections were edited.",
+  "catalog.features.sourceObservations.api.catalogIntegrationImpactAnalysis.reapply.ineligible":
+    "{count} matched Source Observations are outside the promoted reapply set.",
+  "catalog.features.sourceObservations.api.catalogIntegrationImpactAnalysis.reapply.jobs":
+    "{count} active integration or review jobs may overlap this reapply preview.",
+  "catalog.features.sourceObservations.api.catalogIntegrationImpactAnalysis.lifecycle.jobs":
+    "{count} active integration or review jobs block this profile lifecycle action.",
+  "catalog.features.sourceObservations.api.catalogIntegrationImpactAnalysis.lifecycle.retirement.references":
+    "{count} Source Observations still reference this profile version.",
   "catalog.features.sourceObservations.ui.detail.card.illustrator": "Card Illustrator",
   "catalog.features.sourceObservations.ui.detail.card.image": "Card image",
   "catalog.features.sourceObservations.ui.detail.card.number": "Card Number",
@@ -306,6 +318,11 @@ export const catalogEnglishTranslations = {
     "{eligible} promoted observations will be reapplied. {ineligible} of {matched} matching observations are not promoted and will be skipped.",
   "catalog.features.sourceObservations.ui.integrations.reapply.confirm.scope": "Scope: {scope}",
   "catalog.features.sourceObservations.ui.integrations.reapply.confirm.title": "Reapply integration mapping",
+  "catalog.features.sourceObservations.ui.integrations.reapply.impact.catalog.items": "Catalog Items",
+  "catalog.features.sourceObservations.ui.integrations.reapply.impact.external.references": "External references",
+  "catalog.features.sourceObservations.ui.integrations.reapply.impact.sample.observations": "Sample observations",
+  "catalog.features.sourceObservations.ui.integrations.reapply.impact.sample.catalog.items": "Sample Catalog Items",
+  "catalog.features.sourceObservations.ui.integrations.reapply.impact.sample.none": "None",
   "catalog.features.sourceObservations.ui.integrations.reapply.completed":
     "{reapplied} observations reapplied, {skipped} skipped, {failed} failed.",
   "catalog.features.sourceObservations.ui.integrations.reapply.failed": "Source Observation reapply failed.",

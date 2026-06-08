@@ -40,6 +40,7 @@ import {
 
 export type ProviderProfileRouteServices = ProviderProfileAdminServices &
   Partial<Pick<CatalogIntegrationEngineServices, "previewDuplicatePreventionCandidates">> &
+  Pick<CatalogIntegrationEngineServices, "previewProviderProfileLifecycleImpact"> &
   Partial<Pick<IntegrationJobServices, "listActiveIntegrationJobs">> &
   Partial<Pick<BulkReviewJobServices, "listActiveBulkReviewJobs">> &
   Partial<Pick<CatalogIntegrationEngineServices, "assertCatalogIntegrationRolloutAllowed">>;
@@ -192,6 +193,30 @@ export function providerProfileRoutes(
     });
   });
 
+  app.get("/provider-profiles/:providerKey/:profileVersion/lifecycle-impact", async (c) => {
+    const operation = parseLifecycleImpactOperation(c.req.query("operation"));
+    if (!operation) {
+      return c.json(
+        {
+          error: {
+            code: "invalid_lifecycle_impact_operation",
+            message: t("catalog.features.sourceObservations.api.route.impact.lifecycle.operation.invalid"),
+          },
+        },
+        400,
+      );
+    }
+
+    const result = await services.previewProviderProfileLifecycleImpact({
+      providerKey: c.req.param("providerKey"),
+      profileVersion: c.req.param("profileVersion"),
+      operation,
+      context: c.get("context"),
+    });
+
+    return c.json(result);
+  });
+
   app.post("/provider-profiles/:providerKey/:profileVersion/activate", async (c) => {
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
@@ -318,6 +343,10 @@ export function providerProfileRoutes(
   });
 
   return app;
+}
+
+function parseLifecycleImpactOperation(value: string | undefined) {
+  return value === "activation" || value === "rollback" || value === "deprecate" || value === "retire" ? value : null;
 }
 
 async function assertActivationRolloutAllowed(

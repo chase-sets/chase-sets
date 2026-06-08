@@ -6,6 +6,8 @@ import {
   listSourceObservationIntegrationScopes,
   previewSourceObservationReapplyScope,
   previewSourceObservationPromotionScope,
+  summarizeSourceObservationLifecycleImpact,
+  summarizeSourceObservationReplayImpact,
 } from "./queries";
 
 describe("source observation read-model queries", () => {
@@ -82,7 +84,7 @@ describe("source observation read-model queries", () => {
   });
 
   it("previews promoted observations as eligible for reapply", async () => {
-    const db = queryableSequence([[{ count: "7" }], [{ count: "12" }]]);
+    const db = queryableSequence([[{ count: "7" }], [{ count: "12" }], [], [], []]);
 
     const preview = await previewSourceObservationReapplyScope(db, {
       language: "en",
@@ -100,6 +102,92 @@ describe("source observation read-model queries", () => {
     });
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("COUNT(*)"), ["en", "base1"]);
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("status = ANY"), ["en", "base1", ["promoted"]]);
+  });
+
+  it("summarizes replay impact with Catalog Item and external reference samples", async () => {
+    const db = queryableSequence([
+      [{ count: "3" }],
+      [{ count: "5" }],
+      [
+        { promoted_catalog_item_id: "cat_1", total_count: "2" },
+        { promoted_catalog_item_id: "cat_2", total_count: "2" },
+      ],
+      [
+        {
+          observation_id: "obs_1",
+          reference_kind: "catalog-item-reference",
+          provider_key: "tcgdex",
+          external_key: "card:1",
+          catalog_item_id: "cat_1",
+          reference_count: "4",
+        },
+        {
+          observation_id: "obs_2",
+          reference_kind: "product-reference",
+          provider_key: "tcgdex",
+          external_key: "sku:2",
+          catalog_item_id: "cat_2",
+          reference_count: "4",
+        },
+      ],
+      [{ observation_id: "obs_1" }, { observation_id: "obs_2" }],
+    ]);
+
+    const impact = await summarizeSourceObservationReplayImpact(db, { provider: "tcgdex" }, { sampleLimit: 2 });
+
+    expect(impact).toMatchObject({
+      matchedObservations: 5,
+      eligibleObservations: 3,
+      blockedObservations: 2,
+      impactedCatalogItemCount: 2,
+      impactedCatalogItemIds: ["cat_1", "cat_2"],
+      externalReferenceCount: 4,
+      sampleObservationIds: ["obs_1", "obs_2"],
+    });
+    expect(impact.externalReferenceSamples[0]).toMatchObject({
+      observationId: "obs_1",
+      referenceKind: "catalog-item-reference",
+      providerKey: "tcgdex",
+      externalKey: "card:1",
+      catalogItemId: "cat_1",
+    });
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("LIMIT 2"), ["tcgdex", ["promoted"]]);
+  });
+
+  it("summarizes profile lifecycle impact references without raw payload rows", async () => {
+    const db = queryableSequence([
+      [{ referenced_count: "6", source_count: "4", promotion_count: "2" }],
+      [{ promoted_catalog_item_id: "cat_9", total_count: "1" }],
+      [
+        {
+          observation_id: "obs_9",
+          reference_kind: "product-reference",
+          provider_key: "tcgplayer",
+          external_key: "sku:9",
+          catalog_item_id: "cat_9",
+          reference_count: "1",
+        },
+      ],
+      [{ observation_id: "obs_9" }],
+    ]);
+
+    const impact = await summarizeSourceObservationLifecycleImpact(db, {
+      providerKey: "tcgplayer",
+      profileVersion: "v2",
+      operation: "retire",
+      sampleLimit: 1,
+    });
+
+    expect(impact).toMatchObject({
+      referencedObservationCount: 6,
+      sourceProfileReferenceCount: 4,
+      promotionProfileReferenceCount: 2,
+      impactedCatalogItemCount: 1,
+      impactedCatalogItemIds: ["cat_9"],
+      externalReferenceCount: 1,
+      sampleObservationIds: ["obs_9"],
+    });
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("source_profile_version = $2"), ["tcgplayer", "v2"]);
   });
 
   it("lists promoted IDs across the whole matching reapply scope", async () => {

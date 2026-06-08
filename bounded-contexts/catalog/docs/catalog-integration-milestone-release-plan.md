@@ -145,6 +145,7 @@ Primary issues:
 - #787 observability and runbooks
 - #789 raw JSON fallback retirement
 - #801 rollout modes, feature flags, and kill switches, documented in [Catalog Integration Rollout Controls](./catalog-integration-rollout-controls.md)
+- #798 activation, rollback, retirement, replay, and reapply impact analysis, documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md)
 - #803 provider-data policy/legal signoff, documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
 - #804 legacy data and compatibility cleanup
 

@@ -2280,6 +2280,30 @@ export function IntegrationManagementPage({
                 scope: formatReapplyScope(reapplyPreview.scope),
               })}
             </p>
+            {reapplyPreview.impact ? (
+              <KeyValueList
+                density="compact"
+                variant="plain"
+                items={[
+                  {
+                    key: t("catalog.features.sourceObservations.ui.integrations.reapply.impact.catalog.items"),
+                    value: String(reapplyPreview.impact.impactedCatalogItemCount),
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.integrations.reapply.impact.external.references"),
+                    value: String(reapplyPreview.impact.externalReferenceCount),
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.integrations.reapply.impact.sample.observations"),
+                    value: formatImpactSampleList(reapplyPreview.impact.sampleObservationIds),
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.integrations.reapply.impact.sample.catalog.items"),
+                    value: formatImpactSampleList(reapplyPreview.impact.impactedCatalogItemIds),
+                  },
+                ]}
+              />
+            ) : null}
             {reapplyProgress ? (
               <ProgressBar
                 value={bulkActionProgressPercent(reapplyProgress)}
@@ -10061,6 +10085,14 @@ function formatPromotionScope(scope: SourceObservationPromotionScope): string {
     language: scope.language ?? "",
     setId: scope.setId ?? "",
   });
+}
+
+function formatImpactSampleList(values: readonly string[]): string {
+  if (values.length === 0) {
+    return t("catalog.features.sourceObservations.ui.integrations.reapply.impact.sample.none");
+  }
+
+  return values.slice(0, 5).join(", ");
 }
 
 function formatIntegrationJobScope(scope: SourceObservationIntegrationJobScope): string {

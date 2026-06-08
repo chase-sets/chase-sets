@@ -1,12 +1,14 @@
+import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
-import type { PromotionReapplyServices } from "./runtime";
+import type { CatalogIntegrationEngineServices, PromotionReapplyServices } from "./runtime";
 import { parsePromotionScope } from "./route-helpers";
 
 export type PromotionReviewRouteServices = Pick<
   PromotionReapplyServices,
   "previewPromoteObservationScope" | "previewReapplyObservationScope"
->;
+> &
+  Pick<CatalogIntegrationEngineServices, "previewReplayReapplyImpact">;
 
 export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
@@ -28,6 +30,37 @@ export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
     };
     const result = await services.previewReapplyObservationScope({
       scope: parsePromotionScope(body.scope),
+    });
+
+    return c.json(result);
+  });
+
+  app.post("/reapply/impact", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      providerKey?: unknown;
+      profileVersion?: unknown;
+      scope?: unknown;
+    };
+    const providerKey = String(body.providerKey ?? "").trim();
+    const profileVersion = String(body.profileVersion ?? "").trim();
+
+    if (!providerKey || !profileVersion) {
+      return c.json(
+        {
+          error: {
+            code: "profile_version_required",
+            message: t("catalog.features.sourceObservations.api.route.impact.profile.version.required"),
+          },
+        },
+        400,
+      );
+    }
+
+    const result = await services.previewReplayReapplyImpact({
+      providerKey,
+      profileVersion,
+      scope: parsePromotionScope(body.scope),
+      context: c.get("context"),
     });
 
     return c.json(result);

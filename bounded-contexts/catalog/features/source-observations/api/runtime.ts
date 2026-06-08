@@ -54,6 +54,8 @@ import {
   listSourceObservations,
   previewSourceObservationReapplyScope,
   previewSourceObservationPromotionScope,
+  summarizeSourceObservationLifecycleImpact,
+  summarizeSourceObservationReplayImpact,
   type SourceObservationDetailRow,
   type SourceObservationFilterScope,
   type SourceObservationIntegrationScopeRow,
@@ -102,6 +104,17 @@ import {
   type CatalogIntegrationRolloutControlPolicy,
   type CatalogIntegrationRolloutControlSnapshot,
 } from "./catalog-integration-rollout-controls";
+import {
+  buildCatalogLifecycleImpactReadModel,
+  buildCatalogReplayReapplyImpactReadModel,
+  toCatalogAdminProfileVersionPointer,
+  unitKeyForCatalogProviderProfileVersion,
+  type CatalogIntegrationImpactJobSample,
+} from "./catalog-integration-impact-analysis";
+import type {
+  CatalogAdminReplayReapplyImpactSummaryReadModel,
+  CatalogAdminRollbackRetirementImpactSummaryReadModel,
+} from "./admin-control-plane-read-model-contracts";
 import { ProviderAdapterRegistry } from "./provider-adapters/registry";
 import {
   createReferenceCardsProviderAdapter,
@@ -509,6 +522,18 @@ export type CatalogIntegrationEngineServices = Readonly<{
     payload: JsonValue;
     observedAt?: string;
   }) => Promise<SourceObservationDuplicatePreventionCandidatePreview>;
+  previewReplayReapplyImpact: (input: {
+    providerKey: string;
+    profileVersion: string;
+    scope: SourceObservationFilterScope;
+    context?: EventStoreContext | null;
+  }) => Promise<CatalogAdminReplayReapplyImpactSummaryReadModel>;
+  previewProviderProfileLifecycleImpact: (input: {
+    providerKey: string;
+    profileVersion: string;
+    operation: CatalogAdminRollbackRetirementImpactSummaryReadModel["operation"];
+    context?: EventStoreContext | null;
+  }) => Promise<CatalogAdminRollbackRetirementImpactSummaryReadModel>;
   getCatalogIntegrationControlPlaneReadiness: () => Promise<CatalogIntegrationControlPlaneReadiness>;
   getCatalogIntegrationRolloutControls: () => CatalogIntegrationRolloutControlSnapshot;
   assertCatalogIntegrationRolloutAllowed: CatalogIntegrationRolloutControlPolicy["assertAllowed"];
@@ -829,6 +854,119 @@ export function createSourceObservationRuntime(
         error instanceof Error ? error.message : "Duplicate-prevention candidate preview failed.",
       );
     }
+  }
+
+  async function previewReplayReapplyImpact(input: {
+    providerKey: string;
+    profileVersion: string;
+    scope: SourceObservationFilterScope;
+    context?: EventStoreContext | null;
+  }): Promise<CatalogAdminReplayReapplyImpactSummaryReadModel> {
+    const version = await requireCatalogImpactProfileVersion(input.providerKey, input.profileVersion);
+    const impact = await summarizeSourceObservationReplayImpact(deps.db, {
+      ...input.scope,
+      provider: input.providerKey,
+    });
+    const activeJobs = await listCatalogIntegrationImpactActiveJobs({
+      providerKey: input.providerKey,
+      profileVersion: input.profileVersion,
+      context: input.context ?? null,
+    });
+
+    return buildCatalogReplayReapplyImpactReadModel({
+      unitKey: unitKeyForCatalogProviderProfileVersion(version),
+      profile: toCatalogAdminProfileVersionPointer(version),
+      impact,
+      activeJobs,
+    });
+  }
+
+  async function previewProviderProfileLifecycleImpact(input: {
+    providerKey: string;
+    profileVersion: string;
+    operation: CatalogAdminRollbackRetirementImpactSummaryReadModel["operation"];
+    context?: EventStoreContext | null;
+  }): Promise<CatalogAdminRollbackRetirementImpactSummaryReadModel> {
+    const version = await requireCatalogImpactProfileVersion(input.providerKey, input.profileVersion);
+    const [impact, activeJobs] = await Promise.all([
+      summarizeSourceObservationLifecycleImpact(deps.db, {
+        providerKey: input.providerKey,
+        profileVersion: input.profileVersion,
+        operation: input.operation,
+      }),
+      listCatalogIntegrationImpactActiveJobs({
+        providerKey: input.providerKey,
+        profileVersion: input.profileVersion,
+        context: input.context ?? null,
+      }),
+    ]);
+
+    return buildCatalogLifecycleImpactReadModel({
+      unitKey: unitKeyForCatalogProviderProfileVersion(version),
+      profile: toCatalogAdminProfileVersionPointer(version),
+      operation: input.operation,
+      impact,
+      activeJobs,
+    });
+  }
+
+  async function requireCatalogImpactProfileVersion(
+    providerKey: string,
+    profileVersion: string,
+  ): Promise<CatalogProviderIntegrationProfileVersionRecord> {
+    const version =
+      (await profileVersions.listProfileVersions(providerKey)).find(
+        (candidate) => candidate.profileVersion === profileVersion,
+      ) ?? null;
+    if (!version) {
+      throw new Error(`Catalog provider profile version ${providerKey}@${profileVersion} was not found.`);
+    }
+
+    return version;
+  }
+
+  async function listCatalogIntegrationImpactActiveJobs(input: {
+    providerKey: string;
+    profileVersion: string;
+    context: EventStoreContext | null;
+  }): Promise<readonly CatalogIntegrationImpactJobSample[]> {
+    const [integrationJobs, bulkJobs] = await Promise.all([
+      integrationJobStore.listActive({ jobKinds: ["import", "reapply"] }),
+      bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "reapply"] }),
+    ]);
+    const providerKey = input.providerKey.trim().toLowerCase();
+
+    return [
+      ...integrationJobs
+        .filter((job) => !input.context || jobMatchesContext(job, input.context))
+        .map(toSourceObservationIntegrationJob)
+        .filter((job) => isImpactBlockingJob(job.status, job.action))
+        .filter((job) => impactJobProviderKey(job)?.trim().toLowerCase() === providerKey)
+        .map((job) => ({
+          jobId: job.jobId,
+          jobKind: "integration" as const,
+          action: job.action,
+          status: job.status,
+          providerKey: impactJobProviderKey(job),
+          profileVersion: job.profileSnapshot?.profileVersion ?? null,
+        })),
+      ...bulkJobs
+        .filter((job) => !input.context || jobMatchesContext(job, input.context))
+        .map(toSourceObservationBulkJob)
+        .filter((job) => isImpactBlockingJob(job.status, job.action))
+        .filter((job) => {
+          const jobProviderKey = job.scope.provider?.trim().toLowerCase() ?? null;
+          return !jobProviderKey || jobProviderKey === providerKey;
+        })
+        .map((job) => ({
+          jobId: job.jobId,
+          jobKind: "bulk-review" as const,
+          action: job.action,
+          status: job.status,
+          providerKey: job.scope.provider ?? null,
+          profileVersion: null,
+        })),
+    ];
   }
 
   async function promoteObservationFromRow(input: {
@@ -2682,6 +2820,8 @@ export function createSourceObservationRuntime(
     getSelectedOptionAuthoringSchema: async () => loadSelectedOptionAuthoringSchema(deps.db),
     getPromotionTargetAuthoringSchema: async () => loadPromotionTargetAuthoringSchema(deps.db),
     previewDuplicatePreventionCandidates,
+    previewReplayReapplyImpact,
+    previewProviderProfileLifecycleImpact,
     promoteObservation: async ({ observationId, context }) => {
       const observation = await getSourceObservationDetail(deps.db, observationId);
       if (!observation) {
@@ -4476,6 +4616,14 @@ function jobMatchesContext(
     job.eventContext?.audit?.forAccountId === context.audit?.forAccountId &&
     job.eventContext?.audit?.performedByUserId === context.audit?.performedByUserId
   );
+}
+
+function isImpactBlockingJob(status: string, action: "import" | "reapply" | "promote" | "reject"): boolean {
+  return action !== "reject" && (status === "queued" || status === "running");
+}
+
+function impactJobProviderKey(job: SourceObservationIntegrationJob): string | null {
+  return job.profileSnapshot?.providerKey ?? job.scope.provider ?? null;
 }
 
 function parseJsonField<T>(value: unknown, fieldName: string): T {
