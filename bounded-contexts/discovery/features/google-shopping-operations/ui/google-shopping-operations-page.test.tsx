@@ -26,6 +26,7 @@ describe("GoogleShoppingOperationsPage", () => {
           selected: "google-shopping:listing:lst_1",
         }}
         notice={{ tone: "success", message: "Full sync dry-run queued as job_sync." }}
+        actorPermissions={["accounts.view", "catalog.view", "security.manage"]}
       />,
     );
 
@@ -39,6 +40,27 @@ describe("GoogleShoppingOperationsPage", () => {
     expect(markup).toContain("Targeted retry deferred");
     expect(markup).not.toContain("lastProviderResponse");
     expect(markup).not.toContain("secret-token");
+  });
+
+  it("hides cross-section remediation links from growth-only actors", () => {
+    const markup = renderToString(
+      <GoogleShoppingOperationsPage
+        data={feedRows()}
+        filters={{
+          filter: "failed",
+          search: "lst_1",
+          limit: 25,
+          refreshWindowDays: 30,
+          selected: "",
+        }}
+        actorPermissions={["google-shopping.view"]}
+      />,
+    );
+
+    expect(markup).toContain("https://marketplace.chasesets.com/listings/charizard-lst_1");
+    expect(markup).not.toContain("/platform/projections?contextName=discovery");
+    expect(markup).not.toContain("/access/accounts/acc_1");
+    expect(markup).not.toContain("/catalog/catalog-items/cit_1");
   });
 });
 
