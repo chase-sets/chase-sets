@@ -24,6 +24,27 @@ Use the stable IDs below in PR #1028, #1020, #1023, #1025, and milestone comment
 | SMOKE-SHELL-SUPPORT | Support | `/support` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no Verified chip. |
 | SMOKE-SHELL-PLATFORM | Platform | `/platform` | all-admin-permissions | Shared top app bar, account/sign-out access, local navigation, no Verified chip. |
 
+## Deployed Page Rows
+
+These rows are exercised by `pnpm run smoke:platform` when `PLATFORM_ADMIN_EMAIL` and `PLATFORM_ADMIN_PASSWORD` are configured. The smoke checks assert HTML, shared section navigation, account menu access, page-specific text, and absence of `Verified`.
+
+| ID | Route | Linked Coverage |
+| --- | --- | --- |
+| SMOKE-PAGE-ACCESS-USERS | `/access/users` | SMOKE-SHELL-ACCESS, SMOKE-API-IDENTITY-ACCESS-ADMIN |
+| SMOKE-PAGE-ACCESS-SESSIONS | `/access/sessions` | SMOKE-SHELL-ACCESS, SMOKE-API-AUTH-ACCESS-SESSIONS |
+| SMOKE-PAGE-CATALOG-ITEMS | `/catalog/catalog-items` | SMOKE-SHELL-CATALOG, SMOKE-API-CATALOG-ADMIN-SERVER |
+| SMOKE-PAGE-COMMERCE-TERMS-SCHEDULES | `/commerce/terms/schedules` | SMOKE-SHELL-COMMERCE, SMOKE-API-COMMERCIAL-TERMS-ADMIN-SERVER |
+| SMOKE-PAGE-COMMERCE-TERMS-AGREEMENTS | `/commerce/terms/agreements` | SMOKE-SHELL-COMMERCE, SMOKE-API-COMMERCIAL-TERMS-ADMIN-SERVER |
+| SMOKE-PAGE-COMMERCE-POSTAGE-POLICIES | `/commerce/postage-policies` | SMOKE-SHELL-COMMERCE, SMOKE-API-MARKETPLACE-POSTAGE-POLICIES |
+| SMOKE-PAGE-GROWTH-GOOGLE-SHOPPING | `/growth/google-shopping` | SMOKE-SHELL-GROWTH, SMOKE-API-MARKETPLACE-GOOGLE-SHOPPING |
+| SMOKE-PAGE-GROWTH-WAITLIST | `/growth/waitlist` | SMOKE-SHELL-GROWTH, SMOKE-API-PUBLIC-PRESENCE-ADMIN-SERVER |
+| SMOKE-PAGE-GROWTH-PROMO-BAR | `/growth/promo-bar` | SMOKE-SHELL-GROWTH, SMOKE-API-PUBLIC-PRESENCE-ADMIN-SERVER |
+| SMOKE-PAGE-SUPPORT-REQUESTS | `/support/requests` | SMOKE-SHELL-SUPPORT, SMOKE-API-MARKETPLACE-SUPPORT-REQUESTS |
+| SMOKE-PAGE-SUPPORT-PLATFORM-FEEDBACK | `/support/platform-feedback` | SMOKE-SHELL-SUPPORT, SMOKE-API-EXPERIENCE-PLATFORM-FEEDBACK |
+| SMOKE-PAGE-PLATFORM-PROJECTIONS | `/platform/projections` | SMOKE-SHELL-PLATFORM, SMOKE-API-PLATFORM-PROJECTIONS |
+| SMOKE-PAGE-PLATFORM-RELEASE-DASHBOARD | `/platform/release-dashboard` | SMOKE-SHELL-PLATFORM |
+| SMOKE-PAGE-PLATFORM-RELEASE-CONTROLS | `/platform/release-controls` | SMOKE-SHELL-PLATFORM, SMOKE-API-PLATFORM-RELEASE-CONTROLS |
+
 ## Partial-Actor Rows
 
 | ID | Permission | Entry Paths | Expected Sections | Required Evidence |

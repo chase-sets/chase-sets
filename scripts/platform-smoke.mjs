@@ -2,6 +2,7 @@ import process from "node:process";
 import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
+import { ADMIN_DEPLOYED_PAGE_SMOKE_ROWS } from "./admin-shell-smoke-matrix.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment();
@@ -162,6 +163,37 @@ async function expectTextContains(label, input, expectedText) {
   const missing = expectedText.filter((value) => !text.includes(value));
   if (missing.length > 0) {
     throw new Error(`${label} did not include expected text: ${missing.join(", ")}.`);
+  }
+}
+
+async function expectAdminHtmlPage({ adminOrigin, sessionToken, row }) {
+  const response = await expectOk(`${row.id} ${row.path}`, `${adminOrigin}${row.path}`, {
+    headers: {
+      Authorization: `Bearer ${sessionToken}`,
+    },
+  });
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/html")) {
+    throw new Error(`${row.id} ${row.path} returned '${contentType}' instead of HTML.`);
+  }
+
+  const text = await response.text();
+  const expectedText = [
+    ...row.expectedText,
+    "Access",
+    "Catalog",
+    "Commerce",
+    "Growth",
+    "Support",
+    "Platform",
+    "Account menu",
+  ];
+  const missing = expectedText.filter((value) => !text.includes(value));
+  if (missing.length > 0) {
+    throw new Error(`${row.id} ${row.path} did not include expected text: ${missing.join(", ")}.`);
+  }
+  if (text.includes("Verified")) {
+    throw new Error(`${row.id} ${row.path} rendered the retired Verified chip text.`);
   }
 }
 
@@ -328,6 +360,12 @@ async function expectAdminCommercialTermsPages(adminOrigin, sessionToken) {
   }
 }
 
+async function expectAdminDeployedPageMatrix(adminOrigin, sessionToken) {
+  for (const row of ADMIN_DEPLOYED_PAGE_SMOKE_ROWS) {
+    await expectAdminHtmlPage({ adminOrigin, sessionToken, row });
+  }
+}
+
 async function expectRedirect(label, input, expectedAuthority) {
   const response = await fetchWithRetry(label, input, { redirect: "manual" }, (candidate) => candidate.status === 302);
 
@@ -451,6 +489,7 @@ async function main() {
     }
 
     await expectAdminCommercialTermsPages(adminUrl, authBody.sessionToken);
+    await expectAdminDeployedPageMatrix(adminUrl, authBody.sessionToken);
   } else {
     console.warn("Skipping authenticated admin smoke; admin credentials were not provided.");
   }

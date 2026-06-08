@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ADMIN_PARTIAL_ACTORS,
+  ADMIN_DEPLOYED_PAGE_SMOKE_ROWS,
   ADMIN_SHELL_SECTIONS,
   ADMIN_SHELL_SMOKE_MATRIX,
   ADMIN_TOPOLOGY_MODES,
@@ -11,6 +12,7 @@ import {
 
 const runbook = readFileSync(resolve("docs/runbooks/admin-shell-smoke-matrix.md"), "utf8");
 const docsIndex = readFileSync(resolve("docs/README.md"), "utf8");
+const platformSmoke = readFileSync(resolve("scripts/platform-smoke.mjs"), "utf8");
 
 function duplicates(values) {
   const seen = new Set();
@@ -71,6 +73,37 @@ describe("admin shell smoke matrix", () => {
       ADMIN_TOPOLOGY_MODES.some((mode) => !dependency.topologyExpectations?.[mode]),
     ).map((dependency) => dependency.id);
     expect(missingTopologyModes).toEqual([]);
+  });
+
+  it("documents deployed admin page smoke rows and their linked coverage ids", () => {
+    const matrixCoverageIds = new Set(ADMIN_SHELL_SMOKE_MATRIX.map((row) => row.id));
+    const apiCoverageIds = new Set(ADMIN_WEB_API_DEPENDENCIES.map((dependency) => dependency.smokeCoverageId));
+
+    const undocumentedPageRows = ADMIN_DEPLOYED_PAGE_SMOKE_ROWS.flatMap((row) =>
+      [row.id, row.path].filter((value) => !runbook.includes(value)),
+    );
+    expect(undocumentedPageRows).toEqual([]);
+
+    const missingLinkedCoverage = ADMIN_DEPLOYED_PAGE_SMOKE_ROWS.flatMap((row) =>
+      row.coverageIds.filter((coverageId) => !matrixCoverageIds.has(coverageId) && !apiCoverageIds.has(coverageId)),
+    );
+    expect(missingLinkedCoverage).toEqual([]);
+
+    const missingSections = ADMIN_SHELL_SECTIONS.filter(
+      (section) => !ADMIN_DEPLOYED_PAGE_SMOKE_ROWS.some((row) => row.section === section),
+    );
+    expect(missingSections).toEqual([]);
+
+    for (const row of ADMIN_DEPLOYED_PAGE_SMOKE_ROWS) {
+      for (const coverageId of row.coverageIds) {
+        expect(runbook).toContain(coverageId);
+      }
+    }
+  });
+
+  it("wires the deployed page matrix into platform smoke", () => {
+    expect(platformSmoke).toContain("ADMIN_DEPLOYED_PAGE_SMOKE_ROWS");
+    expect(platformSmoke).toContain("expectAdminDeployedPageMatrix");
   });
 
   it("keeps the matrix explicit about link, download, SSE, and durable-job evidence", () => {
