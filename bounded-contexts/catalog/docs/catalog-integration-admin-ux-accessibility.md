@@ -4,6 +4,8 @@ The Catalog Integration Admin Control Plane is a dense operator workspace for hi
 
 This checklist is a release gate for Admin Control Plane UI slices and a test-plan input for #790 and #802.
 
+Operator acceptance journeys are tracked separately in [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md). Use this UX checklist to prove the workspace is operable; use the journey checklist to prove operators can complete happy-path, failure/recovery, destructive lifecycle, and audit jobs.
+
 ## Acceptance Checklist
 
 | Area | Acceptance check | Verification |
@@ -42,6 +44,7 @@ Every release that changes Admin Control Plane workflow UI must record:
 ## Related References
 
 - [Provider Integration Admin Module](./provider-integration-admin-module.md)
+- [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)
