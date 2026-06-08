@@ -351,6 +351,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("var.production_marketplace_proof_enabled");
     expect(platformLocals).toContain("marketplace_public_enabled = (");
     expect(platformLocals).toContain("local.is_non_production || var.production_marketplace_public_enabled");
+    expect(platformLocals).toContain(
+      'platform_api_private_url      = local.marketplace_platform_enabled ? "$${platform-api.PRIVATE_URL}" : local.api_private_url',
+    );
+    expect(platformLocals).toContain(
+      "admin_web_internal_api_origin = local.marketplace_platform_enabled ? local.platform_api_private_url : local.api_private_url",
+    );
     expect(platformLocals).toContain("production_proof_web_enabled = (");
     expect(platformLocals).toContain("marketplace_web_enabled = (");
     expect(platformLocals).toContain("marketplace_domains = local.marketplace_web_enabled");
@@ -376,6 +382,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(marketplaceService).toContain('key   = "STRIPE_PUBLISHABLE_KEY"');
     expect(marketplaceService).toContain("value = var.stripe_publishable_key");
     expect(marketplaceService).toContain('type  = "SECRET"');
+    const adminWebService = terraformServiceBlock(platformMain, "admin-web");
+    expect(adminWebService).toContain('key   = "CHASE_SETS_INTERNAL_API_ORIGIN"');
+    expect(adminWebService).toContain("value = local.admin_web_internal_api_origin");
     expect(platformLocals).toContain("context_names = local.marketplace_platform_enabled");
     expect(platformMain).toContain('check "production_marketplace_proof"');
     expect(platformMain).toContain(

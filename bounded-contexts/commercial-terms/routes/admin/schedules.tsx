@@ -6,10 +6,16 @@ import {
   CommercialTermsApiError,
   createCommercialTermsRequestApiClient,
 } from "../../support/request-support/api-client";
+import { formatCommercialTermsAdminLoadError } from "../../support/request-support/admin-loader-error";
 
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCommercialTermsRequestApiClient(request);
-  return api.listSchedules("limit=100&offset=0");
+  try {
+    const schedules = await api.listSchedules("limit=100&offset=0");
+    return { items: schedules.items, loadError: null };
+  } catch (error) {
+    return { items: [], loadError: formatCommercialTermsAdminLoadError(error) };
+  }
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -43,5 +49,7 @@ export const meta: MetaFunction = () => [
 export default function CommercialTermsSchedulesRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
-  return <ScheduleListPage items={data.items} errorMessage={actionData?.error ?? null} />;
+  return (
+    <ScheduleListPage items={data.items} errorMessage={actionData?.error ?? null} loadErrorMessage={data.loadError} />
+  );
 }

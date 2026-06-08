@@ -67,10 +67,12 @@ locals {
     "marketplace-${var.environment}.${var.root_domain}" = local.marketplace_domain
     "admin-${var.environment}.${var.root_domain}"       = local.admin_domain
   } : {}
-  api_component_name = local.marketplace_public_enabled ? "platform-api" : "admin-support-api"
-  api_private_url    = local.marketplace_public_enabled ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
-  marketplace_origin = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
-  database_size      = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
+  api_component_name            = local.marketplace_public_enabled ? "platform-api" : "admin-support-api"
+  api_private_url               = local.marketplace_public_enabled ? "$${platform-api.PRIVATE_URL}" : "$${admin-support-api.PRIVATE_URL}"
+  platform_api_private_url      = local.marketplace_platform_enabled ? "$${platform-api.PRIVATE_URL}" : local.api_private_url
+  admin_web_internal_api_origin = local.marketplace_platform_enabled ? local.platform_api_private_url : local.api_private_url
+  marketplace_origin            = local.marketplace_domain != null ? "https://${local.marketplace_domain}" : ""
+  database_size                 = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
 
   api_database_pool_max                         = "6"
   worker_default_database_pool_max              = local.is_non_production ? 8 : 6

@@ -5,6 +5,7 @@ export class CommercialTermsApiError extends Error {
   public constructor(
     public readonly status: number,
     public readonly body: unknown,
+    public readonly request: CommercialTermsApiErrorRequest,
   ) {
     super(
       typeof body === "object" &&
@@ -12,15 +13,46 @@ export class CommercialTermsApiError extends Error {
         "error" in body &&
         typeof (body as { error?: { message?: unknown } }).error?.message === "string"
         ? (body as { error: { message: string } }).error.message
-        : `API error ${status}`,
+        : `Commercial Terms API request failed with ${status} at ${request.pathname} (${request.contentType ?? "unknown content type"}).`,
     );
   }
 }
 
-async function parseJsonResponse<T>(response: Response): Promise<T> {
+export type CommercialTermsApiErrorRequest = Readonly<{
+  method: string;
+  origin: string;
+  pathname: string;
+  contentType: string | null;
+}>;
+
+type CommercialTermsRequest = Omit<CommercialTermsApiErrorRequest, "contentType">;
+
+function describeRequest(input: string, init?: RequestInit): CommercialTermsRequest {
+  const url = new URL(input);
+  return {
+    method: (init?.method ?? "GET").toUpperCase(),
+    origin: url.origin,
+    pathname: url.pathname,
+  };
+}
+
+function logCommercialTermsApiFailure(status: number, request: CommercialTermsApiErrorRequest) {
+  console.warn("[commercial-terms-admin-api] request failed", {
+    status,
+    method: request.method,
+    origin: request.origin,
+    pathname: request.pathname,
+    contentType: request.contentType,
+  });
+}
+
+async function parseJsonResponse<T>(response: Response, request: CommercialTermsRequest): Promise<T> {
   if (!response.ok) {
-    const errorBody = await response.json().catch(() => null);
-    throw new CommercialTermsApiError(response.status, errorBody);
+    const contentType = response.headers.get("content-type");
+    const errorRequest = { ...request, contentType };
+    const errorBody = contentType?.includes("application/json") ? await response.json().catch(() => null) : null;
+    logCommercialTermsApiFailure(response.status, errorRequest);
+    throw new CommercialTermsApiError(response.status, errorBody, errorRequest);
   }
 
   return attachResponseMetadata(await response.json(), response) as T;
@@ -65,58 +97,50 @@ export function createCommercialTermsRequestApiClient(request: Request) {
   const baseUrl = resolveRequestApiBaseUrl(request, "/api/commercial-terms");
   const fetch = createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "commercial-terms" });
 
+  async function requestJson<T>(input: string, init?: RequestInit): Promise<T> {
+    return parseJsonResponse<T>(await fetch(input, init), describeRequest(input, init));
+  }
+
   return {
     async listSchedules(query = "") {
-      return parseJsonResponse<{ items: CommercialTermsSchedule[] }>(
-        await fetch(`${baseUrl}/schedules${queryFromString(query)}`),
-      );
+      return requestJson<{ items: CommercialTermsSchedule[] }>(`${baseUrl}/schedules${queryFromString(query)}`);
     },
     async getSchedule(id: string) {
-      return parseJsonResponse<CommercialTermsSchedule>(await fetch(`${baseUrl}/schedules/${id}`));
+      return requestJson<CommercialTermsSchedule>(`${baseUrl}/schedules/${id}`);
     },
     async createSchedule(body: Record<string, unknown>) {
-      return parseJsonResponse<{ id: string; version: number }>(
-        await fetch(`${baseUrl}/schedules`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      );
+      return requestJson<{ id: string; version: number }>(`${baseUrl}/schedules`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
     },
     async updateSchedule(id: string, body: Record<string, unknown>) {
-      return parseJsonResponse<{ id: string; version: number }>(
-        await fetch(`${baseUrl}/schedules/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      );
+      return requestJson<{ id: string; version: number }>(`${baseUrl}/schedules/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
     },
     async listAgreements(query = "") {
-      return parseJsonResponse<{ items: CommercialAgreement[] }>(
-        await fetch(`${baseUrl}/agreements${queryFromString(query)}`),
-      );
+      return requestJson<{ items: CommercialAgreement[] }>(`${baseUrl}/agreements${queryFromString(query)}`);
     },
     async getAgreement(id: string) {
-      return parseJsonResponse<CommercialAgreement>(await fetch(`${baseUrl}/agreements/${id}`));
+      return requestJson<CommercialAgreement>(`${baseUrl}/agreements/${id}`);
     },
     async createAgreement(body: Record<string, unknown>) {
-      return parseJsonResponse<{ id: string; version: number }>(
-        await fetch(`${baseUrl}/agreements`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      );
+      return requestJson<{ id: string; version: number }>(`${baseUrl}/agreements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
     },
     async updateAgreement(id: string, body: Record<string, unknown>) {
-      return parseJsonResponse<{ id: string; version: number }>(
-        await fetch(`${baseUrl}/agreements/${id}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        }),
-      );
+      return requestJson<{ id: string; version: number }>(`${baseUrl}/agreements/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
     },
   };
 }

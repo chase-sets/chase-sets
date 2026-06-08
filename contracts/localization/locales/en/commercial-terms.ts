@@ -36,6 +36,8 @@ export const commercialTermsEnglishTranslations = {
   "commercialTerms.features.agreements.ui.agreementListPage.active": "Active",
   "commercialTerms.features.agreements.ui.agreementListPage.admin": "Admin",
   "commercialTerms.features.agreements.ui.agreementListPage.agreement": "Agreement",
+  "commercialTerms.features.agreements.ui.agreementListPage.agreements.unavailable":
+    "Commercial agreements unavailable",
   "commercialTerms.features.agreements.ui.agreementListPage.bps": "bps + $",
   "commercialTerms.features.agreements.ui.agreementListPage.bps.2": "bps + $",
   "commercialTerms.features.agreements.ui.agreementListPage.commercial.agreements": "Commercial Agreements",
@@ -128,6 +130,7 @@ export const commercialTermsEnglishTranslations = {
   "commercialTerms.features.schedules.ui.scheduleListPage.marketplace.fixed.amount": "Marketplace Fixed Amount",
   "commercialTerms.features.schedules.ui.scheduleListPage.shipping.allowance.bps": "Shipping Allowance (bps)",
   "commercialTerms.features.schedules.ui.scheduleListPage.shipping.allowance": "Shipping allowance: ",
+  "commercialTerms.features.schedules.ui.scheduleListPage.schedules.unavailable": "Fee schedules unavailable",
   "commercialTerms.features.schedules.ui.scheduleListPage.no.schedules.yet": "No schedules yet",
   "commercialTerms.features.schedules.ui.scheduleListPage.open": "Open",
   "commercialTerms.features.schedules.ui.scheduleListPage.optional.iso.timestamp": "Optional ISO timestamp",
@@ -136,9 +139,17 @@ export const commercialTermsEnglishTranslations = {
   "commercialTerms.features.schedules.ui.scheduleListPage.status.2": "Status",
   "commercialTerms.routes.admin.agreements.commercial.agreements.commercial.terms":
     "Commercial Agreements | Commercial Terms",
+  "commercialTerms.routes.admin.agreementsDetail.agreement.unavailable": "Commercial agreement unavailable",
   "commercialTerms.routes.admin.agreementsDetail.commercial.agreement.detail.commercial.terms":
     "Commercial Agreement Detail | Commercial Terms",
   "commercialTerms.routes.admin.schedules.fee.schedules.commercial.terms": "Fee Schedules | Commercial Terms",
+  "commercialTerms.routes.admin.schedulesDetail.schedule.unavailable": "Fee schedule unavailable",
   "commercialTerms.routes.admin.schedulesDetail.fee.schedule.detail.commercial.terms":
     "Fee Schedule Detail | Commercial Terms",
+  "commercialTerms.routes.admin.sharedLoadErrorPage.admin": "Admin",
+  "commercialTerms.routes.admin.sharedLoadErrorPage.api.unavailable": "Commercial Terms API unavailable",
+  "commercialTerms.routes.admin.sharedLoadErrorPage.commercial.terms.could.not.load":
+    "Commercial Terms could not load from the platform API.",
+  "commercialTerms.support.requestSupport.adminLoaderError.commercial.terms.unavailable":
+    "Commercial Terms is temporarily unavailable. Check the admin-web internal API origin and platform-api health.",
 } as const;
