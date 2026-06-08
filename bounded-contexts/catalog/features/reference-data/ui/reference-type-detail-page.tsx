@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Button, Dialog, Inline, KeyValueList, Stack, TextInput, Textarea } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
+import { toCatalogAdminHref } from "../../../support/shell-support/ui/catalog-admin-hrefs";
 import { LifecycleControls, type Transition } from "../../../support/shell-support/ui/lifecycle-controls";
 import {
   archiveReferenceType,
@@ -121,7 +122,7 @@ export function ReferenceTypeDetailPage({
         breadcrumbs={[
           {
             label: t("catalog.features.referenceData.ui.referenceTypeDetailPage.reference.types"),
-            href: "/reference-types",
+            href: toCatalogAdminHref("/reference-types"),
           },
           { label: data?.name ?? id },
         ]}

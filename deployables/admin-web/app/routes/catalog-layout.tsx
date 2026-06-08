@@ -6,6 +6,9 @@ const config = {
   brand: "Catalog",
   fallbackPermission: "catalog.view",
   defaultActiveKey: "dimensions",
+  activeKeys: {
+    "reference-types": "reference-records",
+  },
 } as const;
 
 export const loader = createAdminSectionLoader(config);

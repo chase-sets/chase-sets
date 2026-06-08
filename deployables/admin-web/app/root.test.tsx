@@ -26,7 +26,7 @@ import { Layout } from "./root";
 describe("admin root layout", () => {
   beforeEach(() => {
     mockUseLocation.mockReturnValue({
-      pathname: "/catalog-items",
+      pathname: "/catalog/catalog-items",
       search: "?status=draft",
     });
   });
@@ -44,7 +44,7 @@ describe("admin root layout", () => {
       </Layout>,
     );
 
-    expect(html).toContain(`href="${window.location.origin}/catalog-items?status=draft"`);
+    expect(html).toContain(`href="${window.location.origin}/catalog/catalog-items?status=draft"`);
     expect(html).toContain('name="theme-color" content="#1f6f68"');
     expect(html).toContain('rel="manifest" href="/manifest.webmanifest"');
     expect(html).toContain('rel="icon" href="/favicon.svg"');
@@ -63,6 +63,6 @@ describe("admin root layout", () => {
       </Layout>,
     );
 
-    expect(html).toContain('href="https://admin.example/catalog-items?status=draft"');
+    expect(html).toContain('href="https://admin.example/catalog/catalog-items?status=draft"');
   });
 });

@@ -120,6 +120,13 @@ describe("admin web section layouts", () => {
       expect(html).not.toContain("Verified");
     },
   );
+
+  it("keeps Reference Data active for Catalog reference type routes", () => {
+    const html = renderAdminRoute(CatalogLayout, "/catalog/reference-types");
+
+    expect(html).toContain('href="/catalog/reference-records" aria-current="page"');
+    expect(html).toContain("Reference Data");
+  });
 });
 
 describe("admin web root hub", () => {

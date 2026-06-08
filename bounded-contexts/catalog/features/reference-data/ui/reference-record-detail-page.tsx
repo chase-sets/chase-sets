@@ -16,6 +16,7 @@ import {
 } from "@chase-sets/design-system";
 import { useToasts } from "../../../support/shell-support/ui/toasts";
 import { EntityDetailPage } from "../../../support/shell-support/ui/entity-detail-page";
+import { toCatalogAdminHref } from "../../../support/shell-support/ui/catalog-admin-hrefs";
 import { LifecycleControls, type Transition } from "../../../support/shell-support/ui/lifecycle-controls";
 import type { ReferenceRecord, ReferenceRelationship, ReferenceType } from "./contracts";
 import {
@@ -208,7 +209,7 @@ export function ReferenceRecordDetailPage({
         breadcrumbs={[
           {
             label: t("catalog.features.referenceData.ui.referenceRecordDetailPage.reference.records"),
-            href: "/reference-records",
+            href: toCatalogAdminHref("/reference-records"),
           },
           { label: data?.name ?? id },
         ]}
