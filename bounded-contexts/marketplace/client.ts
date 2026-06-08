@@ -357,29 +357,6 @@ export function createMarketplaceApiClient({
         }),
       );
     },
-    async getOfferMatchSellList(): Promise<ListResponse<OfferMatchListItem>> {
-      return parseJsonResponse(
-        await client.account.offers["match-sell-list"].$get({
-          header: headers,
-        }),
-      );
-    },
-    async addOfferMatchSellListItem(body: Record<string, unknown>) {
-      return parseJsonResponse(
-        await client.account.offers["match-sell-list"].$post({
-          json: body,
-          header: headers,
-        }),
-      );
-    },
-    async acceptOfferMatchSellList(body: Record<string, unknown> = {}) {
-      return parseJsonResponse(
-        await client.account.offers["match-sell-list"].accept.$post({
-          json: body,
-          header: headers,
-        }),
-      );
-    },
   };
 }
 

@@ -97,7 +97,6 @@ describe("marketplace realtime offer-match patch payloads", () => {
               offer_to_listing_price_bps: 8333,
               seller_available_quantity: 2,
               seller_listing_availability_status: "available",
-              in_sell_list: false,
             },
           ],
         };

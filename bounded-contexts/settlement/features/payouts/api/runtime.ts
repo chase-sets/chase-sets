@@ -1260,7 +1260,6 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
         limit: input.limit,
       }),
     processNextPayoutReconciliationJob: async (input) => {
-      await ensurePayoutReconciliationWorkUnitsForLegacyJobs();
       const processedUnit = await processNextPayoutReconciliationWorkUnit(input);
       if (processedUnit > 0) {
         return processedUnit;
@@ -1468,31 +1467,6 @@ export function createPayoutRuntime(deps: PayoutRuntimeDeps): PayoutServices {
       status: result.ignored ? "ignored" : "reconciled",
       message: null,
     };
-  }
-
-  async function ensurePayoutReconciliationWorkUnitsForLegacyJobs() {
-    const activeJobs = await jobStore.listActive({ jobKinds: ["payout-reconciliation"] });
-    for (const job of activeJobs) {
-      const existing = await workUnitStore.summarize({ jobId: job.jobId });
-      if (existing.total > 0) {
-        continue;
-      }
-      const payouts = await listPayoutsNeedingReconciliation(deps.db, {
-        accountId: job.payload.accountId,
-        limit: job.payload.limit,
-      });
-      await workUnitStore.enqueue({
-        jobId: job.jobId,
-        units: payouts.map((payout) => ({
-          unitId: payout.payout_id,
-          unitKind: "payout-reconciliation",
-          payload: {
-            payoutId: payout.payout_id,
-            providerPayoutReference: payout.provider_payout_reference,
-          },
-        })),
-      });
-    }
   }
 
   async function payoutReconciliationParentUpdateFromWorkUnits(

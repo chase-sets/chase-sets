@@ -745,7 +745,6 @@ export function createPricingRecommendationRuntime(
         limit: input.limit,
       }),
     processNextRecommendationJob: async (input) => {
-      await ensureDismissWorkUnitsForLegacyJobs();
       const processedDismissUnit = await processNextDismissWorkUnit(input);
       if (processedDismissUnit > 0) {
         return processedDismissUnit;
@@ -951,24 +950,6 @@ export function createPricingRecommendationRuntime(
         }),
       );
       return 1;
-    }
-  }
-
-  async function ensureDismissWorkUnitsForLegacyJobs() {
-    const activeJobs = await jobStore.listActive({ jobKinds: ["dismiss"] });
-    for (const job of activeJobs) {
-      const existing = await workUnitStore.summarize({ jobId: job.jobId });
-      if (existing.total > 0) {
-        continue;
-      }
-      await workUnitStore.enqueue({
-        jobId: job.jobId,
-        units: uniqueRecommendationIds(job.payload.recommendationIds).map((recommendationId) => ({
-          unitId: recommendationId,
-          unitKind: "dismiss",
-          payload: { recommendationId },
-        })),
-      });
     }
   }
 

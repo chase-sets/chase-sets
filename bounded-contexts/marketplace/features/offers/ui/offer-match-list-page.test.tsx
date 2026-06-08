@@ -43,7 +43,6 @@ const offer: OfferMatchListItem = {
   seller_available_quantity: 2,
   seller_listing_availability_status: "available",
   can_fulfill: true,
-  in_sell_list: true,
 };
 
 describe("MarketplaceOfferMatchListPage", () => {

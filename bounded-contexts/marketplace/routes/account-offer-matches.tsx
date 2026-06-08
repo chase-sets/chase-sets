@@ -1,6 +1,6 @@
 import { t } from "@chase-sets/localization";
-import type { ActionFunctionArgs, LoaderFunctionArgs, MetaFunction } from "react-router";
-import { redirect, useActionData, useLoaderData, useRouteLoaderData } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData, useRouteLoaderData } from "react-router";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { useRealtimePatchedSnapshot } from "@chase-sets/platform-runtime/realtime-react";
 import type { ListResponse } from "@chase-sets/http/responses";
@@ -32,43 +32,6 @@ export async function loader({ request }: LoaderFunctionArgs) {
   };
 }
 
-export async function action({ request }: ActionFunctionArgs) {
-  const actor = await requireActorFromAuthApi({
-    request,
-    permission: "offers.manage",
-  });
-  if (!actor.permissions.includes("listings.view")) {
-    throw new Response(t("marketplace.routes.accountOfferMatches.forbidden.2"), { status: 403 });
-  }
-
-  const formData = await request.formData();
-  const intent = String(formData.get("intent") ?? "");
-  const api = createMarketplaceRequestApiClient(request);
-
-  try {
-    if (intent === "accept-sell-list") {
-      const feeQuoteFingerprintsByOfferId: Record<string, string> = {};
-
-      for (const [key, value] of formData.entries()) {
-        if (!key.startsWith("feeQuoteFingerprint:")) {
-          continue;
-        }
-        const offerId = key.slice("feeQuoteFingerprint:".length);
-        feeQuoteFingerprintsByOfferId[offerId] = String(value ?? "");
-      }
-
-      await api.acceptOfferMatchSellList({ feeQuoteFingerprintsByOfferId });
-      return redirect("/account/sales");
-    }
-
-    return null;
-  } catch (error) {
-    return {
-      error: error instanceof Error ? error.message : t("marketplace.routes.accountOfferMatches.request.failed"),
-    };
-  }
-}
-
 export const meta: MetaFunction = () =>
   buildOpenGraphMeta({
     title: t("marketplace.routes.accountOfferMatches.offer.matches.marketplace"),
@@ -77,7 +40,6 @@ export const meta: MetaFunction = () =>
 
 export default function MarketplaceAccountOfferMatchesRoute() {
   const data = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
   const rootData = useRouteLoaderData("root") as { actor?: { accountId?: string } | null } | undefined;
   const accountId = rootData?.actor?.accountId ?? null;
 
@@ -89,7 +51,6 @@ export default function MarketplaceAccountOfferMatchesRoute() {
         data.offerMatches.items.map((item) => item.offer_id).join("|"),
       ].join("\n")}
       data={data}
-      actionData={actionData}
       accountId={accountId}
     />
   );
@@ -97,11 +58,9 @@ export default function MarketplaceAccountOfferMatchesRoute() {
 
 function MarketplaceAccountOfferMatchesRealtimeView({
   data,
-  actionData,
   accountId,
 }: {
   data: Awaited<ReturnType<typeof loader>>;
-  actionData: Exclude<Awaited<ReturnType<typeof action>>, Response> | undefined;
   accountId: string | null;
 }) {
   const offerMatches = useRealtimePatchedSnapshot<ListResponse<OfferMatchListItem>>({
@@ -116,7 +75,7 @@ function MarketplaceAccountOfferMatchesRealtimeView({
     onSyncRequired: reloadForRealtimeSync,
   });
 
-  return <MarketplaceOfferMatchListPage data={offerMatches} errorMessage={actionData?.error ?? null} />;
+  return <MarketplaceOfferMatchListPage data={offerMatches} />;
 }
 
 function reloadForRealtimeSync() {

@@ -487,6 +487,66 @@ describe("ordering order runtime", () => {
     ).rejects.toThrow("Fulfillment changed. Review the latest checkout preview before continuing.");
   });
 
+  it("rejects current checkout drafts when the package plan lacks a postage policy snapshot", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = createSupplyDb(() => [
+      {
+        listingId: "lst_1",
+        sellerAccountId: "acc_seller",
+        inventoryItemId: "inv_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        storageLocationName: "North shelf",
+        shipFromCode: "CHI",
+        priceAmount: "10.00",
+        availableQuantity: 1,
+        updatedAt: "2026-03-31T00:00:00.000Z",
+      },
+    ]);
+
+    const services = createOrderingOrderRuntimeForTest({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: db as never,
+      shippingQuotePolicy: {
+        quote: ({ packagePlan }) => ({
+          shippingOption: "standard",
+          baseAmount: "4.99",
+          discountAmount: "0.00",
+          chargeAmount: "4.99",
+          packagePlan: packagePlan ? { ...packagePlan, postagePolicySnapshot: undefined } : undefined,
+        }),
+      },
+    });
+
+    await expect(
+      services.previewCheckoutFulfillment({
+        buyerAccountId: "acc_buyer" as never,
+        checkoutSessionId: "chk_missing_postage_snapshot",
+        sourceType: "cart-checkout",
+        shippingOption: "standard",
+        shippingAddress,
+        lines: [
+          {
+            listingId: null,
+            cartLineId: "cli_1",
+            catalogItemId: "cat_1",
+            productId: "cat_1::",
+            itemTitle: "Charizard",
+            itemSubtitle: null,
+            selectedOptions: [],
+            productSummary: null,
+            quantity: 1,
+          },
+        ],
+      }),
+    ).rejects.toThrow("Shipping plan is missing a postage policy snapshot.");
+  });
+
   it("keeps buyer cost lowest by rewarding same-seller checkout grouping", async () => {
     const { eventStore, readAllEvents } = createInMemoryEventStore();
     const carts = {

@@ -37,7 +37,6 @@ export interface OfferMatchListItem extends MarketplaceOffer {
   seller_available_quantity: number;
   seller_listing_availability_status: "available" | "unavailable";
   can_fulfill: boolean;
-  in_sell_list: boolean;
 }
 
 export interface OfferMatchDetail extends OfferMatchListItem {}

@@ -222,6 +222,7 @@ function shipFromAddressFromForm(formData: FormData) {
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createDiscoveryRequestApiClient(request);
   const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const checkoutApi = createCheckoutRequestApiClient(request);
   const inventoryApi = createInventoryRequestApiClient(request);
   const id = params.id;
   const url = new URL(request.url);
@@ -271,11 +272,20 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
 
     if (canReviewAccountOfferMatches) {
       try {
-        const result = await marketplaceApi.listOfferMatches("limit=100&offset=0");
+        const [result, sellList] = await Promise.all([
+          marketplaceApi.listOfferMatches("limit=100&offset=0"),
+          checkoutApi.getSellList().catch(() => ({ items: [] })),
+        ]);
+        const selectedOfferIds = new Set(
+          sellList.items
+            .filter((line) => line.line_type === "selected-offer" && line.offer_id)
+            .map((line) => String(line.offer_id)),
+        );
         const matchingOffers = result.items.filter((offer) => offer.catalog_catalog_item_id === item.catalog_item_id);
         accountOfferMatches = await Promise.all(
           matchingOffers.map(async (offer) => ({
             ...offer,
+            in_sell_list: selectedOfferIds.has(offer.offer_id),
             acceptance_terms:
               offer.status === "submitted" ? await marketplaceApi.previewOfferAcceptanceTerms(offer.offer_id) : null,
           })),

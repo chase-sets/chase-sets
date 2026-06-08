@@ -68,7 +68,7 @@ describe("postage policy cleanup evidence", () => {
         activeOrdersWithoutSnapshots: 0,
         activeShipmentsWithoutSnapshots: 0,
         capabilityFailureCount: 1,
-        readyToRetireLegacyCompatibility: true,
+        activeSnapshotCoverageComplete: true,
         remainingCleanupGaps: [],
       },
       cleanupPolicy: {
@@ -79,7 +79,7 @@ describe("postage policy cleanup evidence", () => {
     });
   });
 
-  it("reports active compatibility gaps before legacy cleanup can close", () => {
+  it("reports active snapshot gaps before cleanup can close", () => {
     const report = buildPostagePolicyCleanupEvidence({
       checkedAt: "2026-06-07T00:00:00.000Z",
       ordering: {
@@ -96,7 +96,7 @@ describe("postage policy cleanup evidence", () => {
       },
     });
 
-    expect(report.cleanupStatus.readyToRetireLegacyCompatibility).toBe(false);
+    expect(report.cleanupStatus.activeSnapshotCoverageComplete).toBe(false);
     expect(report.cleanupStatus.remainingCleanupGaps).toEqual([
       "Expected exactly one active postage policy; found 2.",
       "Ordering has 1 active order(s) without postagePolicySnapshot metadata.",

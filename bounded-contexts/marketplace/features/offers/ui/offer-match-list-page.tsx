@@ -254,9 +254,6 @@ export function MarketplaceOfferMatchListPage({
                         ? t("marketplace.features.offers.ui.offerMatchListPage.can.fulfill")
                         : t("marketplace.features.offers.ui.offerMatchListPage.needs.supply")}
                   </Badge>
-                  {row.in_sell_list ? (
-                    <Badge tone="accent">{t("marketplace.features.offers.ui.offerMatchListPage.in.sell.list")}</Badge>
-                  ) : null}
                 </Stack>
               ),
             },

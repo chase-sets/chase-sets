@@ -155,7 +155,7 @@ Offer acceptance:
 3. `GET /api/marketplace/account/offers/matches/{id}/terms-preview`
 4. `POST /api/marketplace/account/offers/matches/{id}/accept`
 
-The legacy `POST /api/marketplace/account/offers/match-sell-list` and `POST /api/marketplace/account/offers/match-sell-list/accept` endpoints remain documented in OpenAPI as deprecated compatibility surfaces during the Checkout Sell List transition. New clients should use `/api/marketplace/account/sell-list` for durable review state and the direct offer acceptance endpoint for immediate commitment.
+Marketplace exposes only source-list and direct offer acceptance APIs for offer matches. Durable seller review state belongs to Checkout at `/api/marketplace/account/sell-list`.
 
 ## Marketplace Sales Fee Confirmation
 

@@ -88,7 +88,6 @@ const acceptedOfferMatch = {
   buyer_display_name: "Collector Account",
   seller_available_quantity: 1,
   seller_listing_availability_status: "available",
-  in_sell_list: false,
 };
 
 describe("marketplace offer runtime", () => {
@@ -122,7 +121,6 @@ describe("marketplace offer runtime", () => {
             buyer_display_name: "Collector Account",
             seller_available_quantity: 0,
             seller_listing_availability_status: "available",
-            in_sell_list: false,
           },
         ],
       })),

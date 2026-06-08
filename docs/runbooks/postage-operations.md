@@ -108,14 +108,14 @@ LIMIT 25;
 
 Provider event diagnostics should select bounded event columns only. Do not select `payload_json` for routine support work.
 
-Before retiring legacy compatibility behavior:
+Before closing postage snapshot cleanup:
 
 1. Confirm recent orders have `shipping_plan_snapshot.postagePolicySnapshot.policyVersion`.
 2. Confirm checkout copy does not imply signature outside the evaluated policy result.
 3. Confirm label operation requests include `deliveryConfirmation` only when the snapshot requires signature.
 4. Confirm no production shipment awaiting label depends on missing policy metadata for a policy-required decision.
 5. Confirm new label operation requests no longer persist sender or recipient address bodies in `request_json`; historical rows that predate this cleanup remain retained audit data and must not be exposed through support diagnostics.
-6. Confirm temporary migration scripts, backfill flags, and compatibility code are removed or documented as retained audit data.
+6. Confirm temporary migration scripts and backfill flags are removed or documented as retained audit data.
 
 Run the read-only cleanup evidence report against the target environment before closing the cleanup gate:
 
@@ -123,7 +123,7 @@ Run the read-only cleanup evidence report against the target environment before 
 pnpm run postage-policy:cleanup-evidence -- --environment=production --ordering-database-url=$env:ORDERING_DATABASE_URL --fulfillment-database-url=$env:FULFILLMENT_DATABASE_URL
 ```
 
-The report must show `readyToRetireLegacyCompatibility: true` before temporary compatibility behavior is removed. Historical immutable snapshots remain retained audit data; the cleanup gate is about active rows, runtime decision paths, and temporary migration artifacts.
+The report must show `activeSnapshotCoverageComplete: true` before the cleanup gate is closed. Historical immutable snapshots remain retained audit data; the cleanup gate is about active rows, runtime decision paths, and temporary migration artifacts.
 
 For production prelaunch proof, first deploy private proof mode with `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; DigitalOcean then routes `https://chasesets.com/api/fulfillment/provider/postage/webhooks` to `platform-api` while normal public/admin `/api/*` traffic remains on admin-support.
 

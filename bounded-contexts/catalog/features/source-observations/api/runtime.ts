@@ -1359,8 +1359,6 @@ export function createSourceObservationRuntime(
       return 0;
     }
 
-    await ensureBulkReviewWorkUnitsForLegacyJobs();
-
     const claimResult = await bulkReviewWorkUnitStore.claimNext({
       claimOwnerId: input.claimOwnerId,
       claimTtlMs: input.claimTtlMs,
@@ -1455,36 +1453,6 @@ export function createSourceObservationRuntime(
         }),
       );
       return 1;
-    }
-  }
-
-  async function ensureBulkReviewWorkUnitsForLegacyJobs(): Promise<void> {
-    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "reapply"] });
-    for (const job of activeJobs) {
-      const existing = await bulkReviewWorkUnitStore.summarize({ jobId: job.jobId });
-      if (existing.total > 0) {
-        continue;
-      }
-
-      const bulkJob = toSourceObservationBulkJob(job);
-      const completedObservationIds = new Set(
-        bulkResultOutcomes(bulkJob.result).map((outcome) => outcome.observationId),
-      );
-      const eligibleObservationIds =
-        bulkJob.selectionMode === "ids"
-          ? bulkJob.observationIds
-          : await listSourceObservationIdsForBulkAction(bulkJob.action, bulkJob.scope);
-      const remainingObservationIds = eligibleObservationIds.filter(
-        (observationId) => !completedObservationIds.has(observationId),
-      );
-      await bulkReviewWorkUnitStore.enqueue({
-        jobId: bulkJob.jobId,
-        units: remainingObservationIds.map((observationId) => ({
-          unitId: observationId,
-          unitKind: bulkJob.action,
-          payload: { observationId },
-        })),
-      });
     }
   }
 
@@ -1764,7 +1732,6 @@ export function createSourceObservationRuntime(
     });
     let claimed = claimedJob ? toClaimedSourceObservationIntegrationJob(claimedJob) : null;
     if (!claimed) {
-      await ensureIntegrationReapplyWorkUnitsForLegacyJobs();
       const processedReapplyUnit = await processIntegrationReapplyWorkUnit(input);
       if (processedReapplyUnit > 0) {
         return processedReapplyUnit;
@@ -1934,35 +1901,6 @@ export function createSourceObservationRuntime(
         }),
       );
       return 1;
-    }
-  }
-
-  async function ensureIntegrationReapplyWorkUnitsForLegacyJobs(): Promise<void> {
-    const activeJobs = await integrationJobStore.listActive({ jobKinds: ["reapply"] });
-    for (const rawJob of activeJobs) {
-      const existing = await integrationWorkUnitStore.summarize({ jobId: rawJob.jobId });
-      if (existing.total > 0) {
-        continue;
-      }
-      const job = toSourceObservationIntegrationJob(rawJob);
-      const completedObservationIds = new Set(
-        (job.result?.outcomes ?? []).map((outcome) => outcome.expansionId).filter(Boolean),
-      );
-      const observationIds = (
-        await listSourceObservationIdsForReapply(deps.db, integrationScopeToObservationScope(job.scope))
-      ).filter((observationId) => !completedObservationIds.has(observationId));
-      await integrationWorkUnitStore.enqueue({
-        jobId: job.jobId,
-        units: observationIds.map((observationId) => ({
-          unitId: observationId,
-          unitKind: "reapply",
-          payload: {
-            observationId,
-            profileSnapshot: job.profileSnapshot,
-            reapplyProfileMode: job.reapplyProfileMode ?? "original-source-profile",
-          },
-        })),
-      });
     }
   }
 
