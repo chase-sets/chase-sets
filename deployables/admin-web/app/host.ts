@@ -5,22 +5,24 @@ import type { NavigationItem } from "@chase-sets/design-system";
 import { webContextRegistry } from "./generated/web-context-registry";
 
 const adminSectionLabels: Record<WebHostSection, string> = {
+  access: "Access",
   catalog: "Catalog",
-  identity: "Identity",
-  experience: "Experience",
-  operations: "Operations",
-  commercial: "Commercial Terms",
+  commerce: "Commerce",
+  growth: "Growth",
+  support: "Support",
+  platform: "Platform",
 };
 
 const adminSectionIcons: Record<WebHostSection, NavigationItem["icon"]> = {
+  access: "shield",
   catalog: "package",
-  identity: "users",
-  experience: "message",
-  operations: "dashboard",
-  commercial: "dollar",
+  commerce: "dollar",
+  growth: "rocket",
+  support: "help",
+  platform: "dashboard",
 };
 
-const adminSections: readonly WebHostSection[] = ["catalog", "identity", "experience", "operations", "commercial"];
+const adminSections: readonly WebHostSection[] = ["access", "catalog", "commerce", "growth", "support", "platform"];
 
 export function resolveAdminWebRouteConfigRecords() {
   return resolveWebHostRouteConfigRecords(webContextRegistry, "admin-web");

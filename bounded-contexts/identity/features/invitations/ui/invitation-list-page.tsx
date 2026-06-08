@@ -61,7 +61,7 @@ export function InvitationListPage({ initialData }: { initialData: { items: Invi
         </Form>
       }
       emptyMessage={t("identity.features.invitations.ui.invitationListPage.no.invitations.yet")}
-      getHref={(row) => `/identity/invitations/${row.invitation_id}`}
+      getHref={(row) => `/access/invitations/${row.invitation_id}`}
     />
   );
 }

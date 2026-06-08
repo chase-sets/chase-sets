@@ -1,72 +1,29 @@
 import { index, layout, route, type RouteConfig } from "@react-router/dev/routes";
+import type { WebHostSection } from "@chase-sets/platform-runtime/web";
 import { toRouteConfigEntry } from "@chase-sets/platform-runtime/web-route-config";
 import { resolveAdminWebRouteConfigRecords } from "./host";
 
 const contextRoutes = resolveAdminWebRouteConfigRecords();
-const catalogRootRoutes = contextRoutes
-  .filter((routeRecord) => routeRecord.section === "catalog" && (routeRecord.placement ?? "layout") === "root")
-  .map((routeRecord) =>
-    toRouteConfigEntry(routeRecord, {
-      index,
-      route,
-    }),
-  );
-const identityRootRoutes = contextRoutes
-  .filter((routeRecord) => routeRecord.section === "identity" && (routeRecord.placement ?? "layout") === "root")
-  .map((routeRecord) =>
-    toRouteConfigEntry(routeRecord, {
-      index,
-      route,
-    }),
-  );
-const experienceRootRoutes = contextRoutes
-  .filter((routeRecord) => routeRecord.section === "experience" && (routeRecord.placement ?? "layout") === "root")
-  .map((routeRecord) =>
-    toRouteConfigEntry(routeRecord, {
-      index,
-      route,
-    }),
-  );
-const operationsRootRoutes = contextRoutes
-  .filter((routeRecord) => routeRecord.section === "operations" && (routeRecord.placement ?? "layout") === "root")
-  .map((routeRecord) =>
-    toRouteConfigEntry(routeRecord, {
-      index,
-      route,
-    }),
-  );
-const catalogLayoutRoutes = contextRoutes
-  .filter((routeRecord) => routeRecord.section === "catalog" && (routeRecord.placement ?? "layout") === "layout")
-  .map((routeRecord) =>
-    toRouteConfigEntry(routeRecord, {
-      index,
-      route,
-    }),
-  );
-const identityLayoutRoutes = contextRoutes
-  .filter((routeRecord) => routeRecord.section === "identity" && (routeRecord.placement ?? "layout") === "layout")
-  .map((routeRecord) =>
-    toRouteConfigEntry(routeRecord, {
-      index,
-      route,
-    }),
-  );
-const experienceLayoutRoutes = contextRoutes
-  .filter((routeRecord) => routeRecord.section === "experience" && (routeRecord.placement ?? "layout") === "layout")
-  .map((routeRecord) =>
-    toRouteConfigEntry(routeRecord, {
-      index,
-      route,
-    }),
-  );
-const commercialLayoutRoutes = contextRoutes
-  .filter((routeRecord) => routeRecord.section === "commercial" && (routeRecord.placement ?? "layout") === "layout")
-  .map((routeRecord) =>
-    toRouteConfigEntry(routeRecord, {
-      index,
-      route,
-    }),
-  );
+
+const adminSections = [
+  "access",
+  "catalog",
+  "commerce",
+  "growth",
+  "support",
+  "platform",
+] as const satisfies readonly WebHostSection[];
+
+function sectionRoutes(section: WebHostSection, placement: "root" | "layout") {
+  return contextRoutes
+    .filter((routeRecord) => routeRecord.section === section && (routeRecord.placement ?? "layout") === placement)
+    .map((routeRecord) =>
+      toRouteConfigEntry(routeRecord, {
+        index,
+        route,
+      }),
+    );
+}
 
 export default [
   route("manifest.webmanifest", "routes/manifest.ts"),
@@ -76,22 +33,23 @@ export default [
   route("health/ready", "routes/health-ready.ts"),
   route("offline", "routes/offline.tsx"),
   route("/", "routes/index.tsx"),
-  route("identity/commercial-terms/schedules", "routes/commercial-terms-legacy-schedules.tsx"),
-  route("identity/commercial-terms/schedules/:id", "routes/commercial-terms-legacy-schedule-detail.tsx"),
-  route("identity/commercial-terms/agreements", "routes/commercial-terms-legacy-agreements.tsx"),
-  route("identity/commercial-terms/agreements/:id", "routes/commercial-terms-legacy-agreement-detail.tsx"),
-  ...catalogRootRoutes,
-  ...identityRootRoutes,
-  ...experienceRootRoutes,
-  layout("routes/operations-layout.tsx", [...operationsRootRoutes]),
-  layout("routes/catalog-layout.tsx", [route("catalog", "routes/catalog-home.tsx"), ...catalogLayoutRoutes]),
-  layout("routes/identity-layout.tsx", [route("identity", "routes/identity-home.tsx"), ...identityLayoutRoutes]),
-  layout("routes/experience-layout.tsx", [
-    route("experience", "routes/experience-home.tsx"),
-    ...experienceLayoutRoutes,
+  ...adminSections.flatMap((section) => sectionRoutes(section, "root")),
+  layout("routes/access-layout.tsx", [route("access", "routes/access-home.tsx"), ...sectionRoutes("access", "layout")]),
+  layout("routes/catalog-layout.tsx", [
+    route("catalog", "routes/catalog-home.tsx"),
+    ...sectionRoutes("catalog", "layout"),
   ]),
-  layout("routes/commercial-layout.tsx", [
-    route("commercial", "routes/commercial-home.tsx"),
-    ...commercialLayoutRoutes,
+  layout("routes/commerce-layout.tsx", [
+    route("commerce", "routes/commerce-home.tsx"),
+    ...sectionRoutes("commerce", "layout"),
+  ]),
+  layout("routes/growth-layout.tsx", [route("growth", "routes/growth-home.tsx"), ...sectionRoutes("growth", "layout")]),
+  layout("routes/support-layout.tsx", [
+    route("support", "routes/support-home.tsx"),
+    ...sectionRoutes("support", "layout"),
+  ]),
+  layout("routes/platform-layout.tsx", [
+    route("platform", "routes/platform-home.tsx"),
+    ...sectionRoutes("platform", "layout"),
   ]),
 ] satisfies RouteConfig;

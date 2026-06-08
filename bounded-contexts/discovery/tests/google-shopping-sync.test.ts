@@ -575,7 +575,7 @@ describe("google shopping diagnostics", () => {
 });
 
 describe("google shopping sync routes", () => {
-  it("requires security.manage to enqueue a sync job", async () => {
+  it("requires google-shopping.manage to enqueue a sync job", async () => {
     const enqueueFullSyncJob = vi.fn();
     const app = createAuthenticatedApp({ enqueueFullSyncJob }, ["pricing.manage"]);
 
@@ -591,7 +591,7 @@ describe("google shopping sync routes", () => {
 
   it("enqueues dry-run sync jobs for security operators", async () => {
     const enqueueFullSyncJob = vi.fn(async () => jobSnapshot("job_sync"));
-    const app = createAuthenticatedApp({ enqueueFullSyncJob }, ["security.manage"]);
+    const app = createAuthenticatedApp({ enqueueFullSyncJob }, ["google-shopping.manage"]);
 
     const response = await app.request("/sync-jobs", {
       method: "POST",
@@ -610,7 +610,7 @@ describe("google shopping sync routes", () => {
   it("previews maintenance candidates for security operators", async () => {
     const summary = maintenanceSummary();
     const previewMaintenanceSync = vi.fn(async () => summary);
-    const app = createAuthenticatedApp({ previewMaintenanceSync }, ["security.manage"]);
+    const app = createAuthenticatedApp({ previewMaintenanceSync }, ["google-shopping.manage"]);
 
     const response = await app.request("/maintenance/preview?mode=dry-run&refreshWindowDays=25&limit=2");
 
@@ -633,7 +633,7 @@ describe("google shopping sync routes", () => {
       summary,
       job: jobSnapshot("job_maintenance"),
     }));
-    const app = createAuthenticatedApp({ enqueueMaintenanceSyncJob }, ["security.manage"]);
+    const app = createAuthenticatedApp({ enqueueMaintenanceSyncJob }, ["google-shopping.manage"]);
 
     const response = await app.request("/maintenance/sync-jobs", {
       method: "POST",
@@ -654,7 +654,7 @@ describe("google shopping sync routes", () => {
 
   it("returns diagnostics snapshots for security operators", async () => {
     const getDiagnosticsSnapshot = vi.fn(async () => diagnosticsSnapshot());
-    const app = createAuthenticatedApp({ getDiagnosticsSnapshot }, ["security.manage"]);
+    const app = createAuthenticatedApp({ getDiagnosticsSnapshot }, ["google-shopping.manage"]);
 
     const response = await app.request("/diagnostics/snapshot?limit=50");
 
@@ -667,7 +667,7 @@ describe("google shopping sync routes", () => {
     expect(getDiagnosticsSnapshot).toHaveBeenCalledWith({ limit: 50 });
   });
 
-  it("requires security.manage to inspect feed rows", async () => {
+  it("requires google-shopping.manage to inspect feed rows", async () => {
     const listFeedRows = vi.fn();
     const app = createAuthenticatedApp({ listFeedRows }, ["pricing.manage"]);
 
@@ -679,7 +679,7 @@ describe("google shopping sync routes", () => {
 
   it("lists feed rows for security operators with parsed filters", async () => {
     const listFeedRows = vi.fn(async () => feedRowListResponse());
-    const app = createAuthenticatedApp({ listFeedRows }, ["security.manage"]);
+    const app = createAuthenticatedApp({ listFeedRows }, ["google-shopping.manage"]);
 
     const response = await app.request("/feed-rows?filter=disapproved&search=lst_1&limit=25&refreshWindowDays=20");
 
@@ -698,7 +698,7 @@ describe("google shopping sync routes", () => {
 
   it("enqueues diagnostics refresh jobs for security operators", async () => {
     const enqueueDiagnosticsRefreshJob = vi.fn(async () => jobSnapshot("job_diagnostics"));
-    const app = createAuthenticatedApp({ enqueueDiagnosticsRefreshJob }, ["security.manage"]);
+    const app = createAuthenticatedApp({ enqueueDiagnosticsRefreshJob }, ["google-shopping.manage"]);
 
     const response = await app.request("/diagnostics/refresh-jobs", {
       method: "POST",

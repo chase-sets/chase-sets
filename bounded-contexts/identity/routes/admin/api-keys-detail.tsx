@@ -27,7 +27,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     await api.revokeApiKey(apiKeyId);
   }
 
-  return redirect(`/identity/api-keys/${apiKeyId}`);
+  return redirect(`/access/api-keys/${apiKeyId}`);
 }
 
 export const meta: MetaFunction = () => [

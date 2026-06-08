@@ -239,11 +239,13 @@ function requireGoogleShoppingSyncAccess(c: {
     };
   }
 
-  if (!actor.permissions.includes("security.manage")) {
+  if (!actor.permissions.includes("google-shopping.manage")) {
     return {
       context: null,
       response: Response.json(
-        { error: { code: "authorization_forbidden", message: "Google Shopping sync requires security access." } },
+        {
+          error: { code: "authorization_forbidden", message: "Google Shopping sync requires Google Shopping access." },
+        },
         { status: 403 },
       ),
     };

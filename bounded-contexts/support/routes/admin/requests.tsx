@@ -44,7 +44,7 @@ export async function action({ request }: ActionFunctionArgs) {
         escalated: String(result.escalated),
         skipped: String(result.skipped),
       });
-      return redirect(`/operations/support-requests?${query.toString()}`);
+      return redirect(`/support/requests?${query.toString()}`);
     } catch (error) {
       return { error: errorMessage(error) };
     }

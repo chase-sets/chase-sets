@@ -29,14 +29,16 @@
           "routePath": "platform-feedback",
           "fileExport": "./routes/admin/platform-feedback",
           "routeType": "route",
-          "sourceContext": "experience"
+          "sourceContext": "experience",
+          "section": "support"
         },
         {
           "routeId": "platform-feedback-detail",
           "routePath": "platform-feedback/:id",
           "fileExport": "./routes/admin/platform-feedback-detail",
           "routeType": "route",
-          "sourceContext": "experience"
+          "sourceContext": "experience",
+          "section": "support"
         }
       ]
     }
@@ -49,7 +51,8 @@
       "label": "Platform Feedback",
       "icon": "message",
       "href": "/platform-feedback",
-      "order": 10,
+      "section": "support",
+      "order": 20,
       "visibility": "signed-in",
       "requiredPermissions": ["platform-feedback.view"]
     }

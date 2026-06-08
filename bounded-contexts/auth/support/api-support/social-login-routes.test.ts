@@ -408,7 +408,7 @@ describe("social login routes", () => {
     });
     const app = buildApp(services);
 
-    const response = await app.request("/social/google/start?journey=identity-admin&returnTo=/identity/accounts");
+    const response = await app.request("/social/google/start?journey=access-admin&returnTo=/access/accounts");
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("https://provider.test/auth?state=social_token");
@@ -419,7 +419,7 @@ describe("social login routes", () => {
     );
     expect(services.db.query).toHaveBeenCalledWith(
       expect.stringContaining("INSERT INTO identity_social_login_states"),
-      expect.arrayContaining(["hashed:social_token", "google", "identity-admin", "/identity/accounts"]),
+      expect.arrayContaining(["hashed:social_token", "google", "access-admin", "/access/accounts"]),
     );
   });
 
@@ -435,11 +435,11 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=identity-admin&returnTo=/identity/accounts");
+    await app.request("/social/google/start?journey=access-admin&returnTo=/access/accounts");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/identity/sign-in?socialLoginError=");
+    expect(response.headers.get("Location")).toContain("/access/sign-in?socialLoginError=");
     expect(mockIdentityMutations.linkSocialLogin).not.toHaveBeenCalled();
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });
@@ -456,11 +456,11 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=identity-admin&returnTo=/identity/accounts");
+    await app.request("/social/google/start?journey=access-admin&returnTo=/access/accounts");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toContain("/identity/sign-in?socialLoginError=");
+    expect(response.headers.get("Location")).toContain("/access/sign-in?socialLoginError=");
     expect(mockIdentityMutations.createPersonalIdentity).not.toHaveBeenCalled();
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });
@@ -479,7 +479,7 @@ describe("social login routes", () => {
           accountId: "acc_admin",
           roleKey: "platform-admin",
           status: "active",
-          rolePermissions: ["security.manage"],
+          rolePermissions: ["accounts.view", "security.manage"],
         },
         {
           membershipId: "mbr_viewer",
@@ -493,18 +493,11 @@ describe("social login routes", () => {
     mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
     const app = buildApp(services);
 
-    await app.request("/social/google/start?journey=identity-admin&returnTo=/identity/accounts");
+    await app.request("/social/google/start?journey=access-admin&returnTo=/access/accounts");
     const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
 
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/identity/accounts");
-    expect(services.sessions.commandHandler).toHaveBeenCalledWith(
-      expect.objectContaining({
-        command: expect.objectContaining({
-          accountId: "acc_admin",
-          availableAccountIds: ["acc_admin"],
-        }),
-      }),
-    );
+    expect(response.headers.get("Location")).toBe("/access/account-select?returnTo=%2Faccess%2Faccounts");
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });
 });

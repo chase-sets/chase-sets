@@ -34,7 +34,7 @@ describe("GoogleShoppingOperationsPage", () => {
     expect(markup).toContain("Filter: Failed syncs");
     expect(markup).toContain("missing-title, not-crawlable, missing-image");
     expect(markup).toContain("Catalog, Public Presence, Platform Runtime, Ops / Google Merchant Center");
-    expect(markup).toContain("/identity/accounts/acc_1");
+    expect(markup).toContain("/access/accounts/acc_1");
     expect(markup).toContain("/catalog/catalog-items/cit_1");
     expect(markup).toContain("Targeted retry deferred");
     expect(markup).not.toContain("lastProviderResponse");

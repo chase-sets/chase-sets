@@ -130,7 +130,7 @@ function SupportOperationsQueue({ requests }: Readonly<{ requests: readonly Supp
           header: t("support.features.supportRequests.ui.supportOperationsPage.action"),
           align: "right",
           cell: (request) => (
-            <LinkButton href={`/operations/support-requests/${request.support_request_id}`} size="sm" tone="secondary">
+            <LinkButton href={`/support/requests/${request.support_request_id}`} size="sm" tone="secondary">
               {t("support.features.supportRequests.ui.supportOperationsPage.open")}
             </LinkButton>
           ),
@@ -162,7 +162,7 @@ export function SupportOperationsDetailPage({ request }: Readonly<{ request: Sup
           id: request.support_request_id,
         })}
         actions={
-          <LinkButton href="/operations/support-requests" tone="secondary">
+          <LinkButton href="/support/requests" tone="secondary">
             {t("support.features.supportRequests.ui.supportOperationsPage.back")}
           </LinkButton>
         }

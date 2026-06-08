@@ -90,13 +90,13 @@ export function ProjectionOperationsPage({
         <LinkButton href="/catalog/dimensions" tone="secondary">
           {t(`${routeKey}.catalog`)}
         </LinkButton>
-        <LinkButton href="/identity/accounts" tone="secondary">
+        <LinkButton href="/access/accounts" tone="secondary">
           {t(`${routeKey}.identity`)}
         </LinkButton>
-        <LinkButton href="/operations/release-dashboard" tone="secondary">
+        <LinkButton href="/platform/release-dashboard" tone="secondary">
           {t(`${routeKey}.releaseDashboard`)}
         </LinkButton>
-        <LinkButton href="/operations/release-controls" tone="secondary">
+        <LinkButton href="/platform/release-controls" tone="secondary">
           {t(`${routeKey}.releaseControls`)}
         </LinkButton>
         {selectedContext ? <RebuildContextDialog contextName={selectedContext} /> : null}
@@ -315,7 +315,7 @@ function ProjectionOperationFilters({
               <Button type="submit" leadingIcon="filter">
                 {t(`${routeKey}.applyFilters`)}
               </Button>
-              <LinkButton href="/operations/projections" tone="secondary">
+              <LinkButton href="/platform/projections" tone="secondary">
                 {t(`${routeKey}.clearFilters`)}
               </LinkButton>
             </Inline>
@@ -326,7 +326,7 @@ function ProjectionOperationFilters({
         filters={appliedFilters}
         clearAction={
           appliedFilters.length > 0 ? (
-            <LinkButton href="/operations/projections" size="sm" tone="secondary">
+            <LinkButton href="/platform/projections" size="sm" tone="secondary">
               {t(`${routeKey}.clearFilters`)}
             </LinkButton>
           ) : null
@@ -430,7 +430,7 @@ function AttentionPanel({ items }: Readonly<{ items: readonly AttentionItem[] }>
           key: "target",
           header: t(`${routeKey}.target`),
           cell: (item) => (
-            <LinkButton href={`/operations/projections?tab=${item.targetTab}`} size="sm" tone="secondary">
+            <LinkButton href={`/platform/projections?tab=${item.targetTab}`} size="sm" tone="secondary">
               {item.targetTab}
             </LinkButton>
           ),
@@ -1107,7 +1107,7 @@ function workerId(row: Record<string, unknown>) {
 }
 
 function selectedHref(tab: string, selected: string) {
-  return `/operations/projections?tab=${encodeURIComponent(tab)}&selected=${encodeURIComponent(selected)}`;
+  return `/platform/projections?tab=${encodeURIComponent(tab)}&selected=${encodeURIComponent(selected)}`;
 }
 
 function buildAppliedFilters(filters: ProjectionOperationsFilters) {

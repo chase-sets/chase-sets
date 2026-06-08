@@ -33,7 +33,7 @@ export function ApiKeyListPage({ initialData }: { initialData: { items: ApiKey[]
         </Form>
       }
       emptyMessage={t("identity.features.apiKeys.ui.apiKeyListPage.no.api.keys.yet")}
-      getHref={(row) => `/identity/api-keys/${row.api_key_id}`}
+      getHref={(row) => `/access/api-keys/${row.api_key_id}`}
     />
   );
 }

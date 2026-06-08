@@ -16,7 +16,7 @@ describe("projection operations API client", () => {
   it("reads route filters from query state", () => {
     const filters = readProjectionOperationsFilters(
       new Request(
-        "https://admin.example.com/operations/projections?tab=blocked&state=failed&contextName=catalog&projectionName=catalog-item&search=charizard&selected=op_1",
+        "https://admin.example.com/platform/projections?tab=blocked&state=failed&contextName=catalog&projectionName=catalog-item&search=charizard&selected=op_1",
       ),
     );
 
@@ -35,7 +35,7 @@ describe("projection operations API client", () => {
       async () => new Response("{}", { status: 202 }),
     );
     vi.stubGlobal("fetch", fetchMock);
-    const request = new Request("https://admin.example.com/operations/projections", {
+    const request = new Request("https://admin.example.com/platform/projections", {
       headers: { cookie: "session=abc" },
     });
 

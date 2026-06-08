@@ -178,40 +178,45 @@
         {
           "routeId": "account-select",
           "routePath": "account-select",
-          "fileExport": "./routes/identity-admin/account-select",
+          "fileExport": "./routes/access-admin/account-select",
           "routeType": "route",
           "sourceContext": "auth",
-          "placement": "root"
+          "placement": "root",
+          "section": "access"
         },
         {
           "routeId": "sign-in",
           "routePath": "sign-in",
-          "fileExport": "./routes/identity-admin/sign-in",
+          "fileExport": "./routes/access-admin/sign-in",
           "routeType": "route",
           "sourceContext": "auth",
-          "placement": "root"
+          "placement": "root",
+          "section": "access"
         },
         {
           "routeId": "sign-out",
           "routePath": "sign-out",
-          "fileExport": "./routes/identity-admin/sign-out",
+          "fileExport": "./routes/access-admin/sign-out",
           "routeType": "route",
           "sourceContext": "auth",
-          "placement": "root"
+          "placement": "root",
+          "section": "access"
         },
         {
           "routeId": "sessions",
           "routePath": "sessions",
-          "fileExport": "./routes/identity-admin/sessions",
+          "fileExport": "./routes/access-admin/sessions",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "section": "access"
         },
         {
           "routeId": "sessions-detail",
           "routePath": "sessions/:id",
-          "fileExport": "./routes/identity-admin/sessions-detail",
+          "fileExport": "./routes/access-admin/sessions-detail",
           "routeType": "route",
-          "sourceContext": "auth"
+          "sourceContext": "auth",
+          "section": "access"
         }
       ]
     },
@@ -278,9 +283,10 @@
       "label": "Sessions",
       "icon": "clock",
       "href": "/sessions",
+      "section": "access",
       "order": 50,
       "visibility": "signed-in",
-      "requiredPermissions": []
+      "requiredPermissions": ["security.manage"]
     },
     {
       "deployable": "marketplace-web",

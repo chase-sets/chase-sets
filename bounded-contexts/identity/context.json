@@ -37,70 +37,80 @@
           "routePath": "accounts",
           "fileExport": "./routes/admin/accounts",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         },
         {
           "routeId": "accounts-detail",
           "routePath": "accounts/:id",
           "fileExport": "./routes/admin/accounts-detail",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         },
         {
           "routeId": "api-keys",
           "routePath": "api-keys",
           "fileExport": "./routes/admin/api-keys",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         },
         {
           "routeId": "api-keys-detail",
           "routePath": "api-keys/:id",
           "fileExport": "./routes/admin/api-keys-detail",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         },
         {
           "routeId": "invitations",
           "routePath": "invitations",
           "fileExport": "./routes/admin/invitations",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         },
         {
           "routeId": "invitations-detail",
           "routePath": "invitations/:id",
           "fileExport": "./routes/admin/invitations-detail",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         },
         {
           "routeId": "memberships",
           "routePath": "memberships",
           "fileExport": "./routes/admin/memberships",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         },
         {
           "routeId": "memberships-detail",
           "routePath": "memberships/:id",
           "fileExport": "./routes/admin/memberships-detail",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         },
         {
           "routeId": "users",
           "routePath": "users",
           "fileExport": "./routes/admin/users",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         },
         {
           "routeId": "users-detail",
           "routePath": "users/:id",
           "fileExport": "./routes/admin/users-detail",
           "routeType": "route",
-          "sourceContext": "identity"
+          "sourceContext": "identity",
+          "section": "access"
         }
       ]
     },
@@ -153,9 +163,10 @@
       "label": "Accounts",
       "icon": "package",
       "href": "/accounts",
+      "section": "access",
       "order": 10,
       "visibility": "signed-in",
-      "requiredPermissions": []
+      "requiredPermissions": ["accounts.view"]
     },
     {
       "deployable": "admin-web",
@@ -164,9 +175,10 @@
       "label": "Users",
       "icon": "user",
       "href": "/users",
+      "section": "access",
       "order": 20,
       "visibility": "signed-in",
-      "requiredPermissions": []
+      "requiredPermissions": ["security.manage"]
     },
     {
       "deployable": "admin-web",
@@ -175,9 +187,10 @@
       "label": "Memberships",
       "icon": "settings",
       "href": "/memberships",
+      "section": "access",
       "order": 30,
       "visibility": "signed-in",
-      "requiredPermissions": []
+      "requiredPermissions": ["memberships.view"]
     },
     {
       "deployable": "admin-web",
@@ -186,9 +199,10 @@
       "label": "Invitations",
       "icon": "info",
       "href": "/invitations",
+      "section": "access",
       "order": 40,
       "visibility": "signed-in",
-      "requiredPermissions": []
+      "requiredPermissions": ["memberships.view"]
     },
     {
       "deployable": "admin-web",
@@ -197,9 +211,10 @@
       "label": "API Keys",
       "icon": "settings",
       "href": "/api-keys",
+      "section": "access",
       "order": 60,
       "visibility": "signed-in",
-      "requiredPermissions": []
+      "requiredPermissions": ["security.manage"]
     },
     {
       "deployable": "marketplace-web",

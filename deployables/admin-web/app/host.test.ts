@@ -2,188 +2,121 @@ import { describe, expect, it } from "vitest";
 import { resolveAdminWebNavItems, resolveAdminWebRouteConfigRecords, resolveAdminWebSectionNavItems } from "./host";
 
 describe("admin web host context registry", () => {
+  const allSectionsActor = {
+    permissions: [
+      "accounts.view",
+      "catalog.view",
+      "commercial-terms.view",
+      "google-shopping.view",
+      "platform-feedback.view",
+      "postage-policies.view",
+      "public-presence.view",
+      "security.manage",
+      "support.manage",
+    ],
+  };
+
   it("resolves top-level admin section navigation from visible section entries", () => {
-    expect(
-      resolveAdminWebSectionNavItems({
-        permissions: ["commercial-terms.view", "platform-feedback.view", "security.manage", "support.manage"],
-      }),
-    ).toEqual(
+    expect(resolveAdminWebSectionNavItems(allSectionsActor)).toEqual(
       expect.arrayContaining([
+        expect.objectContaining({ key: "access", label: "Access", href: "/access/accounts" }),
         expect.objectContaining({ key: "catalog", label: "Catalog", href: "/catalog/dimensions" }),
-        expect.objectContaining({ key: "identity", label: "Identity", href: "/identity/accounts" }),
-        expect.objectContaining({ key: "experience", label: "Experience", href: "/experience/platform-feedback" }),
-        expect.objectContaining({ key: "operations", label: "Operations", href: "/operations/projections" }),
-        expect.objectContaining({ key: "commercial", label: "Commercial Terms", href: "/commercial/terms/schedules" }),
+        expect.objectContaining({ key: "commerce", label: "Commerce", href: "/commerce/terms/schedules" }),
+        expect.objectContaining({ key: "growth", label: "Growth", href: "/growth/google-shopping" }),
+        expect.objectContaining({ key: "support", label: "Support", href: "/support/requests" }),
+        expect.objectContaining({ key: "platform", label: "Platform", href: "/platform/projections" }),
       ]),
     );
   });
 
   it("keeps section navigation actor-visible", () => {
-    expect(
-      resolveAdminWebSectionNavItems({
-        permissions: ["support.manage"],
-      }),
-    ).toContainEqual(expect.objectContaining({ key: "operations", href: "/operations/support-requests" }));
-    expect(
-      resolveAdminWebSectionNavItems({
-        permissions: ["support.manage"],
-      }),
-    ).not.toContainEqual(expect.objectContaining({ key: "commercial" }));
-    expect(
-      resolveAdminWebSectionNavItems({
-        permissions: ["commercial-terms.view"],
-      }),
-    ).toContainEqual(expect.objectContaining({ key: "commercial", href: "/commercial/terms/schedules" }));
-    expect(
-      resolveAdminWebSectionNavItems({
-        permissions: ["commercial-terms.view"],
-      }),
-    ).not.toContainEqual(expect.objectContaining({ key: "operations" }));
-    expect(
-      resolveAdminWebNavItems(
-        {
-          permissions: ["commercial-terms.view"],
-        },
-        { section: "operations" },
-      ),
-    ).toEqual([]);
+    expect(resolveAdminWebSectionNavItems({ permissions: ["support.manage"] })).toContainEqual(
+      expect.objectContaining({ key: "support", href: "/support/requests" }),
+    );
+    expect(resolveAdminWebSectionNavItems({ permissions: ["support.manage"] })).not.toContainEqual(
+      expect.objectContaining({ key: "commerce" }),
+    );
+    expect(resolveAdminWebSectionNavItems({ permissions: ["commercial-terms.view"] })).toContainEqual(
+      expect.objectContaining({ key: "commerce", href: "/commerce/terms/schedules" }),
+    );
+    expect(resolveAdminWebSectionNavItems({ permissions: ["commercial-terms.view"] })).not.toContainEqual(
+      expect.objectContaining({ key: "platform" }),
+    );
+    expect(resolveAdminWebNavItems({ permissions: ["commercial-terms.view"] }, { section: "platform" })).toEqual([]);
   });
 
-  it("contributes Commercial Terms to the commercial section", () => {
+  it("contributes Commercial Terms and postage policies to Commerce", () => {
     expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
       expect.objectContaining({
         routeId: "commercial-terms-schedules",
-        routePath: "commercial/terms/schedules",
-        section: "commercial",
+        routePath: "commerce/terms/schedules",
+        section: "commerce",
       }),
     );
     expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
       expect.objectContaining({
-        routeId: "commercial-terms-agreements",
-        routePath: "commercial/terms/agreements",
-        section: "commercial",
+        routeId: "ordering-postage-policies",
+        routePath: "commerce/postage-policies",
+        section: "commerce",
       }),
     );
-
-    expect(
-      resolveAdminWebNavItems(
-        {
-          permissions: ["commercial-terms.view"],
-        },
-        { section: "commercial" },
-      ),
-    ).toContainEqual(
+    expect(resolveAdminWebNavItems({ permissions: ["postage-policies.view"] }, { section: "commerce" })).toContainEqual(
       expect.objectContaining({
-        href: "/commercial/terms/schedules",
-        label: "Commercial Terms",
+        href: "/commerce/postage-policies",
+        label: "Postage Policies",
       }),
     );
   });
 
-  it("contributes Platform Operations navigation to the operations section", () => {
-    expect(
-      resolveAdminWebNavItems(
-        {
-          permissions: ["security.manage"],
-        },
-        { section: "operations" },
-      ),
-    ).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          href: "/operations/projections",
-          label: "Projection Operations",
-        }),
-        expect.objectContaining({
-          href: "/operations/release-dashboard",
-          label: "Release Dashboard",
-        }),
-        expect.objectContaining({
-          href: "/operations/release-controls",
-          label: "Release Controls",
-        }),
-      ]),
-    );
-  });
-
-  it("contributes Support operations to the operations section", () => {
+  it("contributes Growth surfaces to Growth", () => {
     expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
       expect.objectContaining({
-        routeId: "support-operations",
-        routePath: "operations/support-requests",
+        routeId: "google-shopping",
+        routePath: "growth/google-shopping",
+        section: "growth",
       }),
     );
-    expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
+    expect(resolveAdminWebNavItems({ permissions: ["google-shopping.view"] }, { section: "growth" })).toContainEqual(
       expect.objectContaining({
-        routeId: "support-operations-detail",
-        routePath: "operations/support-requests/:id",
-      }),
-    );
-
-    expect(
-      resolveAdminWebNavItems(
-        {
-          permissions: ["support.manage"],
-        },
-        { section: "operations" },
-      ),
-    ).toContainEqual(
-      expect.objectContaining({
-        href: "/operations/support-requests",
-        label: "Support",
-      }),
-    );
-  });
-
-  it("contributes Google Shopping operations to the operations section", () => {
-    expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
-      expect.objectContaining({
-        routeId: "google-shopping-operations",
-        routePath: "operations/google-shopping",
-      }),
-    );
-
-    expect(
-      resolveAdminWebNavItems(
-        {
-          permissions: ["security.manage"],
-        },
-        { section: "operations" },
-      ),
-    ).toContainEqual(
-      expect.objectContaining({
-        href: "/operations/google-shopping",
+        href: "/growth/google-shopping",
         label: "Google Shopping",
       }),
     );
   });
 
-  it("contributes Ordering postage policies to the identity section", () => {
+  it("contributes support request and feedback surfaces to Support", () => {
     expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
       expect.objectContaining({
-        routeId: "ordering-postage-policies",
-        routePath: "identity/postage-policies",
+        routeId: "support-requests",
+        routePath: "support/requests",
+        section: "support",
       }),
     );
     expect(resolveAdminWebRouteConfigRecords()).toContainEqual(
       expect.objectContaining({
-        routeId: "ordering-postage-policies-detail",
-        routePath: "identity/postage-policies/:id",
+        routeId: "platform-feedback",
+        routePath: "support/platform-feedback",
+        section: "support",
       }),
     );
+  });
 
-    expect(
-      resolveAdminWebNavItems(
-        {
-          permissions: ["postage-policies.view"],
-        },
-        { section: "identity" },
-      ),
-    ).toContainEqual(
-      expect.objectContaining({
-        href: "/identity/postage-policies",
-        label: "Postage Policies",
-      }),
+  it("contributes Platform Operations navigation to Platform", () => {
+    expect(resolveAdminWebNavItems({ permissions: ["security.manage"] }, { section: "platform" })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          href: "/platform/projections",
+          label: "Projection Operations",
+        }),
+        expect.objectContaining({
+          href: "/platform/release-dashboard",
+          label: "Release Dashboard",
+        }),
+        expect.objectContaining({
+          href: "/platform/release-controls",
+          label: "Release Controls",
+        }),
+      ]),
     );
   });
 });

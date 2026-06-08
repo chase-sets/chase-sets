@@ -25,17 +25,17 @@ const SOCIAL_LOGIN_SIGN_IN_FALLBACK_PATH = "/sign-in";
 const SOCIAL_LOGIN_REGISTRATION_FALLBACK_PATH = "/register";
 const SOCIAL_LOGIN_SUCCESS_PATH = "/account";
 const SOCIAL_LOGIN_ACCOUNT_SELECTION_PATH = "/account/select";
-const IDENTITY_ADMIN_SIGN_IN_FALLBACK_PATH = "/identity/sign-in";
-const IDENTITY_ADMIN_ACCOUNT_SELECTION_PATH = "/identity/account-select";
+const ACCESS_ADMIN_SIGN_IN_FALLBACK_PATH = "/access/sign-in";
+const ACCESS_ADMIN_ACCOUNT_SELECTION_PATH = "/access/account-select";
 const CATALOG_ADMIN_SIGN_IN_FALLBACK_PATH = "/catalog/sign-in";
 const CATALOG_ADMIN_ACCOUNT_SELECTION_PATH = "/catalog/account-select";
 
-type SocialLoginJourney = "sign-in" | "registration" | "identity-admin" | "catalog-admin";
+type SocialLoginJourney = "sign-in" | "registration" | "access-admin" | "catalog-admin";
 
-type AdminSocialLoginJourney = Extract<SocialLoginJourney, "identity-admin" | "catalog-admin">;
+type AdminSocialLoginJourney = Extract<SocialLoginJourney, "access-admin" | "catalog-admin">;
 
 const ADMIN_JOURNEY_REQUIRED_PERMISSIONS = {
-  "identity-admin": "security.manage",
+  "access-admin": "accounts.view",
   "catalog-admin": "catalog.view",
 } satisfies Readonly<Record<AdminSocialLoginJourney, string>>;
 
@@ -44,11 +44,11 @@ function isSocialLoginProviderName(value: string): value is SocialLoginProviderN
 }
 
 function isSocialLoginJourney(value: string): value is SocialLoginJourney {
-  return value === "sign-in" || value === "registration" || value === "identity-admin" || value === "catalog-admin";
+  return value === "sign-in" || value === "registration" || value === "access-admin" || value === "catalog-admin";
 }
 
 function isAdminSocialLoginJourney(value: SocialLoginJourney): value is AdminSocialLoginJourney {
-  return value === "identity-admin" || value === "catalog-admin";
+  return value === "access-admin" || value === "catalog-admin";
 }
 
 function getSocialLoginProvider(services: AuthServices, providerName: string) {
@@ -85,8 +85,8 @@ function buildSocialRedirectUri(request: Request, providerName: string) {
 }
 
 function getFallbackPath(journey: SocialLoginJourney) {
-  if (journey === "identity-admin") {
-    return IDENTITY_ADMIN_SIGN_IN_FALLBACK_PATH;
+  if (journey === "access-admin") {
+    return ACCESS_ADMIN_SIGN_IN_FALLBACK_PATH;
   }
   if (journey === "catalog-admin") {
     return CATALOG_ADMIN_SIGN_IN_FALLBACK_PATH;
@@ -95,8 +95,8 @@ function getFallbackPath(journey: SocialLoginJourney) {
 }
 
 function getAccountSelectionPath(journey: SocialLoginJourney) {
-  if (journey === "identity-admin") {
-    return IDENTITY_ADMIN_ACCOUNT_SELECTION_PATH;
+  if (journey === "access-admin") {
+    return ACCESS_ADMIN_ACCOUNT_SELECTION_PATH;
   }
   if (journey === "catalog-admin") {
     return CATALOG_ADMIN_ACCOUNT_SELECTION_PATH;

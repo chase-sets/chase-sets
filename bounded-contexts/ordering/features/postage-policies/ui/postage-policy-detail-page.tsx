@@ -48,7 +48,7 @@ export function PostagePolicyDetailPage({
         title={policy.label}
         description={t("ordering.features.postagePolicies.ui.detail.description")}
         actions={
-          <LinkButton href="/identity/postage-policies" tone="secondary">
+          <LinkButton href="/commerce/postage-policies" tone="secondary">
             {t("ordering.features.postagePolicies.ui.common.back")}
           </LinkButton>
         }

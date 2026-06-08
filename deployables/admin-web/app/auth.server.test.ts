@@ -12,39 +12,41 @@ vi.mock("@chase-sets/auth/server", () => ({
   }),
 }));
 
-import { requireOperationsAdminActor, requireSignedInAdminActor } from "./auth.server";
+import { requireAdminSectionActor, requireSignedInAdminActor } from "./auth.server";
 
 describe("admin web auth helpers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("allows operations access for an actor with a visible operations capability", async () => {
+  it("allows section access for an actor with visible section capability", async () => {
     const actor = { permissions: ["support.manage"] };
     mockResolveActor.mockResolvedValue(actor);
 
     await expect(
-      requireOperationsAdminActor(new Request("https://admin.test/operations/support-requests")),
+      requireAdminSectionActor(new Request("https://admin.test/support/requests"), "support", "support.manage"),
     ).resolves.toBe(actor);
     expect(mockRequireActor).not.toHaveBeenCalled();
   });
 
-  it("rejects signed-in actors without visible operations navigation", async () => {
+  it("rejects signed-in actors without visible section navigation", async () => {
     mockResolveActor.mockResolvedValue({ permissions: ["commercial-terms.view"] });
 
-    await expect(requireOperationsAdminActor(new Request("https://admin.test/operations"))).rejects.toMatchObject({
+    await expect(
+      requireAdminSectionActor(new Request("https://admin.test/platform"), "platform", "security.manage"),
+    ).rejects.toMatchObject({
       status: 403,
     });
   });
 
-  it("delegates signed-out operations actors to the auth challenge", async () => {
+  it("delegates signed-out section actors to the auth challenge", async () => {
     const challengedActor = { permissions: ["security.manage"] };
     mockResolveActor.mockResolvedValue(null);
     mockRequireActor.mockResolvedValue(challengedActor);
 
-    await expect(requireOperationsAdminActor(new Request("https://admin.test/operations"))).resolves.toBe(
-      challengedActor,
-    );
+    await expect(
+      requireAdminSectionActor(new Request("https://admin.test/platform"), "platform", "security.manage"),
+    ).resolves.toBe(challengedActor);
     expect(mockRequireActor).toHaveBeenCalledWith(expect.any(Request), "security.manage");
   });
 

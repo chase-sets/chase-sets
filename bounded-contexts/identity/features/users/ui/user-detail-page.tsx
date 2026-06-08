@@ -7,7 +7,7 @@ export function UserDetailPage({ data }: { data: User }) {
   return (
     <AdminDetailPage
       breadcrumbs={[
-        { label: t("identity.features.users.ui.userListPage.users"), href: "/identity/users" },
+        { label: t("identity.features.users.ui.userListPage.users"), href: "/access/users" },
         { label: data.display_name },
       ]}
       title={data.display_name}

@@ -33,7 +33,7 @@ export async function action({ request }: ActionFunctionArgs) {
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),
     });
-    return redirect("/commercial/terms/agreements");
+    return redirect("/commerce/terms/agreements");
   } catch (error) {
     if (error instanceof CommercialTermsApiError || error instanceof Error) {
       return { error: error.message };

@@ -31,10 +31,10 @@ export function ReleaseDashboardPage({ data }: Readonly<{ data: ReleaseDashboard
       />
 
       <ActionBar>
-        <LinkButton href="/operations/release-controls" tone="secondary">
+        <LinkButton href="/platform/release-controls" tone="secondary">
           {t(`${routeKey}.releaseControls`)}
         </LinkButton>
-        <LinkButton href="/operations/projections" tone="secondary">
+        <LinkButton href="/platform/projections" tone="secondary">
           {t(`${routeKey}.projectionOperations`)}
         </LinkButton>
       </ActionBar>

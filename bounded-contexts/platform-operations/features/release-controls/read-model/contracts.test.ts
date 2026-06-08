@@ -6,7 +6,7 @@ describe("release controls read model", () => {
     const snapshot = buildReleaseControlsSnapshot(
       readReleaseControlsQuery(
         new Request(
-          "https://admin.example.com/operations/release-controls?releaseAction=lock&releaseReason=incident%20123&releaseReference=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1",
+          "https://admin.example.com/platform/release-controls?releaseAction=lock&releaseReason=incident%20123&releaseReference=https%3A%2F%2Fgithub.com%2Fowner%2Frepo%2Fpull%2F1",
         ),
       ),
       {
@@ -29,7 +29,7 @@ describe("release controls read model", () => {
 
   it("fails command generation closed when a lock reason is missing", () => {
     const snapshot = buildReleaseControlsSnapshot(
-      readReleaseControlsQuery(new Request("https://admin.example.com/operations/release-controls?releaseAction=lock")),
+      readReleaseControlsQuery(new Request("https://admin.example.com/platform/release-controls?releaseAction=lock")),
       {},
     );
 
@@ -41,7 +41,7 @@ describe("release controls read model", () => {
     const snapshot = buildReleaseControlsSnapshot(
       readReleaseControlsQuery(
         new Request(
-          "https://admin.example.com/operations/release-controls?rolloutFeatureKey=checkout.deferred-payment-proof&rolloutEnvironment=production&rolloutPercentage=0&rolloutSubjectType=account&rolloutSubjectId=acc_1&rolloutAllowSubjects=account%3Aacc_1",
+          "https://admin.example.com/platform/release-controls?rolloutFeatureKey=checkout.deferred-payment-proof&rolloutEnvironment=production&rolloutPercentage=0&rolloutSubjectType=account&rolloutSubjectId=acc_1&rolloutAllowSubjects=account%3Aacc_1",
         ),
       ),
       {},

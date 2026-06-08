@@ -27,7 +27,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  return redirect("/identity/invitations");
+  return redirect("/access/invitations");
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.invitations.invitations.identity.admin") }];

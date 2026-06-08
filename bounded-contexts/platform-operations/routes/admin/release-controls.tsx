@@ -27,7 +27,7 @@ export async function action({ request }: ActionFunctionArgs) {
       reason: String(formData.get("releaseReason") ?? ""),
       reference: String(formData.get("releaseReference") ?? ""),
     });
-    return redirect("/operations/release-controls");
+    return redirect("/platform/release-controls");
   }
 
   if (intent === "set-rollout-policy") {
@@ -40,7 +40,7 @@ export async function action({ request }: ActionFunctionArgs) {
       reason: String(formData.get("releaseReason") ?? ""),
       reference: String(formData.get("releaseReference") ?? ""),
     });
-    return redirect("/operations/release-controls");
+    return redirect("/platform/release-controls");
   }
 
   return { error: t(`${routeKey}.unknownAction`) };

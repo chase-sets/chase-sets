@@ -27,6 +27,8 @@ export type PermissionKey =
   | "commercial-terms.view"
   | "fulfillment.manage"
   | "fulfillment.view"
+  | "google-shopping.manage"
+  | "google-shopping.view"
   | "memberships.manage"
   | "memberships.view"
   | "inventory.manage"

@@ -26,11 +26,11 @@ const apiKey = {
   updated_at: "2026-05-13T12:00:00.000Z",
 };
 
-describe("Identity AdminDetailPage", () => {
+describe("Access AdminDetailPage", () => {
   it("renders the canonical detail frame with breadcrumbs, actions, status, and details", () => {
     const html = renderToString(
       <AdminDetailPage
-        breadcrumbs={[{ label: "Accounts", href: "/identity/accounts" }, { label: "Card Vault" }]}
+        breadcrumbs={[{ label: "Accounts", href: "/access/accounts" }, { label: "Card Vault" }]}
         title="Card Vault"
         status="active"
         actions={<button type="button">Suspend</button>}
@@ -41,7 +41,7 @@ describe("Identity AdminDetailPage", () => {
       />,
     );
 
-    expect(html).toContain('href="/identity/accounts"');
+    expect(html).toContain('href="/access/accounts"');
     expect(html).toContain("Card Vault");
     expect(html).toContain("active");
     expect(html).toContain("Suspend");
@@ -62,11 +62,11 @@ describe("Identity AdminDetailPage", () => {
   });
 });
 
-describe("Identity admin detail pages", () => {
+describe("Access Admin detail pages", () => {
   it("gives account details the shared breadcrumb and detail structure", () => {
     const html = renderToString(<AccountDetailPage data={account} />);
 
-    expect(html).toContain('href="/identity/accounts"');
+    expect(html).toContain('href="/access/accounts"');
     expect(html).toContain("Accounts");
     expect(html).toContain("Card Vault");
     expect(html).toContain("Founding Account");
@@ -77,7 +77,7 @@ describe("Identity admin detail pages", () => {
   it("gives API key details the shared breadcrumb and action structure", () => {
     const html = renderToString(<ApiKeyDetailPage data={apiKey} />);
 
-    expect(html).toContain('href="/identity/api-keys"');
+    expect(html).toContain('href="/access/api-keys"');
     expect(html).toContain("API Keys");
     expect(html).toContain("Ops Console");
     expect(html).toContain("Rotate");

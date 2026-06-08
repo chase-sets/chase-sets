@@ -85,22 +85,22 @@
       "deployable": "admin-web",
       "routes": [
         {
-          "routeId": "support-operations",
-          "routePath": "support-requests",
-          "fileExport": "./routes/admin/operations-queue",
+          "routeId": "support-requests",
+          "routePath": "requests",
+          "fileExport": "./routes/admin/requests",
           "routeType": "route",
           "sourceContext": "support",
           "placement": "root",
-          "section": "operations"
+          "section": "support"
         },
         {
-          "routeId": "support-operations-detail",
-          "routePath": "support-requests/:id",
-          "fileExport": "./routes/admin/operations-request-detail",
+          "routeId": "support-requests-detail",
+          "routePath": "requests/:id",
+          "fileExport": "./routes/admin/request-detail",
           "routeType": "route",
           "sourceContext": "support",
           "placement": "root",
-          "section": "operations"
+          "section": "support"
         }
       ]
     }
@@ -131,12 +131,12 @@
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
-      "key": "support-operations",
+      "key": "support-requests",
       "label": "Support",
       "icon": "help",
-      "href": "/support-requests",
-      "section": "operations",
-      "order": 30,
+      "href": "/requests",
+      "section": "support",
+      "order": 5,
       "visibility": "signed-in",
       "requiredPermissions": ["support.manage"]
     }

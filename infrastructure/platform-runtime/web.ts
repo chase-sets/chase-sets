@@ -8,7 +8,7 @@ import type {
 import type { NavigationItem } from "@chase-sets/design-system";
 
 export type WebHostName = "admin-web" | "marketplace-web" | "public-web";
-export type WebHostSection = "catalog" | "identity" | "experience" | "operations" | "commercial";
+export type WebHostSection = "access" | "catalog" | "commerce" | "growth" | "support" | "platform";
 
 export type WebContextManifest = Readonly<{
   contextName: string;
@@ -49,11 +49,12 @@ type ShellContributionRecord = Readonly<
 >;
 
 const ADMIN_WEB_SECTIONS = [
+  "access",
   "catalog",
-  "identity",
-  "experience",
-  "operations",
-  "commercial",
+  "commerce",
+  "growth",
+  "support",
+  "platform",
 ] as const satisfies readonly WebHostSection[];
 const catalogAdminMarker = ["catalog", "admin"].join("-");
 
@@ -78,31 +79,45 @@ function resolveAdminWebSection(
     return "catalog";
   }
 
+  if (fileExportOrKey?.includes(catalogAdminMarker)) {
+    return "catalog";
+  }
+
   if (contextName === "identity") {
-    return "identity";
+    return "access";
+  }
+
+  if (contextName === "auth") {
+    return "access";
   }
 
   if (contextName === "experience") {
-    return "experience";
+    return "support";
   }
 
   if (contextName === "platform-operations") {
-    return "operations";
+    return "platform";
   }
 
   if (contextName === "support") {
-    return "operations";
+    return "support";
   }
 
   if (contextName === "discovery" && fileExportOrKey?.includes("google-shopping")) {
-    return "operations";
+    return "growth";
   }
 
   if (contextName === "public-presence") {
-    return "experience";
+    return "growth";
   }
 
-  return fileExportOrKey?.includes(catalogAdminMarker) ? "catalog" : "identity";
+  if (contextName === "commercial-terms") {
+    return "commerce";
+  }
+
+  throw new Error(
+    `Missing explicit admin-web section for context '${contextName}' route or shell contribution '${fileExportOrKey ?? "unknown"}'.`,
+  );
 }
 
 function withPrefixedPath(pathname: string, prefix: string) {

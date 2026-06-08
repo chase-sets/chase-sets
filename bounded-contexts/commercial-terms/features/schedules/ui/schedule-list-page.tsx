@@ -171,7 +171,7 @@ export function ScheduleListPage({
               key: "actions",
               header: t("commercialTerms.features.schedules.ui.scheduleListPage.actions"),
               cell: (row) => (
-                <LinkButton href={`/commercial/terms/schedules/${row.schedule_id}`} tone="secondary" size="sm">
+                <LinkButton href={`/commerce/terms/schedules/${row.schedule_id}`} tone="secondary" size="sm">
                   {t("commercialTerms.features.schedules.ui.scheduleListPage.open")}
                 </LinkButton>
               ),
