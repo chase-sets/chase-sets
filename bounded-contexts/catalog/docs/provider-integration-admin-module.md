@@ -86,6 +86,8 @@ The module needs dense, repeatable operational controls rather than marketing la
 
 The measurable UX, accessibility, responsive, keyboard, dense-state, and no-raw-JSON release checks for these workflows are documented in [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md). New Admin Control Plane workflow slices should cite that checklist in their test plan.
 
+End-to-end operator acceptance is documented in [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md). New workflow slices should cite the relevant journey IDs in PR and release evidence, especially when the change touches activation, import diagnostics, Source Observation review, promotion, reapply, rollback, retirement, or audit behavior.
+
 Expected primitives include:
 
 - nested expression editor rows with duplicate, reorder, remove, and inline diagnostics
