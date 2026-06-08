@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Outlet, useLoaderData, useLocation } from "react-router";
+import { t } from "@chase-sets/localization";
 import type { WebHostSection } from "@chase-sets/platform-runtime/web";
 import { AdminShell, Button, ChaseRoot, Form, Inline, SellerBadge, type ColorMode } from "@chase-sets/design-system";
 import { resolveAdminWebNavItems, resolveAdminWebSectionNavItems } from "./host";
@@ -39,7 +40,7 @@ export function AdminSectionLayout({ config }: Readonly<{ config: SectionConfig 
           <Inline gap={2}>
             <Form action="/access/sign-out" method="post" spacing="none">
               <Button type="submit" tone="secondary">
-                Sign out
+                {t("adminWeb.app.adminSectionLayout.sign.out")}
               </Button>
             </Form>
           </Inline>
