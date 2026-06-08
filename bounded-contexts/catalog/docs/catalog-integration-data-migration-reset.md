@@ -36,6 +36,7 @@ Forced active-job cleanup is allowed only for explicit pre-launch wipe decisions
 | Source Observations | `catalog_source_observations` | delete | promoted observations are needed to explain launched Catalog Items |
 | Profile section diagnostics | `catalog_provider_profile_version_section_diagnostics` | rebuild | parent profile version is retained |
 | Profile section projections | `catalog_provider_profile_version_sections` | rebuild | parent profile version is retained |
+| Provider option query cache | `catalog_provider_option_query_cache` | delete | never by default; this is operational cache |
 | Provider option rate limits | `catalog_tcgplayer_automation_domain_rate_limits` | delete | never by default; this is operational cache |
 | Provider profile versions | `catalog_provider_integration_profile_versions` | delete and rebuild seed | authoring audit, migration evidence, or retained references exist |
 

@@ -14,6 +14,7 @@ export type CatalogIntegrationDataSurfaceKey =
   | "bulk-review-job"
   | "bulk-review-job-event"
   | "bulk-review-work-unit"
+  | "provider-option-query-cache"
   | "provider-option-rate-limit";
 
 export type CatalogIntegrationDataResetAction =
@@ -71,6 +72,7 @@ export type CatalogIntegrationDataVerificationReport = Readonly<{
   bulkReviewWorkUnits: number;
   profileSections: number;
   profileSectionDiagnostics: number;
+  providerOptionQueryCacheEntries: number;
   providerOptionRateLimits: number;
 }>;
 
@@ -211,12 +213,24 @@ export const catalogIntegrationDataSurfacePolicies = [
     verificationQuery: "SELECT COUNT(*) AS count FROM catalog_provider_profile_version_sections",
   },
   {
+    key: "provider-option-query-cache",
+    tableName: "catalog_provider_option_query_cache",
+    compatibilitySurface: "provider-payload-provenance-envelope",
+    retention: "operational-cache",
+    resetAction: "delete",
+    resetOrder: 100,
+    retainedWhen: ["provider option query cache is operational state and is not retained across pre-launch reset"],
+    backfillRequirement: "No backfill; Admin option selectors repopulate cache through bounded live queries.",
+    rollbackRequirement: "Rollback does not restore cached provider option pages.",
+    verificationQuery: "SELECT COUNT(*) AS count FROM catalog_provider_option_query_cache",
+  },
+  {
     key: "provider-option-rate-limit",
     tableName: "catalog_tcgplayer_automation_domain_rate_limits",
     compatibilitySurface: "provider-payload-provenance-envelope",
     retention: "operational-cache",
     resetAction: "delete",
-    resetOrder: 100,
+    resetOrder: 105,
     retainedWhen: [
       "learned provider throttling state is operational cache and is not retained across pre-launch reset",
     ],
@@ -340,6 +354,10 @@ export async function collectCatalogIntegrationDataVerificationReport(
     db,
     "SELECT COUNT(*) AS count FROM catalog_tcgplayer_automation_domain_rate_limits",
   );
+  const providerOptionQueryCacheEntries = await countRows(
+    db,
+    "SELECT COUNT(*) AS count FROM catalog_provider_option_query_cache",
+  );
 
   return {
     providerProfileVersions,
@@ -356,6 +374,7 @@ export async function collectCatalogIntegrationDataVerificationReport(
     bulkReviewWorkUnits,
     profileSections,
     profileSectionDiagnostics,
+    providerOptionQueryCacheEntries,
     providerOptionRateLimits,
   };
 }

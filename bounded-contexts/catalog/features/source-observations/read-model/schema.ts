@@ -152,6 +152,35 @@ CREATE TABLE IF NOT EXISTS catalog_tcgplayer_automation_domain_rate_limits (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS catalog_provider_option_query_cache (
+  cache_key text PRIMARY KEY,
+  provider_key text NOT NULL,
+  profile_version text NOT NULL,
+  query_kind text NOT NULL,
+  language_code text NOT NULL,
+  parent_value text NOT NULL,
+  items_json jsonb NOT NULL,
+  item_count integer NOT NULL,
+  fetched_at timestamptz NOT NULL,
+  expires_at timestamptz NOT NULL,
+  stale_until timestamptz NOT NULL,
+  diagnostic_code text NULL,
+  diagnostic_text text NULL,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_lookup_idx
+  ON catalog_provider_option_query_cache (
+    provider_key,
+    profile_version,
+    query_kind,
+    language_code,
+    parent_value
+  );
+
+CREATE INDEX IF NOT EXISTS catalog_provider_option_query_cache_stale_until_idx
+  ON catalog_provider_option_query_cache (stale_until);
+
 ${durableJobSchemaSql({
   jobsTable: "catalog_source_observation_bulk_review_jobs",
   eventsTable: "catalog_source_observation_bulk_review_job_events",

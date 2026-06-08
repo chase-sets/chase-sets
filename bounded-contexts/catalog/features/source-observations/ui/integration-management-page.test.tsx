@@ -6,6 +6,7 @@ import {
   IntegrationManagementPage,
   duplicatePreventionPreview,
   externalReferencePreview,
+  optionQueryStatusDetails,
   providerOptionImportSurface,
   providerOptionMetadataPreview,
   providerOptionOutputPreview,
@@ -386,6 +387,39 @@ describe("IntegrationManagementPage", () => {
         metadataPathsText: "languageCode=$languageCode\nseriesId=seriesId",
       }),
     ).toBe("Pull Provider Data: TCGdex series selector after language.");
+  });
+
+  it("summarizes provider option cache and pagination state", () => {
+    const details = optionQueryStatusDetails([
+      {
+        items: [],
+        total: 2,
+        count: 1,
+        page: {
+          cursor: null,
+          nextCursor: "offset:1",
+          limit: 1,
+          hasMore: true,
+        },
+        cache: {
+          status: "stale",
+          source: "cache",
+          cacheKey: "sha256:test",
+          fetchedAt: "2026-06-08T10:00:00.000Z",
+          expiresAt: "2026-06-08T10:15:00.000Z",
+          staleUntil: "2026-06-09T10:00:00.000Z",
+          cacheOnly: true,
+          forceRefresh: false,
+          degraded: true,
+          diagnostics: [],
+        },
+      },
+    ]);
+
+    expect(details).toMatchObject({ degraded: true });
+    expect(details?.description).toContain("cache-only mode");
+    expect(details?.description).toContain("Stale cached options");
+    expect(details?.description).toContain("cursor pagination");
   });
 
   it("builds provider option sample output previews from fixture payloads", () => {

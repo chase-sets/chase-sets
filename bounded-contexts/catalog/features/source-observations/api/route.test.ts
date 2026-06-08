@@ -13,6 +13,7 @@ import {
   CatalogIntegrationRolloutControlError,
   createCatalogIntegrationRolloutControlPolicy,
 } from "./catalog-integration-rollout-controls";
+import { CatalogProviderOptionQueryUnavailableError } from "./provider-option-query-cache";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -568,6 +569,153 @@ describe("source observation routes", () => {
       queryKind: "expansions",
       languageCode: "en",
       parentValue: "me",
+    });
+  });
+
+  it("serves legacy TCGdex selectors through cache-aware option queries when available", async () => {
+    const queryIntegrationOptions = vi.fn(async () => ({
+      items: [
+        {
+          providerKey: "tcgdex",
+          queryKind: "series",
+          value: "me",
+          label: "Mega Evolution",
+          description: null,
+          parentValue: "en",
+          imageUrl: null,
+          metadata: { logoUrl: "https://img.example/me.png" },
+        },
+      ],
+      total: 1,
+      count: 1,
+      page: {
+        cursor: null,
+        nextCursor: null,
+        limit: 50,
+        hasMore: false,
+      },
+      cache: {
+        status: "fresh",
+        source: "cache",
+        cacheKey: "sha256:test",
+        fetchedAt: "2026-06-08T09:00:00.000Z",
+        expiresAt: "2026-06-08T09:15:00.000Z",
+        staleUntil: "2026-06-09T09:00:00.000Z",
+        cacheOnly: false,
+        forceRefresh: false,
+        degraded: false,
+        diagnostics: [],
+      },
+    }));
+    const services = {
+      queryIntegrationOptions,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/tcgdex/series?languageCode=en");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ seriesId: "me", name: "Mega Evolution", logoUrl: "https://img.example/me.png" }],
+      total: 1,
+      count: 1,
+      cache: { status: "fresh", source: "cache" },
+    });
+    expect(queryIntegrationOptions).toHaveBeenCalledWith({
+      providerKey: "tcgdex",
+      queryKind: "series",
+      languageCode: "en",
+    });
+  });
+
+  it("returns cache and cursor metadata for provider-neutral integration options", async () => {
+    const queryIntegrationOptions = vi.fn(async () => ({
+      items: [
+        {
+          providerKey: "tcgdex",
+          queryKind: "expansions",
+          value: "me02.5",
+          label: "Ascended Heroes",
+          description: null,
+          parentValue: "me",
+          imageUrl: null,
+          metadata: {},
+        },
+      ],
+      total: 2,
+      count: 1,
+      page: {
+        cursor: "offset:1",
+        nextCursor: null,
+        limit: 1,
+        hasMore: false,
+      },
+      cache: {
+        status: "stale",
+        source: "cache",
+        cacheKey: "sha256:test",
+        fetchedAt: "2026-06-08T09:00:00.000Z",
+        expiresAt: "2026-06-08T09:15:00.000Z",
+        staleUntil: "2026-06-09T09:00:00.000Z",
+        cacheOnly: true,
+        forceRefresh: true,
+        degraded: true,
+        diagnostics: [
+          {
+            code: "provider-option-query-stale-cache-used",
+            severity: "warning",
+            message: "provider rate limited",
+            retryAfterSeconds: null,
+          },
+        ],
+      },
+    }));
+    const services = {
+      queryIntegrationOptions,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request(
+      "/source-observations/integration-options?provider=tcgdex&kind=expansions&language=en&seriesId=me&cursor=offset:1&limit=1&forceRefresh=true",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ value: "me02.5" }],
+      total: 2,
+      count: 1,
+      page: { cursor: "offset:1", limit: 1, hasMore: false },
+      cache: { status: "stale", source: "cache", cacheOnly: true, degraded: true },
+    });
+    expect(queryIntegrationOptions).toHaveBeenCalledWith({
+      providerKey: "tcgdex",
+      queryKind: "expansions",
+      languageCode: "en",
+      parentValue: "me",
+      cursor: "offset:1",
+      limit: 1,
+      forceRefresh: true,
+    });
+  });
+
+  it("returns unavailable when cache-only provider option queries have no cached page", async () => {
+    const services = {
+      queryIntegrationOptions: vi.fn(async () => {
+        throw new CatalogProviderOptionQueryUnavailableError(
+          "Provider option query cache is empty for cache-only mode.",
+        );
+      }),
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-options?provider=tcgdex&kind=series");
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "catalog_provider_option_query_unavailable",
+        message: "Provider option query cache is empty for cache-only mode.",
+      },
     });
   });
 

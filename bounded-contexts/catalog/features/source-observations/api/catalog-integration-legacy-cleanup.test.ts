@@ -148,6 +148,7 @@ function cleanReport(): CatalogIntegrationDataVerificationReport {
     bulkReviewWorkUnits: 0,
     profileSections: 24,
     profileSectionDiagnostics: 0,
+    providerOptionQueryCacheEntries: 0,
     providerOptionRateLimits: 0,
   };
 }

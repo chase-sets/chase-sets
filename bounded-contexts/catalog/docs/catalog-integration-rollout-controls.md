@@ -30,7 +30,7 @@ Raw JSON fallback quarantine defaults to active. It documents that normal operat
 | `provider-adapter-disabled` | `CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTERS=<provider list or all>` | open | Catalog Source Observations | Blocks provider transport, provider option queries, and imports for the scoped provider |
 | `provider-api-emergency-stop` | `CATALOG_INTEGRATION_PROVIDER_API_EMERGENCY_STOP=<provider list or all>` | open | Catalog Source Observations | Blocks provider transport, provider option queries, and imports during provider API/rate-limit incidents |
 | `provider-option-queries-disabled` | `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES=disabled` | open | Catalog Source Observations | Blocks live option queries |
-| `provider-option-queries-cache-only` | `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES=cache-only` | open | Catalog Source Observations | Blocks live option queries until cache-backed query paths exist |
+| `provider-option-queries-cache-only` | `CATALOG_INTEGRATION_PROVIDER_OPTION_QUERIES=cache-only` | open | Catalog Source Observations | Blocks live option queries and serves only fresh or stale cached options |
 | `imports-disabled` | `CATALOG_INTEGRATION_IMPORTS_DISABLED=<provider list or all>` | open | Catalog Source Observations | Blocks import enqueue and import worker turns for the scoped provider |
 | `promotion-disabled` | `CATALOG_INTEGRATION_PROMOTION_DISABLED=<provider list or all>` | open | Catalog Source Observations | Blocks single and bulk Source Observation promotion for the scoped provider |
 | `reapply-disabled` | `CATALOG_INTEGRATION_REAPPLY_DISABLED=<provider list or all>` | open | Catalog Source Observations | Blocks explicit and scoped reapply for the scoped provider |
@@ -106,4 +106,5 @@ Rollback verification should record the active env values, Admin readiness rollo
 - [Catalog Integration Milestone Release Plan](./catalog-integration-milestone-release-plan.md)
 - [Catalog Integration Audit Evidence](./catalog-integration-audit-evidence.md)
 - [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md)
+- [Catalog Integration Provider Option Query Controls](./catalog-integration-provider-option-query-controls.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)

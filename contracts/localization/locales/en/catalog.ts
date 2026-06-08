@@ -1663,7 +1663,17 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrationManagementPage.not.assigned": "Not assigned",
   "catalog.features.sourceObservations.ui.integrationManagementPage.not.loaded": "Not loaded",
   "catalog.features.sourceObservations.ui.integrationManagementPage.occurred": "Occurred",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.option.query.cache.only":
+    "Live provider option queries are in cache-only mode.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.option.query.cached":
+    "Options are served from cache.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.option.query.fetched": "Fetched {value}.",
   "catalog.features.sourceObservations.ui.integrationManagementPage.option.query.health": "Option query health",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.option.query.paginated":
+    "More options are available through cursor pagination.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.option.query.stale":
+    "Stale cached options are being shown while live refresh is degraded.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.option.query.status": "Option query status",
   "catalog.features.sourceObservations.ui.integrationManagementPage.payload.acquisition": "Payload acquisition",
   "catalog.features.sourceObservations.ui.integrationManagementPage.provider.adapters": "Provider adapters",
   "catalog.features.sourceObservations.ui.integrationManagementPage.rate.limit.cooldown": "Rate limit / cooldown",

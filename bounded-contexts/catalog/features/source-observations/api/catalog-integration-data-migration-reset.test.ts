@@ -39,6 +39,7 @@ describe("catalog integration data migration reset", () => {
       "source-observation",
       "profile-section-diagnostic",
       "profile-section-projection",
+      "provider-option-query-cache",
       "provider-option-rate-limit",
       "provider-profile-version",
     ]);
@@ -51,6 +52,7 @@ describe("catalog integration data migration reset", () => {
       "catalog_source_observation_bulk_review_job_events",
       "catalog_source_observation_bulk_review_jobs",
       "catalog_source_observations",
+      "catalog_provider_option_query_cache",
       "catalog_tcgplayer_automation_domain_rate_limits",
       "catalog_provider_integration_profile_versions",
     ]);
@@ -75,6 +77,7 @@ describe("catalog integration data migration reset", () => {
       bulkReviewWorkUnits: 7,
       profileSections: 30,
       profileSectionDiagnostics: 3,
+      providerOptionQueryCacheEntries: 6,
       providerOptionRateLimits: 4,
     });
 
@@ -93,6 +96,7 @@ describe("catalog integration data migration reset", () => {
       bulkReviewWorkUnits: 7,
       profileSections: 30,
       profileSectionDiagnostics: 3,
+      providerOptionQueryCacheEntries: 6,
       providerOptionRateLimits: 4,
     });
   });
@@ -187,6 +191,7 @@ describe("catalog integration data migration reset", () => {
         bulkReviewWorkUnits: 0,
         profileSections: 12,
         profileSectionDiagnostics: 0,
+        providerOptionQueryCacheEntries: 0,
         providerOptionRateLimits: 0,
       }),
     ).toEqual([
@@ -224,6 +229,7 @@ type CatalogIntegrationCounts = Readonly<{
   bulkReviewWorkUnits: number;
   profileSections: number;
   profileSectionDiagnostics: number;
+  providerOptionQueryCacheEntries: number;
   providerOptionRateLimits: number;
 }>;
 
@@ -247,6 +253,7 @@ class InMemoryCatalogIntegrationDataDb {
       bulkReviewWorkUnits: 0,
       profileSections: 0,
       profileSectionDiagnostics: 0,
+      providerOptionQueryCacheEntries: 0,
       providerOptionRateLimits: 0,
       ...counts,
     };
@@ -296,6 +303,9 @@ class InMemoryCatalogIntegrationDataDb {
     }
     if (sql.includes("catalog_tcgplayer_automation_domain_rate_limits")) {
       return this.clear("providerOptionRateLimits");
+    }
+    if (sql.includes("catalog_provider_option_query_cache")) {
+      return this.clear("providerOptionQueryCacheEntries");
     }
     if (sql.includes("catalog_provider_integration_profile_versions")) {
       const deleted = sql.includes("authoring_audit_json IS NULL")
@@ -364,6 +374,9 @@ class InMemoryCatalogIntegrationDataDb {
     }
     if (sql.includes("catalog_tcgplayer_automation_domain_rate_limits")) {
       return this.counts.providerOptionRateLimits;
+    }
+    if (sql.includes("catalog_provider_option_query_cache")) {
+      return this.counts.providerOptionQueryCacheEntries;
     }
     return 0;
   }
