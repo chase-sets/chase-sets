@@ -423,6 +423,21 @@ describe("social login routes", () => {
     );
   });
 
+  it("falls back to the admin success path when admin SSO returnTo is unsafe", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+    });
+    const app = buildApp(services);
+
+    const response = await app.request("/social/google/start?journey=access-admin&returnTo=//evil.example/access");
+
+    expect(response.status).toBe(302);
+    expect(services.db.query).toHaveBeenCalledWith(
+      expect.stringContaining("INSERT INTO identity_social_login_states"),
+      expect.arrayContaining(["hashed:social_token", "google", "access-admin", "/access/accounts"]),
+    );
+  });
+
   it("rejects admin Google Workspace SSO when the hosted domain is not allowed", async () => {
     const services = createServices({
       existingUser: { user_id: "usr_existing", status: "active" },
@@ -498,6 +513,159 @@ describe("social login routes", () => {
 
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/access/account-select?returnTo=%2Faccess%2Faccounts");
+    expect(services.sessions.commandHandler).not.toHaveBeenCalled();
+  });
+
+  it("filters admin SSO memberships by the requested Support route permission", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+      memberships: [
+        {
+          membershipId: "mbr_support_feedback",
+          accountId: "acc_support_feedback",
+          roleKey: "support-feedback",
+          status: "active",
+          rolePermissions: ["platform-feedback.view"],
+        },
+      ],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=access-admin&returnTo=/support/platform-feedback");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/support/platform-feedback");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
+    expect(services.sessions.commandHandler).toHaveBeenCalledWith(
+      expect.objectContaining({
+        command: expect.objectContaining({
+          accountId: "acc_support_feedback",
+          availableAccountIds: ["acc_support_feedback"],
+        }),
+      }),
+    );
+  });
+
+  it("filters admin SSO memberships by the requested Growth route permission", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+      memberships: [
+        {
+          membershipId: "mbr_public_presence",
+          accountId: "acc_public_presence",
+          roleKey: "growth-public-presence",
+          status: "active",
+          rolePermissions: ["public-presence.view"],
+        },
+      ],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=access-admin&returnTo=/growth/waitlist");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/growth/waitlist");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
+  });
+
+  it("filters admin SSO memberships by the requested Commerce route permission", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+      memberships: [
+        {
+          membershipId: "mbr_commercial_terms",
+          accountId: "acc_commercial_terms",
+          roleKey: "commercial-terms-admin",
+          status: "active",
+          rolePermissions: ["commercial-terms.view"],
+        },
+      ],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=access-admin&returnTo=/commerce/terms/schedules");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/commerce/terms/schedules");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
+  });
+
+  it("allows admin SSO section roots for actors with any visible route permission", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+      memberships: [
+        {
+          membershipId: "mbr_postage",
+          accountId: "acc_postage",
+          roleKey: "postage-policy-admin",
+          status: "active",
+          rolePermissions: ["postage-policies.view"],
+        },
+      ],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=access-admin&returnTo=/commerce");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/commerce");
+    expect(response.headers.getSetCookie().join(";")).toContain("chase_sets_session=session_token");
+  });
+
+  it("rejects admin SSO when memberships do not match the requested route permission", async () => {
+    const services = createServices({
+      existingUser: { user_id: "usr_existing", status: "active" },
+      profile: {
+        email: "operator@chasesets.com",
+        emailVerified: true,
+        hostedDomain: "chasesets.com",
+      },
+      memberships: [
+        {
+          membershipId: "mbr_accounts",
+          accountId: "acc_accounts",
+          roleKey: "access-viewer",
+          status: "active",
+          rolePermissions: ["accounts.view"],
+        },
+      ],
+    });
+    mockCreateIdentityAuthRequestClient.mockReturnValue(mockIdentityMutations);
+    const app = buildApp(services);
+
+    await app.request("/social/google/start?journey=access-admin&returnTo=/support/platform-feedback");
+    const response = await app.request("/social/google/callback?state=social_token&code=provider-code");
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("/access/sign-in?socialLoginError=");
     expect(services.sessions.commandHandler).not.toHaveBeenCalled();
   });
 });
