@@ -83,6 +83,18 @@ These rows are exercised by `pnpm run smoke:platform` when `PLATFORM_ADMIN_EMAIL
 | SMOKE-API-CATALOG-BULK-JOB-STREAM | API-CATALOG-SOURCE-OBS-BULK-JOB-EVENTS | `/api/catalog/source-observations/bulk-jobs/:jobId/events` | durable-job EventSource | SSE opens or returns controlled authorization/not-found response; no host-level 404 or HTML fallback. |
 | SMOKE-API-CATALOG-AUTHORING-JOB-STREAM | API-CATALOG-AUTHORING-BULK-JOB-EVENTS | `/api/catalog/bulk-authoring-jobs/:jobId/events` | durable-job EventSource | SSE opens or returns controlled authorization/not-found response; no host-level 404 or HTML fallback. |
 
+## Deployed API Probe Rows
+
+These rows are also exercised by `pnpm run smoke:platform` when admin credentials are configured. The probe can pass with an authorized result or a controlled authorization/not-found result, but must not return a host-level HTML/plain-text fallback.
+
+| ID | Path | Linked Coverage |
+| --- | --- | --- |
+| SMOKE-PROBE-WAITLIST-EXPORT | `/api/public-presence/admin/waitlist/export` | SMOKE-API-WAITLIST-EXPORT |
+| SMOKE-PROBE-CATALOG-REALTIME | `/api/realtime/account/events?topic=account%3Atopology-smoke%3Alistings` | SMOKE-API-CATALOG-REALTIME |
+| SMOKE-PROBE-CATALOG-INTEGRATION-JOB-STREAM | `/api/catalog/source-observations/integration-jobs/topology-smoke/events` | SMOKE-API-CATALOG-INTEGRATION-JOB-STREAM |
+| SMOKE-PROBE-CATALOG-BULK-JOB-STREAM | `/api/catalog/source-observations/bulk-jobs/topology-smoke/events` | SMOKE-API-CATALOG-BULK-JOB-STREAM |
+| SMOKE-PROBE-CATALOG-AUTHORING-JOB-STREAM | `/api/catalog/bulk-authoring-jobs/topology-smoke/events` | SMOKE-API-CATALOG-AUTHORING-JOB-STREAM |
+
 ## Topology Modes
 
 | Mode | Closure Expectation |

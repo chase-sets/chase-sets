@@ -2,7 +2,7 @@ import process from "node:process";
 import { getPlatformSmokeCliArgs } from "./platform-smoke-args.mjs";
 import { resolvePlatformSmokeUrls } from "./platform-smoke-url-config.mjs";
 import { ensureWorktreeSandboxEnvironment } from "./lib/sandbox.mjs";
-import { ADMIN_DEPLOYED_PAGE_SMOKE_ROWS } from "./admin-shell-smoke-matrix.mjs";
+import { ADMIN_DEPLOYED_API_SMOKE_PROBES, ADMIN_DEPLOYED_PAGE_SMOKE_ROWS } from "./admin-shell-smoke-matrix.mjs";
 
 const cliArgs = getPlatformSmokeCliArgs(process.argv);
 const { env: sandboxEnv } = ensureWorktreeSandboxEnvironment();
@@ -197,6 +197,27 @@ async function expectAdminHtmlPage({ adminOrigin, sessionToken, row }) {
   }
 }
 
+async function expectAdminApiProbe({ adminOrigin, sessionToken, probe }) {
+  const response = await fetchWithRetry(
+    `${probe.id} ${probe.path}`,
+    `${adminOrigin}${probe.path}`,
+    {
+      method: probe.method,
+      headers: {
+        Accept: probe.accept,
+        Authorization: `Bearer ${sessionToken}`,
+      },
+    },
+    (candidate) => probe.expectedStatuses.includes(candidate.status),
+  );
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!probe.expectedContentTypes.some((expected) => contentType.includes(expected))) {
+    throw new Error(`${probe.id} ${probe.path} returned '${contentType}' instead of controlled API/stream content.`);
+  }
+
+  await response.body?.cancel();
+}
+
 async function expectSocialLoginProviders(marketplaceOrigin) {
   const response = await expectOk(
     "marketplace social login providers",
@@ -366,6 +387,12 @@ async function expectAdminDeployedPageMatrix(adminOrigin, sessionToken) {
   }
 }
 
+async function expectAdminDeployedApiProbes(adminOrigin, sessionToken) {
+  for (const probe of ADMIN_DEPLOYED_API_SMOKE_PROBES) {
+    await expectAdminApiProbe({ adminOrigin, sessionToken, probe });
+  }
+}
+
 async function expectRedirect(label, input, expectedAuthority) {
   const response = await fetchWithRetry(label, input, { redirect: "manual" }, (candidate) => candidate.status === 302);
 
@@ -490,6 +517,7 @@ async function main() {
 
     await expectAdminCommercialTermsPages(adminUrl, authBody.sessionToken);
     await expectAdminDeployedPageMatrix(adminUrl, authBody.sessionToken);
+    await expectAdminDeployedApiProbes(adminUrl, authBody.sessionToken);
   } else {
     console.warn("Skipping authenticated admin smoke; admin credentials were not provided.");
   }

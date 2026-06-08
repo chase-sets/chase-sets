@@ -495,3 +495,51 @@ export const ADMIN_DEPLOYED_PAGE_SMOKE_ROWS = [
     coverageIds: ["SMOKE-SHELL-PLATFORM", "SMOKE-API-PLATFORM-RELEASE-CONTROLS"],
   },
 ];
+
+export const ADMIN_DEPLOYED_API_SMOKE_PROBES = [
+  {
+    id: "SMOKE-PROBE-WAITLIST-EXPORT",
+    path: "/api/public-presence/admin/waitlist/export",
+    method: "GET",
+    accept: "text/csv, application/json",
+    expectedStatuses: [200, 401, 403],
+    expectedContentTypes: ["text/csv", "application/json"],
+    coverageIds: ["SMOKE-API-WAITLIST-EXPORT"],
+  },
+  {
+    id: "SMOKE-PROBE-CATALOG-REALTIME",
+    path: "/api/realtime/account/events?topic=account%3Atopology-smoke%3Alistings",
+    method: "GET",
+    accept: "text/event-stream, application/json",
+    expectedStatuses: [200, 401, 403],
+    expectedContentTypes: ["text/event-stream", "application/json"],
+    coverageIds: ["SMOKE-API-CATALOG-REALTIME"],
+  },
+  {
+    id: "SMOKE-PROBE-CATALOG-INTEGRATION-JOB-STREAM",
+    path: "/api/catalog/source-observations/integration-jobs/topology-smoke/events",
+    method: "GET",
+    accept: "text/event-stream, application/json",
+    expectedStatuses: [200, 401, 403, 404],
+    expectedContentTypes: ["text/event-stream", "application/json"],
+    coverageIds: ["SMOKE-API-CATALOG-INTEGRATION-JOB-STREAM"],
+  },
+  {
+    id: "SMOKE-PROBE-CATALOG-BULK-JOB-STREAM",
+    path: "/api/catalog/source-observations/bulk-jobs/topology-smoke/events",
+    method: "GET",
+    accept: "text/event-stream, application/json",
+    expectedStatuses: [200, 401, 403, 404],
+    expectedContentTypes: ["text/event-stream", "application/json"],
+    coverageIds: ["SMOKE-API-CATALOG-BULK-JOB-STREAM"],
+  },
+  {
+    id: "SMOKE-PROBE-CATALOG-AUTHORING-JOB-STREAM",
+    path: "/api/catalog/bulk-authoring-jobs/topology-smoke/events",
+    method: "GET",
+    accept: "text/event-stream, application/json",
+    expectedStatuses: [200, 401, 403, 404],
+    expectedContentTypes: ["text/event-stream", "application/json"],
+    coverageIds: ["SMOKE-API-CATALOG-AUTHORING-JOB-STREAM"],
+  },
+];

@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ADMIN_PARTIAL_ACTORS,
+  ADMIN_DEPLOYED_API_SMOKE_PROBES,
   ADMIN_DEPLOYED_PAGE_SMOKE_ROWS,
   ADMIN_SHELL_SECTIONS,
   ADMIN_SHELL_SMOKE_MATRIX,
@@ -104,6 +105,34 @@ describe("admin shell smoke matrix", () => {
   it("wires the deployed page matrix into platform smoke", () => {
     expect(platformSmoke).toContain("ADMIN_DEPLOYED_PAGE_SMOKE_ROWS");
     expect(platformSmoke).toContain("expectAdminDeployedPageMatrix");
+  });
+
+  it("documents deployed API probes and their linked coverage ids", () => {
+    const matrixCoverageIds = new Set(ADMIN_SHELL_SMOKE_MATRIX.map((row) => row.id));
+    const apiCoverageIds = new Set(ADMIN_WEB_API_DEPENDENCIES.map((dependency) => dependency.smokeCoverageId));
+
+    const undocumentedProbeRows = ADMIN_DEPLOYED_API_SMOKE_PROBES.flatMap((probe) =>
+      [probe.id, probe.path].filter((value) => !runbook.includes(value)),
+    );
+    expect(undocumentedProbeRows).toEqual([]);
+
+    const missingLinkedCoverage = ADMIN_DEPLOYED_API_SMOKE_PROBES.flatMap((probe) =>
+      probe.coverageIds.filter((coverageId) => !matrixCoverageIds.has(coverageId) && !apiCoverageIds.has(coverageId)),
+    );
+    expect(missingLinkedCoverage).toEqual([]);
+
+    for (const probe of ADMIN_DEPLOYED_API_SMOKE_PROBES) {
+      expect(probe.expectedStatuses.length).toBeGreaterThan(0);
+      expect(probe.expectedContentTypes.length).toBeGreaterThan(0);
+      for (const coverageId of probe.coverageIds) {
+        expect(runbook).toContain(coverageId);
+      }
+    }
+  });
+
+  it("wires deployed API probes into platform smoke", () => {
+    expect(platformSmoke).toContain("ADMIN_DEPLOYED_API_SMOKE_PROBES");
+    expect(platformSmoke).toContain("expectAdminDeployedApiProbes");
   });
 
   it("keeps the matrix explicit about link, download, SSE, and durable-job evidence", () => {
