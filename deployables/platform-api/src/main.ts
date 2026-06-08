@@ -44,6 +44,8 @@ import {
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
 import {
   getObservabilityRuntime,
+  recordCatalogIntegrationJob,
+  recordCatalogIntegrationOptionQuery,
   recordRealtimeAuthorizationRejected,
   recordRealtimeBatchRead,
   recordRealtimeConnectionClosed,
@@ -154,6 +156,7 @@ const mobileMessageWebhookGateway =
     : undefined;
 const emailWebhookGateway = createSesEmailWebhookGateway();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const sourceObservationTelemetry = createSourceObservationTelemetry();
 const listingPhotoStorage = createListingPhotoStorage(config.listingPhotoStorage);
 const taxQuoteResolver = shouldBlockProductionTaxQuotes(
   config.deploymentEnvironment,
@@ -194,6 +197,7 @@ const runtime = createPlatformApiHost({
     postageLabelProvider,
     ...(postageWebhookGateway ? { postageWebhookGateway } : {}),
     catalogAssetStorage,
+    sourceObservationTelemetry,
     listingPhotoStorage,
     ...(taxQuoteResolver ? { taxQuoteResolver } : {}),
     socialLoginProviders,
@@ -453,6 +457,16 @@ function createCatalogAssetStorage(storageConfig: PlatformApiCatalogAssetStorage
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
     : createFilesystemObjectStorage(storageConfig);
+}
+
+function createSourceObservationTelemetry() {
+  return {
+    recordProviderOptionQuery: recordCatalogIntegrationOptionQuery,
+    recordIntegrationJob: (event: { jobKind: string; result: string }) =>
+      recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
+    recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
+      recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
+  };
 }
 
 function createListingPhotoStorage(storageConfig: PlatformApiListingPhotoStorageConfig): ObjectStorage {

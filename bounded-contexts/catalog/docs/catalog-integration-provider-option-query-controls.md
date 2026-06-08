@@ -47,7 +47,7 @@ Admin selectors should avoid repeated live calls from dependent dropdowns and ty
 
 Provider adapters should emit transport diagnostics for provider reachability, auth, retryable status codes, cooldowns, and rate limits. The control plane maps those diagnostics into readiness and Admin option-query status.
 
-Operational metrics should distinguish cache hit, cache miss, stale cache served, live refresh success, live refresh failure, cache-only unavailable, and provider retry-after or cooldown. The metrics owner is Catalog Source Observations until #787 promotes the broader observability/runbook packet.
+Operational metrics should distinguish cache hit, cache miss, stale cache served, live refresh success, live refresh failure, cache-only unavailable, and provider retry-after or cooldown. Metric names, bounded labels, alert starters, and redaction rules are documented in [Catalog Integration Observability](./catalog-integration-observability.md).
 
 ## Fixtures And Tests
 

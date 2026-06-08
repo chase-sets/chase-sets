@@ -45,7 +45,7 @@ The application must continue serving traffic if telemetry export is unavailable
 ## Signals
 
 - Traces: Hono requests, Node HTTP/fetch/pg auto-instrumentation, event-store operations, projection/subscription runs, and worker loops.
-- Metrics: request count/duration, event-store operation count/duration, projection/subscription run count/duration, worker run count/duration, and UCP operation/security/idempotency counts.
+- Metrics: request count/duration, event-store operation count/duration, projection/subscription run count/duration, worker run count/duration, Catalog integration option-query/job counts, and UCP operation/security/idempotency counts.
 - Logs: JSON stdout with `traceId` and `spanId` when an active span exists. Local dev also mirrors logs to JSONL when `LOG_FILE_PATH` is set so the Collector can tail them into Loki.
 
 Do not log request bodies, cookies, authorization headers, provider secrets, emails, addresses, card data, or raw customer payloads.
@@ -74,3 +74,14 @@ The checked-in stack uses short local retention. Production should set explicit 
 - credentials supplied by environment or secret management.
 
 Metric labels must stay bounded: service, environment, route template, method, status class, context, event type, projector/subscription name, and provider. Never use account, user, listing, order, payment, shipment, or session ids as metric labels.
+
+## Catalog Integration Signals
+
+Catalog Integration Control Plane signals add:
+
+- `chase_sets_catalog_integration_option_queries_total`
+- `chase_sets_catalog_integration_jobs_total`
+
+These metrics use bounded provider/query/job/status labels only. Do not add job ids, Source Observation ids, cache keys, credential names, raw provider values, payload paths, source URLs, account ids, or user ids as metric labels.
+
+Catalog-specific dashboards, alert starter conditions, redaction rules, and incident workflows live in [Catalog Integration Observability](../../bounded-contexts/catalog/docs/catalog-integration-observability.md) and [Catalog Integration Operations](./catalog-integration-operations.md).

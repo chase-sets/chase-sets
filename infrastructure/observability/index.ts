@@ -94,6 +94,8 @@ const ucpSignatureVerificationFailedCounter = meter.createCounter("chase_sets_uc
 const ucpIdempotencyCounter = meter.createCounter("chase_sets_ucp_idempotency_total");
 const publicPresenceWaitlistEventCounter = meter.createCounter("chase_sets_public_presence_waitlist_events_total");
 const settlementOperationCounter = meter.createCounter("chase_sets_settlement_operations_total");
+const catalogIntegrationOptionQueryCounter = meter.createCounter("chase_sets_catalog_integration_option_queries_total");
+const catalogIntegrationJobCounter = meter.createCounter("chase_sets_catalog_integration_jobs_total");
 
 export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
   event: string;
@@ -104,6 +106,23 @@ export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
   interest?: string | null;
   variant?: string | null;
   status?: string | null;
+}>;
+
+export type CatalogIntegrationOptionQuerySignal = Readonly<{
+  providerKey: string;
+  queryKind: string;
+  cacheStatus: string;
+  cacheSource: string;
+  result: "success" | "failure";
+  degraded: boolean;
+  cacheOnly: boolean;
+  forceRefresh: boolean;
+}>;
+
+export type CatalogIntegrationJobSignal = Readonly<{
+  jobKind: string;
+  result: string;
+  operation: "integration-job" | "bulk-review-work-unit";
 }>;
 
 let runtime: ObservabilityRuntime | null = null;
@@ -547,6 +566,37 @@ export function recordSettlementOperationSignal(
     safe_category: event.safeCategory ?? "none",
     readiness_status: event.readinessStatus ?? "unknown",
   });
+}
+
+export function catalogIntegrationOptionQueryAttributes(event: CatalogIntegrationOptionQuerySignal): Attributes {
+  return {
+    context: "catalog",
+    provider: boundedMetricLabel(event.providerKey),
+    query_kind: boundedMetricLabel(event.queryKind),
+    cache_status: boundedMetricLabel(event.cacheStatus),
+    cache_source: boundedMetricLabel(event.cacheSource),
+    result: event.result,
+    degraded: event.degraded,
+    cache_only: event.cacheOnly,
+    force_refresh: event.forceRefresh,
+  };
+}
+
+export function recordCatalogIntegrationOptionQuery(event: CatalogIntegrationOptionQuerySignal): void {
+  catalogIntegrationOptionQueryCounter.add(1, catalogIntegrationOptionQueryAttributes(event));
+}
+
+export function catalogIntegrationJobAttributes(event: CatalogIntegrationJobSignal): Attributes {
+  return {
+    context: "catalog",
+    operation: event.operation,
+    job_kind: boundedMetricLabel(event.jobKind),
+    result: boundedMetricLabel(event.result),
+  };
+}
+
+export function recordCatalogIntegrationJob(event: CatalogIntegrationJobSignal): void {
+  catalogIntegrationJobCounter.add(1, catalogIntegrationJobAttributes(event));
 }
 
 export function recordUcpSignedWriteRejected(

@@ -45,6 +45,11 @@
       "portName": "catalogAssetStorage",
       "providedBy": "admin-support-api, platform-api",
       "purpose": "Stores Catalog-owned provider asset bytes and returns public URLs for Source Observation promotion."
+    },
+    {
+      "portName": "sourceObservationTelemetry",
+      "providedBy": "admin-support-api, platform-api, admin-support-worker, platform-worker",
+      "purpose": "Emits bounded Catalog Integration Control Plane telemetry for provider option queries, integration jobs, and bulk review work units."
     }
   ],
   "apiDeployables": ["admin-support-api", "platform-api"],

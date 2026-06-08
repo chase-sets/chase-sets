@@ -48,7 +48,12 @@ import {
   type PlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
-import { getObservabilityRuntime, recordSettlementOperationSignal } from "@chase-sets/observability";
+import {
+  getObservabilityRuntime,
+  recordCatalogIntegrationJob,
+  recordCatalogIntegrationOptionQuery,
+  recordSettlementOperationSignal,
+} from "@chase-sets/observability";
 import {
   loadConfig,
   type PlatformWorkerCatalogAssetStorageConfig,
@@ -111,6 +116,7 @@ const postageLabelProvider =
       })
     : createSandboxPostageLabelProvider();
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const sourceObservationTelemetry = createSourceObservationTelemetry();
 const commercialTermsResolver = pools["commercial-terms"]
   ? createCommercialTermsResolver({ db: pools["commercial-terms"] })
   : undefined;
@@ -126,6 +132,7 @@ const runtime = createWorkerHost(workerContextRegistry, "platform-worker", {
     operationsRecorder: settlementOperationsRecorder,
     postageLabelProvider,
     catalogAssetStorage,
+    sourceObservationTelemetry,
     ...(commercialTermsResolver ? { commercialTermsResolver } : {}),
     ...(balanceCreditResolver ? { balanceCreditResolver } : {}),
   },
@@ -1166,6 +1173,16 @@ function createCatalogAssetStorage(storageConfig: PlatformWorkerCatalogAssetStor
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
     : createFilesystemObjectStorage(storageConfig);
+}
+
+function createSourceObservationTelemetry() {
+  return {
+    recordProviderOptionQuery: recordCatalogIntegrationOptionQuery,
+    recordIntegrationJob: (event: { jobKind: string; result: string }) =>
+      recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
+    recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
+      recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
+  };
 }
 
 function createGoogleShoppingMerchantClient(config: PlatformWorkerGoogleMerchantConfig, mode: GoogleShoppingSyncMode) {

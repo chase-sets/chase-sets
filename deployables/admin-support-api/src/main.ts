@@ -18,7 +18,11 @@ import {
   readFilesystemObject,
   type ObjectStorage,
 } from "@chase-sets/object-storage";
-import { getObservabilityRuntime } from "@chase-sets/observability";
+import {
+  getObservabilityRuntime,
+  recordCatalogIntegrationJob,
+  recordCatalogIntegrationOptionQuery,
+} from "@chase-sets/observability";
 import { buildAdminSupportApiApp, createAdminSupportApiHost } from "./app";
 import { resolveActorFromRequest } from "./auth-request-context";
 import { loadConfig, type AdminSupportCatalogAssetStorageConfig } from "./config";
@@ -34,6 +38,7 @@ configureDefaultDurableJobStreamLimiter(
   createDurableJobStreamLimiterFromRealtime(createPostgresRealtimeStreamLimiter({ pool: pools.control })),
 );
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const sourceObservationTelemetry = createSourceObservationTelemetry();
 const socialLoginProviders = [
   ...(config.socialLogin.google
     ? [
@@ -49,6 +54,7 @@ const runtime = createAdminSupportApiHost({
   pools,
   hostPorts: {
     catalogAssetStorage,
+    sourceObservationTelemetry,
     socialLoginProviders,
     adminGoogleWorkspaceSso: config.adminGoogleWorkspaceSso,
   },
@@ -91,6 +97,16 @@ function createCatalogAssetStorage(storageConfig: AdminSupportCatalogAssetStorag
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
     : createFilesystemObjectStorage(storageConfig);
+}
+
+function createSourceObservationTelemetry() {
+  return {
+    recordProviderOptionQuery: recordCatalogIntegrationOptionQuery,
+    recordIntegrationJob: (event: { jobKind: string; result: string }) =>
+      recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
+    recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
+      recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
+  };
 }
 
 function mountLocalCatalogAssetRoute(

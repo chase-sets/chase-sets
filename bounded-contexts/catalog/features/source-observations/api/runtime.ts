@@ -142,6 +142,7 @@ import {
   queryCatalogProviderIntegrationOptionsWithCache,
   type CatalogProviderOptionQueryPage,
 } from "./provider-option-query-cache";
+import type { SourceObservationTelemetry } from "./catalog-integration-observability";
 import {
   planCatalogProviderPromotionCommands,
   type CatalogProviderPromotionResolvedCatalogMapping,
@@ -1595,6 +1596,7 @@ export function createSourceObservationRuntime(
           resolveParentUpdate: (queryable) => bulkReviewParentUpdateFromWorkUnits(queryable, claimed),
         }),
       );
+      recordBulkReviewWorkUnitTelemetry(deps.sourceObservationTelemetry, claimed.action, terminalState);
       return 1;
     } catch (error) {
       if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error, input)) {
@@ -1604,6 +1606,11 @@ export function createSourceObservationRuntime(
           claimOwnerId: claim.claimOwnerId,
           claimToken: claim.claimToken,
         });
+        recordBulkReviewWorkUnitTelemetry(
+          deps.sourceObservationTelemetry,
+          claimed.action,
+          error instanceof SourceObservationJobCancelledError ? "cancelled" : "released",
+        );
         return 0;
       }
 
@@ -1626,6 +1633,7 @@ export function createSourceObservationRuntime(
           resolveParentUpdate: (queryable) => bulkReviewParentUpdateFromWorkUnits(queryable, claimed),
         }),
       );
+      recordBulkReviewWorkUnitTelemetry(deps.sourceObservationTelemetry, claimed.action, "failed");
       return 1;
     }
   }
@@ -1654,6 +1662,7 @@ export function createSourceObservationRuntime(
       });
       if (completed) {
         reconciled += 1;
+        recordBulkReviewWorkUnitTelemetry(deps.sourceObservationTelemetry, job.action, "reconciled");
       }
     }
 
@@ -1957,6 +1966,11 @@ export function createSourceObservationRuntime(
             result: turnResult.result,
           }),
         );
+        recordIntegrationJobTelemetry(
+          deps.sourceObservationTelemetry,
+          claimed.action,
+          sourceObservationIntegrationJobTelemetryResult(turnResult.result),
+        );
       } else {
         await requireSourceObservationJobClaim(
           integrationJobStore.releaseClaim({
@@ -1966,10 +1980,16 @@ export function createSourceObservationRuntime(
             result: turnResult.result,
           }),
         );
+        recordIntegrationJobTelemetry(deps.sourceObservationTelemetry, claimed.action, "released");
       }
       return 1;
     } catch (error) {
       if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error, input)) {
+        recordIntegrationJobTelemetry(
+          deps.sourceObservationTelemetry,
+          claimed.action,
+          error instanceof SourceObservationJobCancelledError ? "cancelled" : "released",
+        );
         return 0;
       }
 
@@ -1981,6 +2001,7 @@ export function createSourceObservationRuntime(
           errorMessage: error instanceof Error ? error.message : "Integration job failed.",
         }),
       );
+      recordIntegrationJobTelemetry(deps.sourceObservationTelemetry, claimed.action, "failed");
       return 1;
     }
   }
@@ -2828,6 +2849,7 @@ export function createSourceObservationRuntime(
         deps.tcgplayerAutomationCatalogClient,
         profileVersions,
         providerAdapterRegistry,
+        deps.sourceObservationTelemetry,
       ),
     listIntegrationOptions: (input) => {
       rolloutControlPolicy.assertAllowed({
@@ -2977,6 +2999,34 @@ export function createSourceObservationRuntime(
   };
 }
 
+function recordIntegrationJobTelemetry(
+  telemetry: SourceObservationTelemetry | undefined,
+  jobKind: SourceObservationIntegrationJobAction,
+  result: "completed" | "failed" | "skipped" | "cancelled" | "released" | "reconciled",
+): void {
+  telemetry?.recordIntegrationJob?.({ jobKind, result });
+}
+
+function recordBulkReviewWorkUnitTelemetry(
+  telemetry: SourceObservationTelemetry | undefined,
+  jobKind: SourceObservationBulkJobAction,
+  result: "completed" | "failed" | "skipped" | "cancelled" | "released" | "reconciled",
+): void {
+  telemetry?.recordBulkReviewWorkUnit?.({ jobKind, result });
+}
+
+function sourceObservationIntegrationJobTelemetryResult(
+  result: SourceObservationIntegrationJobResult,
+): "completed" | "failed" | "skipped" {
+  if (result.failed > 0) {
+    return "failed";
+  }
+  if (result.skipped > 0 && result.observed === 0 && result.reapplied === 0) {
+    return "skipped";
+  }
+  return "completed";
+}
+
 async function listProviderIntegrationOptions(
   input: {
     providerKey: string;
@@ -3046,6 +3096,7 @@ async function queryProviderIntegrationOptions(
       client: tcgplayerAutomationCatalogClient,
     }),
   ]),
+  telemetry?: SourceObservationTelemetry,
 ): Promise<CatalogProviderOptionQueryPage> {
   const decision = rolloutControlPolicy?.decide({
     capability: "provider-option-query",
@@ -3065,43 +3116,69 @@ async function queryProviderIntegrationOptions(
   const queryKind = input.queryKind.trim().toLowerCase();
   const profileVersion = profileVersionForProviderOptionQuery(activeOptionQueryVersions, providerKey, queryKind);
 
-  return queryCatalogProviderIntegrationOptionsWithCache({
-    request: {
-      providerKey,
-      profileVersion,
-      queryKind,
-      languageCode: input.languageCode,
-      parentValue: input.parentValue,
-      cursor: input.cursor,
-      limit: input.limit,
-      forceRefresh: input.forceRefresh,
-      cacheOnly,
-    },
-    cacheStore: createPgCatalogProviderOptionQueryCacheStore(db),
-    loadLive: () =>
-      listCatalogProviderIntegrationOptionsFromProfiles({
-        profiles: activeOptionQueryVersions.map((version) => version.profile),
-        providerKey: input.providerKey,
-        queryKind: input.queryKind,
+  try {
+    const page = await queryCatalogProviderIntegrationOptionsWithCache({
+      request: {
+        providerKey,
+        profileVersion,
+        queryKind,
         languageCode: input.languageCode,
         parentValue: input.parentValue,
-        defaultProviderKey: defaultSourceObservationImportProviderKeyFromVersions(activeOptionQueryVersions),
-        transports: {
-          listTcgdexLanguages: () => listTcgdexLanguageOptionRecordsThroughAdapter(providerAdapterRegistry),
-          listTcgdexSeries: ({ languageCode }) =>
-            listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode }),
-          listTcgdexExpansions: ({ languageCode, seriesId }) =>
-            listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
-          listTcgplayerProductLines: () => listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry),
-          listTcgplayerSetNames: ({ productLineId }) =>
-            listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, { productLineId }),
-          listTcgplayerProducts: ({ setName }) =>
-            listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
-          listTcgplayerSkus: ({ productId }) =>
-            listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
-        },
-      }),
-  });
+        cursor: input.cursor,
+        limit: input.limit,
+        forceRefresh: input.forceRefresh,
+        cacheOnly,
+      },
+      cacheStore: createPgCatalogProviderOptionQueryCacheStore(db),
+      loadLive: () =>
+        listCatalogProviderIntegrationOptionsFromProfiles({
+          profiles: activeOptionQueryVersions.map((version) => version.profile),
+          providerKey: input.providerKey,
+          queryKind: input.queryKind,
+          languageCode: input.languageCode,
+          parentValue: input.parentValue,
+          defaultProviderKey: defaultSourceObservationImportProviderKeyFromVersions(activeOptionQueryVersions),
+          transports: {
+            listTcgdexLanguages: () => listTcgdexLanguageOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listTcgdexSeries: ({ languageCode }) =>
+              listTcgdexSeriesOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode }),
+            listTcgdexExpansions: ({ languageCode, seriesId }) =>
+              listTcgdexExpansionOptionRecordsThroughAdapter(providerAdapterRegistry, { languageCode, seriesId }),
+            listTcgplayerProductLines: () =>
+              listTcgplayerProductLineOptionRecordsThroughAdapter(providerAdapterRegistry),
+            listTcgplayerSetNames: ({ productLineId }) =>
+              listTcgplayerSetNameOptionRecordsThroughAdapter(providerAdapterRegistry, { productLineId }),
+            listTcgplayerProducts: ({ setName }) =>
+              listTcgplayerProductOptionRecordsThroughAdapter(providerAdapterRegistry, { setName }),
+            listTcgplayerSkus: ({ productId }) =>
+              listTcgplayerSkuOptionRecordsThroughAdapter(providerAdapterRegistry, { productId }),
+          },
+        }),
+    });
+    telemetry?.recordProviderOptionQuery?.({
+      providerKey,
+      queryKind,
+      cacheStatus: page.cache.status,
+      cacheSource: page.cache.source,
+      result: "success",
+      degraded: page.cache.degraded,
+      cacheOnly: page.cache.cacheOnly,
+      forceRefresh: page.cache.forceRefresh,
+    });
+    return page;
+  } catch (error) {
+    telemetry?.recordProviderOptionQuery?.({
+      providerKey,
+      queryKind,
+      cacheStatus: "error",
+      cacheSource: "none",
+      result: "failure",
+      degraded: true,
+      cacheOnly,
+      forceRefresh: input.forceRefresh === true,
+    });
+    throw error;
+  }
 }
 
 function profileVersionForProviderOptionQuery(

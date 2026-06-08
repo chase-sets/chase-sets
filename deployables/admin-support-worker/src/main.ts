@@ -16,7 +16,11 @@ import {
   createPostgresPlatformControlPlane,
 } from "@chase-sets/platform-runtime/control-plane";
 import { createProcessDrainState, startGracefulHttpServer } from "@chase-sets/platform-runtime/process-lifecycle";
-import { getObservabilityRuntime } from "@chase-sets/observability";
+import {
+  getObservabilityRuntime,
+  recordCatalogIntegrationJob,
+  recordCatalogIntegrationOptionQuery,
+} from "@chase-sets/observability";
 import { loadConfig, type AdminSupportWorkerCatalogAssetStorageConfig } from "./config";
 import { closeAdminSupportWorkerPools, createAdminSupportWorkerPools } from "./database-pools";
 import { workerContextRegistry } from "./generated/worker-context-registry";
@@ -28,10 +32,12 @@ const pools = createAdminSupportWorkerPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
 const catalogAssetStorage = createCatalogAssetStorage(config.catalogAssetStorage);
+const sourceObservationTelemetry = createSourceObservationTelemetry();
 const runtime = createWorkerHost(workerContextRegistry, "admin-support-worker", {
   pools,
   hostPorts: {
     catalogAssetStorage,
+    sourceObservationTelemetry,
   },
 });
 const projectionRunners = collectWorkerRunners(runtime, {
@@ -370,4 +376,14 @@ function createCatalogAssetStorage(storageConfig: AdminSupportWorkerCatalogAsset
   return storageConfig.kind === "s3"
     ? createS3ObjectStorage(storageConfig)
     : createFilesystemObjectStorage(storageConfig);
+}
+
+function createSourceObservationTelemetry() {
+  return {
+    recordProviderOptionQuery: recordCatalogIntegrationOptionQuery,
+    recordIntegrationJob: (event: { jobKind: string; result: string }) =>
+      recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
+    recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
+      recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
+  };
 }
