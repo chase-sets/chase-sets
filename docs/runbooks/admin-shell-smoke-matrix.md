@@ -55,6 +55,18 @@ These rows are exercised by `pnpm run smoke:platform` when `PLATFORM_ADMIN_EMAIL
 | AS-ACTOR-POSTAGE-POLICIES-VIEW | `postage-policies.view` | `/commerce`, `/commerce/postage-policies` | Commerce | Direct route entry and section root resolution. |
 | AS-ACTOR-PLATFORM-FEEDBACK-VIEW | `platform-feedback.view` | `/support`, `/support/platform-feedback` | Support | Direct route entry and section root resolution. |
 
+## Partial-Actor Local Evidence Rows
+
+These rows are exercised by `pnpm --filter @chase-sets/app-admin-web run test -- admin-section-loader.server host`. They do not replace deployed/browser evidence for final closure, but they are the stable local regression evidence for route-specific signed-out fallback permissions, section-root redirects, and shared-permission visibility.
+
+| ID | Actor Row | Evidence Files |
+| --- | --- | --- |
+| EVIDENCE-AS-ACTOR-SECURITY-MANAGE | AS-ACTOR-SECURITY-MANAGE | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |
+| EVIDENCE-AS-ACTOR-MEMBERSHIPS-VIEW | AS-ACTOR-MEMBERSHIPS-VIEW | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |
+| EVIDENCE-AS-ACTOR-PUBLIC-PRESENCE-VIEW | AS-ACTOR-PUBLIC-PRESENCE-VIEW | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |
+| EVIDENCE-AS-ACTOR-POSTAGE-POLICIES-VIEW | AS-ACTOR-POSTAGE-POLICIES-VIEW | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |
+| EVIDENCE-AS-ACTOR-PLATFORM-FEEDBACK-VIEW | AS-ACTOR-PLATFORM-FEEDBACK-VIEW | `deployables/admin-web/app/admin-section-loader.server.test.ts`, `deployables/admin-web/app/host.test.ts` |
+
 ## Link Rows
 
 | ID | Route | Actor | Required Evidence |

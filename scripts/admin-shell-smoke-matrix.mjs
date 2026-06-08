@@ -40,6 +40,19 @@ export const ADMIN_PARTIAL_ACTORS = [
   },
 ];
 
+export const ADMIN_PARTIAL_ACTOR_EVIDENCE_ROWS = ADMIN_PARTIAL_ACTORS.map((actor) => ({
+  id: `EVIDENCE-${actor.id}`,
+  actorId: actor.id,
+  permission: actor.permission,
+  expectedEntryPaths: actor.expectedEntryPaths,
+  expectedSections: actor.expectedSections,
+  evidenceFiles: [
+    "deployables/admin-web/app/admin-section-loader.server.test.ts",
+    "deployables/admin-web/app/host.test.ts",
+  ],
+  command: "pnpm --filter @chase-sets/app-admin-web run test -- admin-section-loader.server host",
+}));
+
 export const ADMIN_WEB_API_DEPENDENCIES = [
   {
     id: "API-AUTH-ACCESS-SESSIONS",

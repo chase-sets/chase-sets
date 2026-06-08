@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   ADMIN_PARTIAL_ACTORS,
+  ADMIN_PARTIAL_ACTOR_EVIDENCE_ROWS,
   ADMIN_DEPLOYED_API_SMOKE_PROBES,
   ADMIN_DEPLOYED_PAGE_SMOKE_ROWS,
   ADMIN_SHELL_SECTIONS,
@@ -14,6 +15,11 @@ import {
 const runbook = readFileSync(resolve("docs/runbooks/admin-shell-smoke-matrix.md"), "utf8");
 const docsIndex = readFileSync(resolve("docs/README.md"), "utf8");
 const platformSmoke = readFileSync(resolve("scripts/platform-smoke.mjs"), "utf8");
+const adminSectionLoaderTest = readFileSync(
+  resolve("deployables/admin-web/app/admin-section-loader.server.test.ts"),
+  "utf8",
+);
+const adminHostTest = readFileSync(resolve("deployables/admin-web/app/host.test.ts"), "utf8");
 
 function duplicates(values) {
   const seen = new Set();
@@ -53,6 +59,30 @@ describe("admin shell smoke matrix", () => {
       expect(runbook).toContain(actor.permission);
       for (const path of actor.expectedEntryPaths) {
         expect(runbook).toContain(path);
+      }
+    }
+  });
+
+  it("maps partial actor rows to stable local regression evidence", () => {
+    expect(ADMIN_PARTIAL_ACTOR_EVIDENCE_ROWS.map((row) => row.actorId).sort()).toEqual(
+      ADMIN_PARTIAL_ACTORS.map((actor) => actor.id).sort(),
+    );
+
+    for (const row of ADMIN_PARTIAL_ACTOR_EVIDENCE_ROWS) {
+      expect(runbook).toContain(row.id);
+      expect(runbook).toContain(row.actorId);
+      expect(runbook).toContain(row.command);
+
+      for (const evidenceFile of row.evidenceFiles) {
+        expect(runbook).toContain(evidenceFile);
+      }
+
+      expect(adminSectionLoaderTest).toContain(row.permission);
+      expect(adminHostTest).toContain(row.permission);
+
+      for (const path of row.expectedEntryPaths) {
+        const source = path === "/platform" ? `${adminSectionLoaderTest}\n${adminHostTest}` : adminSectionLoaderTest;
+        expect(source).toContain(path);
       }
     }
   });
