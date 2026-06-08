@@ -70,10 +70,7 @@ describe("platform feedback admin UI", () => {
 
   it("renders detail attribution, marketplace related links, and status actions", () => {
     render(
-      <PlatformFeedbackAdminDetailPage
-        feedback={feedbackItem}
-        marketplaceOrigin="https://marketplace.chasesets.com"
-      />,
+      <PlatformFeedbackAdminDetailPage feedback={feedbackItem} marketplaceOrigin="https://marketplace.chasesets.com" />,
     );
 
     expect(screen.getByRole("heading", { name: "Feedback pfb_test" })).toBeTruthy();

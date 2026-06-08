@@ -88,9 +88,7 @@ function getDefaultSuccessPath(journey: SocialLoginJourney) {
 
 function getSafeReturnToFromUrl(url: URL, journey: SocialLoginJourney) {
   const returnTo = url.searchParams.get("returnTo");
-  return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//")
-    ? returnTo
-    : getDefaultSuccessPath(journey);
+  return returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : getDefaultSuccessPath(journey);
 }
 
 function firstForwardedValue(value: string | null) {

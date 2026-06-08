@@ -9,10 +9,7 @@ export function getSafeAdminReturnTo(searchParams: URLSearchParams, fallback: st
   return isSafeInAppReturnTo(returnTo) ? returnTo : fallback;
 }
 
-export function createAdminGoogleWorkspaceSocialLoginHref(
-  journey: AdminSocialLoginJourney,
-  returnTo: string,
-) {
+export function createAdminGoogleWorkspaceSocialLoginHref(journey: AdminSocialLoginJourney, returnTo: string) {
   const searchParams = new URLSearchParams({
     journey,
     returnTo,

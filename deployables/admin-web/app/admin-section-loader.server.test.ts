@@ -38,8 +38,9 @@ describe("admin section loader", () => {
     const loader = createAdminSectionHomeLoader({ section: "support", fallbackPermission: "support.manage" });
     const request = new Request("https://admin.test/support");
 
-    await expect(loader({ request, params: {}, context: {}, url: new URL(request.url), pattern: "/support" })).rejects
-      .toMatchObject({ status: 403 });
+    await expect(
+      loader({ request, params: {}, context: {}, url: new URL(request.url), pattern: "/support" }),
+    ).rejects.toMatchObject({ status: 403 });
 
     expect(mockRequireAdminSectionActor).toHaveBeenCalledWith(request, "support", "");
   });

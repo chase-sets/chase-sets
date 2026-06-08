@@ -11,4 +11,3 @@ export function toCatalogAdminHref(href: string) {
 
   return `${CATALOG_ADMIN_BASE_PATH}${href}`;
 }
-

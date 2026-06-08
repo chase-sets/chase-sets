@@ -51,4 +51,3 @@ export function AdminAccountMenu({ actor }: Readonly<{ actor: ResolvedActor }>) 
     </>
   );
 }
-
