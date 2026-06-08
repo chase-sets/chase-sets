@@ -4,10 +4,16 @@ import { redirect, useLoaderData } from "react-router";
 import { PlatformFeedbackAdminDetailPage } from "../../features/platform-feedback/ui/admin-pages";
 import { createExperienceRequestApiClient } from "../../support/request-support/api-client";
 
+export function resolvePlatformFeedbackMarketplaceOrigin() {
+  const configured = process.env.CHASE_SETS_MARKETPLACE_ORIGIN?.trim();
+  return configured || null;
+}
+
 export async function loader({ request, params }: LoaderFunctionArgs) {
   const api = createExperienceRequestApiClient(request);
   return {
     feedback: await api.getPlatformFeedback(params.id ?? ""),
+    marketplaceOrigin: resolvePlatformFeedbackMarketplaceOrigin(),
   };
 }
 
@@ -39,6 +45,6 @@ export const meta: MetaFunction<typeof loader> = ({ data }) => [
 ];
 
 export default function PlatformFeedbackDetailRoute() {
-  const { feedback } = useLoaderData<typeof loader>();
-  return <PlatformFeedbackAdminDetailPage feedback={feedback} />;
+  const { feedback, marketplaceOrigin } = useLoaderData<typeof loader>();
+  return <PlatformFeedbackAdminDetailPage feedback={feedback} marketplaceOrigin={marketplaceOrigin} />;
 }
