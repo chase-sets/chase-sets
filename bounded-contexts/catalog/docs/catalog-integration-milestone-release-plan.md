@@ -15,6 +15,14 @@ Phase 0 is complete only when contributors can answer:
 - what proves the architecture gate is satisfied
 - what proves the first reference slice is shippable
 
+The release must preserve the control-plane boundary throughout implementation and rollout:
+
+- Catalog owns Source Observations, semantic mapping, duplicate prevention, promotion/reapply, replay, audit, diagnostics, admin lifecycle, and release evidence.
+- Provider adapters own authentication, provider APIs or scraping/session behavior, pagination, rate limits, retries, target planning, raw payload acquisition, and transport diagnostics.
+- Provider profiles describe Catalog-facing semantics for specific ingestion units. They must not become a low-code replacement for provider client implementation, provider auth, throttling, scraping, or procedural provider workflows.
+- Ingestion units split by Catalog semantic shape, not by every provider listing variant. Raw, foil, graded, certified, and similar card differences stay inside condition, certification, selected Option, or evidence sections unless a separate unit proves distinct aggregate targets, lifecycle, duplicate-prevention policy, or promotion plan.
+- Source Observations remain the normal integration path. External provider systems must not bypass Source Observations and write Catalog truth directly.
+
 ## Phase 0: Readiness And Architecture Gate
 
 Owner area: Catalog source-observations.
@@ -158,6 +166,101 @@ Exit criteria:
 - Rollout controls expose default-open staged modes, provider/API emergency stops, import/promotion/reapply/activation kill switches, worker stops, raw JSON fallback quarantine, Admin surfacing, and rollback evidence.
 - CI passes before merge queue entry.
 - Staging and production deployments are verified green after merge and rollout.
+
+## Launch Execution Order
+
+Use this order for the first broad Catalog Integration Control Plane launch. Later provider launches can reuse the same order by substituting the provider-specific migration and fixture evidence.
+
+1. Confirm Phase 0 readiness signoff (#808), architecture gates, ownership map, and dependency gates from #780.
+2. Confirm the first shippable vertical slice (#799) remains green and that no broad implementation relies on raw JSON editing or provider-specific runtime, API, admin, promotion, or replay branches outside documented transitional exceptions.
+3. Confirm ingestion-unit identity is present for every touched Source Observation, job, diagnostic, audit record, read model, fixture run, option query, adapter proof, and Admin state (#805).
+4. Confirm the ProviderAdapter contract and ownership model (#774) are the only provider transport extension path for new provider work.
+5. Confirm the Catalog Integration Engine responsibility model (#772) owns Source Observation normalization, diagnostics, duplicate-prevention evidence, conflict-aware promotion/reapply plans, and replay behavior.
+6. Confirm the Admin Control Plane workflow map is covered by query contracts, read-model SLOs, RBAC, UX/accessibility acceptance, and operator journeys (#763, #777, #778, #779, #781, #788, #790, #795, #802).
+7. Confirm the section registry contract owns editable section metadata, typed command validation, patch composition, diagnostics, and `rawJsonBacked=false` status for normal sections.
+8. Confirm data governance and legal/policy signoff before live provider sampling, retained payloads, dry-run output retention, raw provider evidence display/export, or MTGJSON/Scryfall live enablement (#794, #803).
+9. Run the pre-launch reset or retained-data migration procedure from [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
+10. Rebuild seeded provider profile versions, section snapshot/read-model rows, section diagnostics, fixture coverage, and integration summary projections from canonical Catalog data.
+11. Verify provider adapters and integration units in dependency order: reference proof, TCGdex, TCGplayer, thin real-provider proof, then MTGJSON/Scryfall validation (#776, #785, #786, #800, #806).
+12. Enable rollout controls in staged mode with provider/API emergency stops, import, promotion, reapply, activation, worker, raw JSON fallback, and rollback switches available (#801).
+13. Run the release verification checklist below in staging, then repeat production smoke, canary, branch, and observability evidence after production deploy.
+
+## Migration And Reset Strategy
+
+Because this control plane has not broadly launched, the default migration strategy is wipe/reset/rebuild for pre-launch integration data instead of preserving old integration rows or carrying permanent compatibility code paths.
+
+Resettable data:
+
+- non-admin-authored provider profile rows without launch-retained migration evidence
+- profile section projections and section diagnostics
+- pre-launch fixture, dry-run, option-query cache, integration summary, bulk review, and job read models
+- pre-launch Source Observations and promotion/reapply work units that have not been intentionally retained
+- raw JSON fallback artifacts that are not needed for signed launch evidence
+
+Retained data is the exception. It requires an owner, reason, launch gate, removal date or removal condition, compatibility mode, rollback behavior, and verification query. Retained data is allowed only when it is launched data, intentionally retained operator evidence, or deploy-skew compatibility required to keep a release safe.
+
+Backfill is required only for retained data. It must run after reset and before activation so retained Source Observations, jobs, diagnostics, audit records, and profile versions carry ingestion-unit identity, schema compatibility metadata, redaction-safe evidence, and conflict-precedence policy names.
+
+Compatibility paths must stay narrow:
+
+- compatibility mounts may preserve API callers during deploy skew, but new behavior should land behind focused subrouters and typed contracts
+- section snapshot/read-model tables are query infrastructure rebuilt from canonical provider profile versions; they must not become a second source of profile truth
+- deprecated raw JSON patching may exist only under the #789 quarantine policy
+- provider-specific semantic helpers may remain only when the executable profile contract references them by reviewed function key and the helper has fixture coverage plus retirement criteria
+- provider transport compatibility belongs in ProviderAdapters, not Catalog profile config or deployable branches
+
+## Release Verification Checklist
+
+Before merge queue entry for a launch PR or any provider-enablement PR, capture evidence for each applicable item in the PR body.
+
+- Phase 0 readiness signoff, ownership map, dependency gates, and first-slice validation are current (#808, #780, #799).
+- Architecture fitness gate passes: no new provider-specific runtime, API route, admin page, promotion, replay, or raw JSON branches outside allowed extension points (#775).
+- Ingestion-unit identity is present and verified across provider/profile/job/diagnostic/audit/read-model/fixture surfaces (#805).
+- ProviderAdapter verification proves credential readiness, option queries, target planning, payload acquisition envelopes, retries/backpressure, and transport diagnostics without Catalog semantic decisions (#774, #782, #797).
+- Catalog Integration Engine verification proves Source Observation normalization, diagnostics, duplicate prevention, Source Observation hash behavior, promotion-plan preview, replay/reapply impact analysis, and conflict precedence (#772, #798, #807).
+- Empty integration-data bootstrap is verified: seeded active/test profiles, profile sections, fixture coverage, diagnostics, summary projections, and adapter readiness rebuild from canonical sources.
+- Pre-launch reset verification confirms no stale Source Observations, legacy profile references, integration jobs, bulk-review work units, raw JSON authoring dependencies, or unowned compatibility paths remain (#804, #792).
+- Retained-data backfill verification runs only for documented retained data and proves schema compatibility, ingestion-unit identity, redaction, audit, and rollback behavior (#793).
+- API compatibility and deploy-skew checks prove old mounts either remain intentionally compatible or fail with documented operator-safe errors.
+- Idempotency and concurrency checks cover activation, rollback, deprecation, retirement, imports, reapply, promotion, retry/resume, partial failure, and active-job conflicts (#791).
+- Admin workflows pass guided profile authoring, fixture validation, dry run, semantic compare, activation readiness, import, Source Observation review, promote/reapply, rollback, retirement, impact preview, and audit/evidence journeys without raw JSON editing (#763, #777, #778, #779, #802).
+- Section registry and section read-model checks prove editable section metadata, typed commands, validation, patch composition, diagnostics, snapshot rebuild, stale-edit etags, and `rawJsonBacked=false` normal authoring paths.
+- Admin query/read-model checks prove freshness, pagination, indexing, degraded states, stale projection messaging, and performance SLOs (#781, #795).
+- RBAC checks prove `catalog.view` and `catalog.manage` action boundaries, denied states, destructive-action confirmation, and audit metadata (#788).
+- Data governance checks prove payload retention, fixture retention, dry-run retention, diagnostic retention, redaction, logging, export behavior, and provider-data policy/legal signoff (#794, #803).
+- Fixture lifecycle checks prove required flows, sampling coverage, provenance, fixture-set versioning, activation-readiness use, and unsafe evidence blocking (#784).
+- Diagnostic taxonomy checks prove codes, severity, blocking behavior, remediation, visibility, metric names, and redaction policy (#796).
+- Option-query checks prove caching, TTL, pagination, stale fallback, backpressure, degraded display, and provider emergency-stop behavior (#797).
+- Observability checks prove provider option query metrics, integration job metrics, bulk review work-unit metrics, worker/request/projection metrics, starter alerts, redaction-safe logs, and incident runbook coverage (#787).
+- Rollout-control checks prove staged modes, provider/API emergency stops, activation/import/promotion/reapply/worker kill switches, raw JSON fallback quarantine, Admin surfacing, rollback evidence, and default state (#801).
+- UX/accessibility checks prove dense workflow layout, responsive behavior, keyboard navigation, focus management, disabled-state explanations, and no overlapping UI text (#790).
+- E2E smoke and worker/job checks prove admin protected routes, health endpoints, provider readiness, durable job progress, projection lag handling, and worker resume behavior.
+- Final provider proof checks pass in order: reference provider, TCGdex, TCGplayer, thin real-provider proof, MTGJSON/Scryfall no-core-change validation (#776, #785, #786, #800, #806).
+
+## Rollback Plan
+
+Rollback is a controlled Catalog lifecycle action, not a direct provider rewrite.
+
+1. Stop or pause new activation, import, promotion, and reapply work through rollout controls and worker kill switches.
+2. If the problem is provider transport, disable the affected provider adapter or API surface and leave Catalog profile semantics intact.
+3. If the problem is profile semantics, activate the prior validated profile version and deprecate the bad version. Do not edit historical profile rows in place.
+4. If the problem is migrated retained data, restore the last verified retained-data snapshot or rerun the retained-data backfill rollback path from [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
+5. If the problem is pre-launch reset output, rerun the wipe/rebuild procedure from canonical seeds and fixture coverage instead of preserving partial reset artifacts.
+6. Reapply or replay only through the Catalog Integration Engine so Source Observations, audit, diagnostics, duplicate-prevention evidence, conflict precedence, and command plans remain deterministic.
+7. Verify production health, protected Admin/API behavior, integration job queues, projection freshness, provider readiness, observability, and audit evidence before reopening rollout switches.
+
+Rollback evidence must include the triggering diagnostic or incident, the affected provider/profile/ingestion unit, active jobs, profile version before and after rollback, impacted Source Observation count, whether Catalog Items were touched, and the smoke/canary result after rollback.
+
+## Final Go/No-Go Gate
+
+The milestone is ready to close only when:
+
+- #770 has captured this release plan in durable docs and shipped to production.
+- All milestone 7 child issues are closed or explicitly moved out of scope with owner-approved rationale.
+- #756 acceptance criteria are still satisfied against the merged production state.
+- `origin/main` and `origin/production` point at the release commit or the deployment workflow records an intentional no-runtime-deploy decision.
+- Production smoke checks pass for readiness health, protected integration APIs, and the Catalog Integrations admin route.
+- No unresolved P0-P2 release hardening findings remain.
 
 ## Dependency Map
 
