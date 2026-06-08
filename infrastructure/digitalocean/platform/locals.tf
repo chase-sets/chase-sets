@@ -276,6 +276,19 @@ locals {
       path_prefix = route[1]
     }
   }
+  proof_admin_api_route_prefixes = [
+    "/api/commercial-terms",
+  ]
+  proof_admin_api_route_domains = local.is_production && var.production_marketplace_proof_enabled && !var.production_marketplace_public_enabled ? [
+    local.admin_domain,
+  ] : []
+  proof_admin_api_ingress_routes = {
+    for route in setproduct(local.proof_admin_api_route_domains, local.proof_admin_api_route_prefixes) :
+    "${route[0]}:${route[1]}" => {
+      authority   = route[0]
+      path_prefix = route[1]
+    }
+  }
   proof_web_route_prefixes = [
     "/account/payouts/setup",
   ]

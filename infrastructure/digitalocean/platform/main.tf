@@ -1745,6 +1745,24 @@ resource "digitalocean_app" "platform" {
       }
 
       dynamic "rule" {
+        for_each = local.proof_admin_api_ingress_routes
+        content {
+          match {
+            authority {
+              exact = rule.value.authority
+            }
+            path {
+              prefix = rule.value.path_prefix
+            }
+          }
+          component {
+            name                 = "platform-api"
+            preserve_path_prefix = true
+          }
+        }
+      }
+
+      dynamic "rule" {
         for_each = local.proof_web_ingress_routes
         content {
           match {
