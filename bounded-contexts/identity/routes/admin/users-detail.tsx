@@ -35,7 +35,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     await api.reactivateUser(userId);
   }
 
-  return redirect(`/identity/users/${userId}`);
+  return redirect(`/access/users/${userId}`);
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.usersDetail.user.detail.identity.admin") }];

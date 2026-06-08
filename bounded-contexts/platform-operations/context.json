@@ -31,7 +31,7 @@
           "routeType": "route",
           "sourceContext": "platform-operations",
           "placement": "root",
-          "section": "operations"
+          "section": "platform"
         },
         {
           "routeId": "release-controls",
@@ -40,7 +40,7 @@
           "routeType": "route",
           "sourceContext": "platform-operations",
           "placement": "root",
-          "section": "operations"
+          "section": "platform"
         },
         {
           "routeId": "release-dashboard",
@@ -49,7 +49,7 @@
           "routeType": "route",
           "sourceContext": "platform-operations",
           "placement": "root",
-          "section": "operations"
+          "section": "platform"
         }
       ]
     }
@@ -62,7 +62,7 @@
       "label": "Projection Operations",
       "icon": "refreshCcw",
       "href": "/projections",
-      "section": "operations",
+      "section": "platform",
       "order": 10,
       "visibility": "signed-in",
       "requiredPermissions": ["security.manage"]
@@ -74,7 +74,7 @@
       "label": "Release Dashboard",
       "icon": "chart",
       "href": "/release-dashboard",
-      "section": "operations",
+      "section": "platform",
       "order": 20,
       "visibility": "signed-in",
       "requiredPermissions": ["security.manage"]
@@ -86,7 +86,7 @@
       "label": "Release Controls",
       "icon": "settings",
       "href": "/release-controls",
-      "section": "operations",
+      "section": "platform",
       "order": 25,
       "visibility": "signed-in",
       "requiredPermissions": ["security.manage"]

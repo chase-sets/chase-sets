@@ -251,7 +251,7 @@
       "projectionName": "discovery-market-projection",
       "subscriptionVersion": 1,
       "eventTypes": ["reputation.review.submitted", "reputation.review.updated", "reputation.review.withdrawn"],
-      "order": 40,
+      "order": 10,
       "projectionHandlerSetNames": ["discovery-market-projection"]
     }
   ],
@@ -397,13 +397,13 @@
       "deployable": "admin-web",
       "routes": [
         {
-          "routeId": "google-shopping-operations",
+          "routeId": "google-shopping",
           "routePath": "google-shopping",
           "fileExport": "./routes/admin/google-shopping",
           "routeType": "route",
           "sourceContext": "discovery",
           "placement": "root",
-          "section": "operations"
+          "section": "growth"
         }
       ]
     }
@@ -434,14 +434,14 @@
     {
       "deployable": "admin-web",
       "slot": "primary-nav",
-      "key": "google-shopping-operations",
+      "key": "google-shopping",
       "label": "Google Shopping",
       "icon": "bag",
       "href": "/google-shopping",
-      "section": "operations",
-      "order": 40,
+      "section": "growth",
+      "order": 10,
       "visibility": "signed-in",
-      "requiredPermissions": ["security.manage"]
+      "requiredPermissions": ["google-shopping.view"]
     }
   ],
   "directoryIntent": {

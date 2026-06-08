@@ -31,7 +31,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     await api.reinstateMembership(membershipId);
   }
 
-  return redirect(`/identity/memberships/${membershipId}`);
+  return redirect(`/access/memberships/${membershipId}`);
 }
 
 export const meta: MetaFunction = () => [

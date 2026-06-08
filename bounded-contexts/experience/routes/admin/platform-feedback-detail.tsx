@@ -25,7 +25,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     await api.archive(feedbackId);
   }
 
-  throw redirect(`/experience/platform-feedback/${feedbackId}`);
+  throw redirect(`/support/platform-feedback/${feedbackId}`);
 }
 
 export const meta: MetaFunction<typeof loader> = ({ data }) => [

@@ -46,7 +46,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     await api.removeAccountBadge(accountId, "founding-account");
   }
 
-  return redirect(`/identity/accounts/${accountId}`);
+  return redirect(`/access/accounts/${accountId}`);
 }
 
 export const meta: MetaFunction = () => [

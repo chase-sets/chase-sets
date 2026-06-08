@@ -10,7 +10,7 @@ import { GoogleShoppingOperationsPage } from "../../features/google-shopping-ope
 import type { GoogleShoppingOperationsNotice } from "../../features/google-shopping-operations/ui/contracts";
 
 const routeKey = "discovery.googleShoppingOperations";
-const routePath = "/operations/google-shopping";
+const routePath = "/growth/google-shopping";
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t(`${routeKey}.requestFailed`);

@@ -34,7 +34,7 @@ import type {
 } from "./contracts";
 
 const routeKey = "discovery.googleShoppingOperations";
-const routePath = "/operations/google-shopping";
+const routePath = "/growth/google-shopping";
 
 type Tone = "neutral" | "accent" | "success" | "warning" | "danger" | "info";
 
@@ -84,7 +84,7 @@ export function GoogleShoppingOperationsPage({
             {t(`${routeKey}.dryRunDiagnostics`)}
           </Button>
         </RouterForm>
-        <LinkButton href="/operations/projections?contextName=discovery" tone="secondary">
+        <LinkButton href="/platform/projections?contextName=discovery" tone="secondary">
           {t(`${routeKey}.projections`)}
         </LinkButton>
         <LinkButton
@@ -288,7 +288,7 @@ function ListingCell({ row }: Readonly<{ row: GoogleShoppingFeedRowListItem }>) 
         <LinkButton href={row.canonicalUrl} size="sm" tone="ghost" target="_blank" rel="noreferrer">
           {t(`${routeKey}.publicListing`)}
         </LinkButton>
-        <LinkButton href={`/identity/accounts/${row.accountId}`} size="sm" tone="ghost">
+        <LinkButton href={`/access/accounts/${row.accountId}`} size="sm" tone="ghost">
           {t(`${routeKey}.account`)}
         </LinkButton>
         <LinkButton href={`/catalog/catalog-items/${row.catalogItemId}`} size="sm" tone="ghost">

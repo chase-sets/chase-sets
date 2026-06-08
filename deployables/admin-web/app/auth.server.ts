@@ -1,58 +1,35 @@
 import { defineAuthHost } from "@chase-sets/auth/server";
-import { catalogAdminAuthHostConfig, identityAdminAuthHostConfig } from "@chase-sets/auth/host-config";
+import { accessAdminAuthHostConfig, catalogAdminAuthHostConfig } from "@chase-sets/auth/host-config";
+import type { WebHostSection } from "@chase-sets/platform-runtime/web";
 import { resolveAdminWebNavItems } from "./host";
 
 const catalogAdminPolicy = defineAuthHost(catalogAdminAuthHostConfig);
-const identityAdminPolicy = defineAuthHost(identityAdminAuthHostConfig);
+const accessAdminPolicy = defineAuthHost(accessAdminAuthHostConfig);
 
 export const resolveCatalogAdminActor = catalogAdminPolicy.resolveActor;
-export const resolveIdentityAdminActor = identityAdminPolicy.resolveActor;
+export const resolveAccessAdminActor = accessAdminPolicy.resolveActor;
 
 export async function requireCatalogAdminActor(request: Request, permission = "catalog.view") {
   return catalogAdminPolicy.requireActor(request, permission);
 }
 
-export async function requireIdentityAdminActor(request: Request) {
-  return identityAdminPolicy.requireActor(request, "security.manage");
-}
-
-export async function requireCommercialTermsAdminActor(request: Request) {
-  return identityAdminPolicy.requireActor(request, "commercial-terms.view");
+export async function requireAccessAdminActor(request: Request) {
+  return requireAdminSectionActor(request, "access", "accounts.view");
 }
 
 export async function requireSignedInAdminActor(request: Request) {
-  const actor = await identityAdminPolicy.resolveActor(request);
-  return actor ?? identityAdminPolicy.requireActor(request, "security.manage");
+  const actor = await accessAdminPolicy.resolveActor(request);
+  return actor ?? accessAdminPolicy.requireActor(request, "accounts.view");
 }
 
-export async function requireOperationsAdminActor(request: Request) {
-  const actor = await identityAdminPolicy.resolveActor(request);
+export async function requireAdminSectionActor(request: Request, section: WebHostSection, fallbackPermission: string) {
+  const actor = await accessAdminPolicy.resolveActor(request);
 
   if (!actor) {
-    return identityAdminPolicy.requireActor(request, "security.manage");
+    return accessAdminPolicy.requireActor(request, fallbackPermission);
   }
 
-  if (resolveAdminWebNavItems(actor, { section: "operations" }).length === 0) {
-    throw new Response("Forbidden.", { status: 403 });
-  }
-
-  return actor;
-}
-
-export async function requireExperienceAdminActor(
-  request: Request,
-  permission: string | readonly string[] = "platform-feedback.view",
-) {
-  if (typeof permission === "string") {
-    return identityAdminPolicy.requireActor(request, permission);
-  }
-
-  const actor = await identityAdminPolicy.resolveActor(request);
-  if (!actor) {
-    return identityAdminPolicy.requireActor(request, permission[0]);
-  }
-
-  if (!permission.some((entry) => actor.permissions.includes(entry))) {
+  if (resolveAdminWebNavItems(actor, { section }).length === 0) {
     throw new Response("Forbidden.", { status: 403 });
   }
 

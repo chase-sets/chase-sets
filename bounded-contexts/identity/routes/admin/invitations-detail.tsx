@@ -31,7 +31,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     await api.declineInvitation(invitationId);
   }
 
-  return redirect(`/identity/invitations/${invitationId}`);
+  return redirect(`/access/invitations/${invitationId}`);
 }
 
 export const meta: MetaFunction = () => [

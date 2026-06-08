@@ -5,7 +5,7 @@
   "streamPrefix": "experience.",
   "apiBasePath": "/api/experience",
   "slices": ["platform-feedback"],
-  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support", "shell-support"],
+  "allowedSupportDirectories": ["request-support", "runtime-support", "seed-support"],
   "publicExports": [".", "./context", "./routes/*", "./seed-support/*", "./server", "./web"],
   "allowedContextDependencies": [],
   "seedRequirements": ["identity"],
@@ -29,14 +29,16 @@
           "routePath": "platform-feedback",
           "fileExport": "./routes/admin/platform-feedback",
           "routeType": "route",
-          "sourceContext": "experience"
+          "sourceContext": "experience",
+          "section": "support"
         },
         {
           "routeId": "platform-feedback-detail",
           "routePath": "platform-feedback/:id",
           "fileExport": "./routes/admin/platform-feedback-detail",
           "routeType": "route",
-          "sourceContext": "experience"
+          "sourceContext": "experience",
+          "section": "support"
         }
       ]
     }
@@ -49,7 +51,8 @@
       "label": "Platform Feedback",
       "icon": "message",
       "href": "/platform-feedback",
-      "order": 10,
+      "section": "support",
+      "order": 20,
       "visibility": "signed-in",
       "requiredPermissions": ["platform-feedback.view"]
     }
@@ -70,15 +73,6 @@
       "createdFor": "platform-feedback routes and contextual prompt submissions.",
       "sunsetWhen": "Remove when all consumers can move behavior back into feature-local modules.",
       "crossCuttingRuntimeComposition": true
-    },
-    "shell-support": {
-      "classification": "support",
-      "purpose": "Provide Experience admin shell composition for deployable layout routes.",
-      "allowedWhen": "Allowed only for admin-web shell composition.",
-      "expectedConsumers": ["admin-web"],
-      "justification": "shell-support keeps admin shell composition outside feature modules.",
-      "createdFor": "Experience admin section layout.",
-      "sunsetWhen": "Remove if Experience no longer contributes admin-web routes."
     },
     "runtime-support": {
       "classification": "support",

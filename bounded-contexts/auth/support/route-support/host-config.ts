@@ -44,20 +44,20 @@ export const catalogAdminAuthHostConfig = {
   },
 } satisfies AuthHostDefinition;
 
-export const identityAdminAuthHostConfig = {
-  hostLabel: "Identity Admin",
-  signInPath: "/identity/sign-in",
-  fallbackPath: "/identity/accounts",
-  defaultSuccessPath: "/identity/accounts",
-  accountSelectionPath: "/identity/account-select",
-  requiredPermission: "security.manage",
-  signedOutReturnTo: "/identity/sign-in",
+export const accessAdminAuthHostConfig = {
+  hostLabel: "Access Admin",
+  signInPath: "/access/sign-in",
+  fallbackPath: "/access/accounts",
+  defaultSuccessPath: "/access/accounts",
+  accountSelectionPath: "/access/account-select",
+  requiredPermission: "accounts.view",
+  signedOutReturnTo: "/access/sign-in",
   signInMethods: ["password", "phone-code", "magic-link", "passkey"],
   allowManualMagicLinkTokenEntry: false,
   titles: {
-    signIn: "Sign In | Identity Admin",
-    accountSelection: "Select Account | Identity Admin",
-    sessions: "Sessions | Identity Admin",
-    sessionDetail: "Session Detail | Identity Admin",
+    signIn: "Sign In | Access Admin",
+    accountSelection: "Select Account | Access Admin",
+    sessions: "Sessions | Access Admin",
+    sessionDetail: "Session Detail | Access Admin",
   },
 } satisfies AuthHostDefinition;

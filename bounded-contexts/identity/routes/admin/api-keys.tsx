@@ -23,7 +23,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  return redirect("/identity/api-keys");
+  return redirect("/access/api-keys");
 }
 
 export const meta: MetaFunction = () => [{ title: t("identity.routes.admin.apiKeys.api.keys.identity.admin") }];

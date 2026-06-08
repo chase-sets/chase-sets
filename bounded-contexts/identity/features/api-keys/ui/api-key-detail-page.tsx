@@ -8,7 +8,7 @@ export function ApiKeyDetailPage({ data }: { data: ApiKey }) {
   return (
     <AdminDetailPage
       breadcrumbs={[
-        { label: t("identity.features.apiKeys.ui.apiKeyListPage.api.keys"), href: "/identity/api-keys" },
+        { label: t("identity.features.apiKeys.ui.apiKeyListPage.api.keys"), href: "/access/api-keys" },
         { label: data.name },
       ]}
       title={data.name}

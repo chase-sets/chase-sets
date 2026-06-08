@@ -38,7 +38,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),
     });
-    return redirect(`/commercial/terms/schedules/${params.id}`);
+    return redirect(`/commerce/terms/schedules/${params.id}`);
   } catch (error) {
     if (error instanceof CommercialTermsApiError || error instanceof Error) {
       return { error: error.message };
@@ -62,7 +62,7 @@ export default function CommercialTermsScheduleDetailRoute() {
           title={t("commercialTerms.routes.admin.schedulesDetail.schedule.unavailable")}
           description={t("commercialTerms.routes.admin.sharedLoadErrorPage.commercial.terms.could.not.load")}
           actions={
-            <LinkButton href="/commercial/terms/schedules" tone="secondary">
+            <LinkButton href="/commerce/terms/schedules" tone="secondary">
               {t("commercialTerms.features.schedules.ui.scheduleDetailPage.back.to.schedules")}
             </LinkButton>
           }

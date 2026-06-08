@@ -232,11 +232,12 @@ const webRegistry = [
           deployable: "admin-web",
           routes: [
             {
-              routeId: "support-operations",
-              routePath: "support-requests",
-              fileExport: "./routes/admin/operations-queue",
+              routeId: "support-requests",
+              routePath: "requests",
+              fileExport: "./routes/admin/requests",
               routeType: "route",
               sourceContext: "support",
+              section: "support",
             },
           ],
         },
@@ -245,10 +246,11 @@ const webRegistry = [
         {
           deployable: "admin-web",
           slot: "primary-nav",
-          key: "support-operations",
+          key: "support-requests",
           label: "Support",
           icon: "help",
-          href: "/support-requests",
+          href: "/requests",
+          section: "support",
           order: 30,
           visibility: "signed-in",
           requiredPermissions: ["support.manage"],
@@ -271,7 +273,7 @@ const webRegistry = [
               fileExport: "./routes/admin/schedules",
               routeType: "route",
               sourceContext: "commercial-terms",
-              section: "commercial",
+              section: "commerce",
             },
           ],
         },
@@ -284,7 +286,7 @@ const webRegistry = [
           label: "Commercial Terms",
           icon: "settings",
           href: "/terms/schedules",
-          section: "commercial",
+          section: "commerce",
           order: 50,
           visibility: "signed-in",
           requiredPermissions: ["commercial-terms.view"],
@@ -484,54 +486,54 @@ describe("platform host web registry", () => {
         label: "Dimensions",
       }),
     ]);
-    expect(getWebHostSections("admin-web")).toEqual(["catalog", "identity", "experience", "operations", "commercial"]);
+    expect(getWebHostSections("admin-web")).toEqual(["access", "catalog", "commerce", "growth", "support", "platform"]);
   });
 
-  it("places public-presence waitlist review in the experience admin section", () => {
+  it("places public-presence waitlist review in the growth admin section", () => {
     const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
     const navItems = resolveWebHostNavItems(
       webRegistry,
       "admin-web",
       "primary-nav",
       { permissions: ["public-presence.view"] },
-      { section: "experience" },
+      { section: "growth" },
     );
 
     expect(routes).toContainEqual(
       expect.objectContaining({
         contextName: "public-presence",
-        routePath: "experience/waitlist",
-        section: "experience",
+        routePath: "growth/waitlist",
+        section: "growth",
       }),
     );
     expect(navItems).toEqual([
       expect.objectContaining({
-        href: "/experience/waitlist",
+        href: "/growth/waitlist",
         label: "Waitlist",
       }),
     ]);
   });
 
-  it("places support operations in the operations admin section", () => {
+  it("places support requests in the support admin section", () => {
     const routes = resolveWebHostRouteRecords(webRegistry, "admin-web");
     const navItems = resolveWebHostNavItems(
       webRegistry,
       "admin-web",
       "primary-nav",
       { permissions: ["support.manage"] },
-      { section: "operations" },
+      { section: "support" },
     );
 
     expect(routes).toContainEqual(
       expect.objectContaining({
         contextName: "support",
-        routePath: "operations/support-requests",
-        section: "operations",
+        routePath: "support/requests",
+        section: "support",
       }),
     );
     expect(navItems).toEqual([
       expect.objectContaining({
-        href: "/operations/support-requests",
+        href: "/support/requests",
         label: "Support",
       }),
     ]);
@@ -544,19 +546,19 @@ describe("platform host web registry", () => {
       "admin-web",
       "primary-nav",
       { permissions: ["commercial-terms.view"] },
-      { section: "commercial" },
+      { section: "commerce" },
     );
 
     expect(routes).toContainEqual(
       expect.objectContaining({
         contextName: "commercial-terms",
-        routePath: "commercial/terms/schedules",
-        section: "commercial",
+        routePath: "commerce/terms/schedules",
+        section: "commerce",
       }),
     );
     expect(navItems).toEqual([
       expect.objectContaining({
-        href: "/commercial/terms/schedules",
+        href: "/commerce/terms/schedules",
         label: "Commercial Terms",
       }),
     ]);

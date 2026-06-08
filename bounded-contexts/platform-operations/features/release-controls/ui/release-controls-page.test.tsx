@@ -8,7 +8,7 @@ describe("ReleaseControlsPage", () => {
     const data = buildReleaseControlsSnapshot(
       readReleaseControlsQuery(
         new Request(
-          "https://admin.example.com/operations/release-controls?releaseAction=unlock&rolloutFeatureKey=pricing.experiment&rolloutPercentage=100&rolloutSubjectId=acc_1",
+          "https://admin.example.com/platform/release-controls?releaseAction=unlock&rolloutFeatureKey=pricing.experiment&rolloutPercentage=100&rolloutSubjectId=acc_1",
         ),
       ),
       {
@@ -28,7 +28,7 @@ describe("ReleaseControlsPage", () => {
 
   it("surfaces validation errors for unsafe lock commands", () => {
     const data = buildReleaseControlsSnapshot(
-      readReleaseControlsQuery(new Request("https://admin.example.com/operations/release-controls?releaseAction=lock")),
+      readReleaseControlsQuery(new Request("https://admin.example.com/platform/release-controls?releaseAction=lock")),
       {},
     );
 

@@ -130,7 +130,7 @@ export function PostagePolicyListPage({
               key: "actions",
               header: t("ordering.features.postagePolicies.ui.list.actions"),
               cell: (row) => (
-                <LinkButton href={`/identity/postage-policies/${row.policy_id}`} tone="secondary" size="sm">
+                <LinkButton href={`/commerce/postage-policies/${row.policy_id}`} tone="secondary" size="sm">
                   {t("ordering.features.postagePolicies.ui.list.open")}
                 </LinkButton>
               ),

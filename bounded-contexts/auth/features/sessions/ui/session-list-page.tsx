@@ -23,7 +23,7 @@ const columns: DataColumn<Session>[] = [
 ];
 
 export function SessionListPage({
-  hrefBase = "/identity/sessions",
+  hrefBase = "/access/sessions",
   initialData,
 }: {
   hrefBase?: string;

@@ -63,7 +63,7 @@ describe("platform feedback admin UI", () => {
     expect(formData.get("topic")).toBe("checkout-payment");
     expect(formData.get("workflow")).toBe("checkout-payment");
     expect(screen.getAllByRole("link", { name: "Open" })[0]?.getAttribute("href")).toBe(
-      "/experience/platform-feedback/pfb_test",
+      "/support/platform-feedback/pfb_test",
     );
     expect(screen.getByText("4.33")).toBeTruthy();
   });

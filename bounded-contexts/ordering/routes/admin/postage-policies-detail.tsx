@@ -35,13 +35,13 @@ export async function action({ params, request }: ActionFunctionArgs) {
         effectiveFrom: String(formData.get("cloneEffectiveFrom") ?? ""),
         effectiveUntil: String(formData.get("cloneEffectiveUntil") ?? ""),
       });
-      return redirect(`/identity/postage-policies/${result.id}`);
+      return redirect(`/commerce/postage-policies/${result.id}`);
     } else if (intent === "preview") {
       return { preview: await api.previewPostagePolicy(postagePolicyPreviewRequestFromForm(formData)) };
     } else {
       await api.revisePostagePolicy(params.id, postagePolicyRequestFromForm(formData));
     }
-    return redirect(`/identity/postage-policies/${params.id}`);
+    return redirect(`/commerce/postage-policies/${params.id}`);
   } catch (error) {
     if (error instanceof OrderingApiError || error instanceof Error) {
       return { error: error.message };

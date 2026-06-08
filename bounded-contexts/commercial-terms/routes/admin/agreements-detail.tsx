@@ -38,7 +38,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       effectiveFrom: formData.get("effectiveFrom"),
       effectiveUntil: formData.get("effectiveUntil"),
     });
-    return redirect(`/commercial/terms/agreements/${params.id}`);
+    return redirect(`/commerce/terms/agreements/${params.id}`);
   } catch (error) {
     if (error instanceof CommercialTermsApiError || error instanceof Error) {
       return { error: error.message };
@@ -62,7 +62,7 @@ export default function CommercialTermsAgreementDetailRoute() {
           title={t("commercialTerms.routes.admin.agreementsDetail.agreement.unavailable")}
           description={t("commercialTerms.routes.admin.sharedLoadErrorPage.commercial.terms.could.not.load")}
           actions={
-            <LinkButton href="/commercial/terms/agreements" tone="secondary">
+            <LinkButton href="/commerce/terms/agreements" tone="secondary">
               {t("commercialTerms.features.agreements.ui.agreementDetailPage.back.to.agreements")}
             </LinkButton>
           }

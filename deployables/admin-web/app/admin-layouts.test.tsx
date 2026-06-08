@@ -18,18 +18,22 @@ vi.mock("react-router", async () => {
   };
 });
 
+import AccessLayout from "./routes/access-layout";
 import CatalogLayout from "./routes/catalog-layout";
-import CommercialLayout from "./routes/commercial-layout";
-import ExperienceLayout from "./routes/experience-layout";
-import IdentityLayout from "./routes/identity-layout";
+import CommerceLayout from "./routes/commerce-layout";
+import GrowthLayout from "./routes/growth-layout";
 import AdminIndex from "./routes/index";
-import OperationsLayout from "./routes/operations-layout";
+import PlatformLayout from "./routes/platform-layout";
+import SupportLayout from "./routes/support-layout";
 
 const allSectionsActor = {
   permissions: [
+    "accounts.view",
     "catalog.view",
     "commercial-terms.view",
+    "google-shopping.view",
     "platform-feedback.view",
+    "postage-policies.view",
     "public-presence.view",
     "security.manage",
     "support.manage",
@@ -50,6 +54,13 @@ describe("admin web section layouts", () => {
 
   it.each([
     {
+      Component: AccessLayout,
+      name: "Access",
+      pathname: "/access/accounts",
+      activeHref: "/access/accounts",
+      localNavLabel: "Accounts",
+    },
+    {
       Component: CatalogLayout,
       name: "Catalog",
       pathname: "/catalog/dimensions",
@@ -57,32 +68,32 @@ describe("admin web section layouts", () => {
       localNavLabel: "Dimensions",
     },
     {
-      Component: IdentityLayout,
-      name: "Identity",
-      pathname: "/identity/accounts",
-      activeHref: "/identity/accounts",
-      localNavLabel: "Accounts",
+      Component: CommerceLayout,
+      name: "Commerce",
+      pathname: "/commerce/postage-policies",
+      activeHref: "/commerce/postage-policies",
+      localNavLabel: "Postage Policies",
     },
     {
-      Component: ExperienceLayout,
-      name: "Experience",
-      pathname: "/experience/platform-feedback",
-      activeHref: "/experience/platform-feedback",
-      localNavLabel: "Platform Feedback",
+      Component: GrowthLayout,
+      name: "Growth",
+      pathname: "/growth/google-shopping",
+      activeHref: "/growth/google-shopping",
+      localNavLabel: "Google Shopping",
     },
     {
-      Component: OperationsLayout,
-      name: "Operations",
-      pathname: "/operations/support-requests",
-      activeHref: "/operations/projections",
+      Component: SupportLayout,
+      name: "Support",
+      pathname: "/support/requests",
+      activeHref: "/support/requests",
       localNavLabel: "Support",
     },
     {
-      Component: CommercialLayout,
-      name: "Commercial Terms",
-      pathname: "/commercial/terms/schedules",
-      activeHref: "/commercial/terms/schedules",
-      localNavLabel: "Commercial Terms",
+      Component: PlatformLayout,
+      name: "Platform",
+      pathname: "/platform/release-dashboard",
+      activeHref: "/platform/release-dashboard",
+      localNavLabel: "Release Dashboard",
     },
   ])(
     "renders $name with top-level and section-local navigation",
@@ -90,11 +101,12 @@ describe("admin web section layouts", () => {
       const html = renderAdminRoute(Component, pathname);
 
       expect(html).toContain("Nested admin route");
+      expect(html).toContain("Access");
       expect(html).toContain("Catalog");
-      expect(html).toContain("Identity");
-      expect(html).toContain("Experience");
-      expect(html).toContain("Operations");
-      expect(html).toContain("Commercial Terms");
+      expect(html).toContain("Commerce");
+      expect(html).toContain("Growth");
+      expect(html).toContain("Support");
+      expect(html).toContain("Platform");
       expect(html).toContain(`href="${activeHref}" aria-current="page"`);
       expect(html).toContain(localNavLabel);
       expect(html).toMatch(/Sign [Oo]ut/);
@@ -110,21 +122,23 @@ describe("admin web root hub", () => {
   it("renders all actor-visible sections", () => {
     mockUseLoaderData.mockReturnValue({
       sections: [
+        { key: "access", label: "Access", href: "/access/accounts" },
         { key: "catalog", label: "Catalog", href: "/catalog/dimensions" },
-        { key: "operations", label: "Operations", href: "/operations/support-requests" },
-        { key: "commercial", label: "Commercial Terms", href: "/commercial/terms/schedules" },
+        { key: "commerce", label: "Commerce", href: "/commerce/terms/schedules" },
+        { key: "growth", label: "Growth", href: "/growth/google-shopping" },
+        { key: "support", label: "Support", href: "/support/requests" },
+        { key: "platform", label: "Platform", href: "/platform/projections" },
       ],
     });
 
     const html = renderToString(<AdminIndex />);
 
     expect(html).toContain("Admin sections");
-    expect(html).toContain("Catalog");
-    expect(html).toContain("/catalog/dimensions");
-    expect(html).toContain("Operations");
-    expect(html).toContain("/operations/support-requests");
-    expect(html).toContain("Commercial Terms");
-    expect(html).toContain("/commercial/terms/schedules");
+    expect(html).toContain("/access/accounts");
+    expect(html).toContain("/commerce/terms/schedules");
+    expect(html).toContain("/growth/google-shopping");
+    expect(html).toContain("/support/requests");
+    expect(html).toContain("/platform/projections");
   });
 
   it("renders a no-access state when no sections are visible", () => {

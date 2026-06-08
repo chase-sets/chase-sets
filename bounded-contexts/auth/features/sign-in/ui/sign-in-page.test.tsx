@@ -50,7 +50,7 @@ describe("sign-in page two-step journey", () => {
         socialLoginDescription="Use your Chase Sets Google Workspace account."
         socialLoginLinks={[
           {
-            href: "/api/auth/social/google/start?journey=identity-admin&returnTo=%2Fidentity%2Faccounts",
+            href: "/api/auth/social/google/start?journey=access-admin&returnTo=%2Fidentity%2Faccounts",
             label: "Continue with Google Workspace",
             icon: "badgeCheck",
           },
@@ -60,7 +60,7 @@ describe("sign-in page two-step journey", () => {
 
     expect(screen.getByText("Use your Chase Sets Google Workspace account.")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Continue with Google Workspace" }).getAttribute("href")).toBe(
-      "/api/auth/social/google/start?journey=identity-admin&returnTo=%2Fidentity%2Faccounts",
+      "/api/auth/social/google/start?journey=access-admin&returnTo=%2Fidentity%2Faccounts",
     );
     expect(screen.queryByRole("link", { name: "Continue with Facebook" })).toBeNull();
   });
@@ -135,11 +135,11 @@ describe("sign-in page magic link recovery", () => {
 
   it("rejects crafted manual magic-link consumes when host config disables token entry", async () => {
     const host = defineAuthHost({
-      signInPath: "/identity/sign-in",
-      fallbackPath: "/identity/accounts",
-      defaultSuccessPath: "/identity/accounts",
-      accountSelectionPath: "/identity/account-select",
-      signedOutReturnTo: "/identity/sign-in",
+      signInPath: "/access/sign-in",
+      fallbackPath: "/access/accounts",
+      defaultSuccessPath: "/access/accounts",
+      accountSelectionPath: "/access/account-select",
+      signedOutReturnTo: "/access/sign-in",
       allowManualMagicLinkTokenEntry: false,
     });
     const action = host.createSignInAction();
@@ -155,7 +155,7 @@ describe("sign-in page magic link recovery", () => {
 
     await expect(
       action({
-        request: new Request("https://admin.chasesets.test/identity/sign-in", {
+        request: new Request("https://admin.chasesets.test/access/sign-in", {
           method: "POST",
           body: form,
         }),

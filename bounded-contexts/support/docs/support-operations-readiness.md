@@ -12,7 +12,7 @@ Before `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=true`, support operations must ver
 
 - buyer and seller issue opening works against staging order sources;
 - urgent and overdue requests appear in the operations queue;
-- `/operations/support-requests` in admin-web loads the Support-owned operations queue for an actor with `support.manage`;
+- `/support/requests` in admin-web loads the Support-owned operations queue for an actor with `support.manage`;
 - evidence, response, escalation, resolution, close, and cancel endpoints are rehearsed;
 - refund-producing resolutions are visible to Payments;
 - open support requests hold seller proceeds in Settlement;

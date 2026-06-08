@@ -33,7 +33,7 @@ export function MembershipListPage({ initialData }: { initialData: { items: Memb
       items={initialData.items}
       columns={columns}
       emptyMessage={t("identity.features.memberships.ui.membershipListPage.no.memberships.yet")}
-      getHref={(row) => `/identity/memberships/${row.membership_id}`}
+      getHref={(row) => `/access/memberships/${row.membership_id}`}
     />
   );
 }

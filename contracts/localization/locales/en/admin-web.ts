@@ -1,4 +1,5 @@
 export const adminWebEnglishTranslations = {
+  "adminWeb.app.adminSectionLayout.sign.out": "Sign out",
   "adminWeb.app.root.admin.error": "Admin Error",
   "adminWeb.app.root.admin.error.2": "Admin Error",
   "adminWeb.app.root.admin.error.description":

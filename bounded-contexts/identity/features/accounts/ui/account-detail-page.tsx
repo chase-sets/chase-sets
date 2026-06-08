@@ -9,7 +9,7 @@ export function AccountDetailPage({ data }: { data: Account }) {
   return (
     <AdminDetailPage
       breadcrumbs={[
-        { label: t("identity.features.accounts.ui.accountListPage.accounts"), href: "/identity/accounts" },
+        { label: t("identity.features.accounts.ui.accountListPage.accounts"), href: "/access/accounts" },
         { label: data.display_name },
       ]}
       title={data.display_name}

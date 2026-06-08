@@ -200,7 +200,7 @@ export function PlatformFeedbackAdminListPage({
               key: "action",
               header: t("experience.platformFeedbackAdmin.action"),
               cell: (item) => (
-                <LinkButton href={`/experience/platform-feedback/${item.feedback_id}`} size="sm">
+                <LinkButton href={`/support/platform-feedback/${item.feedback_id}`} size="sm">
                   {t("experience.platformFeedbackAdmin.open")}
                 </LinkButton>
               ),
@@ -233,7 +233,7 @@ export function PlatformFeedbackAdminDetailPage({ feedback }: { feedback: Platfo
         description={t("experience.platformFeedbackAdmin.detailDescription")}
       />
       <ActionBar>
-        <LinkButton href="/experience/platform-feedback" tone="secondary">
+        <LinkButton href="/support/platform-feedback" tone="secondary">
           {t("experience.platformFeedbackAdmin.back")}
         </LinkButton>
         {feedback.status === "new" ? (

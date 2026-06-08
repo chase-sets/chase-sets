@@ -16,7 +16,7 @@ describe("createCommercialTermsRequestApiClient", () => {
         items: [],
       }),
     );
-    const request = new Request("https://admin.chasesets.com/commercial/terms/schedules", {
+    const request = new Request("https://admin.chasesets.com/commerce/terms/schedules", {
       headers: {
         authorization: "Bearer admin-session",
         cookie: "session=admin",
@@ -44,7 +44,7 @@ describe("createCommercialTermsRequestApiClient", () => {
       }),
     );
     const warnMock = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const request = new Request("https://admin.chasesets.com/commercial/terms/schedules", {
+    const request = new Request("https://admin.chasesets.com/commerce/terms/schedules", {
       headers: {
         authorization: "Bearer admin-session",
         cookie: "session=admin",

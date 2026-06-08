@@ -144,7 +144,7 @@
           "fileExport": "./routes/admin/waitlist",
           "routeType": "route",
           "sourceContext": "public-presence",
-          "section": "experience"
+          "section": "growth"
         },
         {
           "routeId": "promo-bar",
@@ -152,7 +152,7 @@
           "fileExport": "./routes/admin/promo-bar",
           "routeType": "route",
           "sourceContext": "public-presence",
-          "section": "experience"
+          "section": "growth"
         }
       ]
     }
@@ -165,7 +165,7 @@
       "label": "Waitlist",
       "icon": "message",
       "href": "/waitlist",
-      "section": "experience",
+      "section": "growth",
       "order": 20,
       "visibility": "signed-in",
       "requiredPermissions": ["public-presence.view"]
@@ -177,7 +177,7 @@
       "label": "Promo Bar",
       "icon": "spark",
       "href": "/promo-bar",
-      "section": "experience",
+      "section": "growth",
       "order": 21,
       "visibility": "signed-in",
       "requiredPermissions": ["public-presence.view"]

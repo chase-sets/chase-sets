@@ -49,7 +49,7 @@ export async function action({ request }: ActionFunctionArgs) {
     });
   }
 
-  return redirect("/operations/projections");
+  return redirect("/platform/projections");
 }
 
 export default function ProjectionOperationsRoute() {
