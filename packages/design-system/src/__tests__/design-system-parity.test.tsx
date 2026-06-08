@@ -1456,9 +1456,9 @@ describe("design system", () => {
           brand={<div>Brand</div>}
           topNavItems={[
             { key: "catalog", label: "Catalog", href: "/catalog/dimensions" },
-            { key: "operations", label: "Operations", href: "/operations/projections" },
+            { key: "platform", label: "Platform", href: "/platform/projections" },
           ]}
-          topNavActiveKey="operations"
+          topNavActiveKey="platform"
           navItems={marketplaceNav}
           activeKey="browse"
           actions={<Button>Sign out</Button>}
@@ -1473,12 +1473,12 @@ describe("design system", () => {
     expect(within(topNav).getAllByRole("link", { name: "Catalog" })[0]?.getAttribute("href")).toBe(
       "/catalog/dimensions",
     );
-    expect(within(topNav).getAllByRole("link", { name: "Operations" })[0]?.getAttribute("aria-current")).toBe("page");
+    expect(within(topNav).getAllByRole("link", { name: "Platform" })[0]?.getAttribute("aria-current")).toBe("page");
     expect(within(topNav).getByLabelText("Admin menu")).toBeTruthy();
     expect(within(topNav).getAllByRole("link", { name: "Catalog" })[1]?.getAttribute("href")).toBe(
       "/catalog/dimensions",
     );
-    expect(within(topNav).getAllByRole("link", { name: "Operations" })[1]?.getAttribute("aria-current")).toBe("page");
+    expect(within(topNav).getAllByRole("link", { name: "Platform" })[1]?.getAttribute("aria-current")).toBe("page");
     expect(within(topNav).getAllByRole("button", { name: "Sign out" })).toHaveLength(2);
   });
 

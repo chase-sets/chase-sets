@@ -1662,8 +1662,8 @@ describe("design-system", () => {
         mobileActionsLabel="Admin menu"
         actions={
           <>
-            <a href="/experience/waitlist">Experience</a>
-            <a href="/identity/accounts">Identity</a>
+            <a href="/growth/waitlist">Growth</a>
+            <a href="/access/accounts">Access</a>
             <form action="/catalog/sign-out" method="post">
               <button type="submit">Sign Out</button>
             </form>
@@ -1684,14 +1684,14 @@ describe("design-system", () => {
     expect(menu).toBeTruthy();
     expect(
       within(menu as HTMLElement)
-        .getByRole("link", { name: "Experience" })
+        .getByRole("link", { name: "Growth" })
         .getAttribute("href"),
-    ).toBe("/experience/waitlist");
+    ).toBe("/growth/waitlist");
     expect(
       within(menu as HTMLElement)
-        .getByRole("link", { name: "Identity" })
+        .getByRole("link", { name: "Access" })
         .getAttribute("href"),
-    ).toBe("/identity/accounts");
+    ).toBe("/access/accounts");
     expect(
       within(menu as HTMLElement)
         .getByRole("button", { name: "Sign Out" })

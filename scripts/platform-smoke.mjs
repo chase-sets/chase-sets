@@ -307,8 +307,8 @@ async function expectMarketplaceSurface(label, origin) {
 
 async function expectAdminCommercialTermsPages(adminOrigin, sessionToken) {
   for (const { path, expectedText } of [
-    { path: "/commercial/terms/schedules", expectedText: ["Commercial Terms", "Schedules"] },
-    { path: "/commercial/terms/agreements", expectedText: ["Commercial Terms", "Agreements"] },
+    { path: "/commerce/terms/schedules", expectedText: ["Commercial Terms", "Schedules"] },
+    { path: "/commerce/terms/agreements", expectedText: ["Commercial Terms", "Agreements"] },
   ]) {
     const response = await expectOk(`admin Commercial Terms page ${path}`, `${adminOrigin}${path}`, {
       headers: {

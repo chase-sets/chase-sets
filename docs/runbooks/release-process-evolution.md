@@ -87,7 +87,7 @@ pnpm run release-lock:commands -- --action lock --environment production --reaso
 pnpm run release-lock:commands -- --action unlock --environment production
 ```
 
-Operators can also prepare these commands in the admin console at `/operations/release-controls`. The console reads the current production lock variables, validates lock reason requirements, and produces the same `gh variable set` shape without mutating GitHub from the browser.
+Operators can also prepare these commands in the admin console at `/platform/release-controls`. The console reads the current production lock variables, validates lock reason requirements, and produces the same `gh variable set` shape without mutating GitHub from the browser.
 
 ## Production Canary Path
 
@@ -292,7 +292,7 @@ Increase deployable batch size only when all thresholds pass, p95 queue wait is 
 
 The same report includes a release process review checklist and image group decision inputs. Keep the shared platform image unless release-health data repeatedly shows that one deployable boundary causes disproportionate queue wait, staging duration, production duration, rollback cost, or operator recovery effort. A split image group must come with its own owner, dashboard, production marker, rollback path, and release-health gate before it reduces risk.
 
-Operators can inspect the current read-only release dashboard in the admin console at `/operations/release-dashboard`. The dashboard combines release-lock state, `main` and `production` marker SHAs, latest PR/deploy result fields, latest release-health summary, canary decision, and links to GitHub runs or the production marker. The server runtime reads GitHub refs and workflow runs when `GITHUB_TOKEN` or `RELEASE_DASHBOARD_GITHUB_TOKEN` is available, and falls back to explicit `RELEASE_DASHBOARD_*` environment values and release-health JSON when GitHub is unavailable.
+Operators can inspect the current read-only release dashboard in the admin console at `/platform/release-dashboard`. The dashboard combines release-lock state, `main` and `production` marker SHAs, latest PR/deploy result fields, latest release-health summary, canary decision, and links to GitHub runs or the production marker. The server runtime reads GitHub refs and workflow runs when `GITHUB_TOKEN` or `RELEASE_DASHBOARD_GITHUB_TOKEN` is available, and falls back to explicit `RELEASE_DASHBOARD_*` environment values and release-health JSON when GitHub is unavailable.
 
 ## Feature Rollout Controls
 
@@ -307,7 +307,7 @@ Supported primitives:
 - Percentage Rollout: deterministic cohort from 0 to 100
 - Kill Switch: disable the feature for every subject
 
-Operators can evaluate a candidate policy and subject in the admin console at `/operations/release-controls`. The console keeps the command-builder path for GitHub Environment release locks, and the Platform Operations API now persists application-level release-control policy events.
+Operators can evaluate a candidate policy and subject in the admin console at `/platform/release-controls`. The console keeps the command-builder path for GitHub Environment release locks, and the Platform Operations API now persists application-level release-control policy events.
 
 Policy API:
 

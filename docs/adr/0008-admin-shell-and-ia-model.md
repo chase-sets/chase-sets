@@ -20,19 +20,20 @@ The bounded-context map identifies Commercial Terms as the owner of seller-side 
 
 ## Decision
 
-Admin web has five top-level sections:
+Admin web has six top-level workflow sections:
 
+- Access
 - Catalog
-- Identity
-- Experience
-- Operations
-- Commercial Terms
+- Commerce
+- Growth
+- Support
+- Platform
 
-The stable section key for Commercial Terms is `commercial`; the user-facing label is `Commercial Terms`.
+Access contains accounts, users, memberships, invitations, API keys, sessions, and concrete admin auth routes. Commerce contains commercial terms and postage policies. Growth contains public-market activation surfaces, including Google Shopping, Waitlist, and Promo Bar. Support contains support requests and platform feedback review. Platform contains projection operations, release dashboard, and release controls.
 
 Bounded-context manifests may explicitly declare admin section placement for route and shell contributions. Explicit placement wins over context-name and file-name fallback heuristics. Fallbacks remain only as migration compatibility and should be minimized as manifests are updated.
 
-Commercial Terms routes move to the Commercial Terms section. Existing `/identity/commercial-terms/*` URLs remain compatibility redirects to canonical commercial routes.
+The final admin IA has no compatibility redirects for retired Identity, Experience, Operations, or Commercial admin sections. Retired section names may remain only as bounded-context, API, event, package, or localization terminology, not as admin route placement.
 
 Admin shell follows the marketplace navigation pattern:
 
@@ -41,7 +42,7 @@ Admin shell follows the marketplace navigation pattern:
 - Account and session actions stay in the action area and are not mixed with section navigation.
 - Mobile keeps a predictable section model and section-local overflow behavior.
 
-Operations remains one top-level section. Platform Operations, Support, and Google Shopping are section-local Operations entries. Operations layout authorization allows an actor with at least one visible Operations capability to enter the shell; individual routes remain responsible for their own route and action authorization.
+Platform Operations, Support, and Growth surfaces are split into their workflow sections. Section layout authorization allows an actor with at least one visible capability in that section to enter the shell; individual routes remain responsible for their own route and action authorization.
 
 Admin root `/` becomes an actor-aware entry hub. It shows visible sections when more than one is available, redirects to the only visible section when exactly one exists, and shows an explicit no-access state when no admin section is visible.
 
@@ -51,7 +52,7 @@ Canonical admin page primitives are `Page`, `PageHeader`, `PageSection`, `DataTa
 
 - Platform runtime must support explicit admin section metadata on route and shell contributions.
 - Admin web needs shared section navigation resolution instead of hand-authored cross-section action buttons.
-- Commercial Terms receives a first-class admin navigation and route placement while preserving old Identity-prefixed links through redirects.
-- Operations users with narrower capabilities, such as Support operations permissions, can reach the Operations shell without requiring broad Identity admin permission.
+- Commercial Terms and postage policies receive first-class Commerce navigation and route placement without preserving old Identity-prefixed links.
+- Users with narrower capabilities, such as Support or Growth permissions, can reach the matching workflow shell without requiring broad Access admin permission.
 - Tests must cover rendered admin route composition, not only registry records.
 - Visual QA for admin shell work must cover desktop and mobile top navigation, section-local navigation, account/session actions, active states, overflow behavior, and representative empty/error/detail states.
