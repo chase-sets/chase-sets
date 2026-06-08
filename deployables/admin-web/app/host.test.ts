@@ -125,6 +125,24 @@ describe("admin web host context registry", () => {
     );
   });
 
+  it("treats security.manage as intentionally shared by Access security and Platform operations", () => {
+    const sectionItems = resolveAdminWebSectionNavItems({ permissions: ["security.manage"] });
+
+    expect(sectionItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "access", href: "/access" }),
+        expect.objectContaining({ key: "platform", href: "/platform" }),
+      ]),
+    );
+    expect(resolveAdminWebNavItems({ permissions: ["security.manage"] }, { section: "access" })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ href: "/access/users", label: "Users" }),
+        expect.objectContaining({ href: "/access/api-keys", label: "API Keys" }),
+        expect.objectContaining({ href: "/access/sessions", label: "Sessions" }),
+      ]),
+    );
+  });
+
   it.each([
     ["access", "/access/users", "accounts.view", "security.manage"],
     ["access", "/access/api-keys/key_1", "accounts.view", "security.manage"],
