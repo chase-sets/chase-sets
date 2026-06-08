@@ -54,6 +54,20 @@ function renderAdminRoute(Component: () => React.ReactElement, pathname: string)
   return renderToString(<Component />);
 }
 
+function occurrenceCount(source: string, value: string) {
+  return source.split(value).length - 1;
+}
+
+function mobileBottomNavMarkup(html: string) {
+  const start = html.indexOf('class="fixed inset-x-0 bottom-0');
+  expect(start).not.toBe(-1);
+
+  const end = html.indexOf("</nav>", start);
+  expect(end).not.toBe(-1);
+
+  return html.slice(start, end);
+}
+
 describe("admin web section layouts", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -127,6 +141,41 @@ describe("admin web section layouts", () => {
 
     expect(html).toContain('href="/catalog/reference-records" aria-current="page"');
     expect(html).toContain("Reference Data");
+  });
+
+  it.each([
+    [AccessLayout, "/access/accounts", "Accounts"],
+    [CatalogLayout, "/catalog/dimensions", "Dimensions"],
+    [CommerceLayout, "/commerce/postage-policies", "Postage Policies"],
+    [GrowthLayout, "/growth/google-shopping", "Google Shopping"],
+    [SupportLayout, "/support/requests", "Support"],
+    [PlatformLayout, "/platform/release-dashboard", "Release Dashboard"],
+  ] as const)(
+    "wires mobile section switching, local nav, active state, and account actions for %s",
+    (Component, pathname, localNavLabel) => {
+      const html = renderAdminRoute(Component, pathname);
+      const bottomNav = mobileBottomNavMarkup(html);
+
+      expect(html).toContain('aria-label="Admin menu"');
+      for (const href of ["/access", "/catalog", "/commerce", "/growth", "/support", "/platform"]) {
+        expect(occurrenceCount(html, `href="${href}"`)).toBeGreaterThanOrEqual(2);
+      }
+      expect(occurrenceCount(html, 'action="/access/sign-out"')).toBeGreaterThanOrEqual(2);
+      expect(bottomNav).toContain(localNavLabel);
+      expect(bottomNav).toContain("bg-surface-2 text-accent");
+    },
+  );
+
+  it("keeps Catalog mobile local navigation compact with active overflow access", () => {
+    const html = renderAdminRoute(CatalogLayout, "/catalog/reference-types");
+    const bottomNav = mobileBottomNavMarkup(html);
+
+    expect(bottomNav).toContain("grid-cols-4");
+    expect(bottomNav).toContain("Reference Data");
+    expect(bottomNav).toContain("More");
+    expect(bottomNav).toContain("Catalog Items");
+    expect(bottomNav).toContain('href="/catalog/reference-records"');
+    expect(bottomNav).toContain("bg-surface-2 text-accent");
   });
 });
 
