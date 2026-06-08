@@ -55,6 +55,9 @@ import {
   TaskLineItem,
   TaskProgress,
   TaskSummary,
+  WorkflowActionBar,
+  WorkflowModule,
+  WorkflowReadinessChecklist,
   AddressBlock,
   ChecklistCard,
   OperationalLockBanner,
@@ -1427,6 +1430,81 @@ describe("design-system", () => {
     expect(markup).toContain("Packed 1 x Charizard");
     expect(markup).toContain("Line, order line, product, or title");
     expect(markup).toContain("bottom-[calc(4.75rem+env(safe-area-inset-bottom))]");
+  });
+
+  it("renders dense workflow modules with status, actions, and readiness checks", () => {
+    const markup = renderToString(
+      <WorkflowModule
+        title="Activation readiness"
+        description="Review blocking checks before activation."
+        status={<Badge variant="warning">Blocked</Badge>}
+        actions={
+          <>
+            <Button tone="secondary" size="sm">
+              Evidence
+            </Button>
+            <Button size="sm">Activate</Button>
+          </>
+        }
+      >
+        <WorkflowReadinessChecklist
+          items={[
+            {
+              key: "fixture",
+              label: "Fixture coverage",
+              status: "passed",
+              statusLabel: "Passed",
+              description: "All required fixture flows include sample payloads.",
+              meta: <TaskReference label="Profile" value="profile_tcgdx" displayValue="TCGdx" />,
+            },
+            {
+              key: "migration",
+              label: "Migration evidence",
+              status: "blocked",
+              statusLabel: "Blocked",
+              description: "Record migration evidence before activating this profile.",
+              action: <Button size="sm">Add evidence</Button>,
+            },
+          ]}
+        />
+      </WorkflowModule>,
+    );
+
+    expect(markup).toContain("Activation readiness");
+    expect(markup).toContain("Review blocking checks before activation.");
+    expect(markup).toContain("Blocked");
+    expect(markup).toContain("Evidence");
+    expect(markup).toContain("Activate");
+    expect(markup).toContain("Fixture coverage");
+    expect(markup).toContain("Migration evidence");
+    expect(markup).toContain("Add evidence");
+    expect(markup).toContain("aria-labelledby=");
+    expect(markup).toContain("border-danger");
+  });
+
+  it("renders workflow action bars and empty readiness states on the server", () => {
+    const markup = renderToString(
+      <WorkflowModule
+        title="Import operations"
+        headingLevel={2}
+        density="compact"
+        actions={<Button size="sm">Pull provider data</Button>}
+      >
+        <WorkflowActionBar align="end">
+          <Button size="sm" tone="secondary">
+            Open override
+          </Button>
+        </WorkflowActionBar>
+        <WorkflowReadinessChecklist items={[]} emptyState="No readiness checks" />
+      </WorkflowModule>,
+    );
+
+    expect(markup).toContain("Import operations");
+    expect(markup).toContain("Pull provider data");
+    expect(markup).toContain("Open override");
+    expect(markup).toContain("No readiness checks");
+    expect(markup).toContain("p-3");
+    expect(markup).toContain("sm:justify-end");
   });
 
   it("renders mobile product commerce as an in-flow sticky action area", () => {

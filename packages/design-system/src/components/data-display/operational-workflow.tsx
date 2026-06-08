@@ -1,4 +1,4 @@
-import type { FormEvent, HTMLAttributes, ReactNode } from "react";
+import { useId, type FormEvent, type HTMLAttributes, type ReactNode } from "react";
 import { Icon } from "../../icons";
 import { cx } from "../../utils/cx";
 import { Button, IconButton } from "../actions/button";
@@ -119,6 +119,172 @@ export function OperationalLockBanner({ title, description, action, ...rest }: O
       </div>
     </div>
   );
+}
+
+export interface WorkflowModuleProps extends Omit<HTMLAttributes<HTMLElement>, "className" | "style" | "title"> {
+  title: ReactNode;
+  description?: ReactNode;
+  status?: ReactNode;
+  actions?: ReactNode;
+  children: ReactNode;
+  headingLevel?: 2 | 3 | 4;
+  density?: "regular" | "compact";
+}
+
+export function WorkflowModule({
+  title,
+  description,
+  status,
+  actions,
+  children,
+  headingLevel = 3,
+  density = "regular",
+  ...rest
+}: WorkflowModuleProps) {
+  const titleId = useId();
+  const Heading = headingLevel === 2 ? "h2" : headingLevel === 4 ? "h4" : "h3";
+
+  return (
+    <section
+      {...rest}
+      aria-labelledby={titleId}
+      className={cx(
+        "rounded-tokenMd border border-muted bg-background shadow-tokenSm",
+        density === "compact" ? "p-3" : "p-4",
+      )}
+    >
+      <div className="grid gap-3">
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div className="grid min-w-0 gap-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <Heading id={titleId} className="m-0 text-base font-semibold text-foreground">
+                {title}
+              </Heading>
+              {status ? <div className="shrink-0">{status}</div> : null}
+            </div>
+            {description ? <p className="m-0 text-sm leading-6 text-secondary">{description}</p> : null}
+          </div>
+          {actions ? <WorkflowActionBar align="end">{actions}</WorkflowActionBar> : null}
+        </div>
+        <div className="grid gap-3">{children}</div>
+      </div>
+    </section>
+  );
+}
+
+export interface WorkflowActionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
+  children: ReactNode;
+  align?: "start" | "end";
+}
+
+export function WorkflowActionBar({ children, align = "start", ...rest }: WorkflowActionBarProps) {
+  return (
+    <div
+      {...rest}
+      className={cx(
+        "flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end",
+        align === "end" ? "sm:justify-end" : "sm:justify-start",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+export type WorkflowReadinessStatus = "passed" | "blocked" | "warning" | "pending";
+
+export interface WorkflowReadinessItem {
+  key: string;
+  label: ReactNode;
+  status: WorkflowReadinessStatus;
+  statusLabel: ReactNode;
+  description?: ReactNode;
+  meta?: ReactNode;
+  action?: ReactNode;
+}
+
+export interface WorkflowReadinessChecklistProps extends Omit<HTMLAttributes<HTMLUListElement>, "className" | "style"> {
+  items: readonly WorkflowReadinessItem[];
+  emptyState?: ReactNode;
+}
+
+export function WorkflowReadinessChecklist({ items, emptyState, ...rest }: WorkflowReadinessChecklistProps) {
+  if (items.length === 0) {
+    return emptyState ? <div className="text-sm text-secondary">{emptyState}</div> : null;
+  }
+
+  return (
+    <ul {...rest} className="m-0 grid list-none gap-2 p-0">
+      {items.map((item) => (
+        <li
+          key={item.key}
+          className={cx(
+            "grid gap-2 rounded-tokenMd border bg-elevated p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-start",
+            item.status === "passed" && "border-success",
+            item.status === "blocked" && "border-danger",
+            item.status === "warning" && "border-warning",
+            item.status === "pending" && "border-muted",
+          )}
+        >
+          <div className="flex min-w-0 gap-2">
+            <span className="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-background">
+              <Icon name={workflowReadinessIcon(item.status)} size="sm" tone={workflowReadinessIconTone(item.status)} />
+            </span>
+            <div className="grid min-w-0 gap-1">
+              <div className="text-sm font-semibold text-foreground">{item.label}</div>
+              {item.description ? <div className="text-sm leading-6 text-secondary">{item.description}</div> : null}
+              {item.meta ? <div className="flex flex-wrap gap-2 pt-1 text-xs text-tertiary">{item.meta}</div> : null}
+            </div>
+          </div>
+          <div className="flex flex-col gap-2 sm:items-end">
+            <span className={cx("text-xs font-semibold uppercase", workflowReadinessTextClass(item.status))}>
+              {item.statusLabel}
+            </span>
+            {item.action ? <div>{item.action}</div> : null}
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function workflowReadinessIcon(status: WorkflowReadinessStatus) {
+  if (status === "passed") {
+    return "check";
+  }
+  if (status === "blocked") {
+    return "warning";
+  }
+  if (status === "warning") {
+    return "info";
+  }
+  return "clock";
+}
+
+function workflowReadinessIconTone(status: WorkflowReadinessStatus) {
+  if (status === "passed") {
+    return "success";
+  }
+  if (status === "blocked") {
+    return "danger";
+  }
+  if (status === "warning") {
+    return "warning";
+  }
+  return "secondary";
+}
+
+function workflowReadinessTextClass(status: WorkflowReadinessStatus) {
+  if (status === "passed") {
+    return "text-success";
+  }
+  if (status === "blocked") {
+    return "text-danger";
+  }
+  if (status === "warning") {
+    return "text-warning";
+  }
+  return "text-tertiary";
 }
 
 export interface TaskSummaryItem {

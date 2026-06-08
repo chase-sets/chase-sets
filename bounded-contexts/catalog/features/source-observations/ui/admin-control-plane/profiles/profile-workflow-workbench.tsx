@@ -13,8 +13,12 @@ import {
   StatGrid,
   StatusPill,
   TaskSummary,
+  WorkflowActionBar,
+  WorkflowModule,
+  WorkflowReadinessChecklist,
   type DataColumn,
   type SelectItem,
+  type WorkflowReadinessItem,
 } from "@chase-sets/design-system";
 import type {
   CatalogIntegrationControlPlaneOverview,
@@ -404,13 +408,19 @@ function ImportJobOperationsWorkflow({
   const activeJobs = jobs.filter((job) => job.status === "queued" || job.status === "running");
 
   return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center">
-        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.import.and.job.operations")}</h3>
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.import.and.job.operations")}
+      status={
         <StatusPill tone={providerReadiness?.readiness === "ready" ? "success" : "warning"}>
           {providerReadiness?.readiness ?? "unreported"}
         </StatusPill>
-      </Inline>
+      }
+      actions={
+        <Button size="sm" leadingIcon="plus" disabled={!canManageCatalog} onClick={onImport}>
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.pull.provider.data")}
+        </Button>
+      }
+    >
       <KeyValueList
         density="compact"
         variant="plain"
@@ -436,11 +446,6 @@ function ImportJobOperationsWorkflow({
           },
         ]}
       />
-      <Inline gap={2}>
-        <Button size="sm" leadingIcon="plus" disabled={!canManageCatalog} onClick={onImport}>
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.pull.provider.data")}
-        </Button>
-      </Inline>
       {error ? <p className="text-sm text-danger">{error}</p> : null}
       {loading ? (
         <p className="text-sm text-secondary">
@@ -464,7 +469,7 @@ function ImportJobOperationsWorkflow({
           density="compact"
         />
       )}
-    </Stack>
+    </WorkflowModule>
   );
 }
 
@@ -475,17 +480,21 @@ function SourceObservationReviewWorkflow({
   const reviewable = summary.observed + summary.changed;
 
   return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center">
-        <h3>
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.review.workflow")}
-        </h3>
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.review.workflow")}
+      status={
         <StatusPill tone={reviewable > 0 ? "warning" : "success"}>
           {reviewable > 0
             ? t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.review")
             : t("catalog.features.sourceObservations.ui.integrationManagementPage.clear")}
         </StatusPill>
-      </Inline>
+      }
+      actions={
+        <LinkButton href={reviewHref} size="sm" tone="secondary">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.review.matching.observations")}
+        </LinkButton>
+      }
+    >
       <StatGrid columns={{ base: 2, md: 4 }}>
         <Stat
           label={t("catalog.features.sourceObservations.ui.integrationManagementPage.scopes")}
@@ -509,12 +518,7 @@ function SourceObservationReviewWorkflow({
           "catalog.features.sourceObservations.ui.integrationManagementPage.review.source.observations.by.provider.unit.profile.scope.status.provenance.facts.condition.certification.evidence.and.diagnostics",
         )}
       </p>
-      <Inline gap={2}>
-        <LinkButton href={reviewHref} size="sm" tone="secondary">
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.review.matching.observations")}
-        </LinkButton>
-      </Inline>
-    </Stack>
+    </WorkflowModule>
   );
 }
 
@@ -534,15 +538,37 @@ function PromotionReapplyWorkflow({
   const reviewable = summary.observed + summary.changed;
 
   return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center">
-        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.promote.reapply.workflow")}</h3>
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.promote.reapply.workflow")}
+      status={
         <StatusPill tone={summary.promoted > 0 ? "info" : "warning"}>
           {summary.promoted > 0
             ? t("catalog.features.sourceObservations.ui.integrationManagementPage.promoted")
             : t("catalog.features.sourceObservations.ui.integrationManagementPage.no.promoted.observations")}
         </StatusPill>
-      </Inline>
+      }
+      actions={
+        <>
+          <Button
+            size="sm"
+            leadingIcon="badgeCheck"
+            disabled={!canManageCatalog || reviewable === 0}
+            onClick={onPromoteMatching}
+          >
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.promote.matching")}
+          </Button>
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="refreshCcw"
+            disabled={!canManageCatalog || summary.promoted === 0}
+            onClick={onReapply}
+          >
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.reapply.promoted")}
+          </Button>
+        </>
+      }
+    >
       <KeyValueList
         density="compact"
         variant="plain"
@@ -565,26 +591,7 @@ function PromotionReapplyWorkflow({
           },
         ]}
       />
-      <Inline gap={2}>
-        <Button
-          size="sm"
-          leadingIcon="badgeCheck"
-          disabled={!canManageCatalog || reviewable === 0}
-          onClick={onPromoteMatching}
-        >
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.promote.matching")}
-        </Button>
-        <Button
-          size="sm"
-          tone="secondary"
-          leadingIcon="refreshCcw"
-          disabled={!canManageCatalog || summary.promoted === 0}
-          onClick={onReapply}
-        >
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.reapply.promoted")}
-        </Button>
-      </Inline>
-    </Stack>
+    </WorkflowModule>
   );
 }
 
@@ -610,15 +617,32 @@ function RollbackRetirementWorkflow({
   const retireBlocked = profile.referenceCount > 0;
 
   return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center">
-        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.rollback.retirement.workflow")}</h3>
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.rollback.retirement.workflow")}
+      status={
         <StatusPill tone={retireBlocked ? "warning" : "success"}>
           {retireBlocked
             ? t("catalog.features.sourceObservations.ui.integrationManagementPage.references.remain")
             : t("catalog.features.sourceObservations.ui.integrationManagementPage.ready")}
         </StatusPill>
-      </Inline>
+      }
+      actions={
+        <>
+          <Button size="sm" tone="secondary" leadingIcon="refreshCcw" disabled={!canManageCatalog} onClick={onRollback}>
+            {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback")}
+          </Button>
+          <Button
+            size="sm"
+            tone="danger"
+            leadingIcon="trash"
+            disabled={!canManageCatalog || retireBlocked}
+            onClick={onRetire}
+          >
+            {t("catalog.features.sourceObservations.ui.integrations.profile.review.retire")}
+          </Button>
+        </>
+      }
+    >
       <KeyValueList
         density="compact"
         variant="plain"
@@ -649,21 +673,7 @@ function RollbackRetirementWorkflow({
           },
         ]}
       />
-      <Inline gap={2}>
-        <Button size="sm" tone="secondary" leadingIcon="refreshCcw" disabled={!canManageCatalog} onClick={onRollback}>
-          {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback")}
-        </Button>
-        <Button
-          size="sm"
-          tone="danger"
-          leadingIcon="trash"
-          disabled={!canManageCatalog || retireBlocked}
-          onClick={onRetire}
-        >
-          {t("catalog.features.sourceObservations.ui.integrations.profile.review.retire")}
-        </Button>
-      </Inline>
-    </Stack>
+    </WorkflowModule>
   );
 }
 
@@ -1003,11 +1013,10 @@ function CatalogIntegrationValidationWorkbench({
 
 function FixtureValidationWorkflow({ model }: Readonly<{ model: CatalogProviderProfileAuthoringModel }>) {
   return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center">
-        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.validation.workflow")}</h3>
-        <StatusPill tone={fixtureWorkflowTone(model)}>{fixtureWorkflowLabel(model)}</StatusPill>
-      </Inline>
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.validation.workflow")}
+      status={<StatusPill tone={fixtureWorkflowTone(model)}>{fixtureWorkflowLabel(model)}</StatusPill>}
+    >
       <DataTable
         rows={model.fixtureCases}
         columns={fixtureValidationColumns(model)}
@@ -1024,7 +1033,7 @@ function FixtureValidationWorkflow({ model }: Readonly<{ model: CatalogProviderP
         emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.section.diagnostics")}
         density="compact"
       />
-    </Stack>
+    </WorkflowModule>
   );
 }
 
@@ -1052,16 +1061,17 @@ function DryRunEvidenceWorkflow({
   onOpenDryRunDialog: () => void;
 }>) {
   return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center">
-        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.evidence.workflow")}</h3>
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.dry.run.evidence.workflow")}
+      status={
         <StatusPill tone={selectedFixture?.samplePayloadAvailable ? "success" : "warning"}>
           {selectedFixture?.samplePayloadAvailable
             ? t("catalog.features.sourceObservations.ui.integrationManagementPage.sample.available")
             : t("catalog.features.sourceObservations.ui.integrationManagementPage.sample.missing")}
         </StatusPill>
-      </Inline>
-      <Inline gap={2} align="end">
+      }
+    >
+      <WorkflowActionBar>
         <Select
           label={t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.flow")}
           value={dryRunFlow}
@@ -1080,7 +1090,7 @@ function DryRunEvidenceWorkflow({
         <Button size="sm" tone="secondary" leadingIcon="settings" onClick={onOpenDryRunDialog}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.open.override.dry.run")}
         </Button>
-      </Inline>
+      </WorkflowActionBar>
       <KeyValueList
         density="compact"
         variant="plain"
@@ -1111,7 +1121,7 @@ function DryRunEvidenceWorkflow({
         />
       ) : null}
       {dryRunResult ? <DryRunResultEvidence result={dryRunResult} /> : null}
-    </Stack>
+    </WorkflowModule>
   );
 }
 
@@ -1177,18 +1187,21 @@ function SemanticComparisonWorkflow({
 }: Readonly<{ model: CatalogProviderProfileAuthoringModel; onCompare: () => void }>) {
   const changedDiffs = model.semanticDiff.changes.filter((change) => change.changed);
   return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center">
-        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.semantic.comparison.workflow")}</h3>
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.semantic.comparison.workflow")}
+      status={
         <StatusPill tone={model.semanticDiff.mappingFingerprint.changed ? "warning" : "success"}>
           {model.semanticDiff.mappingFingerprint.changed
             ? t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.changed")
             : t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.unchanged")}
         </StatusPill>
+      }
+      actions={
         <Button size="sm" tone="secondary" leadingIcon="search" onClick={onCompare}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.compare.active")}
         </Button>
-      </Inline>
+      }
+    >
       <KeyValueList
         density="compact"
         variant="plain"
@@ -1225,7 +1238,7 @@ function SemanticComparisonWorkflow({
         emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.semantic.changes")}
         density="compact"
       />
-    </Stack>
+    </WorkflowModule>
   );
 }
 
@@ -1244,33 +1257,61 @@ function ActivationReadinessWorkflow({
 }>) {
   const readiness = model.activationReadiness;
   const blockedChecks = readiness.checks.filter((check) => check.status === "blocked");
+  const checklistChecks = blockedChecks.length > 0 ? blockedChecks : readiness.checks.slice(0, 5);
+  const checklistItems: WorkflowReadinessItem[] = checklistChecks.map((check, index) => ({
+    key: `${check.checkKey}:${check.path}:${index}`,
+    label: check.domainConcept,
+    status: check.status === "blocked" ? "blocked" : "passed",
+    statusLabel:
+      check.status === "blocked"
+        ? t("catalog.features.sourceObservations.ui.integrationManagementPage.blocked")
+        : t("catalog.features.sourceObservations.ui.integrationManagementPage.passed"),
+    description: check.remediation || check.diagnosticText,
+    meta: (
+      <>
+        <span>{check.checkKey}</span>
+        <span>{check.path}</span>
+        {check.flow ? <span>{check.flow}</span> : null}
+      </>
+    ),
+  }));
+
   return (
-    <Stack gap={2}>
-      <Inline gap={2} align="center">
-        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.activation.readiness.workflow")}</h3>
+    <WorkflowModule
+      title={t("catalog.features.sourceObservations.ui.integrationManagementPage.activation.readiness.workflow")}
+      status={
         <StatusPill tone={readiness.status === "ready" ? "success" : "danger"}>
           {readiness.status === "ready"
             ? t("catalog.features.sourceObservations.ui.integrationManagementPage.ready.to.activate")
             : t("catalog.features.sourceObservations.ui.integrationManagementPage.activation.blocked")}
         </StatusPill>
-        <Button
-          size="sm"
-          tone="secondary"
-          leadingIcon="badgeCheck"
-          disabled={!canManageCatalog}
-          onClick={onMigrationEvidence}
-        >
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.evidence")}
-        </Button>
-        <Button
-          size="sm"
-          leadingIcon="badgeCheck"
-          disabled={!canManageCatalog || readiness.status !== "ready"}
-          onClick={onActivate}
-        >
-          {t("catalog.features.sourceObservations.ui.integrationManagementPage.activate")}
-        </Button>
-      </Inline>
+      }
+      actions={
+        <>
+          <Button
+            size="sm"
+            tone="secondary"
+            leadingIcon="badgeCheck"
+            disabled={!canManageCatalog}
+            onClick={onMigrationEvidence}
+          >
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.evidence")}
+          </Button>
+          <Button
+            size="sm"
+            leadingIcon="badgeCheck"
+            disabled={!canManageCatalog || readiness.status !== "ready"}
+            onClick={onActivate}
+          >
+            {t("catalog.features.sourceObservations.ui.integrationManagementPage.activate")}
+          </Button>
+        </>
+      }
+    >
+      <WorkflowReadinessChecklist
+        items={checklistItems}
+        emptyState={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.readiness.checks")}
+      />
       <KeyValueList
         density="compact"
         variant="plain"
@@ -1313,7 +1354,7 @@ function ActivationReadinessWorkflow({
         emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.readiness.checks")}
         density="compact"
       />
-    </Stack>
+    </WorkflowModule>
   );
 }
 
