@@ -350,6 +350,14 @@ export const catalogEnglishTranslations = {
     "TCGdex JSON transport is configured for {connectorKind}.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgdex.credential.not.required":
     "TCGdex public JSON transport does not require provider credentials.",
+  "catalog.features.sourceObservations.api.providerAdapters.mtgjson.credential.not.required":
+    "MTGJSON public JSON files do not require provider credentials.",
+  "catalog.features.sourceObservations.api.providerAdapters.mtgjson.public.json.transport.configured":
+    "MTGJSON public v5 JSON transport is configured.",
+  "catalog.features.sourceObservations.api.providerAdapters.scryfall.credential.not.required":
+    "Scryfall public API requests do not require provider credentials.",
+  "catalog.features.sourceObservations.api.providerAdapters.scryfall.public.api.transport.configured":
+    "Scryfall public API transport is configured with caller identification.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.configured":
     "TCGplayer automation transport is configured for {connectorKind} with profile lifecycle {lifecycle}.",
   "catalog.features.sourceObservations.api.providerAdapters.tcgplayer.automation.client.unconfigured":
