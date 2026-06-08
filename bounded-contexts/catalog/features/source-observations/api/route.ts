@@ -14,7 +14,6 @@ import type {
 import { bulkReviewJobRoutes } from "./bulk-review-job-routes";
 import { integrationJobRoutes } from "./integration-job-routes";
 import { promotionReviewRoutes } from "./promotion-review-routes";
-import { providerCompatibilityRoutes } from "./provider-compatibility-routes";
 import { providerOptionRoutes } from "./provider-options-routes";
 import { providerProfileRoutes } from "./provider-profile-routes";
 import { sourceObservationReadReviewRoutes } from "./source-observation-review-routes";
@@ -39,7 +38,6 @@ export function sourceObservationRoutes(
 
   app.route("/", providerOptionRoutes(services));
   app.route("/", providerProfileRoutes(services, profileVersions));
-  app.route("/", providerCompatibilityRoutes(services));
   app.route("/", promotionReviewRoutes(services));
   app.route("/", bulkReviewJobRoutes(services));
   app.route("/", integrationJobRoutes(services));

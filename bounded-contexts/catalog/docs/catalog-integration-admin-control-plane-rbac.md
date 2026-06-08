@@ -16,7 +16,7 @@ Catalog does not define new roles in this policy. Role-to-permission assignment 
 | Action | Permission | Destructive | Notes |
 | --- | --- | --- | --- |
 | Integration health, readiness, overview, active profile summaries | `catalog.view` | No | Redacted control-plane state only. |
-| Provider option reads and compatibility selector reads | `catalog.view` | No | May use cached/stale provider option data according to provider option query policy. |
+| Provider option reads | `catalog.view` | No | May use cached/stale provider option data according to provider option query policy. |
 | Source Observation list/detail reads | `catalog.view` | No | Detail payloads remain governed and redacted. |
 | Provider profile list, authoring read model, lifecycle impact preview | `catalog.view` | No | Impact previews expose counts, samples, and diagnostics, not raw payloads. |
 | Job status and job event streams | `catalog.view` | No | Durable job snapshots and progress events only. |
@@ -26,7 +26,6 @@ Catalog does not define new roles in this policy. Role-to-permission assignment 
 | Import or reapply job enqueue | `catalog.manage` | Yes | Confirmed scope must be resolved server-side when the action runs. |
 | Promotion/reapply/bulk review previews submitted through POST endpoints | `catalog.manage` | No | These are manage-gated because they prepare destructive follow-up work and match host API method enforcement. |
 | Promote or reject Source Observations, including bulk jobs | `catalog.manage` | Yes | Bulk flows must support mixed outcomes and audit context. |
-| Legacy TCGdex import compatibility route | `catalog.manage` | Yes | Transitional compatibility path; normal workflows should use the generic integration job route. |
 
 ## Destructive-Action Safeguards
 

@@ -12,6 +12,7 @@ import type {
   BulkSourceObservationReapplyResult,
   SourceObservationIntegrationScope,
   SourceObservationIntegrationJobResult,
+  SourceObservationIntegrationOption,
   SourceObservationIntegrationJobScope,
   SourceObservationIntegrationOptionResponse,
   SourceObservationPromotionPreview,
@@ -195,23 +196,78 @@ export function importTcgdexSet(
 }
 
 export function useTcgdexLanguages() {
-  return useFetch(() => api.listTcgdexLanguages<ListResponse<TcgdexLanguageOption>>(), []);
+  return useFetch(async () => {
+    const response = await api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(
+      new URLSearchParams({ providerKey: "tcgdex", queryKind: "languages" }).toString(),
+    );
+    return mapIntegrationOptions(response, (item) => ({ languageCode: item.value }));
+  }, []);
 }
 
 export function useTcgdexSeries(languageCode: string) {
-  const query = new URLSearchParams({ languageCode }).toString();
-  return useFetch(() => api.listTcgdexSeries<ListResponse<TcgdexSeriesOption>>(query), [query]);
+  const query = new URLSearchParams({ providerKey: "tcgdex", queryKind: "series", languageCode }).toString();
+  return useFetch(async () => {
+    const response =
+      await api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query);
+    return mapIntegrationOptions(response, (item) => ({
+      seriesId: item.value,
+      name: item.label,
+      logoUrl: metadataString(item.metadata.logoUrl),
+    }));
+  }, [query]);
 }
 
 export function useTcgdexExpansions(languageCode: string, seriesId: string) {
-  const query = seriesId ? new URLSearchParams({ languageCode, seriesId }).toString() : "";
-  return useFetch(
-    () =>
-      query
-        ? api.listTcgdexExpansions<ListResponse<TcgdexExpansionOption>>(query)
-        : Promise.resolve({ items: [], count: 0, total: 0 }),
-    [query],
-  );
+  const query = seriesId
+    ? new URLSearchParams({
+        providerKey: "tcgdex",
+        queryKind: "expansions",
+        languageCode,
+        parentValue: seriesId,
+      }).toString()
+    : "";
+  return useFetch(async () => {
+    if (!query) {
+      return { items: [], count: 0, total: 0 };
+    }
+    const response =
+      await api.listSourceObservationIntegrationOptions<SourceObservationIntegrationOptionResponse>(query);
+    return mapIntegrationOptions(response, (item) => ({
+      expansionId: item.value,
+      name: item.label,
+      seriesId: item.parentValue ?? seriesId,
+      seriesName: metadataString(item.metadata.seriesName),
+      logoUrl: metadataString(item.metadata.logoUrl),
+      symbolUrl: metadataString(item.metadata.symbolUrl),
+      cardCount: metadataNumber(item.metadata.cardCount),
+      officialCardCount: metadataNumber(item.metadata.officialCardCount),
+    }));
+  }, [query]);
+}
+
+function mapIntegrationOptions<T>(
+  response: SourceObservationIntegrationOptionResponse,
+  mapItem: (item: SourceObservationIntegrationOption) => T,
+): ListResponse<T> {
+  return {
+    ...response,
+    items: response.items.map(mapItem),
+  };
+}
+
+function metadataString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function metadataNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }
 
 export function bulkPromoteSourceObservations(

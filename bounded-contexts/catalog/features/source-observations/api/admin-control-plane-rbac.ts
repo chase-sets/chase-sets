@@ -16,8 +16,7 @@ export type CatalogIntegrationControlPlaneActionKey =
   | "source-observation-read"
   | "source-observation-review"
   | "promotion-impact-preview"
-  | "bulk-review-write"
-  | "legacy-provider-import";
+  | "bulk-review-write";
 
 export type CatalogIntegrationControlPlaneActionPolicy = Readonly<{
   action: CatalogIntegrationControlPlaneActionKey;
@@ -38,7 +37,6 @@ export const catalogIntegrationControlPlaneActionPolicies = [
   { action: "source-observation-review", requiredPermission: "catalog.manage", destructive: true },
   { action: "promotion-impact-preview", requiredPermission: "catalog.manage", destructive: false },
   { action: "bulk-review-write", requiredPermission: "catalog.manage", destructive: true },
-  { action: "legacy-provider-import", requiredPermission: "catalog.manage", destructive: true },
 ] as const satisfies readonly CatalogIntegrationControlPlaneActionPolicy[];
 
 const actionPoliciesByKey = new Map(
