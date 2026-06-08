@@ -6,11 +6,15 @@ base_delay_seconds="${TERRAFORM_INIT_RETRY_DELAY_SECONDS:-20}"
 attempt=1
 
 while true; do
-  if terraform init "$@"; then
+  set +e
+  terraform init "$@"
+  status=$?
+  set -e
+
+  if [ "$status" -eq 0 ]; then
     exit 0
   fi
 
-  status=$?
   if [ "$attempt" -ge "$attempts" ]; then
     echo "terraform init failed after ${attempts} attempts." >&2
     exit "$status"
