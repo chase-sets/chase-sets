@@ -771,7 +771,8 @@ describe("DigitalOcean platform configuration", () => {
     expect(missingConfiguredProxy).toEqual([]);
 
     const missingProofIngress = ADMIN_WEB_API_DEPENDENCIES.filter(
-      (dependency) => !proofAdminApiPrefixes.includes(dependency.proofAdminIngressPrefix),
+      (dependency) =>
+        dependency.proofAdminIngressPrefix && !proofAdminApiPrefixes.includes(dependency.proofAdminIngressPrefix),
     ).map(
       (dependency) =>
         `${dependency.surface} (${dependency.callerType}) from ${dependency.sourceFile} requires ${dependency.proofAdminIngressPrefix} for ${dependency.apiPath}`,
