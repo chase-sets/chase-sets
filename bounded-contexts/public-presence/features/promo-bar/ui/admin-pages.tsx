@@ -48,8 +48,12 @@ function messageStatus(message: PromoBarMessage) {
 }
 
 function resolveAdminPreviewHref(href: string | null, marketplaceOrigin: string | null) {
-  if (!href || !href.startsWith("/") || !marketplaceOrigin) {
+  if (!href || !href.startsWith("/")) {
     return href;
+  }
+
+  if (!marketplaceOrigin) {
+    return null;
   }
 
   return new URL(href, `${marketplaceOrigin.replace(/\/+$/, "")}/`).toString();

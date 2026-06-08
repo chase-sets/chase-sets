@@ -30,4 +30,14 @@ describe("PromoBarAdminPage", () => {
 
     expect(html).toContain('href="https://marketplace.chasesets.com/sales-fees"');
   });
+
+  it("does not preview marketplace-relative promo links on the admin host without a marketplace origin", () => {
+    const html = renderToString(
+      <PromoBarAdminPage messages={[activeMessage]} actionMessage={null} marketplaceOrigin={null} />,
+    );
+
+    expect(html).not.toContain('href="/sales-fees"');
+    expect(html).not.toContain('href="https://admin.chasesets.com/sales-fees"');
+    expect(html).toContain("See fees");
+  });
 });

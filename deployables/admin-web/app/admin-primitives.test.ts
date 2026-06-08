@@ -7,8 +7,24 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
 const legacyAdminPrimitivePattern =
   /\bUi(?:Page|PageHeader|PageSection|Table|TableBody|TableCell|TableHead|TableHeader|TableRow)\b/;
 const unsafeAdminMarketplaceLinkPattern = /(?:href|to)=\{?`?["']?\/account[/?]/;
+const unsafeAdminPublicRelativeLinkPattern =
+  /(?:href|to)=\{?`?["']?\/(?:contact|faq|items|listings|order-protection|privacy|refunds-and-returns|sales-fees|search|terms)(?:[/?#]|[`"'])/;
 const ignoredDirectories = new Set(["build", "dist", "generated", "node_modules"]);
 const importPattern = /import(?:\s+type)?[\s\S]*?\sfrom\s+["']([^"']+)["']/g;
+const literalHrefPattern = /\b(?:href|to)=\{?([`"'])(\/[^`"']*)\1/g;
+const adminSectionPrefixes = new Set(["access", "catalog", "commerce", "growth", "platform", "support"]);
+const featureContextAdminSections = new Map([
+  ["auth", "access"],
+  ["catalog", "catalog"],
+  ["commercial-terms", "commerce"],
+  ["discovery", "growth"],
+  ["experience", "support"],
+  ["identity", "access"],
+  ["ordering", "commerce"],
+  ["platform-operations", "platform"],
+  ["public-presence", "growth"],
+  ["support", "support"],
+]);
 
 function collectTsxFiles(root: string): string[] {
   return readdirSync(root).flatMap((entry) => {
@@ -76,6 +92,11 @@ function isFeatureUiSource(filePath: string) {
   return relativePath(filePath).includes("/features/") && relativePath(filePath).includes("/ui/");
 }
 
+function adminSectionForFeatureUi(filePath: string) {
+  const [, contextName] = /^bounded-contexts\/([^/]+)\//.exec(relativePath(filePath)) ?? [];
+  return contextName ? featureContextAdminSections.get(contextName) : undefined;
+}
+
 function importedSourceFiles(filePath: string) {
   const source = readFileSync(filePath, "utf8");
   return [...source.matchAll(importPattern)].flatMap((match) => {
@@ -112,6 +133,36 @@ function collectAdminRenderedFeatureUiFiles() {
   return [...seen].sort();
 }
 
+function literalHrefSection(pathname: string) {
+  const [section] = pathname.slice(1).split(/[/?#]/);
+  return adminSectionPrefixes.has(section ?? "") ? section : null;
+}
+
+function crossSectionLinkOffenders(filePath: string) {
+  const source = readFileSync(filePath, "utf8");
+  const owningSection = adminSectionForFeatureUi(filePath);
+
+  if (!owningSection) {
+    return [];
+  }
+
+  return [...source.matchAll(literalHrefPattern)].flatMap((match) => {
+    const href = match[2];
+    const targetSection = href ? literalHrefSection(href) : null;
+
+    if (!targetSection || targetSection === owningSection) {
+      return [];
+    }
+
+    const beforeHref = source.slice(Math.max(0, match.index - 350), match.index);
+    if (beforeHref.includes("hasPermission(actorPermissions")) {
+      return [];
+    }
+
+    return [`${relativePath(filePath)} -> ${href}`];
+  });
+}
+
 describe("admin web primitive usage", () => {
   it("keeps admin routes and rendered feature UI on canonical page and table primitives", () => {
     const adminRouteFiles = [...collectAdminRouteFiles(), ...collectAdminRenderedFeatureUiFiles()];
@@ -127,6 +178,20 @@ describe("admin web primitive usage", () => {
     const offenders = collectAdminRenderedFeatureUiFiles()
       .filter((filePath) => unsafeAdminMarketplaceLinkPattern.test(readFileSync(filePath, "utf8")))
       .map(relativePath);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps admin-rendered feature UI from introducing public-relative links that bind to the admin host", () => {
+    const offenders = collectAdminRenderedFeatureUiFiles()
+      .filter((filePath) => unsafeAdminPublicRelativeLinkPattern.test(readFileSync(filePath, "utf8")))
+      .map(relativePath);
+
+    expect(offenders).toEqual([]);
+  });
+
+  it("keeps same-host cross-section admin links permission-aware", () => {
+    const offenders = collectAdminRenderedFeatureUiFiles().flatMap(crossSectionLinkOffenders);
 
     expect(offenders).toEqual([]);
   });
