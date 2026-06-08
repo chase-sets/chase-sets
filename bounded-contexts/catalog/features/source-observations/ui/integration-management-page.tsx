@@ -1627,6 +1627,12 @@ export function IntegrationManagementPage({
           validationDryRunResult={validationDryRunResult}
           validationDryRunError={validationDryRunError}
           validationDryRunning={validationDryRunning}
+          operationsSummary={summary}
+          operationsJobs={activeIntegrationJobs.data?.items ?? []}
+          operationsJobsLoading={activeIntegrationJobs.loading}
+          operationsJobsError={activeIntegrationJobs.error}
+          controlPlaneOverview={controlPlaneOverview.data ?? null}
+          reviewScope={currentReapplyScope()}
           onValidationDryRunFlowChange={(flow) => {
             setValidationDryRunFlow(flow);
             setValidationDryRunResult(null);
@@ -1640,6 +1646,9 @@ export function IntegrationManagementPage({
           onActivate={setActivationProfile}
           onImport={() => setShowImport(true)}
           onReapply={() => void handlePreviewReapply()}
+          onPromoteMatching={() => void handlePreviewPromoteAll(currentReapplyScope())}
+          onRollback={setRollbackProfile}
+          onRetire={setRetireProfile}
         />
 
         <ActionBar>
@@ -7135,6 +7144,7 @@ function summarizeScopes(scopes: readonly SourceObservationIntegrationScope[]) {
       observed: summary.observed + scope.observed_observations,
       changed: summary.changed + scope.changed_observations,
       promoted: summary.promoted + scope.promoted_observations,
+      rejected: summary.rejected + scope.rejected_observations,
     }),
     {
       scopes: 0,
@@ -7142,6 +7152,7 @@ function summarizeScopes(scopes: readonly SourceObservationIntegrationScope[]) {
       observed: 0,
       changed: 0,
       promoted: 0,
+      rejected: 0,
     },
   );
 }

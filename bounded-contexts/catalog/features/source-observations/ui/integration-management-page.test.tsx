@@ -3524,6 +3524,187 @@ describe("IntegrationManagementPage", () => {
     expect(refresh).toHaveBeenCalled();
   });
 
+  it("shows first-class operations workflows for import review promote reapply and lifecycle control", async () => {
+    mockUseNavigation.mockReturnValue({ state: "idle" });
+    mockUseSearchParams.mockReturnValue([
+      new URLSearchParams("source=tcgdex&language=en&setId=base1"),
+      mockSetSearchParams,
+    ]);
+    mockUseSourceObservationProviderProfiles.mockReturnValue({
+      data: {
+        items: [
+          profileReview({
+            providerKey: "tcgdex",
+            profileKey: "tcgdex-pokemon-card",
+            profileVersion: "2026.06.02",
+            displayName: "TCGdex",
+            lifecycle: "active",
+            active: true,
+            referenceCount: 2,
+            mappingOutputKind: "pokemon-card",
+            capabilities: ["source-observation-import", "catalog-item-promotion"],
+            supportedScopes: ["language", "series", "expansion"],
+            sourceContract: {
+              owner: "chase-sets/catalog",
+              repository: "chase-sets/chase-sets",
+              commit: null,
+              documentPath: "bounded-contexts/catalog/docs/provider-integration-profiles.md",
+              fixtureSetVersion: "tcgdex-pokemon-card-proof-v1",
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseActiveSourceObservationIntegrationJobs.mockReturnValue({
+      data: {
+        items: [
+          {
+            jobId: "job_tcgdex_import",
+            action: "import",
+            scope: { provider: "tcgdex", language: "en", setId: "base1" },
+            profileSnapshot: {
+              providerKey: "tcgdex",
+              profileKey: "tcgdex-pokemon-card",
+              profileVersion: "2026.06.02",
+              lifecycle: "active",
+              connectorKind: "tcgdex-json",
+              connectorSourceVersion: null,
+              sourceMappingFingerprint: "fingerprint_tcgdex",
+            },
+            reapplyProfileMode: null,
+            status: "running",
+            operatorStatus: "running",
+            consistency: {
+              duplicateSubmissionPolicy: "reuse-active-job",
+              profileSnapshotPolicy: "snapshotted-at-enqueue",
+              retryResumePolicy: "skip-completed-outcomes",
+              partialFailurePolicy: "mixed-outcomes",
+              workUnitClaimPolicy: "leased-job-turns",
+            },
+            progress: {
+              phase: "processing",
+              completed: 8,
+              total: 10,
+              currentName: "Base Set",
+              status: "imported",
+            },
+            result: null,
+            errorMessage: null,
+            createdAt: "2026-06-04T20:00:00.000Z",
+            startedAt: "2026-06-04T20:00:05.000Z",
+            completedAt: null,
+            updatedAt: "2026-06-04T20:00:10.000Z",
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+    mockUseCatalogIntegrationControlPlaneOverview.mockReturnValue({
+      data: {
+        ...controlPlaneOverview(),
+        unitActivity: {
+          generatedAt: "2026-06-05T00:00:00.000Z",
+          units: [
+            {
+              unitKey: "tcgdex:pokemon:single-card",
+              recentJobs: [
+                {
+                  jobId: "job_tcgdex_import",
+                  action: "import",
+                  operatorStatus: "running",
+                  phase: "processing",
+                  completed: 8,
+                  total: 10,
+                  providerKey: "tcgdex",
+                  profileVersion: "2026.06.02",
+                  startedAt: "2026-06-04T20:00:05.000Z",
+                  createdAt: "2026-06-04T20:00:00.000Z",
+                  summary: "import job job_tcgdex_import is running (8/10).",
+                },
+              ],
+            },
+          ],
+        },
+        providerReadiness: {
+          generatedAt: "2026-06-05T00:00:00.000Z",
+          providers: [
+            {
+              providerKey: "tcgdex",
+              adapterKey: "tcgdex-json",
+              readiness: "ready",
+              credentialReadiness: "not-required",
+              credentialReadinessState: "not-required",
+              credentialRequirement: "not-required",
+              unitKeys: ["tcgdex:pokemon:single-card"],
+              apiReachability: { status: "ready", diagnosticCodes: [], message: "TCGdex API reachable." },
+              optionQueryHealth: { status: "ready", diagnosticCodes: [], message: "Options available." },
+              rateLimitStatus: { status: "ready", diagnosticCodes: [], message: "No cooldown." },
+              payloadAcquisition: { status: "ready", diagnosticCodes: [], message: "Payload acquisition ready." },
+              diagnostics: [],
+            },
+          ],
+        },
+      },
+      loading: false,
+      error: null,
+      refresh: vi.fn(),
+    });
+
+    render(
+      <IntegrationManagementPage
+        data={{ items: [integrationScope()], total: 1, count: 1 }}
+        query={{ ...query, source: "tcgdex", language: "en", setId: "base1" }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Operations" }));
+
+    expect(screen.getByText("Operations workbench")).toBeTruthy();
+    expect(screen.getByText("tcgdex:pokemon:single-card")).toBeTruthy();
+    expect(screen.getByText("Import and job operations")).toBeTruthy();
+    expect(screen.getAllByText("job_tcgdex_import").length).toBeGreaterThan(0);
+    expect(screen.getByText("Source Observation review workflow")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Review Matching Observations" }).getAttribute("href")).toBe(
+      "/catalog/source-observations?source=tcgdex&language=en&setId=base1",
+    );
+    expect(screen.getByText("Promote and reapply workflow")).toBeTruthy();
+    expect(
+      screen.getByText("Engine-generated command plans remain scoped to the selected Catalog ingestion unit."),
+    ).toBeTruthy();
+    expect(screen.getByText("Rollback and retirement workflow")).toBeTruthy();
+    expect(screen.getByText("Blocked until Source Observation references are migrated or archived.")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /^Promote matching$/i }));
+    await waitFor(() =>
+      expect(mockPreviewBulkPromoteSourceObservations).toHaveBeenCalledWith({
+        search: "",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      }),
+    );
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^Cancel$/i }));
+
+    fireEvent.click(screen.getAllByRole("button", { name: /^Reapply promoted$/i })[0]);
+    await waitFor(() =>
+      expect(mockPreviewReapplySourceObservations).toHaveBeenCalledWith({
+        search: "",
+        provider: "tcgdex",
+        language: "en",
+        setId: "base1",
+      }),
+    );
+  });
+
   it("shows queued progress while an integration job waits for worker processing", async () => {
     mockUseNavigation.mockReturnValue({ state: "idle" });
     mockUseSearchParams.mockReturnValue([new URLSearchParams(), mockSetSearchParams]);

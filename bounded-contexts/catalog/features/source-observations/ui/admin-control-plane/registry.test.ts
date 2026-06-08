@@ -38,7 +38,15 @@ describe("Catalog integration admin control-plane registry", () => {
     );
     expect(CATALOG_INTEGRATION_WORKFLOW_MODULES.filter((module) => module.status === "planned-child-issue")).toEqual([
       expect.objectContaining({ key: "section-editors", childIssue: 765 }),
-      expect.objectContaining({ key: "source-observation-review-workbench", childIssue: 779 }),
     ]);
+    expect(CATALOG_INTEGRATION_WORKFLOW_MODULES).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: "source-observation-review-workbench",
+          childIssue: 779,
+          status: "implemented",
+        }),
+      ]),
+    );
   });
 });

@@ -108,6 +108,23 @@ async function clickDialogFooterButton(page: Page, dialogName: string | RegExp, 
   await expect(dialog).toBeHidden();
 }
 
+async function clickModuleTab(page: Page, name: string) {
+  const tab = page.getByRole("tab", { name });
+  await expect(tab).toBeVisible();
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await tab.click();
+    try {
+      await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 3_000 });
+      return;
+    } catch (error) {
+      if (attempt === 4) {
+        throw error;
+      }
+      await page.waitForTimeout(500);
+    }
+  }
+}
+
 test.describe("catalog admin integrations", () => {
   test("signed-in catalog operator can review provider profile management controls @catalog-admin-integrations", async ({
     page,
@@ -139,7 +156,7 @@ test.describe("catalog admin integrations", () => {
     await expectProfileAction(page, /^Rollback$/i);
     await expectProfileAction(page, /^Retire$/i);
 
-    await page.getByRole("tab", { name: "Validation" }).click();
+    await clickModuleTab(page, "Validation");
     await expectVisibleText(page, "Validation workbench");
     await expect(page.getByRole("heading", { name: "Fixture validation workflow" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Dry-run evidence workflow" })).toBeVisible();
@@ -147,6 +164,15 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("heading", { name: "Activation readiness workflow" })).toBeVisible();
     await expectVisibleText(page, "Affected references");
     await expectVisibleText(page, "Replay implication");
+    await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
+
+    await clickModuleTab(page, "Operations");
+    await expectVisibleText(page, "Operations workbench");
+    await expect(page.getByRole("heading", { name: "Import and job operations" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Source Observation review workflow" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Promote and reapply workflow" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Rollback and retirement workflow" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Review Matching Observations" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
 
     await openProfileDialog(page, /^Compare$/i, "Compare active profile");

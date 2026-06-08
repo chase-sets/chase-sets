@@ -4,25 +4,73 @@ import {
   DataTable,
   Inline,
   KeyValueList,
+  LinkButton,
   OperationalStatusBanner,
+  ProgressBar,
   Select,
   Stack,
+  Stat,
+  StatGrid,
   StatusPill,
   TaskSummary,
   type DataColumn,
   type SelectItem,
 } from "@chase-sets/design-system";
 import type {
+  CatalogIntegrationControlPlaneOverview,
   CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileDryRunResult,
   CatalogProviderProfileVersionReview,
+  SourceObservationIntegrationJobResult,
+  SourceObservationIntegrationJobScope,
+  SourceObservationIntegrationProfileSnapshot,
+  SourceObservationPromotionScope,
 } from "../../contracts";
 import { type CatalogIntegrationModuleArea, moduleAreaLabel } from "../registry";
+
+type CatalogIntegrationOperationsSummary = Readonly<{
+  scopes: number;
+  total: number;
+  observed: number;
+  changed: number;
+  promoted: number;
+  rejected: number;
+}>;
+
+type CatalogIntegrationOperationsProgress = Readonly<{
+  phase: string;
+  completed: number;
+  total: number;
+  currentName: string | null;
+  status: string | null;
+}>;
+
+type CatalogIntegrationOperationsJob = Readonly<{
+  jobId: string;
+  action: "import" | "reapply";
+  scope: SourceObservationIntegrationJobScope;
+  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
+  status: string;
+  operatorStatus: string;
+  progress: CatalogIntegrationOperationsProgress;
+  result: SourceObservationIntegrationJobResult | null;
+  errorMessage: string | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
+}>;
 
 export type CatalogIntegrationAreaWorkbenchProps = Readonly<{
   area: CatalogIntegrationModuleArea;
   selectedProfile: CatalogProviderProfileVersionReview | null;
   authoringModel: CatalogProviderProfileAuthoringModel | null;
+  operationsSummary: CatalogIntegrationOperationsSummary;
+  operationsJobs: readonly CatalogIntegrationOperationsJob[];
+  operationsJobsLoading: boolean;
+  operationsJobsError: string | null;
+  controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
+  reviewScope: SourceObservationPromotionScope;
   loading: boolean;
   error: string | null;
   canManageCatalog: boolean;
@@ -39,12 +87,21 @@ export type CatalogIntegrationAreaWorkbenchProps = Readonly<{
   onActivate: (profile: CatalogProviderProfileVersionReview) => void;
   onImport: () => void;
   onReapply: () => void;
+  onPromoteMatching: () => void;
+  onRollback: (profile: CatalogProviderProfileVersionReview) => void;
+  onRetire: (profile: CatalogProviderProfileVersionReview) => void;
 }>;
 
 export function CatalogIntegrationAreaWorkbench({
   area,
   selectedProfile,
   authoringModel,
+  operationsSummary,
+  operationsJobs,
+  operationsJobsLoading,
+  operationsJobsError,
+  controlPlaneOverview,
+  reviewScope,
   loading,
   error,
   canManageCatalog,
@@ -61,6 +118,9 @@ export function CatalogIntegrationAreaWorkbench({
   onActivate,
   onImport,
   onReapply,
+  onPromoteMatching,
+  onRollback,
+  onRetire,
 }: CatalogIntegrationAreaWorkbenchProps) {
   if (area === "health") {
     return null;
@@ -104,6 +164,26 @@ export function CatalogIntegrationAreaWorkbench({
     );
   }
 
+  if (area === "operations") {
+    return (
+      <CatalogIntegrationOperationsWorkbench
+        selectedProfile={selectedProfile}
+        summary={operationsSummary}
+        jobs={operationsJobs}
+        jobsLoading={operationsJobsLoading}
+        jobsError={operationsJobsError}
+        controlPlaneOverview={controlPlaneOverview}
+        reviewScope={reviewScope}
+        canManageCatalog={canManageCatalog}
+        onImport={onImport}
+        onReapply={onReapply}
+        onPromoteMatching={onPromoteMatching}
+        onRollback={() => onRollback(selectedProfile)}
+        onRetire={() => onRetire(selectedProfile)}
+      />
+    );
+  }
+
   const areaItems =
     area === "authoring"
       ? [
@@ -120,35 +200,20 @@ export function CatalogIntegrationAreaWorkbench({
             value: selectedProfile.mappingOutputKind,
           },
         ]
-      : area === "operations"
-        ? [
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
-              value: selectedProfile.providerKey,
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.capabilities"),
-              value: selectedProfile.capabilities.join(", ") || "None",
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.supported.scopes"),
-              value: selectedProfile.supportedScopes.join(", ") || "None",
-            },
-          ]
-        : [
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.lifecycle"),
-              value: selectedProfile.lifecycle,
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.count"),
-              value: String(selectedProfile.referenceCount),
-            },
-            {
-              label: t("catalog.features.sourceObservations.ui.integrationManagementPage.migration.evidence"),
-              value: selectedProfile.migrationEvidence ? "Recorded" : "Not recorded",
-            },
-          ];
+      : [
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.lifecycle"),
+            value: selectedProfile.lifecycle,
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.count"),
+            value: String(selectedProfile.referenceCount),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.migration.evidence"),
+            value: selectedProfile.migrationEvidence ? "Recorded" : "Not recorded",
+          },
+        ];
 
   return (
     <Stack gap={3}>
@@ -175,22 +240,6 @@ export function CatalogIntegrationAreaWorkbench({
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.edit.selected.profile")}
           </Button>
         ) : null}
-        {area === "operations" ? (
-          <>
-            <Button size="sm" leadingIcon="plus" disabled={!canManageCatalog} onClick={onImport}>
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.pull.provider.data")}
-            </Button>
-            <Button
-              size="sm"
-              tone="secondary"
-              leadingIcon="badgeCheck"
-              disabled={!canManageCatalog}
-              onClick={onReapply}
-            >
-              {t("catalog.features.sourceObservations.ui.integrationManagementPage.reapply.promoted")}
-            </Button>
-          </>
-        ) : null}
         {area === "audit" ? (
           <>
             <Button
@@ -216,6 +265,607 @@ export function CatalogIntegrationAreaWorkbench({
       </Inline>
     </Stack>
   );
+}
+
+function CatalogIntegrationOperationsWorkbench({
+  selectedProfile,
+  summary,
+  jobs,
+  jobsLoading,
+  jobsError,
+  controlPlaneOverview,
+  reviewScope,
+  canManageCatalog,
+  onImport,
+  onReapply,
+  onPromoteMatching,
+  onRollback,
+  onRetire,
+}: Readonly<{
+  selectedProfile: CatalogProviderProfileVersionReview;
+  summary: CatalogIntegrationOperationsSummary;
+  jobs: readonly CatalogIntegrationOperationsJob[];
+  jobsLoading: boolean;
+  jobsError: string | null;
+  controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
+  reviewScope: SourceObservationPromotionScope;
+  canManageCatalog: boolean;
+  onImport: () => void;
+  onReapply: () => void;
+  onPromoteMatching: () => void;
+  onRollback: () => void;
+  onRetire: () => void;
+}>) {
+  const profileJobs = jobs.filter(
+    (job) =>
+      job.scope.provider === selectedProfile.providerKey ||
+      job.profileSnapshot?.providerKey === selectedProfile.providerKey,
+  );
+  const providerReadiness = controlPlaneOverview?.providerReadiness.providers.find(
+    (provider) => provider.providerKey === selectedProfile.providerKey,
+  );
+  const unitKeys = providerReadiness?.unitKeys ?? [];
+  const unitActivity =
+    controlPlaneOverview?.unitActivity.units.filter(
+      (unit) =>
+        unitKeys.includes(unit.unitKey) ||
+        unit.recentJobs.some((job) => job.providerKey === selectedProfile.providerKey),
+    ) ?? [];
+  const latestUnitJobs = unitActivity.flatMap((unit) =>
+    unit.recentJobs.map((job) => ({
+      ...job,
+      unitKey: unit.unitKey,
+    })),
+  );
+  const reviewHref = sourceObservationPromotionScopeHref(reviewScope);
+
+  return (
+    <Stack gap={4}>
+      <TaskSummary
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.operations.workbench")}
+        items={[
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile"),
+            value: `${selectedProfile.displayName} ${selectedProfile.profileVersion}`,
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.ingestion.units"),
+            value: unitKeys.length > 0 ? unitKeys.join(", ") : "Not reported",
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.adapter.readiness"),
+            value: providerReadiness ? providerReadiness.readiness : "Not reported",
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.count"),
+            value: String(selectedProfile.referenceCount),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.current.review.scope"),
+            value: formatPromotionScope(reviewScope),
+          },
+        ]}
+      />
+
+      <ImportJobOperationsWorkflow
+        profile={selectedProfile}
+        providerReadiness={providerReadiness ?? null}
+        jobs={profileJobs}
+        latestUnitJobs={latestUnitJobs}
+        loading={jobsLoading}
+        error={jobsError}
+        canManageCatalog={canManageCatalog}
+        onImport={onImport}
+      />
+
+      <SourceObservationReviewWorkflow summary={summary} reviewHref={reviewHref} />
+
+      <PromotionReapplyWorkflow
+        summary={summary}
+        reviewScope={reviewScope}
+        canManageCatalog={canManageCatalog}
+        onPromoteMatching={onPromoteMatching}
+        onReapply={onReapply}
+      />
+
+      <RollbackRetirementWorkflow
+        profile={selectedProfile}
+        jobs={profileJobs}
+        latestUnitJobs={latestUnitJobs}
+        canManageCatalog={canManageCatalog}
+        onRollback={onRollback}
+        onRetire={onRetire}
+      />
+    </Stack>
+  );
+}
+
+function ImportJobOperationsWorkflow({
+  profile,
+  providerReadiness,
+  jobs,
+  latestUnitJobs,
+  loading,
+  error,
+  canManageCatalog,
+  onImport,
+}: Readonly<{
+  profile: CatalogProviderProfileVersionReview;
+  providerReadiness: CatalogIntegrationControlPlaneOverview["providerReadiness"]["providers"][number] | null;
+  jobs: readonly CatalogIntegrationOperationsJob[];
+  latestUnitJobs: readonly (CatalogIntegrationControlPlaneOverview["unitActivity"]["units"][number]["recentJobs"][number] & {
+    unitKey: string;
+  })[];
+  loading: boolean;
+  error: string | null;
+  canManageCatalog: boolean;
+  onImport: () => void;
+}>) {
+  const activeJobs = jobs.filter((job) => job.status === "queued" || job.status === "running");
+
+  return (
+    <Stack gap={2}>
+      <Inline gap={2} align="center">
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.import.and.job.operations")}</h3>
+        <StatusPill tone={providerReadiness?.readiness === "ready" ? "success" : "warning"}>
+          {providerReadiness?.readiness ?? "unreported"}
+        </StatusPill>
+      </Inline>
+      <KeyValueList
+        density="compact"
+        variant="plain"
+        items={[
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.provider"),
+            value: profile.providerKey,
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.transport"),
+            value:
+              providerReadiness?.payloadAcquisition.message ??
+              providerReadiness?.payloadAcquisition.status ??
+              "Not reported",
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.credential"),
+            value: providerReadiness?.credentialReadiness ?? "Not reported",
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.active.jobs"),
+            value: String(activeJobs.length),
+          },
+        ]}
+      />
+      <Inline gap={2}>
+        <Button size="sm" leadingIcon="plus" disabled={!canManageCatalog} onClick={onImport}>
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.pull.provider.data")}
+        </Button>
+      </Inline>
+      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {loading ? (
+        <p className="text-sm text-secondary">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.active.jobs")}
+        </p>
+      ) : null}
+      {jobs.length > 0 ? (
+        <DataTable
+          rows={[...jobs]}
+          columns={operationsJobColumns}
+          getRowId={(row) => row.jobId}
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.active.integration.jobs")}
+          density="compact"
+        />
+      ) : (
+        <DataTable
+          rows={[...latestUnitJobs]}
+          columns={recentUnitJobColumns}
+          getRowId={(row) => `${row.unitKey}-${row.createdAt}-${row.action}`}
+          emptyTitle={t("catalog.features.sourceObservations.ui.integrationManagementPage.no.active.integration.jobs")}
+          density="compact"
+        />
+      )}
+    </Stack>
+  );
+}
+
+function SourceObservationReviewWorkflow({
+  summary,
+  reviewHref,
+}: Readonly<{ summary: CatalogIntegrationOperationsSummary; reviewHref: string }>) {
+  const reviewable = summary.observed + summary.changed;
+
+  return (
+    <Stack gap={2}>
+      <Inline gap={2} align="center">
+        <h3>
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.review.workflow")}
+        </h3>
+        <StatusPill tone={reviewable > 0 ? "warning" : "success"}>
+          {reviewable > 0
+            ? t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.review")
+            : t("catalog.features.sourceObservations.ui.integrationManagementPage.clear")}
+        </StatusPill>
+      </Inline>
+      <StatGrid columns={{ base: 2, md: 4 }}>
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.scopes")}
+          value={formatCount(summary.scopes)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.observed")}
+          value={formatCount(summary.observed)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.changed")}
+          value={formatCount(summary.changed)}
+        />
+        <Stat
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.promoted")}
+          value={formatCount(summary.promoted)}
+        />
+      </StatGrid>
+      <p className="text-sm text-secondary">
+        {t(
+          "catalog.features.sourceObservations.ui.integrationManagementPage.review.source.observations.by.provider.unit.profile.scope.status.provenance.facts.condition.certification.evidence.and.diagnostics",
+        )}
+      </p>
+      <Inline gap={2}>
+        <LinkButton href={reviewHref} size="sm" tone="secondary">
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.review.matching.observations")}
+        </LinkButton>
+      </Inline>
+    </Stack>
+  );
+}
+
+function PromotionReapplyWorkflow({
+  summary,
+  reviewScope,
+  canManageCatalog,
+  onPromoteMatching,
+  onReapply,
+}: Readonly<{
+  summary: CatalogIntegrationOperationsSummary;
+  reviewScope: SourceObservationPromotionScope;
+  canManageCatalog: boolean;
+  onPromoteMatching: () => void;
+  onReapply: () => void;
+}>) {
+  const reviewable = summary.observed + summary.changed;
+
+  return (
+    <Stack gap={2}>
+      <Inline gap={2} align="center">
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.promote.reapply.workflow")}</h3>
+        <StatusPill tone={summary.promoted > 0 ? "info" : "warning"}>
+          {summary.promoted > 0
+            ? t("catalog.features.sourceObservations.ui.integrationManagementPage.promoted")
+            : t("catalog.features.sourceObservations.ui.integrationManagementPage.no.promoted.observations")}
+        </StatusPill>
+      </Inline>
+      <KeyValueList
+        density="compact"
+        variant="plain"
+        items={[
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.command.scope"),
+            value: formatPromotionScope(reviewScope),
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.evidence"),
+            value: t(
+              "catalog.features.sourceObservations.ui.integrationManagementPage.engine.generated.command.plans.remain.scoped.to.the.selected.catalog.ingestion.unit",
+            ),
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.reapply.guardrail"),
+            value: t(
+              "catalog.features.sourceObservations.ui.integrationManagementPage.reapply.uses.the.active.profile.mapping.without.changing.provider.transport.behavior",
+            ),
+          },
+        ]}
+      />
+      <Inline gap={2}>
+        <Button
+          size="sm"
+          leadingIcon="badgeCheck"
+          disabled={!canManageCatalog || reviewable === 0}
+          onClick={onPromoteMatching}
+        >
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.promote.matching")}
+        </Button>
+        <Button
+          size="sm"
+          tone="secondary"
+          leadingIcon="refreshCcw"
+          disabled={!canManageCatalog || summary.promoted === 0}
+          onClick={onReapply}
+        >
+          {t("catalog.features.sourceObservations.ui.integrationManagementPage.reapply.promoted")}
+        </Button>
+      </Inline>
+    </Stack>
+  );
+}
+
+function RollbackRetirementWorkflow({
+  profile,
+  jobs,
+  latestUnitJobs,
+  canManageCatalog,
+  onRollback,
+  onRetire,
+}: Readonly<{
+  profile: CatalogProviderProfileVersionReview;
+  jobs: readonly CatalogIntegrationOperationsJob[];
+  latestUnitJobs: readonly (CatalogIntegrationControlPlaneOverview["unitActivity"]["units"][number]["recentJobs"][number] & {
+    unitKey: string;
+  })[];
+  canManageCatalog: boolean;
+  onRollback: () => void;
+  onRetire: () => void;
+}>) {
+  const activeJobs = jobs.filter((job) => job.status === "queued" || job.status === "running").length;
+  const latestJobCount = latestUnitJobs.length;
+  const retireBlocked = profile.referenceCount > 0;
+
+  return (
+    <Stack gap={2}>
+      <Inline gap={2} align="center">
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.rollback.retirement.workflow")}</h3>
+        <StatusPill tone={retireBlocked ? "warning" : "success"}>
+          {retireBlocked
+            ? t("catalog.features.sourceObservations.ui.integrationManagementPage.references.remain")
+            : t("catalog.features.sourceObservations.ui.integrationManagementPage.ready")}
+        </StatusPill>
+      </Inline>
+      <KeyValueList
+        density="compact"
+        variant="plain"
+        items={[
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.affected.references"),
+            value: String(profile.referenceCount),
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.affected.jobs"),
+            value: String(activeJobs || latestJobCount),
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.rollback.implication"),
+            value: t(
+              "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.reactivates.a.previous.profile.version.and.keeps.observation.replay.explicit",
+            ),
+          },
+          {
+            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.retirement.gate"),
+            value: retireBlocked
+              ? t(
+                  "catalog.features.sourceObservations.ui.integrationManagementPage.blocked.until.source.observation.references.are.migrated.or.archived",
+                )
+              : t(
+                  "catalog.features.sourceObservations.ui.integrationManagementPage.no.source.observation.references.remain",
+                ),
+          },
+        ]}
+      />
+      <Inline gap={2}>
+        <Button size="sm" tone="secondary" leadingIcon="refreshCcw" disabled={!canManageCatalog} onClick={onRollback}>
+          {t("catalog.features.sourceObservations.ui.integrations.profile.review.rollback")}
+        </Button>
+        <Button
+          size="sm"
+          tone="danger"
+          leadingIcon="trash"
+          disabled={!canManageCatalog || retireBlocked}
+          onClick={onRetire}
+        >
+          {t("catalog.features.sourceObservations.ui.integrations.profile.review.retire")}
+        </Button>
+      </Inline>
+    </Stack>
+  );
+}
+
+const operationsJobColumns: DataColumn<CatalogIntegrationOperationsJob>[] = [
+  {
+    key: "job",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.job"),
+    cell: (row) => (
+      <Stack gap={1}>
+        <Inline gap={2}>
+          <StatusPill tone={jobStatusTone(row.status)}>{row.operatorStatus}</StatusPill>
+          <span>{row.action}</span>
+        </Inline>
+        <span className="text-xs text-secondary">{row.jobId}</span>
+      </Stack>
+    ),
+  },
+  {
+    key: "profile",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile.snapshot"),
+    cell: (row) =>
+      row.profileSnapshot ? (
+        <Stack gap={1}>
+          <span>
+            {row.profileSnapshot.providerKey} {row.profileSnapshot.profileVersion}
+          </span>
+          <span className="text-xs text-secondary">
+            {row.profileSnapshot.profileKey} - {row.profileSnapshot.lifecycle}
+          </span>
+        </Stack>
+      ) : (
+        t("catalog.features.sourceObservations.ui.integrationManagementPage.no.snapshot")
+      ),
+  },
+  {
+    key: "scope",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.scope"),
+    cell: (row) => formatIntegrationJobScope(row.scope),
+  },
+  {
+    key: "progress",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.progress"),
+    cell: (row) => (
+      <ProgressBar
+        value={progressPercent(row.progress)}
+        tone={row.status === "failed" ? "danger" : row.status === "completed" ? "success" : "active"}
+        formatLabel={() => formatProgress(row.progress)}
+      />
+    ),
+  },
+];
+
+const recentUnitJobColumns: DataColumn<
+  CatalogIntegrationControlPlaneOverview["unitActivity"]["units"][number]["recentJobs"][number] & { unitKey: string }
+>[] = [
+  {
+    key: "job",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.job"),
+    cell: (row) => (
+      <Stack gap={1}>
+        <Inline gap={2}>
+          <StatusPill tone={jobStatusTone(row.operatorStatus)}>{row.operatorStatus}</StatusPill>
+          <span>{row.action}</span>
+        </Inline>
+        <span className="text-xs text-secondary">{row.jobId}</span>
+      </Stack>
+    ),
+  },
+  {
+    key: "unit",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.unit"),
+    cell: (row) => row.unitKey,
+  },
+  {
+    key: "profile",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.profile"),
+    cell: (row) => (
+      <Stack gap={1}>
+        <span>
+          {row.providerKey} {row.profileVersion ?? "No profile"}
+        </span>
+        <span className="text-xs text-secondary">{row.summary}</span>
+      </Stack>
+    ),
+  },
+  {
+    key: "progress",
+    header: t("catalog.features.sourceObservations.ui.integrationManagementPage.progress"),
+    cell: (row) => `${row.completed}/${row.total} ${row.phase}`,
+  },
+];
+
+function jobStatusTone(status: string): "success" | "danger" | "info" | "warning" {
+  if (status === "completed") {
+    return "success";
+  }
+
+  if (status === "failed") {
+    return "danger";
+  }
+
+  if (status === "stale" || status === "partial" || status === "retried") {
+    return "warning";
+  }
+
+  return "info";
+}
+
+function progressPercent(progress: CatalogIntegrationOperationsProgress): number {
+  if (progress.phase === "completed") {
+    return 100;
+  }
+
+  if (progress.total <= 0) {
+    return 0;
+  }
+
+  return (progress.completed / progress.total) * 100;
+}
+
+function formatProgress(progress: CatalogIntegrationOperationsProgress): string {
+  if (progress.phase === "queued") {
+    return t("catalog.features.sourceObservations.ui.list.bulk.progress.queued");
+  }
+
+  if (progress.total <= 0) {
+    return t("catalog.features.sourceObservations.ui.list.bulk.progress.preparing");
+  }
+
+  if (progress.phase === "completed") {
+    return t("catalog.features.sourceObservations.ui.list.bulk.progress.completed", {
+      completed: String(progress.completed),
+      total: String(progress.total),
+    });
+  }
+
+  return t("catalog.features.sourceObservations.ui.list.bulk.progress.processing", {
+    completed: String(progress.completed),
+    total: String(progress.total),
+  });
+}
+
+function sourceObservationPromotionScopeHref(scope: SourceObservationPromotionScope) {
+  const params = new URLSearchParams();
+
+  if (scope.provider) {
+    params.set("source", scope.provider);
+  }
+
+  if (scope.language) {
+    params.set("language", scope.language);
+  }
+
+  if (scope.setId) {
+    params.set("setId", scope.setId);
+  }
+
+  const query = params.toString();
+  return query ? `/catalog/source-observations?${query}` : "/catalog/source-observations";
+}
+
+function formatPromotionScope(scope: SourceObservationPromotionScope): string {
+  const parts = [
+    scope.search
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.search", {
+          search: scope.search,
+        })
+      : "",
+    scope.language
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.language", {
+          language: scope.language,
+        })
+      : "",
+    scope.provider
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.provider", {
+          provider: scope.provider,
+        })
+      : "",
+    scope.setId
+      ? t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.expansion", {
+          setId: scope.setId,
+        })
+      : "",
+  ].filter(Boolean);
+
+  return parts.length > 0
+    ? parts.join(", ")
+    : t("catalog.features.sourceObservations.ui.list.bulk.promote.all.scope.all");
+}
+
+function formatIntegrationJobScope(scope: SourceObservationIntegrationJobScope): string {
+  const parts = Object.entries(scope)
+    .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].length > 0)
+    .map(([key, value]) => `${key}: ${value}`);
+
+  return parts.length > 0
+    ? parts.join(", ")
+    : t("catalog.features.sourceObservations.ui.integrationManagementPage.all.provider.scopes");
+}
+
+function formatCount(value: number) {
+  return new Intl.NumberFormat().format(value);
 }
 
 function CatalogIntegrationValidationWorkbench({

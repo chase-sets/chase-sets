@@ -1733,6 +1733,42 @@ export const catalogEnglishTranslations = {
     "One token=path:path.to.value or token=static:Text mapping per line.",
   "catalog.features.sourceObservations.ui.integrationManagementPage.operation": "Operation",
   "catalog.features.sourceObservations.ui.integrationManagementPage.operations": "Operations",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.operations.workbench": "Operations workbench",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.ingestion.units": "Ingestion units",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.current.review.scope": "Current review scope",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.import.and.job.operations":
+    "Import and job operations",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.source.observation.review.workflow":
+    "Source Observation review workflow",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.clear": "Clear",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.review.source.observations.by.provider.unit.profile.scope.status.provenance.facts.condition.certification.evidence.and.diagnostics":
+    "Review Source Observations by provider, unit, profile, scope, status, provenance, normalized facts, condition and certification evidence, and diagnostics.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.promote.reapply.workflow":
+    "Promote and reapply workflow",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.promoted.observations":
+    "No promoted observations",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.command.scope": "Command scope",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.promotion.evidence": "Promotion evidence",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.engine.generated.command.plans.remain.scoped.to.the.selected.catalog.ingestion.unit":
+    "Engine-generated command plans remain scoped to the selected Catalog ingestion unit.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.reapply.guardrail": "Reapply guardrail",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.reapply.uses.the.active.profile.mapping.without.changing.provider.transport.behavior":
+    "Reapply uses the active profile mapping without changing provider transport behavior.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.promote.matching": "Promote matching",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.retirement.workflow":
+    "Rollback and retirement workflow",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.references.remain": "References remain",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.affected.jobs": "Affected jobs",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.implication": "Rollback implication",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.reactivates.a.previous.profile.version.and.keeps.observation.replay.explicit":
+    "Rollback reactivates a previous profile version and keeps observation replay explicit.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.retirement.gate": "Retirement gate",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.blocked.until.source.observation.references.are.migrated.or.archived":
+    "Blocked until Source Observation references are migrated or archived.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.source.observation.references.remain":
+    "No Source Observation references remain.",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.no.snapshot": "No snapshot",
+  "catalog.features.sourceObservations.ui.integrationManagementPage.all.provider.scopes": "All provider scopes",
   "catalog.features.sourceObservations.ui.integrationManagementPage.operator.note": "Operator note",
   "catalog.features.sourceObservations.ui.integrationManagementPage.operator.reapplies.active.version":
     "Operator reapplies active version",
