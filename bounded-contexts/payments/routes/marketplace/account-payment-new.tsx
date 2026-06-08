@@ -7,6 +7,7 @@ import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/platform-runtime/http";
 import {
+  HiddenInput,
   Form,
   Badge,
   OrderProtectionModule,
@@ -329,9 +330,9 @@ export default function MarketplaceAccountPaymentNewRoute() {
               ) : null}
               <RouterForm id="payment-start-form" method="post" ref={formRef} spacing="none">
                 <Stack gap={3}>
-                  <input type="hidden" name="orderIds" value={data.orderIds.join(",")} />
-                  <input type="hidden" name="totalAmount" value={totalAmount} />
-                  <input
+                  <HiddenInput type="hidden" name="orderIds" value={data.orderIds.join(",")} />
+                  <HiddenInput type="hidden" name="totalAmount" value={totalAmount} />
+                  <HiddenInput
                     type="hidden"
                     name="availableBalance"
                     value={data.wallet?.available_balance_amount ?? "0.00"}

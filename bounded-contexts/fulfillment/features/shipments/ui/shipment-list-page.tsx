@@ -5,6 +5,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   LinkButton,
   MarketplaceEmptyState,
   NativeSelect,
@@ -111,16 +112,13 @@ export function FulfillmentShipmentListPage({
                 <Card key={shipment.shipment_id}>
                   <Stack gap={2}>
                     {batchPrintActionPath ? (
-                      <label className="flex items-center gap-2 text-sm font-semibold">
-                        <input
-                          type="checkbox"
-                          name="shipmentIds"
-                          value={shipment.shipment_id}
-                          checked={selectedShipmentIdSet.has(shipment.shipment_id)}
-                          onChange={(event) => toggleShipment(shipment.shipment_id, event.currentTarget.checked)}
-                        />
-                        {t("fulfillment.features.shipments.ui.shipmentListPage.select.for.packing.slip")}
-                      </label>
+                      <Checkbox
+                        label={t("fulfillment.features.shipments.ui.shipmentListPage.select.for.packing.slip")}
+                        name="shipmentIds"
+                        value={shipment.shipment_id}
+                        checked={selectedShipmentIdSet.has(shipment.shipment_id)}
+                        onCheckedChange={(checked) => toggleShipment(shipment.shipment_id, checked === true)}
+                      />
                     ) : null}
                     <Stack gap={1}>
                       <Text weight="semibold">{shipmentTitle(shipment)}</Text>

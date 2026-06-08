@@ -1,16 +1,18 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   ActorIdentityCue,
   Button,
+  InlineTextGroup,
   LinkButton,
   MarketplaceDashboardPanel,
+  Page,
+  PageHeader,
+  PageSection,
   PlatformCredibilityCue,
   SpecificationList,
   Stack,
-  UiPage,
-  UiPageHeader,
-  UiPageSection,
   TextInput,
 } from "@chase-sets/design-system";
 import type { Account } from "./contracts";
@@ -34,10 +36,10 @@ function displayActorUserName(display: CurrentActorDisplay) {
 
 function AccountNameWithBadges({ badges, name }: { badges: readonly string[]; name: string }) {
   return (
-    <span className="inline-flex flex-wrap items-center gap-2">
+    <InlineTextGroup>
       <span>{name}</span>
       <AccountBadgeList badges={badges} />
-    </span>
+    </InlineTextGroup>
   );
 }
 
@@ -53,8 +55,8 @@ export function AccountProfilePage({
     : t("identity.features.accounts.ui.accountProfilePage.not.available");
 
   return (
-    <UiPage>
-      <UiPageHeader
+    <Page>
+      <PageHeader
         eyebrow={t("identity.features.accounts.ui.accountProfilePage.account")}
         title={<AccountNameWithBadges name={account.display_name} badges={account.badges} />}
         description={t("identity.features.accounts.ui.accountProfilePage.profile.and.commercial.ownership.details.for")}
@@ -62,7 +64,7 @@ export function AccountProfilePage({
           <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
             <Form spacing="none" method="post">
               <Stack direction={{ base: "column", md: "row" }} align={{ base: "stretch", md: "end" }} gap={2}>
-                <input type="hidden" name="intent" value="update-profile" readOnly />
+                <HiddenInput type="hidden" name="intent" value="update-profile" readOnly />
                 <TextInput
                   name="name"
                   label={t("identity.features.accounts.ui.accountProfilePage.legal.name")}
@@ -127,7 +129,7 @@ export function AccountProfilePage({
           },
         ]}
       />
-      <UiPageSection
+      <PageSection
         title={t("identity.features.accounts.ui.accountProfilePage.trust.details")}
         description={t("identity.features.accounts.ui.accountProfilePage.trust.details.description")}
       >
@@ -153,7 +155,7 @@ export function AccountProfilePage({
             description={t("identity.features.accounts.ui.accountProfilePage.platform.protection.active.description")}
           />
         </Stack>
-      </UiPageSection>
-    </UiPage>
+      </PageSection>
+    </Page>
   );
 }

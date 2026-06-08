@@ -176,6 +176,38 @@ export function Grid({ children, columns = { base: 1, md: 2, xl: 3 }, gap = 4, a
   );
 }
 
+export interface AutoGridProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  minItemWidth?: "sm" | "md" | "lg";
+  gap?: SpaceToken;
+}
+
+const autoGridWidthClasses: Record<NonNullable<AutoGridProps["minItemWidth"]>, string> = {
+  sm: "grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]",
+  md: "grid-cols-[repeat(auto-fit,minmax(18rem,1fr))]",
+  lg: "grid-cols-[repeat(auto-fit,minmax(22rem,1fr))]",
+};
+
+export function AutoGrid({ children, minItemWidth = "md", gap = 4, ...rest }: AutoGridProps) {
+  return (
+    <div {...rest} className={cx("grid", autoGridWidthClasses[minItemWidth], resolveSpaceClass("gap", gap))}>
+      {children}
+    </div>
+  );
+}
+
+export interface FlexItemProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  minWidth?: "control" | "none";
+  grow?: boolean;
+}
+
+export function FlexItem({ children, minWidth = "none", grow = false, ...rest }: FlexItemProps) {
+  return (
+    <div {...rest} className={cx("max-w-full", grow && "flex-1", minWidth === "control" && "min-w-[14rem]")}>
+      {children}
+    </div>
+  );
+}
+
 export interface SpacerProps extends Omit<FrameProps, "children"> {
   axis?: "vertical" | "horizontal";
   size?: SpaceToken;
@@ -229,6 +261,34 @@ export interface CenterProps extends PropsWithChildren, Omit<FrameProps, "childr
 export function Center({ children, inline = false, ...rest }: CenterProps) {
   return (
     <div {...rest} className={cx(inline ? "inline-flex" : "flex", "items-center justify-center")}>
+      {children}
+    </div>
+  );
+}
+
+export interface MobileStickyBarProps extends PropsWithChildren, Omit<FrameProps, "children"> {
+  visibleFrom?: "mobile" | "all";
+}
+
+export function MobileStickyBar({ children, visibleFrom = "mobile", ...rest }: MobileStickyBarProps) {
+  return (
+    <div
+      {...rest}
+      className={cx(
+        "fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/88 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl",
+        visibleFrom === "mobile" && "md:hidden",
+      )}
+    >
+      {children}
+    </div>
+  );
+}
+
+export interface MobileStickyInsetProps extends PropsWithChildren, Omit<FrameProps, "children"> {}
+
+export function MobileStickyInset({ children, ...rest }: MobileStickyInsetProps) {
+  return (
+    <div {...rest} className="pb-24 md:pb-0">
       {children}
     </div>
   );

@@ -9,8 +9,11 @@ import {
   ChaseRoot,
   Cluster,
   Container,
+  DiscountValue,
   Grid,
   Heading,
+  HiddenInput,
+  HoneypotInput,
   Inline,
   LinkButton,
   LinkText,
@@ -18,6 +21,8 @@ import {
   List,
   MarketingImageHero,
   MarketingVisualCard,
+  MobileStickyBar,
+  MobileStickyInset,
   NativeSelect,
   Page,
   PageHeader,
@@ -241,7 +246,7 @@ export function PublicPresencePageShell({ children }: { children: ReactNode }) {
   return (
     <ChaseRoot colorMode="system">
       <SkipLink />
-      <div className="pb-24 md:pb-0">
+      <MobileStickyInset>
         <Container width="wide">
           <Stack gap={4}>
             <PromoBar messages={promoBarMessages} />
@@ -280,7 +285,7 @@ export function PublicPresencePageShell({ children }: { children: ReactNode }) {
             </Surface>
           </Stack>
         </Container>
-      </div>
+      </MobileStickyInset>
       <MobileStickyWaitlistCta />
     </ChaseRoot>
   );
@@ -315,7 +320,7 @@ function MobileStickyWaitlistCta() {
   }
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-sticky border-t border-muted bg-background/88 px-3 py-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-tokenLg backdrop-blur-xl md:hidden">
+    <MobileStickyBar>
       <Container width="wide">
         <Cluster gap={2}>
           <Text size="sm" weight="semibold">
@@ -333,7 +338,7 @@ function MobileStickyWaitlistCta() {
           </LinkButton>
         </Cluster>
       </Container>
-    </div>
+    </MobileStickyBar>
   );
 }
 
@@ -785,12 +790,10 @@ function ProductSignalPreview() {
 
 function DiscountedShippingValue() {
   return (
-    <span className="inline-flex flex-wrap justify-end gap-x-1">
-      <s className="text-[var(--destructive)] decoration-[var(--destructive)]">
-        {t("publicPresence.preview.total.shipping.original")}
-      </s>
-      <span className="text-[var(--trust)]">{t("publicPresence.preview.total.shipping.net")}</span>
-    </span>
+    <DiscountValue
+      original={t("publicPresence.preview.total.shipping.original")}
+      current={t("publicPresence.preview.total.shipping.net")}
+    />
   );
 }
 
@@ -982,8 +985,8 @@ function WaitlistSignupPanel({
             />
             {isHero ? (
               <>
-                <input type="hidden" name="role" value={intent.role} readOnly />
-                <input type="hidden" name="interests" value={intent.interest} readOnly />
+                <HiddenInput name="role" value={intent.role} />
+                <HiddenInput name="interests" value={intent.interest} />
               </>
             ) : (
               <Grid columns={{ base: 1, md: 2 }} gap={3}>
@@ -1028,14 +1031,14 @@ function WaitlistSignupPanel({
               }}
               required
             />
-            <input type="text" name="website" tabIndex={-1} autoComplete="off" aria-hidden="true" hidden />
-            <input type="hidden" name="pagePath" value={source.pagePath} readOnly />
-            <input type="hidden" name="referrer" value={source.referrer ?? ""} readOnly />
-            <input type="hidden" name="utmSource" value={source.utmSource ?? ""} readOnly />
-            <input type="hidden" name="utmMedium" value={source.utmMedium ?? ""} readOnly />
-            <input type="hidden" name="utmCampaign" value={source.utmCampaign ?? ""} readOnly />
-            <input type="hidden" name="utmContent" value={source.utmContent ?? ""} readOnly />
-            <input type="hidden" name="utmTerm" value={source.utmTerm ?? ""} readOnly />
+            <HoneypotInput name="website" />
+            <HiddenInput name="pagePath" value={source.pagePath} />
+            <HiddenInput name="referrer" value={source.referrer ?? ""} />
+            <HiddenInput name="utmSource" value={source.utmSource ?? ""} />
+            <HiddenInput name="utmMedium" value={source.utmMedium ?? ""} />
+            <HiddenInput name="utmCampaign" value={source.utmCampaign ?? ""} />
+            <HiddenInput name="utmContent" value={source.utmContent ?? ""} />
+            <HiddenInput name="utmTerm" value={source.utmTerm ?? ""} />
             <Button type="submit" size={isHero ? "md" : "lg"} block leadingIcon="rocket">
               {t("publicPresence.waitlist.submit")}
             </Button>

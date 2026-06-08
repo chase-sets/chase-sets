@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Button,
   OrderProtectionModule,
@@ -584,7 +585,7 @@ export function FulfillmentShipmentDetailPage({
                         "fulfillment.features.shipments.ui.shipmentDetailPage.letter.mailpiece.description",
                       )}
                     />
-                    <input type="hidden" name="serviceLevel" value="First" />
+                    <HiddenInput type="hidden" name="serviceLevel" value="First" />
                     <Button type="submit" name="intent" value="purchase-label">
                       {t("fulfillment.features.shipments.ui.shipmentDetailPage.purchase.letter.mail.label")}
                     </Button>

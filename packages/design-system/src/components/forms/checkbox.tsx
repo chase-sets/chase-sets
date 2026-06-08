@@ -118,7 +118,7 @@ export function Checkbox({
         </span>
         <div className="space-y-1">
           {label ? (
-            <div className="text-sm font-medium text-foreground">
+            <div className={cx("text-sm font-medium text-foreground", hideLabel && "sr-only")}>
               {label}
               {required ? (
                 <span aria-hidden="true" className="ml-1 text-accent">

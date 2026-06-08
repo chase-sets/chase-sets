@@ -1,5 +1,6 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   AccountReputationSummary,
   Badge,
@@ -213,9 +214,9 @@ export function CheckoutCartPage({
   function renderCartLine(line: CheckoutCartLineGroup) {
     return (
       <Form spacing="none" key={line.line_id} method="post">
-        <input type="hidden" name="intent" value="update-cart-line" />
+        <HiddenInput type="hidden" name="intent" value="update-cart-line" />
         {line.lineIds.map((lineId) => (
-          <input key={lineId} type="hidden" name="lineId" value={lineId} />
+          <HiddenInput key={lineId} type="hidden" name="lineId" value={lineId} />
         ))}
         <MarketplaceCartLineItem
           imageSrc={line.item_image_url ?? CART_ITEM_FALLBACK_IMAGE_URL}
@@ -682,7 +683,7 @@ export function CheckoutCartPage({
               context={t("checkout.features.cart.ui.cartPage.no.payment.until.totals")}
               primaryAction={
                 <Form spacing="none" method="post" action="/checkout/start">
-                  <input type="hidden" name="source" value="cart" />
+                  <HiddenInput type="hidden" name="source" value="cart" />
                   <Button type="submit" leadingIcon="lock" block>
                     {t("checkout.features.cart.ui.cartPage.start.checkout")}
                   </Button>

@@ -15,6 +15,24 @@ export interface ValidationSummaryProps {
   className?: string;
 }
 
+export interface ValidationMessageListProps {
+  messages: readonly ReactNode[];
+}
+
+export function ValidationMessageList({ messages }: ValidationMessageListProps) {
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return (
+    <ul className="m-0 grid gap-1 pl-5 text-sm text-danger">
+      {messages.map((message, index) => (
+        <li key={index}>{message}</li>
+      ))}
+    </ul>
+  );
+}
+
 function focusValidationTarget(fieldId: string) {
   const target = document.getElementById(fieldId);
   if (!target) {

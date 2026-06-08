@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Badge, Inline } from "@chase-sets/design-system";
+import { Badge, Inline, VisuallyHidden } from "@chase-sets/design-system";
 
 export type AccountBadgeKey = "founding-account" | "manual-payout-review" | "trusted-seller";
 
@@ -21,9 +21,10 @@ export function AccountBadgeIcon() {
   return (
     <svg
       aria-hidden="true"
-      className="h-4 w-4 shrink-0"
       focusable="false"
+      height={16}
       viewBox="0 0 96 96"
+      width={16}
       xmlns="http://www.w3.org/2000/svg"
     >
       <path fill="var(--accent)" d="M48 6 80 18v26c0 21.5-12.6 36.6-32 46C28.6 80.6 16 65.5 16 44V18L48 6Z" />
@@ -58,7 +59,7 @@ export function AccountBadgeList({ badges, compact = false }: { badges: readonly
         return (
           <Badge key={badgeKey} tone="accent" title={label}>
             <AccountBadgeIcon />
-            {compact ? <span className="sr-only">{label}</span> : label}
+            {compact ? <VisuallyHidden>{label}</VisuallyHidden> : label}
           </Badge>
         );
       })}

@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useFetcher } from "react-router";
 import {
+  HiddenInput,
   Form,
   AccordionOptionTrigger,
   AccountReputationSummary,
@@ -12,6 +13,7 @@ import {
   FormPanel,
   type FormPanelVariant,
   Inline,
+  InlineTextGroup,
   KeyValueList,
   LinkButton,
   NativeSelect,
@@ -77,15 +79,18 @@ function ProductQuantitySummary({
   fallback: ReactNode;
 }) {
   return (
-    <div className="grid min-w-0 gap-x-3 gap-y-0.5 min-[360px]:grid-cols-[minmax(0,1fr)_auto] min-[360px]:items-baseline">
+    <InlineTextGroup gap={3} align="end">
       <ProductOptions
         options={productOptionsFromSelectionDetails(productSelectionDetails)}
         emptyLabel={productSummary ?? fallback}
         variant="compact"
-        className="min-w-0 text-sm font-semibold leading-5"
+        size="sm"
+        truncate
       />
-      <span className="text-sm font-medium leading-5 text-secondary">{availability}</span>
-    </div>
+      <Text element="span" size="sm" tone="secondary" weight="medium">
+        {availability}
+      </Text>
+    </InlineTextGroup>
   );
 }
 
@@ -246,12 +251,12 @@ export function ProductAlertCreationSection({
     <FormPanel variant={panelVariant}>
       <Form spacing="none" id={formId} method="post">
         <Stack gap={3}>
-          <input type="hidden" name="intent" value="create-product-alert" />
-          <input type="hidden" name="marketSide" value={marketSide} />
-          <input type="hidden" name="catalogItemId" value={catalogItemId} />
-          <input type="hidden" name="productId" value={productId ?? ""} />
-          <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
-          <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+          <HiddenInput type="hidden" name="intent" value="create-product-alert" />
+          <HiddenInput type="hidden" name="marketSide" value={marketSide} />
+          <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
+          <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
+          <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+          <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
           {showSummary ? (
             <Stack gap={3}>
               <Stack gap={1}>
@@ -324,11 +329,11 @@ export function MarketplaceOfferSubmissionSection({
   const form = (
     <Form spacing="none" id={formId} method="post">
       <Stack gap={3}>
-        <input type="hidden" name="intent" value="submit-offer" />
-        <input type="hidden" name="catalogItemId" value={catalogItemId} />
-        <input type="hidden" name="productId" value={productId ?? ""} />
-        <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
-        <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+        <HiddenInput type="hidden" name="intent" value="submit-offer" />
+        <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
+        <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
+        <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+        <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
         {showSummary ? (
           <Stack gap={3}>
             <Stack gap={1}>
@@ -616,15 +621,15 @@ export function CheckoutPurchaseIntentSection({
   const form = (
     <Form spacing="none" id={formId} method="post" ref={formRef}>
       <Stack gap={3}>
-        <input type="hidden" name="catalogItemId" value={catalogItemId} />
-        <input type="hidden" name="listingId" value="" />
-        <input type="hidden" name="lockedListingId" value={selectedListing?.listing_id ?? ""} />
-        <input type="hidden" name="productId" value={productId ?? ""} />
-        <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
-        <input type="hidden" name="productSummary" value={productSummary ?? ""} />
-        <input type="hidden" name="priceAmount" value={selectedListing?.price_amount ?? ""} />
-        <input type="hidden" name="sellerName" value={selectedListing?.seller_display_name ?? ""} />
-        <input
+        <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
+        <HiddenInput type="hidden" name="listingId" value="" />
+        <HiddenInput type="hidden" name="lockedListingId" value={selectedListing?.listing_id ?? ""} />
+        <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
+        <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+        <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
+        <HiddenInput type="hidden" name="priceAmount" value={selectedListing?.price_amount ?? ""} />
+        <HiddenInput type="hidden" name="sellerName" value={selectedListing?.seller_display_name ?? ""} />
+        <HiddenInput
           type="hidden"
           name="availability"
           value={
@@ -805,8 +810,8 @@ export function MarketplaceOfferMatchSection({
   const form = (
     <Form spacing="none" id={formId} method="post">
       <Stack gap={3}>
-        <input type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
-        <input
+        <HiddenInput type="hidden" name="offerId" value={selectedOffer?.offer_id ?? ""} />
+        <HiddenInput
           type="hidden"
           name="feeQuoteFingerprint"
           value={selectedOffer?.acceptance_terms?.fee_quote_fingerprint ?? ""}
@@ -934,11 +939,11 @@ export function ProductSellListIntentSection({
     <FormPanel variant={panelVariant} glow={Boolean(productId)}>
       <Form spacing="none" id={formId} method="post">
         <Stack gap={3}>
-          <input type="hidden" name="intent" value="add-product-to-sell-list" />
-          <input type="hidden" name="catalogItemId" value={catalogItemId} />
-          <input type="hidden" name="productId" value={productId ?? ""} />
-          <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
-          <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+          <HiddenInput type="hidden" name="intent" value="add-product-to-sell-list" />
+          <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
+          <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
+          <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+          <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
           {showSummary ? (
             <Stack gap={2}>
               <Text weight="semibold">{t("discovery.routes.itemDetail.add.product.to.sell.list")}</Text>
@@ -1200,7 +1205,7 @@ export function ListingStockShipFromSetupSection({
     <FormPanel variant="card">
       <Form spacing="none" id={formId} method="post">
         <Stack gap={3}>
-          <input type="hidden" name="intent" value="create-listing-stock-location" />
+          <HiddenInput type="hidden" name="intent" value="create-listing-stock-location" />
           <Stack gap={1}>
             <Text weight="semibold">{t("discovery.routes.itemDetail.ship.from.setup")}</Text>
             <Text size="sm" tone="secondary">
@@ -1288,11 +1293,11 @@ export function MarketplaceListingSubmissionSection({
   const form = (
     <Form spacing="none" id={formId} method="post">
       <Stack gap={3}>
-        <input type="hidden" name="productId" value={productId ?? ""} />
-        <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
-        <input type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
-        <input type="hidden" name="priceAmount" value={listPrice} />
-        <input type="hidden" name="quantityCap" value={String(defaultQuantity)} />
+        <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
+        <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+        <HiddenInput type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
+        <HiddenInput type="hidden" name="priceAmount" value={listPrice} />
+        <HiddenInput type="hidden" name="quantityCap" value={String(defaultQuantity)} />
         {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">
@@ -1330,7 +1335,7 @@ export function MarketplaceListingSubmissionSection({
             ) : null}
           </Stack>
         ) : null}
-        {listing ? <input type="hidden" name="inventoryItemId" value={listing.inventory_item_id} /> : null}
+        {listing ? <HiddenInput type="hidden" name="inventoryItemId" value={listing.inventory_item_id} /> : null}
         {!listing ? (
           <Text size="sm" tone="secondary">
             {requiresShipFromSetup

@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Banner,
   Button,
@@ -285,8 +286,8 @@ export function SignInPage(
           <Form spacing="none" action={props.action} method="post">
             <Stack gap={3}>
               <HiddenFields fields={props.hiddenFields} />
-              <input type="hidden" name="intent" value="password" readOnly />
-              <input type="hidden" name="email" value={identifier} readOnly />
+              <HiddenInput type="hidden" name="intent" value="password" readOnly />
+              <HiddenInput type="hidden" name="email" value={identifier} readOnly />
               <PasswordInput label={t("auth.features.signIn.ui.signInPage.password.2")} name="password" required />
               <Button type="submit" leadingIcon="lock">
                 {t("auth.features.signIn.ui.signInPage.sign.in.2")}
@@ -305,8 +306,8 @@ export function SignInPage(
             <Form spacing="none" action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
-                <input type="hidden" name="intent" value="phone-code-request" readOnly />
-                <input type="hidden" name="phone" value={identifier} readOnly />
+                <HiddenInput type="hidden" name="intent" value="phone-code-request" readOnly />
+                <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
                 <Button type="submit" leadingIcon="message">
                   {t("auth.features.signIn.ui.signInPage.send.phone.code")}
                 </Button>
@@ -315,8 +316,8 @@ export function SignInPage(
             <Form spacing="none" action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
-                <input type="hidden" name="intent" value="phone-code-consume" readOnly />
-                <input type="hidden" name="phone" value={identifier} readOnly />
+                <HiddenInput type="hidden" name="intent" value="phone-code-consume" readOnly />
+                <HiddenInput type="hidden" name="phone" value={identifier} readOnly />
                 <TextInput
                   label={t("auth.features.signIn.ui.signInPage.phone.code.2")}
                   name="code"
@@ -341,8 +342,8 @@ export function SignInPage(
             <Form spacing="none" action={props.action} method="post">
               <Stack gap={3}>
                 <HiddenFields fields={props.hiddenFields} />
-                <input type="hidden" name="intent" value="magic-link-request" readOnly />
-                <input type="hidden" name="email" value={identifier} readOnly />
+                <HiddenInput type="hidden" name="intent" value="magic-link-request" readOnly />
+                <HiddenInput type="hidden" name="email" value={identifier} readOnly />
                 <Button type="submit" leadingIcon="message">
                   {t("auth.features.signIn.ui.signInPage.send.magic.link")}
                 </Button>
@@ -352,7 +353,7 @@ export function SignInPage(
               <Form spacing="none" action={props.action} method="post">
                 <Stack gap={3}>
                   <HiddenFields fields={props.hiddenFields} />
-                  <input type="hidden" name="intent" value="magic-link-consume" readOnly />
+                  <HiddenInput type="hidden" name="intent" value="magic-link-consume" readOnly />
                   <TextInput label={t("auth.features.signIn.ui.signInPage.magic.link.token")} name="token" required />
                   <Button type="submit" tone="secondary">
                     {t("auth.features.signIn.ui.signInPage.continue.with.token")}
@@ -369,9 +370,9 @@ export function SignInPage(
           <Form spacing="none" ref={passkeyFormRef} action={props.action} method="post" onSubmit={handlePasskeySubmit}>
             <Stack gap={3}>
               <HiddenFields fields={props.hiddenFields} />
-              <input type="hidden" name="intent" value="passkey-sign-in" readOnly />
+              <HiddenInput type="hidden" name="intent" value="passkey-sign-in" readOnly />
               <PasskeyHiddenFields payload={passkeyPayload} />
-              <input type="hidden" name="email" value={identifier} readOnly />
+              <HiddenInput type="hidden" name="email" value={identifier} readOnly />
               {passkeyError ? (
                 <Banner
                   title={t("auth.features.signIn.ui.signInPage.passkey.unavailable")}

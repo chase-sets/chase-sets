@@ -1,4 +1,4 @@
-import { Checkbox, NumberInput, PageSection, Stack, TextInput } from "@chase-sets/design-system";
+import { Grid, Checkbox, NumberInput, PageSection, Stack, TextInput } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import { defaultPostagePolicy, type PostagePolicy } from "@chase-sets/product-measures";
 
@@ -29,7 +29,7 @@ function checkboxList({
   selected: readonly string[];
 }) {
   return (
-    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+    <Grid columns={{ base: 1, sm: 2, lg: 3 }} gap={2}>
       {items.map((item) => (
         <Checkbox
           key={item.value}
@@ -39,7 +39,7 @@ function checkboxList({
           defaultChecked={selected.includes(item.value)}
         />
       ))}
-    </div>
+    </Grid>
   );
 }
 
@@ -52,7 +52,7 @@ export function PostagePolicyFormFields({ policy = defaultPostagePolicy }: { pol
         defaultValue={policy.policyVersion}
         required
       />
-      <div className="grid gap-3 md:grid-cols-2">
+      <Grid columns={{ base: 1, md: 2 }} gap={3}>
         <NumberInput
           label={t("ordering.features.postagePolicies.ui.form.max.letter.units")}
           name="maxLetterUnits"
@@ -111,7 +111,7 @@ export function PostagePolicyFormFields({ policy = defaultPostagePolicy }: { pol
               : String(policy.signatureRequiredDeclaredValueAmount)
           }
         />
-      </div>
+      </Grid>
 
       <PageSection title={t("ordering.features.postagePolicies.ui.form.parcel.requirements")}>
         <Stack gap={3}>

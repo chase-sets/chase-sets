@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Badge,
   Button,
@@ -145,7 +146,7 @@ export function ShippingAddressPage({
         <Surface elevated>
           <Form spacing="none" method="post">
             <Stack gap={3}>
-              <input type="hidden" name="intent" value="create" />
+              <HiddenInput type="hidden" name="intent" value="create" />
               <AddressFields />
               <Button type="submit" leadingIcon="plus">
                 {t("identity.features.shippingAddresses.ui.shippingAddressPage.save.address")}
@@ -196,8 +197,8 @@ export function ShippingAddressPage({
                     >
                       <Form spacing="none" method="post">
                         <Stack gap={3}>
-                          <input type="hidden" name="intent" value="update" />
-                          <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
+                          <HiddenInput type="hidden" name="intent" value="update" />
+                          <HiddenInput type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
                           <AddressFields address={address} />
                           <Button type="submit" tone="secondary">
                             {t("identity.features.shippingAddresses.ui.shippingAddressPage.update.address")}
@@ -207,8 +208,8 @@ export function ShippingAddressPage({
                     </ResponsiveEditSheet>
                     {!address.is_default ? (
                       <Form spacing="none" method="post">
-                        <input type="hidden" name="intent" value="default" />
-                        <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
+                        <HiddenInput type="hidden" name="intent" value="default" />
+                        <HiddenInput type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
                         <Button type="submit" tone="secondary">
                           {t("identity.features.shippingAddresses.ui.shippingAddressPage.set.default")}
                         </Button>
@@ -227,8 +228,8 @@ export function ShippingAddressPage({
                     >
                       <Form spacing="none" method="post">
                         <Stack gap={3}>
-                          <input type="hidden" name="intent" value="archive" />
-                          <input type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
+                          <HiddenInput type="hidden" name="intent" value="archive" />
+                          <HiddenInput type="hidden" name="shippingAddressId" value={address.shipping_address_id} />
                           <Button type="submit" tone="danger">
                             {t("identity.features.shippingAddresses.ui.shippingAddressPage.archive")}
                           </Button>

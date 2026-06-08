@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Badge,
   Button,
@@ -121,7 +122,7 @@ export function SettlementPayoutOperationsPage({
         <Card>
           <Stack gap={3}>
             <Form spacing="none" method="post">
-              <input type="hidden" name="intent" value="run-reconciliation" />
+              <HiddenInput type="hidden" name="intent" value="run-reconciliation" />
               <Button type="submit">
                 {t("settlement.features.payouts.ui.payoutOperationsPage.run.reconciliation")}
               </Button>

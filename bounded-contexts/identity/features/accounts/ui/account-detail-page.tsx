@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Form, Button, Inline, Stack, TextInput } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Inline, Stack, TextInput } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import { AccountBadgeList, accountBadgeLabel } from "./account-badges";
 import type { Account } from "./contracts";
@@ -19,7 +19,7 @@ export function AccountDetailPage({ data }: { data: Account }) {
         <Inline gap={2}>
           <Form spacing="none" method="post">
             <Stack direction="row" align="end" gap={2}>
-              <input type="hidden" name="intent" value="update-profile" readOnly />
+              <HiddenInput type="hidden" name="intent" value="update-profile" readOnly />
               <TextInput
                 name="name"
                 label={t("identity.features.accounts.ui.accountDetailPage.legal.name")}
@@ -38,7 +38,7 @@ export function AccountDetailPage({ data }: { data: Account }) {
             </Stack>
           </Form>
           <Form spacing="none" method="post">
-            <input
+            <HiddenInput
               type="hidden"
               name="intent"
               value={hasFoundingBadge ? "remove-founding-account-badge" : "assign-founding-account-badge"}
@@ -52,7 +52,7 @@ export function AccountDetailPage({ data }: { data: Account }) {
           </Form>
           {data.status === "active" ? (
             <Form spacing="none" method="post">
-              <input type="hidden" name="intent" value="suspend" readOnly />
+              <HiddenInput type="hidden" name="intent" value="suspend" readOnly />
               <Button type="submit" tone="danger">
                 {t("identity.features.accounts.ui.accountDetailPage.suspend")}
               </Button>
@@ -60,7 +60,7 @@ export function AccountDetailPage({ data }: { data: Account }) {
           ) : null}
           {data.status === "suspended" ? (
             <Form spacing="none" method="post">
-              <input type="hidden" name="intent" value="reactivate" readOnly />
+              <HiddenInput type="hidden" name="intent" value="reactivate" readOnly />
               <Button type="submit" tone="primary">
                 {t("identity.features.accounts.ui.accountDetailPage.reactivate")}
               </Button>
@@ -68,7 +68,7 @@ export function AccountDetailPage({ data }: { data: Account }) {
           ) : null}
           {data.status !== "closed" ? (
             <Form spacing="none" method="post">
-              <input type="hidden" name="intent" value="close" readOnly />
+              <HiddenInput type="hidden" name="intent" value="close" readOnly />
               <Button type="submit" tone="danger">
                 {t("identity.features.accounts.ui.accountDetailPage.close")}
               </Button>

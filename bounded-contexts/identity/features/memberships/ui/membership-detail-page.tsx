@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Form, Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Inline, NativeSelect, Stack } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { Membership } from "./contracts";
 
@@ -19,7 +19,7 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
         <Inline gap={2}>
           <Form spacing="none" method="post">
             <Stack direction="row" align="end" gap={2}>
-              <input type="hidden" name="intent" value="change-role" readOnly />
+              <HiddenInput type="hidden" name="intent" value="change-role" readOnly />
               <NativeSelect
                 name="roleKey"
                 label={t("identity.features.memberships.ui.membershipDetailPage.role")}
@@ -38,14 +38,14 @@ export function MembershipDetailPage({ data }: { data: Membership }) {
           </Form>
           {data.status === "active" ? (
             <Form spacing="none" method="post">
-              <input type="hidden" name="intent" value="revoke" readOnly />
+              <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
               <Button type="submit" tone="danger">
                 {t("identity.features.memberships.ui.membershipDetailPage.revoke")}
               </Button>
             </Form>
           ) : (
             <Form spacing="none" method="post">
-              <input type="hidden" name="intent" value="reinstate" readOnly />
+              <HiddenInput type="hidden" name="intent" value="reinstate" readOnly />
               <Button type="submit" tone="primary">
                 {t("identity.features.memberships.ui.membershipDetailPage.reinstate")}
               </Button>

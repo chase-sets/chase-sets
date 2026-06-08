@@ -3,6 +3,20 @@ export { DataTable, type DataColumn, type DataTableProps } from "./data-table";
 export { KeyValueList, type KeyValueItem, type KeyValueListProps } from "./key-value-list";
 export { Stat, type StatProps, StatGrid, type StatGridProps } from "./stat";
 export {
+  ComparisonList,
+  ComparisonListCell,
+  ComparisonListHeader,
+  ComparisonListPrice,
+  ComparisonListRow,
+  ComparisonListRowGrid,
+  type ComparisonListCellProps,
+  type ComparisonListHeaderProps,
+  type ComparisonListPriceProps,
+  type ComparisonListProps,
+  type ComparisonListRowGridProps,
+  type ComparisonListRowProps,
+} from "./comparison-list";
+export {
   Timeline,
   type TimelineItem,
   type TimelineProps,
@@ -12,6 +26,16 @@ export {
 } from "./timeline";
 export { Card, type CardProps, DetailPanel, type DetailPanelProps } from "./card";
 export { ProductMediaImage, type ProductMediaImageProps, type ResponsiveImageSource } from "./product-media";
+export {
+  ProductOptions,
+  productOptionsFromSummary,
+  formatProductImageAltText,
+  formatProductOptionsAriaLabel,
+  formatProductOptionsText,
+  type ProductOptionDisplayValue,
+  type ProductOptionsProps,
+  type ProductOptionsVariant,
+} from "./product-options";
 export { ActorIdentityCue, type ActorIdentityCueProps, type ActorIdentityCueVariant } from "./actor-identity-cue";
 export {
   ActionBar,

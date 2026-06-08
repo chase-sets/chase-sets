@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Badge,
   Button,
@@ -223,10 +224,10 @@ export function SettlementPayoutListPage({
               <Stack gap={2}>
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
-                    <input type="hidden" name="intent" value="confirm-payout" />
-                    <input type="hidden" name="amount" value={payoutConfirmation.amount} />
+                    <HiddenInput type="hidden" name="intent" value="confirm-payout" />
+                    <HiddenInput type="hidden" name="amount" value={payoutConfirmation.amount} />
                     {payoutConfirmation.note ? (
-                      <input type="hidden" name="note" value={payoutConfirmation.note} />
+                      <HiddenInput type="hidden" name="note" value={payoutConfirmation.note} />
                     ) : null}
                     <Stack gap={1}>
                       <Text weight="semibold">
@@ -278,9 +279,11 @@ export function SettlementPayoutListPage({
                   </Stack>
                 </Form>
                 <Form spacing="none" method="post">
-                  <input type="hidden" name="intent" value="edit-payout" />
-                  <input type="hidden" name="amount" value={payoutConfirmation.amount} />
-                  {payoutConfirmation.note ? <input type="hidden" name="note" value={payoutConfirmation.note} /> : null}
+                  <HiddenInput type="hidden" name="intent" value="edit-payout" />
+                  <HiddenInput type="hidden" name="amount" value={payoutConfirmation.amount} />
+                  {payoutConfirmation.note ? (
+                    <HiddenInput type="hidden" name="note" value={payoutConfirmation.note} />
+                  ) : null}
                   <Button type="submit" tone="secondary">
                     {t("settlement.features.payouts.ui.payoutListPage.back.to.edit")}
                   </Button>
@@ -289,8 +292,8 @@ export function SettlementPayoutListPage({
             ) : (
               <Form spacing="none" method="post">
                 <Stack gap={3}>
-                  <input type="hidden" name="intent" value="preview-payout" />
-                  <input type="hidden" name="availableAmount" value={wallet.available_balance_amount} />
+                  <HiddenInput type="hidden" name="intent" value="preview-payout" />
+                  <HiddenInput type="hidden" name="availableAmount" value={wallet.available_balance_amount} />
                   <CurrencyInput
                     label={t("settlement.features.payouts.ui.payoutListPage.amount.2")}
                     name="amount"

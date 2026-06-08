@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  Text,
   Button,
   DataTable,
   Inline,
@@ -342,7 +343,11 @@ function CatalogIntegrationControlPlaneUnitPanel({
           ]}
         />
       ) : null}
-      {unit.latestDiagnosticText ? <p className="text-sm text-secondary">{unit.latestDiagnosticText}</p> : null}
+      {unit.latestDiagnosticText ? (
+        <Text size="sm" tone="secondary">
+          {unit.latestDiagnosticText}
+        </Text>
+      ) : null}
     </Stack>
   );
 }
@@ -442,7 +447,11 @@ function CatalogIntegrationProviderReadinessCard({
           },
         ]}
       />
-      {latestDiagnostic ? <p className="text-sm text-secondary">{latestDiagnostic.message}</p> : null}
+      {latestDiagnostic ? (
+        <Text size="sm" tone="secondary">
+          {latestDiagnostic.message}
+        </Text>
+      ) : null}
     </Stack>
   );
 }

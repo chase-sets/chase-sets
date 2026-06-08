@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Form, Button, NativeSelect, Stack, TextInput } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, NativeSelect, Stack, TextInput } from "@chase-sets/design-system";
 import { CustomerSummaryPage } from "../../../support/ui-support/customer-pages";
 import type { Membership } from "./contracts";
 import type { Invitation } from "../../invitations/ui/contracts";
@@ -19,7 +19,7 @@ export function TeamPage({
     <Stack gap={4}>
       <Form spacing="none" method="post">
         <Stack direction="row" align="end" gap={2}>
-          <input type="hidden" name="intent" value="create-invitation" readOnly />
+          <HiddenInput type="hidden" name="intent" value="create-invitation" readOnly />
           <TextInput
             name="email"
             label={t("identity.features.memberships.ui.accountTeamPage.email")}
@@ -55,8 +55,8 @@ export function TeamPage({
             action: (
               <Stack direction="row" gap={2}>
                 <Form spacing="none" method="post">
-                  <input type="hidden" name="intent" value="change-role" readOnly />
-                  <input type="hidden" name="membershipId" value={membership.membership_id} readOnly />
+                  <HiddenInput type="hidden" name="intent" value="change-role" readOnly />
+                  <HiddenInput type="hidden" name="membershipId" value={membership.membership_id} readOnly />
                   <NativeSelect
                     name="roleKey"
                     label={t("identity.features.memberships.ui.accountTeamPage.role")}
@@ -73,13 +73,13 @@ export function TeamPage({
                   </Button>
                 </Form>
                 <Form spacing="none" method="post">
-                  <input
+                  <HiddenInput
                     type="hidden"
                     name="intent"
                     value={membership.status === "active" ? "revoke" : "reinstate"}
                     readOnly
                   />
-                  <input type="hidden" name="membershipId" value={membership.membership_id} readOnly />
+                  <HiddenInput type="hidden" name="membershipId" value={membership.membership_id} readOnly />
                   <Button type="submit" tone={membership.status === "active" ? "danger" : "primary"}>
                     {membership.status === "active"
                       ? t("identity.features.memberships.ui.accountTeamPage.revoke")
@@ -98,8 +98,8 @@ export function TeamPage({
             action:
               invitation.status === "pending" ? (
                 <Form spacing="none" method="post">
-                  <input type="hidden" name="intent" value="cancel-invitation" readOnly />
-                  <input type="hidden" name="invitationId" value={invitation.invitation_id} readOnly />
+                  <HiddenInput type="hidden" name="intent" value="cancel-invitation" readOnly />
+                  <HiddenInput type="hidden" name="invitationId" value={invitation.invitation_id} readOnly />
                   <Button type="submit" tone="danger">
                     {t("identity.features.memberships.ui.accountTeamPage.cancel")}
                   </Button>

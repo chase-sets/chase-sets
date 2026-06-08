@@ -27,6 +27,7 @@ const textToneClasses = {
   secondary: "text-secondary",
   inverse: "text-inverse",
   accent: "text-accent",
+  danger: "text-danger",
 } as const;
 
 export interface TextProps extends FrameProps {
@@ -36,6 +37,8 @@ export interface TextProps extends FrameProps {
   tone?: keyof typeof textToneClasses;
   weight?: keyof typeof textWeightClasses;
   align?: TextAlignValue;
+  truncate?: boolean;
+  wrap?: "normal" | "break" | "anywhere";
 }
 
 export function Text({
@@ -45,6 +48,8 @@ export function Text({
   tone = "primary",
   weight = "regular",
   align,
+  truncate = false,
+  wrap = "normal",
   ...rest
 }: TextProps) {
   const Component = element;
@@ -58,6 +63,9 @@ export function Text({
         textToneClasses[tone],
         textWeightClasses[weight],
         resolveTextAlignClass(align),
+        truncate && "truncate",
+        wrap === "break" && "break-words",
+        wrap === "anywhere" && "break-words [overflow-wrap:anywhere]",
       )}
     >
       {children}
@@ -90,6 +98,25 @@ export function Heading({ children, level = 2, align, ...rest }: HeadingProps) {
   );
 }
 
+export interface SubheadingProps extends FrameProps {
+  children?: ReactNode;
+  level?: 2 | 3 | 4 | 5 | 6;
+  align?: TextAlignValue;
+}
+
+export function Subheading({ children, level = 3, align, ...rest }: SubheadingProps) {
+  const Component = `h${level}` as const;
+
+  return (
+    <Component
+      {...rest}
+      className={cx("text-sm font-semibold leading-snug text-foreground", resolveTextAlignClass(align))}
+    >
+      {children}
+    </Component>
+  );
+}
+
 export interface LabelProps extends Omit<LabelHTMLAttributes<HTMLLabelElement>, "className" | "style"> {
   muted?: boolean;
 }
@@ -113,6 +140,49 @@ export function CodeText({ children, ...rest }: CodeTextProps) {
     <code {...rest} className="rounded-tokenSm bg-background px-1.5 py-1 font-mono text-xs text-accent">
       {children}
     </code>
+  );
+}
+
+export interface DiscountValueProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
+  original: ReactNode;
+  current: ReactNode;
+}
+
+export function DiscountValue({ original, current, ...rest }: DiscountValueProps) {
+  return (
+    <span {...rest} className="inline-flex flex-wrap justify-end gap-x-1">
+      <s className="text-danger decoration-danger">{original}</s>
+      <span className="text-[var(--trust)]">{current}</span>
+    </span>
+  );
+}
+
+export interface InlineTextGroupProps extends Omit<HTMLAttributes<HTMLSpanElement>, "className" | "style"> {
+  children?: ReactNode;
+  gap?: 1 | 2 | 3;
+  align?: "start" | "center" | "end";
+}
+
+const inlineTextGroupGapClasses: Record<NonNullable<InlineTextGroupProps["gap"]>, string> = {
+  1: "gap-1",
+  2: "gap-2",
+  3: "gap-3",
+};
+
+const inlineTextGroupAlignClasses: Record<NonNullable<InlineTextGroupProps["align"]>, string> = {
+  start: "items-start",
+  center: "items-center",
+  end: "items-end",
+};
+
+export function InlineTextGroup({ children, gap = 2, align = "center", ...rest }: InlineTextGroupProps) {
+  return (
+    <span
+      {...rest}
+      className={cx("inline-flex flex-wrap", inlineTextGroupGapClasses[gap], inlineTextGroupAlignClasses[align])}
+    >
+      {children}
+    </span>
   );
 }
 

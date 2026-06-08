@@ -5,6 +5,8 @@ import { RouterForm } from "@chase-sets/design-system/react-router";
 import { requireActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import {
+  HiddenInput,
+  AutoGrid,
   Form,
   Badge,
   Banner,
@@ -166,7 +168,7 @@ export default function AccountPaymentMethodsRoute() {
             }
           />
         ) : (
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(18rem,1fr))] gap-4">
+          <AutoGrid minItemWidth="md" gap={4}>
             {data.paymentMethods.map((method) => (
               <Surface key={method.instrument_id} elevated>
                 <Stack gap={3}>
@@ -189,14 +191,14 @@ export default function AccountPaymentMethodsRoute() {
                     <Inline gap={2}>
                       {!method.is_default ? (
                         <RouterForm method="post" spacing="none">
-                          <input type="hidden" name="instrumentId" value={method.instrument_id} />
+                          <HiddenInput type="hidden" name="instrumentId" value={method.instrument_id} />
                           <Button type="submit" name="intent" value="default" tone="secondary">
                             {t("payments.routes.marketplace.accountPaymentMethods.set.default")}
                           </Button>
                         </RouterForm>
                       ) : null}
                       <RouterForm method="post" spacing="none">
-                        <input type="hidden" name="instrumentId" value={method.instrument_id} />
+                        <HiddenInput type="hidden" name="instrumentId" value={method.instrument_id} />
                         <Button type="submit" name="intent" value="remove" tone="danger">
                           {t("payments.routes.marketplace.accountPaymentMethods.remove")}
                         </Button>
@@ -206,7 +208,7 @@ export default function AccountPaymentMethodsRoute() {
                 </Stack>
               </Surface>
             ))}
-          </div>
+          </AutoGrid>
         )}
         <PageSection title={t("payments.routes.marketplace.accountPaymentMethods.checkout")}>
           <LinkButton href="/account/cart" tone="secondary">

@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
+  HiddenInput,
   Form,
   AccountReputationSummary,
   Badge,
@@ -511,7 +512,7 @@ export function CheckoutSessionPage({
                     ) : (
                       <Form spacing="none" method="post">
                         <Stack gap={3}>
-                          <input type="hidden" name="intent" value="select-optimization-goal" />
+                          <HiddenInput type="hidden" name="intent" value="select-optimization-goal" />
                           <NativeSelect
                             label={t("checkout.features.sessions.ui.checkoutPage.optimization")}
                             name="optimizationGoal"
@@ -820,31 +821,31 @@ export function CheckoutSessionPage({
                 <Surface elevated glow>
                   <Form spacing="none" id="checkout-confirmation-form" method="post">
                     <Stack gap={3}>
-                      <input type="hidden" name="fulfillmentPreviewRevision" value={preview?.revision ?? ""} />
-                      <input
+                      <HiddenInput type="hidden" name="fulfillmentPreviewRevision" value={preview?.revision ?? ""} />
+                      <HiddenInput
                         type="hidden"
                         name="marketplaceCheckoutFeeQuoteFingerprint"
                         value={payment?.marketplace_checkout_fee.quote_fingerprint ?? ""}
                       />
-                      <input
+                      <HiddenInput
                         type="hidden"
                         name="requestedBalanceCreditAmount"
                         value={payment?.wallet_credit.requested_amount ?? wallet?.available_balance_amount ?? "0.00"}
                       />
-                      <input type="hidden" name="paymentMethodCategory" value={effectivePaymentMethodCategory} />
-                      <input
+                      <HiddenInput type="hidden" name="paymentMethodCategory" value={effectivePaymentMethodCategory} />
+                      <HiddenInput
                         type="hidden"
                         name="acceleratedSavedPayment"
                         value={canUseAcceleratedSavedPayment ? "true" : "false"}
                       />
-                      <input type="hidden" name="sourceType" value={session.source_type} />
-                      <input type="hidden" name="reviewedShippingOption" value={session.shipping_option} />
-                      <input
+                      <HiddenInput type="hidden" name="sourceType" value={session.source_type} />
+                      <HiddenInput type="hidden" name="reviewedShippingOption" value={session.shipping_option} />
+                      <HiddenInput
                         type="hidden"
                         name="reviewedShippingAddressSignature"
                         value={normalizedAddressSignature(addressDefaults)}
                       />
-                      <input
+                      <HiddenInput
                         type="hidden"
                         name="acknowledgedMaterialChanges"
                         value={preview?.materialChangeReasons.length ? "true" : ""}

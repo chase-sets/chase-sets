@@ -1,6 +1,19 @@
 import { t } from "@chase-sets/localization";
 import type { JsonValue } from "@chase-sets/primitives/json";
-import { Button, Inline, Select, Stack, TextInput, Textarea, type SelectItem } from "@chase-sets/design-system";
+import {
+  Button,
+  Checkbox,
+  CheckboxGroup,
+  Heading,
+  Inline,
+  Select,
+  Stack,
+  Text,
+  TextInput,
+  Textarea,
+  ValidationSummary,
+  type SelectItem,
+} from "@chase-sets/design-system";
 
 export type MappingExpressionSelector =
   | { kind: "path"; path: string; required: boolean; nullPolicy: "allow-null" | "omit" | "diagnostic" }
@@ -195,13 +208,9 @@ export function MappingExpressionEditor({
 
   return (
     <Stack gap={3}>
-      <h3 className="text-sm font-semibold text-foreground">{label}</h3>
+      <Heading level={6}>{label}</Heading>
       {diagnostics.length > 0 ? (
-        <ul className="text-sm text-danger">
-          {diagnostics.map((diagnostic) => (
-            <li key={diagnostic}>{diagnostic}</li>
-          ))}
-        </ul>
+        <ValidationSummary title={label} errors={diagnostics.map((message) => ({ message }))} />
       ) : null}
       <SelectorEditor selector={value.selector} onChange={(selector) => setExpression({ selector })} path={label} />
       <Inline gap={3}>
@@ -230,16 +239,15 @@ export function MappingExpressionEditor({
       />
       {preview ? (
         <Stack gap={1}>
-          <h4 className="text-sm font-semibold text-foreground">
+          <Heading level={6}>
             {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.fixture.preview")}
-          </h4>
-          <p className="text-sm text-foreground">{summarizePreviewValue(preview.value)}</p>
+          </Heading>
+          <Text size="sm">{summarizePreviewValue(preview.value)}</Text>
           {preview.diagnostics.length > 0 ? (
-            <ul className="text-sm text-danger">
-              {preview.diagnostics.map((diagnostic) => (
-                <li key={diagnostic}>{diagnostic}</li>
-              ))}
-            </ul>
+            <ValidationSummary
+              title={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.fixture.preview")}
+              errors={preview.diagnostics.map((message) => ({ message }))}
+            />
           ) : null}
         </Stack>
       ) : null}
@@ -309,15 +317,11 @@ function PathSelectorEditor({
           })
         }
       />
-      <label className="flex items-center gap-2 text-sm text-foreground">
-        <input
-          type="checkbox"
-          checked={selector.required}
-          onChange={() => onChange({ ...selector, required: !selector.required })}
-          className="h-4 w-4 rounded border-border accent-accent"
-        />
-        <span>{t("catalog.features.sourceObservations.ui.mappingExpressionEditor.required.path")}</span>
-      </label>
+      <Checkbox
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.required.path")}
+        checked={selector.required}
+        onCheckedChange={() => onChange({ ...selector, required: !selector.required })}
+      />
     </Inline>
   );
 }
@@ -350,15 +354,11 @@ function CoalesceSelectorEditor({
 }>) {
   return (
     <Stack gap={3}>
-      <label className="flex items-center gap-2 text-sm text-foreground">
-        <input
-          type="checkbox"
-          checked={selector.required}
-          onChange={() => onChange({ ...selector, required: !selector.required })}
-          className="h-4 w-4 rounded border-border accent-accent"
-        />
-        <span>{t("catalog.features.sourceObservations.ui.mappingExpressionEditor.required.coalesce.result")}</span>
-      </label>
+      <Checkbox
+        label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.required.coalesce.result")}
+        checked={selector.required}
+        onCheckedChange={() => onChange({ ...selector, required: !selector.required })}
+      />
       <SelectorList
         label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.fallback.selectors")}
         selectors={selector.selectors}
@@ -386,15 +386,11 @@ function TemplateSelectorEditor({
           value={selector.template}
           onChange={(event) => onChange({ ...selector, template: event.currentTarget.value })}
         />
-        <label className="flex items-center gap-2 text-sm text-foreground">
-          <input
-            type="checkbox"
-            checked={selector.required}
-            onChange={() => onChange({ ...selector, required: !selector.required })}
-            className="h-4 w-4 rounded border-border accent-accent"
-          />
-          <span>{t("catalog.features.sourceObservations.ui.mappingExpressionEditor.required.template.result")}</span>
-        </label>
+        <Checkbox
+          label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.required.template.result")}
+          checked={selector.required}
+          onCheckedChange={() => onChange({ ...selector, required: !selector.required })}
+        />
       </Inline>
       <ExpressionRecordEditor
         label={t("catalog.features.sourceObservations.ui.mappingExpressionEditor.template.values")}
@@ -531,7 +527,7 @@ function SelectorList({
   return (
     <Stack gap={2}>
       <Inline gap={2}>
-        <h4 className="text-sm font-semibold text-foreground">{label}</h4>
+        <Heading level={6}>{label}</Heading>
         <Button size="sm" tone="secondary" onClick={() => onChange([...selectors, defaultSelector("path")])}>
           {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.add.selector")}
         </Button>
@@ -539,10 +535,10 @@ function SelectorList({
       {selectors.map((selector, index) => (
         <Stack key={index} gap={2}>
           <Inline gap={2}>
-            <span className="text-sm font-semibold text-secondary">
+            <Text element="span" size="sm" tone="secondary" weight="semibold">
               {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.selector")}
               {index + 1}
-            </span>
+            </Text>
             <Button
               size="sm"
               tone="secondary"
@@ -591,7 +587,7 @@ function ExpressionList({
   return (
     <Stack gap={2}>
       <Inline gap={2}>
-        <h4 className="text-sm font-semibold text-foreground">{label}</h4>
+        <Heading level={6}>{label}</Heading>
         <Button size="sm" tone="secondary" onClick={() => onChange([...values, defaultExpression()])}>
           {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.add.expression")}
         </Button>
@@ -599,10 +595,10 @@ function ExpressionList({
       {values.map((value, index) => (
         <Stack key={index} gap={2}>
           <Inline gap={2}>
-            <span className="text-sm font-semibold text-secondary">
+            <Text element="span" size="sm" tone="secondary" weight="semibold">
               {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.expression")}
               {index + 1}
-            </span>
+            </Text>
             <Button
               size="sm"
               tone="secondary"
@@ -666,7 +662,7 @@ function ExpressionRecordEditor({
   return (
     <Stack gap={2}>
       <Inline gap={2}>
-        <h4 className="text-sm font-semibold text-foreground">{label}</h4>
+        <Heading level={6}>{label}</Heading>
         <Button
           size="sm"
           tone="secondary"
@@ -718,9 +714,7 @@ function TransformList({
   return (
     <Stack gap={2}>
       <Inline gap={2}>
-        <h4 className="text-sm font-semibold text-foreground">
-          {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.transforms")}
-        </h4>
+        <Heading level={6}>{t("catalog.features.sourceObservations.ui.mappingExpressionEditor.transforms")}</Heading>
         <Button size="sm" tone="secondary" onClick={() => onChange([...transforms, defaultTransform("coerce")])}>
           {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.add.transform")}
         </Button>
@@ -728,10 +722,10 @@ function TransformList({
       {transforms.map((transform, index) => (
         <Stack key={index} gap={2}>
           <Inline gap={2}>
-            <span className="text-sm font-semibold text-secondary">
+            <Text element="span" size="sm" tone="secondary" weight="semibold">
               {t("catalog.features.sourceObservations.ui.mappingExpressionEditor.transform")}
               {index + 1}
-            </span>
+            </Text>
             <Button
               size="sm"
               tone="secondary"
@@ -857,22 +851,12 @@ function CheckboxSet({
   onChange: (selected: readonly string[]) => void;
 }>) {
   return (
-    <fieldset className="space-y-2">
-      <legend className="text-sm font-semibold text-foreground">{legend}</legend>
-      <div className="grid gap-2 md:grid-cols-2">
-        {options.map((option) => (
-          <label key={option} className="flex items-center gap-2 text-sm text-foreground">
-            <input
-              type="checkbox"
-              checked={selected.includes(option)}
-              onChange={() => onChange(toggleStringSelection(selected, option))}
-              className="h-4 w-4 rounded border-border accent-accent"
-            />
-            <span>{option}</span>
-          </label>
-        ))}
-      </div>
-    </fieldset>
+    <CheckboxGroup
+      label={legend}
+      items={options.map((option) => ({ value: option, label: option }))}
+      values={[...selected]}
+      onValuesChange={onChange}
+    />
   );
 }
 

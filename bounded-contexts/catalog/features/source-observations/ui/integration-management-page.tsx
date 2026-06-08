@@ -4,8 +4,13 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import { useEffect, useMemo, useState } from "react";
 import { useRevalidator } from "react-router";
 import {
+  Subheading,
+  Text,
+  ValidationMessageList,
   Button,
   ActionBar,
+  Checkbox,
+  CheckboxGroup,
   Cluster,
   Combobox,
   DataTable,
@@ -2070,11 +2075,11 @@ export function IntegrationManagementPage({
       >
         {deprecateProfile ? (
           <Stack gap={3}>
-            <p className="text-sm text-secondary">
+            <Text size="sm" tone="secondary">
               {t(
                 "catalog.features.sourceObservations.ui.integrationManagementPage.deprecation.keeps.this.profile.readable.for.replay.and",
               )}
-            </p>
+            </Text>
             <KeyValueList items={lifecycleProfileContextItems(deprecateProfile)} />
           </Stack>
         ) : null}
@@ -2111,11 +2116,11 @@ export function IntegrationManagementPage({
                 version: rollbackProfile.profileVersion,
               })}
             </p>
-            <p className="text-sm text-secondary">
+            <Text size="sm" tone="secondary">
               {t(
                 "catalog.features.sourceObservations.ui.integrationManagementPage.rollback.reactivates.this.previously.validated.profile.version.and",
               )}
-            </p>
+            </Text>
             <KeyValueList items={lifecycleProfileContextItems(rollbackProfile)} />
           </Stack>
         ) : null}
@@ -2677,17 +2682,17 @@ function ActivationConfirmationReadiness({ model }: Readonly<{ model: CatalogPro
         />
       </Stack>
       {readiness.status === "blocked" ? (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t(
             "catalog.features.sourceObservations.ui.integrationManagementPage.resolve.the.blocking.checks.or.record.the.required",
           )}
-        </p>
+        </Text>
       ) : (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t(
             "catalog.features.sourceObservations.ui.integrationManagementPage.activation.will.make.this.profile.version.the.default",
           )}
-        </p>
+        </Text>
       )}
     </Stack>
   );
@@ -2860,10 +2865,10 @@ function ImportActiveProfileSnapshot({
     return (
       <Stack gap={2}>
         <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.active.profile.snapshot")}</h3>
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.no.active.profile.is.available.for")}
           {providerKey}.
-        </p>
+        </Text>
       </Stack>
     );
   }
@@ -3033,9 +3038,9 @@ function TcgdexImportScopeCard({
         />
       </Inline>
       {languagesLoading || seriesLoading ? (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.tcgdex.scope.options")}
-        </p>
+        </Text>
       ) : null}
     </Stack>
   );
@@ -3179,9 +3184,9 @@ function TcgplayerImportScopeCard({
         </Inline>
       )}
       {productLinesLoading || setNamesLoading ? (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.tcgplayer.scope.options")}
-        </p>
+        </Text>
       ) : null}
     </Stack>
   );
@@ -3207,11 +3212,11 @@ function ActiveIntegrationJobsPanel({
       <Inline gap={3} align="center">
         <Stack gap={1}>
           <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.active.integration.jobs")}</h3>
-          <p className="text-sm text-secondary">
+          <Text size="sm" tone="secondary">
             {t(
               "catalog.features.sourceObservations.ui.integrationManagementPage.queued.and.running.provider.imports.or.reapply.jobs",
             )}
-          </p>
+          </Text>
         </Stack>
         <Button tone="secondary" leadingIcon="refreshCcw" onClick={onRefresh}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.refresh.jobs")}
@@ -3244,7 +3249,9 @@ const activeIntegrationJobColumns: DataColumn<CatalogIntegrationJob<SourceObserv
           </StatusPill>
           <span>{row.action}</span>
         </Inline>
-        <span className="text-xs text-secondary">{row.jobId}</span>
+        <Text element="span" size="xs" tone="secondary">
+          {row.jobId}
+        </Text>
       </Stack>
     ),
   },
@@ -3257,10 +3264,12 @@ const activeIntegrationJobColumns: DataColumn<CatalogIntegrationJob<SourceObserv
           <span>
             {row.profileSnapshot.providerKey} {row.profileSnapshot.profileVersion}
           </span>
-          <span className="text-xs text-secondary">
+          <Text element="span" size="xs" tone="secondary">
             {row.profileSnapshot.profileKey} - {row.profileSnapshot.lifecycle}
-          </span>
-          <span className="text-xs text-secondary">{row.profileSnapshot.sourceMappingFingerprint}</span>
+          </Text>
+          <Text element="span" size="xs" tone="secondary">
+            {row.profileSnapshot.sourceMappingFingerprint}
+          </Text>
         </Stack>
       ) : (
         "No snapshot"
@@ -3463,11 +3472,11 @@ function ProfileBasicsEditor({
       />
 
       {!editable ? (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t(
             "catalog.features.sourceObservations.ui.integrationManagementPage.this.profile.version.is.immutable.from.the.basics",
           )}
-        </p>
+        </Text>
       ) : null}
 
       <TextInput
@@ -3534,9 +3543,9 @@ function ProfileBasicsEditor({
       />
 
       <Stack gap={3}>
-        <h3 className="text-sm font-semibold text-foreground">
+        <Subheading level={3}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.source.contract")}
-        </h3>
+        </Subheading>
         <Inline gap={3}>
           <TextInput
             label={t("catalog.features.sourceObservations.ui.integrationManagementPage.contract.owner")}
@@ -3577,19 +3586,15 @@ function ProfileBasicsEditor({
       </Stack>
 
       <Stack gap={3}>
-        <h3 className="text-sm font-semibold text-foreground">
+        <Subheading level={3}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.retirement.plan")}
-        </h3>
-        <label className="flex items-center gap-2 text-sm text-foreground">
-          <input
-            type="checkbox"
-            checked={form.retirementPlan.enabled}
-            disabled={!editable}
-            onChange={() => setRetirementPlan({ enabled: !form.retirementPlan.enabled })}
-            className="h-4 w-4 rounded border-border accent-accent"
-          />
-          <span>{t("catalog.features.sourceObservations.ui.integrationManagementPage.track.planned.retirement")}</span>
-        </label>
+        </Subheading>
+        <Checkbox
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.track.planned.retirement")}
+          checked={form.retirementPlan.enabled}
+          disabled={!editable}
+          onCheckedChange={() => setRetirementPlan({ enabled: !form.retirementPlan.enabled })}
+        />
         {form.retirementPlan.enabled ? (
           <Inline gap={3}>
             <TextInput
@@ -3628,16 +3633,10 @@ function ProfileBasicsEditor({
       </Stack>
 
       <Stack gap={3}>
-        <h3 className="text-sm font-semibold text-foreground">
+        <Subheading level={3}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.connector")}
-        </h3>
-        {connectorDiagnostics.length > 0 ? (
-          <ul className="text-sm text-danger">
-            {connectorDiagnostics.map((diagnostic) => (
-              <li key={diagnostic}>{diagnostic}</li>
-            ))}
-          </ul>
-        ) : null}
+        </Subheading>
+        <ValidationMessageList messages={connectorDiagnostics} />
         <Select
           label={t("catalog.features.sourceObservations.ui.integrationManagementPage.connector.kind")}
           value={form.connector.kind}
@@ -3818,9 +3817,9 @@ function ProfileBasicsEditor({
       </Stack>
 
       <Stack gap={3}>
-        <h3 className="text-sm font-semibold text-foreground">
+        <Subheading level={3}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.fixtures")}
-        </h3>
+        </Subheading>
         <TextInput
           label={t("catalog.features.sourceObservations.ui.integrationManagementPage.fixture.root")}
           value={form.fixtures.fixtureRoot}
@@ -3830,10 +3829,10 @@ function ProfileBasicsEditor({
         />
         <KeyValueList items={[{ key: "Live provider calls allowed", value: "No" }]} />
         {missingFixtureFlows.length > 0 ? (
-          <p className="text-sm text-danger">
+          <Text size="sm" tone="danger">
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.missing.required.fixture.flows")}{" "}
             {missingFixtureFlows.join(", ")}
-          </p>
+          </Text>
         ) : null}
         <CheckboxSet
           legend="Covered fixture flows"
@@ -3889,10 +3888,10 @@ function ProfileBasicsEditor({
       />
 
       <Stack gap={3}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold text-foreground">
+        <Cluster justify="between" gap={3}>
+          <Subheading level={3}>
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.options")}
-          </h3>
+          </Subheading>
           <Button
             size="sm"
             tone="secondary"
@@ -3902,25 +3901,19 @@ function ProfileBasicsEditor({
           >
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.query")}
           </Button>
-        </div>
-        {optionQueryDiagnostics.length > 0 ? (
-          <ul className="text-sm text-danger">
-            {optionQueryDiagnostics.map((diagnostic) => (
-              <li key={diagnostic}>{diagnostic}</li>
-            ))}
-          </ul>
-        ) : null}
+        </Cluster>
+        <ValidationMessageList messages={optionQueryDiagnostics} />
         <Stack gap={4}>
           {form.optionQueries.map((query, index) => (
             <Stack key={query.id} gap={3}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h4 className="text-sm font-semibold text-foreground">
+              <Cluster justify="between" gap={3}>
+                <Subheading level={4}>
                   {query.displayName.trim() ||
                     query.queryKind.trim() ||
                     t("catalog.features.sourceObservations.ui.integrationManagementPage.option.query.value", {
                       value: String(index + 1),
                     })}
-                </h4>
+                </Subheading>
                 <Inline gap={2}>
                   <Button
                     size="sm"
@@ -3949,7 +3942,7 @@ function ProfileBasicsEditor({
                     {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                   </Button>
                 </Inline>
-              </div>
+              </Cluster>
               <Inline gap={3}>
                 <TextInput
                   label={t("catalog.features.sourceObservations.ui.integrationManagementPage.query.kind")}
@@ -4003,18 +3996,12 @@ function ProfileBasicsEditor({
                   onValueChange={(value) => setOptionQuery(query.id, { operation: value })}
                 />
               </Inline>
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={query.parentRequired}
-                  disabled={!editable || query.parentScope === "__none__"}
-                  onChange={() => setOptionQuery(query.id, { parentRequired: !query.parentRequired })}
-                  className="h-4 w-4 rounded border-border accent-accent"
-                />
-                <span>
-                  {t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.value.required")}
-                </span>
-              </label>
+              <Checkbox
+                label={t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.value.required")}
+                checked={query.parentRequired}
+                disabled={!editable || query.parentScope === "__none__"}
+                onCheckedChange={() => setOptionQuery(query.id, { parentRequired: !query.parentRequired })}
+              />
               {query.parentScope !== "__none__" ? (
                 <Inline gap={3}>
                   <TextInput
@@ -4191,10 +4178,10 @@ function NormalizedObservationEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={3}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.normalized.observation")}
-        </h3>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -4204,14 +4191,8 @@ function NormalizedObservationEditor({
         >
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.field")}
         </Button>
-      </div>
-      {diagnostics.length > 0 ? (
-        <ul className="text-sm text-danger">
-          {diagnostics.map((diagnostic) => (
-            <li key={diagnostic}>{diagnostic}</li>
-          ))}
-        </ul>
-      ) : null}
+      </Cluster>
+      <ValidationMessageList messages={diagnostics} />
       <Select
         label={t("catalog.features.sourceObservations.ui.integrationManagementPage.normalized.output.kind")}
         value={form.outputKind}
@@ -4231,13 +4212,13 @@ function NormalizedObservationEditor({
       <Stack gap={4}>
         {form.fields.map((field, index) => (
           <Stack key={field.id} gap={3}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h4 className="text-sm font-semibold text-foreground">
+            <Cluster justify="between" gap={3}>
+              <Subheading level={4}>
                 {field.fieldKey.trim() ||
                   t("catalog.features.sourceObservations.ui.integrationManagementPage.normalized.field.value", {
                     value: String(index + 1),
                   })}
-              </h4>
+              </Subheading>
               <Inline gap={2}>
                 <Button
                   size="sm"
@@ -4280,7 +4261,7 @@ function NormalizedObservationEditor({
                   {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
-            </div>
+            </Cluster>
             <TextInput
               label={t("catalog.features.sourceObservations.ui.integrationManagementPage.normalized.field.key")}
               value={field.fieldKey}
@@ -4402,8 +4383,8 @@ function NormalizedExpressionListEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold text-foreground">{title}</h4>
+      <Cluster justify="between" gap={3}>
+        <Subheading level={4}>{title}</Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -4413,19 +4394,19 @@ function NormalizedExpressionListEditor({
         >
           {addLabel}
         </Button>
-      </div>
+      </Cluster>
       {items.length === 0 ? (
-        <p className="text-sm text-danger">
+        <Text size="sm" tone="danger">
           {title} {t("catalog.features.sourceObservations.ui.integrationManagementPage.needs.at.least.one.expression")}
-        </p>
+        </Text>
       ) : null}
       {items.map((item, index) => (
         <Stack key={item.id} gap={3}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h5 className="text-sm font-semibold text-foreground">
+          <Cluster justify="between" gap={3}>
+            <Subheading level={5}>
               {title} {t("catalog.features.sourceObservations.ui.integrationManagementPage.expression")}
               {index + 1}
-            </h5>
+            </Subheading>
             <Inline gap={2}>
               <Button
                 size="sm"
@@ -4462,7 +4443,7 @@ function NormalizedExpressionListEditor({
                 {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
               </Button>
             </Inline>
-          </div>
+          </Cluster>
           <MappingExpressionEditor
             label={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.expression.value", {
               value0: String(title),
@@ -4503,12 +4484,12 @@ function ExternalReferencesEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={3}>
           {t(
             "catalog.features.sourceObservations.ui.integrationManagementPage.external.references.and.selected.options",
           )}
-        </h3>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -4518,14 +4499,8 @@ function ExternalReferencesEditor({
         >
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.reference")}
         </Button>
-      </div>
-      {diagnostics.length > 0 ? (
-        <ul className="text-sm text-danger">
-          {diagnostics.map((diagnostic) => (
-            <li key={diagnostic}>{diagnostic}</li>
-          ))}
-        </ul>
-      ) : null}
+      </Cluster>
+      <ValidationMessageList messages={diagnostics} />
       <ExternalReferencePreview
         form={form}
         previewPayload={previewPayload}
@@ -4534,13 +4509,13 @@ function ExternalReferencesEditor({
       <Stack gap={4}>
         {form.contracts.map((contract, index) => (
           <Stack key={contract.id} gap={3}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h4 className="text-sm font-semibold text-foreground">
+            <Cluster justify="between" gap={3}>
+              <Subheading level={4}>
                 {contract.providerKey ||
                   t("catalog.features.sourceObservations.ui.integrationManagementPage.external.reference.value", {
                     value: String(index + 1),
                   })}
-              </h4>
+              </Subheading>
               <Inline gap={2}>
                 <Button
                   size="sm"
@@ -4584,7 +4559,7 @@ function ExternalReferencesEditor({
                   {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
-            </div>
+            </Cluster>
             <Inline gap={3}>
               <Select
                 label={t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.target")}
@@ -4915,10 +4890,10 @@ function ExternalSelectedOptionsEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h5 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={5}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.product.reference.selected.options")}
-        </h5>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -4928,7 +4903,7 @@ function ExternalSelectedOptionsEditor({
         >
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.dimension")}
         </Button>
-      </div>
+      </Cluster>
       <Select
         label={t("catalog.features.sourceObservations.ui.integrationManagementPage.missing.or.unknown.option.policy")}
         value={form.missingOrUnknownOptionPolicy}
@@ -4942,13 +4917,13 @@ function ExternalSelectedOptionsEditor({
       />
       {form.dimensions.map((dimension, index) => (
         <Stack key={dimension.id} gap={3}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h6 className="text-sm font-semibold text-foreground">
+          <Cluster justify="between" gap={3}>
+            <Subheading level={6}>
               {dimension.dimensionKey ||
                 t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.dimension.value", {
                   value: String(index + 1),
                 })}
-            </h6>
+            </Subheading>
             <Inline gap={2}>
               <Button
                 size="sm"
@@ -4977,7 +4952,7 @@ function ExternalSelectedOptionsEditor({
                 {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
               </Button>
             </Inline>
-          </div>
+          </Cluster>
           <Inline gap={3}>
             <TextInput
               label={t("catalog.features.sourceObservations.ui.integrationManagementPage.option.dimension.key")}
@@ -4993,18 +4968,12 @@ function ExternalSelectedOptionsEditor({
               required
               onChange={(event) => setDimension(dimension.id, { optionLookupTableKey: event.currentTarget.value })}
             />
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={dimension.required}
-                disabled={!editable}
-                onChange={() => setDimension(dimension.id, { required: !dimension.required })}
-                className="h-4 w-4 rounded border-border accent-accent"
-              />
-              <span>
-                {t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.required")}
-              </span>
-            </label>
+            <Checkbox
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.required")}
+              checked={dimension.required}
+              disabled={!editable}
+              onCheckedChange={() => setDimension(dimension.id, { required: !dimension.required })}
+            />
           </Inline>
           <MappingExpressionEditor
             label={t(
@@ -5048,10 +5017,10 @@ function SelectedOptionMappingEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h4 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={4}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.mapping")}
-        </h4>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -5060,7 +5029,7 @@ function SelectedOptionMappingEditor({
         >
           {form ? "Disable mapping" : "Enable mapping"}
         </Button>
-      </div>
+      </Cluster>
       {form ? (
         <Stack gap={3}>
           <Inline gap={3}>
@@ -5095,10 +5064,10 @@ function SelectedOptionMappingEditor({
             onChange={(event) => setForm({ requiredSourceKeysText: event.currentTarget.value })}
           />
           <KeyValueList items={[{ key: "Unknown option policy", value: form.missingOrUnknownOptionPolicy }]} />
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h5 className="text-sm font-semibold text-foreground">
+          <Cluster justify="between" gap={3}>
+            <Subheading level={5}>
               {t("catalog.features.sourceObservations.ui.integrationManagementPage.selected.option.dimensions")}
-            </h5>
+            </Subheading>
             <Button
               size="sm"
               tone="secondary"
@@ -5108,16 +5077,16 @@ function SelectedOptionMappingEditor({
             >
               {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.mapping.dimension")}
             </Button>
-          </div>
+          </Cluster>
           {form.dimensions.map((dimension, index) => (
             <Stack key={dimension.id} gap={3}>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <h6 className="text-sm font-semibold text-foreground">
+              <Cluster justify="between" gap={3}>
+                <Subheading level={6}>
                   {dimension.dimensionKey ||
                     t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.value", {
                       value: String(index + 1),
                     })}
-                </h6>
+                </Subheading>
                 <Button
                   size="sm"
                   tone="danger"
@@ -5128,7 +5097,7 @@ function SelectedOptionMappingEditor({
                 >
                   {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
-              </div>
+              </Cluster>
               <Inline gap={3}>
                 <TextInput
                   label={t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.key")}
@@ -5153,18 +5122,14 @@ function SelectedOptionMappingEditor({
                   required
                   onChange={(event) => setDimension(dimension.id, { providerValuePath: event.currentTarget.value })}
                 />
-                <label className="flex items-center gap-2 text-sm text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={dimension.required}
-                    disabled={!editable}
-                    onChange={() => setDimension(dimension.id, { required: !dimension.required })}
-                    className="h-4 w-4 rounded border-border accent-accent"
-                  />
-                  <span>
-                    {t("catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.required")}
-                  </span>
-                </label>
+                <Checkbox
+                  label={t(
+                    "catalog.features.sourceObservations.ui.integrationManagementPage.mapping.dimension.required",
+                  )}
+                  checked={dimension.required}
+                  disabled={!editable}
+                  onCheckedChange={() => setDimension(dimension.id, { required: !dimension.required })}
+                />
               </Inline>
               <Textarea
                 label={t("catalog.features.sourceObservations.ui.integrationManagementPage.option.aliases")}
@@ -5190,11 +5155,11 @@ function SelectedOptionMappingEditor({
           ))}
         </Stack>
       ) : (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t(
             "catalog.features.sourceObservations.ui.integrationManagementPage.no.selected.option.mapping.is.configured.for.this",
           )}
-        </p>
+        </Text>
       )}
     </Stack>
   );
@@ -5235,10 +5200,10 @@ function ReferenceHierarchyEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={3}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.hierarchy")}
-        </h3>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -5248,14 +5213,8 @@ function ReferenceHierarchyEditor({
         >
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.hierarchy.chain")}
         </Button>
-      </div>
-      {diagnostics.length > 0 ? (
-        <ul className="text-sm text-danger">
-          {diagnostics.map((diagnostic) => (
-            <li key={diagnostic}>{diagnostic}</li>
-          ))}
-        </ul>
-      ) : null}
+      </Cluster>
+      <ValidationMessageList messages={diagnostics} />
       <Inline gap={3}>
         <TextInput
           label={t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.reference.id.prefix")}
@@ -5274,10 +5233,10 @@ function ReferenceHierarchyEditor({
       </Inline>
       <ReferenceHierarchyPreview form={form} previewPayload={previewPayload} />
       <Stack gap={3}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-foreground">
+        <Cluster justify="between" gap={3}>
+          <Subheading level={4}>
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.provider.attributes")}
-          </h4>
+          </Subheading>
           <Button
             size="sm"
             tone="secondary"
@@ -5287,7 +5246,7 @@ function ReferenceHierarchyEditor({
           >
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.provider.attribute")}
           </Button>
-        </div>
+        </Cluster>
         {form.providerAttributes.map((attribute) => (
           <Inline key={attribute.id} gap={3}>
             <TextInput
@@ -5322,10 +5281,10 @@ function ReferenceHierarchyEditor({
         ))}
       </Stack>
       <Stack gap={3}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-foreground">
+        <Cluster justify="between" gap={3}>
+          <Subheading level={4}>
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.types")}
-          </h4>
+          </Subheading>
           <Button
             size="sm"
             tone="secondary"
@@ -5335,7 +5294,7 @@ function ReferenceHierarchyEditor({
           >
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.reference.type")}
           </Button>
-        </div>
+        </Cluster>
         {form.referenceTypes.map((type) => (
           <Stack key={type.id} gap={3}>
             <Inline gap={3}>
@@ -5394,10 +5353,10 @@ function ReferenceHierarchyEditor({
         ))}
       </Stack>
       <Stack gap={3}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-foreground">
+        <Cluster justify="between" gap={3}>
+          <Subheading level={4}>
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.record.rules")}
-          </h4>
+          </Subheading>
           <Button
             size="sm"
             tone="secondary"
@@ -5407,7 +5366,7 @@ function ReferenceHierarchyEditor({
           >
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.record.rule")}
           </Button>
-        </div>
+        </Cluster>
         {form.recordRules.map((rule) => (
           <Stack key={rule.id} gap={3}>
             <Inline gap={3}>
@@ -5492,11 +5451,11 @@ function ReferenceHierarchyEditor({
       <Stack gap={4}>
         {form.contracts.map((contract, index) => (
           <Stack key={contract.id} gap={3}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h4 className="text-sm font-semibold text-foreground">
+            <Cluster justify="between" gap={3}>
+              <Subheading level={4}>
                 {t("catalog.features.sourceObservations.ui.integrationManagementPage.hierarchy.chain")}
                 {index + 1}: {referenceHierarchyChainSummary(contract)}
-              </h4>
+              </Subheading>
               <Inline gap={2}>
                 <Button
                   size="sm"
@@ -5525,7 +5484,7 @@ function ReferenceHierarchyEditor({
                   {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
-            </div>
+            </Cluster>
             <ReferenceHierarchyNodeEditor
               label={t("catalog.features.sourceObservations.ui.integrationManagementPage.target.reference.record")}
               node={contract}
@@ -5557,9 +5516,9 @@ function ReferenceRecordIdRuleEditor({
 }>) {
   return (
     <Stack gap={3}>
-      <h5 className="text-sm font-semibold text-foreground">
+      <Subheading level={5}>
         {t("catalog.features.sourceObservations.ui.integrationManagementPage.reference.record.id")}
-      </h5>
+      </Subheading>
       <Inline gap={3}>
         <Select
           label={t("catalog.features.sourceObservations.ui.integrationManagementPage.record.id.strategy")}
@@ -5619,7 +5578,7 @@ function ReferenceValueRuleEditor({
 
   return (
     <Stack gap={3}>
-      <h5 className="text-sm font-semibold text-foreground">{label}</h5>
+      <Subheading level={5}>{label}</Subheading>
       <Inline gap={3}>
         <Select
           label={t("catalog.features.sourceObservations.ui.integrationManagementPage.value.source", {
@@ -5691,10 +5650,10 @@ function ReferenceAttributeRulesEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h5 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={5}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.record.attributes")}
-        </h5>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -5704,19 +5663,19 @@ function ReferenceAttributeRulesEditor({
         >
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.attribute.rule")}
         </Button>
-      </div>
+      </Cluster>
       {attributes.length === 0 ? (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.no.attribute.rules")}
-        </p>
+        </Text>
       ) : null}
       {attributes.map((attribute, index) => (
         <Stack key={attribute.id} gap={3}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h6 className="text-sm font-semibold text-foreground">
+          <Cluster justify="between" gap={3}>
+            <Subheading level={6}>
               {t("catalog.features.sourceObservations.ui.integrationManagementPage.attribute")}
               {index + 1}: {attribute.attributeKey || "Unconfigured"}
-            </h6>
+            </Subheading>
             <Button
               size="sm"
               tone="danger"
@@ -5725,7 +5684,7 @@ function ReferenceAttributeRulesEditor({
             >
               {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
             </Button>
-          </div>
+          </Cluster>
           <Inline gap={3}>
             <TextInput
               label={t("catalog.features.sourceObservations.ui.integrationManagementPage.attribute.key")}
@@ -5734,16 +5693,12 @@ function ReferenceAttributeRulesEditor({
               required
               onChange={(event) => setAttribute(attribute.id, { attributeKey: event.currentTarget.value })}
             />
-            <label className="flex items-center gap-2 text-sm text-foreground">
-              <input
-                type="checkbox"
-                checked={attribute.optional}
-                disabled={!editable}
-                onChange={() => setAttribute(attribute.id, { optional: !attribute.optional })}
-                className="h-4 w-4 rounded border-border accent-accent"
-              />
-              <span>{t("catalog.features.sourceObservations.ui.integrationManagementPage.optional.attribute")}</span>
-            </label>
+            <Checkbox
+              label={t("catalog.features.sourceObservations.ui.integrationManagementPage.optional.attribute")}
+              checked={attribute.optional}
+              disabled={!editable}
+              onCheckedChange={() => setAttribute(attribute.id, { optional: !attribute.optional })}
+            />
           </Inline>
           <ReferenceValueRuleEditor
             label={t("catalog.features.sourceObservations.ui.integrationManagementPage.attribute.value")}
@@ -5866,7 +5821,7 @@ function ReferenceHierarchyNodeEditor({
 }>) {
   return (
     <Stack gap={3}>
-      <h5 className="text-sm font-semibold text-foreground">{label}</h5>
+      <Subheading level={5}>{label}</Subheading>
       <Inline gap={3}>
         <TextInput
           label={t("catalog.features.sourceObservations.ui.integrationManagementPage.hierarchy.target.type.key")}
@@ -5911,10 +5866,10 @@ function ReferenceHierarchyParentsEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h5 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={5}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.chain")}
-        </h5>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -5924,19 +5879,19 @@ function ReferenceHierarchyParentsEditor({
         >
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.parent")}
         </Button>
-      </div>
+      </Cluster>
       {parents.length === 0 ? (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.no.parent.reference.records")}
-        </p>
+        </Text>
       ) : null}
       {parents.map((parent, index) => (
         <Stack key={parent.id} gap={3}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h6 className="text-sm font-semibold text-foreground">
+          <Cluster justify="between" gap={3}>
+            <Subheading level={6}>
               {t("catalog.features.sourceObservations.ui.integrationManagementPage.parent")}
               {index + 1}: {parent.targetTypeKey || "Unconfigured"}
-            </h6>
+            </Subheading>
             <Inline gap={2}>
               <Button
                 size="sm"
@@ -5963,7 +5918,7 @@ function ReferenceHierarchyParentsEditor({
                 {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
               </Button>
             </Inline>
-          </div>
+          </Cluster>
           <ReferenceHierarchyNodeEditor
             label={t("catalog.features.sourceObservations.ui.integrationManagementPage.parent.reference.record.value", {
               value: String(index + 1),
@@ -5998,10 +5953,10 @@ function DuplicatePreventionEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={3}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.prevention")}
-        </h3>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -6011,14 +5966,8 @@ function DuplicatePreventionEditor({
         >
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.identity.rule")}
         </Button>
-      </div>
-      {diagnostics.length > 0 ? (
-        <ul className="text-sm text-danger">
-          {diagnostics.map((diagnostic) => (
-            <li key={diagnostic}>{diagnostic}</li>
-          ))}
-        </ul>
-      ) : null}
+      </Cluster>
+      <ValidationMessageList messages={diagnostics} />
       <Inline gap={3}>
         <Select
           label={t("catalog.features.sourceObservations.ui.integrationManagementPage.ambiguous.candidate.policy")}
@@ -6043,20 +5992,14 @@ function DuplicatePreventionEditor({
             })
           }
         />
-        <label className="flex items-center gap-2 text-sm text-foreground">
-          <input
-            type="checkbox"
-            checked={form.exactExternalCatalogItemReferencesFirst}
-            disabled={!editable}
-            onChange={() =>
-              setForm({ exactExternalCatalogItemReferencesFirst: !form.exactExternalCatalogItemReferencesFirst })
-            }
-            className="h-4 w-4 rounded border-border accent-accent"
-          />
-          <span>
-            {t("catalog.features.sourceObservations.ui.integrationManagementPage.exact.external.references.first")}
-          </span>
-        </label>
+        <Checkbox
+          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.exact.external.references.first")}
+          checked={form.exactExternalCatalogItemReferencesFirst}
+          disabled={!editable}
+          onCheckedChange={() =>
+            setForm({ exactExternalCatalogItemReferencesFirst: !form.exactExternalCatalogItemReferencesFirst })
+          }
+        />
       </Inline>
       <DuplicatePreventionPreview form={form} previewPayload={previewPayload} />
       <NormalizedExpressionListEditor
@@ -6070,11 +6013,11 @@ function DuplicatePreventionEditor({
       <Stack gap={4}>
         {form.identityRules.map((rule, index) => (
           <Stack key={rule.id} gap={3}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h4 className="text-sm font-semibold text-foreground">
+            <Cluster justify="between" gap={3}>
+              <Subheading level={4}>
                 {t("catalog.features.sourceObservations.ui.integrationManagementPage.rule")} {index + 1}:{" "}
                 {rule.ruleKey || rule.ruleKind}
-              </h4>
+              </Subheading>
               <Inline gap={2}>
                 <Button
                   size="sm"
@@ -6119,7 +6062,7 @@ function DuplicatePreventionEditor({
                   {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
-            </div>
+            </Cluster>
             <Inline gap={3}>
               <TextInput
                 label={t("catalog.features.sourceObservations.ui.integrationManagementPage.duplicate.rule.key")}
@@ -6265,10 +6208,10 @@ function PromotionPlanEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={3}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.plan")}
-        </h3>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -6278,14 +6221,8 @@ function PromotionPlanEditor({
         >
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.command")}
         </Button>
-      </div>
-      {diagnostics.length > 0 ? (
-        <ul className="text-sm text-danger">
-          {diagnostics.map((diagnostic) => (
-            <li key={diagnostic}>{diagnostic}</li>
-          ))}
-        </ul>
-      ) : null}
+      </Cluster>
+      <ValidationMessageList messages={diagnostics} />
       <KeyValueList
         items={[
           { key: "Plan kind", value: form.planKind },
@@ -6294,10 +6231,10 @@ function PromotionPlanEditor({
       />
       <PromotionPlanPreview form={form} promotionTargetSchema={promotionTargetSchema} previewPayload={previewPayload} />
       <Stack gap={2}>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h4 className="text-sm font-semibold text-foreground">
+        <Cluster justify="between" gap={3}>
+          <Subheading level={4}>
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.server.dry.run.comparison")}
-          </h4>
+          </Subheading>
           <Button
             size="sm"
             tone="secondary"
@@ -6308,8 +6245,12 @@ function PromotionPlanEditor({
           >
             {t("catalog.features.sourceObservations.ui.integrationManagementPage.compare.server.plan")}
           </Button>
-        </div>
-        {serverDryRunError ? <p className="text-sm text-danger">{serverDryRunError}</p> : null}
+        </Cluster>
+        {serverDryRunError ? (
+          <Text size="sm" tone="danger">
+            {serverDryRunError}
+          </Text>
+        ) : null}
         <TaskSummary
           title={t("catalog.features.sourceObservations.ui.integrationManagementPage.server.promotion.command.plan")}
           items={[
@@ -6329,11 +6270,11 @@ function PromotionPlanEditor({
       <Stack gap={4}>
         {form.commands.map((command, index) => (
           <Stack key={command.id} gap={3}>
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <h4 className="text-sm font-semibold text-foreground">
+            <Cluster justify="between" gap={3}>
+              <Subheading level={4}>
                 {t("catalog.features.sourceObservations.ui.integrationManagementPage.command")} {index + 1}:{" "}
                 {command.commandName}
-              </h4>
+              </Subheading>
               <Inline gap={2}>
                 <Button
                   size="sm"
@@ -6377,7 +6318,7 @@ function PromotionPlanEditor({
                   {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
                 </Button>
               </Inline>
-            </div>
+            </Cluster>
             <Select
               label={t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.command.name")}
               value={command.commandName}
@@ -6539,10 +6480,10 @@ function PromotionCommandInputsEditor({
 
   return (
     <Stack gap={3}>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h5 className="text-sm font-semibold text-foreground">
+      <Cluster justify="between" gap={3}>
+        <Subheading level={5}>
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.command.inputs")}
-        </h5>
+        </Subheading>
         <Button
           size="sm"
           tone="secondary"
@@ -6552,14 +6493,14 @@ function PromotionCommandInputsEditor({
         >
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.add.input")}
         </Button>
-      </div>
+      </Cluster>
       {command.inputs.map((input, index) => (
         <Stack key={input.id} gap={3}>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h6 className="text-sm font-semibold text-foreground">
+          <Cluster justify="between" gap={3}>
+            <Subheading level={6}>
               {t("catalog.features.sourceObservations.ui.integrationManagementPage.input")}
               {index + 1}: {input.fieldKey || "Unnamed"}
-            </h6>
+            </Subheading>
             <Button
               size="sm"
               tone="danger"
@@ -6568,7 +6509,7 @@ function PromotionCommandInputsEditor({
             >
               {t("catalog.features.sourceObservations.ui.integrationManagementPage.remove")}
             </Button>
-          </div>
+          </Cluster>
           <TextInput
             label={t("catalog.features.sourceObservations.ui.integrationManagementPage.promotion.input.key")}
             value={input.fieldKey}
@@ -6605,23 +6546,13 @@ function CheckboxSet({
   disabled?: boolean;
 }>) {
   return (
-    <fieldset className="space-y-2">
-      <legend className="text-sm font-semibold text-foreground">{legend}</legend>
-      <div className="grid gap-2 md:grid-cols-2">
-        {options.map((option) => (
-          <label key={option} className="flex items-center gap-2 text-sm text-foreground">
-            <input
-              type="checkbox"
-              checked={selected.includes(option)}
-              disabled={disabled}
-              onChange={() => onChange(toggleStringSelection(selected, option))}
-              className="h-4 w-4 rounded border-border accent-accent"
-            />
-            <span>{option}</span>
-          </label>
-        ))}
-      </div>
-    </fieldset>
+    <CheckboxGroup
+      label={legend}
+      items={options.map((option) => ({ value: option, label: option }))}
+      values={[...selected]}
+      disabled={disabled}
+      onValuesChange={onChange}
+    />
   );
 }
 

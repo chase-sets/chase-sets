@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  HiddenInput,
   Form,
   ActionBar,
   AppliedFilterChips,
@@ -82,7 +83,7 @@ export function ProjectionOperationsPage({
 
       <ActionBar>
         <Form spacing="none" method="post">
-          <input type="hidden" name="intent" value="refresh-status" readOnly />
+          <HiddenInput type="hidden" name="intent" value="refresh-status" readOnly />
           <Button type="submit" leadingIcon="refreshCcw">
             {t(`${routeKey}.refresh`)}
           </Button>
@@ -792,8 +793,8 @@ function SelectedDetail({ detail }: Readonly<{ detail: SelectedRecord }>) {
 function CancelOperationForm({ operationId }: Readonly<{ operationId: string }>) {
   return (
     <Form spacing="none" method="post">
-      <input type="hidden" name="intent" value="cancel-operation" readOnly />
-      <input type="hidden" name="operationId" value={operationId} readOnly />
+      <HiddenInput type="hidden" name="intent" value="cancel-operation" readOnly />
+      <HiddenInput type="hidden" name="operationId" value={operationId} readOnly />
       <Button type="submit" size="sm" tone="secondary">
         {t(`${routeKey}.cancel`)}
       </Button>
@@ -817,9 +818,9 @@ function RebuildGroupDialog({ group }: Readonly<{ group: ProjectionGroupStatus }
     >
       <Form spacing="none" method="post">
         <Stack gap={3}>
-          <input type="hidden" name="intent" value="rebuild-group" readOnly />
-          <input type="hidden" name="contextName" value={group.targetContextName} readOnly />
-          <input type="hidden" name="projectionName" value={group.projectionName} readOnly />
+          <HiddenInput type="hidden" name="intent" value="rebuild-group" readOnly />
+          <HiddenInput type="hidden" name="contextName" value={group.targetContextName} readOnly />
+          <HiddenInput type="hidden" name="projectionName" value={group.projectionName} readOnly />
           <Text tone="secondary">{t(`${routeKey}.confirmRebuildGroupImpact`)}</Text>
           <Button type="submit" tone="danger" leadingIcon="refreshCcw">
             {t(`${routeKey}.confirmRebuild`)}
@@ -843,8 +844,8 @@ function RebuildContextDialog({ contextName }: Readonly<{ contextName: string }>
     >
       <Form spacing="none" method="post">
         <Stack gap={3}>
-          <input type="hidden" name="intent" value="rebuild-context" readOnly />
-          <input type="hidden" name="contextName" value={contextName} readOnly />
+          <HiddenInput type="hidden" name="intent" value="rebuild-context" readOnly />
+          <HiddenInput type="hidden" name="contextName" value={contextName} readOnly />
           <Text tone="secondary">{t(`${routeKey}.confirmRebuildContextImpact`)}</Text>
           <Button type="submit" tone="danger" leadingIcon="refreshCcw">
             {t(`${routeKey}.confirmRebuildContext`)}
@@ -858,9 +859,9 @@ function RebuildContextDialog({ contextName }: Readonly<{ contextName: string }>
 function RetryStreamForm({ row }: Readonly<{ row: BlockedStream }>) {
   return (
     <Form spacing="none" method="post">
-      <input type="hidden" name="intent" value="retry-stream" readOnly />
-      <input type="hidden" name="projectionKey" value={row.projectionKey} readOnly />
-      <input type="hidden" name="streamId" value={row.streamId} readOnly />
+      <HiddenInput type="hidden" name="intent" value="retry-stream" readOnly />
+      <HiddenInput type="hidden" name="projectionKey" value={row.projectionKey} readOnly />
+      <HiddenInput type="hidden" name="streamId" value={row.streamId} readOnly />
       <Button type="submit" size="sm" leadingIcon="refreshCcw">
         {t(`${routeKey}.retry`)}
       </Button>

@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Banner,
   Badge,
@@ -139,9 +140,9 @@ function RegistrationFormCard({
       <Form spacing="none" ref={formRef} action={action} method="post" onSubmit={onSubmit}>
         <Stack gap={3}>
           <HiddenFields fields={hiddenFields} />
-          <input type="hidden" name="registrationMethod" value={method} readOnly />
-          <input type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
-          <input type="hidden" name="intent" value={intent} readOnly />
+          <HiddenInput type="hidden" name="registrationMethod" value={method} readOnly />
+          <HiddenInput type="hidden" name="registrationMethodsShown" value={registrationMethodsShown} readOnly />
+          <HiddenInput type="hidden" name="intent" value={intent} readOnly />
           {children}
         </Stack>
       </Form>
@@ -438,7 +439,7 @@ export function RegisterPage(props: RegistrationPageProps) {
             <Text size="sm" tone="secondary">
               {t("auth.features.registration.ui.registerPage.enter.phone.code.copy")}
             </Text>
-            <input type="hidden" name="displayName" value={details.displayName} readOnly />
+            <HiddenInput type="hidden" name="displayName" value={details.displayName} readOnly />
             <TextInput
               label={t("auth.features.registration.ui.registerPage.phone")}
               name="phone"

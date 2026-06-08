@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Button,
   Card,
@@ -33,11 +34,11 @@ export function CheckoutAddToCartSection({
       <Card>
         <Form spacing="none" method="post">
           <Stack gap={3}>
-            <input type="hidden" name="intent" value="add-to-cart" />
-            <input type="hidden" name="catalogItemId" value={catalogItemId} />
-            <input type="hidden" name="productId" value={productId} />
-            <input type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
-            <input type="hidden" name="productSummary" value={productSummary ?? ""} />
+            <HiddenInput type="hidden" name="intent" value="add-to-cart" />
+            <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
+            <HiddenInput type="hidden" name="productId" value={productId} />
+            <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+            <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
             <Stack gap={1}>
               <Text weight="semibold">{itemTitle}</Text>
               {productSummary ? (

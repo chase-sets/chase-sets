@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
 import {
+  HiddenInput,
   Form,
   OrderProtectionModule,
   Button,
@@ -114,7 +115,7 @@ export function ReviewSubmissionPage({
             ) : null}
             <Form spacing="none" method="post">
               <Stack gap={3}>
-                <input type="hidden" name="rating" value={rating} />
+                <HiddenInput type="hidden" name="rating" value={rating} />
                 <Stack gap={1}>
                   <Text weight="semibold">{t("reputation.features.reviews.ui.reviewSubmissionPage.rating")}</Text>
                   <Rating

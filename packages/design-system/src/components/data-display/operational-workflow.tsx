@@ -5,7 +5,7 @@ import { Button, IconButton } from "../actions/button";
 import { CopyButton } from "../actions/copy-button";
 import { controlHeightClasses, controlPaddingClasses, controlTextClasses } from "../control-sizing";
 import { Form, type FormProps } from "../forms/form";
-import { Progress } from "../ui/progress";
+import { Progress } from "../compat/progress";
 
 export interface WorkstationLayoutProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   primary: ReactNode;

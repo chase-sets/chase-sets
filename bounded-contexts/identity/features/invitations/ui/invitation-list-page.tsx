@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Form, Button, NativeSelect, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, NativeSelect, Stack, TextInput, type DataColumn } from "@chase-sets/design-system";
 import { AdminListPage } from "../../../support/shell-support/ui/admin-pages";
 import type { Invitation } from "./contracts";
 
@@ -31,7 +31,7 @@ export function InvitationListPage({ initialData }: { initialData: { items: Invi
       actions={
         <Form spacing="none" method="post">
           <Stack direction="row" align="end" gap={2}>
-            <input type="hidden" name="intent" value="create" readOnly />
+            <HiddenInput type="hidden" name="intent" value="create" readOnly />
             <TextInput
               name="accountId"
               label={t("identity.features.invitations.ui.invitationListPage.account")}

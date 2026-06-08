@@ -14,14 +14,11 @@ import {
   BulkActionBar,
   BulkActionPanel,
   BulkActionSurface,
+  Badge,
+  Card,
   CommerceSheet,
-  UiBadge as Badge,
   Button,
-  UiCard as Card,
-  UiCardContent as CardContent,
-  UiCardHeader as CardHeader,
-  UiCardTitle as CardTitle,
-  UiDialog as Dialog,
+  Dialog,
   Inline,
   NavigationHeader,
   AccountReputationSummary,
@@ -51,7 +48,7 @@ import {
   Sidebar,
   StickyCtaBar,
   StickyTaskFooter,
-  Tabs as ActionTabs,
+  Tabs,
   TaskLineItem,
   TaskProgress,
   TaskSummary,
@@ -89,15 +86,9 @@ import {
   AccountProfileHeader,
   AccountCredibilityHeader,
   Select,
-  UiTable as Table,
-  UiTableBody as TableBody,
-  UiTableCell as TableCell,
-  UiTableHead as TableHead,
-  UiTableHeader as TableHeader,
-  UiTableRow as TableRow,
-  UiTabs as Tabs,
+  Table,
   Textarea,
-  UiTooltip as Tooltip,
+  Tooltip,
   TextInput,
   formatProductImageAltText,
   formatProductOptionsAriaLabel,
@@ -131,6 +122,8 @@ describe("design-system", () => {
     for (const aliasName of retiredAliasNames) {
       expect(designSystem).not.toHaveProperty(aliasName);
     }
+
+    expect(Object.keys(designSystem).filter((exportName) => /^Ui[A-Z]/.test(exportName))).toEqual([]);
   });
 
   it("layers dropdown and popover panels above modal panels", () => {
@@ -144,15 +137,13 @@ describe("design-system", () => {
   it("renders primitive components on the server", () => {
     const markup = renderToString(
       <Card>
-        <CardHeader>
-          <CardTitle>Listing tools</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <div>
+          <h2>Listing tools</h2>
           <Button>Save</Button>
-          <Badge variant="success">Ready</Badge>
+          <Badge tone="success">Ready</Badge>
           <TextInput label="Card" hideLabel defaultValue="Charizard" />
           <Textarea label="Seller note" hideLabel defaultValue="Seller note" />
-        </CardContent>
+        </div>
       </Card>,
     );
 
@@ -574,7 +565,7 @@ describe("design-system", () => {
             reviewCount={1}
             ratingLabel="Account reputation"
           />
-          <Badge variant="success">Account</Badge>
+          <Badge tone="success">Account</Badge>
         </div>
         <OfferCard
           title="Offer pending"
@@ -1437,7 +1428,7 @@ describe("design-system", () => {
       <WorkflowModule
         title="Activation readiness"
         description="Review blocking checks before activation."
-        status={<Badge variant="warning">Blocked</Badge>}
+        status={<Badge tone="warning">Blocked</Badge>}
         actions={
           <>
             <Button tone="secondary" size="sm">
@@ -1595,24 +1586,11 @@ describe("design-system", () => {
   });
 
   it("renders tables with headers and rows", () => {
-    const markup = renderToString(
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow>
-            <TableCell data-label="Name">Pikachu</TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>,
-    );
+    const markup = renderToString(<Table caption="Pokemon" columns={["Name"]} rows={[["Pikachu"]]} />);
 
     expect(markup).toContain("Name");
     expect(markup).toContain("Pikachu");
-    expect(markup).toContain('data-label="Name"');
+    expect(markup).toContain("Pokemon");
   });
 
   it("renders navigation headers with active links", () => {
@@ -1808,7 +1786,7 @@ describe("design-system", () => {
 
   it("renders action tabs with a scroll-stable panel frame", () => {
     const markup = renderToString(
-      <ActionTabs
+      <Tabs
         items={[
           { value: "listings", label: "Listings", content: <div>Listings content</div> },
           { value: "offers", label: "Offers", content: <div>Offers content</div> },

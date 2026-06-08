@@ -6,11 +6,13 @@ import {
 } from "@stripe/connect-js/pure";
 import { useEffect, useRef, useState } from "react";
 import {
+  HiddenInput,
   Form,
   Badge,
   Banner,
   Button,
   Card,
+  Inline,
   LinkButton,
   LoadingSpinner,
   Page,
@@ -19,7 +21,6 @@ import {
   ProgressiveDisclosure,
   Stack,
   Text,
-  UiInline,
 } from "@chase-sets/design-system";
 import type { SettlementPayoutReadinessRow } from "../read-model/queries";
 import { buildMissingRequirementGroups, type MissingRequirementGroup } from "../domain/setup-progress";
@@ -268,14 +269,14 @@ export function StripeConnectEmbeddedComponent({
             errorMessage ?? t("settlement.features.payoutReadiness.ui.payoutSetupPage.setup.session.may.have.expired")
           }
           actions={
-            <UiInline>
+            <Inline>
               <Button type="button" tone="secondary" onClick={() => setRetryCount((value) => value + 1)}>
                 {t("settlement.features.payoutReadiness.ui.payoutSetupPage.retry")}
               </Button>
               <LinkButton href="/account/support" tone="secondary">
                 {t("settlement.features.payoutReadiness.ui.payoutSetupPage.contact.support")}
               </LinkButton>
-            </UiInline>
+            </Inline>
           }
         />
       ) : null}
@@ -374,8 +375,8 @@ export function PayoutSetupPage({
               </ProgressiveDisclosure>
             ) : null}
             <Form spacing="none" method="post">
-              <input type="hidden" name="intent" value="refresh-payout-setup" />
-              <input type="hidden" name="mode" value={mode} />
+              <HiddenInput type="hidden" name="intent" value="refresh-payout-setup" />
+              <HiddenInput type="hidden" name="mode" value={mode} />
               <Button type="submit" tone="secondary">
                 {t("settlement.features.payoutReadiness.ui.payoutSetupPage.refresh.setup.status")}
               </Button>
@@ -395,14 +396,14 @@ export function PayoutSetupPage({
                   reason: providerErrorMessage,
                 })}
                 actions={
-                  <UiInline>
+                  <Inline>
                     <LinkButton href={modeHref(mode)} tone="secondary">
                       {t("settlement.features.payoutReadiness.ui.payoutSetupPage.retry")}
                     </LinkButton>
                     <LinkButton href="/account/support" tone="secondary">
                       {t("settlement.features.payoutReadiness.ui.payoutSetupPage.contact.support")}
                     </LinkButton>
-                  </UiInline>
+                  </Inline>
                 }
               />
             ) : null}

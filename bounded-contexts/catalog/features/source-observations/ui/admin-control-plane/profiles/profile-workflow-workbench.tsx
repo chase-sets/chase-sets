@@ -13,6 +13,7 @@ import {
   StatGrid,
   StatusPill,
   TaskSummary,
+  Text,
   WorkflowActionBar,
   WorkflowModule,
   WorkflowReadinessChecklist,
@@ -228,11 +229,15 @@ export function CatalogIntegrationAreaWorkbench({
         items={areaItems}
       />
       {loading ? (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.selected.profile.context")}
-        </p>
+        </Text>
       ) : null}
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {error ? (
+        <Text size="sm" tone="danger">
+          {error}
+        </Text>
+      ) : null}
       <Inline gap={2}>
         {area === "authoring" ? (
           <Button
@@ -446,11 +451,15 @@ function ImportJobOperationsWorkflow({
           },
         ]}
       />
-      {error ? <p className="text-sm text-danger">{error}</p> : null}
+      {error ? (
+        <Text size="sm" tone="danger">
+          {error}
+        </Text>
+      ) : null}
       {loading ? (
-        <p className="text-sm text-secondary">
+        <Text size="sm" tone="secondary">
           {t("catalog.features.sourceObservations.ui.integrationManagementPage.loading.active.jobs")}
-        </p>
+        </Text>
       ) : null}
       {jobs.length > 0 ? (
         <DataTable
@@ -513,11 +522,11 @@ function SourceObservationReviewWorkflow({
           value={formatCount(summary.promoted)}
         />
       </StatGrid>
-      <p className="text-sm text-secondary">
+      <Text size="sm" tone="secondary">
         {t(
           "catalog.features.sourceObservations.ui.integrationManagementPage.review.source.observations.by.provider.unit.profile.scope.status.provenance.facts.condition.certification.evidence.and.diagnostics",
         )}
-      </p>
+      </Text>
     </WorkflowModule>
   );
 }
@@ -687,7 +696,9 @@ const operationsJobColumns: DataColumn<CatalogIntegrationOperationsJob>[] = [
           <StatusPill tone={jobStatusTone(row.status)}>{row.operatorStatus}</StatusPill>
           <span>{row.action}</span>
         </Inline>
-        <span className="text-xs text-secondary">{row.jobId}</span>
+        <Text element="span" size="xs" tone="secondary">
+          {row.jobId}
+        </Text>
       </Stack>
     ),
   },
@@ -700,9 +711,9 @@ const operationsJobColumns: DataColumn<CatalogIntegrationOperationsJob>[] = [
           <span>
             {row.profileSnapshot.providerKey} {row.profileSnapshot.profileVersion}
           </span>
-          <span className="text-xs text-secondary">
+          <Text element="span" size="xs" tone="secondary">
             {row.profileSnapshot.profileKey} - {row.profileSnapshot.lifecycle}
-          </span>
+          </Text>
         </Stack>
       ) : (
         t("catalog.features.sourceObservations.ui.integrationManagementPage.no.snapshot")
@@ -738,7 +749,9 @@ const recentUnitJobColumns: DataColumn<
           <StatusPill tone={jobStatusTone(row.operatorStatus)}>{row.operatorStatus}</StatusPill>
           <span>{row.action}</span>
         </Inline>
-        <span className="text-xs text-secondary">{row.jobId}</span>
+        <Text element="span" size="xs" tone="secondary">
+          {row.jobId}
+        </Text>
       </Stack>
     ),
   },
@@ -755,7 +768,9 @@ const recentUnitJobColumns: DataColumn<
         <span>
           {row.providerKey} {row.profileVersion ?? "No profile"}
         </span>
-        <span className="text-xs text-secondary">{row.summary}</span>
+        <Text element="span" size="xs" tone="secondary">
+          {row.summary}
+        </Text>
       </Stack>
     ),
   },

@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import { useEffect, useState, type ReactNode } from "react";
 import {
+  HiddenInput,
   Form,
   Button,
   Badge,
@@ -170,7 +171,7 @@ export function InventoryItemListPage({
         <Card>
           <Form spacing="none" method="post">
             <Grid columns={{ base: 1, lg: 2 }} gap={5}>
-              <input type="hidden" name="intent" value="create-item" />
+              <HiddenInput type="hidden" name="intent" value="create-item" />
               <Stack gap={3}>
                 <TextInput
                   label={t("inventory.features.inventoryItems.ui.inventoryItemListPage.catalog.item.id")}
@@ -185,7 +186,7 @@ export function InventoryItemListPage({
                     "inventory.features.inventoryItems.ui.inventoryItemListPage.enter.a.catalog.item.id.to",
                   )}
                 />
-                <input type="hidden" name="selectedOptions" value={serializedVersionSelection} />
+                <HiddenInput type="hidden" name="selectedOptions" value={serializedVersionSelection} />
                 {catalogLookupPending ? (
                   <Text size="sm" tone="secondary">
                     {t("inventory.features.inventoryItems.ui.inventoryItemListPage.loading.catalog.item")}

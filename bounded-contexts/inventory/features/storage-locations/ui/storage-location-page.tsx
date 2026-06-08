@@ -1,5 +1,6 @@
 import { t } from "@chase-sets/localization";
 import {
+  HiddenInput,
   Form,
   Badge,
   Button,
@@ -86,16 +87,16 @@ function ShipFromAddressFields({ address }: { address?: InventoryStorageLocation
 function ShipFromAddressHiddenFields({ address }: { address: InventoryStorageLocation["ship_from_address"] }) {
   return (
     <>
-      <input type="hidden" name="shipFromName" value={address.name} />
-      <input type="hidden" name="shipFromCompany" value={address.company ?? ""} />
-      <input type="hidden" name="shipFromLine1" value={address.line1} />
-      <input type="hidden" name="shipFromLine2" value={address.line2 ?? ""} />
-      <input type="hidden" name="shipFromCity" value={address.city} />
-      <input type="hidden" name="shipFromState" value={address.state} />
-      <input type="hidden" name="shipFromPostalCode" value={address.postalCode} />
-      <input type="hidden" name="shipFromCountry" value={address.country} />
-      <input type="hidden" name="shipFromPhone" value={address.phone ?? ""} />
-      <input type="hidden" name="shipFromEmail" value={address.email ?? ""} />
+      <HiddenInput type="hidden" name="shipFromName" value={address.name} />
+      <HiddenInput type="hidden" name="shipFromCompany" value={address.company ?? ""} />
+      <HiddenInput type="hidden" name="shipFromLine1" value={address.line1} />
+      <HiddenInput type="hidden" name="shipFromLine2" value={address.line2 ?? ""} />
+      <HiddenInput type="hidden" name="shipFromCity" value={address.city} />
+      <HiddenInput type="hidden" name="shipFromState" value={address.state} />
+      <HiddenInput type="hidden" name="shipFromPostalCode" value={address.postalCode} />
+      <HiddenInput type="hidden" name="shipFromCountry" value={address.country} />
+      <HiddenInput type="hidden" name="shipFromPhone" value={address.phone ?? ""} />
+      <HiddenInput type="hidden" name="shipFromEmail" value={address.email ?? ""} />
     </>
   );
 }
@@ -132,7 +133,7 @@ export function StorageLocationPage({
         <Card>
           <Form spacing="none" method="post">
             <Stack gap={3}>
-              <input type="hidden" name="intent" value="create-location" />
+              <HiddenInput type="hidden" name="intent" value="create-location" />
               <TextInput
                 label={t("inventory.features.storageLocations.ui.storageLocationPage.name")}
                 name="name"
@@ -173,8 +174,8 @@ export function StorageLocationPage({
                 </Stack>
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
-                    <input type="hidden" name="intent" value="update-location" />
-                    <input type="hidden" name="storageLocationId" value={location.storage_location_id} />
+                    <HiddenInput type="hidden" name="intent" value="update-location" />
+                    <HiddenInput type="hidden" name="storageLocationId" value={location.storage_location_id} />
                     <TextInput
                       label={t("inventory.features.storageLocations.ui.storageLocationPage.name.2")}
                       name="name"
@@ -201,11 +202,11 @@ export function StorageLocationPage({
                 </Form>
                 {!location.is_archived ? (
                   <Form spacing="none" method="post">
-                    <input type="hidden" name="intent" value="archive-location" />
-                    <input type="hidden" name="storageLocationId" value={location.storage_location_id} />
-                    <input type="hidden" name="name" value={location.name} />
-                    <input type="hidden" name="description" value={location.description ?? ""} />
-                    <input type="hidden" name="shipFromCode" value={location.ship_from_code} />
+                    <HiddenInput type="hidden" name="intent" value="archive-location" />
+                    <HiddenInput type="hidden" name="storageLocationId" value={location.storage_location_id} />
+                    <HiddenInput type="hidden" name="name" value={location.name} />
+                    <HiddenInput type="hidden" name="description" value={location.description ?? ""} />
+                    <HiddenInput type="hidden" name="shipFromCode" value={location.ship_from_code} />
                     <ShipFromAddressHiddenFields address={location.ship_from_address} />
                     <Button type="submit" tone="danger">
                       {t("inventory.features.storageLocations.ui.storageLocationPage.archive.location")}

@@ -1,6 +1,7 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import type { ReactNode } from "react";
 import {
+  HiddenInput,
   Form,
   Badge,
   Button,
@@ -401,7 +402,7 @@ export function MarketplaceListingDetailPage({
           <Card>
             <Form spacing="none" method="post" encType="multipart/form-data">
               <Stack gap={3}>
-                <input type="hidden" name="intent" value="add-photos" />
+                <HiddenInput type="hidden" name="intent" value="add-photos" />
                 <FileDropzone
                   label={t("marketplace.features.listings.ui.listingDetailPage.listing.photos")}
                   description={t("marketplace.features.listings.ui.listingDetailPage.listing.photos.description")}
@@ -481,7 +482,7 @@ export function MarketplaceListingDetailPage({
                   inputMode="decimal"
                   required
                 />
-                <input
+                <HiddenInput
                   type="hidden"
                   name="feeQuoteFingerprint"
                   value={pricePreview?.fee_quote_fingerprint ?? listing.fee_quote_fingerprint}
@@ -523,8 +524,8 @@ export function MarketplaceListingDetailPage({
           <Card>
             <Form spacing="none" method="post">
               <Stack gap={3}>
-                <input type="hidden" name="intent" value="update-quantity-cap" />
-                <input type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
+                <HiddenInput type="hidden" name="intent" value="update-quantity-cap" />
+                <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
                 <NumberInput
                   label={t("marketplace.features.listings.ui.listingDetailPage.quantity.cap.2")}
                   name="quantityCap"
@@ -550,7 +551,7 @@ export function MarketplaceListingDetailPage({
             <Card>
               <Form spacing="none" method="post">
                 <Stack gap={3}>
-                  <input type="hidden" name="intent" value="update-purchase-limits" />
+                  <HiddenInput type="hidden" name="intent" value="update-purchase-limits" />
                   <Inline>
                     <NumberInput
                       label={t("marketplace.features.listings.ui.listingDetailPage.limit.per.order")}
@@ -589,14 +590,14 @@ export function MarketplaceListingDetailPage({
           <Card>
             <Stack gap={3}>
               <Form spacing="none" method="post">
-                <input type="hidden" name="intent" value="publish" />
-                <input type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
+                <HiddenInput type="hidden" name="intent" value="publish" />
+                <HiddenInput type="hidden" name="feeQuoteFingerprint" value={listing.fee_quote_fingerprint} />
                 <Button type="submit" disabled={listing.status === "active" || listing.status === "withdrawn"}>
                   {t("marketplace.features.listings.ui.listingDetailPage.publish.listing")}
                 </Button>
               </Form>
               <Form spacing="none" method="post">
-                <input type="hidden" name="intent" value="pause" />
+                <HiddenInput type="hidden" name="intent" value="pause" />
                 <Button type="submit" tone="secondary" disabled={listing.status !== "active"}>
                   {t("marketplace.features.listings.ui.listingDetailPage.pause.listing")}
                 </Button>
@@ -612,7 +613,7 @@ export function MarketplaceListingDetailPage({
               >
                 <Form spacing="none" method="post">
                   <Stack gap={3}>
-                    <input type="hidden" name="intent" value="withdraw" />
+                    <HiddenInput type="hidden" name="intent" value="withdraw" />
                     <Button type="submit" tone="danger">
                       {t("marketplace.features.listings.ui.listingDetailPage.withdraw.listing")}
                     </Button>

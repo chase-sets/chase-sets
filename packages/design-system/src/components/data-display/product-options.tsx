@@ -84,6 +84,8 @@ export interface ProductOptionsProps {
   options?: readonly ProductOptionDisplayValue[];
   emptyLabel?: ReactNode;
   variant?: ProductOptionsVariant;
+  size?: "xs" | "sm";
+  truncate?: boolean;
   className?: string;
   "aria-label"?: string;
 }
@@ -92,6 +94,8 @@ export function ProductOptions({
   options = [],
   emptyLabel = "No product options selected",
   variant = "inline",
+  size,
+  truncate = false,
   className,
   "aria-label": ariaLabel,
 }: ProductOptionsProps) {
@@ -125,8 +129,12 @@ export function ProductOptions({
     <span
       className={cn(
         variant === "compact"
-          ? "inline min-w-0 text-xs font-semibold leading-4 text-[var(--foreground)]"
+          ? cn(
+              "inline min-w-0 font-semibold text-[var(--foreground)]",
+              size === "sm" ? "text-sm leading-5" : "text-xs leading-4",
+            )
           : "inline min-w-0 text-sm font-semibold leading-5 text-[var(--foreground)]",
+        truncate && "block max-w-full truncate",
         className,
       )}
       aria-label={label}

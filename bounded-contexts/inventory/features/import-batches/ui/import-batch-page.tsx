@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { useEffect, useState } from "react";
 import { subscribeDurableJobStatus } from "@chase-sets/platform-runtime/durable-job-web";
 import {
+  HiddenInput,
   Form,
   Badge,
   Button,
@@ -172,7 +173,7 @@ export function InventoryImportBatchPage({
         <Card>
           <Form spacing="none" method="post" encType="multipart/form-data">
             <Stack gap={3}>
-              <input type="hidden" name="intent" value="create-batch" />
+              <HiddenInput type="hidden" name="intent" value="create-batch" />
               <Inline>
                 <NativeSelect
                   label={t("inventory.features.importBatches.ui.importBatchPage.import.source")}
@@ -243,8 +244,8 @@ export function InventoryImportBatchPage({
             {canCommit ? (
               <Card>
                 <Form spacing="none" method="post">
-                  <input type="hidden" name="intent" value="commit-batch" />
-                  <input type="hidden" name="batchId" value={detail.batch_id} />
+                  <HiddenInput type="hidden" name="intent" value="commit-batch" />
+                  <HiddenInput type="hidden" name="batchId" value={detail.batch_id} />
                   <Inline>
                     <Text>
                       {t("inventory.features.importBatches.ui.importBatchPage.accepted.rows.ready", {

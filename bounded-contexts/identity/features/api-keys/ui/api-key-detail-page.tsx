@@ -1,5 +1,5 @@
 import { t } from "@chase-sets/localization";
-import { Form, Button, Inline } from "@chase-sets/design-system";
+import { HiddenInput, Form, Button, Inline } from "@chase-sets/design-system";
 import { AdminDetailPage } from "../../../support/shell-support/ui/admin-pages";
 import type { ApiKey } from "./contracts";
 
@@ -18,13 +18,13 @@ export function ApiKeyDetailPage({ data }: { data: ApiKey }) {
           {data.status === "active" ? (
             <>
               <Form spacing="none" method="post">
-                <input type="hidden" name="intent" value="rotate" readOnly />
+                <HiddenInput type="hidden" name="intent" value="rotate" readOnly />
                 <Button type="submit" tone="secondary">
                   {t("identity.features.apiKeys.ui.apiKeyDetailPage.rotate")}
                 </Button>
               </Form>
               <Form spacing="none" method="post">
-                <input type="hidden" name="intent" value="revoke" readOnly />
+                <HiddenInput type="hidden" name="intent" value="revoke" readOnly />
                 <Button type="submit" tone="danger">
                   {t("identity.features.apiKeys.ui.apiKeyDetailPage.revoke")}
                 </Button>
