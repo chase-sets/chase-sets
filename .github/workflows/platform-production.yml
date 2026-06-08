@@ -311,6 +311,25 @@ jobs:
         with:
           token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
 
+      - name: Package staged doctl binary
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        run: |
+          set -euo pipefail
+          doctl_path="$(command -v doctl)"
+          mkdir -p artifacts/deploy-tools/doctl
+          cp "$doctl_path" artifacts/deploy-tools/doctl/doctl
+          chmod +x artifacts/deploy-tools/doctl/doctl
+          ./artifacts/deploy-tools/doctl/doctl version
+
+      - name: Upload staged doctl binary
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: staged-doctl-linux-amd64
+          path: artifacts/deploy-tools/doctl/doctl
+          if-no-files-found: error
+          retention-days: 1
+
       - name: Terraform init staging environment DNS
         if: steps.latest_main.outputs.should_deploy != 'false'
         working-directory: infrastructure/digitalocean/environment-dns
@@ -1223,12 +1242,23 @@ jobs:
         env:
           NODE_OPTIONS: --no-deprecation
 
-      - uses: digitalocean/action-doctl@v2.5.2
+      - name: Download staged doctl binary
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        uses: actions/download-artifact@v7
+        with:
+          name: staged-doctl-linux-amd64
+          path: artifacts/deploy-tools/doctl
+
+      - name: Install staged doctl binary
         if: steps.latest_main.outputs.should_deploy != 'false'
         env:
-          NODE_OPTIONS: --no-deprecation
-        with:
-          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+          DIGITALOCEAN_ACCESS_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          install -m 0755 artifacts/deploy-tools/doctl/doctl "$RUNNER_TEMP/doctl"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/doctl" version
+          "$RUNNER_TEMP/doctl" auth init --access-token "$DIGITALOCEAN_ACCESS_TOKEN"
 
       - uses: docker/setup-buildx-action@v4
         if: steps.latest_main.outputs.should_deploy != 'false'
