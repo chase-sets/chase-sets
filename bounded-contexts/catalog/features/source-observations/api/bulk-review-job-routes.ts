@@ -8,6 +8,10 @@ import {
   promotionScopeToIntegrationScope,
   streamBulkJobEvents,
 } from "./route-helpers";
+import {
+  CatalogIntegrationRolloutControlError,
+  rolloutControlErrorResponse,
+} from "./catalog-integration-rollout-controls";
 
 export type BulkReviewJobRouteServices = BulkReviewJobServices & Pick<IntegrationJobServices, "enqueueIntegrationJob">;
 
@@ -21,20 +25,36 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     };
 
     if (body.scope) {
-      const job = await services.enqueueIntegrationJob({
-        action: "reapply",
-        scope: promotionScopeToIntegrationScope(parsePromotionScope(body.scope)),
-        context: c.get("context"),
-      });
+      let job;
+      try {
+        job = await services.enqueueIntegrationJob({
+          action: "reapply",
+          scope: promotionScopeToIntegrationScope(parsePromotionScope(body.scope)),
+          context: c.get("context"),
+        });
+      } catch (error) {
+        if (error instanceof CatalogIntegrationRolloutControlError) {
+          return c.json(rolloutControlErrorResponse(error), 403);
+        }
+        throw error;
+      }
 
       return c.json(job, 202);
     }
 
-    const job = await services.enqueueBulkReviewJob({
-      action: "reapply",
-      observationIds: parseObservationIds(body.observationIds),
-      context: c.get("context"),
-    });
+    let job;
+    try {
+      job = await services.enqueueBulkReviewJob({
+        action: "reapply",
+        observationIds: parseObservationIds(body.observationIds),
+        context: c.get("context"),
+      });
+    } catch (error) {
+      if (error instanceof CatalogIntegrationRolloutControlError) {
+        return c.json(rolloutControlErrorResponse(error), 403);
+      }
+      throw error;
+    }
 
     return c.json(job, 202);
   });
@@ -44,12 +64,20 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       observationIds?: unknown;
       scope?: unknown;
     };
-    const job = await services.enqueueBulkReviewJob({
-      action: "promote",
-      observationIds: parseObservationIds(body.observationIds),
-      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
-      context: c.get("context"),
-    });
+    let job;
+    try {
+      job = await services.enqueueBulkReviewJob({
+        action: "promote",
+        observationIds: parseObservationIds(body.observationIds),
+        scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+        context: c.get("context"),
+      });
+    } catch (error) {
+      if (error instanceof CatalogIntegrationRolloutControlError) {
+        return c.json(rolloutControlErrorResponse(error), 403);
+      }
+      throw error;
+    }
 
     return c.json(job, 202);
   });
@@ -60,12 +88,20 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       scope?: unknown;
     };
 
-    const job = await services.enqueueBulkReviewJob({
-      action: "promote",
-      observationIds: parseObservationIds(body.observationIds),
-      scope: body.scope ? parsePromotionScope(body.scope) : undefined,
-      context: c.get("context"),
-    });
+    let job;
+    try {
+      job = await services.enqueueBulkReviewJob({
+        action: "promote",
+        observationIds: parseObservationIds(body.observationIds),
+        scope: body.scope ? parsePromotionScope(body.scope) : undefined,
+        context: c.get("context"),
+      });
+    } catch (error) {
+      if (error instanceof CatalogIntegrationRolloutControlError) {
+        return c.json(rolloutControlErrorResponse(error), 403);
+      }
+      throw error;
+    }
 
     return c.json(job, 202);
   });

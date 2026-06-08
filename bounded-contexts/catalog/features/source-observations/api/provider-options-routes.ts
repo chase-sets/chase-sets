@@ -5,6 +5,10 @@ import type {
   ProviderOptionQueryServices,
   SourceObservationReadServices,
 } from "./runtime";
+import {
+  CatalogIntegrationRolloutControlError,
+  rolloutControlErrorResponse,
+} from "./catalog-integration-rollout-controls";
 
 export type ProviderOptionRouteServices = SourceObservationReadServices &
   ProviderOptionQueryServices &
@@ -25,12 +29,20 @@ export function providerOptionRoutes(services: ProviderOptionRouteServices) {
   });
 
   app.get("/integration-options", async (c) => {
-    const items = await services.listIntegrationOptions({
-      providerKey: String(c.req.query("providerKey") ?? c.req.query("provider") ?? "tcgdex"),
-      queryKind: String(c.req.query("queryKind") ?? c.req.query("kind") ?? ""),
-      languageCode: c.req.query("languageCode") ?? c.req.query("language"),
-      parentValue: c.req.query("parentValue") ?? c.req.query("seriesId") ?? c.req.query("series"),
-    });
+    let items;
+    try {
+      items = await services.listIntegrationOptions({
+        providerKey: String(c.req.query("providerKey") ?? c.req.query("provider") ?? "tcgdex"),
+        queryKind: String(c.req.query("queryKind") ?? c.req.query("kind") ?? ""),
+        languageCode: c.req.query("languageCode") ?? c.req.query("language"),
+        parentValue: c.req.query("parentValue") ?? c.req.query("seriesId") ?? c.req.query("series"),
+      });
+    } catch (error) {
+      if (error instanceof CatalogIntegrationRolloutControlError) {
+        return c.json(rolloutControlErrorResponse(error), 403);
+      }
+      throw error;
+    }
 
     return c.json({ items, total: items.length, count: items.length });
   });

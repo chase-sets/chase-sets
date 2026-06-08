@@ -32,11 +32,17 @@ import type {
   SourceObservationIntegrationJob,
 } from "./runtime";
 import { authoringAuditFromContext, isRecord, readJsonObject, toJsonValue } from "./route-helpers";
+import {
+  CatalogIntegrationRolloutControlError,
+  rolloutControlErrorResponse,
+  type CatalogIntegrationRolloutControlPolicy,
+} from "./catalog-integration-rollout-controls";
 
 export type ProviderProfileRouteServices = ProviderProfileAdminServices &
   Partial<Pick<CatalogIntegrationEngineServices, "previewDuplicatePreventionCandidates">> &
   Partial<Pick<IntegrationJobServices, "listActiveIntegrationJobs">> &
-  Partial<Pick<BulkReviewJobServices, "listActiveBulkReviewJobs">>;
+  Partial<Pick<BulkReviewJobServices, "listActiveBulkReviewJobs">> &
+  Partial<Pick<CatalogIntegrationEngineServices, "assertCatalogIntegrationRolloutAllowed">>;
 
 export function providerProfileRoutes(
   services: ProviderProfileRouteServices,
@@ -193,6 +199,10 @@ export function providerProfileRoutes(
 
     let result;
     try {
+      await assertActivationRolloutAllowed(services, profileVersions, {
+        providerKey: c.req.param("providerKey"),
+        profileVersion: c.req.param("profileVersion"),
+      });
       result = await activateCatalogProviderProfileVersionForReview({
         store: profileVersions,
         providerKey: c.req.param("providerKey"),
@@ -200,6 +210,9 @@ export function providerProfileRoutes(
         activeJobs: await listProfileLifecycleBlockingJobs(services, c.get("context")),
       });
     } catch (error) {
+      if (error instanceof CatalogIntegrationRolloutControlError) {
+        return c.json(rolloutControlErrorResponse(error), 403);
+      }
       if (error instanceof CatalogProviderProfileLifecycleConsistencyError) {
         return lifecycleConsistencyErrorResponse(c, error);
       }
@@ -305,6 +318,27 @@ export function providerProfileRoutes(
   });
 
   return app;
+}
+
+async function assertActivationRolloutAllowed(
+  services: Readonly<{
+    assertCatalogIntegrationRolloutAllowed?: CatalogIntegrationRolloutControlPolicy["assertAllowed"];
+  }>,
+  profileVersions: CatalogProviderIntegrationProfileVersionStore,
+  input: Readonly<{ providerKey: string; profileVersion: string }>,
+): Promise<void> {
+  if (!services.assertCatalogIntegrationRolloutAllowed) {
+    return;
+  }
+
+  const version = await profileVersions.getProfileVersion(input.providerKey, input.profileVersion);
+  services.assertCatalogIntegrationRolloutAllowed({
+    capability: "activation",
+    providerKey: input.providerKey,
+    profileKey: version?.profileKey ?? null,
+    profileVersion: input.profileVersion,
+    profileLifecycle: version?.lifecycle ?? null,
+  });
 }
 
 async function listProfileLifecycleBlockingJobs(

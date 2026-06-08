@@ -17,6 +17,7 @@ import type {
   CatalogIntegrationRecentJobSummary,
   CatalogIntegrationControlPlaneUnitReadiness,
   CatalogIntegrationProviderReadiness,
+  CatalogIntegrationRolloutControl,
   CatalogProviderProfileVersionReview,
 } from "../../contracts";
 
@@ -154,6 +155,7 @@ function CatalogIntegrationControlPlaneReadinessPanel({
           },
         ]}
       />
+      <CatalogIntegrationRolloutControlsPanel overview={overview} loading={loading} />
       {units.length > 0 ? (
         <Stack gap={2}>
           {units.map((unit) => {
@@ -175,6 +177,75 @@ function CatalogIntegrationControlPlaneReadinessPanel({
       <CatalogIntegrationProviderReadinessPanel overview={overview} loading={loading} />
       <CatalogIntegrationAuditLifecyclePanel overview={overview} loading={loading} />
     </Stack>
+  );
+}
+
+function CatalogIntegrationRolloutControlsPanel({
+  overview,
+  loading,
+}: Readonly<{
+  overview: CatalogIntegrationControlPlaneOverview | null;
+  loading: boolean;
+}>) {
+  const controls = overview?.readiness.rolloutControls.controls ?? [];
+  const activeControls = controls.filter((control) => control.status !== "open");
+  const blockedControls = activeControls.filter((control) => control.status === "blocked").length;
+
+  return (
+    <Stack gap={2}>
+      <Inline gap={2} align="center" wrap>
+        <h3>{t("catalog.features.sourceObservations.ui.integrationManagementPage.rollout.controls")}</h3>
+        {activeControls.length > 0 ? (
+          <StatusPill tone={blockedControls > 0 ? "danger" : "warning"}>
+            {blockedControls > 0
+              ? t("catalog.features.sourceObservations.ui.integrationManagementPage.blocked")
+              : t("catalog.features.sourceObservations.ui.integrationManagementPage.degraded")}
+          </StatusPill>
+        ) : null}
+      </Inline>
+      <TaskSummary
+        title={t("catalog.features.sourceObservations.ui.integrationManagementPage.rollout.control.summary")}
+        items={[
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.active.controls"),
+            value: overview
+              ? `${activeControls.length}/${controls.length}`
+              : loading
+                ? t("catalog.features.sourceObservations.ui.integrationManagementPage.loading")
+                : t("catalog.features.sourceObservations.ui.integrationManagementPage.not.loaded"),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.blocked.controls"),
+            value: String(blockedControls),
+          },
+          {
+            label: t("catalog.features.sourceObservations.ui.integrationManagementPage.generated"),
+            value: overview
+              ? formatDateTime(overview.readiness.rolloutControls.generatedAt)
+              : loading
+                ? t("catalog.features.sourceObservations.ui.integrationManagementPage.loading")
+                : t("catalog.features.sourceObservations.ui.integrationManagementPage.not.loaded"),
+          },
+        ]}
+      />
+      {activeControls.map((control) => (
+        <CatalogIntegrationRolloutControlBanner key={control.controlId} control={control} />
+      ))}
+    </Stack>
+  );
+}
+
+function CatalogIntegrationRolloutControlBanner({ control }: Readonly<{ control: CatalogIntegrationRolloutControl }>) {
+  return (
+    <OperationalStatusBanner
+      tone={control.status === "blocked" ? "danger" : "warning"}
+      title={control.controlId}
+      description={t("catalog.features.sourceObservations.ui.integrationManagementPage.rollout.control.description", {
+        message: control.message,
+        metricKey: control.metricKey,
+        ownerIssue: String(control.ownerIssue),
+      })}
+    />
   );
 }
 
