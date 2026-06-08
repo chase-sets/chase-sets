@@ -318,7 +318,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
-          terraform init \
+          ../../../scripts/terraform-init-with-retry.sh \
             -backend-config=bucket=chase-sets-terraform-state \
             -backend-config=key=environment-dns/staging.tfstate \
             -backend-config=region=us-east-1 \
@@ -388,7 +388,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
-          terraform init \
+          ../../../scripts/terraform-init-with-retry.sh \
             -backend-config=bucket=chase-sets-terraform-state \
             -backend-config=key=landing/staging.tfstate \
             -backend-config=region=us-east-1 \
@@ -1263,7 +1263,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
         run: |
-          terraform init \
+          ../../../scripts/terraform-init-with-retry.sh \
             -backend-config=bucket=chase-sets-terraform-state \
             -backend-config=key=landing/production.tfstate \
             -backend-config=region=us-east-1 \
