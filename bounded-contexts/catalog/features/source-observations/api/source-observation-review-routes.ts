@@ -7,6 +7,7 @@ import {
   CatalogIntegrationRolloutControlError,
   rolloutControlErrorResponse,
 } from "./catalog-integration-rollout-controls";
+import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type SourceObservationReadReviewRouteServices = SourceObservationReadServices & SourceObservationReviewServices;
 
@@ -14,6 +15,11 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.get("/", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "source-observation-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const { search, status, limit, offset, provider, source, language, setId, expansionId } = c.req.query();
     const result = await services.listSourceObservations({
       search,
@@ -28,6 +34,11 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
   });
 
   app.get("/:id", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "source-observation-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const observation = await services.getSourceObservationDetail(c.req.param("id"));
     if (!observation) {
       return c.json(
@@ -48,6 +59,11 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
   });
 
   app.post("/:id/promote", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "source-observation-review");
+    if (permissionError) {
+      return permissionError;
+    }
+
     let result;
     try {
       result = await services.promoteObservation({
@@ -65,6 +81,11 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
   });
 
   app.post("/:id/reject", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "source-observation-review");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = await c.req.json().catch(() => ({}));
     const result = await services.rejectObservation({
       observationId: c.req.param("id"),

@@ -37,6 +37,7 @@ import {
   rolloutControlErrorResponse,
   type CatalogIntegrationRolloutControlPolicy,
 } from "./catalog-integration-rollout-controls";
+import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type ProviderProfileRouteServices = ProviderProfileAdminServices &
   Partial<Pick<CatalogIntegrationEngineServices, "previewDuplicatePreventionCandidates">> &
@@ -52,11 +53,21 @@ export function providerProfileRoutes(
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.get("/provider-profiles", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const items = profileVersions ? await listCatalogProviderProfileVersionReviews(profileVersions) : [];
     return c.json({ items, total: items.length, count: items.length });
   });
 
   app.post("/provider-profiles", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-author");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
@@ -75,6 +86,11 @@ export function providerProfileRoutes(
   });
 
   app.get("/provider-profiles/:providerKey/:profileVersion/authoring", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
@@ -91,6 +107,11 @@ export function providerProfileRoutes(
   });
 
   app.patch("/provider-profiles/:providerKey/:profileVersion", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-author");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
@@ -120,6 +141,11 @@ export function providerProfileRoutes(
   });
 
   app.patch("/provider-profiles/:providerKey/:profileVersion/sections/:section", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-author");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
@@ -163,6 +189,11 @@ export function providerProfileRoutes(
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/dry-run", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-dry-run");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
@@ -194,6 +225,11 @@ export function providerProfileRoutes(
   });
 
   app.get("/provider-profiles/:providerKey/:profileVersion/lifecycle-impact", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const operation = parseLifecycleImpactOperation(c.req.query("operation"));
     if (!operation) {
       return c.json(
@@ -218,6 +254,11 @@ export function providerProfileRoutes(
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/activate", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-lifecycle");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
@@ -261,6 +302,11 @@ export function providerProfileRoutes(
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/clone", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-author");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
@@ -282,6 +328,11 @@ export function providerProfileRoutes(
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/rollback", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-lifecycle");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
@@ -302,6 +353,11 @@ export function providerProfileRoutes(
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/retire", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-lifecycle");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }
@@ -323,6 +379,11 @@ export function providerProfileRoutes(
   });
 
   app.post("/provider-profiles/:providerKey/:profileVersion/deprecate", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-profile-lifecycle");
+    if (permissionError) {
+      return permissionError;
+    }
+
     if (!profileVersions) {
       return c.json({ error: t("catalog.features.sourceObservations.api.route.profile.review.unavailable") }, 503);
     }

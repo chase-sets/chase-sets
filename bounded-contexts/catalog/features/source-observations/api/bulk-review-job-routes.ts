@@ -12,6 +12,7 @@ import {
   CatalogIntegrationRolloutControlError,
   rolloutControlErrorResponse,
 } from "./catalog-integration-rollout-controls";
+import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type BulkReviewJobRouteServices = BulkReviewJobServices & Pick<IntegrationJobServices, "enqueueIntegrationJob">;
 
@@ -19,6 +20,11 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/reapply", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
       scope?: unknown;
@@ -60,6 +66,11 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   });
 
   app.post("/bulk-promote/jobs", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
       scope?: unknown;
@@ -83,6 +94,11 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   });
 
   app.post("/bulk-promote", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
       scope?: unknown;
@@ -107,6 +123,11 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   });
 
   app.post("/bulk-reject", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
       scope?: unknown;
@@ -135,6 +156,11 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   });
 
   app.post("/bulk-reject/jobs", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
       scope?: unknown;
@@ -163,6 +189,11 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   });
 
   app.get("/bulk-jobs/active", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const items = await services.listActiveBulkReviewJobs({
       context: c.get("context"),
     });
@@ -171,6 +202,11 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   });
 
   app.get("/bulk-jobs/:jobId", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const job = await services.getBulkReviewJob(c.req.param("jobId"), c.get("context"));
     if (!job) {
       return c.json(
@@ -188,6 +224,11 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   });
 
   app.get("/bulk-jobs/:jobId/events", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-job-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const jobId = c.req.param("jobId");
     const job = await services.getBulkReviewJob(jobId, c.get("context"));
     if (!job) {

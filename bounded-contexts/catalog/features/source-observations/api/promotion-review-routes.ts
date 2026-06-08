@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogIntegrationEngineServices, PromotionReapplyServices } from "./runtime";
 import { parsePromotionScope } from "./route-helpers";
+import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type PromotionReviewRouteServices = Pick<
   PromotionReapplyServices,
@@ -14,6 +15,11 @@ export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/bulk-promote/preview", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "promotion-impact-preview");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = (await c.req.json().catch(() => ({}))) as {
       scope?: unknown;
     };
@@ -25,6 +31,11 @@ export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
   });
 
   app.post("/reapply/preview", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "promotion-impact-preview");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = (await c.req.json().catch(() => ({}))) as {
       scope?: unknown;
     };
@@ -36,6 +47,11 @@ export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
   });
 
   app.post("/reapply/impact", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "promotion-impact-preview");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = (await c.req.json().catch(() => ({}))) as {
       providerKey?: unknown;
       profileVersion?: unknown;

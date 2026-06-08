@@ -23,6 +23,14 @@ const context: EventStoreContext = {
   },
 };
 
+const manageActor: CatalogAuthoringEnv["Variables"]["actor"] = {
+  permissions: ["catalog.view", "catalog.manage"],
+};
+
+const viewOnlyActor: CatalogAuthoringEnv["Variables"]["actor"] = {
+  permissions: ["catalog.view"],
+};
+
 function rolloutDenied(
   input: Parameters<ReturnType<typeof createCatalogIntegrationRolloutControlPolicy>["decide"]>[0],
 ) {
@@ -43,10 +51,12 @@ function rolloutDenied(
 function buildApp(
   services: SourceObservationRouteServices,
   profileVersions?: CatalogProviderIntegrationProfileVersionStore,
+  actor: CatalogAuthoringEnv["Variables"]["actor"] = manageActor,
 ) {
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.use("/source-observations/*", async (c, next) => {
+    c.set("actor", actor);
     c.set("context", context);
     await next();
   });
@@ -56,6 +66,75 @@ function buildApp(
 }
 
 describe("source observation routes", () => {
+  it("requires catalog.view for control-plane reads", async () => {
+    const listSourceObservations = vi.fn(async () => ({ items: [], total: 0 }));
+    const app = buildApp({ listSourceObservations } as unknown as SourceObservationRouteServices, undefined, null);
+
+    const response = await app.request("/source-observations?source=tcgdex");
+
+    expect(response.status).toBe(401);
+    expect(listSourceObservations).not.toHaveBeenCalled();
+  });
+
+  it("allows catalog.view actors to inspect control-plane read endpoints", async () => {
+    const getCatalogIntegrationControlPlaneReadiness = vi.fn(async () => ({
+      generatedAt: "2026-06-08T00:00:00.000Z",
+      overallStatus: "ready",
+      providerReadiness: [],
+      diagnostics: [],
+    }));
+    const app = buildApp(
+      { getCatalogIntegrationControlPlaneReadiness } as unknown as SourceObservationRouteServices,
+      undefined,
+      viewOnlyActor,
+    );
+
+    const response = await app.request("/source-observations/integration-control-plane/readiness");
+
+    expect(response.status).toBe(200);
+    expect(getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledOnce();
+  });
+
+  it("requires catalog.manage for destructive control-plane actions", async () => {
+    const services = {
+      enqueueIntegrationJob: vi.fn(),
+      enqueueBulkReviewJob: vi.fn(),
+      promoteObservation: vi.fn(),
+      rejectObservation: vi.fn(),
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services, undefined, viewOnlyActor);
+    const requests: Array<readonly [string, RequestInit | undefined]> = [
+      ["/source-observations/provider-profiles", { method: "POST", body: "{}" }],
+      ["/source-observations/provider-profiles/tcgdex/v1", { method: "PATCH", body: "{}" }],
+      ["/source-observations/provider-profiles/tcgdex/v1/sections/basics", { method: "PATCH", body: "{}" }],
+      ["/source-observations/provider-profiles/tcgdex/v1/dry-run", { method: "POST", body: "{}" }],
+      ["/source-observations/provider-profiles/tcgdex/v1/activate", { method: "POST" }],
+      ["/source-observations/provider-profiles/tcgdex/v1/clone", { method: "POST", body: "{}" }],
+      ["/source-observations/provider-profiles/tcgdex/v1/rollback", { method: "POST" }],
+      ["/source-observations/provider-profiles/tcgdex/v1/retire", { method: "POST" }],
+      ["/source-observations/provider-profiles/tcgdex/v1/deprecate", { method: "POST" }],
+      ["/source-observations/imports/tcgdex-set", { method: "POST", body: "{}" }],
+      ["/source-observations/integration-jobs", { method: "POST", body: "{}" }],
+      ["/source-observations/bulk-promote/preview", { method: "POST", body: "{}" }],
+      ["/source-observations/reapply/preview", { method: "POST", body: "{}" }],
+      ["/source-observations/reapply/impact", { method: "POST", body: "{}" }],
+      ["/source-observations/reapply", { method: "POST", body: "{}" }],
+      ["/source-observations/bulk-promote", { method: "POST", body: "{}" }],
+      ["/source-observations/bulk-reject", { method: "POST", body: '{"reason":"duplicate"}' }],
+      ["/source-observations/obs_1/promote", { method: "POST" }],
+      ["/source-observations/obs_1/reject", { method: "POST", body: "{}" }],
+    ];
+
+    for (const [path, init] of requests) {
+      const response = await app.request(path, init);
+      expect(response.status, path).toBe(403);
+    }
+    expect(services.enqueueIntegrationJob).not.toHaveBeenCalled();
+    expect(services.enqueueBulkReviewJob).not.toHaveBeenCalled();
+    expect(services.promoteObservation).not.toHaveBeenCalled();
+    expect(services.rejectObservation).not.toHaveBeenCalled();
+  });
+
   it("lists observations using the shared source query param as provider scope", async () => {
     const listSourceObservations = vi.fn(async () => ({
       items: [],

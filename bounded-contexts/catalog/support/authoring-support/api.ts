@@ -15,6 +15,7 @@ import { sourceObservationRoutes } from "../../features/source-observations/api/
 
 export type CatalogAuthoringEnv = {
   Variables: {
+    actor: Readonly<{ permissions: readonly string[] }> | null;
     context: EventStoreContext;
   };
 };

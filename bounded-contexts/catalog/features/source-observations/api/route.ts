@@ -20,6 +20,7 @@ import { providerProfileRoutes } from "./provider-profile-routes";
 import { sourceObservationReadReviewRoutes } from "./source-observation-review-routes";
 import { buildCatalogIntegrationControlPlaneOverview } from "./admin-control-plane-overview";
 import { listCatalogProviderProfileVersionReviews } from "./provider-profile-review";
+import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type SourceObservationRouteServices = SourceObservationReadServices &
   ProviderOptionQueryServices &
@@ -44,6 +45,11 @@ export function sourceObservationRoutes(
   app.route("/", integrationJobRoutes(services));
   app.route("/", sourceObservationReadReviewRoutes(services));
   app.get("/integration-control-plane/overview", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "integration-control-plane-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const [readiness, profiles, activeJobs] = await Promise.all([
       services.getCatalogIntegrationControlPlaneReadiness(),
       profileVersions ? listCatalogProviderProfileVersionReviews(profileVersions) : Promise.resolve([]),

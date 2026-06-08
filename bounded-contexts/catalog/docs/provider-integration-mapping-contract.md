@@ -126,7 +126,7 @@ The admin module workflow and no-raw-JSON policy are documented in [Provider Int
 
 Activating a profile version must validate the schema, fixture coverage, unsafe evidence use, required mappings, and redaction policy before import jobs run.
 
-Catalog API reads require `catalog.view`; profile authoring, lifecycle changes, production imports, promotion, reapply, rollback, and retirement require `catalog.manage` at the API host boundary. Profile rows persist authoring audit metadata for actor, account, and timestamp evidence. Lifecycle diagnostics and dry-run output must keep sensitive provider material redacted in API responses, logs, and UI.
+Catalog API reads require `catalog.view`; profile authoring, lifecycle changes, production imports, promotion, reapply, rollback, and retirement require `catalog.manage` at the API host boundary and at the Catalog-owned control-plane route boundary. New dry-run submissions and POST-based impact/preview requests are also `catalog.manage` operations because they prepare or evaluate privileged follow-up work. Profile rows persist authoring audit metadata for actor, account, and timestamp evidence. Lifecycle diagnostics and dry-run output must keep sensitive provider material redacted in API responses, logs, and UI. The action matrix is documented in [Catalog Integration Admin Control Plane RBAC](./catalog-integration-admin-control-plane-rbac.md).
 
 ## Replay Compatibility
 

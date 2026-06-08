@@ -7,6 +7,7 @@ import {
   rolloutControlErrorResponse,
 } from "./catalog-integration-rollout-controls";
 import { CatalogProviderOptionQueryUnavailableError } from "./provider-option-query-cache";
+import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type ProviderCompatibilityRouteServices = ProviderOptionQueryServices &
   Pick<IntegrationJobServices, "enqueueIntegrationJob">;
@@ -15,6 +16,11 @@ export function providerCompatibilityRoutes(services: ProviderCompatibilityRoute
   const app = new Hono<CatalogAuthoringEnv>();
 
   app.post("/imports/tcgdex-set", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "legacy-provider-import");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const body = await c.req.json();
     let job;
     try {
@@ -38,6 +44,11 @@ export function providerCompatibilityRoutes(services: ProviderCompatibilityRoute
   });
 
   app.get("/tcgdex/languages", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-option-query-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     try {
       if (typeof services.queryIntegrationOptions === "function") {
         const page = await services.queryIntegrationOptions({
@@ -56,6 +67,11 @@ export function providerCompatibilityRoutes(services: ProviderCompatibilityRoute
   });
 
   app.get("/tcgdex/series", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-option-query-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const languageCode = String(c.req.query("languageCode") ?? c.req.query("language") ?? "en");
     try {
       if (typeof services.queryIntegrationOptions === "function") {
@@ -80,6 +96,11 @@ export function providerCompatibilityRoutes(services: ProviderCompatibilityRoute
   });
 
   app.get("/tcgdex/expansions", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "provider-option-query-read");
+    if (permissionError) {
+      return permissionError;
+    }
+
     const languageCode = String(c.req.query("languageCode") ?? c.req.query("language") ?? "en");
     const seriesId = c.req.query("seriesId") ?? c.req.query("series");
     try {
