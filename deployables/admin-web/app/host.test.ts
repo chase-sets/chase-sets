@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { resolveAdminWebNavItems, resolveAdminWebRouteConfigRecords, resolveAdminWebSectionNavItems } from "./host";
+import {
+  resolveAdminWebNavItems,
+  resolveAdminWebRouteConfigRecords,
+  resolveAdminWebRouteFallbackPermission,
+  resolveAdminWebSectionNavItems,
+} from "./host";
 
 describe("admin web host context registry", () => {
   const allSectionsActor = {
@@ -119,4 +124,23 @@ describe("admin web host context registry", () => {
       ]),
     );
   });
+
+  it.each([
+    ["access", "/access/users", "accounts.view", "security.manage"],
+    ["access", "/access/api-keys/key_1", "accounts.view", "security.manage"],
+    ["access", "/access/sessions", "accounts.view", "security.manage"],
+    ["access", "/access/memberships/member_1", "accounts.view", "memberships.view"],
+    ["access", "/access/invitations/inv_1", "accounts.view", "memberships.view"],
+    ["growth", "/growth/waitlist", "google-shopping.view", "public-presence.view"],
+    ["growth", "/growth/promo-bar", "google-shopping.view", "public-presence.view"],
+    ["commerce", "/commerce/terms/schedules/schedule_1", "commercial-terms.view", "commercial-terms.view"],
+    ["commerce", "/commerce/postage-policies/policy_1", "commercial-terms.view", "postage-policies.view"],
+    ["support", "/support/platform-feedback/pfb_1", "support.manage", "platform-feedback.view"],
+    ["support", "/support/requests/request_1", "support.manage", "support.manage"],
+  ] as const)(
+    "resolves %s direct route %s to its route-specific fallback permission",
+    (section, pathname, defaultPermission, expectedPermission) => {
+      expect(resolveAdminWebRouteFallbackPermission(section, pathname, defaultPermission)).toBe(expectedPermission);
+    },
+  );
 });
