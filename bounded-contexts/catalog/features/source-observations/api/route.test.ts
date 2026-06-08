@@ -132,6 +132,107 @@ describe("source observation routes", () => {
     expect(getSourceObservationDetail).toHaveBeenCalledWith("obs_1");
   });
 
+  it("returns replay/reapply impact previews from the control-plane impact service", async () => {
+    const previewReplayReapplyImpact = vi.fn(async () => ({
+      generatedAt: "2026-06-08T00:00:00.000Z",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      profile: {
+        schemaVersion: "catalog-provider-profile-version-v1",
+        compatibilityPolicy: "provider-profile-version",
+        providerKey: "tcgdex",
+        profileKey: "pokemon-tcg",
+        profileVersion: "v2",
+        lifecycle: "test",
+        active: false,
+        connectorKind: "tcgdex-json",
+        connectorSourceVersion: null,
+        sourceMappingFingerprint: null,
+      },
+      matchedObservations: 4,
+      eligibleObservations: 3,
+      blockedObservations: 1,
+      impactedCatalogItemCount: 2,
+      impactedCatalogItemIds: ["cat_1"],
+      externalReferenceCount: 2,
+      externalReferenceSamples: [],
+      sampleObservationIds: ["obs_1"],
+      activeJobCount: 0,
+      activeJobSamples: [],
+      diagnostics: [],
+    }));
+    const app = buildApp({ previewReplayReapplyImpact } as unknown as SourceObservationRouteServices);
+
+    const response = await app.request("/source-observations/reapply/impact", {
+      method: "POST",
+      body: JSON.stringify({
+        providerKey: "tcgdex",
+        profileVersion: "v2",
+        scope: { provider: "tcgdex", language: "en", setId: "base1" },
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      matchedObservations: 4,
+      impactedCatalogItemCount: 2,
+    });
+    expect(previewReplayReapplyImpact).toHaveBeenCalledWith({
+      providerKey: "tcgdex",
+      profileVersion: "v2",
+      scope: { provider: "tcgdex", language: "en", setId: "base1", search: undefined, status: undefined },
+      context,
+    });
+  });
+
+  it("returns lifecycle impact previews before profile lifecycle actions", async () => {
+    const previewProviderProfileLifecycleImpact = vi.fn(async () => ({
+      generatedAt: "2026-06-08T00:00:00.000Z",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      profile: {
+        schemaVersion: "catalog-provider-profile-version-v1",
+        compatibilityPolicy: "provider-profile-version",
+        providerKey: "tcgdex",
+        profileKey: "pokemon-tcg",
+        profileVersion: "v2",
+        lifecycle: "test",
+        active: false,
+        connectorKind: "tcgdex-json",
+        connectorSourceVersion: null,
+        sourceMappingFingerprint: null,
+      },
+      operation: "retire",
+      referencedObservationCount: 2,
+      sourceProfileReferenceCount: 1,
+      promotionProfileReferenceCount: 1,
+      impactedCatalogItemCount: 1,
+      impactedCatalogItemIds: ["cat_1"],
+      externalReferenceCount: 1,
+      externalReferenceSamples: [],
+      sampleObservationIds: ["obs_1"],
+      impactedJobCount: 0,
+      allowed: false,
+      blockers: [],
+    }));
+    const app = buildApp({ previewProviderProfileLifecycleImpact } as unknown as SourceObservationRouteServices);
+
+    const response = await app.request(
+      "/source-observations/provider-profiles/tcgdex/v2/lifecycle-impact?operation=retire",
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      operation: "retire",
+      referencedObservationCount: 2,
+      allowed: false,
+    });
+    expect(previewProviderProfileLifecycleImpact).toHaveBeenCalledWith({
+      providerKey: "tcgdex",
+      profileVersion: "v2",
+      operation: "retire",
+      context,
+    });
+  });
+
   it("returns a structured error when a provider profile section command fails shared contract parsing", async () => {
     const app = buildApp({} as SourceObservationRouteServices, {} as CatalogProviderIntegrationProfileVersionStore);
 

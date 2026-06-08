@@ -56,6 +56,39 @@ export type SourceObservationReapplyPreview = Readonly<{
   eligible: number;
   ineligible: number;
   scope: Required<SourceObservationFilterScope>;
+  impact: SourceObservationReplayImpactSummary;
+}>;
+
+export type SourceObservationExternalReferenceImpactSample = Readonly<{
+  observationId: string;
+  referenceKind: "catalog-item-reference" | "product-reference";
+  providerKey: string;
+  externalKey: string;
+  catalogItemId: string | null;
+}>;
+
+export type SourceObservationReplayImpactSummary = Readonly<{
+  matchedObservations: number;
+  eligibleObservations: number;
+  blockedObservations: number;
+  impactedCatalogItemCount: number;
+  impactedCatalogItemIds: readonly string[];
+  externalReferenceCount: number;
+  externalReferenceSamples: readonly SourceObservationExternalReferenceImpactSample[];
+  sampleObservationIds: readonly string[];
+}>;
+
+export type SourceObservationLifecycleImpactOperation = "activation" | "rollback" | "deprecate" | "retire";
+
+export type SourceObservationLifecycleImpactSummary = Readonly<{
+  referencedObservationCount: number;
+  sourceProfileReferenceCount: number;
+  promotionProfileReferenceCount: number;
+  impactedCatalogItemCount: number;
+  impactedCatalogItemIds: readonly string[];
+  externalReferenceCount: number;
+  externalReferenceSamples: readonly SourceObservationExternalReferenceImpactSample[];
+  sampleObservationIds: readonly string[];
 }>;
 
 export type SourceObservationIntegrationScopeRow = Readonly<{
@@ -188,16 +221,76 @@ export async function previewSourceObservationReapplyScope(
   params: SourceObservationFilterScope = {},
 ): Promise<SourceObservationReapplyPreview> {
   const scope = normalizeSourceObservationFilterScope(params);
+  const impact = await summarizeSourceObservationReplayImpact(db, scope);
+
+  return {
+    matched: impact.matchedObservations,
+    eligible: impact.eligibleObservations,
+    ineligible: impact.blockedObservations,
+    scope,
+    impact,
+  };
+}
+
+export async function summarizeSourceObservationReplayImpact(
+  db: PgQueryable,
+  params: SourceObservationFilterScope = {},
+  options: { sampleLimit?: number } = {},
+): Promise<SourceObservationReplayImpactSummary> {
+  const scope = normalizeSourceObservationFilterScope(params);
+  const sampleLimit = normalizeImpactSampleLimit(options.sampleLimit);
   const eligibleStatuses = reapplyStatusesForScope(scope);
   const eligibleCount =
     eligibleStatuses.length === 0 ? Promise.resolve(0) : countSourceObservations(db, scope, eligibleStatuses);
-  const [matched, eligible] = await Promise.all([countSourceObservations(db, scope), eligibleCount]);
+  const [matched, eligible, catalogItems, externalReferences, observations] = await Promise.all([
+    countSourceObservations(db, scope),
+    eligibleCount,
+    listImpactedCatalogItemIds(db, scope, eligibleStatuses, sampleLimit),
+    listExternalReferenceImpactSamples(db, scope, eligibleStatuses, sampleLimit),
+    listSourceObservationIdsForImpact(db, scope, eligibleStatuses, sampleLimit),
+  ]);
+
+  const externalReferenceCount = Number.parseInt(String(externalReferences[0]?.reference_count ?? "0"), 10);
 
   return {
-    matched,
-    eligible,
-    ineligible: Math.max(0, matched - eligible),
-    scope,
+    matchedObservations: matched,
+    eligibleObservations: eligible,
+    blockedObservations: Math.max(0, matched - eligible),
+    impactedCatalogItemCount: catalogItems.total,
+    impactedCatalogItemIds: catalogItems.ids,
+    externalReferenceCount,
+    externalReferenceSamples: externalReferences.flatMap(toExternalReferenceImpactSample),
+    sampleObservationIds: observations,
+  };
+}
+
+export async function summarizeSourceObservationLifecycleImpact(
+  db: PgQueryable,
+  input: Readonly<{
+    providerKey: string;
+    profileVersion: string;
+    operation: SourceObservationLifecycleImpactOperation;
+    sampleLimit?: number;
+  }>,
+): Promise<SourceObservationLifecycleImpactSummary> {
+  const sampleLimit = normalizeImpactSampleLimit(input.sampleLimit);
+  const [counts, catalogItems, externalReferences, observations] = await Promise.all([
+    countProfileVersionObservationReferences(db, input.providerKey, input.profileVersion),
+    listImpactedCatalogItemIdsForProfileVersion(db, input.providerKey, input.profileVersion, sampleLimit),
+    listExternalReferenceImpactSamplesForProfileVersion(db, input.providerKey, input.profileVersion, sampleLimit),
+    listObservationIdsForProfileVersionImpact(db, input.providerKey, input.profileVersion, sampleLimit),
+  ]);
+  const externalReferenceCount = Number.parseInt(String(externalReferences[0]?.reference_count ?? "0"), 10);
+
+  return {
+    referencedObservationCount: counts.referenced,
+    sourceProfileReferenceCount: counts.source,
+    promotionProfileReferenceCount: counts.promotion,
+    impactedCatalogItemCount: catalogItems.total,
+    impactedCatalogItemIds: catalogItems.ids,
+    externalReferenceCount,
+    externalReferenceSamples: externalReferences.flatMap(toExternalReferenceImpactSample),
+    sampleObservationIds: observations,
   };
 }
 
@@ -252,6 +345,264 @@ async function countSourceObservations(
   );
 
   return Number.parseInt(result.rows[0]?.count ?? "0", 10);
+}
+
+type CatalogItemImpactRow = Readonly<{ promoted_catalog_item_id: string; total_count: string | number }>;
+
+type ExternalReferenceImpactRow = Readonly<{
+  observation_id: string;
+  reference_kind: "catalog-item-reference" | "product-reference";
+  provider_key: string | null;
+  external_key: string | null;
+  catalog_item_id: string | null;
+  reference_count: string | number;
+}>;
+
+type ProfileReferenceCountRow = Readonly<{
+  referenced_count: string | number;
+  source_count: string | number;
+  promotion_count: string | number;
+}>;
+
+async function listImpactedCatalogItemIds(
+  db: PgQueryable,
+  params: SourceObservationFilterScope,
+  statuses: readonly string[],
+  sampleLimit: number,
+): Promise<Readonly<{ total: number; ids: readonly string[] }>> {
+  if (statuses.length === 0) {
+    return { total: 0, ids: [] };
+  }
+
+  const filter = buildSourceObservationFilter(params, {
+    includeListFilters: true,
+    statuses,
+  });
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
+  const result = await db.query<CatalogItemImpactRow>(
+    `WITH impacted AS (
+       SELECT DISTINCT promoted_catalog_item_id
+       FROM catalog_source_observations
+       ${where}
+       AND promoted_catalog_item_id IS NOT NULL
+     )
+     SELECT promoted_catalog_item_id,
+            COUNT(*) OVER ()::integer AS total_count
+     FROM impacted
+     ORDER BY promoted_catalog_item_id ASC
+     LIMIT ${sampleLimit}`,
+    filter.values,
+  );
+
+  return {
+    total: Number.parseInt(String(result.rows[0]?.total_count ?? result.rows.length), 10),
+    ids: result.rows.map((row) => row.promoted_catalog_item_id),
+  };
+}
+
+async function listImpactedCatalogItemIdsForProfileVersion(
+  db: PgQueryable,
+  providerKey: string,
+  profileVersion: string,
+  sampleLimit: number,
+): Promise<Readonly<{ total: number; ids: readonly string[] }>> {
+  const result = await db.query<CatalogItemImpactRow>(
+    `WITH impacted AS (
+       SELECT DISTINCT promoted_catalog_item_id
+       FROM catalog_source_observations
+       WHERE provider_key = $1
+         AND (source_profile_version = $2 OR promotion_profile_version = $2)
+         AND promoted_catalog_item_id IS NOT NULL
+     )
+     SELECT promoted_catalog_item_id,
+            COUNT(*) OVER ()::integer AS total_count
+     FROM impacted
+     ORDER BY promoted_catalog_item_id ASC
+     LIMIT ${sampleLimit}`,
+    [providerKey, profileVersion],
+  );
+
+  return {
+    total: Number.parseInt(String(result.rows[0]?.total_count ?? result.rows.length), 10),
+    ids: result.rows.map((row) => row.promoted_catalog_item_id),
+  };
+}
+
+async function listExternalReferenceImpactSamples(
+  db: PgQueryable,
+  params: SourceObservationFilterScope,
+  statuses: readonly string[],
+  sampleLimit: number,
+): Promise<readonly ExternalReferenceImpactRow[]> {
+  if (statuses.length === 0) {
+    return [];
+  }
+
+  const filter = buildSourceObservationFilter(params, {
+    includeListFilters: true,
+    statuses,
+  });
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
+  return (await db.query<ExternalReferenceImpactRow>(externalReferenceImpactSql(where, sampleLimit), filter.values))
+    .rows;
+}
+
+async function listExternalReferenceImpactSamplesForProfileVersion(
+  db: PgQueryable,
+  providerKey: string,
+  profileVersion: string,
+  sampleLimit: number,
+): Promise<readonly ExternalReferenceImpactRow[]> {
+  return (
+    await db.query<ExternalReferenceImpactRow>(
+      externalReferenceImpactSql(
+        `WHERE provider_key = $1 AND (source_profile_version = $2 OR promotion_profile_version = $2)`,
+        sampleLimit,
+      ),
+      [providerKey, profileVersion],
+    )
+  ).rows;
+}
+
+async function listSourceObservationIdsForImpact(
+  db: PgQueryable,
+  params: SourceObservationFilterScope,
+  statuses: readonly string[],
+  sampleLimit: number,
+): Promise<readonly string[]> {
+  if (statuses.length === 0) {
+    return [];
+  }
+
+  const filter = buildSourceObservationFilter(params, {
+    includeListFilters: true,
+    statuses,
+  });
+  const where = filter.conditions.length > 0 ? `WHERE ${filter.conditions.join(" AND ")}` : "";
+  const result = await db.query<{ observation_id: string }>(
+    `SELECT observation_id
+     FROM catalog_source_observations
+     ${where}
+     ORDER BY updated_at DESC, observation_id ASC
+     LIMIT ${sampleLimit}`,
+    filter.values,
+  );
+
+  return result.rows.map((row) => row.observation_id);
+}
+
+async function listObservationIdsForProfileVersionImpact(
+  db: PgQueryable,
+  providerKey: string,
+  profileVersion: string,
+  sampleLimit: number,
+): Promise<readonly string[]> {
+  const result = await db.query<{ observation_id: string }>(
+    `SELECT observation_id
+     FROM catalog_source_observations
+     WHERE provider_key = $1
+       AND (source_profile_version = $2 OR promotion_profile_version = $2)
+     ORDER BY updated_at DESC, observation_id ASC
+     LIMIT ${sampleLimit}`,
+    [providerKey, profileVersion],
+  );
+
+  return result.rows.map((row) => row.observation_id);
+}
+
+async function countProfileVersionObservationReferences(
+  db: PgQueryable,
+  providerKey: string,
+  profileVersion: string,
+): Promise<Readonly<{ referenced: number; source: number; promotion: number }>> {
+  const result = await db.query<ProfileReferenceCountRow>(
+    `SELECT COUNT(*)::integer AS referenced_count,
+            (COUNT(*) FILTER (WHERE source_profile_version = $2))::integer AS source_count,
+            (COUNT(*) FILTER (WHERE promotion_profile_version = $2))::integer AS promotion_count
+     FROM catalog_source_observations
+     WHERE provider_key = $1
+       AND (source_profile_version = $2 OR promotion_profile_version = $2)`,
+    [providerKey, profileVersion],
+  );
+  const row = result.rows[0];
+
+  return {
+    referenced: Number.parseInt(String(row?.referenced_count ?? "0"), 10),
+    source: Number.parseInt(String(row?.source_count ?? "0"), 10),
+    promotion: Number.parseInt(String(row?.promotion_count ?? "0"), 10),
+  };
+}
+
+function externalReferenceImpactSql(where: string, sampleLimit: number): string {
+  return `WITH scoped AS (
+      SELECT observation_id,
+             promoted_catalog_item_id,
+             normalized
+      FROM catalog_source_observations
+      ${where}
+    ),
+    references AS (
+      SELECT observation_id,
+             promoted_catalog_item_id,
+             'catalog-item-reference'::text AS reference_kind,
+             reference->>'providerKey' AS provider_key,
+             reference->>'externalKey' AS external_key
+      FROM scoped
+      CROSS JOIN LATERAL jsonb_array_elements(coalesce(normalized->'externalCatalogItemReferences', '[]'::jsonb)) reference
+      UNION ALL
+      SELECT observation_id,
+             promoted_catalog_item_id,
+             'product-reference'::text AS reference_kind,
+             reference->>'providerKey' AS provider_key,
+             reference->>'externalKey' AS external_key
+      FROM scoped
+      CROSS JOIN LATERAL jsonb_array_elements(coalesce(normalized->'externalProductReferences', '[]'::jsonb)) reference
+      UNION ALL
+      SELECT observation_id,
+             promoted_catalog_item_id,
+             'product-reference'::text AS reference_kind,
+             reference->>'providerKey' AS provider_key,
+             reference->>'externalKey' AS external_key
+      FROM scoped
+      CROSS JOIN LATERAL jsonb_array_elements(coalesce(normalized->'skuReferences', '[]'::jsonb)) reference
+    )
+    SELECT observation_id,
+           reference_kind,
+           provider_key,
+           external_key,
+           promoted_catalog_item_id AS catalog_item_id,
+           COUNT(*) OVER ()::integer AS reference_count
+    FROM references
+    WHERE provider_key IS NOT NULL
+      AND external_key IS NOT NULL
+    ORDER BY observation_id ASC, reference_kind ASC, external_key ASC
+    LIMIT ${sampleLimit}`;
+}
+
+function toExternalReferenceImpactSample(
+  row: ExternalReferenceImpactRow,
+): readonly SourceObservationExternalReferenceImpactSample[] {
+  if (!row.provider_key || !row.external_key) {
+    return [];
+  }
+
+  return [
+    {
+      observationId: row.observation_id,
+      referenceKind: row.reference_kind,
+      providerKey: row.provider_key,
+      externalKey: row.external_key,
+      catalogItemId: row.catalog_item_id,
+    },
+  ];
+}
+
+function normalizeImpactSampleLimit(value: number | undefined): number {
+  if (!Number.isFinite(value)) {
+    return 25;
+  }
+
+  return Math.min(100, Math.max(1, Math.trunc(value ?? 25)));
 }
 
 function buildSourceObservationFilter(

@@ -672,7 +672,26 @@ export type CatalogAdminReplayReapplyImpactSummaryReadModel = Readonly<{
   matchedObservations: number;
   eligibleObservations: number;
   blockedObservations: number;
+  impactedCatalogItemCount: number;
   impactedCatalogItemIds: readonly string[];
+  externalReferenceCount: number;
+  externalReferenceSamples: readonly Readonly<{
+    observationId: string;
+    referenceKind: "catalog-item-reference" | "product-reference";
+    providerKey: string;
+    externalKey: string;
+    catalogItemId: string | null;
+  }>[];
+  sampleObservationIds: readonly string[];
+  activeJobCount: number;
+  activeJobSamples: readonly Readonly<{
+    jobId: string;
+    jobKind: "integration" | "bulk-review";
+    action: "import" | "reapply" | "promote" | "reject";
+    status: string;
+    providerKey: string | null;
+    profileVersion: string | null;
+  }>[];
   diagnostics: readonly CatalogAdminControlPlaneDiagnostic[];
 }>;
 
@@ -740,8 +759,21 @@ export type CatalogAdminRollbackRetirementImpactSummaryReadModel = Readonly<{
   generatedAt: string;
   unitKey: CatalogIntegrationUnitKey;
   profile: CatalogAdminProfileVersionPointer;
-  operation: "rollback" | "deprecate" | "retire";
+  operation: "activation" | "rollback" | "deprecate" | "retire";
   referencedObservationCount: number;
+  sourceProfileReferenceCount: number;
+  promotionProfileReferenceCount: number;
+  impactedCatalogItemCount: number;
+  impactedCatalogItemIds: readonly string[];
+  externalReferenceCount: number;
+  externalReferenceSamples: readonly Readonly<{
+    observationId: string;
+    referenceKind: "catalog-item-reference" | "product-reference";
+    providerKey: string;
+    externalKey: string;
+    catalogItemId: string | null;
+  }>[];
+  sampleObservationIds: readonly string[];
   impactedJobCount: number;
   allowed: boolean;
   blockers: readonly CatalogAdminControlPlaneDiagnostic[];
