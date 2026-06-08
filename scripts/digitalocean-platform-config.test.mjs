@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { ADMIN_WEB_API_DEPENDENCIES } from "./admin-shell-smoke-matrix.mjs";
 
 const platformMain = readFileSync(resolve("infrastructure/digitalocean/platform/main.tf"), "utf8");
 const platformLocals = readFileSync(resolve("infrastructure/digitalocean/platform/locals.tf"), "utf8");
@@ -22,79 +23,6 @@ const platformRepresentativeWorkflow = readFileSync(
   "utf8",
 );
 const adminWebViteConfig = readFileSync(resolve("deployables/admin-web/vite.config.ts"), "utf8");
-
-const adminWebApiDependencies = [
-  {
-    surface: "Platform Projections",
-    callerType: "server-loader/action",
-    sourceFile: "bounded-contexts/platform-operations/features/projection-operations/api/client.ts",
-    apiPath: "/api/platform/projections",
-    sourceEvidence: ["/api/platform/projections"],
-    contract: "internal-origin server call",
-    localProxyPrefix: "/api/platform",
-    proofAdminIngressPrefix: "/api/platform",
-  },
-  {
-    surface: "Platform Release Controls",
-    callerType: "server-loader/action",
-    sourceFile: "bounded-contexts/platform-operations/features/release-controls/api/request-client.ts",
-    apiPath: "/api/platform/release-controls",
-    sourceEvidence: ['resolveRequestApiBaseUrl(request, "/api/platform")'],
-    contract: "internal-origin server call",
-    localProxyPrefix: "/api/platform",
-    proofAdminIngressPrefix: "/api/platform",
-  },
-  {
-    surface: "Public Presence Waitlist Export",
-    callerType: "direct-download",
-    sourceFile: "bounded-contexts/public-presence/routes/admin/waitlist.tsx",
-    apiPath: "/api/public-presence/admin/waitlist/export",
-    sourceEvidence: ["/api/public-presence/admin/waitlist/export"],
-    contract: "admin public ingress",
-    localProxyPrefix: "/api/public-presence",
-    proofAdminIngressPrefix: "/api/public-presence",
-  },
-  {
-    surface: "Catalog Realtime Account Events",
-    callerType: "event-source",
-    sourceFile: "infrastructure/platform-runtime/realtime-web.ts",
-    apiPath: "/api/realtime/account/events",
-    sourceEvidence: ["/api/realtime/account/events", "EventSource"],
-    contract: "admin public ingress",
-    localProxyPrefix: "/api/realtime",
-    proofAdminIngressPrefix: "/api/realtime",
-  },
-  {
-    surface: "Catalog Source Observation Integration Job Events",
-    callerType: "durable-job-event-source",
-    sourceFile: "bounded-contexts/catalog/support/shell-support/api/client.ts",
-    apiPath: "/api/catalog/source-observations/integration-jobs/:jobId/events",
-    sourceEvidence: ["/source-observations/integration-jobs/", "/events"],
-    contract: "admin public ingress",
-    localProxyPrefix: "/api/catalog",
-    proofAdminIngressPrefix: "/api/catalog",
-  },
-  {
-    surface: "Catalog Source Observation Bulk Job Events",
-    callerType: "durable-job-event-source",
-    sourceFile: "bounded-contexts/catalog/support/shell-support/api/client.ts",
-    apiPath: "/api/catalog/source-observations/bulk-jobs/:jobId/events",
-    sourceEvidence: ["/source-observations/bulk-jobs/", "/events"],
-    contract: "admin public ingress",
-    localProxyPrefix: "/api/catalog",
-    proofAdminIngressPrefix: "/api/catalog",
-  },
-  {
-    surface: "Catalog Authoring Bulk Job Events",
-    callerType: "durable-job-event-source",
-    sourceFile: "bounded-contexts/catalog/support/shell-support/api/client.ts",
-    apiPath: "/api/catalog/bulk-authoring-jobs/:jobId/events",
-    sourceEvidence: ["/bulk-authoring-jobs/", "/events"],
-    contract: "admin public ingress",
-    localProxyPrefix: "/api/catalog",
-    proofAdminIngressPrefix: "/api/catalog",
-  },
-];
 
 function occurrenceCount(source, needle) {
   return source.split(needle).length - 1;
@@ -800,44 +728,54 @@ describe("DigitalOcean platform configuration", () => {
     const localProxyPrefixes = viteProxyPrefixes();
     const proofAdminApiPrefixes = terraformStringList(platformLocals, "proof_admin_api_route_prefixes");
 
-    expect(adminWebApiDependencies.map((dependency) => dependency.callerType)).toEqual(
+    expect(ADMIN_WEB_API_DEPENDENCIES.map((dependency) => dependency.callerType)).toEqual(
       expect.arrayContaining(["server-loader/action", "direct-download", "event-source", "durable-job-event-source"]),
     );
 
-    const missingSourceFiles = adminWebApiDependencies
-      .filter((dependency) => !existsSync(resolve(dependency.sourceFile)))
-      .map((dependency) => `${dependency.surface}: ${dependency.sourceFile}`);
+    const missingIds = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) => !dependency.id || !dependency.smokeCoverageId,
+    ).map((dependency) => dependency.surface);
+    expect(missingIds).toEqual([]);
+
+    const missingTopologyModes = ADMIN_WEB_API_DEPENDENCIES.filter((dependency) =>
+      ["staging", "production-proof", "public-marketplace", "production-platform-disabled"].some(
+        (mode) => !dependency.topologyExpectations?.[mode],
+      ),
+    ).map((dependency) => dependency.id);
+    expect(missingTopologyModes).toEqual([]);
+
+    const missingSourceFiles = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) => !existsSync(resolve(dependency.sourceFile)),
+    ).map((dependency) => `${dependency.surface}: ${dependency.sourceFile}`);
     expect(missingSourceFiles).toEqual([]);
 
-    const missingSourceEvidence = adminWebApiDependencies
-      .filter((dependency) => {
-        const source = readFileSync(resolve(dependency.sourceFile), "utf8");
-        return dependency.sourceEvidence.some((needle) => !source.includes(needle));
-      })
-      .map(
-        (dependency) =>
-          `${dependency.surface} (${dependency.callerType}) is missing source evidence for ${dependency.apiPath}`,
-      );
+    const missingSourceEvidence = ADMIN_WEB_API_DEPENDENCIES.filter((dependency) => {
+      const source = readFileSync(resolve(dependency.sourceFile), "utf8");
+      return dependency.sourceEvidence.some((needle) => !source.includes(needle));
+    }).map(
+      (dependency) =>
+        `${dependency.surface} (${dependency.callerType}) is missing source evidence for ${dependency.apiPath}`,
+    );
     expect(missingSourceEvidence).toEqual([]);
 
-    const missingProxy = adminWebApiDependencies
-      .filter((dependency) => !pathCoveredByPrefix(dependency.apiPath, dependency.localProxyPrefix))
-      .map(
-        (dependency) => `${dependency.surface}: ${dependency.apiPath} is not covered by ${dependency.localProxyPrefix}`,
-      );
+    const missingProxy = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) => !pathCoveredByPrefix(dependency.apiPath, dependency.localProxyPrefix),
+    ).map(
+      (dependency) => `${dependency.surface}: ${dependency.apiPath} is not covered by ${dependency.localProxyPrefix}`,
+    );
     expect(missingProxy).toEqual([]);
 
-    const missingConfiguredProxy = adminWebApiDependencies
-      .filter((dependency) => !localProxyPrefixes.includes(dependency.localProxyPrefix))
-      .map((dependency) => `${dependency.surface}: ${dependency.localProxyPrefix}`);
+    const missingConfiguredProxy = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) => !localProxyPrefixes.includes(dependency.localProxyPrefix),
+    ).map((dependency) => `${dependency.surface}: ${dependency.localProxyPrefix}`);
     expect(missingConfiguredProxy).toEqual([]);
 
-    const missingProofIngress = adminWebApiDependencies
-      .filter((dependency) => !proofAdminApiPrefixes.includes(dependency.proofAdminIngressPrefix))
-      .map(
-        (dependency) =>
-          `${dependency.surface} (${dependency.callerType}) from ${dependency.sourceFile} requires ${dependency.proofAdminIngressPrefix} for ${dependency.apiPath}`,
-      );
+    const missingProofIngress = ADMIN_WEB_API_DEPENDENCIES.filter(
+      (dependency) => !proofAdminApiPrefixes.includes(dependency.proofAdminIngressPrefix),
+    ).map(
+      (dependency) =>
+        `${dependency.surface} (${dependency.callerType}) from ${dependency.sourceFile} requires ${dependency.proofAdminIngressPrefix} for ${dependency.apiPath}`,
+    );
     expect(missingProofIngress).toEqual([]);
   });
 
