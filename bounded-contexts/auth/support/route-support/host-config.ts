@@ -45,7 +45,7 @@ export const catalogAdminAuthHostConfig = {
 } satisfies AuthHostDefinition;
 
 export const accessAdminAuthHostConfig = {
-  hostLabel: "Access Admin",
+  hostLabel: "Admin",
   signInPath: "/access/sign-in",
   fallbackPath: "/access/accounts",
   defaultSuccessPath: "/access/accounts",
@@ -55,8 +55,8 @@ export const accessAdminAuthHostConfig = {
   signInMethods: ["password", "phone-code", "magic-link", "passkey"],
   allowManualMagicLinkTokenEntry: false,
   titles: {
-    signIn: "Sign In | Access Admin",
-    accountSelection: "Select Account | Access Admin",
+    signIn: "Sign In | Admin",
+    accountSelection: "Select Account | Admin",
     sessions: "Sessions | Access Admin",
     sessionDetail: "Session Detail | Access Admin",
   },
