@@ -38,6 +38,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Tax Production Readiness](../bounded-contexts/tax/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.
 - [Tax Nexus Tracking](../bounded-contexts/tax/docs/tax-nexus-tracking.md): state-by-state threshold tracking for when Chase Sets must prepare registration or start collecting sales tax.
 - [Observability](./runbooks/observability.md): local OpenTelemetry and LGTM stack.
+- [Catalog Integration Operations](./runbooks/catalog-integration-operations.md): provider adapter, option query, job, promotion/reapply, and read-model lag incident workflows.
 - [Release Process Evolution](./runbooks/release-process-evolution.md): release queue, production locks, canary path, rollout controls, health metrics, and gate categories.
 - [Deployment Transitions](./runbooks/deployment-transitions.md): graceful shutdown, resumable streams, worker cancellation, and durable cadence.
 - [Local Worktree Sandboxes](./runbooks/local-worktree-sandboxes.md): isolated local dev/test stacks for simultaneous worktrees.
@@ -78,6 +79,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Integration Provider Option Query Controls](../bounded-contexts/catalog/docs/catalog-integration-provider-option-query-controls.md)
 - [Catalog Integration Impact Analysis](../bounded-contexts/catalog/docs/catalog-integration-impact-analysis.md)
 - [Catalog Integration Admin Control Plane RBAC](../bounded-contexts/catalog/docs/catalog-integration-admin-control-plane-rbac.md)
+- [Catalog Integration Observability](../bounded-contexts/catalog/docs/catalog-integration-observability.md)
 - [Catalog Integration Schema Compatibility](../bounded-contexts/catalog/docs/catalog-integration-schema-compatibility.md)
 - [Catalog Integration Data Migration Reset](../bounded-contexts/catalog/docs/catalog-integration-data-migration-reset.md)
 - [Catalog Integration Legacy Cleanup](../bounded-contexts/catalog/docs/catalog-integration-legacy-cleanup.md)

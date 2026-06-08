@@ -14,10 +14,12 @@ import { createReferenceDataRuntime } from "../../features/reference-data/api/ru
 import { createCatalogProviderIntegrationProfileVersionStore } from "../../features/source-observations/api/provider-integration-profile-store";
 import { createSourceObservationRuntime } from "../../features/source-observations/api/runtime";
 import type { CatalogAssetStorage } from "../../features/source-observations/api/asset-storage";
+import type { SourceObservationTelemetry } from "../../features/source-observations/api/catalog-integration-observability";
 import { createCatalogAuthoringBulkJobServices } from "./bulk-authoring-jobs";
 
 export type CatalogHostPorts = Readonly<{
   catalogAssetStorage?: CatalogAssetStorage;
+  sourceObservationTelemetry?: SourceObservationTelemetry;
 }>;
 
 export type CatalogServices = Readonly<{
@@ -47,6 +49,7 @@ export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogH
     checkpointStore,
     db,
     assetStorage: ports.catalogAssetStorage,
+    sourceObservationTelemetry: ports.sourceObservationTelemetry,
   } as const;
 
   const dimensions = createDimensionRuntime(deps);

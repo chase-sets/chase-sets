@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  catalogIntegrationJobAttributes,
+  catalogIntegrationOptionQueryAttributes,
   createLogger,
   loadObservabilityConfig,
   publicPresenceWaitlistAnalyticsAttributes,
@@ -115,6 +117,48 @@ describe("public presence waitlist analytics observability", () => {
       interest: "low-sales-fees",
       variant: "landing-audit-remediation",
       status: "none",
+    });
+  });
+});
+
+describe("catalog integration observability", () => {
+  it("maps provider option queries to bounded metric labels", () => {
+    expect(
+      catalogIntegrationOptionQueryAttributes({
+        providerKey: "TCG Player Provider",
+        queryKind: "Product Lines / Set Names / Very Long Query Kind".repeat(4),
+        cacheStatus: "stale",
+        cacheSource: "cache",
+        result: "success",
+        degraded: true,
+        cacheOnly: false,
+        forceRefresh: true,
+      }),
+    ).toEqual({
+      context: "catalog",
+      provider: "TCG_Player_Provider",
+      query_kind: "Product_Lines_Set_Names_Very_Long_Query_KindProduct_Lines_Set_Names_Very_Long_Qu",
+      cache_status: "stale",
+      cache_source: "cache",
+      result: "success",
+      degraded: true,
+      cache_only: false,
+      force_refresh: true,
+    });
+  });
+
+  it("maps integration jobs without high-cardinality IDs", () => {
+    expect(
+      catalogIntegrationJobAttributes({
+        operation: "bulk-review-work-unit",
+        jobKind: "promote",
+        result: "failed",
+      }),
+    ).toEqual({
+      context: "catalog",
+      operation: "bulk-review-work-unit",
+      job_kind: "promote",
+      result: "failed",
     });
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { EventStoreContext } from "@chase-sets/event-core/storage";
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
@@ -931,8 +931,14 @@ describe("source observation runtime", () => {
 
   it("processes persisted bulk review jobs through durable work-unit turns", async () => {
     const harness = createBulkReviewJobHarness(30);
+    const recordBulkReviewWorkUnit = vi.fn();
     const services = createSourceObservationRuntime(
-      harness.deps,
+      {
+        ...harness.deps,
+        sourceObservationTelemetry: {
+          recordBulkReviewWorkUnit,
+        },
+      } as CatalogRuntimeDeps,
       {} as CatalogItemServices,
       {} as ReferenceDataServices,
     );
@@ -974,6 +980,11 @@ describe("source observation runtime", () => {
     });
     expect(harness.job.result?.outcomes).toHaveLength(2);
     expect(harness.appendedEvents).toHaveLength(2);
+    expect(recordBulkReviewWorkUnit).toHaveBeenCalledTimes(2);
+    expect(recordBulkReviewWorkUnit.mock.calls).toEqual([
+      [{ jobKind: "reject", result: "completed" }],
+      [{ jobKind: "reject", result: "completed" }],
+    ]);
   });
 
   it("reconciles terminal bulk review jobs whose stale parent total is no longer reachable", async () => {
