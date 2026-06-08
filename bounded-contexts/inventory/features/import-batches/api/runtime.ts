@@ -1194,29 +1194,6 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
     return { rowId, status: validated.status };
   }
 
-  async function ensureCreateWorkUnitsForLegacyJobs() {
-    const activeJobs = await jobStore.listActive({ jobKinds: [IMPORT_BATCH_JOB_KIND_CREATE] });
-    for (const job of activeJobs) {
-      const existing = await workUnitStore.summarize({ jobId: job.jobId });
-      if (existing.total > 0) {
-        continue;
-      }
-      const stagedInput = await loadCreateBatchJobInput(
-        requireCreateInputId(job.payload),
-        job.payload.accountId as AccountId,
-      );
-      const rows = normalizedCreateBatchRows(stagedInput);
-      await workUnitStore.enqueue({
-        jobId: job.jobId,
-        units: rows.map((row) => ({
-          unitId: String(row.rowNumber),
-          unitKind: IMPORT_BATCH_JOB_KIND_CREATE,
-          payload: { rowNumber: row.rowNumber },
-        })),
-      });
-    }
-  }
-
   async function importBatchCreateParentUpdateFromWorkUnits(
     queryable: PgQueryable,
     job: Readonly<{
@@ -1402,7 +1379,6 @@ export function createInventoryImportBatchRuntime(deps: InventoryImportBatchRunt
       return { jobs, stagedInputs: Number(result.rowCount ?? 0) };
     },
     processNextImportBatchJob: async (input) => {
-      await ensureCreateWorkUnitsForLegacyJobs();
       const processedCreateUnit = await processNextCreateBatchWorkUnit(input);
       if (processedCreateUnit > 0) {
         return processedCreateUnit;

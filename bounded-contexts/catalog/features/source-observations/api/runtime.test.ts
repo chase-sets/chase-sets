@@ -2525,6 +2525,24 @@ function createBulkReviewJobHarness(
         completed_at: "2026-05-20T00:00:00.000Z",
       });
     }
+  } else {
+    for (const observationId of observationIds) {
+      workUnits.set(observationId, {
+        unit_id: observationId,
+        unit_kind: job.job_kind,
+        state: "queued",
+        payload: { observationId },
+        result: null,
+        error_message: null,
+        claim_owner_id: null,
+        claim_token: null,
+        claimed_until: null,
+        attempt_count: 0,
+        created_at: "2026-05-20T00:00:00.000Z",
+        updated_at: "2026-05-20T00:00:00.000Z",
+        completed_at: null,
+      });
+    }
   }
 
   const deps = {

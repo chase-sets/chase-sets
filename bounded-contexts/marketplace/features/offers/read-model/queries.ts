@@ -36,7 +36,6 @@ export type OfferMatchRow = MarketplaceOfferListRow &
     seller_available_quantity: number;
     seller_listing_availability_status: "available" | "unavailable";
     can_fulfill: boolean;
-    in_sell_list: boolean;
   }>;
 
 type MarketplaceOfferPageRow = Readonly<{
@@ -154,13 +153,7 @@ function sellerOfferSelectSql(sellerAccountSql: string) {
       THEN ROUND((offer.price_amount / matched_listing.listing_price_amount) * 10000)::integer
     ELSE 0
   END AS offer_to_listing_price_bps,
-  COALESCE(availability.status, 'available') AS seller_listing_availability_status,
-  EXISTS (
-    SELECT 1
-    FROM marketplace_buyer_offer_match_sell_list_pages AS cart
-    WHERE cart.seller_account_id = ${sellerAccountSql}
-      AND cart.offer_id = offer.offer_id
-  ) AS in_sell_list`;
+  COALESCE(availability.status, 'available') AS seller_listing_availability_status`;
 }
 
 function sellerOfferOutcomeOrderSql(tieBreakerSql: string) {
@@ -186,7 +179,6 @@ type OfferMatchPageRow = MarketplaceOfferPageRow & {
   buyer_review_count: number;
   seller_available_quantity: number;
   seller_listing_availability_status: "available" | "unavailable" | null | undefined;
-  in_sell_list: boolean;
 };
 
 type OfferMatchForSellerPageRow = OfferMatchPageRow & {
@@ -213,7 +205,6 @@ function mapOfferMatchRow(row: OfferMatchPageRow): OfferMatchRow {
       (row.seller_listing_availability_status ?? "available") === "available" &&
       offer.status === "submitted" &&
       row.seller_available_quantity >= offer.quantity_requested,
-    in_sell_list: row.in_sell_list,
   };
 }
 
@@ -359,53 +350,6 @@ export async function getOfferMatch(
   return row ? mapOfferMatchRow(row) : null;
 }
 
-export async function addOfferMatchSellListItem(
-  db: PgQueryable,
-  params: Readonly<{ sellerAccountId: string; offerId: string; addedAt: string }>,
-): Promise<void> {
-  const offer = await getOfferMatch(db, params.offerId, params.sellerAccountId);
-  if (!offer) {
-    throw new Error("Offer not found.");
-  }
-
-  await db.query(
-    `INSERT INTO marketplace_buyer_offer_match_sell_list_pages (
-       seller_account_id,
-       offer_id,
-       added_at,
-       updated_at
-     ) VALUES ($1, $2, $3, $3)
-     ON CONFLICT (seller_account_id, offer_id) DO UPDATE SET
-       updated_at = EXCLUDED.updated_at`,
-    [params.sellerAccountId, params.offerId, params.addedAt],
-  );
-}
-
-export async function listOfferMatchSellList(db: PgQueryable, sellerAccountId: string): Promise<OfferMatchRow[]> {
-  const result = await db.query<OfferMatchPageRow>(
-    `SELECT *
-     FROM (
-       SELECT
-         ${sellerOfferSelectSql("$1")},
-         cart.updated_at AS cart_updated_at
-       FROM marketplace_buyer_offer_match_sell_list_pages AS cart
-       INNER JOIN marketplace_offer_pages AS offer
-         ON offer.offer_id = cart.offer_id
-       ${sellerBestListingJoinSql("$1")}
-       LEFT JOIN marketplace_account_pages AS buyer
-         ON buyer.account_id = offer.buyer_account_id
-       LEFT JOIN marketplace_seller_listing_availability_pages AS availability
-         ON availability.account_id = $1
-       WHERE cart.seller_account_id = $1
-     ) AS seller_offer
-     ORDER BY
-       ${sellerOfferOutcomeOrderSql("seller_offer.cart_updated_at DESC")}`,
-    [sellerAccountId],
-  );
-
-  return result.rows.map(mapOfferMatchRow);
-}
-
 export async function listOfferMatchesForSellers(
   db: PgQueryable,
   offerId: string,
@@ -443,20 +387,4 @@ export async function listOfferMatchesForSellers(
   );
 
   return new Map(result.rows.map((row) => [row.seller_account_id, mapOfferMatchRow(row)]));
-}
-
-export async function removeOfferMatchSellListItems(
-  db: PgQueryable,
-  params: Readonly<{ sellerAccountId: string; offerIds: readonly string[] }>,
-): Promise<void> {
-  if (params.offerIds.length === 0) {
-    return;
-  }
-
-  await db.query(
-    `DELETE FROM marketplace_buyer_offer_match_sell_list_pages
-     WHERE seller_account_id = $1
-       AND offer_id = ANY($2)`,
-    [params.sellerAccountId, params.offerIds],
-  );
 }

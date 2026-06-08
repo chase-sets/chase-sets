@@ -18,11 +18,12 @@ Admins create draft policies, revise thresholds and rule sets, activate a review
 
 Rollback is operationally handled by activating a prior cloned or recreated policy version. Existing orders are not rewritten; they retain the snapshot created at order time.
 
-## Legacy Cleanup
+## Snapshot Coverage
 
-Legacy package plans without `postagePolicySnapshot` remain fulfillable through compatibility behavior, but they must not become the source of truth for new orders. Cleanup is complete only when:
+Current package plans without `postagePolicySnapshot` are invalid for Ordering previews and order creation. Historical order and shipment rows may still retain their immutable stored shape, but they must not create active runtime decisions. Cleanup is complete only when:
 
 - Ordering order creation resolves a Postage Policy before package planning.
 - Direct runtime `buildPackagePlan` calls pass the resolved policy.
+- Checkout previews and order creation fail when a new draft lacks `postagePolicySnapshot`.
 - Checkout copy does not hardcode signature into a shipping option label.
 - Fulfillment label purchase uses the order/shipment snapshot instead of current mutable policy state.

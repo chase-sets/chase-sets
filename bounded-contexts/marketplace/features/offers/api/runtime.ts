@@ -18,15 +18,7 @@ import {
   type MarketplaceOfferState,
 } from "../domain/domain";
 import { buildMarketplaceOfferProjectionHandlers } from "../read-model/projection";
-import {
-  addOfferMatchSellListItem,
-  getSubmittedOffer,
-  getOfferMatch,
-  listOfferMatchSellList,
-  listSubmittedOffers,
-  listOfferMatches,
-  removeOfferMatchSellListItems,
-} from "../read-model/queries";
+import { getSubmittedOffer, getOfferMatch, listSubmittedOffers, listOfferMatches } from "../read-model/queries";
 import { createMarketplaceProductDescriptor, type MarketplaceVersionSchema } from "../domain/versioning";
 
 export class MarketplaceOfferFeeQuoteStaleError extends Error {
@@ -69,23 +61,6 @@ export type MarketplaceOfferServices = Readonly<{
       sellerAccountId: AccountId;
     }>,
   ) => Promise<MarketplaceListingTermsPreview>;
-  addOfferMatchSellListItem: (
-    params: Readonly<{
-      offerId: OfferId;
-      sellerAccountId: AccountId;
-    }>,
-  ) => Promise<void>;
-  listOfferMatchSellList: (sellerAccountId: string) => ReturnType<typeof listOfferMatchSellList>;
-  acceptOfferMatchSellList: (
-    params: Readonly<{
-      sellerAccountId: AccountId;
-      feeQuoteFingerprintsByOfferId?: Readonly<Record<string, string>>;
-    }>,
-    context: EventStoreContext,
-  ) => Promise<{
-    acceptedOfferIds: readonly OfferId[];
-    skipped: readonly { offerId: string; reason: string }[];
-  }>;
   listSubmittedOffers: (params: Parameters<typeof listSubmittedOffers>[1]) => ReturnType<typeof listSubmittedOffers>;
   getSubmittedOffer: (offerId: string, buyerAccountId: string) => ReturnType<typeof getSubmittedOffer>;
   listOfferMatches: (params: Parameters<typeof listOfferMatches>[1]) => ReturnType<typeof listOfferMatches>;
@@ -235,89 +210,6 @@ export function createMarketplaceOfferRuntime(deps: MarketplaceRuntimeDeps): Mar
       });
 
       return { offerId: params.offerId, version: result.version };
-    },
-    addOfferMatchSellListItem: async (params) => {
-      await addOfferMatchSellListItem(deps.db, {
-        sellerAccountId: params.sellerAccountId,
-        offerId: params.offerId,
-        addedAt: new Date().toISOString(),
-      });
-    },
-    listOfferMatchSellList: (sellerAccountId) => listOfferMatchSellList(deps.db, sellerAccountId),
-    acceptOfferMatchSellList: async (params, context) => {
-      const items = await listOfferMatchSellList(deps.db, params.sellerAccountId);
-      const acceptedOfferIds: OfferId[] = [];
-      const skipped: Array<{ offerId: string; reason: string }> = [];
-      const acceptanceBatchId = createId("ofb");
-      const targets: Array<{
-        item: (typeof items)[number];
-        quote: MarketplaceListingTermsPreview;
-      }> = [];
-
-      for (const item of items) {
-        if (item.status !== "submitted") {
-          skipped.push({ offerId: item.offer_id, reason: "Offer is no longer submitted." });
-          continue;
-        }
-        if (item.seller_listing_availability_status === "unavailable") {
-          skipped.push({ offerId: item.offer_id, reason: "Seller listing availability is off." });
-          continue;
-        }
-        if (!item.can_fulfill) {
-          skipped.push({ offerId: item.offer_id, reason: "Not enough active supply." });
-          continue;
-        }
-
-        try {
-          const quote = await quoteMarketplaceTerms(deps.commercialTermsResolver, {
-            accountId: params.sellerAccountId,
-            priceAmount: item.price_amount,
-          });
-          if (params.feeQuoteFingerprintsByOfferId?.[item.offer_id] !== quote.fee_quote_fingerprint) {
-            skipped.push({
-              offerId: item.offer_id,
-              reason: "Fee quote is stale. Refresh the fee preview before continuing.",
-            });
-            continue;
-          }
-
-          targets.push({ item, quote });
-        } catch (error) {
-          skipped.push({
-            offerId: item.offer_id,
-            reason: error instanceof Error ? error.message : "Offer could not be accepted.",
-          });
-        }
-      }
-
-      for (const { item, quote } of targets) {
-        await commandHandler({
-          streamId: `marketplace.offer-${item.offer_id}`,
-          command: {
-            type: "AcceptOffer",
-            sellerAccountId: params.sellerAccountId,
-            acceptedAt: new Date().toISOString(),
-            marketplaceSalesFeeUnitAmount: quote.marketplace_sales_fee_unit_amount,
-            sellerNetUnitAmount: quote.seller_net_unit_amount,
-            shippingAllowancePercentageBps: quote.shipping_allowance_percentage_bps,
-            termsScheduleId: quote.schedule_id,
-            termsAgreementId: quote.agreement_id,
-            termsResolvedAt: quote.resolved_at,
-            feeQuoteFingerprint: quote.fee_quote_fingerprint,
-            acceptanceBatchId,
-            acceptanceBatchSize: targets.length,
-          },
-          context,
-        });
-        acceptedOfferIds.push(item.offer_id as OfferId);
-      }
-
-      await removeOfferMatchSellListItems(deps.db, {
-        sellerAccountId: params.sellerAccountId,
-        offerIds: acceptedOfferIds,
-      });
-
-      return { acceptedOfferIds, skipped };
     },
     listSubmittedOffers: (params) => listSubmittedOffers(deps.db, params),
     getSubmittedOffer: (offerId, buyerAccountId) => getSubmittedOffer(deps.db, offerId, buyerAccountId),

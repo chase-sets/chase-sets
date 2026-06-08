@@ -915,9 +915,10 @@ function fulfillmentDeliveryPromiseForDraft(
   draft: SellerOrderDraft,
   shippingDestinationSnapshot: CheckoutShippingAddressSnapshot | null | undefined,
 ) {
+  const postagePolicySnapshot = requirePostagePolicySnapshot(draft);
   const serviceLevels = [
     ...draft.shippingPlanSnapshot.packages.map((pkg) => pkg.serviceLevel),
-    ...(draft.shippingPlanSnapshot.postagePolicySnapshot?.signatureRequired ? ["signature-required"] : []),
+    ...(postagePolicySnapshot.signatureRequired ? ["signature-required"] : []),
   ];
 
   return createFulfillmentDeliveryPromise({
@@ -929,14 +930,22 @@ function fulfillmentDeliveryPromiseForDraft(
   });
 }
 
-function postageRequirementsForDraft(draft: SellerOrderDraft) {
+function requirePostagePolicySnapshot(draft: SellerOrderDraft) {
   const snapshot = draft.shippingPlanSnapshot.postagePolicySnapshot;
+  if (!snapshot) {
+    throw new OrderingDomainError("Shipping plan is missing a postage policy snapshot.");
+  }
+  return snapshot;
+}
+
+function postageRequirementsForDraft(draft: SellerOrderDraft) {
+  const snapshot = requirePostagePolicySnapshot(draft);
   return {
-    policyVersion: snapshot?.policyVersion ?? "legacy-package-plan",
-    parcelRequired: snapshot?.parcelRequired ?? !draft.shippingPlanSnapshot.letterEligibility.eligible,
-    parcelReasons: snapshot?.parcelReasons ?? draft.shippingPlanSnapshot.letterEligibility.reasons,
-    signatureRequired: snapshot?.signatureRequired ?? false,
-    signatureReasons: snapshot?.signatureReasons ?? [],
+    policyVersion: snapshot.policyVersion,
+    parcelRequired: snapshot.parcelRequired,
+    parcelReasons: snapshot.parcelReasons,
+    signatureRequired: snapshot.signatureRequired,
+    signatureReasons: snapshot.signatureReasons,
   };
 }
 

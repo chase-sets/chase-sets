@@ -106,7 +106,7 @@ export function buildPostagePolicyCleanupEvidence(input) {
       activeOrdersWithoutSnapshots,
       activeShipmentsWithoutSnapshots,
       capabilityFailureCount,
-      readyToRetireLegacyCompatibility: remainingCleanupGaps.length === 0,
+      activeSnapshotCoverageComplete: remainingCleanupGaps.length === 0,
       remainingCleanupGaps,
     },
     cleanupPolicy: {

@@ -53,21 +53,12 @@ function createServices(): MarketplaceOfferServices {
   const getSubmittedOffer = vi.fn(async () => null);
   const listOfferMatches = vi.fn(async () => ({ items: [], total: 0 }));
   const getOfferMatch = vi.fn(async () => null);
-  const addOfferMatchSellListItem = vi.fn(async () => undefined);
-  const listOfferMatchSellList = vi.fn(async () => []);
-  const acceptOfferMatchSellList = vi.fn(async () => ({
-    acceptedOfferIds: ["off_1" as never],
-    skipped: [],
-  }));
 
   return {
     commandHandler: vi.fn(async () => ({ version: 1 })),
     submitOffer,
     acceptOffer,
     previewOfferAcceptanceTerms,
-    addOfferMatchSellListItem,
-    listOfferMatchSellList,
-    acceptOfferMatchSellList,
     listSubmittedOffers,
     getSubmittedOffer,
     listOfferMatches,
@@ -242,7 +233,6 @@ describe("marketplace offer routes", () => {
       seller_available_quantity: 1,
       seller_listing_availability_status: "available",
       can_fulfill: true,
-      in_sell_list: false,
       created_at: "2026-03-31T00:00:00.000Z",
       updated_at: "2026-03-31T00:00:00.000Z",
     } as never);
@@ -356,78 +346,5 @@ describe("marketplace offer routes", () => {
         },
       },
     });
-  });
-
-  it("adds a offer match to the sell list", async () => {
-    const services = createServices();
-    const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
-        accountId: "acc_seller",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["offers.view", "offers.manage", "listings.view"],
-      },
-      services,
-    });
-
-    const response = await app.fetch(
-      new Request("http://marketplace.test/account/offers/match-sell-list", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ offerId: "off_1" }),
-      }),
-    );
-
-    expect(response.status).toBe(201);
-    expect(services.addOfferMatchSellListItem).toHaveBeenCalledWith({
-      offerId: "off_1",
-      sellerAccountId: "acc_seller",
-    });
-  });
-
-  it("accepts the offer match sell list", async () => {
-    const services = createServices();
-    const app = buildApp({
-      actor: {
-        sessionId: "ses_1",
-        tenantId: "tnt_identity",
-        userId: "usr_1",
-        accountId: "acc_seller",
-        membershipId: "mbr_1",
-        roleKey: "owner",
-        permissions: ["offers.view", "offers.manage", "listings.view"],
-      },
-      services,
-    });
-
-    const response = await app.fetch(
-      new Request("http://marketplace.test/account/offers/match-sell-list/accept", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          feeQuoteFingerprintsByOfferId: {
-            off_1: "350.00|17.50|332.50|sch_standard|",
-          },
-        }),
-      }),
-    );
-
-    expect(response.status).toBe(201);
-    await expect(response.json()).resolves.toEqual({
-      acceptedOfferIds: ["off_1"],
-      skipped: [],
-    });
-    expect(services.acceptOfferMatchSellList).toHaveBeenCalledWith(
-      {
-        sellerAccountId: "acc_seller",
-        feeQuoteFingerprintsByOfferId: {
-          off_1: "350.00|17.50|332.50|sch_standard|",
-        },
-      },
-      expect.any(Object),
-    );
   });
 });

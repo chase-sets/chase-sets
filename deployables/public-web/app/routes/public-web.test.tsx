@@ -2,12 +2,12 @@ import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { resolvePublicRouteConfigRecords } from "../host";
 import { buildCanonicalUrl } from "../seo";
-import { loader as legacyMarketplaceSalesFeesUrlLoader } from "./legacy-marketplace-sales-fees-url";
-import { loader as legacyOrderProtectionUrlLoader } from "./legacy-order-protection-url";
 import { loader as manifestLoader } from "./manifest";
 import PublicNotFoundRoute from "./not-found";
 import { loader as notFoundLoader } from "./not-found";
+import { loader as orderProtectionRedirectLoader } from "./order-protection-redirect";
 import { loader as robotsLoader } from "./robots";
+import { loader as salesFeesRedirectLoader } from "./sales-fees-redirect";
 import { loader as sitemapLoader } from "./sitemap";
 import { action as waitlistAnalyticsAction, loader as waitlistAnalyticsLoader } from "./waitlist-analytics";
 import { waitlistAnalyticsBridgeScript } from "../root";
@@ -227,8 +227,8 @@ describe("public web deployable", () => {
   });
 
   it("redirects renamed policy URLs to their canonical public pages", () => {
-    expectRedirect(legacyOrderProtectionUrlLoader, "/order-protection");
-    expectRedirect(legacyMarketplaceSalesFeesUrlLoader, "/sales-fees");
+    expectRedirect(orderProtectionRedirectLoader, "/order-protection");
+    expectRedirect(salesFeesRedirectLoader, "/sales-fees");
   });
 });
 
