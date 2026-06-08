@@ -305,30 +305,26 @@ async function expectMarketplaceSurface(label, origin) {
   await expectUcpEndpoints(origin);
 }
 
-async function expectAdminCommercialTermsApis(adminOrigin, sessionToken) {
-  for (const path of [
-    "/api/commercial-terms/schedules?limit=1&offset=0",
-    "/api/commercial-terms/agreements?limit=1&offset=0",
+async function expectAdminCommercialTermsPages(adminOrigin, sessionToken) {
+  for (const { path, expectedText } of [
+    { path: "/commercial/terms/schedules", expectedText: ["Commercial Terms", "Schedules"] },
+    { path: "/commercial/terms/agreements", expectedText: ["Commercial Terms", "Agreements"] },
   ]) {
-    const response = await expectOk(`admin Commercial Terms API ${path}`, `${adminOrigin}${path}`, {
+    const response = await expectOk(`admin Commercial Terms page ${path}`, `${adminOrigin}${path}`, {
       headers: {
         Authorization: `Bearer ${sessionToken}`,
       },
     });
     const contentType = response.headers.get("content-type") ?? "";
-    if (!contentType.includes("application/json")) {
-      throw new Error(`Admin Commercial Terms API ${path} returned '${contentType}' instead of JSON.`);
+    if (!contentType.includes("text/html")) {
+      throw new Error(`Admin Commercial Terms page ${path} returned '${contentType}' instead of HTML.`);
     }
-  }
-}
 
-async function expectAdminCommercialTermsPages(adminOrigin, sessionToken) {
-  for (const path of ["/commercial/terms/schedules", "/commercial/terms/agreements"]) {
-    await expectOk(`admin Commercial Terms page ${path}`, `${adminOrigin}${path}`, {
-      headers: {
-        Authorization: `Bearer ${sessionToken}`,
-      },
-    });
+    const text = await response.text();
+    const missing = expectedText.filter((value) => !text.includes(value));
+    if (missing.length > 0) {
+      throw new Error(`Admin Commercial Terms page ${path} did not include expected text: ${missing.join(", ")}.`);
+    }
   }
 }
 
@@ -454,7 +450,6 @@ async function main() {
       );
     }
 
-    await expectAdminCommercialTermsApis(adminUrl, authBody.sessionToken);
     await expectAdminCommercialTermsPages(adminUrl, authBody.sessionToken);
   } else {
     console.warn("Skipping authenticated admin smoke; admin credentials were not provided.");
