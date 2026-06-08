@@ -117,11 +117,39 @@ async function clickModuleTab(page: Page, name: string) {
       await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 3_000 });
       return;
     } catch (error) {
+      await tab.focus();
+      await page.keyboard.press("Enter");
+      try {
+        await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 1_000 });
+        return;
+      } catch {
+        await page.keyboard.press("Space");
+        try {
+          await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 1_000 });
+          return;
+        } catch {
+          // Retry after the page settles; the admin route can refresh read models during first load.
+        }
+      }
       if (attempt === 4) {
         throw error;
       }
       await page.waitForTimeout(500);
     }
+  }
+}
+
+async function selectModuleTabWithKeyboard(page: Page, name: string) {
+  const tab = page.getByRole("tab", { name });
+  await expect(tab).toBeVisible();
+  await tab.focus();
+  await expect(tab).toBeFocused();
+  await page.keyboard.press("Enter");
+  try {
+    await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 1_000 });
+  } catch {
+    await page.keyboard.press("Space");
+    await expect(tab).toHaveAttribute("aria-selected", "true");
   }
 }
 
@@ -166,7 +194,7 @@ test.describe("catalog admin integrations", () => {
     await expectVisibleText(page, "Replay implication");
     await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
 
-    await clickModuleTab(page, "Operations");
+    await selectModuleTabWithKeyboard(page, "Operations");
     await expectVisibleText(page, "Operations workbench");
     await expect(page.getByRole("heading", { name: "Import and job operations" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Source Observation review workflow" })).toBeVisible();
@@ -174,6 +202,13 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("heading", { name: "Rollback and retirement workflow" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Review Matching Observations" })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
+
+    await page.setViewportSize({ width: 390, height: 900 });
+    const importOperationsModule = page.getByLabel("Import and job operations").first();
+    await expect(importOperationsModule.getByRole("heading", { name: "Import and job operations" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Review Matching Observations" })).toBeVisible();
+    await expect(importOperationsModule.getByRole("button", { name: "Pull Provider Data" })).toBeVisible();
+    await page.setViewportSize({ width: 1280, height: 900 });
 
     await openProfileDialog(page, /^Compare$/i, "Compare active profile");
     await expect(page.getByRole("heading", { name: "Activation Readiness" })).toBeVisible();

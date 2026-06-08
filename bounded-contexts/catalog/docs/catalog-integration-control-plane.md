@@ -147,6 +147,8 @@ Those contracts keep Catalog semantic readiness grouped by ingestion unit, provi
 
 Read-model performance and freshness expectations are documented in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md), with the authoritative TypeScript surface in `admin-control-plane-read-model-slos.ts`. High-volume diagnostic, job, Source Observation, impact, promotion, rollback, and audit views must carry server-side pagination contracts and render `fresh`, `stale`, `lagging`, `partial`, or `unavailable` states instead of silently falling back to raw storage reads.
 
+Dense workflow UX and accessibility acceptance is documented in [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md). Release verification for Admin Control Plane UI changes should name the checklist rows covered by tests and any deferred keyboard, responsive, high-volume, or raw-JSON fallback gaps.
+
 ## Admin Section Command Contract
 
 Provider profile section updates use the shared `provider-profile-admin-contracts` module under Source Observations. That compatibility contract delegates to the provider profile section registry, where each editable section entry owns its display metadata, command validator, and patch composer. The Hono route parses section update commands before invoking review services, and the Admin UI imports the same section key and command DTO types instead of maintaining a duplicate union. Invalid section commands return HTTP 400 with `invalid_profile_section_command` and a stable validation message.
@@ -163,6 +165,7 @@ The URL section key is authoritative for section update routes. Request bodies m
 - [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)
+- [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)
 - [Source Observation Integration](./source-observation-integration.md)
 - [Catalog Integration New-Provider Walkthrough](./catalog-integration-new-provider-walkthrough.md)
 - [Catalog Integration Milestone Release Plan](./catalog-integration-milestone-release-plan.md)
