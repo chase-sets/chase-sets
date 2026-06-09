@@ -3,9 +3,12 @@ import {
   catalogIntegrationDataBackfillDecisions,
   catalogIntegrationDataReleaseVerificationQueries,
   catalogIntegrationDataResetDeleteStatements,
+  catalogIntegrationDataResetEnvironmentPlans,
   catalogIntegrationDataRollbackChecklist,
   catalogIntegrationDataSurfacePolicies,
+  catalogIntegrationDataResetTargetTables,
   collectCatalogIntegrationDataVerificationReport,
+  evaluateCatalogIntegrationDataResetEvidence,
   resetCatalogIntegrationPreLaunchData,
 } from "./catalog-integration-data-migration-reset";
 
@@ -59,6 +62,34 @@ describe("catalog integration data migration reset", () => {
 
     expect(catalogIntegrationDataResetDeleteStatements.at(-1)?.sql).toContain("authoring_audit_json IS NULL");
     expect(catalogIntegrationDataResetDeleteStatements.at(-1)?.sql).toContain("migration_evidence_json IS NULL");
+    expect(catalogIntegrationDataResetTargetTables()).toEqual(
+      catalogIntegrationDataResetDeleteStatements.map((statement) => statement.tableName),
+    );
+    expect(catalogIntegrationDataResetTargetTables()).not.toContain("catalog_items");
+    expect(catalogIntegrationDataResetTargetTables()).not.toContain("marketplace_listings");
+  });
+
+  it("defines environment-specific reset evidence plans", () => {
+    expect(catalogIntegrationDataResetEnvironmentPlans).toEqual([
+      expect.objectContaining({
+        environment: "local-dev-test",
+        requiresBackupDecision: false,
+        requiresApprovalReference: false,
+      }),
+      expect.objectContaining({
+        environment: "staging",
+        requiresBackupDecision: true,
+        requiresApprovalReference: true,
+      }),
+      expect.objectContaining({
+        environment: "production-prelaunch",
+        requiresBackupDecision: true,
+        requiresApprovalReference: true,
+      }),
+    ]);
+    expect(catalogIntegrationDataResetEnvironmentPlans.at(-1)?.unrelatedDataBoundary).toContain(
+      "customer, order, billing, auth, marketplace, inventory",
+    );
   });
 
   it("collects a verification report for launch reset checks", async () => {
@@ -174,6 +205,173 @@ describe("catalog integration data migration reset", () => {
     });
   });
 
+  it("requires staging reset evidence to include approval, backup posture, dry-run, and before/after reports", () => {
+    const findings = evaluateCatalogIntegrationDataResetEvidence({
+      environment: "staging",
+      generatedAt: "",
+      operator: "",
+      approvalReference: null,
+      backupDecision: null,
+      targetTables: ["catalog_source_observations"],
+      dryRun: null,
+      before: null,
+      after: null,
+    });
+
+    expect(findings.map((finding) => finding.code)).toEqual([
+      "missing-operator",
+      "missing-generated-at",
+      "missing-approval-reference",
+      "missing-backup-decision",
+      "missing-smoke-verification-reference",
+      "missing-dry-run",
+      "missing-before-verification",
+      "missing-after-verification",
+    ]);
+  });
+
+  it("accepts production/prelaunch evidence when data loss is approved and reset postconditions are clean", () => {
+    expect(
+      evaluateCatalogIntegrationDataResetEvidence({
+        environment: "production-prelaunch",
+        generatedAt: "2026-06-09T00:00:00.000Z",
+        operator: "catalog-release-lead",
+        approvalReference: "private-evidence://catalog/prelaunch-reset/approval-20260609",
+        stagingRehearsalReference: "private-evidence://catalog/prelaunch-reset/staging-rehearsal-20260609",
+        smokeVerificationReference: "private-evidence://catalog/prelaunch-reset/prod-smoke-20260609",
+        backupDecision: {
+          kind: "skip-backup-accepted-data-loss",
+          approver: "catalog-release-lead",
+          rationale: "Only unlaunched Catalog integration data is targeted; fresh import rebuilds source data.",
+          targetDataSet: "Catalog integration prelaunch state",
+        },
+        targetTables: catalogIntegrationDataResetTargetTables(),
+        dryRun: cleanVerificationReport({
+          sourceObservations: 12,
+          legacySourceObservationReferences: 4,
+          integrationDurableJobs: 2,
+        }),
+        before: cleanVerificationReport({
+          sourceObservations: 12,
+          legacySourceObservationReferences: 4,
+          integrationDurableJobs: 2,
+        }),
+        after: cleanVerificationReport({ activeProviderProfiles: 3, profileSections: 24 }),
+      }),
+    ).toEqual([]);
+  });
+
+  it("blocks unsafe target tables and forced active-job reset evidence gaps", () => {
+    const findings = evaluateCatalogIntegrationDataResetEvidence({
+      environment: "production-prelaunch",
+      generatedAt: "2026-06-09T00:00:00.000Z",
+      operator: "catalog-release-lead",
+      approvalReference: "private-evidence://catalog/prelaunch-reset/approval-20260609",
+      stagingRehearsalReference: "private-evidence://catalog/prelaunch-reset/staging-rehearsal-20260609",
+      smokeVerificationReference: "private-evidence://catalog/prelaunch-reset/prod-smoke-20260609",
+      backupDecision: {
+        kind: "create-backup-snapshot-export",
+        reference: "private-evidence://catalog/prelaunch-reset/export-20260609",
+        owner: "catalog-release-lead",
+        retentionUntil: "2026-06-30",
+        restoreVerificationReference: "private-evidence://catalog/prelaunch-reset/restore-check-20260609",
+      },
+      targetTables: [...catalogIntegrationDataResetTargetTables(), "orders"],
+      dryRun: cleanVerificationReport({ activeIntegrationDurableJobs: 1 }),
+      before: cleanVerificationReport({ activeIntegrationDurableJobs: 1 }),
+      after: cleanVerificationReport({
+        sourceObservations: 1,
+        legacySourceObservationReferences: 1,
+        integrationDurableJobs: 1,
+        providerOptionQueryCacheEntries: 2,
+        providerOptionRateLimits: 2,
+        activeProviderProfiles: 0,
+      }),
+      forcedActiveJobReset: { approver: "", rationale: "", activeJobCount: 0 },
+    });
+
+    expect(findings.map((finding) => finding.code)).toEqual([
+      "unsafe-target-table",
+      "incomplete-forced-active-job-decision",
+      "post-reset-source-observations-remain",
+      "post-reset-legacy-references-remain",
+      "post-reset-integration-jobs-remain",
+      "post-reset-provider-option-cache-remain",
+      "post-reset-provider-rate-limits-remain",
+      "post-reset-seeded-profiles-missing",
+    ]);
+  });
+
+  it("requires production evidence to identify staging rehearsal, smoke verification, and target tables", () => {
+    const findings = evaluateCatalogIntegrationDataResetEvidence({
+      environment: "production-prelaunch",
+      generatedAt: "2026-06-09T00:00:00.000Z",
+      operator: "catalog-release-lead",
+      approvalReference: "private-evidence://catalog/prelaunch-reset/approval-20260609",
+      backupDecision: {
+        kind: "skip-backup-accepted-data-loss",
+        approver: "catalog-release-lead",
+        rationale: "Only unlaunched Catalog integration data is targeted; fresh import rebuilds source data.",
+        targetDataSet: "Catalog integration prelaunch state",
+      },
+      targetTables: [],
+      dryRun: cleanVerificationReport(),
+      before: cleanVerificationReport(),
+      after: cleanVerificationReport({ activeProviderProfiles: 3, profileSections: 24 }),
+    });
+
+    expect(findings.map((finding) => finding.code)).toEqual([
+      "missing-staging-rehearsal-reference",
+      "missing-smoke-verification-reference",
+      "missing-target-tables",
+    ]);
+  });
+
+  it("does not accept retained-data reset-unsafe evidence as clean reset completion", () => {
+    const findings = evaluateCatalogIntegrationDataResetEvidence({
+      environment: "staging",
+      generatedAt: "2026-06-09T00:00:00.000Z",
+      operator: "catalog-release-lead",
+      approvalReference: "private-evidence://catalog/prelaunch-reset/staging-approval-20260609",
+      smokeVerificationReference: "private-evidence://catalog/prelaunch-reset/staging-smoke-20260609",
+      backupDecision: {
+        kind: "retain-data-reset-unsafe",
+        owner: "catalog-release-lead",
+        expiresAt: "2026-06-30",
+        reason: "Reset postponed until upstream export is verified.",
+      },
+      targetTables: catalogIntegrationDataResetTargetTables(),
+      dryRun: cleanVerificationReport(),
+      before: cleanVerificationReport(),
+      after: cleanVerificationReport({ activeProviderProfiles: 3, profileSections: 24 }),
+    });
+
+    expect(findings.map((finding) => finding.code)).toEqual(["reset-unsafe-data-retained"]);
+  });
+
+  it("requires a forced active-job decision when dry-run saw active jobs even if before counts are clean", () => {
+    const findings = evaluateCatalogIntegrationDataResetEvidence({
+      environment: "staging",
+      generatedAt: "2026-06-09T00:00:00.000Z",
+      operator: "catalog-release-lead",
+      approvalReference: "private-evidence://catalog/prelaunch-reset/staging-approval-20260609",
+      smokeVerificationReference: "private-evidence://catalog/prelaunch-reset/staging-smoke-20260609",
+      backupDecision: {
+        kind: "create-backup-snapshot-export",
+        reference: "private-evidence://catalog/prelaunch-reset/staging-export-20260609",
+        owner: "catalog-release-lead",
+        retentionUntil: "2026-06-30",
+        restoreVerificationReference: "private-evidence://catalog/prelaunch-reset/staging-restore-check-20260609",
+      },
+      targetTables: catalogIntegrationDataResetTargetTables(),
+      dryRun: cleanVerificationReport({ activeIntegrationDurableJobs: 1 }),
+      before: cleanVerificationReport(),
+      after: cleanVerificationReport({ activeProviderProfiles: 3, profileSections: 24 }),
+    });
+
+    expect(findings.map((finding) => finding.code)).toEqual(["active-jobs-require-forced-decision"]);
+  });
+
   it("marks backfill work as skipped after a clean pre-launch wipe", () => {
     expect(
       catalogIntegrationDataBackfillDecisions({
@@ -232,6 +430,28 @@ type CatalogIntegrationCounts = Readonly<{
   providerOptionQueryCacheEntries: number;
   providerOptionRateLimits: number;
 }>;
+
+function cleanVerificationReport(counts: Partial<CatalogIntegrationCounts> = {}): CatalogIntegrationCounts {
+  return {
+    providerProfileVersions: 3,
+    adminAuthoredProfileVersions: 0,
+    referencedProfileVersions: 0,
+    activeProviderProfiles: 3,
+    sourceObservations: 0,
+    legacySourceObservationReferences: 0,
+    integrationDurableJobs: 0,
+    activeIntegrationDurableJobs: 0,
+    integrationWorkUnits: 0,
+    bulkReviewJobs: 0,
+    activeBulkReviewJobs: 0,
+    bulkReviewWorkUnits: 0,
+    profileSections: 24,
+    profileSectionDiagnostics: 0,
+    providerOptionQueryCacheEntries: 0,
+    providerOptionRateLimits: 0,
+    ...counts,
+  };
+}
 
 class InMemoryCatalogIntegrationDataDb {
   readonly statements: string[] = [];
