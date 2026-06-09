@@ -1,4 +1,4 @@
-import { classifyFreshWriteReadError, readApiErrorCode } from "@chase-sets/http/responses";
+import { readApiErrorCode, recoverFreshWriteReadError } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { CheckoutApiError } from "./api-client";
 
@@ -191,9 +191,13 @@ export function checkoutRecoveryForFreshWriteError(
     return checkoutRecoveryForError(error, actor, currentPath);
   }
 
-  const freshWriteError = classifyFreshWriteReadError({ request, error });
-  if (freshWriteError.transient) {
-    return checkoutRecoveryForKind("checkout-preparing", currentPath);
+  const freshWriteRecovery = recoverFreshWriteReadError({
+    request,
+    error,
+    recoverTransient: () => checkoutRecoveryForKind("checkout-preparing", currentPath),
+  });
+  if (freshWriteRecovery) {
+    return freshWriteRecovery;
   }
 
   return checkoutRecoveryForError(error, actor, currentPath);
