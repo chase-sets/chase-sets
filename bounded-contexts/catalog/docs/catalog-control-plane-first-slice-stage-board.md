@@ -35,7 +35,7 @@ Stage 2 may become implementation-ready only after all Stage 1 issues have accep
 
 | Issue | Exit requirement | Downstream unblock |
 | --- | --- | --- |
-| #1060 | Shared admin API/read-model contract types, endpoint docs, blocker categories, deploy-skew/fail-closed behavior, and contract verification for the primary workbench. | #1056, #1038, #1039, #1040, #1057, #1058, #1063, #1059 |
+| #1060 | Shared admin API/read-model contract types, endpoint docs, blocker categories, deploy-skew/fail-closed behavior, complete retirement semantics, and contract verification for the primary workbench. Evidence target: [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md) and `bounded-contexts/catalog/features/source-observations/api/primary-workbench-admin-contracts.ts`. | #1056, #1038, #1039, #1040, #1057, #1058, #1063, #1059 |
 | #1031 | Rebuilt IA and workflow map showing each operator job start, completion point, evidence scope, and deleted/rebuilt current-page concepts, with a tested TypeScript manifest for grouped navigation and keyboard order. | #1048, #1056, #1057 |
 | #1048 | Grouped section navigation/submenu pattern, desktop left groups, mobile translation, context-preserving links, and responsibility boundaries. | #1046, #1056, #1057, #1047 |
 | #1046 | Dense-workbench primitive proof artifact covering grouped navigation, tables, action bars, drawers, blocked/denied/degraded states, focus, and responsive behavior. | #1056, #1038, #1039, #1040, #1047 |
@@ -56,7 +56,7 @@ Until a specific assignee is added, first-slice implementation comments should n
 | Issue | Stage | Owner record | Current readiness |
 | --- | --- | --- | --- |
 | #1087 | Cross-stage coordination | #1087 comment and this board | Complete when this board ships and evidence comments are linked. |
-| #1060 | Stage 1 | Issue comment required before implementation PR | Ready to start; blocks Stage 2 API/read-model consumers. |
+| #1060 | Stage 1 | Owner comment posted before implementation PR | In implementation; defines the primary workbench API/read-model contract, retirement semantics, blocker categories, deploy-skew fail-closed behavior, and downstream handoff fields. |
 | #1031 | Stage 1 | Issue comment required before implementation PR | Ready to start; blocks IA-dependent navigation and route work. |
 | #1048 | Stage 1 | Issue comment required before implementation PR | Ready to start after or alongside #1031 IA decisions. |
 | #1046 | Stage 1 | Issue comment required before implementation PR | Ready to start after #1048 chooses the grouped navigation pattern. |
@@ -96,5 +96,6 @@ Each stage exit comment should include:
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
+- [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)

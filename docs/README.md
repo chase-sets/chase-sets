@@ -97,6 +97,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Control Plane Section Navigation](../bounded-contexts/catalog/docs/catalog-control-plane-section-navigation.md)
 - [Catalog Control Plane Clean Contract Handoff](../bounded-contexts/catalog/docs/catalog-control-plane-clean-contract-handoff.md)
 - [Catalog Control Plane First-Slice Stage Board](../bounded-contexts/catalog/docs/catalog-control-plane-first-slice-stage-board.md)
+- [Catalog Primary Workbench Admin Contract](../bounded-contexts/catalog/docs/primary-workbench-admin-contract.md)
 - [Catalog Integration New-Provider Walkthrough](../bounded-contexts/catalog/docs/catalog-integration-new-provider-walkthrough.md)
 - [Catalog Integration MTGJSON And Scryfall Validation](../bounded-contexts/catalog/docs/catalog-integration-mtgjson-scryfall-validation.md)
 - [Catalog Integration Milestone Release Plan](../bounded-contexts/catalog/docs/catalog-integration-milestone-release-plan.md)
