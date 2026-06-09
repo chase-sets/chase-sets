@@ -53,6 +53,37 @@ type ResolvedReadConsistencyDependency = Readonly<{
 
 type ReadConsistencyWaitMode = "target-context" | "exact-dependency";
 
+type ReadConsistencyAuditOutcome = "missing-receipt" | "fresh" | "timeout";
+
+export type ReadConsistencyAuditRecord = Readonly<{
+  type: "read-after-write.freshness";
+  outcome: ReadConsistencyAuditOutcome;
+  method: string;
+  mountPath: string;
+  routePaths: readonly string[];
+  readAfterWriteHeaderPresent: boolean;
+  readTargetContextHeaderPresent: boolean;
+  readTargetContextHeaderValid: boolean;
+  requestedTargetContextName: string | null;
+  targetContextNames: readonly string[];
+  waitMode: ReadConsistencyWaitMode;
+  durationMs: number;
+  receiptSourceContextNames: readonly string[];
+  receiptSourceCount: number;
+  receiptEventCount: number;
+  dependencies: readonly ResolvedReadConsistencyDependency[];
+  pending: readonly Readonly<{
+    targetContextName: string;
+    projectionName: string;
+    sourceContextName: string;
+    requiredGlobalPosition: string;
+    lastGlobalPosition: string;
+    globalPositionLag: string;
+    state: string;
+    lastError: "present" | null;
+  }>[];
+}>;
+
 export class ProjectionFreshnessTimeoutError extends Error {
   public constructor(
     public readonly details: Readonly<{
@@ -294,10 +325,16 @@ export function attachReadConsistencyMiddleware(
   }>,
   mounts: readonly Pick<ResolvedApiMount, "contextName" | "mountPath" | "readFreshnessRoutes">[],
   projectionGroups: readonly ReadConsistencyProjectionGroup[],
-  options: Readonly<{ timeoutMs?: number; pollIntervalMs?: number }> = {},
+  options: Readonly<{
+    timeoutMs?: number;
+    pollIntervalMs?: number;
+    recordReadConsistencyAudit?: (record: ReadConsistencyAuditRecord) => void;
+    nowMs?: () => number;
+  }> = {},
 ): void {
   const contextsByMountPath = new Map<string, string[]>();
   const routeDependenciesByMountPath = new Map<string, ReturnType<typeof createRouteDependencyMatcher>[]>();
+  const nowMs = options.nowMs ?? Date.now;
   for (const mount of mounts) {
     contextsByMountPath.set(mount.mountPath, [...(contextsByMountPath.get(mount.mountPath) ?? []), mount.contextName]);
     for (const route of mount.readFreshnessRoutes ?? []) {
@@ -322,34 +359,56 @@ export function attachReadConsistencyMiddleware(
           };
         }
       ).req;
+      const startedAt = nowMs();
       const method = req?.method?.toUpperCase() ?? "GET";
       if (method !== "GET" && method !== "HEAD") {
         await next();
         return;
       }
 
-      const receipt = decodeFreshWriteReceipt(req?.header?.(CHASE_SETS_READ_AFTER_WRITE_HEADER));
-      if (!receipt || receipt.sources.length === 0) {
-        await next();
-        return;
-      }
-
-      const requestedTargetContextName = req?.header?.(CHASE_SETS_READ_TARGET_CONTEXT_HEADER);
-      const targetContextNames =
-        requestedTargetContextName && contextNames.includes(requestedTargetContextName)
-          ? [requestedTargetContextName]
-          : contextNames;
-      const exactDependencies = resolveRouteDependenciesForRequest({
+      const readAfterWriteHeader = req?.header?.(CHASE_SETS_READ_AFTER_WRITE_HEADER);
+      const receipt = decodeFreshWriteReceipt(readAfterWriteHeader);
+      const requestedTargetContextHeader = req?.header?.(CHASE_SETS_READ_TARGET_CONTEXT_HEADER);
+      const requestedTargetContextName =
+        requestedTargetContextHeader && contextNames.includes(requestedTargetContextHeader)
+          ? requestedTargetContextHeader
+          : null;
+      const targetContextNames = requestedTargetContextName ? [requestedTargetContextName] : contextNames;
+      const routeFreshness = resolveRouteFreshnessForRequest({
         method,
         mountPath,
         path: req?.path,
         url: req?.url,
-        requestedTargetContextName:
-          requestedTargetContextName && contextNames.includes(requestedTargetContextName)
-            ? requestedTargetContextName
-            : null,
+        requestedTargetContextName,
         matchers: routeDependencyMatchers,
       });
+      const exactDependencies = routeFreshness.dependencies;
+
+      if (!receipt || receipt.sources.length === 0) {
+        if (routeFreshness.routePaths.length > 0) {
+          recordReadConsistencyAudit(options.recordReadConsistencyAudit, {
+            type: "read-after-write.freshness",
+            outcome: "missing-receipt",
+            method,
+            mountPath,
+            routePaths: routeFreshness.routePaths,
+            readAfterWriteHeaderPresent: Boolean(readAfterWriteHeader),
+            readTargetContextHeaderPresent: Boolean(requestedTargetContextHeader),
+            readTargetContextHeaderValid: Boolean(requestedTargetContextName),
+            requestedTargetContextName,
+            targetContextNames,
+            waitMode: exactDependencies ? "exact-dependency" : "target-context",
+            durationMs: nowMs() - startedAt,
+            receiptSourceContextNames: [],
+            receiptSourceCount: 0,
+            receiptEventCount: 0,
+            dependencies: exactDependencies ?? [],
+            pending: [],
+          });
+        }
+        await next();
+        return;
+      }
 
       try {
         await waitForProjectionFreshness({
@@ -364,6 +423,29 @@ export function attachReadConsistencyMiddleware(
         });
       } catch (error) {
         if (error instanceof ProjectionFreshnessTimeoutError) {
+          recordReadConsistencyAudit(options.recordReadConsistencyAudit, {
+            type: "read-after-write.freshness",
+            outcome: "timeout",
+            method,
+            mountPath,
+            routePaths: routeFreshness.routePaths,
+            readAfterWriteHeaderPresent: Boolean(readAfterWriteHeader),
+            readTargetContextHeaderPresent: Boolean(requestedTargetContextHeader),
+            readTargetContextHeaderValid: Boolean(requestedTargetContextName),
+            requestedTargetContextName,
+            targetContextNames: error.details.targetContextNames,
+            waitMode: error.details.waitMode,
+            durationMs: nowMs() - startedAt,
+            receiptSourceContextNames: receipt.sources.map((source) => source.sourceContextName),
+            receiptSourceCount: receipt.sources.length,
+            receiptEventCount: receipt.sources.reduce((count, source) => count + source.eventIds.length, 0),
+            dependencies: error.details.dependencies,
+            pending: error.details.pending.map((pending) => ({
+              ...pending,
+              globalPositionLag: globalPositionLag(pending.requiredGlobalPosition, pending.lastGlobalPosition),
+              lastError: pending.lastError ? "present" : null,
+            })),
+          });
           const json = (context as { json?: (body: unknown, status?: number) => unknown }).json;
           if (json) {
             return json(
@@ -384,8 +466,40 @@ export function attachReadConsistencyMiddleware(
         throw error;
       }
 
+      recordReadConsistencyAudit(options.recordReadConsistencyAudit, {
+        type: "read-after-write.freshness",
+        outcome: "fresh",
+        method,
+        mountPath,
+        routePaths: routeFreshness.routePaths,
+        readAfterWriteHeaderPresent: Boolean(readAfterWriteHeader),
+        readTargetContextHeaderPresent: Boolean(requestedTargetContextHeader),
+        readTargetContextHeaderValid: Boolean(requestedTargetContextName),
+        requestedTargetContextName,
+        targetContextNames: exactDependencies
+          ? [...new Set(exactDependencies.map((dependency) => dependency.targetContextName))]
+          : targetContextNames,
+        waitMode: exactDependencies ? "exact-dependency" : "target-context",
+        durationMs: nowMs() - startedAt,
+        receiptSourceContextNames: receipt.sources.map((source) => source.sourceContextName),
+        receiptSourceCount: receipt.sources.length,
+        receiptEventCount: receipt.sources.reduce((count, source) => count + source.eventIds.length, 0),
+        dependencies: exactDependencies ?? [],
+        pending: [],
+      });
       await next();
     });
+  }
+}
+
+function recordReadConsistencyAudit(
+  recorder: ((record: ReadConsistencyAuditRecord) => void) | undefined,
+  record: ReadConsistencyAuditRecord,
+): void {
+  try {
+    recorder?.(record);
+  } catch {
+    // Audit logging must never disrupt request handling.
   }
 }
 
@@ -422,6 +536,7 @@ function createRouteDependencyMatcher(
   return {
     contextName,
     mountPath,
+    routePath: normalizeRoutePath(route.routePath),
     methods,
     routePattern,
     dependencies,
@@ -472,7 +587,7 @@ function resolveReadConsistencyDependency(
   return [{ targetContextName, projectionName: owners[0].projectionName }];
 }
 
-function resolveRouteDependenciesForRequest(
+function resolveRouteFreshnessForRequest(
   input: Readonly<{
     method: string;
     mountPath: string;
@@ -481,7 +596,10 @@ function resolveRouteDependenciesForRequest(
     requestedTargetContextName: string | null;
     matchers: readonly ReturnType<typeof createRouteDependencyMatcher>[];
   }>,
-): readonly ResolvedReadConsistencyDependency[] | null {
+): Readonly<{
+  routePaths: readonly string[];
+  dependencies: readonly ResolvedReadConsistencyDependency[] | null;
+}> {
   const relativePath = normalizeRequestRelativePath(input.mountPath, input.path, input.url);
   const matches = input.matchers.filter(
     (matcher) => matcher.methods.has(input.method) && matcher.routePattern.test(relativePath),
@@ -491,7 +609,15 @@ function resolveRouteDependenciesForRequest(
     : matches;
   const dependencies = normalizeResolvedDependencies(targetMatches.flatMap((matcher) => matcher.dependencies));
 
-  return dependencies.length > 0 ? dependencies : null;
+  return {
+    routePaths: [...new Set(targetMatches.map((matcher) => matcher.routePath))],
+    dependencies: dependencies.length > 0 ? dependencies : null,
+  };
+}
+
+function globalPositionLag(requiredGlobalPosition: string, lastGlobalPosition: string): string {
+  const lag = BigInt(requiredGlobalPosition) - BigInt(lastGlobalPosition);
+  return lag > 0n ? lag.toString() : "0";
 }
 
 function normalizeRequestRelativePath(mountPath: string, path?: string, url?: string): string {
