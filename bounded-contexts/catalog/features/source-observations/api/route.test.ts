@@ -133,6 +133,48 @@ describe("source observation routes", () => {
     expect(services.rejectObservation).not.toHaveBeenCalled();
   });
 
+  it("requires a reason for single Source Observation rejection", async () => {
+    const services = {
+      rejectObservation: vi.fn(),
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/obs_1/reject", {
+      method: "POST",
+      body: JSON.stringify({ reason: " " }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "Rejection requires a reason.",
+    });
+    expect(services.rejectObservation).not.toHaveBeenCalled();
+  });
+
+  it("passes trimmed reasons through single Source Observation rejection", async () => {
+    const result = { status: "rejected", observationId: "obs_1" };
+    const rejectObservation = vi.fn(async () => result);
+    const services = {
+      rejectObservation,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/obs_1/reject", {
+      method: "POST",
+      body: JSON.stringify({ reason: " Duplicate provider row. " }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual(result);
+    expect(rejectObservation).toHaveBeenCalledWith({
+      observationId: "obs_1",
+      reason: "Duplicate provider row.",
+      context,
+    });
+  });
+
   it("lists observations using the shared source query param as provider scope", async () => {
     const listSourceObservations = vi.fn(async () => ({
       items: [],

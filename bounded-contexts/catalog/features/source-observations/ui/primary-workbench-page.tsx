@@ -764,6 +764,118 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
               ) : null}
             </WorkflowModule>
 
+            <WorkflowModule
+              title={t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan.title")}
+              description={t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan.description")}
+              status={
+                <Badge tone={readModel.promotionPreview.freshness === "stale" ? "warning" : "success"}>
+                  {stateLabel(readModel.promotionPreview.freshness)}
+                </Badge>
+              }
+              actions={
+                <Button size="sm" leadingIcon="check" disabled={!isActionAvailable(readModel, "execute-promotion")}>
+                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.promote.catalog.facts")}
+                </Button>
+              }
+              headingLevel={2}
+              density="compact"
+            >
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                <KeyValueList
+                  items={[
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.scope"),
+                      value: readModel.promotionPreview.scope.label,
+                    },
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.requested.observations"),
+                      value: readModel.promotionPreview.scope.requestedCount,
+                    },
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
+                      value: readModel.promotionPreview.scope.eligibleCount,
+                    },
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
+                      value:
+                        readModel.promotionPreview.commandPlanHash ??
+                        t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
+                    },
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh"),
+                      value: readModel.promotionPreview.executionSafeguards.previewFresh
+                        ? t("catalog.features.sourceObservations.ui.primaryWorkbench.ready")
+                        : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
+                    },
+                  ]}
+                />
+                <KeyValueList
+                  items={[
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.eligible"),
+                      value: readModel.promotionPreview.outcomeCounts.eligible,
+                    },
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.blocked"),
+                      value: readModel.promotionPreview.outcomeCounts.blocked,
+                    },
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.skipped"),
+                      value: readModel.promotionPreview.outcomeCounts.skipped,
+                    },
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.conflicting"),
+                      value: readModel.promotionPreview.outcomeCounts.conflicting,
+                    },
+                    {
+                      key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.count.failed"),
+                      value: readModel.promotionPreview.outcomeCounts.failed,
+                    },
+                  ]}
+                />
+              </div>
+
+              <KeyValueList
+                items={[
+                  {
+                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.reject.key"),
+                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.reject.value"),
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.key"),
+                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.value"),
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.reapply.key"),
+                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.reapply.value"),
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.replay.key"),
+                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.replay.value"),
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard"),
+                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value"),
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.key"),
+                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.value"),
+                  },
+                  {
+                    key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.idempotency.key"),
+                    value: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.idempotency.value"),
+                  },
+                ]}
+              />
+
+              <div className="grid gap-2">
+                <div className="text-sm font-semibold text-foreground">
+                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers")}
+                </div>
+                <BlockerList blockers={readModel.promotionPreview.blockers} />
+              </div>
+            </WorkflowModule>
+
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
               <WorkflowModule
                 title={t("catalog.features.sourceObservations.ui.primaryWorkbench.readiness.recovery.title")}

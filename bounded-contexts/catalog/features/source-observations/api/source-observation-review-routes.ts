@@ -87,9 +87,19 @@ export function sourceObservationReadReviewRoutes(services: SourceObservationRea
     }
 
     const body = await c.req.json().catch(() => ({}));
+    const reason = String(body.reason ?? "").trim();
+    if (!reason) {
+      return c.json(
+        {
+          error: t("catalog.features.sourceObservations.api.route.rejection.requires.reason"),
+        },
+        400,
+      );
+    }
+
     const result = await services.rejectObservation({
       observationId: c.req.param("id"),
-      reason: String(body.reason ?? "Rejected during review."),
+      reason,
       context: c.get("context"),
     });
 
