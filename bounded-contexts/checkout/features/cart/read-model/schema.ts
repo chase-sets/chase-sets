@@ -24,25 +24,9 @@ CREATE TABLE IF NOT EXISTS checkout_cart_line_pages (
   PRIMARY KEY (buyer_account_id, line_id)
 );
 
-ALTER TABLE checkout_cart_line_pages
-  ADD COLUMN IF NOT EXISTS item_image_url text NULL,
-  ADD COLUMN IF NOT EXISTS item_image_srcset text NULL,
-  ADD COLUMN IF NOT EXISTS item_image_loading_url text NULL,
-  ADD COLUMN IF NOT EXISTS item_image_loading_alt text NULL,
-  ADD COLUMN IF NOT EXISTS item_image_loading_srcset text NULL;
-
-ALTER TABLE checkout_cart_line_pages
-  ADD COLUMN IF NOT EXISTS fulfillment_mode text NOT NULL DEFAULT 'optimize',
-  ADD COLUMN IF NOT EXISTS locked_listing_id text NULL,
-  ADD COLUMN IF NOT EXISTS seller_preference_id text NULL,
-  ADD COLUMN IF NOT EXISTS availability_state text NOT NULL DEFAULT 'available';
-
 CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_buyer_idx
   ON checkout_cart_line_pages (buyer_account_id, updated_at DESC, line_id ASC);
 
 CREATE INDEX IF NOT EXISTS checkout_cart_line_pages_catalog_version_idx
   ON checkout_cart_line_pages (product_id);
-
-ALTER TABLE checkout_cart_line_pages
-  ADD COLUMN IF NOT EXISTS item_language_code text NULL;
 `;

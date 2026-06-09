@@ -24,7 +24,7 @@ export type CheckoutSellListLineRow = Readonly<{
 
 export type CheckoutSellListReceiptRow = Readonly<{
   seller_account_id: string;
-  execution_id: string | null;
+  execution_id: string;
   checked_out_at: string;
   execution_summary: Readonly<{
     acceptedOfferCount?: number;
@@ -128,19 +128,7 @@ export async function getLatestSellListReceipt(
     return mapSellListReceipt(row);
   }
 
-  const legacyResult = await db.query<Omit<SellListReceiptPageRow, "execution_id">>(
-    `SELECT
-       seller_account_id,
-       checked_out_at,
-       execution_summary
-     FROM checkout_sell_list_receipt_pages
-     WHERE seller_account_id = $1
-     LIMIT 1`,
-    [sellerAccountId],
-  );
-
-  const legacyRow = legacyResult.rows[0];
-  return legacyRow ? mapSellListReceipt({ ...legacyRow, execution_id: null }) : null;
+  return null;
 }
 
 function mapSellListReceipt(row: SellListReceiptPageRow): CheckoutSellListReceiptRow {
