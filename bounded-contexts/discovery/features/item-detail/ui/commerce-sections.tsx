@@ -547,6 +547,10 @@ export function CheckoutPurchaseIntentSection({
   }
 
   const productIntentGuidance = getProductIntentGuidance();
+  const selectionHeading =
+    selectedListing && actionMode !== "add-to-cart"
+      ? t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing")
+      : t("discovery.routes.itemDetail.selected.product");
   const priceLabel = selectedListing
     ? actionMode === "add-to-cart"
       ? t("discovery.routes.itemDetail.best.available.price")
@@ -576,7 +580,7 @@ export function CheckoutPurchaseIntentSection({
       disabled={!productId || (actionMode === "buy-now" && !selectedListing)}
       block
     >
-      {t("discovery.routes.itemDetail.buy.now")}
+      {actionMode === "all" ? t("discovery.routes.itemDetail.buy.optimized") : t("discovery.routes.itemDetail.buy.now")}
     </Button>
   );
   const lockedListingAction = (
@@ -644,7 +648,7 @@ export function CheckoutPurchaseIntentSection({
         {showSummary ? (
           <Stack gap={3}>
             <Stack gap={1}>
-              <Text weight="semibold">{t("discovery.routes.itemDetail.your.selection")}</Text>
+              <Text weight="semibold">{selectionHeading}</Text>
             </Stack>
             <Stack gap={1}>
               <Text size="sm" tone="secondary">
@@ -818,7 +822,7 @@ export function MarketplaceOfferMatchSection({
         />
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">{t("discovery.routes.itemDetail.accept.offer")}</Text>
+            <Text weight="semibold">{t("discovery.routes.itemDetail.selected.offer.heading")}</Text>
             {selectedOffer ? (
               <>
                 <Stack gap={1}>
@@ -1018,7 +1022,7 @@ export function MarketplaceSellerRegistrationSection({
       <Stack gap={3}>
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">{t("discovery.routes.itemDetail.accept.offer.after.registration")}</Text>
+            <Text weight="semibold">{t("discovery.routes.itemDetail.selected.offer.heading")}</Text>
             <Stack gap={1}>
               <Inline gap={2}>
                 <Text weight="semibold">
@@ -1544,8 +1548,8 @@ export function SellActionCard({
   productSelectionDetails,
   hasMatchingOffer,
   canUseSellerFeatures,
-  canUseListingFeatures = canUseSellerFeatures,
-  canUseProductSellListFeatures = canUseListingFeatures,
+  canSelectListingAction = canUseSellerFeatures,
+  canSelectProductSellListAction = canSelectListingAction,
   renderSellNow,
   renderAddToSellList,
   renderAddProductToSellList,
@@ -1559,8 +1563,8 @@ export function SellActionCard({
   productSelectionDetails: readonly ProductSelectionDisplayDetail[];
   hasMatchingOffer: boolean;
   canUseSellerFeatures: boolean;
-  canUseListingFeatures?: boolean;
-  canUseProductSellListFeatures?: boolean;
+  canSelectListingAction?: boolean;
+  canSelectProductSellListAction?: boolean;
   renderSellNow: (formId: string) => ReactNode;
   renderAddToSellList: (formId: string) => ReactNode;
   renderAddProductToSellList: (formId: string) => ReactNode;
@@ -1568,9 +1572,9 @@ export function SellActionCard({
 }) {
   const defaultAction: SellAction | "" = hasMatchingOffer
     ? "sell-now"
-    : canUseProductSellListFeatures
+    : canSelectProductSellListAction
       ? "add-product-to-sell-list"
-      : canUseListingFeatures
+      : canSelectListingAction
         ? "list-for-sale"
         : "";
   const [selectedAction, setSelectedAction] = useState<SellAction | "">(defaultAction);
@@ -1599,14 +1603,14 @@ export function SellActionCard({
       label: t("discovery.routes.itemDetail.add.product.to.sell.list"),
       description: t("discovery.routes.itemDetail.add.product.to.sell.list.action.description"),
       icon: "spark",
-      disabled: !productId || !canUseProductSellListFeatures,
+      disabled: !productId || !canSelectProductSellListAction,
     },
     {
       value: "list-for-sale",
       label: t("discovery.routes.itemDetail.list.for.sale"),
       description: t("discovery.routes.itemDetail.list.for.sale.action.description"),
       icon: "store",
-      disabled: !productId || !canUseListingFeatures,
+      disabled: !productId || !canSelectListingAction,
     },
   ] satisfies readonly CommerceActionOption<SellAction>[];
   const selectedContent =
@@ -1637,7 +1641,6 @@ export function SellActionCard({
       accordionEdge={accordionEdge}
       glow={hasMatchingOffer}
       showProductSummary={false}
-      footer={<Badge tone="accent">{t("discovery.routes.itemDetail.same.buyer.shipping.allowance")}</Badge>}
     >
       {selectedContent}
     </ItemDetailActionCard>
