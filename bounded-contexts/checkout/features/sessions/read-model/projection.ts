@@ -11,6 +11,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         sourceType: string;
         optimizationGoal?: string;
         fulfillmentPreviewRevision?: string | null;
+        cartReadinessSnapshot?: unknown;
         shippingOption: string;
         lines: unknown;
         createdAt: string;
@@ -23,6 +24,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
            source_type,
            optimization_goal,
            fulfillment_preview_revision,
+           cart_readiness_snapshot,
            shipping_option,
            shipping_address_id,
            shipping_address,
@@ -32,12 +34,13 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
            submitted_offer_id,
            created_at,
            updated_at
-         ) VALUES ($1, $2, $3, $4, $5, $6, NULL, NULL, $7, '[]'::jsonb, NULL, NULL, $8, $8)
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, $8, '[]'::jsonb, NULL, NULL, $9, $9)
          ON CONFLICT (session_id) DO UPDATE
          SET buyer_account_id = EXCLUDED.buyer_account_id,
              source_type = EXCLUDED.source_type,
              optimization_goal = EXCLUDED.optimization_goal,
              fulfillment_preview_revision = EXCLUDED.fulfillment_preview_revision,
+             cart_readiness_snapshot = EXCLUDED.cart_readiness_snapshot,
              shipping_option = EXCLUDED.shipping_option,
              shipping_address_id = EXCLUDED.shipping_address_id,
              shipping_address = EXCLUDED.shipping_address,
@@ -49,6 +52,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
           data.sourceType,
           data.optimizationGoal === "fewest-shipments" ? "fewest-shipments" : "lowest-total",
           data.fulfillmentPreviewRevision ?? null,
+          JSON.stringify(data.cartReadinessSnapshot ?? null),
           data.shippingOption,
           JSON.stringify(Array.isArray(data.lines) ? data.lines : []),
           data.createdAt,

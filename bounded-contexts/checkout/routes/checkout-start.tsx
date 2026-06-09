@@ -30,8 +30,10 @@ import {
 } from "@chase-sets/design-system";
 import {
   createCheckoutRequestApiClient,
+  type CartReadinessDecisionInput,
   type CreateCheckoutSessionRequest,
 } from "../support/request-support/api-client";
+import { parseCheckoutStartCartReadinessDecisions } from "../features/cart/api/readiness-decisions";
 import {
   checkoutRecoveryForError,
   checkoutRecoveryForKind,
@@ -69,6 +71,22 @@ function parseSelectedOptions(value: string | null) {
 function parseQuantity(value: FormDataEntryValue | string | null) {
   const quantity = Number(value ?? 1);
   return Number.isFinite(quantity) && quantity > 0 ? quantity : 1;
+}
+
+function parseReadinessDecisions(value: FormDataEntryValue | null): CartReadinessDecisionInput | null {
+  if (typeof value !== "string" || !value.trim()) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return null;
+    }
+    return parseCheckoutStartCartReadinessDecisions(parsed);
+  } catch {
+    return null;
+  }
 }
 
 function sourceFromUrl(url: URL) {
@@ -166,7 +184,41 @@ function checkoutSessionRequestFromForm(formData: FormData): CreateCheckoutSessi
     return { source };
   }
 
-  return { source: { type: "cart" as const } };
+  return {
+    source: {
+      type: "cart" as const,
+      readinessSnapshotId: String(formData.get("readinessSnapshotId") ?? ""),
+      readinessSourceRevision: String(formData.get("readinessSourceRevision") ?? ""),
+      readinessDecisions: parseReadinessDecisions(formData.get("readinessDecisions")),
+    },
+  };
+}
+
+type CheckoutRequestApi = ReturnType<typeof createCheckoutRequestApiClient>;
+
+async function ensureCartReadinessSnapshot(
+  api: CheckoutRequestApi,
+  request: CreateCheckoutSessionRequest,
+  options: Readonly<{ forceRefresh?: boolean }> = {},
+): Promise<CreateCheckoutSessionRequest> {
+  if (request.source.type !== "cart") {
+    return request;
+  }
+
+  const hasReadinessToken = Boolean(request.source.readinessSnapshotId && request.source.readinessSourceRevision);
+  if (hasReadinessToken && !options.forceRefresh) {
+    return request;
+  }
+
+  const readiness = await api.createCartReadiness(request.source.readinessDecisions ?? {});
+  return {
+    source: {
+      ...request.source,
+      readinessSnapshotId: readiness.readiness.snapshotId,
+      readinessSourceRevision: readiness.readiness.sourceRevision,
+      readinessDecisions: request.source.readinessDecisions,
+    },
+  };
 }
 
 export function checkoutStartHeaderCopy(params: Readonly<{ isSignedIn: boolean; isOfferIntent: boolean }>) {
@@ -292,11 +344,15 @@ export async function action({ request }: ActionFunctionArgs) {
 
   if (actor) {
     try {
+      const forceReadinessRefresh = sourceType === "cart" && Boolean(anonymousCartId);
       if (sourceType === "cart" && anonymousCartId) {
         await api.mergeGuestCartToAccount(anonymousCartId);
       }
 
-      const session = await api.createCheckoutSession(checkoutSessionRequestFromForm(formData));
+      const sessionRequest = await ensureCartReadinessSnapshot(api, checkoutSessionRequestFromForm(formData), {
+        forceRefresh: forceReadinessRefresh,
+      });
+      const session = await api.createCheckoutSession(sessionRequest);
       const response = redirect(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
       if (anonymousCartId) {
         appendClearedAnonymousCartCookie(response.headers, request);
@@ -361,11 +417,15 @@ export async function action({ request }: ActionFunctionArgs) {
     },
   });
   try {
+    const forceReadinessRefresh = sourceType === "cart" && Boolean(anonymousCartId);
     if (sourceType === "cart" && anonymousCartId) {
       await guestApi.mergeGuestCartToAccount(anonymousCartId);
     }
 
-    const session = await guestApi.createCheckoutSession(checkoutSessionRequestFromForm(formData));
+    const sessionRequest = await ensureCartReadinessSnapshot(guestApi, checkoutSessionRequestFromForm(formData), {
+      forceRefresh: forceReadinessRefresh,
+    });
+    const session = await guestApi.createCheckoutSession(sessionRequest);
     const response = redirectDocument(appendFreshWriteToken(`/checkout/${session.session_id}`, session));
     appendGuestCheckoutCookie(response.headers, guest.guestToken, request);
     appendClearedAnonymousCartCookie(response.headers, request);

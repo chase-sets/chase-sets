@@ -2,7 +2,9 @@ import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-po
 import { catalogSeedIds } from "@chase-sets/catalog/seed-support/ids";
 import { catalogScenarioItems } from "@chase-sets/catalog/seed-support/scenario";
 import { identitySeedIds } from "@chase-sets/identity/seed-support/ids";
+import { marketplaceReservedSeedIds } from "@chase-sets/marketplace/seed-support/ids";
 import type { AccountId } from "@chase-sets/primitives/typed-ids";
+import { createCartReadinessSnapshot, type CartReadinessLine } from "../../features/cart/domain/readiness";
 import type { CheckoutSessionLine } from "../../features/sessions/domain/domain";
 import { createCheckoutProductDescriptor, type CheckoutVersionSchema } from "./common";
 import { createCheckoutServices, type CheckoutServices } from "./services";
@@ -38,6 +40,7 @@ const demoCartLines = [
     itemImageUrl: null,
     selectedOptions: rawNearMintVersionSelection,
     productSummary: "Form: Raw | Condition: Near Mint",
+    lockedListingId: marketplaceReservedSeedIds.listings.charizardBaseSetNearMint,
     quantity: 1,
   },
   {
@@ -47,6 +50,7 @@ const demoCartLines = [
     itemImageUrl: null,
     selectedOptions: rawExcellentVersionSelection,
     productSummary: "Form: Raw | Condition: Excellent",
+    lockedListingId: marketplaceReservedSeedIds.listings.pikachuJungleLightlyPlayed,
     quantity: 1,
   },
 ] as const;
@@ -111,6 +115,7 @@ export async function seedCheckoutDatabase(
   const buyerAccountId = identitySeedIds.collector.accountId;
   const buyerContext = createSeedContextFor(buyerAccountId, identitySeedIds.collector.userId);
   const seededSessionLines: CheckoutSessionLine[] = [];
+  const seededReadinessLines: CartReadinessLine[] = [];
 
   if (!(await hasCartLines(checkout.db, buyerAccountId))) {
     console.log("Starting checkout development seed...\n");
@@ -127,11 +132,13 @@ export async function seedCheckoutDatabase(
           selectedOptions: line.selectedOptions,
           productSummary: line.productSummary,
           quantity: line.quantity,
+          fulfillmentMode: "locked-listing",
+          lockedListingId: line.lockedListingId,
         },
         buyerContext,
       );
       seededSessionLines.push({
-        listingId: null,
+        listingId: line.lockedListingId,
         cartLineId: result.lineId,
         catalogItemId: line.catalogItemId,
         productId,
@@ -140,36 +147,54 @@ export async function seedCheckoutDatabase(
         selectedOptions: [...line.selectedOptions],
         productSummary: line.productSummary,
         quantity: line.quantity,
-        fulfillmentMode: "optimize",
-        lockedListingId: null,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: line.lockedListingId,
         sellerPreferenceId: null,
         availabilityState: "available",
+      });
+      seededReadinessLines.push({
+        line_id: result.lineId,
+        catalog_catalog_item_id: line.catalogItemId,
+        product_id: productId,
+        item_title: line.itemTitle,
+        quantity: line.quantity,
+        fulfillment_mode: "locked-listing",
+        locked_listing_id: line.lockedListingId,
+        seller_preference_id: null,
+        availability_state: "available",
+        seller_options: [],
+        updated_at: new Date().toISOString(),
       });
     }
     console.log("  Demo account cart seeded.");
   }
 
   if (!(await hasStartedSession(checkout.db))) {
-    const lines = [...seededSessionLines];
-    if (lines.length === 0) {
-      for (const line of demoCartLines) {
-        lines.push({
-          listingId: null,
-          cartLineId: null,
-          catalogItemId: line.catalogItemId,
-          productId: await buildProductId(checkout.db, line),
-          itemTitle: line.itemTitle,
-          itemSubtitle: line.itemSubtitle,
-          selectedOptions: [...line.selectedOptions],
-          productSummary: line.productSummary,
-          quantity: line.quantity,
-          fulfillmentMode: "optimize",
-          lockedListingId: null,
-          sellerPreferenceId: null,
-          availabilityState: "available",
-        });
-      }
+    const projectedCartLines = await checkout.cart.listCartLines(buyerAccountId);
+    const readinessLines = projectedCartLines.length > 0 ? projectedCartLines : seededReadinessLines;
+    const readiness = createCartReadinessSnapshot(readinessLines);
+    if (readiness.status !== "ready") {
+      throw new Error("Checkout seed requires ready cart fulfillment before starting a session.");
     }
+
+    const checkoutLines =
+      projectedCartLines.length > 0
+        ? projectedCartLines.map((line) => ({
+            listingId: line.locked_listing_id,
+            cartLineId: line.line_id,
+            catalogItemId: line.catalog_catalog_item_id,
+            productId: line.product_id,
+            itemTitle: line.item_title,
+            itemSubtitle: line.item_subtitle,
+            selectedOptions: [...line.selected_options],
+            productSummary: line.product_summary,
+            quantity: line.quantity,
+            fulfillmentMode: line.fulfillment_mode,
+            lockedListingId: line.locked_listing_id,
+            sellerPreferenceId: line.seller_preference_id,
+            availabilityState: line.availability_state,
+          }))
+        : seededSessionLines;
 
     await checkout.sessions.commandHandler({
       streamId: `checkout.session-${checkoutSeedIds.sessions.startedCart}`,
@@ -179,7 +204,8 @@ export async function seedCheckoutDatabase(
         buyerAccountId,
         sourceType: "cart",
         shippingOption: "standard",
-        lines,
+        cartReadinessSnapshot: readiness,
+        lines: checkoutLines,
         createdAt: new Date().toISOString(),
       },
       context: buyerContext,

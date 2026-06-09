@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS checkout_session_pages (
   source_type text NOT NULL,
   optimization_goal text NOT NULL DEFAULT 'lowest-total',
   fulfillment_preview_revision text NULL,
+  cart_readiness_snapshot jsonb NULL,
   shipping_option text NOT NULL,
   shipping_address_id text NULL,
   shipping_address jsonb NULL,

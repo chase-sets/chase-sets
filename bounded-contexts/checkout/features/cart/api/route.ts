@@ -1,6 +1,7 @@
 import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
+import { parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
 
 function requireCartAccess(
@@ -135,6 +136,21 @@ export function createAccountCartRoutes(services: CheckoutCartServices) {
       items,
       count: countCartItems(items),
     });
+  });
+
+  app.post("/cart/readiness", async (c) => {
+    const access = requireCartAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const snapshot = await services.createReadinessSnapshot({
+      accountId: access.actor.accountId,
+      decisions: parseCartReadinessDecisionInput(body),
+    });
+
+    return c.json({ readiness: snapshot });
   });
 
   app.post("/cart", async (c) => {
@@ -350,6 +366,29 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
 
     const items = await services.listCartLines(ownerId);
     return c.json({ items, count: countCartItems(items) });
+  });
+
+  app.post("/cart/readiness", async (c) => {
+    const ownerId = requireAnonymousCartId(c);
+    if (!ownerId) {
+      return c.json(
+        {
+          error: {
+            code: "anonymous_cart_required",
+            message: t("checkout.features.cart.api.route.authentication.required"),
+          },
+        },
+        400,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const snapshot = await services.createReadinessSnapshot({
+      accountId: ownerId,
+      decisions: parseCartReadinessDecisionInput(body),
+    });
+
+    return c.json({ readiness: snapshot });
   });
 
   app.post("/cart", async (c) => {

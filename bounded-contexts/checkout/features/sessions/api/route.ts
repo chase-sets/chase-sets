@@ -2,6 +2,7 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { ShippingAddressId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
+import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
 import type { CheckoutSessionServices } from "./runtime";
 import {
   createCheckoutOrdersThroughOrdering,
@@ -114,12 +115,15 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
     const body = await c.req.json();
 
     try {
-      if (body.source?.type === "cart" || body.sourceType === "cart") {
+      if (body.source?.type === "cart") {
         const result = await services.createFromCart(
           {
             accountId: access.actor.accountId as never,
             shippingOption: String(body.shippingOption ?? "standard"),
             optimizationGoal: parseOptimizationGoal(body.optimizationGoal),
+            readinessSnapshotId: String(body.source.readinessSnapshotId ?? ""),
+            readinessSourceRevision: String(body.source.readinessSourceRevision ?? ""),
+            readinessDecisions: parseCartReadinessDecisionInput(body.source.readinessDecisions),
           },
           context,
         );

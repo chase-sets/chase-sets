@@ -11,6 +11,12 @@ import type { AccountId, CheckoutSessionId, OrderId, PaymentId } from "@chase-se
 import type { CheckoutCartServices } from "../../cart/api/runtime";
 import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import {
+  applyCartReadinessToLines,
+  validateCartReadinessSnapshot,
+  type CartReadinessDecisionInput,
+  type CartReadinessSnapshot,
+} from "../../cart/domain/readiness";
+import {
   CheckoutDomainError,
   createCheckoutProductDescriptor,
   normalizeShippingOption,
@@ -50,6 +56,9 @@ export type CheckoutSessionServices = Readonly<{
       accountId: AccountId;
       shippingOption?: string;
       optimizationGoal?: CheckoutOptimizationGoal;
+      readinessSnapshotId: string;
+      readinessSourceRevision: string;
+      readinessDecisions?: CartReadinessDecisionInput | null;
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
@@ -181,6 +190,7 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
     source_type: state.sourceType,
     optimization_goal: state.optimizationGoal,
     fulfillment_preview_revision: state.fulfillmentPreviewRevision,
+    cart_readiness_snapshot: state.cartReadinessSnapshot,
     shipping_option: state.shippingOption,
     shipping_address_id: state.shippingAddress?.shippingAddressId ?? null,
     shipping_address: state.shippingAddress,
@@ -286,6 +296,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       sourceType: "cart" | "buy-now" | "offer-intent";
       optimizationGoal?: CheckoutOptimizationGoal;
       fulfillmentPreviewRevision?: string | null;
+      cartReadinessSnapshot?: CartReadinessSnapshot | null;
       shippingOption: ShippingOption;
       lines: readonly CheckoutSessionLine[];
       sessionIdOverride?: CheckoutSessionId;
@@ -302,6 +313,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         sourceType: params.sourceType,
         optimizationGoal: params.optimizationGoal,
         fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
+        cartReadinessSnapshot: params.cartReadinessSnapshot,
         shippingOption: params.shippingOption,
         lines: params.lines,
         createdAt: new Date().toISOString(),
@@ -318,6 +330,21 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       if (cartLines.length === 0) {
         throw new CheckoutDomainError("Cart must contain at least one line.", "cart_empty");
       }
+      const readiness = validateCartReadinessSnapshot(cartLines, {
+        snapshotId: params.readinessSnapshotId,
+        sourceRevision: params.readinessSourceRevision,
+        decisions: params.readinessDecisions ?? undefined,
+      });
+      if (!readiness.valid) {
+        throw new CheckoutDomainError(
+          "Cart readiness changed. Review your cart before checkout.",
+          "readiness_snapshot_stale",
+        );
+      }
+      if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
+        throw new CheckoutDomainError("Resolve item availability before checkout starts.", "unresolved_fulfillment");
+      }
+      const checkoutLines = applyCartReadinessToLines(cartLines, readiness.current);
 
       return startSession(
         {
@@ -325,7 +352,8 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
           sourceType: "cart",
           shippingOption: normalizeShippingOption(params.shippingOption ?? "standard"),
           optimizationGoal: params.optimizationGoal,
-          lines: cartLines.map(cartLineToSessionLine),
+          cartReadinessSnapshot: readiness.current,
+          lines: checkoutLines.map(cartLineToSessionLine),
           sessionIdOverride: params.sessionIdOverride,
         },
         context,
@@ -468,11 +496,13 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
 
       if (session.source_type === "cart") {
         const fulfilledLineKeys = new Set(params.fulfilledLineKeys ?? []);
-        const fulfilledCartLineIds = session.lines
+        const sessionCartLineIds = session.lines
           .map((line) => line.cartLineId)
-          .filter((lineId): lineId is string =>
-            Boolean(lineId && (fulfilledLineKeys.size === 0 || fulfilledLineKeys.has(lineId))),
-          );
+          .filter((lineId): lineId is string => Boolean(lineId));
+        const fulfilledCartLineIds =
+          fulfilledLineKeys.size > 0
+            ? sessionCartLineIds.filter((lineId) => fulfilledLineKeys.has(lineId))
+            : sessionCartLineIds;
 
         if (fulfilledCartLineIds.length > 0) {
           for (const lineId of fulfilledCartLineIds) {

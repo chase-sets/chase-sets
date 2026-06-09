@@ -12,6 +12,7 @@ const {
   mockCreatePaymentsRequestApiClient,
   mockCreateAuthRequestApiClient,
   mockCreateCheckoutSession,
+  mockCreateCartReadiness,
   mockGetCheckoutSession,
   mockPreviewCheckoutFulfillment,
   mockPreviewCheckoutStatus,
@@ -55,6 +56,7 @@ const {
   mockCreatePaymentsRequestApiClient: vi.fn(),
   mockCreateAuthRequestApiClient: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
+  mockCreateCartReadiness: vi.fn(),
   mockGetCheckoutSession: vi.fn(),
   mockPreviewCheckoutFulfillment: vi.fn(),
   mockPreviewCheckoutStatus: vi.fn(),
@@ -164,6 +166,7 @@ describe("checkout web routes", () => {
         updated_at: "2026-05-30T00:00:00.000Z",
       }),
     });
+    mockCreateCartReadiness.mockResolvedValue(readyCartReadinessResponse());
   });
 
   afterEach(() => {
@@ -196,6 +199,32 @@ describe("checkout web routes", () => {
     };
   }
 
+  function readyCartReadinessResponse() {
+    return {
+      readiness: {
+        schemaVersion: "checkout.cart-readiness.v1",
+        source: "cart",
+        sourceRevision: "cr_source",
+        snapshotId: "cr_ready",
+        status: "ready",
+        lineCount: 1,
+        includedLineIds: ["cart_line_1"],
+        unresolvedLineIds: [],
+        lineOutcomes: [{ lineId: "cart_line_1", outcome: "checkout", reason: "ready" }],
+        optimization: {
+          available: false,
+          decision: "none",
+          proposedLineId: null,
+          proposedListingId: null,
+          currentListingId: null,
+          savingsAmount: null,
+          currency: "USD",
+        },
+        customerSafeFacts: ["Ready for checkout."],
+      },
+    };
+  }
+
   function freshCheckoutRequest(path = "/checkout/chk_1") {
     return new Request(`http://localhost${appendFreshWriteToken(path, checkoutCommit("42", "evt_checkout"))}`);
   }
@@ -205,12 +234,19 @@ describe("checkout web routes", () => {
     mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_cart" });
     mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCartReadiness: mockCreateCartReadiness,
       createCheckoutSession: mockCreateCheckoutSession,
       mergeGuestCartToAccount: mockMergeGuestCartToAccount,
     });
 
     const form = new URLSearchParams();
     form.set("source", "cart");
+    form.set("readinessSnapshotId", "cr_ready");
+    form.set("readinessSourceRevision", "cr_source");
+    form.set(
+      "readinessDecisions",
+      JSON.stringify({ optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" } }),
+    );
 
     const response = (await checkoutStartAction({
       request: new Request("http://localhost/checkout/start", {
@@ -226,8 +262,20 @@ describe("checkout web routes", () => {
     } as never)) as Response;
 
     expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
+    expect(mockCreateCartReadiness).toHaveBeenCalledWith({
+      lineOutcomes: [],
+      optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+    });
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      source: { type: "cart" },
+      source: {
+        type: "cart",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: {
+          lineOutcomes: [],
+          optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+        },
+      },
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/chk_cart");
@@ -280,6 +328,7 @@ describe("checkout web routes", () => {
     mockGetGuestCart.mockResolvedValue({ items: [], count: 0 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
       createCheckoutSession: mockCreateCheckoutSession,
       mergeGuestCartToAccount: mockMergeGuestCartToAccount,
     });
@@ -322,6 +371,7 @@ describe("checkout web routes", () => {
       }),
     );
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCartReadiness: mockCreateCartReadiness,
       createCheckoutSession: mockCreateCheckoutSession,
       mergeGuestCartToAccount: mockMergeGuestCartToAccount,
     });
@@ -355,6 +405,7 @@ describe("checkout web routes", () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     mockCreateCheckoutSession.mockRejectedValue(new Error("database unavailable"));
     mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createCartReadiness: mockCreateCartReadiness,
       createCheckoutSession: mockCreateCheckoutSession,
     });
 
@@ -1231,6 +1282,7 @@ describe("checkout web routes", () => {
     mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
       createCheckoutSession: mockCreateCheckoutSession,
       mergeGuestCartToAccount: mockMergeGuestCartToAccount,
     });
@@ -1258,8 +1310,14 @@ describe("checkout web routes", () => {
       email: "jane@example.com",
     });
     expect(mockMergeGuestCartToAccount).toHaveBeenCalledWith("anon_cart_1");
+    expect(mockCreateCartReadiness).toHaveBeenCalledWith({});
     expect(mockCreateCheckoutSession).toHaveBeenCalledWith({
-      source: { type: "cart" },
+      source: {
+        type: "cart",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: null,
+      },
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/checkout/chk_guest");
@@ -1282,6 +1340,7 @@ describe("checkout web routes", () => {
     mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
       createCheckoutSession: mockCreateCheckoutSession,
       mergeGuestCartToAccount: mockMergeGuestCartToAccount,
     });
@@ -1307,6 +1366,130 @@ describe("checkout web routes", () => {
 
     expect(cookies.find((cookie) => cookie.startsWith("chase_sets_guest_checkout="))).toContain("Secure");
     expect(cookies.find((cookie) => cookie.startsWith("chase_sets_anonymous_cart="))).toContain("Secure");
+  });
+
+  it("loads the checkout session after a fresh signed-out guest checkout handoff", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockStartGuestCheckout.mockResolvedValue({
+      accountId: "acc_guest",
+      guestToken: "guest_token",
+      expiresAt: "2026-04-02T00:00:00.000Z",
+    });
+    mockCreateAuthRequestApiClient.mockReturnValue({
+      startGuestCheckout: mockStartGuestCheckout,
+    });
+    mockCreateCheckoutSession.mockResolvedValue({ session_id: "chk_guest" });
+    mockMergeGuestCartToAccount.mockResolvedValue({ status: "merged" });
+    mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
+      createCheckoutSession: mockCreateCheckoutSession,
+      mergeGuestCartToAccount: mockMergeGuestCartToAccount,
+    });
+
+    const form = new URLSearchParams();
+    form.set("contactName", "Jane Smith");
+    form.set("email", "jane@example.com");
+    form.set("source", "cart");
+
+    const checkoutStartResponse = (await checkoutStartAction({
+      request: new Request("http://localhost/checkout/start", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+    const guestCheckoutCookie = checkoutStartResponse.headers
+      .getSetCookie()
+      .find((cookie) => cookie.startsWith("chase_sets_guest_checkout="));
+
+    expect(checkoutStartResponse.headers.get("X-Remix-Reload-Document")).toBe("true");
+    expect(guestCheckoutCookie).toContain("chase_sets_guest_checkout=guest_token");
+
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockGetCheckoutSession.mockResolvedValue({
+      session_id: "chk_guest",
+      buyer_account_id: "acc_guest",
+      source_type: "cart",
+      payment_id: null,
+      submitted_offer_id: null,
+      shipping_option: "standard",
+      shipping_address: null,
+      optimization_goal: "lowest-total",
+      fulfillment_preview_revision: null,
+      order_ids: [],
+      lines: [
+        {
+          listingId: "lst_1",
+          cartLineId: "cart_line_1",
+          catalogItemId: "cat_1",
+          productId: "prd_1",
+          itemTitle: "Test card",
+          itemSubtitle: null,
+          selectedOptions: [],
+          productSummary: null,
+          quantity: 1,
+        },
+      ],
+    });
+    mockPreviewCheckoutFulfillment.mockResolvedValue({
+      revision: "rev_1",
+      readyLineKeys: ["lst_1"],
+      unavailableLineKeys: [],
+      unavailableLines: [],
+      materialChangeReasons: [],
+      sellerGroups: [],
+      totals: {
+        itemSubtotalAmount: "20.00",
+        shippingAmount: "4.00",
+        salesTaxAmount: "2.00",
+        totalAmount: "26.00",
+        packageCount: 1,
+      },
+    });
+    mockPreviewCheckoutStatus.mockResolvedValue({
+      amount: "26.00",
+      marketplace_checkout_fee: { total_amount: "27.10" },
+      wallet_credit: { applied_amount: "0.00" },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: mockGetCheckoutSession,
+    });
+    mockCreateOrderingRequestApiClient.mockReturnValue({
+      previewCheckoutFulfillment: mockPreviewCheckoutFulfillment,
+    });
+    mockCreatePaymentsRequestApiClient.mockReturnValue({
+      previewCheckoutStatus: mockPreviewCheckoutStatus,
+    });
+
+    const checkoutSessionResult = await checkoutSessionLoader({
+      request: new Request("http://localhost/checkout/chk_guest", {
+        headers: {
+          cookie: guestCheckoutCookie ?? "",
+        },
+      }),
+      params: { sessionId: "chk_guest" },
+      context: undefined,
+    } as never);
+
+    expect(mockGetCheckoutSession).toHaveBeenCalledWith("chk_guest");
+    expect(checkoutSessionResult).toEqual(
+      expect.objectContaining({
+        session: expect.objectContaining({
+          session_id: "chk_guest",
+          buyer_account_id: "acc_guest",
+        }),
+        paymentPreview: expect.objectContaining({
+          amount: "26.00",
+        }),
+      }),
+    );
   });
 
   function checkoutSessionPageRow(overrides: Record<string, unknown> = {}) {
@@ -1574,6 +1757,7 @@ describe("checkout web routes", () => {
     mockGetGuestCart.mockResolvedValue({ items: [], count: 1 });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getGuestCart: mockGetGuestCart,
+      createCartReadiness: mockCreateCartReadiness,
       createCheckoutSession: mockCreateCheckoutSession,
       mergeGuestCartToAccount: mockMergeGuestCartToAccount,
     });

@@ -75,6 +75,9 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Taxes and shipping are calculated at checkout.");
     expect(markup).toContain("Check out");
     expect(markup).toContain('action="/checkout/start"');
+    expect(markup).toContain('name="readinessSnapshotId"');
+    expect(markup).toContain('name="readinessSourceRevision"');
+    expect(markup).toContain('name="readinessDecisions"');
     expect(markup).not.toContain("Smart Match settings");
     expect(markup).not.toContain("Landed-cost preview");
     expect(markup).not.toContain("Shipping credit grows with same-seller cards");
@@ -128,6 +131,49 @@ describe("checkout cart page", () => {
     expect(markup).toContain("Resolve item availability before payment starts.");
     expect(markup).not.toContain('action="/checkout/start"');
     expect(markup).not.toContain("Check out");
+  });
+
+  it("offers optional fulfillment savings before checkout starts", () => {
+    const expensiveLine: CheckoutCartLine = {
+      ...cartLine,
+      fulfillment_mode: "locked-listing",
+      locked_listing_id: "lst_hobby_shop",
+      seller_options: [
+        {
+          listing_id: "lst_card_vault",
+          seller_account_id: "acc_card_vault",
+          seller_slug: "card-vault",
+          seller_display_name: "Card Vault",
+          seller_average_rating: "4.90",
+          seller_review_count: 12,
+          price_amount: "389.00",
+          available_quantity: 2,
+          product_summary: "Form: Raw | Condition: Near Mint",
+        },
+        {
+          listing_id: "lst_hobby_shop",
+          seller_account_id: "acc_hobby_shop",
+          seller_slug: "hobby-shop",
+          seller_display_name: "Hobby Shop",
+          seller_average_rating: null,
+          seller_review_count: 0,
+          price_amount: "395.00",
+          available_quantity: 2,
+          product_summary: "Form: Raw | Condition: Near Mint",
+        },
+      ],
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[expensiveLine]} />);
+
+    expect(markup).toContain("Save $12.00 before checkout");
+    expect(markup).toContain(
+      "You can keep your current fulfillment or use the lower-cost option before checkout begins.",
+    );
+    expect(markup).toContain("Use lower price");
+    expect(markup).toContain("&quot;decision&quot;:&quot;accepted&quot;");
+    expect(markup).toContain("&quot;decision&quot;:&quot;declined&quot;");
+    expect(markup).not.toContain("allocation");
   });
 
   it("shows a simple empty-cart recovery state", () => {

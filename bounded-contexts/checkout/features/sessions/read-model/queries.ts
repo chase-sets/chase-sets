@@ -1,4 +1,5 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
+import type { CartReadinessSnapshot } from "../../cart/domain/readiness";
 import type { CheckoutSessionLine, CheckoutShippingAddress } from "../domain/domain";
 
 export type CheckoutSessionRow = Readonly<{
@@ -7,6 +8,7 @@ export type CheckoutSessionRow = Readonly<{
   source_type: "cart" | "buy-now" | "offer-intent";
   optimization_goal: "lowest-total" | "fewest-shipments";
   fulfillment_preview_revision: string | null;
+  cart_readiness_snapshot?: CartReadinessSnapshot | null;
   shipping_option: "standard" | "expedited" | "priority";
   shipping_address_id: string | null;
   shipping_address: CheckoutShippingAddress | null;
@@ -27,6 +29,7 @@ type CheckoutSessionPageRow = Omit<
     optimization_goal: string;
     shipping_option: string;
     shipping_address: unknown;
+    cart_readiness_snapshot: unknown;
     lines: unknown;
     order_ids: unknown;
   }>;
@@ -42,6 +45,10 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
     shipping_address:
       typeof row.shipping_address === "object" && row.shipping_address !== null
         ? (row.shipping_address as CheckoutShippingAddress)
+        : null,
+    cart_readiness_snapshot:
+      typeof row.cart_readiness_snapshot === "object" && row.cart_readiness_snapshot !== null
+        ? (row.cart_readiness_snapshot as CartReadinessSnapshot)
         : null,
     lines: Array.isArray(row.lines) ? (row.lines as CheckoutSessionLine[]) : [],
     order_ids: Array.isArray(row.order_ids)
@@ -62,6 +69,7 @@ export async function getCheckoutSession(
        source_type,
        optimization_goal,
        fulfillment_preview_revision,
+       cart_readiness_snapshot,
        shipping_option,
        shipping_address_id,
        shipping_address,
