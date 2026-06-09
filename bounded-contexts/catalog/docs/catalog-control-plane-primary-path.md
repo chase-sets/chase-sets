@@ -2,7 +2,7 @@
 
 The rebuilt Catalog Control Plane starts with the operator job that matters most: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workflows exist to explain, unblock, govern, recover, or verify that path. They must not bury it behind implementation-oriented modules or preserve the current two-page Catalog integrations layout as the target architecture.
 
-This framing is the Stage 1 product contract for #1049. It complements the first-slice sequencing in [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md) and the clean-launch rules in [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md).
+This framing is the Stage 1 product contract for #1049. It complements the rebuilt route/workspace contract in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md), the first-slice sequencing in [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md), and the clean-launch rules in [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md).
 
 ## Default Journey
 
@@ -98,6 +98,7 @@ Any exception is launch-blocking until it is rebuilt as a clean launch contract 
 ## Related References
 
 - [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md)
+- [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md)
 - [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md)
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
