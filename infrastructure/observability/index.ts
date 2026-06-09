@@ -96,6 +96,14 @@ const publicPresenceWaitlistEventCounter = meter.createCounter("chase_sets_publi
 const settlementOperationCounter = meter.createCounter("chase_sets_settlement_operations_total");
 const catalogIntegrationOptionQueryCounter = meter.createCounter("chase_sets_catalog_integration_option_queries_total");
 const catalogIntegrationJobCounter = meter.createCounter("chase_sets_catalog_integration_jobs_total");
+const projectionFreshnessEvaluationCounter = meter.createCounter("chase_sets_projection_freshness_evaluations_total");
+const projectionFreshnessWaitDuration = meter.createHistogram("chase_sets_projection_freshness_wait_duration_ms", {
+  unit: "ms",
+});
+const projectionFreshnessPendingCounter = meter.createCounter("chase_sets_projection_freshness_pending_total");
+const projectionFreshnessPendingLag = meter.createHistogram("chase_sets_projection_freshness_pending_lag", {
+  unit: "{global_position}",
+});
 
 export type PublicPresenceWaitlistAnalyticsSignal = Readonly<{
   event: string;
@@ -123,6 +131,46 @@ export type CatalogIntegrationJobSignal = Readonly<{
   jobKind: string;
   result: string;
   operation: "integration-job" | "bulk-review-work-unit";
+}>;
+
+export type ProjectionFreshnessAuditSignal = Readonly<{
+  type: "read-after-write.freshness";
+  outcome: string;
+  method: string;
+  mountPath: string;
+  routePaths: readonly string[];
+  readAfterWriteHeaderPresent: boolean;
+  readTargetContextHeaderPresent: boolean;
+  readTargetContextHeaderValid: boolean;
+  requestedTargetContextName: string | null;
+  targetContextNames: readonly string[];
+  waitMode: string;
+  durationMs: number;
+  receiptSourceContextNames: readonly string[];
+  receiptSourceCount: number;
+  receiptEventCount: number;
+  dependencies: readonly Readonly<{
+    targetContextName: string;
+    projectionName: string;
+  }>[];
+  pending: readonly Readonly<{
+    targetContextName: string;
+    projectionName: string;
+    sourceContextName: string;
+    globalPositionLag: string;
+    state: string;
+    lastError: "present" | null;
+  }>[];
+}>;
+
+export type ProjectionFreshnessEvaluationMetric = Readonly<{
+  attributes: Attributes;
+  durationMs: number;
+}>;
+
+export type ProjectionFreshnessPendingMetric = Readonly<{
+  attributes: Attributes;
+  globalPositionLag: number;
 }>;
 
 let runtime: ObservabilityRuntime | null = null;
@@ -599,6 +647,84 @@ export function recordCatalogIntegrationJob(event: CatalogIntegrationJobSignal):
   catalogIntegrationJobCounter.add(1, catalogIntegrationJobAttributes(event));
 }
 
+export function projectionFreshnessAuditMetricRecords(event: ProjectionFreshnessAuditSignal): Readonly<{
+  evaluations: readonly ProjectionFreshnessEvaluationMetric[];
+  pending: readonly ProjectionFreshnessPendingMetric[];
+}> {
+  const routePaths = event.routePaths.length > 0 ? event.routePaths : ["unmatched"];
+  const targetContexts =
+    event.dependencies.length > 0
+      ? event.dependencies
+      : event.targetContextNames.map((targetContextName) => ({
+          targetContextName,
+          projectionName: "none",
+        }));
+  const targetDependencies =
+    targetContexts.length > 0 ? targetContexts : [{ targetContextName: "none", projectionName: "none" }];
+  const sourceContexts = event.receiptSourceContextNames.length > 0 ? event.receiptSourceContextNames : ["none"];
+  const receiptStatus = event.readAfterWriteHeaderPresent ? "present" : "missing";
+  const targetHeaderStatus = event.readTargetContextHeaderPresent
+    ? event.readTargetContextHeaderValid
+      ? "present_valid"
+      : "present_invalid"
+    : "missing";
+
+  return {
+    evaluations: routePaths.flatMap((routePath) =>
+      targetDependencies.flatMap((dependency) =>
+        sourceContexts.map((sourceContextName) => ({
+          durationMs: Math.max(0, Math.round(event.durationMs)),
+          attributes: {
+            type: "read-after-write.freshness",
+            outcome: boundedMetricLabel(event.outcome),
+            method: boundedMetricLabel(event.method.toUpperCase()),
+            mount_path: boundedRouteTemplateLabel(event.mountPath),
+            route_path: boundedRouteTemplateLabel(routePath),
+            target_context: boundedMetricLabel(dependency.targetContextName),
+            projection: boundedMetricLabel(dependency.projectionName),
+            source_context: boundedMetricLabel(sourceContextName),
+            wait_mode: boundedMetricLabel(event.waitMode),
+            receipt: receiptStatus,
+            target_context_header: targetHeaderStatus,
+            receipt_source_count: event.receiptSourceCount,
+            receipt_event_count: event.receiptEventCount,
+          },
+        })),
+      ),
+    ),
+    pending: routePaths.flatMap((routePath) =>
+      event.pending.map((pending) => ({
+        globalPositionLag: coerceMetricNumber(pending.globalPositionLag),
+        attributes: {
+          type: "read-after-write.freshness",
+          outcome: boundedMetricLabel(event.outcome),
+          method: boundedMetricLabel(event.method.toUpperCase()),
+          mount_path: boundedRouteTemplateLabel(event.mountPath),
+          route_path: boundedRouteTemplateLabel(routePath),
+          target_context: boundedMetricLabel(pending.targetContextName),
+          projection: boundedMetricLabel(pending.projectionName),
+          source_context: boundedMetricLabel(pending.sourceContextName),
+          wait_mode: boundedMetricLabel(event.waitMode),
+          state: boundedMetricLabel(pending.state),
+          last_error: pending.lastError === "present" ? "present" : "none",
+        },
+      })),
+    ),
+  };
+}
+
+export function recordProjectionFreshnessAudit(event: ProjectionFreshnessAuditSignal): void {
+  const records = projectionFreshnessAuditMetricRecords(event);
+  for (const evaluation of records.evaluations) {
+    projectionFreshnessEvaluationCounter.add(1, evaluation.attributes);
+    projectionFreshnessWaitDuration.record(evaluation.durationMs, evaluation.attributes);
+  }
+  for (const pending of records.pending) {
+    projectionFreshnessPendingCounter.add(1, pending.attributes);
+    projectionFreshnessPendingLag.record(pending.globalPositionLag, pending.attributes);
+  }
+}
+
 export function recordUcpSignedWriteRejected(
   event: Readonly<{
     transport: string;
@@ -831,6 +957,36 @@ function boundedMetricLabel(value: string | null | undefined): string {
 
   const normalized = text.replace(/[^a-zA-Z0-9_.-]+/g, "_").slice(0, 80);
   return normalized || "other";
+}
+
+function boundedRouteTemplateLabel(value: string | null | undefined): string {
+  const text = value?.trim();
+  if (!text) {
+    return "none";
+  }
+
+  const template = text
+    .split("/")
+    .map((part) => {
+      if (!part || part.startsWith(":")) {
+        return part;
+      }
+      if (/^[a-z]{2,5}_[A-Za-z0-9]+$/.test(part) || /^[0-9A-Fa-f-]{12,}$/.test(part)) {
+        return ":id";
+      }
+      return part;
+    })
+    .join("/");
+  const normalized = template.replace(/[^a-zA-Z0-9_./:-]+/g, "_").slice(0, 160);
+  return normalized || "other";
+}
+
+function coerceMetricNumber(value: string): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    return 0;
+  }
+  return parsed;
 }
 
 function normalizeError(error: unknown): Error {

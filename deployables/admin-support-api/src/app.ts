@@ -8,7 +8,7 @@ import {
   mountApiRouters,
   type ReadConsistencyAuditRecord,
 } from "@chase-sets/bounded-context-runtime";
-import { createHonoObservabilityMiddleware } from "@chase-sets/observability";
+import { createHonoObservabilityMiddleware, recordProjectionFreshnessAudit } from "@chase-sets/observability";
 import {
   createHealthRoutes,
   type HealthProjectionReplaySummary,
@@ -116,10 +116,10 @@ export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildA
 
   attachWriteConsistencyMiddleware(app, apiMounts);
   attachReadConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
-    recordReadConsistencyAudit: options.readConsistencyAuditLogger
-      ? (record: ReadConsistencyAuditRecord) =>
-          options.readConsistencyAuditLogger?.info("Read-after-write freshness evaluated.", record)
-      : undefined,
+    recordReadConsistencyAudit: (record: ReadConsistencyAuditRecord) => {
+      recordProjectionFreshnessAudit(record);
+      options.readConsistencyAuditLogger?.info("Read-after-write freshness evaluated.", record);
+    },
   });
   mountApiRouters(app, apiMounts);
 

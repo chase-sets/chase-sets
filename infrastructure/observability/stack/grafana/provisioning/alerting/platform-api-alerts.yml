@@ -134,3 +134,200 @@ groups:
         for: 2m
         labels:
           severity: warning
+      - uid: projection-freshness-checkout-p95
+        title: Checkout freshness p95 above SLO
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            model:
+              expr: histogram_quantile(0.95, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",projection="checkout.session-projection",source_context="checkout",outcome="fresh"}[30m])))
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [1000]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 5m
+        labels:
+          severity: warning
+          route: checkout-session
+      - uid: projection-freshness-checkout-p99
+        title: Checkout freshness p99 above SLO
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            model:
+              expr: histogram_quantile(0.99, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",projection="checkout.session-projection",source_context="checkout",outcome="fresh"}[30m])))
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [2250]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 5m
+        labels:
+          severity: warning
+          route: checkout-session
+      - uid: projection-freshness-checkout-timeouts
+        title: Checkout freshness timeout rate above SLO
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 1800
+              to: 0
+            model:
+              expr: sum(rate(chase_sets_projection_freshness_evaluations_total{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",projection="checkout.session-projection",source_context="checkout",outcome="timeout"}[30m])) / clamp_min(sum(rate(chase_sets_projection_freshness_evaluations_total{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",projection="checkout.session-projection",source_context="checkout"}[30m])), 1)
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.001]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 5m
+        labels:
+          severity: warning
+          route: checkout-session
+      - uid: projection-freshness-checkout-contract-regression
+        title: Checkout freshness receipt or target-context regression
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: sum(rate(chase_sets_projection_freshness_evaluations_total{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",projection="checkout.session-projection",source_context="checkout",outcome="missing-receipt"}[5m])) + sum(rate(chase_sets_projection_freshness_evaluations_total{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",projection="checkout.session-projection",source_context="checkout",target_context_header=~"missing|present_invalid"}[5m]))
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 1m
+        labels:
+          severity: critical
+          route: checkout-session
+      - uid: projection-freshness-checkout-target-context-fallback
+        title: Checkout freshness target-context fallback active
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: sum(rate(chase_sets_projection_freshness_evaluations_total{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",wait_mode="target-context"}[5m]))
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 1m
+        labels:
+          severity: warning
+          route: checkout-session
+      - uid: projection-freshness-pending-error
+        title: Projection freshness pending rows with projection errors
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: Prometheus
+            relativeTimeRange:
+              from: 300
+              to: 0
+            model:
+              expr: sum by (route_path, target_context, projection, source_context, state) (rate(chase_sets_projection_freshness_pending_total{last_error="present"}[5m]))
+              instant: true
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    type: last
+                  type: query
+              refId: C
+              type: classic_conditions
+        for: 2m
+        labels:
+          severity: warning

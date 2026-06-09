@@ -1,0 +1,112 @@
+{
+  "title": "Projection Freshness",
+  "uid": "chase-sets-projection-freshness",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "tags": ["chase-sets", "platform-api", "projection-freshness"],
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Fresh wait duration p95/p99",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, route_path, target_context, projection, source_context) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{outcome=\"fresh\"}[30m])))",
+          "legendFormat": "p95 {{route_path}} {{target_context}} {{projection}} from {{source_context}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.99, sum by (le, route_path, target_context, projection, source_context) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{outcome=\"fresh\"}[30m])))",
+          "legendFormat": "p99 {{route_path}} {{target_context}} {{projection}} from {{source_context}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Freshness outcomes",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (route_path, target_context, projection, source_context, outcome) (rate(chase_sets_projection_freshness_evaluations_total[5m]))",
+          "legendFormat": "{{outcome}} {{route_path}} {{target_context}} {{projection}} from {{source_context}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Checkout timeout rate",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum(rate(chase_sets_projection_freshness_evaluations_total{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\",outcome=\"timeout\"}[30m])) / clamp_min(sum(rate(chase_sets_projection_freshness_evaluations_total{route_path=\"/account/checkout-sessions/:sessionId\",target_context=\"checkout\",projection=\"checkout.session-projection\",source_context=\"checkout\"}[30m])), 1)",
+          "legendFormat": "timeout rate"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Receipt and target-context regressions",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (route_path, target_context_header, receipt) (rate(chase_sets_projection_freshness_evaluations_total{outcome=\"missing-receipt\"}[5m]))",
+          "legendFormat": "missing receipt {{route_path}} {{target_context_header}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (route_path, target_context_header) (rate(chase_sets_projection_freshness_evaluations_total{target_context_header=~\"missing|present_invalid\"}[5m]))",
+          "legendFormat": "target context {{route_path}} {{target_context_header}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Wait mode by route",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (route_path, target_context, wait_mode) (rate(chase_sets_projection_freshness_evaluations_total[5m]))",
+          "legendFormat": "{{wait_mode}} {{route_path}} {{target_context}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Pending projection lag",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "histogram_quantile(0.95, sum by (le, route_path, target_context, projection, source_context, state, last_error) (rate(chase_sets_projection_freshness_pending_lag_bucket[30m])))",
+          "legendFormat": "p95 lag {{route_path}} {{target_context}} {{projection}} from {{source_context}} {{state}} error={{last_error}}"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "Prometheus" },
+          "expr": "sum by (route_path, target_context, projection, source_context, state, last_error) (rate(chase_sets_projection_freshness_pending_total[5m]))",
+          "legendFormat": "pending {{route_path}} {{target_context}} {{projection}} from {{source_context}} {{state}} error={{last_error}}"
+        }
+      ]
+    },
+    {
+      "type": "logs",
+      "title": "Freshness audit logs",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "datasource": { "type": "loki", "uid": "Loki" },
+          "expr": "{service_name=~\"platform-api|admin-support-api\"} | json | type=\"read-after-write.freshness\""
+        }
+      ]
+    }
+  ]
+}

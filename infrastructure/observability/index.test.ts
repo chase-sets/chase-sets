@@ -4,6 +4,7 @@ import {
   catalogIntegrationOptionQueryAttributes,
   createLogger,
   loadObservabilityConfig,
+  projectionFreshnessAuditMetricRecords,
   publicPresenceWaitlistAnalyticsAttributes,
   sanitizeLogFields,
 } from "./index";
@@ -160,5 +161,171 @@ describe("catalog integration observability", () => {
       job_kind: "promote",
       result: "failed",
     });
+  });
+});
+
+describe("projection freshness observability", () => {
+  it("maps freshness audits to bounded route-template metric labels", () => {
+    const records = projectionFreshnessAuditMetricRecords({
+      type: "read-after-write.freshness",
+      outcome: "fresh",
+      method: "get",
+      mountPath: "/api/marketplace",
+      routePaths: ["/account/checkout-sessions/:sessionId"],
+      readAfterWriteHeaderPresent: true,
+      readTargetContextHeaderPresent: true,
+      readTargetContextHeaderValid: true,
+      requestedTargetContextName: "checkout",
+      targetContextNames: ["checkout"],
+      waitMode: "exact-dependency",
+      durationMs: 347.8,
+      receiptSourceContextNames: ["checkout"],
+      receiptSourceCount: 1,
+      receiptEventCount: 2,
+      dependencies: [{ targetContextName: "checkout", projectionName: "checkout.session-projection" }],
+      pending: [],
+    });
+
+    expect(records.evaluations).toHaveLength(1);
+    expect(records.evaluations[0]).toEqual({
+      durationMs: 348,
+      attributes: {
+        type: "read-after-write.freshness",
+        outcome: "fresh",
+        method: "GET",
+        mount_path: "/api/marketplace",
+        route_path: "/account/checkout-sessions/:sessionId",
+        target_context: "checkout",
+        projection: "checkout.session-projection",
+        source_context: "checkout",
+        wait_mode: "exact-dependency",
+        receipt: "present",
+        target_context_header: "present_valid",
+        receipt_source_count: 1,
+        receipt_event_count: 2,
+      },
+    });
+    expect(records.pending).toEqual([]);
+  });
+
+  it("maps timeout pending lag without high-cardinality identifiers", () => {
+    const records = projectionFreshnessAuditMetricRecords({
+      type: "read-after-write.freshness",
+      outcome: "timeout",
+      method: "GET",
+      mountPath: "/api/marketplace",
+      routePaths: ["/account/checkout-sessions/:sessionId"],
+      readAfterWriteHeaderPresent: true,
+      readTargetContextHeaderPresent: false,
+      readTargetContextHeaderValid: false,
+      requestedTargetContextName: null,
+      targetContextNames: ["checkout"],
+      waitMode: "target-context",
+      durationMs: 900,
+      receiptSourceContextNames: ["checkout"],
+      receiptSourceCount: 1,
+      receiptEventCount: 1,
+      dependencies: [],
+      pending: [
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.session-projection",
+          sourceContextName: "checkout",
+          globalPositionLag: "4",
+          state: "degraded",
+          lastError: "present",
+        },
+      ],
+    });
+
+    expect(records.evaluations[0].attributes).toMatchObject({
+      outcome: "timeout",
+      route_path: "/account/checkout-sessions/:sessionId",
+      target_context: "checkout",
+      projection: "none",
+      source_context: "checkout",
+      wait_mode: "target-context",
+      target_context_header: "missing",
+    });
+    expect(records.pending).toEqual([
+      {
+        globalPositionLag: 4,
+        attributes: {
+          type: "read-after-write.freshness",
+          outcome: "timeout",
+          method: "GET",
+          mount_path: "/api/marketplace",
+          route_path: "/account/checkout-sessions/:sessionId",
+          target_context: "checkout",
+          projection: "checkout.session-projection",
+          source_context: "checkout",
+          wait_mode: "target-context",
+          state: "degraded",
+          last_error: "present",
+        },
+      },
+    ]);
+    expect(JSON.stringify(records)).not.toContain("chk_");
+    expect(JSON.stringify(records)).not.toContain("account_");
+    expect(JSON.stringify(records)).not.toContain("todd.skelton");
+    expect(JSON.stringify(records)).not.toContain("afterWrite");
+  });
+
+  it("classifies missing receipts and invalid target context headers for alerting", () => {
+    const records = projectionFreshnessAuditMetricRecords({
+      type: "read-after-write.freshness",
+      outcome: "missing-receipt",
+      method: "HEAD",
+      mountPath: "/api/marketplace",
+      routePaths: ["/account/checkout-sessions/:sessionId"],
+      readAfterWriteHeaderPresent: false,
+      readTargetContextHeaderPresent: true,
+      readTargetContextHeaderValid: false,
+      requestedTargetContextName: null,
+      targetContextNames: ["checkout"],
+      waitMode: "exact-dependency",
+      durationMs: -1,
+      receiptSourceContextNames: [],
+      receiptSourceCount: 0,
+      receiptEventCount: 0,
+      dependencies: [{ targetContextName: "checkout", projectionName: "checkout.session-projection" }],
+      pending: [],
+    });
+
+    expect(records.evaluations[0]).toMatchObject({
+      durationMs: 0,
+      attributes: {
+        outcome: "missing-receipt",
+        method: "HEAD",
+        receipt: "missing",
+        target_context_header: "present_invalid",
+        source_context: "none",
+      },
+    });
+  });
+
+  it("defensively collapses concrete route ids if a caller passes a path", () => {
+    const records = projectionFreshnessAuditMetricRecords({
+      type: "read-after-write.freshness",
+      outcome: "fresh",
+      method: "GET",
+      mountPath: "/api/marketplace",
+      routePaths: ["/account/checkout-sessions/chk_01KTMF9TCCPKGA3J3TYMGGXQ2R"],
+      readAfterWriteHeaderPresent: true,
+      readTargetContextHeaderPresent: true,
+      readTargetContextHeaderValid: true,
+      requestedTargetContextName: "checkout",
+      targetContextNames: ["checkout"],
+      waitMode: "exact-dependency",
+      durationMs: 10,
+      receiptSourceContextNames: ["checkout"],
+      receiptSourceCount: 1,
+      receiptEventCount: 1,
+      dependencies: [{ targetContextName: "checkout", projectionName: "checkout.session-projection" }],
+      pending: [],
+    });
+
+    expect(records.evaluations[0].attributes.route_path).toBe("/account/checkout-sessions/:id");
+    expect(JSON.stringify(records)).not.toContain("chk_01KTMF9TCCPKGA3J3TYMGGXQ2R");
   });
 });
