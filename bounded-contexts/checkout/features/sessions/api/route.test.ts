@@ -188,7 +188,20 @@ describe("checkout session routes", () => {
   });
 
   it("normalizes buy-now session payloads into checkout-owned session creation", async () => {
-    const services = createServices();
+    const services = createServices({
+      createBuyNow: vi.fn(async () => ({
+        sessionId: "chk_buy_now" as never,
+        commitPosition: "42",
+        commitEventIds: ["evt_checkout_session_started"],
+        commitPositions: [
+          {
+            sourceContextName: "checkout",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_checkout_session_started"],
+          },
+        ],
+      })),
+    });
     const app = buildApp(services);
 
     const response = await app.fetch(
@@ -216,6 +229,15 @@ describe("checkout session routes", () => {
     await expect(response.json()).resolves.toEqual({
       session_id: "chk_buy_now",
       status: "started",
+      commitPosition: "42",
+      commitEventIds: ["evt_checkout_session_started"],
+      commitPositions: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_checkout_session_started"],
+        },
+      ],
     });
     expect(services.createBuyNow).toHaveBeenCalledWith(
       expect.objectContaining({

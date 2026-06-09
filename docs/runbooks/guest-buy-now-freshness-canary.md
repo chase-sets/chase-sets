@@ -7,10 +7,10 @@ This runbook owns the staging synthetic canary for the guest Buy Now projection 
 The staging deployment workflow runs:
 
 ```powershell
-pnpm run guest-buy-now:freshness-canary -- --environment staging --base-url https://marketplace.staging.chasesets.com --item-path /items/<fixture> --fixture-key <fixture-key>
+pnpm run guest-buy-now:freshness-canary -- --environment staging --base-url https://marketplace.staging.chasesets.com --search-query charizard --fixture-key <fixture-key>
 ```
 
-The workflow requires `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH`. Missing fixture configuration fails closed. The fixture key defaults to `staging-guest-buy-now-fixture` but should be set to a stable operator-owned identifier when staging representative commerce state is refreshed.
+The workflow discovers the first active buyable item from `/api/marketplace/items?q=<query>&includeTotal=true`. The search query defaults to `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`, then `MARKETPLACE_E2E_SEARCH_QUERY`, then `charizard`. `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH` is an optional override for a known item detail route. The fixture key defaults to `staging-guest-buy-now-fixture` but should be set to a stable operator-owned identifier when staging representative commerce state is refreshed.
 
 ## States
 
@@ -42,10 +42,10 @@ The evidence must not contain guest email, contact name, guest token, cookie val
 
 ## Fixture Ownership
 
-- Operations owns the staging fixture path through `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH`.
-- The fixture must be an item detail route with Buy Now available to signed-out shoppers.
-- Representative commerce state refreshes must preserve or intentionally update the fixture path and key together.
-- If the fixture is unavailable, the canary fails closed. Fix the fixture or update the variable before promoting.
+- Operations owns the staging fixture search contract through `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`, with `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH` available only for deliberate path pinning.
+- The resolved fixture must be an item detail route with Buy Now available to signed-out shoppers.
+- Representative commerce state refreshes must preserve at least one active buyable item for the canary search query or intentionally update the query and fixture key together.
+- If discovery or the pinned fixture is unavailable, the canary fails closed. Fix representative marketplace state or update the query/path variable before promoting.
 
 ## Guest Data And Side Effects
 
@@ -63,5 +63,6 @@ A production browser variant is not feasible for this milestone. Even without mo
 1. Inspect the canary evidence final state and failure reason.
 2. If `missing-after-write` or `missing-guest-cookie`, check Checkout guest start and document redirect behavior.
 3. If `permanent-checkout-session-not-found`, check API freshness middleware, `checkout.session-projection`, worker lag, and the Checkout temporary recovery path.
-4. If `checkout-review-state-not-detected`, confirm the fixture still exposes Buy Now and reaches checkout review copy.
-5. Correlate the diagnostic id with read-after-write freshness audit records and projection operations.
+4. If fixture discovery reports no active buyable item, refresh representative commerce state or update `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`.
+5. If `checkout-review-state-not-detected`, confirm the resolved fixture still exposes Buy Now and reaches checkout review copy.
+6. Correlate the diagnostic id with read-after-write freshness audit records and projection operations.

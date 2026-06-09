@@ -739,6 +739,7 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
           GUEST_BUY_NOW_CANARY_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
+          GUEST_BUY_NOW_CANARY_SEARCH_QUERY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY || vars.MARKETPLACE_E2E_SEARCH_QUERY || 'charizard' }}
           GUEST_BUY_NOW_CANARY_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
           GUEST_BUY_NOW_CANARY_TIMEOUT_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_TIMEOUT_MS || '45000' }}
         run: |
@@ -748,21 +749,22 @@ jobs:
             echo "Required staging marketplace domain was not present in Terraform outputs." >&2
             exit 1
           fi
-          if [ -z "${GUEST_BUY_NOW_CANARY_ITEM_PATH}" ]; then
-            echo "STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH must point to a stable staging item detail fixture." >&2
-            exit 1
-          fi
           started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           cd ../../..
-          pnpm run guest-buy-now:freshness-canary -- \
-            --environment staging \
-            --base-url "https://${marketplace_domain}" \
-            --item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}" \
-            --fixture-key "${GUEST_BUY_NOW_CANARY_FIXTURE_KEY}" \
-            --guest-email "guest-buy-now-canary+${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@chasesets.test" \
-            --diagnostic-correlation-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
-            --timeout-ms "${GUEST_BUY_NOW_CANARY_TIMEOUT_MS}" \
+          canary_args=(
+            --environment staging
+            --base-url "https://${marketplace_domain}"
+            --search-query "${GUEST_BUY_NOW_CANARY_SEARCH_QUERY}"
+            --fixture-key "${GUEST_BUY_NOW_CANARY_FIXTURE_KEY}"
+            --guest-email "guest-buy-now-canary+${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@chasesets.test"
+            --diagnostic-correlation-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            --timeout-ms "${GUEST_BUY_NOW_CANARY_TIMEOUT_MS}"
             --out artifacts/release-health/guest-buy-now-freshness-canary.json
+          )
+          if [ -n "${GUEST_BUY_NOW_CANARY_ITEM_PATH}" ]; then
+            canary_args+=(--item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}")
+          fi
+          pnpm run guest-buy-now:freshness-canary -- "${canary_args[@]}"
           completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           final_state="$(jq -r '.finalState // "unknown"' artifacts/release-health/guest-buy-now-freshness-canary.json)"
           promotion_decision="$(jq -r '.promotionDecision // "unknown"' artifacts/release-health/guest-buy-now-freshness-canary.json)"
@@ -786,7 +788,7 @@ jobs:
             artifacts/release-health/guest-buy-now-freshness-canary.json
 
       - name: Upload staging guest Buy Now canary evidence
-        if: steps.latest_main.outputs.should_deploy != 'false'
+        if: always() && steps.latest_main.outputs.should_deploy != 'false'
         uses: actions/upload-artifact@v7
         with:
           name: staging-guest-buy-now-freshness-canary

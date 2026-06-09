@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import type { ShippingAddressId } from "@chase-sets/primitives/typed-ids";
 import type { CheckoutApiEnv } from "../../../api";
 import { parseCartReadinessDecisionInput } from "../../cart/domain/readiness";
-import type { CheckoutSessionServices } from "./runtime";
+import type { CheckoutSessionCreateResult, CheckoutSessionServices } from "./runtime";
 import {
   createCheckoutOrdersThroughOrdering,
   createCheckoutPaymentThroughPayments,
@@ -51,6 +51,18 @@ function errorCode(error: unknown) {
     return "account_sign_in_required";
   }
   return "validation_failed";
+}
+
+function checkoutSessionStartedResponse(result: CheckoutSessionCreateResult) {
+  const commitEventIds = [...(result.commitEventIds ?? [])];
+  const commitPositions = [...(result.commitPositions ?? [])];
+  return {
+    session_id: result.sessionId,
+    status: "started",
+    ...(result.commitPosition ? { commitPosition: result.commitPosition } : {}),
+    ...(commitEventIds.length > 0 ? { commitEventIds } : {}),
+    ...(commitPositions.length > 0 ? { commitPositions } : {}),
+  };
 }
 
 function parseSelectedOptions(value: unknown) {
@@ -127,7 +139,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
           },
           context,
         );
-        return c.json({ session_id: result.sessionId, status: "started" }, 201);
+        return c.json(checkoutSessionStartedResponse(result), 201);
       }
 
       const source =
@@ -167,7 +179,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
           },
           context,
         );
-        return c.json({ session_id: result.sessionId, status: "started" }, 201);
+        return c.json(checkoutSessionStartedResponse(result), 201);
       }
 
       const result = await services.createBuyNow(
@@ -203,7 +215,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         },
         context,
       );
-      return c.json({ session_id: result.sessionId, status: "started" }, 201);
+      return c.json(checkoutSessionStartedResponse(result), 201);
     } catch (error) {
       return c.json({ error: { code: errorCode(error), message: errorMessage(error) } }, 400);
     }

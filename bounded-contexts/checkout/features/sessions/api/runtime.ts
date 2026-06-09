@@ -40,6 +40,24 @@ import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queri
 export type CheckoutSessionMutationResult = Readonly<{
   sessionId: string;
   session: CheckoutSessionRow;
+  commitPosition?: string;
+  commitEventIds?: readonly string[];
+  commitPositions?: readonly {
+    sourceContextName: string;
+    maxGlobalPosition: string;
+    eventIds: readonly string[];
+  }[];
+}>;
+
+export type CheckoutSessionCreateResult = Readonly<{
+  sessionId: CheckoutSessionId;
+  commitPosition?: string;
+  commitEventIds?: readonly string[];
+  commitPositions?: readonly {
+    sourceContextName: string;
+    maxGlobalPosition: string;
+    eventIds: readonly string[];
+  }[];
 }>;
 
 export type CheckoutSessionRuntimeDeps = Readonly<{
@@ -62,7 +80,7 @@ export type CheckoutSessionServices = Readonly<{
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: CheckoutSessionId }>;
+  ) => Promise<CheckoutSessionCreateResult>;
   createBuyNow: (
     params: Readonly<{
       accountId: AccountId;
@@ -82,7 +100,7 @@ export type CheckoutSessionServices = Readonly<{
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: CheckoutSessionId }>;
+  ) => Promise<CheckoutSessionCreateResult>;
   createOfferIntent: (
     params: Readonly<{
       accountId: AccountId;
@@ -99,7 +117,7 @@ export type CheckoutSessionServices = Readonly<{
       sessionIdOverride?: CheckoutSessionId;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: CheckoutSessionId }>;
+  ) => Promise<CheckoutSessionCreateResult>;
   selectShippingOption: (
     params: Readonly<{
       sessionId: string;
@@ -203,6 +221,47 @@ function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSession
   };
 }
 
+function commitMetadataFromStoredEvents(
+  events: readonly { eventId: unknown; globalPosition: unknown; streamId: string }[],
+) {
+  const eventIds = events.map((event) => String(event.eventId));
+  const commitPosition = events.reduce<string | undefined>((current, event) => {
+    const globalPosition = String(event.globalPosition);
+    return !current || BigInt(globalPosition) > BigInt(current) ? globalPosition : current;
+  }, undefined);
+  const positions = new Map<string, { eventIds: string[]; maxGlobalPosition: string }>();
+
+  for (const event of events) {
+    const sourceContextName = sourceContextNameFromStreamId(event.streamId);
+    const globalPosition = String(event.globalPosition);
+    const current = positions.get(sourceContextName);
+    if (!current) {
+      positions.set(sourceContextName, { eventIds: [String(event.eventId)], maxGlobalPosition: globalPosition });
+      continue;
+    }
+
+    current.eventIds.push(String(event.eventId));
+    if (BigInt(globalPosition) > BigInt(current.maxGlobalPosition)) {
+      current.maxGlobalPosition = globalPosition;
+    }
+  }
+
+  return {
+    ...(commitPosition ? { commitPosition } : {}),
+    commitEventIds: eventIds,
+    commitPositions: [...positions.entries()].map(([sourceContextName, position]) => ({
+      sourceContextName,
+      maxGlobalPosition: position.maxGlobalPosition,
+      eventIds: position.eventIds,
+    })),
+  };
+}
+
+function sourceContextNameFromStreamId(streamId: string) {
+  const separatorIndex = streamId.indexOf(".");
+  return separatorIndex > 0 ? streamId.slice(0, separatorIndex) : streamId;
+}
+
 export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): CheckoutSessionServices {
   const repository = createAggregateRepository({
     eventStore: deps.eventStore,
@@ -304,7 +363,7 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
     context: EventStoreContext,
   ) {
     const sessionId = params.sessionIdOverride ?? (createId("chk") as CheckoutSessionId);
-    await commandHandler({
+    const result = await commandHandler({
       streamId: `checkout.session-${sessionId}`,
       command: {
         type: "StartCheckoutSession",
@@ -320,7 +379,10 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       },
       context,
     });
-    return { sessionId };
+    return {
+      sessionId,
+      ...commitMetadataFromStoredEvents(result.storedEvents),
+    };
   }
 
   return {

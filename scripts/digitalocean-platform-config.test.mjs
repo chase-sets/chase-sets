@@ -875,6 +875,14 @@ describe("DigitalOcean platform configuration", () => {
 
   it("gates production promotion on staging marketplace critical flows", () => {
     const stagingCriticalFlowStep = workflowStep(platformProductionWorkflow, "Staging marketplace critical flows");
+    const stagingGuestBuyNowCanaryStep = workflowStep(
+      platformProductionWorkflow,
+      "Staging guest Buy Now freshness canary",
+    );
+    const stagingGuestBuyNowEvidenceStep = workflowStep(
+      platformProductionWorkflow,
+      "Upload staging guest Buy Now canary evidence",
+    );
     const stagingMoneySmokeStep = workflowStep(platformProductionWorkflow, "Staging Stripe money smoke");
     const markStagingDeployedIndex = platformProductionWorkflow.indexOf("- name: Mark staging deployed");
 
@@ -895,6 +903,17 @@ describe("DigitalOcean platform configuration", () => {
     expect(stagingCriticalFlowStep).toContain("AWS_ACCESS_KEY_ID");
     expect(stagingCriticalFlowStep).toContain("AWS_SECRET_ACCESS_KEY");
     expect(platformProductionWorkflow).toContain("staging-playwright-critical-flow-artifacts");
+    expect(stagingGuestBuyNowCanaryStep).toContain("GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
+    expect(stagingGuestBuyNowCanaryStep).toContain("vars.STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY");
+    expect(stagingGuestBuyNowCanaryStep).toContain("vars.MARKETPLACE_E2E_SEARCH_QUERY");
+    expect(stagingGuestBuyNowCanaryStep).toContain("--search-query");
+    expect(stagingGuestBuyNowCanaryStep).toContain("GUEST_BUY_NOW_CANARY_ITEM_PATH");
+    expect(stagingGuestBuyNowCanaryStep).toContain('canary_args+=(--item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}")');
+    expect(stagingGuestBuyNowCanaryStep).toContain("pnpm run guest-buy-now:freshness-canary");
+    expect(stagingGuestBuyNowEvidenceStep).toContain(
+      "if: always() && steps.latest_main.outputs.should_deploy != 'false'",
+    );
+    expect(stagingGuestBuyNowEvidenceStep).toContain("staging-guest-buy-now-freshness-canary");
 
     expect(stagingMoneySmokeStep).toContain("AWS_ACCESS_KEY_ID");
     expect(stagingMoneySmokeStep).toContain("AWS_SECRET_ACCESS_KEY");
