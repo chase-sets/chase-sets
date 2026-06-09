@@ -35,7 +35,7 @@ For `/api/marketplace/account/checkout-sessions/:sessionId`:
 1. Find `type=read-after-write.freshness` and `routePaths` containing `/account/checkout-sessions/:sessionId`.
 2. If `outcome=missing-receipt`, the browser route reached the API without a usable commit receipt. Check the checkout-start redirect and server-side request forwarding.
 3. If `readTargetContextHeaderPresent=false`, the route client did not forward the read target context. On shared mounts this can broaden or misroute the wait.
-4. If `waitMode=target-context`, the route did not match exact `readFreshnessRoutes` dependencies and may be waiting on unrelated projections.
+4. If `waitMode=target-context`, the route either did not match exact `readFreshnessRoutes` dependencies or an active rollout control broadened the wait. Check `READ_CONSISTENCY_EXACT_DEPENDENCY_MODE` and `READ_CONSISTENCY_ROUTE_TUNING_JSON`; for critical Checkout canaries this is acceptable only as a documented rollback state.
 5. If `outcome=timeout`, inspect `pending`:
    - `projectionName=checkout.session-projection` and `sourceContextName=checkout` means the checkout session projection did not catch up before the bounded timeout.
    - `globalPositionLag` shows the remaining checkpoint distance at timeout.

@@ -64,6 +64,10 @@ function resetConfigEnv() {
   delete process.env.DATABASE_POOL_CONNECTION_TIMEOUT_MS;
   delete process.env.REALTIME_CURSOR_SIGNING_SECRET;
   delete process.env.REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS;
+  delete process.env.READ_CONSISTENCY_TIMEOUT_MS;
+  delete process.env.READ_CONSISTENCY_POLL_INTERVAL_MS;
+  delete process.env.READ_CONSISTENCY_EXACT_DEPENDENCY_MODE;
+  delete process.env.READ_CONSISTENCY_ROUTE_TUNING_JSON;
   delete process.env.NODE_ENV;
   delete process.env.DEPLOYMENT_ENVIRONMENT;
   delete process.env.PLATFORM_DATA_PROFILES;
@@ -122,6 +126,12 @@ describe("platform api config", () => {
       maxTopicsPerStream: 16,
       maxActiveStreams: 1_000,
       maxActiveStreamsPerConnectionKey: 6,
+    });
+    expect(config.readConsistency).toEqual({
+      timeoutMs: 2_500,
+      pollIntervalMs: 75,
+      exactDependencyMode: "enabled",
+      routeTuning: [],
     });
   });
 
@@ -609,6 +619,67 @@ describe("platform api config", () => {
         renewIntervalMs: 10_000,
       },
     });
+  });
+
+  it("loads read consistency rollout controls from environment variables", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.READ_CONSISTENCY_TIMEOUT_MS = "1500";
+    process.env.READ_CONSISTENCY_POLL_INTERVAL_MS = "25";
+    process.env.READ_CONSISTENCY_EXACT_DEPENDENCY_MODE = "target-context";
+    process.env.READ_CONSISTENCY_ROUTE_TUNING_JSON = JSON.stringify([
+      {
+        mountPath: "/api/marketplace",
+        routePath: "/account/checkout-sessions/:sessionId",
+        targetContextName: "checkout",
+        timeoutMs: 900,
+        pollIntervalMs: 15,
+        exactDependencyMode: "enabled",
+      },
+    ]);
+
+    expect(loadConfig().readConsistency).toEqual({
+      timeoutMs: 1_500,
+      pollIntervalMs: 25,
+      exactDependencyMode: "target-context",
+      routeTuning: [
+        {
+          mountPath: "/api/marketplace",
+          routePath: "/account/checkout-sessions/:sessionId",
+          targetContextName: "checkout",
+          timeoutMs: 900,
+          pollIntervalMs: 15,
+          exactDependencyMode: "enabled",
+        },
+      ],
+    });
+  });
+
+  it("rejects invalid read consistency exact dependency modes", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.READ_CONSISTENCY_EXACT_DEPENDENCY_MODE = "off";
+
+    expect(() => loadConfig()).toThrow("READ_CONSISTENCY_EXACT_DEPENDENCY_MODE must be enabled or target-context.");
+  });
+
+  it("rejects invalid read consistency numeric controls", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.READ_CONSISTENCY_TIMEOUT_MS = "0";
+
+    expect(() => loadConfig()).toThrow("READ_CONSISTENCY_TIMEOUT_MS must be a positive number.");
+  });
+
+  it("rejects invalid read consistency route tuning", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.READ_CONSISTENCY_ROUTE_TUNING_JSON = JSON.stringify([
+      {
+        mountPath: "/api/marketplace",
+        routePath: "account/checkout-sessions/:sessionId",
+      },
+    ]);
+
+    expect(() => loadConfig()).toThrow(
+      "READ_CONSISTENCY_ROUTE_TUNING_JSON[0].routePath must be an absolute path string.",
+    );
   });
 
   it("rejects the local stream limiter in production", () => {

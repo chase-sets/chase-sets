@@ -53,6 +53,18 @@ type ResolvedReadConsistencyDependency = Readonly<{
 
 type ReadConsistencyWaitMode = "target-context" | "exact-dependency";
 
+export type ReadConsistencyExactDependencyMode = "enabled" | "target-context";
+
+export type ReadConsistencyRouteTuning = Readonly<{
+  mountPath: string;
+  routePath: string;
+  targetContextName?: string;
+  methods?: readonly ("GET" | "HEAD")[];
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  exactDependencyMode?: ReadConsistencyExactDependencyMode;
+}>;
+
 type ReadConsistencyAuditOutcome = "missing-receipt" | "fresh" | "timeout";
 
 export type ReadConsistencyAuditRecord = Readonly<{
@@ -82,6 +94,15 @@ export type ReadConsistencyAuditRecord = Readonly<{
     state: string;
     lastError: "present" | null;
   }>[];
+}>;
+
+export type ReadConsistencyMiddlewareOptions = Readonly<{
+  timeoutMs?: number;
+  pollIntervalMs?: number;
+  exactDependencyMode?: ReadConsistencyExactDependencyMode;
+  routeTuning?: readonly ReadConsistencyRouteTuning[];
+  recordReadConsistencyAudit?: (record: ReadConsistencyAuditRecord) => void;
+  nowMs?: () => number;
 }>;
 
 export class ProjectionFreshnessTimeoutError extends Error {
@@ -325,15 +346,11 @@ export function attachReadConsistencyMiddleware(
   }>,
   mounts: readonly Pick<ResolvedApiMount, "contextName" | "mountPath" | "readFreshnessRoutes">[],
   projectionGroups: readonly ReadConsistencyProjectionGroup[],
-  options: Readonly<{
-    timeoutMs?: number;
-    pollIntervalMs?: number;
-    recordReadConsistencyAudit?: (record: ReadConsistencyAuditRecord) => void;
-    nowMs?: () => number;
-  }> = {},
+  options: ReadConsistencyMiddlewareOptions = {},
 ): void {
   const contextsByMountPath = new Map<string, string[]>();
   const routeDependenciesByMountPath = new Map<string, ReturnType<typeof createRouteDependencyMatcher>[]>();
+  const routeTuningByMountPath = new Map<string, ReturnType<typeof createRouteTuningMatcher>[]>();
   const nowMs = options.nowMs ?? Date.now;
   for (const mount of mounts) {
     contextsByMountPath.set(mount.mountPath, [...(contextsByMountPath.get(mount.mountPath) ?? []), mount.contextName]);
@@ -344,9 +361,16 @@ export function attachReadConsistencyMiddleware(
       ]);
     }
   }
+  for (const [index, tuning] of (options.routeTuning ?? []).entries()) {
+    routeTuningByMountPath.set(tuning.mountPath, [
+      ...(routeTuningByMountPath.get(tuning.mountPath) ?? []),
+      createRouteTuningMatcher(tuning, index),
+    ]);
+  }
 
   for (const [mountPath, contextNames] of contextsByMountPath) {
     const routeDependencyMatchers = routeDependenciesByMountPath.get(mountPath) ?? [];
+    const routeTuningMatchers = routeTuningByMountPath.get(mountPath) ?? [];
 
     app.use(normalizeMountWildcard(mountPath), async (context: unknown, next) => {
       const req = (
@@ -382,7 +406,22 @@ export function attachReadConsistencyMiddleware(
         requestedTargetContextName,
         matchers: routeDependencyMatchers,
       });
-      const exactDependencies = routeFreshness.dependencies;
+      const routeTuning = resolveRouteTuningForRequest({
+        method,
+        mountPath,
+        path: req?.path,
+        url: req?.url,
+        requestedTargetContextName,
+        matchers: routeTuningMatchers,
+      });
+      const effectiveExactDependencyMode = routeTuning?.exactDependencyMode ?? options.exactDependencyMode ?? "enabled";
+      const exactDependencies = effectiveExactDependencyMode === "enabled" ? routeFreshness.dependencies : null;
+      const waitTargetContextNames = exactDependencies
+        ? [...new Set(exactDependencies.map((dependency) => dependency.targetContextName))]
+        : targetContextNames;
+      const waitMode: ReadConsistencyWaitMode = exactDependencies ? "exact-dependency" : "target-context";
+      const timeoutMs = routeTuning?.timeoutMs ?? options.timeoutMs;
+      const pollIntervalMs = routeTuning?.pollIntervalMs ?? options.pollIntervalMs;
 
       if (!receipt || receipt.sources.length === 0) {
         if (routeFreshness.routePaths.length > 0) {
@@ -397,7 +436,7 @@ export function attachReadConsistencyMiddleware(
             readTargetContextHeaderValid: Boolean(requestedTargetContextName),
             requestedTargetContextName,
             targetContextNames,
-            waitMode: exactDependencies ? "exact-dependency" : "target-context",
+            waitMode,
             durationMs: nowMs() - startedAt,
             receiptSourceContextNames: [],
             receiptSourceCount: 0,
@@ -413,13 +452,11 @@ export function attachReadConsistencyMiddleware(
       try {
         await waitForProjectionFreshness({
           projectionGroups,
-          targetContextNames: exactDependencies
-            ? [...new Set(exactDependencies.map((dependency) => dependency.targetContextName))]
-            : targetContextNames,
+          targetContextNames: waitTargetContextNames,
           receipt,
           dependencies: exactDependencies ?? undefined,
-          timeoutMs: options.timeoutMs,
-          pollIntervalMs: options.pollIntervalMs,
+          timeoutMs,
+          pollIntervalMs,
         });
       } catch (error) {
         if (error instanceof ProjectionFreshnessTimeoutError) {
@@ -476,10 +513,8 @@ export function attachReadConsistencyMiddleware(
         readTargetContextHeaderPresent: Boolean(requestedTargetContextHeader),
         readTargetContextHeaderValid: Boolean(requestedTargetContextName),
         requestedTargetContextName,
-        targetContextNames: exactDependencies
-          ? [...new Set(exactDependencies.map((dependency) => dependency.targetContextName))]
-          : targetContextNames,
-        waitMode: exactDependencies ? "exact-dependency" : "target-context",
+        targetContextNames: waitTargetContextNames,
+        waitMode,
         durationMs: nowMs() - startedAt,
         receiptSourceContextNames: receipt.sources.map((source) => source.sourceContextName),
         receiptSourceCount: receipt.sources.length,
@@ -543,6 +578,19 @@ function createRouteDependencyMatcher(
   };
 }
 
+function createRouteTuningMatcher(tuning: ReadConsistencyRouteTuning, index: number) {
+  const methods = new Set((tuning.methods ?? ["GET", "HEAD"]).map((method) => method.toUpperCase()));
+  const routePath = normalizeRoutePath(tuning.routePath);
+
+  return {
+    ...tuning,
+    routePath,
+    index,
+    methods,
+    routePattern: compileMountRelativeRoutePattern(routePath),
+  };
+}
+
 function resolveReadConsistencyDependency(
   contextName: string,
   dependency: ReadConsistencyDependencyDeclaration,
@@ -585,6 +633,51 @@ function resolveReadConsistencyDependency(
   }
 
   return [{ targetContextName, projectionName: owners[0].projectionName }];
+}
+
+function resolveRouteTuningForRequest(
+  input: Readonly<{
+    method: string;
+    mountPath: string;
+    path?: string;
+    url?: string;
+    requestedTargetContextName: string | null;
+    matchers: readonly ReturnType<typeof createRouteTuningMatcher>[];
+  }>,
+): ReadConsistencyRouteTuning | null {
+  const relativePath = normalizeRequestRelativePath(input.mountPath, input.path, input.url);
+  const matches = input.matchers.filter(
+    (matcher) =>
+      matcher.methods.has(input.method) &&
+      matcher.routePattern.test(relativePath) &&
+      (!matcher.targetContextName || matcher.targetContextName === input.requestedTargetContextName),
+  );
+  if (matches.length === 0) {
+    return null;
+  }
+
+  const [selected] = [...matches].sort((left, right) => {
+    const targetContextScore = Number(Boolean(right.targetContextName)) - Number(Boolean(left.targetContextName));
+    if (targetContextScore !== 0) {
+      return targetContextScore;
+    }
+
+    const routeSpecificityScore = right.routePath.length - left.routePath.length;
+    if (routeSpecificityScore !== 0) {
+      return routeSpecificityScore;
+    }
+
+    return right.index - left.index;
+  });
+
+  return {
+    mountPath: selected.mountPath,
+    routePath: selected.routePath,
+    ...(selected.targetContextName ? { targetContextName: selected.targetContextName } : {}),
+    ...(selected.timeoutMs ? { timeoutMs: selected.timeoutMs } : {}),
+    ...(selected.pollIntervalMs ? { pollIntervalMs: selected.pollIntervalMs } : {}),
+    ...(selected.exactDependencyMode ? { exactDependencyMode: selected.exactDependencyMode } : {}),
+  };
 }
 
 function resolveRouteFreshnessForRequest(
