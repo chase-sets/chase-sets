@@ -68,3 +68,5 @@ Audit summaries must stay route-template based. Do not attach raw `afterWrite` t
 ## Closure Notes
 
 This report intentionally does not claim measured lag for the historical request. That measurement was unavailable before #1067. Milestone closure requires the synthetic canary and E2E coverage to reproduce or continuously rule out this same failure mode with the new audit fields.
+
+The shared thresholds and rollout gate definitions live in [Projection Freshness SLOs](../architecture/projection-freshness-slos.md).
