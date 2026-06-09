@@ -3,6 +3,7 @@ import type { HonoClientResource } from "@chase-sets/http/hono-client";
 import { attachResponseMetadata } from "@chase-sets/http/responses";
 import type { buildCheckoutApi } from "./api";
 import type { CheckoutCartLine } from "./features/cart/api/contracts";
+import type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
 import type {
   CheckoutSellListExecutionRow,
   CheckoutSellListLineRow,
@@ -12,6 +13,8 @@ import type { CheckoutSessionRow } from "./features/sessions/read-model/queries"
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
+
+export type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
 
 export type CheckoutSelectedOptionInput = Readonly<{
   dimensionId: string;
@@ -83,7 +86,12 @@ export type UpdateCheckoutCartLineFulfillmentRequest = Readonly<{
 }>;
 
 export type CreateCartCheckoutSessionRequest = Readonly<{
-  source: Readonly<{ type: "cart" }>;
+  source: Readonly<{
+    type: "cart";
+    readinessSnapshotId: string;
+    readinessSourceRevision: string;
+    readinessDecisions?: CartReadinessDecisionInput | null;
+  }>;
   shippingOption?: string;
 }>;
 
@@ -230,6 +238,24 @@ export function createCheckoutApiClient({
       return parseJsonResponse(
         await client.guest.cart.$get({
           header: mergeHeaders(headers, anonymousCartId ? { "x-checkout-anonymous-cart-id": anonymousCartId } : {}),
+        }),
+      );
+    },
+    async createCartReadiness(
+      body: CartReadinessDecisionInput = {},
+    ): Promise<{ readiness: CartReadinessSnapshot }> {
+      return parseJsonResponse(await client.account.cart.readiness.$post({ json: body, header: headers }));
+    },
+    async createGuestCartReadiness(
+      anonymousCartId: string,
+      body: CartReadinessDecisionInput = {},
+    ): Promise<{ readiness: CartReadinessSnapshot }> {
+      return parseJsonResponse(
+        await client.guest.cart.readiness.$post({
+          json: body,
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-cart-id": anonymousCartId,
+          }),
         }),
       );
     },

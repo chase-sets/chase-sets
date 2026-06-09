@@ -8,6 +8,7 @@ import {
 import type { CheckoutServices } from "../runtime-support/services";
 import type { CheckoutSessionRow } from "../../features/sessions/read-model/queries";
 import type { CheckoutOptimizationGoal, CheckoutShippingAddress } from "../../features/sessions/domain/domain";
+import { parseCartReadinessDecisionInput, type CartReadinessDecisionInput } from "../../features/cart/domain/readiness";
 
 type UcpHandler = (input: UcpOperationHandlerInput) => Promise<UcpEnvelope>;
 type UcpPaymentHandlerHandoff = Readonly<{
@@ -57,6 +58,13 @@ type CheckoutIntentBody = Readonly<{
   optimization_goal?: unknown;
   shippingAddress?: unknown;
   shipping_address?: unknown;
+  readiness?: unknown;
+  readinessSnapshotId?: unknown;
+  readiness_snapshot_id?: unknown;
+  readinessSourceRevision?: unknown;
+  readiness_source_revision?: unknown;
+  readinessDecisions?: unknown;
+  readiness_decisions?: unknown;
   requestedBalanceCreditAmount?: unknown;
 }>;
 
@@ -86,10 +94,13 @@ export function createCheckoutUcpHandlers(
                   accountId: access.actor.accountId as AccountId,
                   shippingOption: readShippingOption(body),
                   optimizationGoal: readOptimizationGoal(body),
+                  readinessSnapshotId: readCartReadinessSnapshotId(source, body),
+                  readinessSourceRevision: readCartReadinessSourceRevision(source, body),
+                  readinessDecisions: readCartReadinessDecisions(source, body),
                 },
                 access.context,
               )
-            : sourceType === "offer-intent" || sourceType === "offer"
+            : sourceType === "offer-intent"
               ? await createOfferIntent(checkout, source, body, access)
               : await createBuyNow(checkout, source, body, access);
 
@@ -586,6 +597,49 @@ function readShippingOption(body: CheckoutIntentBody) {
 function readOptimizationGoal(body: CheckoutIntentBody): CheckoutOptimizationGoal | undefined {
   const value = readString(body.optimizationGoal ?? body.optimization_goal);
   return value === "fewest-shipments" ? "fewest-shipments" : value === "lowest-total" ? "lowest-total" : undefined;
+}
+
+function readReadinessSource(source: Readonly<Record<string, unknown>>, body: CheckoutIntentBody) {
+  return readObject(source.readiness) ?? readObject(body.readiness) ?? source;
+}
+
+function readCartReadinessSnapshotId(source: Readonly<Record<string, unknown>>, body: CheckoutIntentBody) {
+  const readiness = readReadinessSource(source, body);
+  return (
+    readString(readiness.snapshotId ?? readiness.snapshot_id) ??
+    readString(source.readinessSnapshotId ?? source.readiness_snapshot_id) ??
+    readString(body.readinessSnapshotId ?? body.readiness_snapshot_id) ??
+    ""
+  );
+}
+
+function readCartReadinessSourceRevision(source: Readonly<Record<string, unknown>>, body: CheckoutIntentBody) {
+  const readiness = readReadinessSource(source, body);
+  return (
+    readString(readiness.sourceRevision ?? readiness.source_revision) ??
+    readString(source.readinessSourceRevision ?? source.readiness_source_revision) ??
+    readString(body.readinessSourceRevision ?? body.readiness_source_revision) ??
+    ""
+  );
+}
+
+function readCartReadinessDecisions(
+  source: Readonly<Record<string, unknown>>,
+  body: CheckoutIntentBody,
+): CartReadinessDecisionInput | undefined {
+  const readiness = readReadinessSource(source, body);
+  const raw =
+    readiness.decisions ??
+    source.readinessDecisions ??
+    source.readiness_decisions ??
+    body.readinessDecisions ??
+    body.readiness_decisions;
+  const decisions = readObject(raw);
+  if (!decisions) {
+    return undefined;
+  }
+
+  return parseCartReadinessDecisionInput(decisions);
 }
 
 function readShippingAddress(value: unknown): CheckoutShippingAddress | null {

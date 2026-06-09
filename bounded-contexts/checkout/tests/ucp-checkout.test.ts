@@ -133,6 +133,44 @@ describe("checkout UCP handlers", () => {
     );
   });
 
+  it("creates cart checkout only with cart readiness evidence", async () => {
+    const sessions = createSessions();
+    const handlers = createCheckoutUcpHandlers({ sessions });
+
+    const response = await handlers.restHandlers.create_checkout(
+      input({
+        source: {
+          type: "cart",
+          readiness: {
+            snapshot_id: "cr_ready",
+            source_revision: "cr_source",
+            decisions: {
+              line_outcomes: [{ line_id: "cli_waiting", outcome: "save-for-later" }],
+              optimization: { decision: "accepted", line_id: "cli_1", listing_id: "lst_lower" },
+            },
+          },
+        },
+        shipping_option: "priority",
+      }),
+    );
+
+    expect(response.ucp.status).toBe("ok");
+    expect(sessions.createFromCart).toHaveBeenCalledWith(
+      {
+        accountId: "acc_buyer",
+        shippingOption: "priority",
+        optimizationGoal: undefined,
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: {
+          lineOutcomes: [{ lineId: "cli_waiting", outcome: "save-for-later" }],
+          optimization: { decision: "accepted", lineId: "cli_1", listingId: "lst_lower" },
+        },
+      },
+      context,
+    );
+  });
+
   it("updates shipping details on an existing checkout session", async () => {
     const sessions = createSessions();
     const handlers = createCheckoutUcpHandlers({ sessions });

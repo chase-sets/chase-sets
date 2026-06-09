@@ -41,6 +41,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.needs.fulfillment": "Needs fulfillment",
   "checkout.features.cart.ui.cartPage.needs.review": "Needs review",
   "checkout.features.cart.ui.cartPage.no.payment.until.checkout": "No payment until checkout.",
+  "checkout.features.cart.ui.cartPage.optimization.available.description":
+    "You can keep your current fulfillment or use the lower-cost option before checkout begins.",
+  "checkout.features.cart.ui.cartPage.optimization.available.title": "Save ${savings} before checkout",
   "checkout.features.cart.ui.cartPage.product.image.alt": "{title} product",
   "checkout.features.cart.ui.cartPage.quantity": "Quantity",
   "checkout.features.cart.ui.cartPage.price.at.checkout": "Price at checkout",
@@ -57,6 +60,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.standard": "Standard",
   "checkout.features.cart.ui.cartPage.subtotal": "Subtotal",
   "checkout.features.cart.ui.cartPage.update": "Update",
+  "checkout.features.cart.ui.cartPage.use.lower.fulfillment": "Use lower price",
   "checkout.features.cart.ui.cartPage.simple.cart.description":
     "Review your items, then continue to checkout when everything is ready.",
   "checkout.features.cart.ui.cartPage.taxes.and.shipping.calculated": "Taxes and shipping are calculated at checkout.",

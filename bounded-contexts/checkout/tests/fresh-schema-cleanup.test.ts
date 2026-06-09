@@ -27,6 +27,7 @@ describe("fresh checkout read-model schemas", () => {
 
     expect(checkoutSessionSchemaSql).toContain("shipping_address_id text NULL");
     expect(checkoutSessionSchemaSql).toContain("fulfillment_preview_revision text NULL");
+    expect(checkoutSessionSchemaSql).toContain("cart_readiness_snapshot jsonb NULL");
   });
 
   it("uses only the canonical Sell List execution receipt read model", () => {

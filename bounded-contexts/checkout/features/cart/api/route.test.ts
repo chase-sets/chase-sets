@@ -53,6 +53,27 @@ function createServices(): CheckoutCartServices {
     removeLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 3 })),
     listCartLines: vi.fn(async () => []),
     mergeCartIntoAccount: vi.fn(async () => ({ movedLineCount: 0 })),
+    createReadinessSnapshot: vi.fn(async () => ({
+      schemaVersion: "checkout.cart-readiness.v1",
+      source: "cart",
+      sourceRevision: "cr_source",
+      snapshotId: "cr_ready",
+      status: "ready",
+      lineCount: 1,
+      includedLineIds: ["cli_1"],
+      unresolvedLineIds: [],
+      lineOutcomes: [{ lineId: "cli_1", outcome: "checkout", reason: "ready" }],
+      optimization: {
+        available: false,
+        decision: "none",
+        proposedLineId: null,
+        proposedListingId: null,
+        currentListingId: null,
+        savingsAmount: null,
+        currency: "USD",
+      },
+      customerSafeFacts: ["Ready for checkout."],
+    })),
     projectors: [],
   } as unknown as CheckoutCartServices;
 }
@@ -149,6 +170,44 @@ describe("checkout cart routes", () => {
     );
   });
 
+  it("creates a signed-in cart readiness snapshot with customer decisions", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: {
+        sessionId: "ses_1",
+        tenantId: "tnt_identity",
+        userId: "usr_1",
+        accountId: "acc_buyer",
+        membershipId: "mbr_1",
+        roleKey: "owner",
+        permissions: [],
+      },
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/cart/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      readiness: { snapshotId: "cr_ready", status: "ready" },
+    });
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
+      accountId: "acc_buyer",
+      decisions: {
+        lineOutcomes: [],
+        optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+      },
+    });
+  });
+
   it("allows signed-in buyers without order-management permissions to use their account cart", async () => {
     const services = createServices();
     const app = buildApp({
@@ -234,6 +293,36 @@ describe("checkout cart routes", () => {
         }),
       }),
     );
+  });
+
+  it("creates a guest cart readiness snapshot from the anonymous cart owner", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/cart/readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-cart-id": "anon_cart_1",
+        },
+        body: JSON.stringify({
+          lineOutcomes: [{ lineId: "cli_waiting", outcome: "save-for-later" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
+      accountId: "anon_cart_1",
+      decisions: {
+        lineOutcomes: [{ lineId: "cli_waiting", outcome: "save-for-later" }],
+        optimization: null,
+      },
+    });
   });
 
   it("adds multiple browsed marketplace products to the current account cart", async () => {

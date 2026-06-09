@@ -1,0 +1,389 @@
+export type CartReadinessAvailabilityState = "available" | "unavailable" | "changed" | "waiting-for-supply";
+
+export type CartReadinessSellerOption = Readonly<{
+  listing_id: string;
+  seller_account_id?: string | null;
+  seller_display_name: string | null;
+  price_amount: string;
+  available_quantity: number;
+  product_summary: string | null;
+}>;
+
+export type CartReadinessLine = Readonly<{
+  line_id: string;
+  catalog_catalog_item_id: string;
+  product_id: string;
+  item_title: string;
+  quantity: number;
+  fulfillment_mode: "optimize" | "locked-listing";
+  locked_listing_id: string | null;
+  seller_preference_id: string | null;
+  availability_state: CartReadinessAvailabilityState;
+  seller_options: readonly CartReadinessSellerOption[];
+  updated_at: string;
+}>;
+
+export type CartReadinessLineOutcome = "checkout" | "save-for-later" | "removed";
+export type CartReadinessOptimizationDecision = "none" | "accepted" | "declined";
+
+export type CartReadinessDecisionInput = Readonly<{
+  lineOutcomes?: readonly Readonly<{ lineId: string; outcome: Exclude<CartReadinessLineOutcome, "checkout"> }>[];
+  optimization?: Readonly<{
+    decision: Exclude<CartReadinessOptimizationDecision, "none">;
+    lineId: string;
+    listingId: string;
+  }> | null;
+}>;
+
+export type CartReadinessSnapshot = Readonly<{
+  schemaVersion: "checkout.cart-readiness.v1";
+  source: "cart";
+  sourceRevision: string;
+  snapshotId: string;
+  status: "ready" | "needs-resolution" | "blocked";
+  lineCount: number;
+  includedLineIds: readonly string[];
+  unresolvedLineIds: readonly string[];
+  lineOutcomes: readonly Readonly<{
+    lineId: string;
+    outcome: CartReadinessLineOutcome;
+    reason: "ready" | "unassigned-fulfillment" | "unavailable" | "waiting-for-supply" | "changed";
+  }>[];
+  optimization: Readonly<{
+    available: boolean;
+    decision: CartReadinessOptimizationDecision;
+    proposedLineId: string | null;
+    proposedListingId: string | null;
+    currentListingId: string | null;
+    savingsAmount: string | null;
+    currency: "USD";
+  }>;
+  customerSafeFacts: readonly string[];
+}>;
+
+function objectValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : "";
+}
+
+export function parseCartReadinessDecisionInput(value: unknown): CartReadinessDecisionInput {
+  const source = objectValue(value) ?? {};
+  const rawLineOutcomes = source.lineOutcomes ?? source.line_outcomes;
+  const lineOutcomes = Array.isArray(rawLineOutcomes)
+    ? rawLineOutcomes
+        .map(objectValue)
+        .filter((entry): entry is Record<string, unknown> => entry !== null)
+        .map((entry) => {
+          const outcome = stringValue(entry.outcome);
+          return outcome === "removed" || outcome === "save-for-later"
+            ? {
+                lineId: stringValue(entry.lineId ?? entry.line_id),
+                outcome,
+              }
+            : null;
+        })
+        .filter(
+          (entry): entry is Readonly<{ lineId: string; outcome: Exclude<CartReadinessLineOutcome, "checkout"> }> =>
+            Boolean(entry?.lineId),
+        )
+    : [];
+  const optimizationSource = objectValue(source.optimization);
+  const optimizationDecision = stringValue(optimizationSource?.decision);
+  const optimization: CartReadinessDecisionInput["optimization"] =
+    optimizationDecision === "accepted" || optimizationDecision === "declined"
+      ? {
+          decision: optimizationDecision as "accepted" | "declined",
+          lineId: stringValue(optimizationSource?.lineId ?? optimizationSource?.line_id),
+          listingId: stringValue(optimizationSource?.listingId ?? optimizationSource?.listing_id),
+        }
+      : null;
+
+  return {
+    lineOutcomes,
+    optimization: optimization?.lineId && optimization.listingId ? optimization : null,
+  };
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableStringify).join(",")}]`;
+  }
+
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`)
+      .join(",")}}`;
+  }
+
+  return JSON.stringify(value);
+}
+
+function stableHash(value: unknown) {
+  const text = stableStringify(value);
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index++) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `cr_${(hash >>> 0).toString(36)}`;
+}
+
+function moneyValue(amount: string | null | undefined) {
+  const value = Number(amount);
+  return Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function formatAmount(value: number) {
+  return value.toFixed(2);
+}
+
+function optionCanFulfill(option: CartReadinessSellerOption, quantity: number) {
+  return option.available_quantity >= quantity && moneyValue(option.price_amount) !== null;
+}
+
+export function selectedCartReadinessListing(line: CartReadinessLine) {
+  if (!line.locked_listing_id) {
+    return null;
+  }
+
+  return line.seller_options.find((option) => option.listing_id === line.locked_listing_id) ?? null;
+}
+
+export function lowestCartReadinessListing(line: CartReadinessLine) {
+  return line.seller_options
+    .filter((option) => optionCanFulfill(option, line.quantity))
+    .sort(
+      (left, right) =>
+        (moneyValue(left.price_amount) ?? Number.POSITIVE_INFINITY) -
+          (moneyValue(right.price_amount) ?? Number.POSITIVE_INFINITY) ||
+        left.listing_id.localeCompare(right.listing_id),
+    )[0] ?? null;
+}
+
+export function cartReadinessLineHasFulfillment(line: CartReadinessLine) {
+  if (line.availability_state !== "available") {
+    return false;
+  }
+
+  if (line.fulfillment_mode === "locked-listing") {
+    const selected = selectedCartReadinessListing(line);
+    return Boolean(line.locked_listing_id && (!selected || optionCanFulfill(selected, line.quantity)));
+  }
+
+  return Boolean(lowestCartReadinessListing(line));
+}
+
+function lineReason(line: CartReadinessLine): CartReadinessSnapshot["lineOutcomes"][number]["reason"] {
+  if (line.availability_state === "unavailable") {
+    return "unavailable";
+  }
+  if (line.availability_state === "waiting-for-supply") {
+    return "waiting-for-supply";
+  }
+  if (line.availability_state === "changed") {
+    return "changed";
+  }
+  return cartReadinessLineHasFulfillment(line) ? "ready" : "unassigned-fulfillment";
+}
+
+function normalizeDecisions(decisions: CartReadinessDecisionInput | null | undefined) {
+  const lineOutcomes = new Map<string, Exclude<CartReadinessLineOutcome, "checkout">>();
+  for (const decision of decisions?.lineOutcomes ?? []) {
+    if (decision.outcome === "removed" || decision.outcome === "save-for-later") {
+      lineOutcomes.set(decision.lineId, decision.outcome);
+    }
+  }
+
+  const optimization =
+    decisions?.optimization?.decision === "accepted" || decisions?.optimization?.decision === "declined"
+      ? decisions.optimization
+      : null;
+
+  return { lineOutcomes, optimization };
+}
+
+function findOptimizationProposal(lines: readonly CartReadinessLine[]) {
+  let best:
+    | Readonly<{
+        line: CartReadinessLine;
+        current: CartReadinessSellerOption;
+        proposed: CartReadinessSellerOption;
+        savings: number;
+      }>
+    | null = null;
+
+  for (const line of lines) {
+    if (line.availability_state !== "available" || line.fulfillment_mode !== "locked-listing") {
+      continue;
+    }
+
+    const current = selectedCartReadinessListing(line);
+    const proposed = lowestCartReadinessListing(line);
+    const currentPrice = moneyValue(current?.price_amount);
+    const proposedPrice = moneyValue(proposed?.price_amount);
+    if (!current || !proposed || current.listing_id === proposed.listing_id || currentPrice === null || proposedPrice === null) {
+      continue;
+    }
+
+    const savings = (currentPrice - proposedPrice) * line.quantity;
+    if (savings <= 0) {
+      continue;
+    }
+
+    if (!best || savings > best.savings) {
+      best = { line, current, proposed, savings };
+    }
+  }
+
+  return best;
+}
+
+function sourceRevisionFor(lines: readonly CartReadinessLine[]) {
+  return stableHash(
+    lines.map((line) => ({
+      lineId: line.line_id,
+      productId: line.product_id,
+      quantity: line.quantity,
+      fulfillmentMode: line.fulfillment_mode,
+      lockedListingId: line.locked_listing_id,
+      sellerPreferenceId: line.seller_preference_id,
+      availabilityState: line.availability_state,
+      sellerOptions: line.seller_options.map((option) => ({
+        listingId: option.listing_id,
+        priceAmount: option.price_amount,
+        availableQuantity: option.available_quantity,
+      })),
+      updatedAt: line.updated_at,
+    })),
+  );
+}
+
+export function createCartReadinessSnapshot(
+  lines: readonly CartReadinessLine[],
+  decisions?: CartReadinessDecisionInput | null,
+): CartReadinessSnapshot {
+  const sortedLines = [...lines].sort((left, right) => left.line_id.localeCompare(right.line_id));
+  const normalized = normalizeDecisions(decisions);
+  const optimizationProposal = findOptimizationProposal(sortedLines);
+  const optimizationDecision =
+    normalized.optimization && optimizationProposal
+      ? normalized.optimization.decision
+      : ("none" as CartReadinessOptimizationDecision);
+  const optimizationAccepted =
+    optimizationDecision === "accepted" &&
+    normalized.optimization?.lineId === optimizationProposal?.line.line_id &&
+    normalized.optimization?.listingId === optimizationProposal?.proposed.listing_id;
+
+  const lineOutcomes = sortedLines.map((line) => {
+    const reason = lineReason(line);
+    const explicitOutcome = normalized.lineOutcomes.get(line.line_id);
+    const outcome: CartReadinessLineOutcome = explicitOutcome ?? "checkout";
+    return {
+      lineId: line.line_id,
+      outcome,
+      reason,
+    };
+  });
+
+  const includedLineIds = lineOutcomes
+    .filter((outcome) => outcome.outcome === "checkout" && outcome.reason === "ready")
+    .map((outcome) => outcome.lineId);
+  if (
+    optimizationAccepted &&
+    optimizationProposal &&
+    !normalized.lineOutcomes.has(optimizationProposal.line.line_id) &&
+    !includedLineIds.includes(optimizationProposal.line.line_id)
+  ) {
+    includedLineIds.push(optimizationProposal.line.line_id);
+  }
+  includedLineIds.sort();
+
+  const unresolvedLineIds = lineOutcomes
+    .filter((outcome) => outcome.outcome === "checkout" && outcome.reason !== "ready")
+    .map((outcome) => outcome.lineId);
+
+  const status =
+    includedLineIds.length === 0
+      ? "blocked"
+      : unresolvedLineIds.length > 0
+        ? "needs-resolution"
+        : ("ready" as const);
+  const sourceRevision = sourceRevisionFor(sortedLines);
+  const snapshotSeed = {
+    sourceRevision,
+    includedLineIds,
+    lineOutcomes,
+    optimizationDecision,
+    proposedListingId: optimizationProposal?.proposed.listing_id ?? null,
+  };
+
+  return {
+    schemaVersion: "checkout.cart-readiness.v1",
+    source: "cart",
+    sourceRevision,
+    snapshotId: stableHash(snapshotSeed),
+    status,
+    lineCount: sortedLines.reduce((sum, line) => sum + line.quantity, 0),
+    includedLineIds,
+    unresolvedLineIds,
+    lineOutcomes,
+    optimization: {
+      available: Boolean(optimizationProposal),
+      decision: optimizationDecision,
+      proposedLineId: optimizationProposal?.line.line_id ?? null,
+      proposedListingId: optimizationProposal?.proposed.listing_id ?? null,
+      currentListingId: optimizationProposal?.current.listing_id ?? null,
+      savingsAmount: optimizationProposal ? formatAmount(optimizationProposal.savings) : null,
+      currency: "USD",
+    },
+    customerSafeFacts: [
+      status === "ready"
+        ? "Ready for checkout."
+        : status === "blocked"
+          ? "No cart items are ready for checkout."
+          : "Some cart items need attention before checkout.",
+      ...(optimizationProposal
+        ? [`Save $${formatAmount(optimizationProposal.savings)} by changing fulfillment before checkout.`]
+        : []),
+    ],
+  };
+}
+
+export function applyCartReadinessToLines<TLine extends CartReadinessLine>(
+  lines: readonly TLine[],
+  snapshot: CartReadinessSnapshot,
+): TLine[] {
+  const included = new Set(snapshot.includedLineIds);
+  return lines
+    .filter((line) => included.has(line.line_id))
+    .map((line) => {
+      if (
+        snapshot.optimization.decision === "accepted" &&
+        snapshot.optimization.proposedLineId === line.line_id &&
+        snapshot.optimization.proposedListingId
+      ) {
+        return {
+          ...line,
+          fulfillment_mode: "locked-listing",
+          locked_listing_id: snapshot.optimization.proposedListingId,
+        };
+      }
+
+      return line;
+    });
+}
+
+export function validateCartReadinessSnapshot(
+  lines: readonly CartReadinessLine[],
+  provided: Pick<CartReadinessSnapshot, "snapshotId" | "sourceRevision"> & { decisions?: CartReadinessDecisionInput },
+) {
+  const current = createCartReadinessSnapshot(lines, provided.decisions);
+  return {
+    current,
+    valid: current.snapshotId === provided.snapshotId && current.sourceRevision === provided.sourceRevision,
+  };
+}

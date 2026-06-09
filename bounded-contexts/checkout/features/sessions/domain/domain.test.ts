@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createCartReadinessSnapshot } from "../../cart/domain/readiness";
 import { decideCheckoutSession, evolveCheckoutSession, initialCheckoutSessionState } from "./domain";
 
 const line = {
@@ -24,6 +25,31 @@ const shippingAddress = {
   country: "US",
 } as const;
 
+const cartReadinessSnapshot = createCartReadinessSnapshot([
+  {
+    line_id: "cli_1",
+    catalog_catalog_item_id: "cat_1",
+    product_id: "cat_1::",
+    item_title: "Charizard",
+    quantity: 1,
+    fulfillment_mode: "locked-listing",
+    locked_listing_id: "lst_1",
+    seller_preference_id: null,
+    availability_state: "available",
+    seller_options: [
+      {
+        listing_id: "lst_1",
+        seller_account_id: "acc_seller",
+        seller_display_name: "Card Vault",
+        price_amount: "25.00",
+        available_quantity: 1,
+        product_summary: null,
+      },
+    ],
+    updated_at: "2026-04-29T00:00:00.000Z",
+  },
+]);
+
 describe("checkout session domain", () => {
   it("starts, selects shipping, records orders, and records payment once", () => {
     const started = decideCheckoutSession(initialCheckoutSessionState, {
@@ -32,6 +58,7 @@ describe("checkout session domain", () => {
       buyerAccountId: "acc_buyer" as never,
       sourceType: "cart",
       shippingOption: "standard",
+      cartReadinessSnapshot,
       lines: [line],
       createdAt: "2026-04-29T00:00:00.000Z",
     });
@@ -80,5 +107,19 @@ describe("checkout session domain", () => {
         recordedAt: "2026-04-29T00:04:00.000Z",
       }),
     ).toEqual([]);
+  });
+
+  it("rejects cart sessions without a resolved readiness snapshot", () => {
+    expect(() =>
+      decideCheckoutSession(initialCheckoutSessionState, {
+        type: "StartCheckoutSession",
+        sessionId: "chk_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sourceType: "cart",
+        shippingOption: "standard",
+        lines: [line],
+        createdAt: "2026-04-29T00:00:00.000Z",
+      }),
+    ).toThrow("Cart readiness snapshot is required.");
   });
 });

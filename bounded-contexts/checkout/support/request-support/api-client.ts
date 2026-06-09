@@ -2,6 +2,8 @@ import { createForwardedAuthFetch, resolveRequestApiBaseUrl } from "@chase-sets/
 export { checkoutApi, CheckoutApiError, createCheckoutApiClient } from "../../client";
 export type {
   CheckoutApiClientOptions,
+  CartReadinessDecisionInput,
+  CartReadinessSnapshot,
   CheckoutCartLine,
   AddCheckoutSellListLineRequest,
   CheckoutSellListLineRow,

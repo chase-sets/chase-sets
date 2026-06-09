@@ -46,3 +46,10 @@ This is a greenfield codebase, so local development environments should reset/bo
 - [Fresh Checkout Session Contracts](./docs/fresh-checkout-session-contracts.md): shared buy/sell snapshot, command, state-machine, recovery, idempotency, guest-merge, and fresh-state compatibility rules for Milestone #17.
 - [Checkout Session Projection Performance](./docs/checkout-session-projection-performance.md): guest Buy Now freshness path, session read-model indexes, projection transaction behavior, and platform evidence gates.
 - [Guest Buy Now Freshness Verification](./docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
+
+## Buy Cart Readiness
+
+Buy Cart produces a Checkout-owned `checkout.cart-readiness.v1` snapshot before cart checkout session creation.
+The snapshot records current cart revision, included line IDs, unresolved line IDs, customer-safe line outcomes,
+and optional fulfillment optimization accepted/declined state. Cart checkout session creation consumes that
+snapshot as the entry contract and fails closed when it is missing, stale, blocked, or unresolved.

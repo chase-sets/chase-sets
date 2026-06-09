@@ -6,6 +6,7 @@ import type {
   PaymentId,
   ShippingAddressId,
 } from "@chase-sets/primitives/typed-ids";
+import type { CartReadinessSnapshot } from "../../cart/domain/readiness";
 import {
   assert,
   assertNever,
@@ -58,6 +59,7 @@ export type CheckoutSessionState = Readonly<{
   sourceType: CheckoutSourceType | null;
   optimizationGoal: CheckoutOptimizationGoal;
   fulfillmentPreviewRevision: string | null;
+  cartReadinessSnapshot: CartReadinessSnapshot | null;
   shippingOption: ShippingOption;
   shippingAddress: CheckoutShippingAddress | null;
   lines: CheckoutSessionLine[];
@@ -74,6 +76,7 @@ export const initialCheckoutSessionState: CheckoutSessionState = {
   sourceType: null,
   optimizationGoal: "lowest-total",
   fulfillmentPreviewRevision: null,
+  cartReadinessSnapshot: null,
   shippingOption: "standard",
   shippingAddress: null,
   lines: [],
@@ -91,6 +94,7 @@ export type StartCheckoutSessionCommand = Readonly<{
   sourceType: CheckoutSourceType;
   optimizationGoal?: CheckoutOptimizationGoal;
   fulfillmentPreviewRevision?: string | null;
+  cartReadinessSnapshot?: CartReadinessSnapshot | null;
   shippingOption: ShippingOption;
   lines: readonly CheckoutSessionLine[];
   createdAt: string;
@@ -156,6 +160,7 @@ export type CheckoutSessionStartedEvent = DomainEvent<
     sourceType: CheckoutSourceType;
     optimizationGoal: CheckoutOptimizationGoal;
     fulfillmentPreviewRevision: string | null;
+    cartReadinessSnapshot: CartReadinessSnapshot | null;
     shippingOption: ShippingOption;
     lines: CheckoutSessionLine[];
     createdAt: string;
@@ -271,6 +276,22 @@ function normalizeAvailabilityState(value: "available" | "unavailable" | "change
   }
 }
 
+function normalizeCartReadinessSnapshot(
+  sourceType: CheckoutSourceType,
+  snapshot: CartReadinessSnapshot | null | undefined,
+) {
+  if (sourceType !== "cart") {
+    return null;
+  }
+
+  assert(snapshot?.schemaVersion === "checkout.cart-readiness.v1", "Cart readiness snapshot is required.");
+  assert(snapshot.source === "cart", "Cart readiness snapshot source is invalid.");
+  assert(snapshot.status === "ready", "Cart readiness must be resolved before checkout starts.");
+  assert(snapshot.unresolvedLineIds.length === 0, "Cart readiness cannot include unresolved fulfillment.");
+  assert(snapshot.includedLineIds.length > 0, "Cart readiness must include at least one checkout line.");
+  return snapshot;
+}
+
 function normalizeShippingAddress(address: CheckoutShippingAddress): CheckoutShippingAddress {
   return {
     shippingAddressId: normalizeOptionalText(address.shippingAddressId) as ShippingAddressId | null,
@@ -305,6 +326,7 @@ export const decideCheckoutSession: AggregateDecider<
       assert(state.sessionId === null, "Checkout session has already started.");
       const lines = command.lines.map(normalizeLine);
       assert(lines.length > 0, "Checkout session must include at least one line.");
+      const cartReadinessSnapshot = normalizeCartReadinessSnapshot(command.sourceType, command.cartReadinessSnapshot);
       return [
         {
           type: "checkout.session.started",
@@ -314,6 +336,7 @@ export const decideCheckoutSession: AggregateDecider<
             sourceType: command.sourceType,
             optimizationGoal: normalizeOptimizationGoal(command.optimizationGoal),
             fulfillmentPreviewRevision: normalizeOptionalText(command.fulfillmentPreviewRevision),
+            cartReadinessSnapshot,
             shippingOption: normalizeShippingOption(command.shippingOption),
             lines,
             createdAt: normalizeRequiredText(command.createdAt, "Checkout session must record a creation timestamp."),
@@ -455,6 +478,7 @@ export const evolveCheckoutSession: AggregateEvolver<CheckoutSessionState, Check
         sourceType: event.data.sourceType,
         optimizationGoal: event.data.optimizationGoal ?? "lowest-total",
         fulfillmentPreviewRevision: event.data.fulfillmentPreviewRevision ?? null,
+        cartReadinessSnapshot: event.data.cartReadinessSnapshot ?? null,
         shippingOption: event.data.shippingOption,
         shippingAddress: null,
         lines: event.data.lines,

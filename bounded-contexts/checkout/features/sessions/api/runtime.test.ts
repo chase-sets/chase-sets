@@ -9,6 +9,8 @@ import type {
   StoredEvent,
 } from "@chase-sets/event-core/storage";
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
+import { createCartReadinessSnapshot } from "../../cart/domain/readiness";
+import type { CheckoutCartLineRow } from "../../cart/read-model/queries";
 import { createCheckoutSessionRuntime } from "./runtime";
 
 const context = {
@@ -75,36 +77,49 @@ function createCheckpointStore(): ProjectionCheckpointStore {
   };
 }
 
-function createCartServices() {
+const readyCartLine: CheckoutCartLineRow = {
+  buyer_account_id: "acc_buyer",
+  line_id: "cli_1",
+  catalog_catalog_item_id: "cat_1",
+  product_id: "cat_1::",
+  item_language_code: "en",
+  item_title: "Charizard",
+  item_subtitle: null,
+  item_image_url: null,
+  item_image_srcset: null,
+  item_image_loading_url: null,
+  item_image_loading_alt: null,
+  item_image_loading_srcset: null,
+  selected_options: [],
+  product_summary: null,
+  quantity: 1,
+  fulfillment_mode: "locked-listing",
+  locked_listing_id: "lst_1",
+  seller_preference_id: null,
+  availability_state: "available",
+  seller_options: [
+    {
+      listing_id: "lst_1",
+      seller_account_id: "acc_seller",
+      seller_slug: "seller",
+      seller_display_name: "Card Vault",
+      seller_average_rating: null,
+      seller_review_count: 0,
+      price_amount: "25.00",
+      available_quantity: 1,
+      product_summary: null,
+    },
+  ],
+  created_at: "2026-06-09T00:00:00.000Z",
+  updated_at: "2026-06-09T00:00:00.000Z",
+};
+
+function createCartServices(lines: readonly CheckoutCartLineRow[] = [readyCartLine]) {
   return {
-    listCartLines: vi.fn(async () => [
-      {
-        buyer_account_id: "acc_buyer",
-        line_id: "cli_1",
-        catalog_catalog_item_id: "cat_1",
-        product_id: "cat_1::",
-        item_language_code: "en",
-        item_title: "Charizard",
-        item_subtitle: null,
-        item_image_url: null,
-        item_image_srcset: null,
-        item_image_loading_url: null,
-        item_image_loading_alt: null,
-        item_image_loading_srcset: null,
-        selected_options: [],
-        product_summary: null,
-        quantity: 1,
-        fulfillment_mode: "optimize",
-        locked_listing_id: null,
-        seller_preference_id: null,
-        availability_state: "available",
-        seller_options: [],
-        created_at: "2026-06-09T00:00:00.000Z",
-        updated_at: "2026-06-09T00:00:00.000Z",
-      },
-    ]),
+    listCartLines: vi.fn(async () => lines),
     removeLine: vi.fn(async () => ({ lineId: "cli_1" as never, version: 1 })),
     checkout: vi.fn(async () => ({ version: 1 })),
+    createReadinessSnapshot: vi.fn(async () => createCartReadinessSnapshot(lines)),
   };
 }
 
@@ -141,11 +156,14 @@ describe("checkout session runtime", () => {
       db,
       cart: createCartServices() as never,
     });
+    const readiness = createCartReadinessSnapshot([readyCartLine]);
 
     const created = await services.createFromCart(
       {
         accountId: "acc_buyer" as never,
         shippingOption: "standard",
+        readinessSnapshotId: readiness.snapshotId,
+        readinessSourceRevision: readiness.sourceRevision,
         sessionIdOverride: "chk_projection_lag" as never,
       },
       context,
@@ -161,6 +179,10 @@ describe("checkout session runtime", () => {
 
     expect(result.session.shipping_option).toBe("priority");
     expect(result.session.buyer_account_id).toBe("acc_buyer");
+    expect(result.session.cart_readiness_snapshot).toMatchObject({
+      snapshotId: readiness.snapshotId,
+      status: "ready",
+    });
     expect(db.query).not.toHaveBeenCalled();
   });
 
@@ -228,5 +250,57 @@ describe("checkout session runtime", () => {
     expect(result.session.order_ids).toEqual([]);
     expect(db.query).toHaveBeenCalledTimes(1);
     expect(String(db.query.mock.calls[0]?.[0])).toContain("checkout_catalog_items");
+  });
+
+  it("fails closed when cart readiness is missing, stale, or unresolved", async () => {
+    const unresolvedLine: CheckoutCartLineRow = {
+      ...readyCartLine,
+      line_id: "cli_unresolved",
+      fulfillment_mode: "optimize",
+      locked_listing_id: null,
+      seller_options: [],
+    };
+    const { eventStore } = createInMemoryEventStore();
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db: { query: vi.fn(async () => ({ rows: [] })) },
+      cart: createCartServices([unresolvedLine]) as never,
+    });
+    const staleReadiness = createCartReadinessSnapshot([readyCartLine]);
+    const unresolvedReadiness = createCartReadinessSnapshot([unresolvedLine]);
+
+    await expect(
+      services.createFromCart(
+        {
+          accountId: "acc_buyer" as never,
+          readinessSnapshotId: "",
+          readinessSourceRevision: "",
+        },
+        context,
+      ),
+    ).rejects.toThrow("Cart readiness changed. Review your cart before checkout.");
+
+    await expect(
+      services.createFromCart(
+        {
+          accountId: "acc_buyer" as never,
+          readinessSnapshotId: staleReadiness.snapshotId,
+          readinessSourceRevision: staleReadiness.sourceRevision,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Cart readiness changed. Review your cart before checkout.");
+
+    await expect(
+      services.createFromCart(
+        {
+          accountId: "acc_buyer" as never,
+          readinessSnapshotId: unresolvedReadiness.snapshotId,
+          readinessSourceRevision: unresolvedReadiness.sourceRevision,
+        },
+        context,
+      ),
+    ).rejects.toThrow("Resolve item availability before checkout starts.");
   });
 });

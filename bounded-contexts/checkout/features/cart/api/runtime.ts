@@ -22,6 +22,11 @@ import {
   type CheckoutCartEvent,
   type CheckoutCartState,
 } from "../domain/domain";
+import {
+  createCartReadinessSnapshot,
+  type CartReadinessDecisionInput,
+  type CartReadinessSnapshot,
+} from "../domain/readiness";
 import { buildCheckoutCartProjectionHandlers } from "../read-model/projection";
 import { listCartLines } from "../read-model/queries";
 
@@ -130,6 +135,12 @@ export type CheckoutCartServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ mergedLineCount: number }>;
+  createReadinessSnapshot: (
+    params: Readonly<{
+      accountId: string;
+      decisions?: CartReadinessDecisionInput | null;
+    }>,
+  ) => Promise<CartReadinessSnapshot>;
   listCartLines: (accountId: string) => ReturnType<typeof listCartLines>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -418,6 +429,10 @@ export function createCheckoutCartRuntime(deps: CheckoutCartRuntimeDeps): Checko
       }
 
       return { mergedLineCount: sourceLines.length };
+    },
+    createReadinessSnapshot: async (params) => {
+      const lines = await listCartLines(deps.db, params.accountId);
+      return createCartReadinessSnapshot(lines, params.decisions);
     },
     listCartLines: (accountId) => listCartLines(deps.db, accountId),
     projectors: [cartProjector],

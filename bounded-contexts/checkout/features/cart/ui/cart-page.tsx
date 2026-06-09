@@ -23,6 +23,11 @@ import {
   Text,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
+import {
+  createCartReadinessSnapshot,
+  type CartReadinessDecisionInput,
+  type CartReadinessSnapshot,
+} from "../domain/readiness";
 import type { CheckoutCartLine } from "./contracts";
 
 type CheckoutCartLineGroup = CheckoutCartLine & {
@@ -300,8 +305,46 @@ function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
   );
 }
 
-function CheckoutAction({ cartReady }: { cartReady: boolean }) {
-  if (!cartReady) {
+function readinessHiddenFields(snapshot: CartReadinessSnapshot, decisions: CartReadinessDecisionInput | null) {
+  return (
+    <>
+      <HiddenInput type="hidden" name="readinessSnapshotId" value={snapshot.snapshotId} />
+      <HiddenInput type="hidden" name="readinessSourceRevision" value={snapshot.sourceRevision} />
+      <HiddenInput type="hidden" name="readinessDecisions" value={JSON.stringify(decisions ?? {})} />
+    </>
+  );
+}
+
+function CheckoutForm({
+  label,
+  snapshot,
+  decisions,
+}: {
+  label: string;
+  snapshot: CartReadinessSnapshot;
+  decisions: CartReadinessDecisionInput | null;
+}) {
+  return (
+    <Form spacing="none" method="post" action="/checkout/start">
+      <HiddenInput type="hidden" name="source" value="cart" />
+      {readinessHiddenFields(snapshot, decisions)}
+      <Button type="submit" leadingIcon="lock" block>
+        {label}
+      </Button>
+    </Form>
+  );
+}
+
+function CheckoutAction({
+  snapshot,
+  decisions,
+  acceptedOptimization,
+}: {
+  snapshot: CartReadinessSnapshot;
+  decisions: CartReadinessDecisionInput | null;
+  acceptedOptimization: { snapshot: CartReadinessSnapshot; decisions: CartReadinessDecisionInput } | null;
+}) {
+  if (snapshot.status !== "ready") {
     return (
       <div className="min-w-40">
         <LinkButton href={BUY_READINESS_ROUTE} tone="primary" size="md" block>
@@ -313,12 +356,20 @@ function CheckoutAction({ cartReady }: { cartReady: boolean }) {
 
   return (
     <div className="min-w-40">
-      <Form spacing="none" method="post" action="/checkout/start">
-        <HiddenInput type="hidden" name="source" value="cart" />
-        <Button type="submit" leadingIcon="lock" block>
-          {t("checkout.features.cart.ui.cartPage.check.out")}
-        </Button>
-      </Form>
+      <Stack gap={2}>
+        <CheckoutForm
+          label={t("checkout.features.cart.ui.cartPage.check.out")}
+          snapshot={snapshot}
+          decisions={decisions}
+        />
+        {acceptedOptimization ? (
+          <CheckoutForm
+            label={t("checkout.features.cart.ui.cartPage.use.lower.fulfillment")}
+            snapshot={acceptedOptimization.snapshot}
+            decisions={acceptedOptimization.decisions}
+          />
+        ) : null}
+      </Stack>
     </div>
   );
 }
@@ -354,7 +405,41 @@ export function CheckoutCartPage({
   const subtotalLabel =
     pricedLineCount > 0 ? formatMoney(estimatedSubtotal) : t("checkout.features.cart.ui.cartPage.price.at.checkout");
   const blockedLineCount = cartLineGroups.filter((line) => !hasFulfillmentPath(line)).length;
-  const cartReady = cartLineGroups.length > 0 && blockedLineCount === 0;
+  const baseReadinessSnapshot = createCartReadinessSnapshot(cartLineGroups);
+  const declinedOptimizationDecision =
+    baseReadinessSnapshot.optimization.available &&
+    baseReadinessSnapshot.optimization.proposedLineId &&
+    baseReadinessSnapshot.optimization.proposedListingId
+      ? ({
+          optimization: {
+            decision: "declined",
+            lineId: baseReadinessSnapshot.optimization.proposedLineId,
+            listingId: baseReadinessSnapshot.optimization.proposedListingId,
+          },
+        } satisfies CartReadinessDecisionInput)
+      : null;
+  const checkoutReadinessSnapshot = declinedOptimizationDecision
+    ? createCartReadinessSnapshot(cartLineGroups, declinedOptimizationDecision)
+    : baseReadinessSnapshot;
+  const acceptedOptimizationDecision =
+    baseReadinessSnapshot.optimization.available &&
+    baseReadinessSnapshot.optimization.proposedLineId &&
+    baseReadinessSnapshot.optimization.proposedListingId
+      ? ({
+          optimization: {
+            decision: "accepted",
+            lineId: baseReadinessSnapshot.optimization.proposedLineId,
+            listingId: baseReadinessSnapshot.optimization.proposedListingId,
+          },
+        } satisfies CartReadinessDecisionInput)
+      : null;
+  const acceptedOptimization = acceptedOptimizationDecision
+    ? {
+        decisions: acceptedOptimizationDecision,
+        snapshot: createCartReadinessSnapshot(cartLineGroups, acceptedOptimizationDecision),
+      }
+    : null;
+  const cartReady = cartLineGroups.length > 0 && checkoutReadinessSnapshot.status === "ready";
 
   const cartContent = (
     <Stack gap={4}>
@@ -387,6 +472,14 @@ export function CheckoutCartPage({
             <Banner
               title={t("checkout.features.cart.ui.cartPage.fulfillment.needs.review")}
               description={fulfillmentReviewDescription(blockedLineCount)}
+            />
+          ) : null}
+          {cartReady && checkoutReadinessSnapshot.optimization.available ? (
+            <Banner
+              title={t("checkout.features.cart.ui.cartPage.optimization.available.title", {
+                savings: checkoutReadinessSnapshot.optimization.savingsAmount ?? "0.00",
+              })}
+              description={t("checkout.features.cart.ui.cartPage.optimization.available.description")}
             />
           ) : null}
           {cartLineGroups.map((line) => (
@@ -438,7 +531,13 @@ export function CheckoutCartPage({
                       : t("checkout.features.cart.ui.cartPage.resolve.before.payment")}
                   </SummaryText>
                 }
-                primaryAction={<CheckoutAction cartReady={cartReady} />}
+                primaryAction={
+                  <CheckoutAction
+                    snapshot={checkoutReadinessSnapshot}
+                    decisions={declinedOptimizationDecision}
+                    acceptedOptimization={acceptedOptimization}
+                  />
+                }
                 secondaryAction={
                   <LinkButton href="/search" tone="secondary" block>
                     {t("checkout.features.cart.ui.cartPage.keep.shopping")}

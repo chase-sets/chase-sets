@@ -43,6 +43,7 @@ Every fresh checkout session snapshot uses `schemaVersion: checkout.fresh-sessio
 Buy sessions add:
 
 - `payment`
+- `cartReadinessSnapshot`: the Checkout-owned cart readiness snapshot consumed when a cart checkout session starts
 - `totals.subtotal`
 - `totals.shipping`
 - `totals.tax`
@@ -109,6 +110,24 @@ A session can confirm only when:
 - sell sessions have valid ship-from address, payout method, and payout readiness
 
 Unresolved fulfillment stays in Buy Cart, Sell List, or the conditional readiness step. It does not enter the main checkout form.
+
+## Buy Cart Readiness Snapshot
+
+Cart checkout entry uses a Checkout-owned readiness snapshot with `schemaVersion: checkout.cart-readiness.v1`.
+The snapshot is produced from the current Buy Cart, records the source revision, included checkout line IDs,
+unresolved line IDs, customer-safe line outcomes, and optional fulfillment optimization decision. Checkout
+session creation recomputes the snapshot from current cart facts and rejects missing, stale, partial, blocked, or
+unresolved readiness input.
+
+Supported customer-safe outcomes before checkout are:
+
+- ready lines continue into checkout;
+- unavailable or waiting-for-supply lines are removed or kept in the cart outside checkout;
+- a proposed lower-cost fulfillment option is accepted and applied to the checkout lines;
+- a proposed lower-cost fulfillment option is declined while the current allocation remains valid.
+
+The checkout form may display the resulting delivery/summary facts, but it must not regroup sellers, assign
+fulfillment, or ask the buyer to resolve unavailable items inside checkout.
 
 Changed economics are represented by `freshness.reason` values such as `shipping-changed`, `tax-changed`, `fees-changed`, `discounts-changed`, or `credits-changed`. The customer must refresh and review the updated total before confirmation.
 

@@ -151,6 +151,42 @@ describe("checkout session routes", () => {
     });
   });
 
+  it("passes cart readiness snapshot evidence into cart checkout creation", async () => {
+    const services = createServices();
+    const app = buildApp(services);
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source: {
+            type: "cart",
+            readinessSnapshotId: "cr_ready",
+            readinessSourceRevision: "cr_source",
+            readinessDecisions: {
+              optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.createFromCart).toHaveBeenCalledWith(
+      expect.objectContaining({
+        accountId: "acc_buyer",
+        readinessSnapshotId: "cr_ready",
+        readinessSourceRevision: "cr_source",
+        readinessDecisions: {
+          lineOutcomes: [],
+          optimization: { decision: "declined", lineId: "cli_1", listingId: "lst_lower" },
+        },
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("normalizes buy-now session payloads into checkout-owned session creation", async () => {
     const services = createServices();
     const app = buildApp(services);
