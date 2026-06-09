@@ -1,6 +1,12 @@
 export { Table, type TableProps } from "./table";
 export { DataTable, type DataColumn, type DataTableProps } from "./data-table";
-export { KeyValueList, type KeyValueItem, type KeyValueListProps } from "./key-value-list";
+export {
+  KeyValueList,
+  type KeyValueItem,
+  type KeyValueListLayout,
+  type KeyValueListProps,
+  type KeyValueListValueAlign,
+} from "./key-value-list";
 export { Stat, type StatProps, StatGrid, type StatGridProps } from "./stat";
 export {
   ComparisonList,
