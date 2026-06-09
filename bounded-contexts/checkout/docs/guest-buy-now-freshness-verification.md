@@ -42,4 +42,4 @@ The #1074 integration coverage asserts:
 - command-side Buy Now updates without reading `checkout_session_pages` while projection is behind;
 - no payment/order side effects before explicit checkout confirmation.
 
-The #1086 synthetic canary should assert the same `pass`, `temporary`, and `fail` states against staging, with canary-owned fixtures and no checkout confirmation.
+The #1086 synthetic canary asserts the same `pass`, `temporary`, and `fail` states against staging, with canary-owned fixtures and no checkout confirmation. See the [Guest Buy Now Freshness Canary](../../../docs/runbooks/guest-buy-now-freshness-canary.md) runbook for fixture ownership, release-health evidence, and production feasibility rules.

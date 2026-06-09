@@ -731,6 +731,50 @@ jobs:
           cd ../../..
           ADMIN_WEB_URL="https://${admin_domain}" MARKETPLACE_WEB_URL="https://${marketplace_domain}" pnpm run test:e2e:deployed
 
+      - name: Staging guest Buy Now freshness canary
+        id: guest_buy_now_canary
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        working-directory: infrastructure/digitalocean/platform
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.SPACES_ACCESS_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.SPACES_SECRET_KEY }}
+          GUEST_BUY_NOW_CANARY_ITEM_PATH: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH || '' }}
+          GUEST_BUY_NOW_CANARY_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
+          GUEST_BUY_NOW_CANARY_TIMEOUT_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_TIMEOUT_MS || '45000' }}
+        run: |
+          set -euo pipefail
+          marketplace_domain="$(terraform output -json marketplace_domains | jq -r '.[0] // empty')"
+          if [ -z "$marketplace_domain" ]; then
+            echo "Required staging marketplace domain was not present in Terraform outputs." >&2
+            exit 1
+          fi
+          if [ -z "${GUEST_BUY_NOW_CANARY_ITEM_PATH}" ]; then
+            echo "STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH must point to a stable staging item detail fixture." >&2
+            exit 1
+          fi
+          started_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          cd ../../..
+          pnpm run guest-buy-now:freshness-canary -- \
+            --environment staging \
+            --base-url "https://${marketplace_domain}" \
+            --item-path "${GUEST_BUY_NOW_CANARY_ITEM_PATH}" \
+            --fixture-key "${GUEST_BUY_NOW_CANARY_FIXTURE_KEY}" \
+            --guest-email "guest-buy-now-canary+${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}@chasesets.test" \
+            --diagnostic-correlation-id "github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --timeout-ms "${GUEST_BUY_NOW_CANARY_TIMEOUT_MS}" \
+            --out artifacts/release-health/guest-buy-now-freshness-canary.json
+          completed_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          final_state="$(jq -r '.finalState // "unknown"' artifacts/release-health/guest-buy-now-freshness-canary.json)"
+          promotion_decision="$(jq -r '.promotionDecision // "unknown"' artifacts/release-health/guest-buy-now-freshness-canary.json)"
+          latency_ms="$(jq -r '.latencyMs // 0' artifacts/release-health/guest-buy-now-freshness-canary.json)"
+          {
+            echo "started_at=${started_at}"
+            echo "completed_at=${completed_at}"
+            echo "final_state=${final_state}"
+            echo "promotion_decision=${promotion_decision}"
+            echo "latency_ms=${latency_ms}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Upload staging Playwright artifacts
         if: failure()
         uses: actions/upload-artifact@v7
@@ -739,6 +783,16 @@ jobs:
           path: |
             artifacts/playwright/report
             artifacts/playwright/test-results
+            artifacts/release-health/guest-buy-now-freshness-canary.json
+
+      - name: Upload staging guest Buy Now canary evidence
+        if: steps.latest_main.outputs.should_deploy != 'false'
+        uses: actions/upload-artifact@v7
+        with:
+          name: staging-guest-buy-now-freshness-canary
+          path: artifacts/release-health/guest-buy-now-freshness-canary.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Staging Stripe money smoke
         if: steps.latest_main.outputs.should_deploy != 'false'
