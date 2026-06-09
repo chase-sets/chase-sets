@@ -122,6 +122,18 @@ export type FreshWriteReadErrorClassification = Readonly<{
   errorCode: string | null;
 }>;
 
+export type FreshWriteReadRecoveryOptions<T> = Readonly<{
+  request: Request | string | URL;
+  error: unknown;
+  recoverTransient: (classification: FreshWriteReadErrorClassification) => T;
+  recoverPermanent?: (classification: FreshWriteReadErrorClassification) => T | null;
+  nowMs?: number;
+  maxAgeMs?: number;
+  getStatus?: (error: unknown) => number | null;
+  getErrorCode?: (error: unknown) => string | null;
+  getBody?: (error: unknown) => unknown;
+}>;
+
 type MetadataCarrier = {
   [RESPONSE_METADATA]?: ResponseMetadata;
 };
@@ -474,6 +486,15 @@ export function classifyFreshWriteReadError(
     status,
     errorCode,
   };
+}
+
+export function recoverFreshWriteReadError<T>(options: FreshWriteReadRecoveryOptions<T>): T | null {
+  const classification = classifyFreshWriteReadError(options);
+  if (classification.transient) {
+    return options.recoverTransient(classification);
+  }
+
+  return options.recoverPermanent?.(classification) ?? null;
 }
 
 function delay(ms: number): Promise<void> {

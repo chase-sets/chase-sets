@@ -13,8 +13,8 @@ import {
 import { RouterForm } from "@chase-sets/design-system/react-router";
 import {
   appendFreshWriteToken,
-  classifyFreshWriteReadError,
   loadFreshlyWrittenResource,
+  recoverFreshWriteReadError,
 } from "@chase-sets/http/responses";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
@@ -320,9 +320,13 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       throw guestPaymentAccessExpiredResponse();
     }
 
-    const freshWriteError = classifyFreshWriteReadError({ request, error });
-    if (freshWriteError.transient) {
-      throw paymentPreparingResponse();
+    const freshWriteRecovery = recoverFreshWriteReadError({
+      request,
+      error,
+      recoverTransient: paymentPreparingResponse,
+    });
+    if (freshWriteRecovery) {
+      throw freshWriteRecovery;
     }
 
     if (

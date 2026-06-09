@@ -10,6 +10,7 @@ import {
   getResponseMetadata,
   readFreshWriteToken,
   readResponseConsistencyMetadata,
+  recoverFreshWriteReadError,
 } from "./responses";
 
 const source = {
@@ -190,5 +191,35 @@ describe("response consistency metadata", () => {
       status: 503,
       errorCode: "provider_failed",
     });
+  });
+
+  it("recovers fresh-write route-loader errors through the shared transient helper", () => {
+    const href = appendFreshWriteToken("/checkout/chk_1", { commitPositions: [checkoutSource], commitEventIds: [] }, 1);
+    const recovery = recoverFreshWriteReadError({
+      request: href,
+      error: { status: 404, body: { error: { code: "not_found", message: "Not found." } } },
+      nowMs: 1,
+      recoverTransient: (classification) => ({
+        status: 503,
+        statusText: classification.kind,
+      }),
+    });
+
+    expect(recovery).toEqual({
+      status: 503,
+      statusText: "transient-not-found",
+    });
+  });
+
+  it("keeps permanent route-loader errors on the caller fallback path", () => {
+    const recovery = recoverFreshWriteReadError({
+      request: "/checkout/chk_1",
+      error: { status: 404, body: { error: { code: "not_found", message: "Not found." } } },
+      nowMs: 1,
+      recoverTransient: () => "transient",
+      recoverPermanent: (classification) => (classification.kind === "permanent-not-found" ? "permanent" : null),
+    });
+
+    expect(recovery).toBe("permanent");
   });
 });
