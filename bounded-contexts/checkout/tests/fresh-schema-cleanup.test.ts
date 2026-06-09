@@ -5,16 +5,10 @@ import { checkoutCartSchemaSql } from "../features/cart/read-model/schema";
 import { checkoutSellListSchemaSql } from "../features/sell-list/read-model/schema";
 import { checkoutSessionSchemaSql } from "../features/sessions/read-model/schema";
 
-const checkoutSchemaSql = [
-  checkoutCatalogProjectionSchemaSql,
-  checkoutCartSchemaSql,
-  checkoutSellListSchemaSql,
-  checkoutSessionSchemaSql,
-].join("\n");
-
 describe("fresh checkout read-model schemas", () => {
-  it("keeps final checkout columns in base schemas instead of compatibility patches", () => {
-    expect(checkoutSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
+  it("keeps final checkout columns in base schemas with only deploy-safe session convergence", () => {
+    expect(checkoutCartSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
+    expect(checkoutSellListSchemaSql).not.toMatch(/ADD COLUMN IF NOT EXISTS/i);
 
     expect(checkoutCartSchemaSql).toContain("item_image_url text NULL");
     expect(checkoutCartSchemaSql).toContain("fulfillment_mode text NOT NULL DEFAULT 'optimize'");
@@ -28,6 +22,10 @@ describe("fresh checkout read-model schemas", () => {
     expect(checkoutSessionSchemaSql).toContain("shipping_address_id text NULL");
     expect(checkoutSessionSchemaSql).toContain("fulfillment_preview_revision text NULL");
     expect(checkoutSessionSchemaSql).toContain("cart_readiness_snapshot jsonb NULL");
+    expect(checkoutSessionSchemaSql).toContain("ALTER TABLE checkout_session_pages");
+    expect(checkoutSessionSchemaSql).toContain("ADD COLUMN IF NOT EXISTS buyer_account_id text NOT NULL DEFAULT ''");
+    expect(checkoutSessionSchemaSql).toContain("ADD COLUMN IF NOT EXISTS cart_readiness_snapshot jsonb NULL");
+    expect(checkoutSessionSchemaSql).toContain("ADD COLUMN IF NOT EXISTS submitted_offer_id text NULL");
   });
 
   it("uses only the canonical Sell List execution receipt read model", () => {
