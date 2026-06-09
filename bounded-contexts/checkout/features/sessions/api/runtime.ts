@@ -336,13 +336,13 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         decisions: params.readinessDecisions ?? undefined,
       });
       if (!readiness.valid) {
-        throw new CheckoutDomainError("Cart readiness changed. Review your cart before checkout.", "readiness_snapshot_stale");
+        throw new CheckoutDomainError(
+          "Cart readiness changed. Review your cart before checkout.",
+          "readiness_snapshot_stale",
+        );
       }
       if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
-        throw new CheckoutDomainError(
-          "Resolve item availability before checkout starts.",
-          "unresolved_fulfillment",
-        );
+        throw new CheckoutDomainError("Resolve item availability before checkout starts.", "unresolved_fulfillment");
       }
       const checkoutLines = applyCartReadinessToLines(cartLines, readiness.current);
 

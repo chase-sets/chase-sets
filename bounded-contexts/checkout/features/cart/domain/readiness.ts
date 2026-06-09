@@ -154,14 +154,16 @@ export function selectedCartReadinessListing(line: CartReadinessLine) {
 }
 
 export function lowestCartReadinessListing(line: CartReadinessLine) {
-  return line.seller_options
-    .filter((option) => optionCanFulfill(option, line.quantity))
-    .sort(
-      (left, right) =>
-        (moneyValue(left.price_amount) ?? Number.POSITIVE_INFINITY) -
-          (moneyValue(right.price_amount) ?? Number.POSITIVE_INFINITY) ||
-        left.listing_id.localeCompare(right.listing_id),
-    )[0] ?? null;
+  return (
+    line.seller_options
+      .filter((option) => optionCanFulfill(option, line.quantity))
+      .sort(
+        (left, right) =>
+          (moneyValue(left.price_amount) ?? Number.POSITIVE_INFINITY) -
+            (moneyValue(right.price_amount) ?? Number.POSITIVE_INFINITY) ||
+          left.listing_id.localeCompare(right.listing_id),
+      )[0] ?? null
+  );
 }
 
 export function cartReadinessLineHasFulfillment(line: CartReadinessLine) {
@@ -207,14 +209,12 @@ function normalizeDecisions(decisions: CartReadinessDecisionInput | null | undef
 }
 
 function findOptimizationProposal(lines: readonly CartReadinessLine[]) {
-  let best:
-    | Readonly<{
-        line: CartReadinessLine;
-        current: CartReadinessSellerOption;
-        proposed: CartReadinessSellerOption;
-        savings: number;
-      }>
-    | null = null;
+  let best: Readonly<{
+    line: CartReadinessLine;
+    current: CartReadinessSellerOption;
+    proposed: CartReadinessSellerOption;
+    savings: number;
+  }> | null = null;
 
   for (const line of lines) {
     if (line.availability_state !== "available" || line.fulfillment_mode !== "locked-listing") {
@@ -225,7 +225,13 @@ function findOptimizationProposal(lines: readonly CartReadinessLine[]) {
     const proposed = lowestCartReadinessListing(line);
     const currentPrice = moneyValue(current?.price_amount);
     const proposedPrice = moneyValue(proposed?.price_amount);
-    if (!current || !proposed || current.listing_id === proposed.listing_id || currentPrice === null || proposedPrice === null) {
+    if (
+      !current ||
+      !proposed ||
+      current.listing_id === proposed.listing_id ||
+      currentPrice === null ||
+      proposedPrice === null
+    ) {
       continue;
     }
 
@@ -307,11 +313,7 @@ export function createCartReadinessSnapshot(
     .map((outcome) => outcome.lineId);
 
   const status =
-    includedLineIds.length === 0
-      ? "blocked"
-      : unresolvedLineIds.length > 0
-        ? "needs-resolution"
-        : ("ready" as const);
+    includedLineIds.length === 0 ? "blocked" : unresolvedLineIds.length > 0 ? "needs-resolution" : ("ready" as const);
   const sourceRevision = sourceRevisionFor(sortedLines);
   const snapshotSeed = {
     sourceRevision,

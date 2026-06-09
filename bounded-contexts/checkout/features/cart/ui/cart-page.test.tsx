@@ -167,7 +167,9 @@ describe("checkout cart page", () => {
     const markup = renderToString(<CheckoutCartPage cartLines={[expensiveLine]} />);
 
     expect(markup).toContain("Save $12.00 before checkout");
-    expect(markup).toContain("You can keep your current fulfillment or use the lower-cost option before checkout begins.");
+    expect(markup).toContain(
+      "You can keep your current fulfillment or use the lower-cost option before checkout begins.",
+    );
     expect(markup).toContain("Use lower price");
     expect(markup).toContain("&quot;decision&quot;:&quot;accepted&quot;");
     expect(markup).toContain("&quot;decision&quot;:&quot;declined&quot;");

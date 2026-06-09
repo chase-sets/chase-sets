@@ -241,9 +241,7 @@ export function createCheckoutApiClient({
         }),
       );
     },
-    async createCartReadiness(
-      body: CartReadinessDecisionInput = {},
-    ): Promise<{ readiness: CartReadinessSnapshot }> {
+    async createCartReadiness(body: CartReadinessDecisionInput = {}): Promise<{ readiness: CartReadinessSnapshot }> {
       return parseJsonResponse(await client.account.cart.readiness.$post({ json: body, header: headers }));
     },
     async createGuestCartReadiness(
