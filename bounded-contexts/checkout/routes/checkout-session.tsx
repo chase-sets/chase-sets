@@ -580,7 +580,7 @@ export function ErrorBoundary() {
   const error = useRouteError();
   const location = useLocation();
 
-  if (!isRouteErrorResponse(error) || ![401, 403, 404, 503].includes(error.status)) {
+  if (!isRouteErrorResponse(error) || ![202, 401, 403, 404, 503].includes(error.status)) {
     throw error;
   }
 
