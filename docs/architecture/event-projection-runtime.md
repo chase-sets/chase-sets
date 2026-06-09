@@ -56,6 +56,8 @@ Fresh-write route ownership is declared in each bounded context's `readAfterWrit
 
 Exceptions are temporary migration records, not permanent bypasses. They must name the owner, status, reason, and `reviewBy` date. Use `accepted` for known projection-backed gaps that are still being migrated, `not-read-model-backed` for helper uses that do not depend on projection catch-up, and `not-post-write-read` for token-carrying handoffs whose post-write read belongs to another owning context. Renew or remove exceptions during route migrations and release hardening; #1084 cannot close while critical customer-facing helper uses remain unexplained or unowned.
 
+Route authors must follow the [Read-After-Write Route Author Checklist](./read-after-write-route-author-checklist.md) when adding or changing post-write projection reads. The checklist is the durable contract for exact dependency targeting, inventory fields, exception format, cookie-backed continuations, local checks, canonical Checkout and Payments examples, and performance expectations for immediate-read projections.
+
 Detail loaders may still use bounded not-found retry as a compatibility fallback, but the system-wide pattern is receipt propagation plus projection checkpoint gating. Synchronous write-drain is an explicit compatibility mode only, not the normal consistency contract.
 
 ## Fresh-Write Recovery Policy
