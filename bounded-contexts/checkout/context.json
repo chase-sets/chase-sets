@@ -122,24 +122,64 @@
       }
     },
     {
-      "id": "checkout.session-outbound-handoffs",
+      "id": "checkout.session-payment-handoff",
       "owner": "checkout",
       "risk": "critical",
       "source": {
         "routeId": "checkout-session",
-        "actions": ["Confirm checkout", "Submit offer intent", "Continue to payment"],
+        "actions": ["Confirm checkout", "Continue to payment"],
         "command": "ConfirmCheckoutSession",
-        "helperUses": ["appendFreshWriteToken", "appendFreshWriteTokenFromSources"]
+        "helperUses": ["appendFreshWriteToken"]
       },
       "destination": {
-        "routeIds": ["account-offer-submitted", "account-payment"],
-        "transientRecovery": "Downstream route loaders still use compatibility fresh-write recovery while exact dependencies are audited."
+        "routeId": "account-payment",
+        "transientRecovery": "Payments payment detail owns exact payment-page freshness and shared fresh-write transient recovery."
       },
       "exception": {
         "status": "accepted",
         "owner": "checkout",
         "reviewBy": "2026-07-31",
-        "reason": "Cross-context post-confirmation handoffs are tracked by #1084; this entry prevents new helper drift until exact downstream dependencies are migrated."
+        "reason": "Checkout only originates the cross-context payment handoff; exact destination freshness is owned by payments.create-to-detail in the Payments context."
+      }
+    },
+    {
+      "id": "checkout.session-self-refresh",
+      "owner": "checkout",
+      "risk": "critical",
+      "source": {
+        "routeId": "checkout-session",
+        "actions": ["Refresh checkout preview", "Update checkout review state"],
+        "command": "Checkout session review commands",
+        "helperUses": ["appendFreshWriteToken", "appendFreshWriteTokenFromSources"]
+      },
+      "destination": {
+        "routeId": "checkout-session",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/checkout-sessions/:sessionId",
+        "readModelTables": ["checkout_session_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Checkout session self-refresh uses exact checkout-session-page freshness and Checkout temporary recovery UI."
+      }
+    },
+    {
+      "id": "checkout.session-offer-handoff",
+      "owner": "checkout",
+      "risk": "important",
+      "source": {
+        "routeId": "checkout-session",
+        "actions": ["Submit offer intent"],
+        "command": "ConfirmCheckoutSession",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-offer-submitted",
+        "transientRecovery": "Marketplace submitted-offer detail owns exact offer-page freshness and bounded fresh-write not-found retry."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "checkout",
+        "reviewBy": "2026-07-31",
+        "reason": "Checkout only originates the cross-context offer handoff; exact destination freshness is owned by marketplace.submitted-offer-detail in the Marketplace context."
       }
     },
     {

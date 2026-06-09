@@ -151,6 +151,15 @@
               "readModelTable": "marketplace_listing_pages"
             }
           ]
+        },
+        {
+          "routePath": "/account/offers/submitted/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_offer_pages"
+            }
+          ]
         }
       ]
     }
@@ -212,13 +221,11 @@
       },
       "destination": {
         "routeId": "account-offer-submitted",
-        "transientRecovery": "Submitted Offer detail uses compatibility fresh-write not-found retries until exact offer dependencies are declared."
-      },
-      "exception": {
-        "status": "accepted",
-        "owner": "marketplace",
-        "reviewBy": "2026-07-31",
-        "reason": "Offer detail exact dependency migration is tracked by #1084."
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/offers/submitted/:id",
+        "readModelTables": ["marketplace_offer_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Submitted Offer detail uses exact Marketplace offer-page freshness and bounded fresh-write not-found retry."
       }
     }
   ],

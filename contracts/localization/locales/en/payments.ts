@@ -69,7 +69,13 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPayment.payment.issue": "Payment issue",
   "payments.routes.marketplace.accountPayment.payment.marketplace": "Payment | Marketplace",
   "payments.routes.marketplace.accountPayment.payment.needs.attention": "Payment needs attention",
+  "payments.routes.marketplace.accountPayment.payment.has.not.started": "Your payment has not started.",
   "payments.routes.marketplace.accountPayment.payment.not.found": "Payment not found.",
+  "payments.routes.marketplace.accountPayment.payment.not.found.description":
+    "We could not find this payment. It may have expired, moved to another account, or already been replaced.",
+  "payments.routes.marketplace.accountPayment.payment.preparing": "Preparing payment",
+  "payments.routes.marketplace.accountPayment.payment.preparing.description":
+    "We are getting your secure payment ready. Refresh in a moment and your payment details should appear.",
   "payments.routes.marketplace.accountPayment.payment.session.closed": "Payment session closed",
   "payments.routes.marketplace.accountPayment.payment.status": "Payment Status",
   "payments.routes.marketplace.accountPayment.payment.summary": "Payment Summary",
@@ -263,6 +269,9 @@ export const paymentsEnglishTranslations = {
     "Password setup is available only after email verification or an authenticated session.",
   "payments.routes.marketplace.accountPayment.payment.link.expired": "Payment link expired",
   "payments.routes.marketplace.accountPayment.recommended": "Recommended",
+  "payments.routes.marketplace.accountPayment.refresh.payment": "Refresh payment",
+  "payments.routes.marketplace.accountPayment.refresh.payment.in.a.moment":
+    "Refresh this payment in a moment. Keep this page open so the original secure handoff can finish.",
   "payments.routes.marketplace.accountPayment.recover.checkout": "Recover checkout",
   "payments.routes.marketplace.accountPayment.return.to.cart": "Return to buy cart",
   "payments.routes.marketplace.accountPayment.return.to.your.cart.to.review":
@@ -278,6 +287,8 @@ export const paymentsEnglishTranslations = {
   "payments.routes.marketplace.accountPayment.no.payment.was.charged": "No payment was charged from this expired link.",
   "payments.routes.marketplace.accountPayment.review.cart.or.start.checkout.again":
     "Review your Buy Cart or start checkout again.",
+  "payments.routes.marketplace.accountPayment.review.cart.or.purchases":
+    "Review your Buy Cart or open your purchases to start another payment.",
   "payments.routes.marketplace.accountPayment.support.can.help.with.order.access":
     "Support can help recover order access if you already completed payment elsewhere.",
   "payments.routes.marketplace.accountPayment.verify.email.and.save.order": "Verify email and save order",
