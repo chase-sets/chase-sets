@@ -9,6 +9,7 @@ import {
   encodeCommitReceipt,
   getResponseMetadata,
   readFreshWriteToken,
+  readFreshWriteTokenState,
   readResponseConsistencyMetadata,
   recoverFreshWriteReadError,
 } from "./responses";
@@ -58,7 +59,58 @@ describe("response consistency metadata", () => {
     const href = appendFreshWriteToken("/account/listings/lst_1", { commitPositions: [source], commitEventIds: [] }, 1);
 
     expect(readFreshWriteToken(href, 40_000)).toBeNull();
+    expect(readFreshWriteTokenState(href, 40_000)).toMatchObject({
+      kind: "expired",
+      observedAtMs: 1,
+      ageMs: 39_999,
+      maxAgeMs: 30_000,
+    });
     expect(decodeFreshWriteReceipt("%7Bnot-json", 1)).toBeNull();
+    expect(readFreshWriteTokenState("/checkout/chk_1?afterWrite=%7Bnot-json", 1)).toEqual({
+      kind: "malformed",
+      receipt: null,
+    });
+  });
+
+  it("keeps delayed navigation and reload reuse valid within the token lifetime", () => {
+    const href = appendFreshWriteToken("/checkout/chk_1", { commitPositions: [checkoutSource], commitEventIds: [] }, 1);
+
+    expect(readFreshWriteTokenState(href, 29_999)).toMatchObject({
+      kind: "valid",
+      ageMs: 29_998,
+    });
+    expect(readFreshWriteToken(href, 29_999)).toEqual(readFreshWriteToken(href, 29_999));
+  });
+
+  it("allows small clock skew but rejects far-future tokens", () => {
+    const href = appendFreshWriteToken(
+      "/checkout/chk_1",
+      { commitPositions: [checkoutSource], commitEventIds: [] },
+      10_000,
+    );
+
+    expect(readFreshWriteTokenState(href, 6_000)).toMatchObject({
+      kind: "valid",
+      ageMs: -4_000,
+    });
+    expect(readFreshWriteTokenState(href, 4_000)).toMatchObject({
+      kind: "future",
+      observedAtMs: 10_000,
+      ageMs: -6_000,
+      clockSkewMs: 5_000,
+    });
+    expect(readFreshWriteToken(href, 4_000)).toBeNull();
+  });
+
+  it("keeps fresh-write tokens limited to commit receipt metadata", () => {
+    const href = appendFreshWriteToken("/checkout/chk_1", { commitPositions: [checkoutSource], commitEventIds: [] }, 1);
+    const token = new URL(href, "https://chase-sets.local").searchParams.get("afterWrite");
+    const parsed = JSON.parse(decodeURIComponent(String(token))) as Record<string, unknown>;
+
+    expect(Object.keys(parsed).sort()).toEqual(["observedAtMs", "sources"]);
+    expect(parsed).not.toHaveProperty("accountId");
+    expect(parsed).not.toHaveProperty("email");
+    expect(parsed).not.toHaveProperty("sessionId");
   });
 
   it("combines multiple write sources into one fresh-write token", () => {
