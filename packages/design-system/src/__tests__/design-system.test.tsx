@@ -31,6 +31,7 @@ import {
   CheckoutSummaryPanel,
   Dialog,
   Inline,
+  KeyValueList,
   NavigationHeader,
   AccountReputationSummary,
   OrderProtectionBadge,
@@ -145,6 +146,48 @@ describe("design-system", () => {
     expect(Number(layers.dropdown)).toBeGreaterThan(Number(layers.modal));
     expect(Number(layers.popover)).toBeGreaterThan(Number(layers.modal));
     expect(Number(layers.toast)).toBeGreaterThan(Number(layers.popover));
+  });
+
+  it("keeps key-value facts visually local by default", () => {
+    const markup = renderToString(
+      <KeyValueList
+        density="compact"
+        items={[
+          { key: "Card number", value: "LP-2026-05-31" },
+          { key: "Card name", value: "Chase Sets Launch Proof Card" },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("sm:grid-cols-[minmax(8rem,12rem)_minmax(0,1fr)]");
+    expect(markup).toContain("text-left");
+    expect(markup).toContain("break-words");
+    expect(markup).not.toContain("justify-between");
+    expect(markup).not.toContain("text-right");
+  });
+
+  it("preserves explicit split key-value rows for compact summaries", () => {
+    const markup = renderToString(<KeyValueList layout="split" items={[{ key: "Subtotal", value: "$12.00" }]} />);
+
+    expect(markup).toContain("justify-between");
+    expect(markup).toContain("text-right");
+    expect(markup).not.toContain("sm:grid-cols-[minmax(8rem,12rem)_minmax(0,1fr)]");
+  });
+
+  it("renders key-value facts as a dense grid when requested", () => {
+    const markup = renderToString(
+      <KeyValueList
+        layout="grid"
+        items={[
+          { key: "Rarity", value: "Launch Proof" },
+          { key: "Language", value: "English" },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("sm:grid-cols-2");
+    expect(markup).toContain("text-left");
+    expect(markup).toContain("break-words");
   });
 
   it("renders primitive components on the server", () => {
