@@ -36,6 +36,15 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByRole("cell", { name: /Review Source Observations/i })).toBeTruthy();
     expect(screen.getByRole("cell", { name: /Preview Catalog promotion impact/i })).toBeTruthy();
     expect(screen.getByRole("cell", { name: /Promote into Catalog Items/i })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Promotion command plan" })).toBeTruthy();
+    expect(screen.getByText("Matching filtered observations")).toBeTruthy();
+    expect(screen.getByText("Reject requires a reason")).toBeTruthy();
+    expect(screen.getByText("Defer keeps observations in review")).toBeTruthy();
+    expect(screen.getByText("Reapply uses current active profile")).toBeTruthy();
+    expect(screen.getByText("Replay uses original source profile version")).toBeTruthy();
+    expect(
+      screen.getByText("Rejects stale observation, profile, rollout, permission, and command input changes"),
+    ).toBeTruthy();
 
     const navigation = screen.getByRole("navigation", { name: "Catalog control plane workflows" });
     expect(within(navigation).getByText("Primary workflow")).toBeTruthy();
@@ -139,6 +148,27 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByText(/Source provenance, normalized facts/)).toBeTruthy();
     expect(screen.getByText("Provider changed rarity evidence during the latest pull.")).toBeTruthy();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
+  it("renders explicit-row command scope and stale-preview blockers before promotion execution", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.03&filter.status=changed&selectedObservationIds=obs_missing&promotionPreviewId=preview_old",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Promotion command plan" })).toBeTruthy();
+    expect(screen.getByText("Explicit selected observations")).toBeTruthy();
+    expect(screen.getAllByText("Stale").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Stale promotion preview").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Promote Catalog facts" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("clears route-provided Source Observation selections when the review context changes", async () => {

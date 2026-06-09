@@ -114,6 +114,26 @@ export type CatalogPrimaryWorkbenchPromotionDisposition =
   | "stale-preview"
   | "confirmation-required";
 
+export type CatalogPrimaryWorkbenchPromotionScopeKind = "explicit-rows" | "matching-filter";
+
+export type CatalogPrimaryWorkbenchPromotionOutcomeCountKey =
+  | "eligible"
+  | "blocked"
+  | "skipped"
+  | "conflicting"
+  | "failed";
+
+export type CatalogPrimaryWorkbenchPromotionStaleProtectionKey =
+  | "observations"
+  | "profile-version"
+  | "rollout-state"
+  | "permissions"
+  | "command-inputs";
+
+export type CatalogPrimaryWorkbenchPromotionProfileSemantics =
+  | "current-active-profile"
+  | "original-source-profile-version";
+
 export type CatalogPrimaryWorkbenchRouteContextKey =
   | "providerKey"
   | "unitKey"
@@ -404,10 +424,57 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
 export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
   previewId: string | null;
   freshness: CatalogAdminControlPlaneFreshnessState;
+  scope: Readonly<{
+    kind: CatalogPrimaryWorkbenchPromotionScopeKind;
+    label: string;
+    requestedCount: number;
+    eligibleCount: number;
+    selectedObservationIds: readonly string[];
+    filterSummary: readonly string[];
+    partialFailureMode: "per-observation";
+  }>;
   dispositions: Readonly<Record<CatalogPrimaryWorkbenchPromotionDisposition, number>>;
+  outcomeCounts: Readonly<Record<CatalogPrimaryWorkbenchPromotionOutcomeCountKey, number>>;
   commandPlanHash: string | null;
   confirmationRequired: boolean;
   destructiveCount: number;
+  executionSafeguards: Readonly<{
+    previewRequired: boolean;
+    previewFresh: boolean;
+    stalePreviewRejected: boolean;
+    idempotencyRequired: true;
+    doubleSubmitProtection: true;
+    rejectsWhenChanged: readonly CatalogPrimaryWorkbenchPromotionStaleProtectionKey[];
+    staleReasons: readonly CatalogPrimaryWorkbenchPromotionStaleProtectionKey[];
+    overlappingActionBlockers: readonly Extract<
+      CatalogPrimaryWorkbenchBlockerCategory,
+      "active-job-conflict" | "concurrent-job"
+    >[];
+  }>;
+  reviewDecisions: Readonly<{
+    reject: Readonly<{
+      reasonRequired: true;
+      partialFailureMode: "failed-observations-remain-in-scope";
+      auditEvidenceRequired: true;
+    }>;
+    defer: Readonly<{
+      stateChange: "keeps-observation-in-review";
+      returnsToReviewWhen: "next-provider-import-or-filter-reset";
+      auditEvidenceRequired: true;
+    }>;
+  }>;
+  profileWorkflows: Readonly<{
+    reapply: Readonly<{
+      profileSemantics: Extract<CatalogPrimaryWorkbenchPromotionProfileSemantics, "current-active-profile">;
+      target: "promoted-observations";
+      profileVersion: string | null;
+    }>;
+    replay: Readonly<{
+      profileSemantics: Extract<CatalogPrimaryWorkbenchPromotionProfileSemantics, "original-source-profile-version">;
+      target: "source-observation-evidence";
+      profileVersion: string | null;
+    }>;
+  }>;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
 }>;
 
@@ -609,6 +676,8 @@ export const catalogPrimaryWorkbenchActions = [
       "stale-promotion-preview",
       "destructive-confirmation-required",
       "promotion-conflict",
+      "active-job-conflict",
+      "concurrent-job",
       "security-privacy-blocked",
       "deploy-skew-unsupported-version",
     ],
@@ -782,7 +851,15 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
   downstream(
     "#1040",
     ["promotion-preview", "promotion-result"],
-    ["promotionPreview.commandPlanHash", "promotionPreview.dispositions", "promotionResult.auditEvidenceIds"],
+    [
+      "promotionPreview.scope",
+      "promotionPreview.outcomeCounts",
+      "promotionPreview.commandPlanHash",
+      "promotionPreview.executionSafeguards",
+      "promotionPreview.reviewDecisions",
+      "promotionPreview.profileWorkflows",
+      "promotionResult.auditEvidenceIds",
+    ],
   ),
   downstream(
     "#1057",
@@ -887,6 +964,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
     ]),
   );
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
+  assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
 }
 
 function section(input: CatalogPrimaryWorkbenchSectionContract): CatalogPrimaryWorkbenchSectionContract {
@@ -929,6 +1007,54 @@ function blocker(
     instrumentationDimension: "blocker_category",
     failClosed: true,
   };
+}
+
+function assertPrimaryWorkbenchPromotionPreview(
+  value: CatalogPrimaryWorkbenchReadModel["promotionPreview"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench promotion preview contract is required.");
+  }
+  if (!value.scope) {
+    throw new Error("Primary workbench promotion preview scope is required.");
+  }
+  if (value.scope.partialFailureMode !== "per-observation") {
+    throw new Error("Primary workbench promotion preview must preserve per-observation partial failure scope.");
+  }
+  for (const key of ["eligible", "blocked", "skipped", "conflicting", "failed"] as const) {
+    if (typeof value.outcomeCounts?.[key] !== "number") {
+      throw new Error(`Primary workbench promotion outcome count '${key}' is required.`);
+    }
+  }
+  if (!value.executionSafeguards?.idempotencyRequired || !value.executionSafeguards.doubleSubmitProtection) {
+    throw new Error(
+      "Primary workbench promotion execution safeguards must include idempotency and double-submit protection.",
+    );
+  }
+  for (const staleProtection of [
+    "observations",
+    "profile-version",
+    "rollout-state",
+    "permissions",
+    "command-inputs",
+  ] as const) {
+    if (!value.executionSafeguards.rejectsWhenChanged.includes(staleProtection)) {
+      throw new Error(`Primary workbench promotion execution must reject stale ${staleProtection} previews.`);
+    }
+  }
+  assertPrimaryWorkbenchBlockers(value.executionSafeguards.overlappingActionBlockers);
+  if (!value.reviewDecisions?.reject.reasonRequired) {
+    throw new Error("Primary workbench rejection decisions must require a reason.");
+  }
+  if (value.reviewDecisions.defer.stateChange !== "keeps-observation-in-review") {
+    throw new Error("Primary workbench defer decisions must preserve review return semantics.");
+  }
+  if (value.profileWorkflows?.reapply.profileSemantics !== "current-active-profile") {
+    throw new Error("Primary workbench reapply must use current active profile semantics.");
+  }
+  if (value.profileWorkflows.replay.profileSemantics !== "original-source-profile-version") {
+    throw new Error("Primary workbench replay must use original source profile version semantics.");
+  }
 }
 
 function deploySkew(

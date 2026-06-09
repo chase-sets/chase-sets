@@ -272,7 +272,12 @@ describe("Catalog primary workbench admin contracts", () => {
       requiredPermission: "catalog.manage",
       confirmationRequired: true,
       idempotencyRequired: true,
-      blockerCategories: expect.arrayContaining(["stale-promotion-preview", "security-privacy-blocked"]),
+      blockerCategories: expect.arrayContaining([
+        "stale-promotion-preview",
+        "active-job-conflict",
+        "concurrent-job",
+        "security-privacy-blocked",
+      ]),
     });
     expect(actionsByKey.get("select-provider-scope")).toMatchObject({
       method: "GET",
@@ -499,6 +504,15 @@ describe("Catalog primary workbench admin contracts", () => {
       promotionPreview: {
         previewId: "preview_001",
         freshness: "fresh",
+        scope: {
+          kind: "explicit-rows",
+          label: "Explicit selected observations",
+          requestedCount: 1,
+          eligibleCount: 1,
+          selectedObservationIds: ["obs_001"],
+          filterSummary: ["Provider: tcgdex", "Status: changed"],
+          partialFailureMode: "per-observation",
+        },
         dispositions: {
           eligible: 1,
           skipped: 0,
@@ -508,9 +522,50 @@ describe("Catalog primary workbench admin contracts", () => {
           "stale-preview": 0,
           "confirmation-required": 1,
         },
+        outcomeCounts: {
+          eligible: 1,
+          blocked: 0,
+          skipped: 0,
+          conflicting: 0,
+          failed: 0,
+        },
         commandPlanHash: "sha256:preview",
         confirmationRequired: true,
         destructiveCount: 0,
+        executionSafeguards: {
+          previewRequired: true,
+          previewFresh: true,
+          stalePreviewRejected: false,
+          idempotencyRequired: true,
+          doubleSubmitProtection: true,
+          rejectsWhenChanged: ["observations", "profile-version", "rollout-state", "permissions", "command-inputs"],
+          staleReasons: [],
+          overlappingActionBlockers: [],
+        },
+        reviewDecisions: {
+          reject: {
+            reasonRequired: true,
+            partialFailureMode: "failed-observations-remain-in-scope",
+            auditEvidenceRequired: true,
+          },
+          defer: {
+            stateChange: "keeps-observation-in-review",
+            returnsToReviewWhen: "next-provider-import-or-filter-reset",
+            auditEvidenceRequired: true,
+          },
+        },
+        profileWorkflows: {
+          reapply: {
+            profileSemantics: "current-active-profile",
+            target: "promoted-observations",
+            profileVersion: "2026.06.04",
+          },
+          replay: {
+            profileSemantics: "original-source-profile-version",
+            target: "source-observation-evidence",
+            profileVersion: "2026.06.04",
+          },
+        },
         blockers: [],
       },
       promotionResult: {

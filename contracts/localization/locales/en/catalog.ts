@@ -445,7 +445,39 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.choose.scope": "choose scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.choose.unit": "choose unit",
   "catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection": "Clear selection",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.blocked": "Blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.conflicting": "Conflicts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.eligible": "Eligible",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.failed": "Failures",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.skipped": "Skipped",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.key": "Defer decision",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.value": "Defer keeps observations in review",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh": "Preview freshness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard": "Stale preview guard",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value":
+    "Rejects stale observation, profile, rollout, permission, and command input changes",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.idempotency.key": "Idempotency and double-submit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.idempotency.value": "Required",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.key": "Partial failure scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.partial.failure.value":
+    "Per-observation failures stay in scope",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.plan": "Command plan",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.plan.description":
+    "Preview counts, stale protections, and recovery decisions before Catalog writes run.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.plan.title": "Promotion command plan",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.reapply.key": "Reapply",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.reapply.value":
+    "Reapply uses current active profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.replay.key": "Replay",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.profile.replay.value":
+    "Replay uses original source profile version",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.reject.key": "Reject decision",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.reject.value": "Reject requires a reason",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.requested.observations": "Requested observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.scope": "Command scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.scope.explicit": "Explicit selected observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.scope.matching": "Matching filtered observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.scope.no.filters": "No review filters",
   "catalog.features.sourceObservations.ui.primaryWorkbench.configure.preview": "Configure preview",
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.description":
     "Route keys preserve provider, unit, scope, profile, filters, selections, jobs, previews, and return paths.",
@@ -1557,6 +1589,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.referenceData.ui.referenceRecordListPage.attribute.value": "Attribute Value",
   "catalog.features.referenceData.ui.referenceTypeListPage.attribute.key": "Attribute Key",
   "catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason": "Bulk rejection requires a reason.",
+  "catalog.features.sourceObservations.api.route.rejection.requires.reason": "Rejection requires a reason.",
   "catalog.features.sourceObservations.ui.list.bulk.reject": "Reject selected",
   "catalog.features.sourceObservations.ui.list.bulk.reject.all.matching": "Reject matching",
   "catalog.features.sourceObservations.ui.list.bulk.reject.completed":

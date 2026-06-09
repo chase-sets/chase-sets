@@ -8,6 +8,7 @@ import {
   type CatalogPrimaryWorkbenchActionReadModel,
   type CatalogPrimaryWorkbenchBlockerCategory,
   type CatalogPrimaryWorkbenchProviderTransportCategory,
+  type CatalogPrimaryWorkbenchPromotionStaleProtectionKey,
   type CatalogPrimaryWorkbenchReadModel,
   type CatalogPrimaryWorkbenchRouteContext,
 } from "../api/primary-workbench-admin-contracts";
@@ -76,13 +77,36 @@ export function buildCatalogPrimaryWorkbenchReadModel(
   const activeJobCount = importJobRows.filter((job) => job.state === "queued" || job.state === "running").length;
   const failedJobCount = importJobRows.filter((job) => job.state === "failed").length;
   const canManage = input.canManageCatalog;
+  const sourceObservationReview = sourceObservationReviewFor({
+    canManage,
+    changed,
+    eligible,
+    observed,
+    promoted,
+    readinessBlockers,
+    rejected,
+    reviewObservations: input.reviewObservations ?? null,
+    reviewPagination: input.reviewPagination,
+    routeContext,
+    scopeRows,
+  });
+  const promotionPreview = promotionPreviewFor({
+    activeJobCount,
+    activeProfileVersion: activeProfile?.profileVersion ?? null,
+    canManage,
+    failedJobCount,
+    readinessBlockers,
+    routeContext,
+    sourceObservationReview,
+  });
   const actions = buildActions({
     canManage,
     providerSelected: Boolean(providerKey && unitKey && importScope),
     activeProfileReady: Boolean(activeProfile),
-    eligible,
+    eligible: promotionPreview.outcomeCounts.eligible,
     activeJobCount,
     blockers: readinessBlockers,
+    promotionBlockers: promotionPreview.blockers,
   });
 
   const readModel: CatalogPrimaryWorkbenchReadModel = {
@@ -116,36 +140,8 @@ export function buildCatalogPrimaryWorkbenchReadModel(
       }),
       jobs: importJobRows,
     },
-    sourceObservationReview: sourceObservationReviewFor({
-      canManage,
-      changed,
-      eligible,
-      observed,
-      promoted,
-      readinessBlockers,
-      rejected,
-      reviewObservations: input.reviewObservations ?? null,
-      reviewPagination: input.reviewPagination,
-      routeContext,
-      scopeRows,
-    }),
-    promotionPreview: {
-      previewId: routeContext.promotionPreviewId,
-      freshness: eligible > 0 ? "fresh" : "partial",
-      dispositions: {
-        eligible,
-        skipped: rejected,
-        blocked: readinessBlockers.length,
-        conflicting: 0,
-        destructive: 0,
-        "stale-preview": 0,
-        "confirmation-required": eligible > 0 ? 1 : 0,
-      },
-      commandPlanHash: routeContext.promotionPreviewId ? `preview:${routeContext.promotionPreviewId}` : null,
-      confirmationRequired: eligible > 0,
-      destructiveCount: 0,
-      blockers: eligible > 0 ? [] : ["no-promotion-eligible-observations"],
-    },
+    sourceObservationReview,
+    promotionPreview,
     promotionResult: null,
     actions,
     deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
@@ -493,6 +489,221 @@ function sourceObservationReviewFor(input: {
   };
 }
 
+function promotionPreviewFor(input: {
+  activeJobCount: number;
+  activeProfileVersion: string | null;
+  canManage: boolean;
+  failedJobCount: number;
+  readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+  sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
+}): CatalogPrimaryWorkbenchReadModel["promotionPreview"] {
+  const selectedObservationIds = input.routeContext.selectedObservationIds;
+  const selectedIdSet = new Set(selectedObservationIds);
+  const hasExplicitRows = selectedObservationIds.length > 0;
+  const scopedRows = hasExplicitRows
+    ? input.sourceObservationReview.rows.filter((row) => selectedIdSet.has(row.observationId))
+    : input.sourceObservationReview.rows;
+  const eligibleCount = hasExplicitRows
+    ? scopedRows.filter((row) => row.promotionReadiness.state === "eligible").length
+    : input.sourceObservationReview.promotionReadyCount;
+  const requestedCount = hasExplicitRows
+    ? selectedObservationIds.length
+    : Math.max(input.sourceObservationReview.pagination.total, eligibleCount);
+  const blockedCount =
+    scopedRows.length > 0
+      ? scopedRows.filter((row) => row.promotionReadiness.state === "blocked").length
+      : input.readinessBlockers.length;
+  const skippedCount =
+    scopedRows.length > 0
+      ? scopedRows.filter(
+          (row) => row.promotionReadiness.state === "already-promoted" || row.promotionReadiness.state === "rejected",
+        ).length
+      : hasExplicitRows
+        ? Math.max(requestedCount - eligibleCount - blockedCount, 0)
+        : input.sourceObservationReview.counts.rejected;
+  const conflictingCount =
+    scopedRows.length > 0
+      ? scopedRows.filter((row) => row.duplicateEvidence.length > 0 || row.conflictEvidence.length > 0).length
+      : input.sourceObservationReview.duplicateConflictCount;
+  const scope: CatalogPrimaryWorkbenchReadModel["promotionPreview"]["scope"] = {
+    kind: hasExplicitRows ? "explicit-rows" : "matching-filter",
+    label: hasExplicitRows
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.command.scope.explicit")
+      : t("catalog.features.sourceObservations.ui.primaryWorkbench.command.scope.matching"),
+    requestedCount,
+    eligibleCount,
+    selectedObservationIds,
+    filterSummary: promotionFilterSummaryFor(input.sourceObservationReview),
+    partialFailureMode: "per-observation",
+  };
+  const staleReasons = promotionPreviewStaleReasonsFor({
+    activeProfileVersion: input.activeProfileVersion,
+    canManage: input.canManage,
+    routeContext: input.routeContext,
+    sourceObservationReview: input.sourceObservationReview,
+    readinessBlockers: input.readinessBlockers,
+    eligibleCount,
+  });
+  const overlappingActionBlockers = [
+    ...(input.activeJobCount > 0 ? (["active-job-conflict"] as const) : []),
+    ...(input.activeJobCount > 1 ? (["concurrent-job"] as const) : []),
+  ];
+  const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
+  if (eligibleCount <= 0) {
+    blockers.add("no-promotion-eligible-observations");
+  }
+  if (!input.canManage) {
+    blockers.add("permission-denied");
+  }
+  for (const blocker of input.readinessBlockers.filter(isPromotionExecutionReadinessBlocker)) {
+    blockers.add(blocker);
+  }
+  for (const blocker of overlappingActionBlockers) {
+    blockers.add(blocker);
+  }
+  if (staleReasons.length > 0) {
+    blockers.add("stale-promotion-preview");
+  }
+  const confirmationRequired = eligibleCount > 0;
+  const commandPlanHash = input.routeContext.promotionPreviewId
+    ? [
+        "preview",
+        input.routeContext.promotionPreviewId,
+        scope.kind,
+        `requested:${scope.requestedCount}`,
+        `eligible:${scope.eligibleCount}`,
+        `profile:${input.routeContext.profileVersion ?? "none"}`,
+      ].join(":")
+    : null;
+
+  return {
+    previewId: input.routeContext.promotionPreviewId,
+    freshness: staleReasons.length > 0 ? "stale" : eligibleCount > 0 ? "fresh" : "partial",
+    scope,
+    dispositions: {
+      eligible: eligibleCount,
+      skipped: skippedCount,
+      blocked: blockedCount,
+      conflicting: conflictingCount,
+      destructive: 0,
+      "stale-preview": staleReasons.length > 0 ? 1 : 0,
+      "confirmation-required": confirmationRequired ? 1 : 0,
+    },
+    outcomeCounts: {
+      eligible: eligibleCount,
+      blocked: blockedCount,
+      skipped: skippedCount,
+      conflicting: conflictingCount,
+      failed: input.failedJobCount,
+    },
+    commandPlanHash,
+    confirmationRequired,
+    destructiveCount: 0,
+    executionSafeguards: {
+      previewRequired: true,
+      previewFresh: Boolean(input.routeContext.promotionPreviewId) && staleReasons.length === 0,
+      stalePreviewRejected: staleReasons.length > 0,
+      idempotencyRequired: true,
+      doubleSubmitProtection: true,
+      rejectsWhenChanged: ["observations", "profile-version", "rollout-state", "permissions", "command-inputs"],
+      staleReasons,
+      overlappingActionBlockers,
+    },
+    reviewDecisions: {
+      reject: {
+        reasonRequired: true,
+        partialFailureMode: "failed-observations-remain-in-scope",
+        auditEvidenceRequired: true,
+      },
+      defer: {
+        stateChange: "keeps-observation-in-review",
+        returnsToReviewWhen: "next-provider-import-or-filter-reset",
+        auditEvidenceRequired: true,
+      },
+    },
+    profileWorkflows: {
+      reapply: {
+        profileSemantics: "current-active-profile",
+        target: "promoted-observations",
+        profileVersion: input.activeProfileVersion,
+      },
+      replay: {
+        profileSemantics: "original-source-profile-version",
+        target: "source-observation-evidence",
+        profileVersion: scopedRows[0]?.sourceProfileVersion ?? input.routeContext.profileVersion,
+      },
+    },
+    blockers: [...blockers],
+  };
+}
+
+function promotionFilterSummaryFor(
+  sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"],
+): readonly string[] {
+  const activeFilters = sourceObservationReview.filters
+    .filter((filterEntry) => filterEntry.value)
+    .map((filterEntry) => `${filterEntry.label}: ${filterEntry.value}`);
+
+  return activeFilters.length > 0
+    ? activeFilters
+    : [t("catalog.features.sourceObservations.ui.primaryWorkbench.command.scope.no.filters")];
+}
+
+function promotionPreviewStaleReasonsFor(input: {
+  activeProfileVersion: string | null;
+  canManage: boolean;
+  eligibleCount: number;
+  readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+  sourceObservationReview: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"];
+}): readonly CatalogPrimaryWorkbenchPromotionStaleProtectionKey[] {
+  if (!input.routeContext.promotionPreviewId) {
+    return [];
+  }
+
+  const staleReasons = new Set<CatalogPrimaryWorkbenchPromotionStaleProtectionKey>();
+  if (input.sourceObservationReview.freshness !== "fresh") {
+    staleReasons.add("observations");
+  }
+  if (
+    input.routeContext.profileVersion &&
+    input.activeProfileVersion &&
+    input.routeContext.profileVersion !== input.activeProfileVersion
+  ) {
+    staleReasons.add("profile-version");
+  }
+  if (input.readinessBlockers.some((blocker) => blocker === "rollout-disabled" || blocker === "kill-switch-active")) {
+    staleReasons.add("rollout-state");
+  }
+  if (!input.canManage || input.readinessBlockers.includes("permission-denied")) {
+    staleReasons.add("permissions");
+  }
+  if (input.eligibleCount <= 0) {
+    staleReasons.add("command-inputs");
+  }
+
+  return [...staleReasons];
+}
+
+function isPromotionExecutionReadinessBlocker(blocker: CatalogPrimaryWorkbenchBlockerCategory): boolean {
+  switch (blocker) {
+    case "authorization-denied":
+    case "deploy-skew-unsupported-version":
+    case "kill-switch-active":
+    case "missing-active-profile":
+    case "permission-denied":
+    case "profile-version-missing":
+    case "read-model-unavailable":
+    case "rollout-disabled":
+    case "security-privacy-blocked":
+    case "source-projection-stale":
+      return true;
+    default:
+      return false;
+  }
+}
+
 function sourceObservationReviewRowFor(
   observation: SourceObservationListItem,
   input: { canManage: boolean; routeContext: CatalogPrimaryWorkbenchRouteContext },
@@ -536,7 +747,7 @@ function sourceObservationReviewRowFor(
     promotionReadiness,
     commandPreview: {
       promotionPlanHash: observation.promotion_plan_fingerprint,
-      disposition: promotionReadiness.state === "eligible" ? "eligible" : "blocked",
+      disposition: promotionDispositionFor(promotionReadiness.state),
       confirmationRequired: promotionReadiness.state === "eligible",
     },
     auditTrail: auditTrailFor(observation),
@@ -547,6 +758,19 @@ function sourceObservationReviewRowFor(
       promotionReadiness,
     }),
   };
+}
+
+function promotionDispositionFor(
+  state: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number]["promotionReadiness"]["state"],
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number]["commandPreview"]["disposition"] {
+  if (state === "eligible") {
+    return "eligible";
+  }
+  if (state === "already-promoted" || state === "rejected") {
+    return "skipped";
+  }
+
+  return "blocked";
 }
 
 function reviewFiltersFor(
@@ -973,6 +1197,7 @@ function buildActions(input: {
   eligible: number;
   activeJobCount: number;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  promotionBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
 }): readonly CatalogPrimaryWorkbenchActionReadModel[] {
   const manageState = input.canManage ? "available" : "denied";
   const importBlockers = input.canManage
@@ -984,10 +1209,19 @@ function buildActions(input: {
         ]
       : ["missing-active-profile" as const]
     : ["permission-denied" as const];
-  const promotionBlockers =
+  const previewBlockers =
     input.eligible > 0
       ? []
       : (["no-promotion-eligible-observations"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
+  const promotionBlockers = input.promotionBlockers;
+  const promotionState = actionStateForBlockers(promotionBlockers, manageState);
+  const reviewDecisionBlockers =
+    input.eligible > 0 ? [] : (["selection-empty"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
+  const reviewDecisionState = actionStateForBlockers(reviewDecisionBlockers, manageState);
+  const profileWorkflowBlockers = input.activeProfileReady
+    ? []
+    : (["profile-version-missing"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
+  const profileWorkflowState = actionStateForBlockers(profileWorkflowBlockers, manageState);
 
   return [
     {
@@ -1010,17 +1244,61 @@ function buildActions(input: {
     },
     {
       key: "preview-promotion",
-      state: promotionBlockers.length > 0 ? "disabled" : manageState,
-      blockers: promotionBlockers,
-      copyKey: promotionBlockers.length > 0 ? "catalog.primary.review.empty" : null,
+      state: previewBlockers.length > 0 ? "disabled" : manageState,
+      blockers: previewBlockers,
+      copyKey: previewBlockers.length > 0 ? "catalog.primary.review.empty" : null,
     },
     {
       key: "execute-promotion",
-      state: promotionBlockers.length > 0 ? "disabled" : manageState,
+      state: promotionState,
       blockers: promotionBlockers,
       copyKey: promotionBlockers.length > 0 ? "catalog.primary.promotion.previewRequired" : null,
     },
+    {
+      key: "reject-source-observations",
+      state: reviewDecisionState,
+      blockers: reviewDecisionBlockers,
+      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.empty" : null,
+    },
+    {
+      key: "defer-source-observations",
+      state: reviewDecisionState,
+      blockers: reviewDecisionBlockers,
+      copyKey: reviewDecisionBlockers.length > 0 ? "catalog.primary.review.empty" : null,
+    },
+    {
+      key: "start-reapply",
+      state: profileWorkflowState,
+      blockers: profileWorkflowBlockers,
+      copyKey: profileWorkflowBlockers.length > 0 ? "catalog.primary.reapply.originalProfileMissing" : null,
+    },
+    {
+      key: "start-replay",
+      state: profileWorkflowState,
+      blockers: profileWorkflowBlockers,
+      copyKey: profileWorkflowBlockers.length > 0 ? "catalog.primary.reapply.originalProfileMissing" : null,
+    },
   ];
+}
+
+function actionStateForBlockers(
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
+  stateWhenUnblocked: CatalogPrimaryWorkbenchActionReadModel["state"],
+): CatalogPrimaryWorkbenchActionReadModel["state"] {
+  if (blockers.length === 0) {
+    return stateWhenUnblocked;
+  }
+  if (blockers.includes("permission-denied") || blockers.includes("authorization-denied")) {
+    return "denied";
+  }
+  if (blockers.every((blocker) => blocker === "selection-empty" || blocker === "no-promotion-eligible-observations")) {
+    return "disabled";
+  }
+  if (blockers.includes("security-privacy-blocked")) {
+    return "unsafe";
+  }
+
+  return "blocked";
 }
 
 function providerScopeProviders(
