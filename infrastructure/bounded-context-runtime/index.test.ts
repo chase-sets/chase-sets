@@ -2715,7 +2715,7 @@ describe("bounded context projection replay", () => {
     });
   });
 
-  it("returns exact dependency diagnostics in projection freshness timeout responses", async () => {
+  it("returns exact Checkout session dependency diagnostics in projection freshness timeout responses", async () => {
     const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
     const receipt = encodeFreshWriteReceipt({
       observedAtMs: Date.now(),
@@ -2735,7 +2735,7 @@ describe("bounded context projection replay", () => {
           readFreshnessRoutes: [
             {
               routePath: "/account/checkout-sessions/:sessionId",
-              dependencies: [{ projectionName: "checkout.session-projection" }],
+              dependencies: [{ readModelTable: "checkout_session_pages" }],
             },
           ],
         },
