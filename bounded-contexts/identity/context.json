@@ -28,6 +28,34 @@
       "requiresAuth": true
     }
   ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "identity.shipping-addresses-self-refresh",
+      "owner": "identity",
+      "risk": "important",
+      "source": {
+        "routeId": "account-shipping-addresses",
+        "actions": [
+          "Create shipping address",
+          "Update shipping address",
+          "Delete shipping address",
+          "Set default shipping address"
+        ],
+        "command": "Identity shipping-address commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-shipping-addresses",
+        "transientRecovery": "Shipping-address account route refreshes Identity-owned state and is not part of projection-backed Checkout session recovery."
+      },
+      "exception": {
+        "status": "not-read-model-backed",
+        "owner": "identity",
+        "reviewBy": "2026-07-31",
+        "reason": "Identity shipping-address route uses the fresh-write token as same-route UX continuity, not to wait on a platform projection freshness gate."
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "admin-web",

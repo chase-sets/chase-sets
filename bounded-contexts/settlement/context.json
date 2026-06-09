@@ -129,6 +129,30 @@
       "requiresAuth": false
     }
   ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "settlement.payout-request-to-detail",
+      "owner": "settlement",
+      "risk": "important",
+      "source": {
+        "routeId": "account-payouts",
+        "actions": ["Request payout"],
+        "command": "Settlement payout request command",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-payout",
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Payout detail uses compatibility fresh-write recovery while exact Settlement read-model dependencies are audited."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "settlement",
+        "reviewBy": "2026-07-31",
+        "reason": "Payout detail projection dependency migration is tracked by #1084."
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",

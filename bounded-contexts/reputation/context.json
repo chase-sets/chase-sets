@@ -103,6 +103,31 @@
       "requiresAuth": true
     }
   ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "reputation.review-submit-to-detail",
+      "owner": "reputation",
+      "risk": "important",
+      "source": {
+        "routeIds": ["account-purchase-review", "account-sale-review"],
+        "actions": ["Submit purchase review", "Submit sale review"],
+        "command": "SubmitReview"
+      },
+      "destination": {
+        "routeId": "account-review",
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Review detail uses compatibility fresh-write recovery while exact Reputation read-model dependencies are audited."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "reputation",
+        "reviewBy": "2026-07-31",
+        "reason": "Review detail projection dependency and shared route-support helper migration is tracked by #1084.",
+        "files": ["bounded-contexts/reputation/support/route-support/review-submission-route.tsx"],
+        "helperUses": ["appendFreshWriteToken"]
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",

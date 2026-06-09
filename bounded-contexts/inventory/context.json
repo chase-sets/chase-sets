@@ -68,6 +68,27 @@
       "ownedTables": ["inventory_reservation_pages"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "inventory-item-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["inventory_items"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "inventory-hold-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["inventory_holds"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "inventory-storage-location-projection",
+      "sourceContextNames": ["inventory"],
+      "ownedTables": ["inventory_storage_locations"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -83,7 +104,62 @@
     {
       "mountPath": "/api/inventory",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/items/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "inventory_items"
+            },
+            {
+              "readModelTable": "inventory_holds"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "inventory.item-adjust-to-detail",
+      "owner": "inventory",
+      "risk": "critical",
+      "source": {
+        "routeId": "account-inventory-item",
+        "actions": ["Adjust inventory item", "Place inventory hold", "Release inventory hold"],
+        "command": "Inventory item and hold commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-inventory-item",
+        "apiContextName": "inventory",
+        "apiRoutePath": "/items/:id",
+        "readModelTables": ["inventory_items", "inventory_holds"],
+        "transientRecovery": "Inventory item detail forwards afterWrite to the API so exact item and hold projections gate the detail read."
+      }
+    },
+    {
+      "id": "inventory.import-batch-detail",
+      "owner": "inventory",
+      "risk": "important",
+      "source": {
+        "routeIds": ["account-inventory-imports", "account-inventory-import"],
+        "actions": ["Load newly created import batch"],
+        "command": "Inventory import batch job commands",
+        "helperUses": ["loadFreshlyWrittenResource"]
+      },
+      "destination": {
+        "routeIds": ["account-inventory-imports", "account-inventory-import"],
+        "transientRecovery": "Import batch detail uses compatibility fresh-write not-found retries while job-backed inventory routes are classified."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "inventory",
+        "reviewBy": "2026-07-31",
+        "reason": "Import batch route freshness is job-backed and tracked for explicit classification by #1084."
+      }
     }
   ],
   "deployableContributions": [

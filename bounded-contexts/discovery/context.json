@@ -345,6 +345,29 @@
       "requiresAuth": true
     }
   ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "discovery.item-detail-checkout-handoff",
+      "owner": "discovery",
+      "risk": "important",
+      "source": {
+        "routeId": "item-detail",
+        "actions": ["Add item detail product intent to Checkout"],
+        "command": "Checkout handoff from Discovery item detail",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "item-detail",
+        "transientRecovery": "Discovery item detail helper use is a Checkout handoff token carrier, not a Discovery read-model destination."
+      },
+      "exception": {
+        "status": "not-post-write-read",
+        "owner": "discovery",
+        "reviewBy": "2026-07-31",
+        "reason": "The post-write destination is Checkout-owned and tracked by Checkout freshness entries; Discovery does not read its own just-written projection here."
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",

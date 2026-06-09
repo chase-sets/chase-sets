@@ -11,6 +11,7 @@ import {
   findAccountCapabilityLanguageViolations,
   isAccountCapabilityLanguageGuardedFile,
 } from "./account-capability-language.mjs";
+import { validateReadAfterWriteRouteInventory } from "./read-after-write-inventory.mjs";
 import { listWorkspacePackages, repoRoot, workspaceRoots } from "../lib/repo.mjs";
 import { defaultSkippedDirectories } from "../lib/files.mjs";
 
@@ -2868,6 +2869,17 @@ export async function runStructureCheck(options = {}) {
       structureMetricsOutputPath,
       "singleSliceSupportFiles should trend to 0; move single-slice support assets into their owning slice",
     );
+  }
+
+  const readAfterWriteInventoryResult = await validateReadAfterWriteRouteInventory({
+    repoRoot,
+    contextManifests,
+  });
+  for (const violation of readAfterWriteInventoryResult.violations) {
+    violations.push(violation);
+  }
+  for (const warning of readAfterWriteInventoryResult.warnings) {
+    warnings.push(warning);
   }
 
   writeStructureMetricsReport({

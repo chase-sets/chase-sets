@@ -101,6 +101,90 @@
       ]
     }
   ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "checkout.session-start-to-detail",
+      "owner": "checkout",
+      "risk": "critical",
+      "source": {
+        "routeId": "checkout-start",
+        "actions": ["Start account checkout session", "Start guest Buy Now checkout session"],
+        "command": "StartCheckoutSession",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "checkout-session",
+        "apiContextName": "checkout",
+        "apiRoutePath": "/account/checkout-sessions/:sessionId",
+        "readModelTables": ["checkout_session_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Checkout session loader converts fresh-write 404 and projection_freshness_timeout into temporary checkout recovery UI."
+      }
+    },
+    {
+      "id": "checkout.session-outbound-handoffs",
+      "owner": "checkout",
+      "risk": "critical",
+      "source": {
+        "routeId": "checkout-session",
+        "actions": ["Confirm checkout", "Submit offer intent", "Continue to payment"],
+        "command": "ConfirmCheckoutSession",
+        "helperUses": ["appendFreshWriteToken", "appendFreshWriteTokenFromSources"]
+      },
+      "destination": {
+        "routeIds": ["account-offer-submitted", "account-payment"],
+        "transientRecovery": "Downstream route loaders still use compatibility fresh-write recovery while exact dependencies are audited."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "checkout",
+        "reviewBy": "2026-07-31",
+        "reason": "Cross-context post-confirmation handoffs are tracked by #1084; this entry prevents new helper drift until exact downstream dependencies are migrated."
+      }
+    },
+    {
+      "id": "checkout.cart-self-refresh",
+      "owner": "checkout",
+      "risk": "important",
+      "source": {
+        "routeId": "account-cart",
+        "actions": ["Update account cart"],
+        "command": "Checkout cart commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-cart",
+        "transientRecovery": "Cart route forwards afterWrite to the API but still needs shared transient-recovery policy hardening."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "checkout",
+        "reviewBy": "2026-07-31",
+        "reason": "Self-refreshing account cart projection migration is tracked by #1084/#1083."
+      }
+    },
+    {
+      "id": "checkout.sell-list-self-refresh",
+      "owner": "checkout",
+      "risk": "important",
+      "source": {
+        "routeId": "account-sell-list",
+        "actions": ["Update account sell list"],
+        "command": "Checkout sell-list commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-sell-list",
+        "transientRecovery": "Sell List route forwards afterWrite to the API but still needs shared transient-recovery policy hardening."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "checkout",
+        "reviewBy": "2026-07-31",
+        "reason": "Self-refreshing account sell-list projection migration is tracked by #1084/#1083."
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
