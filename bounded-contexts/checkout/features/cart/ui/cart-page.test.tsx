@@ -52,72 +52,36 @@ const cartLine: CheckoutCartLine = {
 };
 
 describe("checkout cart page", () => {
-  it("presents cart totals as saved buyer intent before checkout creates purchases", () => {
-    const markup = renderToString(
-      <CheckoutCartPage
-        cartLines={[cartLine]}
-        landedCostPreview={{
-          addressLabel: "Home",
-          shippingOption: "standard",
-          optimizationGoal: "lowest-total",
-          paymentMethodCategory: "card",
-          previewDestination: {
-            city: "Chicago",
-            state: "IL",
-            postalCode: "60601",
-            country: "US",
-          },
-          preview: {
-            totals: {
-              itemSubtotalAmount: "778.00",
-              shippingAmount: "6.00",
-              salesTaxAmount: "17.00",
-              totalAmount: "801.00",
-              packageCount: 1,
-            },
-          },
-          paymentPreview: {
-            marketplace_checkout_fee: {
-              marketplace_checkout_fee_amount: "23.55",
-              total_amount: "824.55",
-            },
-            wallet_credit: {
-              applied_amount: "0.00",
-            },
-          },
-        }}
-      />,
-    );
+  it("renders a Shopify-simple cart review without dense marketplace panels", () => {
+    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine]} />);
 
-    expect(markup).toContain("Estimated item subtotal");
-    expect(markup).toContain("$778.00");
-    expect(markup).toContain("Estimated shipping credit");
-    expect(markup).toContain("$38.90");
-    expect(markup).toContain("Estimated checkout fee");
-    expect(markup).toContain("$23.55");
-    expect(markup).toContain("Estimated payable total");
-    expect(markup).toContain("$824.55 estimated payable before checkout");
-    expect(markup).toContain("Early landed-cost signal");
-    expect(markup).toContain("Smart Match settings");
-    expect(markup).toContain("Lowest total cost");
-    expect(markup).toContain("Place offers for unavailable quantity");
-    expect(markup).toContain("Products");
-    expect(markup).toContain("Product-level lines let Chase Sets Smart Match listings during checkout");
-    expect(markup).toContain("Shipping credit grows with same-seller cards");
-    expect(markup).toContain("Listings earn 5% of item value toward shipping");
-    expect(markup).toContain("Seller option");
-    expect(markup).toContain('href="/accounts/card-vault#feedback"');
-    expect(markup).toContain("4.9");
-    expect(markup).toContain("New");
-    expect(markup).toContain("No feedback yet");
-    expect(markup).toContain("Card Vault - $389.00 - 2 available");
-    expect(markup).toContain("Lock seller");
+    expect(markup).toContain("Your cart");
+    expect(markup).toContain("Review quantities and remove anything you do not want before checkout.");
+    expect(markup).toContain("Charizard");
+    expect(markup).toContain("Base Set 4/102 Holo Rare");
+    expect(markup).toContain("Japanese");
+    expect(markup).toContain(">Raw</span>");
+    expect(markup).toContain(">Near Mint</span>");
+    expect(markup).toContain("Ready");
+    expect(markup).toContain("Quantity");
     expect(markup).toContain("Decrease");
     expect(markup).toContain("Increase");
-    expect(markup).toContain("Start checkout");
-    expect(markup).not.toContain("Estimated total");
-    expect(markup).not.toContain(">Pending<");
-    expect(markup).not.toContain("Checkout cart");
+    expect(markup).toContain("Update");
+    expect(markup).toContain("Remove");
+    expect(markup).toContain("Subtotal");
+    expect(markup).toContain("$778.00");
+    expect(markup).toContain("Shipping and tax");
+    expect(markup).toContain("Calculated at checkout");
+    expect(markup).toContain("Taxes and shipping are calculated at checkout.");
+    expect(markup).toContain("Check out");
+    expect(markup).toContain('action="/checkout/start"');
+    expect(markup).not.toContain("Smart Match settings");
+    expect(markup).not.toContain("Landed-cost preview");
+    expect(markup).not.toContain("Shipping credit grows with same-seller cards");
+    expect(markup).not.toContain("Seller option");
+    expect(markup).not.toContain("Lock seller");
+    expect(markup).not.toContain("Estimated checkout fee");
+    expect(markup).not.toContain("Early landed-cost signal");
   });
 
   it("groups duplicate product intent as one quantity-controlled cart line", () => {
@@ -132,29 +96,16 @@ describe("checkout cart page", () => {
 
     expect(markup).toContain('src="/fake-cdn/assets/charizard.png"');
     expect(markup).toContain('srcSet="/fake-cdn/assets/charizard.png 1x, /fake-cdn/assets/charizard@2x.png 2x"');
-    expect(markup).toContain('sizes="5.5rem"');
-    expect(markup).toContain("Charizard");
-    expect(markup).toContain("Japanese");
-    expect(markup).toContain("Base Set 4/102 Holo Rare");
-    expect(markup).toContain(">Raw</span>");
-    expect(markup).toContain(">Near Mint</span>");
-    expect(markup).toContain('aria-label="Product options: Form Raw, Condition Near Mint"');
-    expect(markup).not.toContain("Charizard | Base Set 4/102 Holo Rare");
-    expect(markup).not.toContain("Form: Raw | Condition: Near Mint");
+    expect(markup).toContain('sizes="6rem"');
     expect(markup).toContain('value="5"');
     expect(markup).toContain('name="lineId" value="cart_line_1"');
     expect(markup).toContain('name="lineId" value="cart_line_2"');
+    expect(markup).toContain("$1,945.00");
     expect(markup).not.toContain("Catalog item:");
     expect(markup).not.toContain("cat_charizard");
   });
 
-  it("shows locked, optimized, and unavailable recovery controls together", () => {
-    const lockedLine: CheckoutCartLine = {
-      ...cartLine,
-      line_id: "cart_line_locked",
-      fulfillment_mode: "locked-listing",
-      locked_listing_id: "lst_card_vault",
-    };
+  it("blocks checkout and hands unresolved fulfillment to readiness", () => {
     const unavailableLine: CheckoutCartLine = {
       ...cartLine,
       line_id: "cart_line_unavailable",
@@ -164,14 +115,31 @@ describe("checkout cart page", () => {
       seller_options: [],
     };
 
-    const markup = renderToString(<CheckoutCartPage cartLines={[cartLine, lockedLine, unavailableLine]} />);
+    const markup = renderToString(<CheckoutCartPage cartLines={[unavailableLine]} />);
 
-    expect(markup).toContain("Smart Match at checkout");
-    expect(markup).toContain("Selected listings");
-    expect(markup).toContain("Exact listings stay attached to this buy cart");
-    expect(markup).toContain("Locked to seller - not reserved yet");
-    expect(markup).toContain("Unlock seller");
+    expect(markup).toContain("Some items need attention");
+    expect(markup).toContain("1 item needs fulfillment or availability resolved before checkout.");
     expect(markup).toContain("Waiting for supply");
-    expect(markup).toContain("Make offer");
+    expect(markup).toContain("Resolve this item before checkout or remove it from your cart.");
+    expect(markup).toContain("Find alternatives");
+    expect(markup).toContain('href="/search?q=Charizard"');
+    expect(markup).toContain("Resolve items");
+    expect(markup).toContain('href="/checkout/buy/readiness"');
+    expect(markup).toContain("Resolve item availability before payment starts.");
+    expect(markup).not.toContain('action="/checkout/start"');
+    expect(markup).not.toContain("Check out");
+  });
+
+  it("shows a simple empty-cart recovery state", () => {
+    const markup = renderToString(<CheckoutCartPage cartLines={[]} />);
+
+    expect(markup).toContain("Your buy cart is empty");
+    expect(markup).toContain("Browse the marketplace and add a product to start building a Buy Cart checkout.");
+    expect(markup).toContain(
+      "When you add items, checkout will show final shipping, tax, and payment details before you pay.",
+    );
+    expect(markup).toContain("Keep shopping");
+    expect(markup).not.toContain("Subtotal");
+    expect(markup).not.toContain("Check out");
   });
 });
