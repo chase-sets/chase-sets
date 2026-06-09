@@ -1,9 +1,10 @@
-import type { ProjectorHandlerMap } from "@chase-sets/event-core/projector";
+import { resolveProjectionDb, type ProjectorHandlerMap } from "@chase-sets/event-core/projector";
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 
 export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): ProjectorHandlerMap {
   return {
-    "checkout.session.started": async (event) => {
+    "checkout.session.started": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         sessionId: string;
         buyerAccountId: string;
@@ -15,7 +16,7 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         createdAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `INSERT INTO checkout_session_pages (
            session_id,
            buyer_account_id,
@@ -54,14 +55,15 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         ],
       );
     },
-    "checkout.session.optimization-goal-selected": async (event) => {
+    "checkout.session.optimization-goal-selected": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         sessionId: string;
         optimizationGoal: string;
         selectedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE checkout_session_pages
          SET optimization_goal = $2,
              fulfillment_preview_revision = NULL,
@@ -74,14 +76,15 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         ],
       );
     },
-    "checkout.session.fulfillment-preview-recorded": async (event) => {
+    "checkout.session.fulfillment-preview-recorded": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         sessionId: string;
         fulfillmentPreviewRevision: string;
         recordedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE checkout_session_pages
          SET fulfillment_preview_revision = $2,
              updated_at = $3
@@ -89,14 +92,15 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         [data.sessionId, data.fulfillmentPreviewRevision, data.recordedAt],
       );
     },
-    "checkout.session.shipping-option-selected": async (event) => {
+    "checkout.session.shipping-option-selected": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         sessionId: string;
         shippingOption: string;
         selectedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE checkout_session_pages
          SET shipping_option = $2,
              updated_at = $3
@@ -104,14 +108,15 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         [data.sessionId, data.shippingOption, data.selectedAt],
       );
     },
-    "checkout.session.shipping-address-set": async (event) => {
+    "checkout.session.shipping-address-set": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         sessionId: string;
         shippingAddress: { shippingAddressId?: string | null } | null;
         selectedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE checkout_session_pages
          SET shipping_address_id = $2,
              shipping_address = $3,
@@ -125,14 +130,15 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         ],
       );
     },
-    "checkout.session.orders-created": async (event) => {
+    "checkout.session.orders-created": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         sessionId: string;
         orderIds: string[];
         recordedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE checkout_session_pages
          SET order_ids = $2,
              updated_at = $3
@@ -140,14 +146,15 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         [data.sessionId, JSON.stringify(data.orderIds), data.recordedAt],
       );
     },
-    "checkout.session.payment-started": async (event) => {
+    "checkout.session.payment-started": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         sessionId: string;
         paymentId: string;
         recordedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE checkout_session_pages
          SET payment_id = $2,
              updated_at = $3
@@ -155,14 +162,15 @@ export function buildCheckoutSessionProjectionHandlers(db: PgQueryable): Project
         [data.sessionId, data.paymentId, data.recordedAt],
       );
     },
-    "checkout.session.offer-submitted": async (event) => {
+    "checkout.session.offer-submitted": async (event, context) => {
+      const projectionDb = resolveProjectionDb(context, db);
       const data = event.data as {
         sessionId: string;
         offerId: string;
         recordedAt: string;
       };
 
-      await db.query(
+      await projectionDb.query(
         `UPDATE checkout_session_pages
          SET submitted_offer_id = $2,
              updated_at = $3

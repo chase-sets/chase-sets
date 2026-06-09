@@ -29,7 +29,12 @@ import {
   type CheckoutSessionState,
 } from "../domain/domain";
 import { buildCheckoutSessionProjectionHandlers } from "../read-model/projection";
-import { getCheckoutSession } from "../read-model/queries";
+import { getCheckoutSession, type CheckoutSessionRow } from "../read-model/queries";
+
+export type CheckoutSessionMutationResult = Readonly<{
+  sessionId: string;
+  session: CheckoutSessionRow;
+}>;
 
 export type CheckoutSessionRuntimeDeps = Readonly<{
   eventStore: EventStore;
@@ -93,7 +98,7 @@ export type CheckoutSessionServices = Readonly<{
       shippingOption: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: string }>;
+  ) => Promise<CheckoutSessionMutationResult>;
   selectOptimizationGoal: (
     params: Readonly<{
       sessionId: string;
@@ -101,7 +106,7 @@ export type CheckoutSessionServices = Readonly<{
       optimizationGoal: CheckoutOptimizationGoal;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: string }>;
+  ) => Promise<CheckoutSessionMutationResult>;
   recordFulfillmentPreview: (
     params: Readonly<{
       sessionId: string;
@@ -109,7 +114,7 @@ export type CheckoutSessionServices = Readonly<{
       fulfillmentPreviewRevision: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: string }>;
+  ) => Promise<CheckoutSessionMutationResult>;
   setShippingAddress: (
     params: Readonly<{
       sessionId: string;
@@ -117,7 +122,7 @@ export type CheckoutSessionServices = Readonly<{
       shippingAddress: CheckoutShippingAddress;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: string }>;
+  ) => Promise<CheckoutSessionMutationResult>;
   recordOrdersCreated: (
     params: Readonly<{
       sessionId: string;
@@ -126,7 +131,7 @@ export type CheckoutSessionServices = Readonly<{
       fulfilledLineKeys?: readonly string[];
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: string }>;
+  ) => Promise<CheckoutSessionMutationResult>;
   recordPaymentStarted: (
     params: Readonly<{
       sessionId: string;
@@ -134,7 +139,7 @@ export type CheckoutSessionServices = Readonly<{
       paymentId: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: string }>;
+  ) => Promise<CheckoutSessionMutationResult>;
   recordOfferSubmitted: (
     params: Readonly<{
       sessionId: string;
@@ -142,7 +147,7 @@ export type CheckoutSessionServices = Readonly<{
       offerId: string;
     }>,
     context: EventStoreContext,
-  ) => Promise<{ sessionId: string }>;
+  ) => Promise<CheckoutSessionMutationResult>;
   getSession: (sessionId: string, accountId: string) => ReturnType<typeof getCheckoutSession>;
   projectors: readonly ProjectionHandlerSet[];
 }>;
@@ -165,20 +170,46 @@ function cartLineToSessionLine(line: CheckoutCartLineRow): CheckoutSessionLine {
   };
 }
 
+function stateToCheckoutSessionRow(state: CheckoutSessionState): CheckoutSessionRow {
+  if (!state.sessionId || !state.buyerAccountId || !state.sourceType || !state.createdAt || !state.updatedAt) {
+    throw new CheckoutDomainError("Checkout session not found.");
+  }
+
+  return {
+    session_id: state.sessionId,
+    buyer_account_id: state.buyerAccountId,
+    source_type: state.sourceType,
+    optimization_goal: state.optimizationGoal,
+    fulfillment_preview_revision: state.fulfillmentPreviewRevision,
+    shipping_option: state.shippingOption,
+    shipping_address_id: state.shippingAddress?.shippingAddressId ?? null,
+    shipping_address: state.shippingAddress,
+    lines: [...state.lines],
+    order_ids: [...state.orderIds],
+    payment_id: state.paymentId,
+    submitted_offer_id: state.submittedOfferId,
+    created_at: state.createdAt,
+    updated_at: state.updatedAt,
+  };
+}
+
 export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): CheckoutSessionServices {
+  const repository = createAggregateRepository({
+    eventStore: deps.eventStore,
+    codec: createPassthroughDomainEventCodec<CheckoutSessionEvent>(),
+    initialState: () => initialCheckoutSessionState,
+    evolve: evolveCheckoutSession,
+  });
   const commandHandler = createCommandHandler({
-    repository: createAggregateRepository({
-      eventStore: deps.eventStore,
-      codec: createPassthroughDomainEventCodec<CheckoutSessionEvent>(),
-      initialState: () => initialCheckoutSessionState,
-      evolve: evolveCheckoutSession,
-    }),
+    repository,
     evolve: evolveCheckoutSession,
     decide: decideCheckoutSession,
   });
   const sessionProjector = createProjectionHandlerSet({
     projectionName: "checkout.session-projection",
     handlers: buildCheckoutSessionProjectionHandlers(deps.db),
+    streamPrefixes: ["checkout.session-"],
+    checkpointBatchSize: 1,
   });
 
   async function validateCatalogSelection(
@@ -218,6 +249,35 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       throw new CheckoutDomainError("Checkout line product id does not match the selected options.");
     }
     return descriptor;
+  }
+
+  async function loadSessionStateForBuyer(sessionId: string, accountId: AccountId): Promise<CheckoutSessionState> {
+    const loaded = await repository.load(`checkout.session-${sessionId}`);
+    if (loaded.state.sessionId !== sessionId || loaded.state.buyerAccountId !== accountId) {
+      throw new CheckoutDomainError("Checkout session not found.");
+    }
+
+    return loaded.state;
+  }
+
+  async function applySessionCommandForBuyer(
+    params: Readonly<{
+      sessionId: string;
+      accountId: AccountId;
+      command: CheckoutSessionCommand;
+    }>,
+    context: EventStoreContext,
+  ): Promise<CheckoutSessionMutationResult> {
+    await loadSessionStateForBuyer(params.sessionId, params.accountId);
+    const result = await commandHandler({
+      streamId: `checkout.session-${params.sessionId}`,
+      command: params.command,
+      context,
+    });
+    return {
+      sessionId: params.sessionId,
+      session: stateToCheckoutSessionRow(result.state),
+    };
   }
 
   async function startSession(
@@ -336,88 +396,75 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
       );
     },
     selectShippingOption: async (params, context) => {
-      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
-      if (!session) {
-        throw new CheckoutDomainError("Checkout session not found.");
-      }
-
-      await commandHandler({
-        streamId: `checkout.session-${params.sessionId}`,
-        command: {
-          type: "SelectShippingOption",
-          shippingOption: normalizeShippingOption(params.shippingOption),
-          selectedAt: new Date().toISOString(),
+      return applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "SelectShippingOption",
+            shippingOption: normalizeShippingOption(params.shippingOption),
+            selectedAt: new Date().toISOString(),
+          },
         },
         context,
-      });
-      return { sessionId: params.sessionId };
+      );
     },
     selectOptimizationGoal: async (params, context) => {
-      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
-      if (!session) {
-        throw new CheckoutDomainError("Checkout session not found.");
-      }
-
-      await commandHandler({
-        streamId: `checkout.session-${params.sessionId}`,
-        command: {
-          type: "SelectOptimizationGoal",
-          optimizationGoal: params.optimizationGoal,
-          selectedAt: new Date().toISOString(),
+      return applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "SelectOptimizationGoal",
+            optimizationGoal: params.optimizationGoal,
+            selectedAt: new Date().toISOString(),
+          },
         },
         context,
-      });
-      return { sessionId: params.sessionId };
+      );
     },
     recordFulfillmentPreview: async (params, context) => {
-      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
-      if (!session) {
-        throw new CheckoutDomainError("Checkout session not found.");
-      }
-
-      await commandHandler({
-        streamId: `checkout.session-${params.sessionId}`,
-        command: {
-          type: "RecordFulfillmentPreview",
-          fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
-          recordedAt: new Date().toISOString(),
+      return applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "RecordFulfillmentPreview",
+            fulfillmentPreviewRevision: params.fulfillmentPreviewRevision,
+            recordedAt: new Date().toISOString(),
+          },
         },
         context,
-      });
-      return { sessionId: params.sessionId };
+      );
     },
     setShippingAddress: async (params, context) => {
-      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
-      if (!session) {
-        throw new CheckoutDomainError("Checkout session not found.");
-      }
-
-      await commandHandler({
-        streamId: `checkout.session-${params.sessionId}`,
-        command: {
-          type: "SetShippingAddress",
-          shippingAddress: params.shippingAddress,
-          selectedAt: new Date().toISOString(),
+      return applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "SetShippingAddress",
+            shippingAddress: params.shippingAddress,
+            selectedAt: new Date().toISOString(),
+          },
         },
         context,
-      });
-      return { sessionId: params.sessionId };
+      );
     },
     recordOrdersCreated: async (params, context) => {
-      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
-      if (!session) {
-        throw new CheckoutDomainError("Checkout session not found.");
-      }
-
-      await commandHandler({
-        streamId: `checkout.session-${params.sessionId}`,
-        command: {
-          type: "RecordOrdersCreated",
-          orderIds: params.orderIds as OrderId[],
-          recordedAt: new Date().toISOString(),
+      const result = await applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "RecordOrdersCreated",
+            orderIds: params.orderIds as OrderId[],
+            recordedAt: new Date().toISOString(),
+          },
         },
         context,
-      });
+      );
+      const session = result.session;
 
       if (session.source_type === "cart") {
         const fulfilledLineKeys = new Set(params.fulfilledLineKeys ?? []);
@@ -442,41 +489,35 @@ export function createCheckoutSessionRuntime(deps: CheckoutSessionRuntimeDeps): 
         }
       }
 
-      return { sessionId: params.sessionId };
+      return result;
     },
     recordPaymentStarted: async (params, context) => {
-      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
-      if (!session) {
-        throw new CheckoutDomainError("Checkout session not found.");
-      }
-
-      await commandHandler({
-        streamId: `checkout.session-${params.sessionId}`,
-        command: {
-          type: "RecordPaymentStarted",
-          paymentId: params.paymentId as PaymentId,
-          recordedAt: new Date().toISOString(),
+      return applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "RecordPaymentStarted",
+            paymentId: params.paymentId as PaymentId,
+            recordedAt: new Date().toISOString(),
+          },
         },
         context,
-      });
-      return { sessionId: params.sessionId };
+      );
     },
     recordOfferSubmitted: async (params, context) => {
-      const session = await getCheckoutSession(deps.db, params.sessionId, params.accountId);
-      if (!session) {
-        throw new CheckoutDomainError("Checkout session not found.");
-      }
-
-      await commandHandler({
-        streamId: `checkout.session-${params.sessionId}`,
-        command: {
-          type: "RecordOfferSubmitted",
-          offerId: params.offerId,
-          recordedAt: new Date().toISOString(),
+      return applySessionCommandForBuyer(
+        {
+          sessionId: params.sessionId,
+          accountId: params.accountId,
+          command: {
+            type: "RecordOfferSubmitted",
+            offerId: params.offerId,
+            recordedAt: new Date().toISOString(),
+          },
         },
         context,
-      });
-      return { sessionId: params.sessionId };
+      );
     },
     getSession: (sessionId, accountId) => getCheckoutSession(deps.db, sessionId, accountId),
     projectors: [sessionProjector],

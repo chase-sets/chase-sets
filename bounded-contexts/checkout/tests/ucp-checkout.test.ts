@@ -61,18 +61,20 @@ function session(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSessionRo
 }
 
 function createSessions(overrides: Partial<CheckoutSessionServices> = {}): CheckoutSessionServices {
+  const mutationResult = (sessionId: string) => ({ sessionId, session: session({ session_id: sessionId }) });
+
   return {
     commandHandler: vi.fn() as never,
     createFromCart: vi.fn(async () => ({ sessionId: "chk_cart" as never })),
     createBuyNow: vi.fn(async () => ({ sessionId: "chk_1" as never })),
     createOfferIntent: vi.fn(async () => ({ sessionId: "chk_offer" as never })),
-    selectShippingOption: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    selectOptimizationGoal: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    recordFulfillmentPreview: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    setShippingAddress: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    recordOrdersCreated: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    recordPaymentStarted: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    recordOfferSubmitted: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    selectShippingOption: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    selectOptimizationGoal: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordFulfillmentPreview: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    setShippingAddress: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     getSession: vi.fn(async () => session()),
     projectors: [],
     ...overrides,

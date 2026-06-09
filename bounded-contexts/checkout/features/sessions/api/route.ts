@@ -431,7 +431,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         );
       }
 
-      await services.setShippingAddress(
+      const shippingAddressResult = await services.setShippingAddress(
         {
           sessionId,
           accountId: access.actor.accountId as never,
@@ -439,22 +439,11 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         },
         context,
       );
-      session = await services.getSession(sessionId, access.actor.accountId);
-      if (!session) {
-        return c.json(
-          {
-            error: {
-              code: "not_found",
-              message: t("checkout.features.sessions.api.route.checkout.session.not.found.2"),
-            },
-          },
-          404,
-        );
-      }
+      session = shippingAddressResult.session;
 
       if (session.source_type === "offer-intent") {
         const offerId = await submitPurchaseIntentThroughMarketplace(c.req.raw, session);
-        await services.recordOfferSubmitted(
+        const offerResult = await services.recordOfferSubmitted(
           {
             sessionId,
             accountId: access.actor.accountId as never,
@@ -462,7 +451,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
           },
           context,
         );
-        session = await services.getSession(sessionId, access.actor.accountId);
+        session = offerResult.session;
         return c.json({
           offer_id: offerId,
           status: "purchase-intent-submitted",
@@ -489,7 +478,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
           acknowledgedMaterialChanges,
         });
         orderIds = checkoutOrders.orderIds;
-        await services.recordOrdersCreated(
+        const ordersResult = await services.recordOrdersCreated(
           {
             sessionId,
             accountId: access.actor.accountId as never,
@@ -498,10 +487,10 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
           },
           context,
         );
+        session = ordersResult.session;
       }
 
       if (deferPayment) {
-        session = await services.getSession(sessionId, access.actor.accountId);
         return c.json({
           order_ids: orderIds,
           status: "orders-created",
@@ -532,7 +521,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         savePaymentMethodForFuture,
         access.actor.roleKey === "guest-buyer" ? "/checkout/payments/:paymentId" : "/account/payments/:paymentId",
       );
-      await services.recordPaymentStarted(
+      const paymentResult = await services.recordPaymentStarted(
         {
           sessionId,
           accountId: access.actor.accountId as never,
@@ -541,7 +530,7 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
         context,
       );
 
-      session = await services.getSession(sessionId, access.actor.accountId);
+      session = paymentResult.session;
       return c.json({
         payment_id: paymentId,
         order_ids: orderIds,

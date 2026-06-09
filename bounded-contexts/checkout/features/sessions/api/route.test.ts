@@ -98,18 +98,20 @@ function createSession(overrides: Partial<CheckoutSessionRow> = {}): CheckoutSes
 }
 
 function createServices(overrides: Partial<CheckoutSessionServices> = {}): CheckoutSessionServices {
+  const mutationResult = (sessionId: string) => ({ sessionId, session: createSession({ session_id: sessionId }) });
+
   return {
     commandHandler: vi.fn() as never,
     createFromCart: vi.fn(async () => ({ sessionId: "chk_cart" as never })),
     createBuyNow: vi.fn(async () => ({ sessionId: "chk_buy_now" as never })),
     createOfferIntent: vi.fn(async () => ({ sessionId: "chk_offer" as never })),
-    selectOptimizationGoal: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    recordFulfillmentPreview: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    selectShippingOption: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    setShippingAddress: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    recordOrdersCreated: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    recordPaymentStarted: vi.fn(async ({ sessionId }) => ({ sessionId })),
-    recordOfferSubmitted: vi.fn(async ({ sessionId }) => ({ sessionId })),
+    selectOptimizationGoal: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordFulfillmentPreview: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    selectShippingOption: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    setShippingAddress: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordOrdersCreated: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordPaymentStarted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
+    recordOfferSubmitted: vi.fn(async ({ sessionId }) => mutationResult(sessionId)),
     getSession: vi.fn(async () => createSession()),
     projectors: [],
     ...overrides,
@@ -487,8 +489,14 @@ describe("checkout session routes", () => {
 
   it("retries payment recording without recreating orders", async () => {
     mockCreateCheckoutPaymentThroughPayments.mockResolvedValue("pay_existing");
+    const sessionWithOrders = createSession({ order_ids: ["ord_existing"], payment_id: null });
     const services = createServices({
-      getSession: vi.fn(async () => createSession({ order_ids: ["ord_existing"], payment_id: null })),
+      getSession: vi.fn(async () => sessionWithOrders),
+      setShippingAddress: vi.fn(async ({ sessionId }) => ({ sessionId, session: sessionWithOrders })),
+      recordPaymentStarted: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: createSession({ order_ids: ["ord_existing"], payment_id: "pay_existing" }),
+      })),
     });
     const app = buildApp(services);
 
@@ -560,27 +568,31 @@ describe("checkout session routes", () => {
 
   it("submits purchase intent through Marketplace without creating orders or payment", async () => {
     mockSubmitPurchaseIntentThroughMarketplace.mockResolvedValue("off_chk_1");
+    const offerIntentSession = createSession({
+      source_type: "offer-intent",
+      lines: [
+        {
+          listingId: null,
+          cartLineId: null,
+          catalogItemId: "cat_1",
+          productId: "cat_1::form:raw",
+          itemTitle: "Charizard",
+          itemSubtitle: null,
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          productSummary: "Raw",
+          offerPriceAmount: "350.00",
+          quantity: 1,
+          availabilityState: "waiting-for-supply",
+        },
+      ],
+    });
     const services = createServices({
-      getSession: vi.fn(async () =>
-        createSession({
-          source_type: "offer-intent",
-          lines: [
-            {
-              listingId: null,
-              cartLineId: null,
-              catalogItemId: "cat_1",
-              productId: "cat_1::form:raw",
-              itemTitle: "Charizard",
-              itemSubtitle: null,
-              selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
-              productSummary: "Raw",
-              offerPriceAmount: "350.00",
-              quantity: 1,
-              availabilityState: "waiting-for-supply",
-            },
-          ],
-        }),
-      ),
+      getSession: vi.fn(async () => offerIntentSession),
+      setShippingAddress: vi.fn(async ({ sessionId }) => ({ sessionId, session: offerIntentSession })),
+      recordOfferSubmitted: vi.fn(async ({ sessionId }) => ({
+        sessionId,
+        session: { ...offerIntentSession, submitted_offer_id: "off_chk_1" },
+      })),
     });
     const app = buildApp(services);
 
