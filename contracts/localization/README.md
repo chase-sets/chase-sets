@@ -11,7 +11,7 @@ Chase Sets launches with English only, but user-facing copy must go through the 
 ```ts
 import { t } from "@chase-sets/localization";
 
-t("checkout.features.cart.ui.cartPage.start.checkout");
+t("checkout.features.cart.ui.cartPage.check.out");
 t("catalog.support.shellSupport.ui.lifecycleControls.confirm.action.title", {
   action: "Archive",
 });
@@ -35,7 +35,7 @@ Callers that need telemetry can create a translator with `createTranslator({ onM
 
 1. Add the English value to `contracts/localization/locales/en.ts`.
 2. Use a namespaced key that follows ownership:
-   - `checkout.features.cart.ui.cartPage.start.checkout`
+   - `checkout.features.cart.ui.cartPage.check.out`
    - `catalog.support.shellSupport.ui.lifecycleControls.cancel`
    - `payments.routes.marketplace.accountPayment.payment.not.found`
 3. Use complete natural-language phrases. Prefer `"{count} listings"` over `"listings"` plus manual string assembly.

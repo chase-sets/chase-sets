@@ -1,21 +1,14 @@
+import type { ReactNode } from "react";
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
 import {
   HiddenInput,
   Form,
-  AccountReputationSummary,
   Badge,
   Banner,
   Button,
-  OrderProtectionModule,
-  Card,
-  CheckoutLayout,
-  Grid,
   Inline,
-  KeyValueList,
   LinkButton,
-  MarketplaceCartLineItem,
   MarketplaceEmptyState,
-  NativeSelect,
   NumberInput,
   Page,
   PageHeader,
@@ -28,7 +21,6 @@ import {
   StickyCtaBar,
   Surface,
   Text,
-  TextInput,
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { CheckoutCartLine } from "./contracts";
@@ -38,6 +30,7 @@ type CheckoutCartLineGroup = CheckoutCartLine & {
 };
 
 const CART_ITEM_FALLBACK_IMAGE_URL = "/fake-cdn/assets/pokemon-card-back.png";
+const BUY_READINESS_ROUTE = "/checkout/buy/readiness";
 
 function cartLineGroupKey(line: CheckoutCartLine) {
   return [
@@ -89,21 +82,11 @@ function mergeSellerOptions(left: CheckoutCartLine["seller_options"], right: Che
   );
 }
 
-function sellerOptionLabel(option: CheckoutCartLine["seller_options"][number]) {
-  const seller = option.seller_display_name?.trim() || "Marketplace seller";
-  return `${seller} - $${option.price_amount} - ${option.available_quantity} available`;
-}
-
 function formatMoney(amount: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
   }).format(amount);
-}
-
-function parseMoneyAmount(value: string | null | undefined) {
-  const amount = Number(value);
-  return Number.isFinite(amount) ? amount : null;
 }
 
 function lowestKnownUnitPrice(line: CheckoutCartLineGroup) {
@@ -117,289 +100,261 @@ function lowestKnownUnitPrice(line: CheckoutCartLineGroup) {
   return Math.min(...optionPrices);
 }
 
+function selectedUnitPrice(line: CheckoutCartLineGroup) {
+  if (line.locked_listing_id) {
+    const selected = line.seller_options.find((option) => option.listing_id === line.locked_listing_id);
+    const selectedPrice = Number(selected?.price_amount);
+    if (Number.isFinite(selectedPrice) && selectedPrice >= 0) {
+      return selectedPrice;
+    }
+  }
+
+  return lowestKnownUnitPrice(line);
+}
+
 function estimateCartSubtotal(lines: readonly CheckoutCartLineGroup[]) {
   return lines.reduce((sum, line) => {
-    const unitPrice = lowestKnownUnitPrice(line);
+    const unitPrice = selectedUnitPrice(line);
     return unitPrice === null ? sum : sum + unitPrice * line.quantity;
   }, 0);
 }
 
-function countPricedLines(lines: readonly CheckoutCartLineGroup[]) {
-  return lines.filter((line) => lowestKnownUnitPrice(line) !== null).length;
+function hasKnownLinePrice(line: CheckoutCartLineGroup) {
+  return selectedUnitPrice(line) !== null;
+}
+
+function linePriceLabel(line: CheckoutCartLineGroup) {
+  const unitPrice = selectedUnitPrice(line);
+  if (unitPrice === null) {
+    return t("checkout.features.cart.ui.cartPage.price.at.checkout");
+  }
+
+  return formatMoney(unitPrice * line.quantity);
 }
 
 function marketRecoveryHref(itemTitle: string) {
   return `/search?q=${encodeURIComponent(itemTitle)}`;
 }
 
-function fulfillmentLabel(line: CheckoutCartLine) {
+function hasFulfillmentPath(line: CheckoutCartLineGroup) {
+  if (line.availability_state !== "available") {
+    return false;
+  }
+
   if (line.fulfillment_mode === "locked-listing") {
-    return line.availability_state === "available"
-      ? "Locked to seller - not reserved yet"
-      : "Locked seller needs review";
+    return Boolean(line.locked_listing_id);
   }
 
-  if (line.availability_state === "waiting-for-supply" || line.availability_state === "unavailable") {
-    return "Waiting for supply";
+  return line.seller_options.length > 0;
+}
+
+function readinessLabel(line: CheckoutCartLineGroup) {
+  if (line.availability_state === "unavailable") {
+    return t("checkout.features.cart.ui.cartPage.unavailable");
   }
 
-  return t("checkout.features.cart.ui.cartPage.smart.match.at.checkout");
+  if (line.availability_state === "waiting-for-supply") {
+    return t("checkout.features.cart.ui.cartPage.waiting.for.supply");
+  }
+
+  if (line.availability_state === "changed") {
+    return t("checkout.features.cart.ui.cartPage.needs.review");
+  }
+
+  if (!hasFulfillmentPath(line)) {
+    return t("checkout.features.cart.ui.cartPage.needs.fulfillment");
+  }
+
+  return t("checkout.features.cart.ui.cartPage.ready");
+}
+
+function readinessTone(line: CheckoutCartLineGroup) {
+  return hasFulfillmentPath(line) ? "success" : "warning";
+}
+
+function renderLineOptions(line: CheckoutCartLineGroup) {
+  return line.product_summary ? (
+    <ProductOptions options={productOptionsFromSummary(line.product_summary)} variant="chips" />
+  ) : (
+    <Badge tone="neutral">{t("checkout.features.cart.ui.cartPage.standard")}</Badge>
+  );
+}
+
+function ProductImage({ line }: { line: CheckoutCartLineGroup }) {
+  return (
+    <div className="relative h-24 w-20 shrink-0 overflow-hidden rounded-tokenMd border border-[var(--border)] bg-[var(--surface-2)] shadow-tokenSm sm:h-28 sm:w-24">
+      <img
+        src={line.item_image_url ?? CART_ITEM_FALLBACK_IMAGE_URL}
+        alt={t("checkout.features.cart.ui.cartPage.product.image.alt", { title: line.item_title })}
+        srcSet={line.item_image_srcset ?? undefined}
+        sizes="6rem"
+        className="h-full w-full object-contain p-1.5"
+        loading="lazy"
+      />
+    </div>
+  );
+}
+
+function QuantityControls({ line }: { line: CheckoutCartLineGroup }) {
+  return (
+    <Stack gap={2}>
+      <NumberInput
+        label={t("checkout.features.cart.ui.cartPage.quantity")}
+        name="quantity"
+        min="1"
+        defaultValue={String(line.quantity)}
+        required
+      />
+      <Inline gap={2} wrap={false}>
+        <Button type="submit" size="sm" tone="secondary" name="quantityDelta" value="-1" leadingIcon="minus">
+          {t("checkout.features.cart.ui.cartPage.decrease")}
+        </Button>
+        <Button type="submit" size="sm" tone="secondary" name="quantityDelta" value="1" leadingIcon="plus">
+          {t("checkout.features.cart.ui.cartPage.increase")}
+        </Button>
+      </Inline>
+    </Stack>
+  );
+}
+
+function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
+  return (
+    <Stack gap={2}>
+      <Button type="submit" size="md" tone="secondary" leadingIcon="check" block>
+        {t("checkout.features.cart.ui.cartPage.update")}
+      </Button>
+      <Button type="submit" size="md" name="intent" value="remove-cart-line" tone="danger" leadingIcon="trash" block>
+        {t("checkout.features.cart.ui.cartPage.remove")}
+      </Button>
+      {!hasFulfillmentPath(line) ? (
+        <LinkButton href={marketRecoveryHref(line.item_title)} tone="secondary" size="md" block>
+          {t("checkout.features.cart.ui.cartPage.find.alternatives")}
+        </LinkButton>
+      ) : null}
+    </Stack>
+  );
+}
+
+function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
+  return (
+    <Form spacing="none" key={line.line_id} method="post">
+      <HiddenInput type="hidden" name="intent" value="update-cart-line" />
+      {line.lineIds.map((lineId) => (
+        <HiddenInput key={lineId} type="hidden" name="lineId" value={lineId} />
+      ))}
+      <Surface element="article" tone="default" padding={4}>
+        <div className="grid min-w-0 gap-4 md:grid-cols-[auto_minmax(0,1fr)_minmax(10rem,12rem)_minmax(9rem,11rem)] md:items-start">
+          <div className="flex min-w-0 gap-3">
+            <ProductImage line={line} />
+            <div className="min-w-0 md:hidden">
+              <Stack gap={1}>
+                <Text weight="semibold" wrap="anywhere">
+                  {line.item_title}
+                </Text>
+                {line.item_subtitle ? (
+                  <Text size="sm" tone="secondary" wrap="anywhere">
+                    {line.item_subtitle}
+                  </Text>
+                ) : null}
+                <Text weight="semibold">{linePriceLabel(line)}</Text>
+              </Stack>
+            </div>
+          </div>
+          <Stack gap={2}>
+            <div className="hidden min-w-0 md:block">
+              <Text weight="semibold" wrap="anywhere">
+                {line.item_title}
+              </Text>
+              {line.item_subtitle ? (
+                <Text size="sm" tone="secondary" wrap="anywhere">
+                  {line.item_subtitle}
+                </Text>
+              ) : null}
+            </div>
+            <Inline gap={2}>
+              {line.item_language_code ? (
+                <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
+              ) : null}
+              <Badge tone={readinessTone(line)}>{readinessLabel(line)}</Badge>
+            </Inline>
+            {renderLineOptions(line)}
+            {!hasFulfillmentPath(line) ? (
+              <Text size="sm" tone="secondary">
+                {t("checkout.features.cart.ui.cartPage.resolve.before.checkout")}
+              </Text>
+            ) : null}
+          </Stack>
+          <QuantityControls line={line} />
+          <Stack gap={3}>
+            <div className="hidden md:block">
+              <Text size="sm" tone="secondary">
+                {t("checkout.features.cart.ui.cartPage.total")}
+              </Text>
+              <Text weight="semibold">{linePriceLabel(line)}</Text>
+            </div>
+            <CartLineActions line={line} />
+          </Stack>
+        </div>
+      </Surface>
+    </Form>
+  );
+}
+
+function CheckoutAction({ cartReady }: { cartReady: boolean }) {
+  if (!cartReady) {
+    return (
+      <div className="min-w-40">
+        <LinkButton href={BUY_READINESS_ROUTE} tone="primary" size="md" block>
+          {t("checkout.features.cart.ui.cartPage.resolve.fulfillment")}
+        </LinkButton>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-w-40">
+      <Form spacing="none" method="post" action="/checkout/start">
+        <HiddenInput type="hidden" name="source" value="cart" />
+        <Button type="submit" leadingIcon="lock" block>
+          {t("checkout.features.cart.ui.cartPage.check.out")}
+        </Button>
+      </Form>
+    </div>
+  );
+}
+
+function fulfillmentReviewDescription(count: number) {
+  return t(
+    count === 1
+      ? "checkout.features.cart.ui.cartPage.fulfillment.needs.review.description.one"
+      : "checkout.features.cart.ui.cartPage.fulfillment.needs.review.description.many",
+    { count },
+  );
+}
+
+function SummaryText({ children }: { children: ReactNode }) {
+  return (
+    <Text size="sm" tone="secondary">
+      {children}
+    </Text>
+  );
 }
 
 export function CheckoutCartPage({
   cartLines,
-  landedCostPreview = null,
   errorMessage,
 }: {
   cartLines: readonly CheckoutCartLine[];
-  landedCostPreview?: {
-    addressLabel: string;
-    shippingOption: string;
-    optimizationGoal: string;
-    paymentMethodCategory: string;
-    previewDestination: {
-      city: string;
-      state: string;
-      postalCode: string;
-      country: string;
-    };
-    preview: {
-      totals: {
-        itemSubtotalAmount: string;
-        shippingAmount: string;
-        salesTaxAmount: string;
-        totalAmount: string;
-        packageCount: number;
-      };
-    };
-    paymentPreview?: {
-      marketplace_checkout_fee: {
-        marketplace_checkout_fee_amount: string;
-        total_amount: string;
-      };
-      wallet_credit: {
-        applied_amount: string;
-      };
-    } | null;
-  } | null;
   errorMessage?: string | null;
 }) {
   const cartLineGroups = groupCartLines(cartLines);
   const cartLineCount = cartLineGroups.reduce((sum, line) => sum + line.quantity, 0);
-  const selectedListingLineGroups = cartLineGroups.filter((line) => line.fulfillment_mode === "locked-listing");
-  const productLineGroups = cartLineGroups.filter((line) => line.fulfillment_mode !== "locked-listing");
   const estimatedSubtotal = estimateCartSubtotal(cartLineGroups);
-  const previewSubtotal = parseMoneyAmount(landedCostPreview?.preview.totals.itemSubtotalAmount);
-  const previewTotal = parseMoneyAmount(landedCostPreview?.preview.totals.totalAmount);
-  const estimatedItemSubtotal = previewSubtotal ?? estimatedSubtotal;
-  const estimatedShippingCredit = estimatedItemSubtotal * 0.05;
-  const estimatedCheckoutFee = parseMoneyAmount(
-    landedCostPreview?.paymentPreview?.marketplace_checkout_fee.marketplace_checkout_fee_amount,
-  );
-  const estimatedKnownLandedCost =
-    parseMoneyAmount(landedCostPreview?.paymentPreview?.marketplace_checkout_fee.total_amount) ??
-    previewTotal ??
-    estimatedItemSubtotal;
-  const pricedLineCount = countPricedLines(cartLineGroups);
-  const previewDestination = landedCostPreview?.previewDestination ?? {
-    city: "",
-    state: "",
-    postalCode: "",
-    country: "US",
-  };
-  const previewShippingOption = landedCostPreview?.shippingOption ?? "standard";
-  const previewOptimizationGoal = landedCostPreview?.optimizationGoal ?? "lowest-total";
-  const previewPaymentMethodCategory = landedCostPreview?.paymentMethodCategory ?? "card";
-
-  function renderCartLine(line: CheckoutCartLineGroup) {
-    return (
-      <Form spacing="none" key={line.line_id} method="post">
-        <HiddenInput type="hidden" name="intent" value="update-cart-line" />
-        {line.lineIds.map((lineId) => (
-          <HiddenInput key={lineId} type="hidden" name="lineId" value={lineId} />
-        ))}
-        <MarketplaceCartLineItem
-          imageSrc={line.item_image_url ?? CART_ITEM_FALLBACK_IMAGE_URL}
-          imageAlt={t("checkout.features.cart.ui.cartPage.product.image.alt", {
-            title: line.item_title,
-          })}
-          imageSrcSet={line.item_image_srcset ?? undefined}
-          imageSizes="5.5rem"
-          loadingImageSrc={line.item_image_loading_url ?? undefined}
-          loadingImageAlt={line.item_image_loading_alt ?? undefined}
-          loadingImageSrcSet={line.item_image_loading_srcset ?? undefined}
-          loadingImageSizes="5.5rem"
-          title={line.item_title}
-          subtitle={line.item_subtitle}
-          productLabel={t("checkout.features.cart.ui.cartPage.product")}
-          productSummary={
-            <Stack gap={2}>
-              {line.item_language_code ? (
-                <Badge tone="neutral">{formatLanguageCodeLabel(line.item_language_code)}</Badge>
-              ) : null}
-              {line.product_summary ? (
-                <ProductOptions options={productOptionsFromSummary(line.product_summary)} variant="chips" />
-              ) : (
-                <Badge tone="neutral">{t("checkout.features.cart.ui.cartPage.standard")}</Badge>
-              )}
-              <Inline gap={2}>
-                <Badge tone={line.fulfillment_mode === "locked-listing" ? "success" : "accent"}>
-                  {fulfillmentLabel(line)}
-                </Badge>
-                <Badge tone={line.availability_state === "available" ? "neutral" : "warning"}>
-                  {line.availability_state === "available"
-                    ? t("checkout.features.cart.ui.cartPage.estimated.at.checkout")
-                    : t("checkout.features.cart.ui.cartPage.needs.supply")}
-                </Badge>
-              </Inline>
-              {line.fulfillment_mode === "optimize" ? (
-                <Text size="sm" tone="secondary">
-                  {t("checkout.features.cart.ui.cartPage.lock.preferred.seller.or.optimize")}
-                </Text>
-              ) : (
-                <Text size="sm" tone="secondary">
-                  {t("checkout.features.cart.ui.cartPage.unlock.to.reoptimize")}
-                </Text>
-              )}
-            </Stack>
-          }
-          quantityControl={
-            <Stack gap={2}>
-              <NumberInput
-                label={t("checkout.features.cart.ui.cartPage.quantity.2")}
-                name="quantity"
-                min="1"
-                defaultValue={String(line.quantity)}
-                required
-              />
-              <Inline gap={2}>
-                <Button type="submit" size="sm" tone="secondary" name="quantityDelta" value="-1" leadingIcon="minus">
-                  {t("checkout.features.cart.ui.cartPage.decrease")}
-                </Button>
-                <Button type="submit" size="sm" tone="secondary" name="quantityDelta" value="1" leadingIcon="plus">
-                  {t("checkout.features.cart.ui.cartPage.increase")}
-                </Button>
-              </Inline>
-            </Stack>
-          }
-          actions={
-            <>
-              <Button type="submit" size="md" tone="secondary" leadingIcon="check" block>
-                {t("checkout.features.cart.ui.cartPage.update")}
-              </Button>
-              {line.fulfillment_mode === "locked-listing" ? (
-                <Button
-                  type="submit"
-                  size="md"
-                  name="intent"
-                  value="unlock-cart-line"
-                  tone="secondary"
-                  leadingIcon="lock"
-                  block
-                >
-                  {t("checkout.features.cart.ui.cartPage.unlock.seller")}
-                </Button>
-              ) : line.seller_options.length > 0 ? (
-                <>
-                  <Stack gap={2}>
-                    {line.seller_options.map((option) => (
-                      <Inline key={`seller-summary:${option.listing_id}`} align="center">
-                        <AccountReputationSummary
-                          accountName={
-                            option.seller_display_name ??
-                            option.seller_account_id ??
-                            t("checkout.features.cart.ui.cartPage.marketplace.seller")
-                          }
-                          href={option.seller_slug ? `/accounts/${option.seller_slug}#feedback` : null}
-                          averageRating={option.seller_average_rating}
-                          reviewCount={option.seller_review_count ?? 0}
-                          ratingLabel={t("checkout.features.cart.ui.cartPage.seller.reputation")}
-                        />
-                        <Text size="sm" tone="secondary">
-                          {t("checkout.features.cart.ui.cartPage.seller.option.summary", {
-                            price: `$${option.price_amount}`,
-                            quantity: option.available_quantity,
-                          })}
-                        </Text>
-                      </Inline>
-                    ))}
-                  </Stack>
-                  <NativeSelect
-                    label={t("checkout.features.cart.ui.cartPage.seller.option")}
-                    name="lockedListingId"
-                    defaultValue=""
-                    items={[
-                      {
-                        value: "",
-                        label: t("checkout.features.cart.ui.cartPage.let.checkout.optimize"),
-                      },
-                      ...line.seller_options.map((option) => ({
-                        value: option.listing_id,
-                        label: sellerOptionLabel(option),
-                      })),
-                    ]}
-                  />
-                  <Button
-                    type="submit"
-                    size="md"
-                    name="intent"
-                    value="lock-cart-line"
-                    tone="secondary"
-                    leadingIcon="lock"
-                    block
-                  >
-                    {t("checkout.features.cart.ui.cartPage.lock.seller")}
-                  </Button>
-                </>
-              ) : null}
-              <Button
-                type="submit"
-                size="md"
-                name="intent"
-                value="remove-cart-line"
-                tone="danger"
-                leadingIcon="trash"
-                block
-              >
-                {t("checkout.features.cart.ui.cartPage.remove")}
-              </Button>
-              {line.availability_state !== "available" ? (
-                <LinkButton href={marketRecoveryHref(line.item_title)} tone="secondary" size="md" block>
-                  {t("checkout.features.cart.ui.cartPage.make.offer")}
-                </LinkButton>
-              ) : null}
-            </>
-          }
-        />
-      </Form>
-    );
-  }
-
-  function renderLineSection({
-    title,
-    description,
-    lines,
-  }: {
-    title: string;
-    description: string;
-    lines: readonly CheckoutCartLineGroup[];
-  }) {
-    if (lines.length === 0) {
-      return null;
-    }
-
-    return (
-      <Stack gap={3}>
-        <Stack gap={1}>
-          <Text weight="semibold">{title}</Text>
-          <Text size="sm" tone="secondary">
-            {description}
-          </Text>
-        </Stack>
-        {lines.map((line) => renderCartLine(line))}
-      </Stack>
-    );
-  }
+  const pricedLineCount = cartLineGroups.filter(hasKnownLinePrice).length;
+  const subtotalLabel =
+    pricedLineCount > 0 ? formatMoney(estimatedSubtotal) : t("checkout.features.cart.ui.cartPage.price.at.checkout");
+  const blockedLineCount = cartLineGroups.filter((line) => !hasFulfillmentPath(line)).length;
+  const cartReady = cartLineGroups.length > 0 && blockedLineCount === 0;
 
   const cartContent = (
     <Stack gap={4}>
@@ -412,294 +367,88 @@ export function CheckoutCartPage({
         </Surface>
       ) : null}
 
-      <PageSection
-        title={t("checkout.features.cart.ui.cartPage.current.buy.cart")}
-        description={t("checkout.features.cart.ui.cartPage.review.quantities.before.checkout.snapshots.these")}
-      >
-        <Stack gap={3}>
-          {cartLineGroups.length === 0 ? (
-            <MarketplaceEmptyState
-              title={t("checkout.features.cart.ui.cartPage.your.cart.is.empty")}
-              description={t("checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a")}
-              trustCue={
-                <PlatformCredibilityCue
-                  title={t("checkout.features.cart.ui.cartPage.empty.cart.protection.title")}
-                  description={t("checkout.features.cart.ui.cartPage.empty.cart.protection.description")}
-                />
-              }
-              recoveryActions={
-                <LinkButton href="/search">{t("checkout.features.cart.ui.cartPage.keep.shopping")}</LinkButton>
-              }
+      {cartLineGroups.length === 0 ? (
+        <MarketplaceEmptyState
+          title={t("checkout.features.cart.ui.cartPage.your.cart.is.empty")}
+          description={t("checkout.features.cart.ui.cartPage.browse.the.marketplace.and.add.a")}
+          trustCue={
+            <PlatformCredibilityCue
+              title={t("checkout.features.cart.ui.cartPage.empty.cart.protection.title")}
+              description={t("checkout.features.cart.ui.cartPage.empty.cart.protection.description")}
             />
-          ) : (
-            <>
-              {renderLineSection({
-                title: t("checkout.features.cart.ui.cartPage.selected.listings"),
-                description: t("checkout.features.cart.ui.cartPage.selected.listings.description"),
-                lines: selectedListingLineGroups,
-              })}
-              {renderLineSection({
-                title: t("checkout.features.cart.ui.cartPage.products"),
-                description: t("checkout.features.cart.ui.cartPage.products.description"),
-                lines: productLineGroups,
-              })}
-            </>
-          )}
+          }
+          recoveryActions={
+            <LinkButton href="/search">{t("checkout.features.cart.ui.cartPage.keep.shopping")}</LinkButton>
+          }
+        />
+      ) : (
+        <Stack gap={3}>
+          {!cartReady ? (
+            <Banner
+              title={t("checkout.features.cart.ui.cartPage.fulfillment.needs.review")}
+              description={fulfillmentReviewDescription(blockedLineCount)}
+            />
+          ) : null}
+          {cartLineGroups.map((line) => (
+            <CartLineRow key={line.line_id} line={line} />
+          ))}
         </Stack>
-      </PageSection>
+      )}
     </Stack>
   );
 
   return (
     <Page>
       <PageHeader
-        eyebrow={t("checkout.features.cart.ui.cartPage.secure.checkout")}
-        title={t("checkout.features.cart.ui.cartPage.buy.cart")}
-        description={t("checkout.features.cart.ui.cartPage.review.product.level.purchase.intent.before")}
+        eyebrow={t("checkout.features.cart.ui.cartPage.buy.cart")}
+        title={t("checkout.features.cart.ui.cartPage.your.cart")}
+        description={t("checkout.features.cart.ui.cartPage.simple.cart.description")}
       />
 
-      {cartLineGroups.length > 0 ? (
-        <CheckoutLayout
-          summaryMobile="hidden"
-          summaryLabel={t("checkout.features.cart.ui.cartPage.buy.cart.summary")}
-          summary={
-            <Stack gap={4}>
+      <PageSection
+        title={t("checkout.features.cart.ui.cartPage.items")}
+        description={t("checkout.features.cart.ui.cartPage.review.items.before.checkout")}
+      >
+        <Stack gap={4}>
+          {cartContent}
+          {cartLineGroups.length > 0 ? (
+            <>
               <PriceBreakdown
                 lines={[
                   { label: t("checkout.features.cart.ui.cartPage.items"), value: cartLineCount },
-                  { label: t("checkout.features.cart.ui.cartPage.buy.cart.lines"), value: cartLineGroups.length },
+                  { label: t("checkout.features.cart.ui.cartPage.subtotal"), value: subtotalLabel },
                   {
-                    label: t("checkout.features.cart.ui.cartPage.estimated.item.subtotal"),
-                    value: landedCostPreview
-                      ? `$${landedCostPreview.preview.totals.itemSubtotalAmount}`
-                      : pricedLineCount > 0
-                        ? formatMoney(estimatedSubtotal)
-                        : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
-                  },
-                  {
-                    label: t("checkout.features.cart.ui.cartPage.estimated.shipping.credit"),
-                    value:
-                      landedCostPreview || pricedLineCount > 0
-                        ? formatMoney(estimatedShippingCredit)
-                        : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
-                  },
-                  ...(landedCostPreview
-                    ? [
-                        {
-                          label: t("checkout.features.cart.ui.cartPage.estimated.shipping"),
-                          value: `$${landedCostPreview.preview.totals.shippingAmount}`,
-                        },
-                        {
-                          label: t("checkout.features.cart.ui.cartPage.estimated.tax"),
-                          value: `$${landedCostPreview.preview.totals.salesTaxAmount}`,
-                        },
-                        {
-                          label: t("checkout.features.cart.ui.cartPage.estimated.packages"),
-                          value: landedCostPreview.preview.totals.packageCount,
-                        },
-                      ]
-                    : []),
-                  {
-                    label: t("checkout.features.cart.ui.cartPage.estimated.checkout.fee"),
-                    value:
-                      estimatedCheckoutFee !== null
-                        ? t("checkout.features.cart.ui.cartPage.estimated.checkout.fee.value", {
-                            amount: formatMoney(estimatedCheckoutFee),
-                            paymentMethod:
-                              previewPaymentMethodCategory === "bank-account"
-                                ? t("checkout.features.cart.ui.cartPage.bank.account")
-                                : previewPaymentMethodCategory === "platform-credit"
-                                  ? t("checkout.features.cart.ui.cartPage.platform.credit")
-                                  : t("checkout.features.cart.ui.cartPage.card"),
-                          })
-                        : t("checkout.features.cart.ui.cartPage.quoted.during.checkout"),
-                  },
-                  ...(landedCostPreview?.paymentPreview
-                    ? [
-                        {
-                          label: t("checkout.features.cart.ui.cartPage.estimated.wallet.credit"),
-                          value: `-$${landedCostPreview.paymentPreview.wallet_credit.applied_amount}`,
-                        },
-                      ]
-                    : []),
-                  {
-                    label: t("checkout.features.cart.ui.cartPage.estimated.payable.total"),
-                    value:
-                      landedCostPreview || pricedLineCount > 0
-                        ? formatMoney(estimatedKnownLandedCost)
-                        : t("checkout.features.cart.ui.cartPage.calculated.during.checkout"),
-                  },
-                  {
-                    label: t("checkout.features.cart.ui.cartPage.shipping.tax.and.delivery"),
-                    value: landedCostPreview
-                      ? t("checkout.features.cart.ui.cartPage.estimated.for.address", {
-                          addressLabel: landedCostPreview.addressLabel,
-                        })
-                      : t("checkout.features.cart.ui.cartPage.finalized.after.address"),
-                  },
-                  {
-                    label: t("checkout.features.cart.ui.cartPage.fulfillment"),
-                    value: t("checkout.features.cart.ui.cartPage.live.preview.before.payment"),
+                    label: t("checkout.features.cart.ui.cartPage.shipping.and.tax"),
+                    value: t("checkout.features.cart.ui.cartPage.calculated.at.checkout"),
+                    muted: true,
                   },
                 ]}
-                total={
-                  landedCostPreview || pricedLineCount > 0
-                    ? t("checkout.features.cart.ui.cartPage.estimated.payable.before.checkout", {
-                        amount: formatMoney(estimatedKnownLandedCost),
-                      })
-                    : t("checkout.features.cart.ui.cartPage.ready.for.checkout")
+                total={subtotalLabel}
+                totalLabel={t("checkout.features.cart.ui.cartPage.subtotal")}
+                reassurance={
+                  <SecurePaymentIndicator label={t("checkout.features.cart.ui.cartPage.no.payment.until.checkout")} />
                 }
-                totalLabel={t("checkout.features.cart.ui.cartPage.early.landed.cost")}
-                reassurance={<SecurePaymentIndicator label={t("checkout.features.cart.ui.cartPage.secure.payment")} />}
               />
-              <Card variant="feature">
-                <Stack gap={2}>
-                  <Text weight="semibold">{t("checkout.features.cart.ui.cartPage.landed.cost.preview")}</Text>
-                  <Text size="sm" tone="secondary">
-                    {t("checkout.features.cart.ui.cartPage.landed.cost.preview.description")}
-                  </Text>
-                  <Form spacing="none" method="get">
-                    <Stack gap={3}>
-                      <Grid columns={{ base: 1, md: 2 }} gap={2}>
-                        <TextInput
-                          label={t("checkout.features.cart.ui.cartPage.postal.code")}
-                          name="previewPostalCode"
-                          defaultValue={previewDestination.postalCode}
-                          autoComplete="shipping postal-code"
-                        />
-                        <TextInput
-                          label={t("checkout.features.cart.ui.cartPage.country")}
-                          name="previewCountry"
-                          defaultValue={previewDestination.country}
-                          autoComplete="shipping country"
-                        />
-                        <TextInput
-                          label={t("checkout.features.cart.ui.cartPage.state")}
-                          name="previewState"
-                          defaultValue={previewDestination.state}
-                          autoComplete="shipping address-level1"
-                        />
-                        <TextInput
-                          label={t("checkout.features.cart.ui.cartPage.city")}
-                          name="previewCity"
-                          defaultValue={previewDestination.city}
-                          autoComplete="shipping address-level2"
-                        />
-                      </Grid>
-                      <Grid columns={{ base: 1, md: 2 }} gap={2}>
-                        <NativeSelect
-                          label={t("checkout.features.cart.ui.cartPage.shipping.option")}
-                          name="previewShippingOption"
-                          defaultValue={previewShippingOption}
-                          items={[
-                            { value: "standard", label: t("checkout.features.cart.ui.cartPage.standard.insured") },
-                            { value: "expedited", label: t("checkout.features.cart.ui.cartPage.expedited") },
-                            { value: "priority", label: t("checkout.features.cart.ui.cartPage.priority") },
-                          ]}
-                        />
-                        <NativeSelect
-                          label={t("checkout.features.cart.ui.cartPage.optimize.for")}
-                          name="previewOptimizationGoal"
-                          defaultValue={previewOptimizationGoal}
-                          items={[
-                            {
-                              value: "lowest-total",
-                              label: t("checkout.features.cart.ui.cartPage.lowest.total.cost"),
-                            },
-                            {
-                              value: "fewest-shipments",
-                              label: t("checkout.features.cart.ui.cartPage.fewest.shipments"),
-                            },
-                          ]}
-                        />
-                      </Grid>
-                      <NativeSelect
-                        label={t("checkout.features.cart.ui.cartPage.payment.method.assumption")}
-                        name="previewPaymentMethodCategory"
-                        defaultValue={previewPaymentMethodCategory}
-                        items={[
-                          { value: "card", label: t("checkout.features.cart.ui.cartPage.card") },
-                          { value: "bank-account", label: t("checkout.features.cart.ui.cartPage.bank.account") },
-                          { value: "platform-credit", label: t("checkout.features.cart.ui.cartPage.platform.credit") },
-                        ]}
-                      />
-                      <Button type="submit" leadingIcon="refreshCcw" tone="secondary" block>
-                        {t("checkout.features.cart.ui.cartPage.preview.landed.cost")}
-                      </Button>
-                    </Stack>
-                  </Form>
-                </Stack>
-              </Card>
-              <Card variant="feature">
-                <Stack gap={2}>
-                  <Text weight="semibold">{t("checkout.features.cart.ui.cartPage.smart.match.settings")}</Text>
-                  <Text size="sm" tone="secondary">
-                    {t("checkout.features.cart.ui.cartPage.smart.match.settings.description")}
-                  </Text>
-                  <KeyValueList
-                    density="compact"
-                    variant="plain"
-                    items={[
-                      {
-                        key: t("checkout.features.cart.ui.cartPage.optimize.for"),
-                        value: t("checkout.features.cart.ui.cartPage.lowest.total.cost"),
-                      },
-                      {
-                        key: t("checkout.features.cart.ui.cartPage.fallback"),
-                        value: t("checkout.features.cart.ui.cartPage.place.offers.for.unavailable.quantity"),
-                      },
-                    ]}
-                  />
-                </Stack>
-              </Card>
-              <OrderProtectionModule
-                items={[
-                  {
-                    title: t("checkout.features.cart.ui.cartPage.buyer.protection"),
-                    description: t("checkout.features.cart.ui.cartPage.eligible.orders.are.protected.through.payment"),
-                  },
-                  {
-                    title: t("checkout.features.cart.ui.cartPage.secure.payment"),
-                    description: t("checkout.features.cart.ui.cartPage.payment.starts.only.after.orders.are"),
-                  },
-                  {
-                    title: t("checkout.features.cart.ui.cartPage.fulfillment.ready"),
-                    description: t("checkout.features.cart.ui.cartPage.shipping.preference.is.captured.before.order"),
-                  },
-                ]}
+              <StickyCtaBar
+                price={subtotalLabel}
+                context={
+                  <SummaryText>
+                    {cartReady
+                      ? t("checkout.features.cart.ui.cartPage.taxes.and.shipping.calculated")
+                      : t("checkout.features.cart.ui.cartPage.resolve.before.payment")}
+                  </SummaryText>
+                }
+                primaryAction={<CheckoutAction cartReady={cartReady} />}
+                secondaryAction={
+                  <LinkButton href="/search" tone="secondary" block>
+                    {t("checkout.features.cart.ui.cartPage.keep.shopping")}
+                  </LinkButton>
+                }
               />
-            </Stack>
-          }
-        >
-          <Stack gap={4}>
-            <Banner
-              title={t("checkout.features.cart.ui.cartPage.shipping.credit.grows.with.same.seller.cards")}
-              description={t(
-                "checkout.features.cart.ui.cartPage.listings.earn.five.percent.of.item.value.toward.shipping",
-              )}
-            />
-            {cartContent}
-            <StickyCtaBar
-              context={t("checkout.features.cart.ui.cartPage.no.payment.until.totals")}
-              primaryAction={
-                <Form spacing="none" method="post" action="/checkout/start">
-                  <HiddenInput type="hidden" name="source" value="cart" />
-                  <Button type="submit" leadingIcon="lock" block>
-                    {t("checkout.features.cart.ui.cartPage.start.checkout")}
-                  </Button>
-                </Form>
-              }
-              secondaryAction={
-                <LinkButton href="/search" tone="secondary" block>
-                  {t("checkout.features.cart.ui.cartPage.keep.shopping")}
-                </LinkButton>
-              }
-            />
-          </Stack>
-        </CheckoutLayout>
-      ) : (
-        cartContent
-      )}
+            </>
+          ) : null}
+        </Stack>
+      </PageSection>
     </Page>
   );
 }
