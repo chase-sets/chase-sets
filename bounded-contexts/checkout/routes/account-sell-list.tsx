@@ -17,6 +17,7 @@ import {
   createCheckoutRequestApiClient,
   type CheckoutSellListLineRow,
   type CheckoutSellListReceiptRow,
+  type SellListReadinessDecisionInput,
 } from "../support/request-support/api-client";
 import { readAnonymousSellListId } from "../support/request-support/guest-checkout";
 import { CheckoutSellListPage } from "../features/sell-list/ui/sell-list-page";
@@ -394,6 +395,32 @@ function isSellListExecutionProgress(value: unknown): value is SellListExecution
   );
 }
 
+function readinessDecisionsFromExecutionPlan(plan: SellListExecutionPlan): SellListReadinessDecisionInput {
+  const lineActions: Array<NonNullable<SellListReadinessDecisionInput["lineActions"]>[number]> = [];
+  const lineOutcomes: Array<NonNullable<SellListReadinessDecisionInput["lineOutcomes"]>[number]> = [];
+
+  for (const line of plan.lines) {
+    if (line.lineType === "selected-offer" && line.selectedOffer) {
+      lineActions.push({ lineId: line.lineId, action: "selected-offer" });
+      continue;
+    }
+
+    if (line.productOfferTargets.length > 0) {
+      lineActions.push({ lineId: line.lineId, action: "smart-match" });
+      continue;
+    }
+
+    if (line.fallbackListing) {
+      lineActions.push({ lineId: line.lineId, action: "fallback-listing" });
+      continue;
+    }
+
+    lineOutcomes.push({ lineId: line.lineId, outcome: "keep-in-list" });
+  }
+
+  return { lineActions, lineOutcomes };
+}
+
 async function executeSellListCheckout(
   request: Request,
   executionId: string,
@@ -695,12 +722,24 @@ export async function action({ request }: ActionFunctionArgs) {
       const executionProgress = isSellListExecutionProgress(startedExecution.executionProgress)
         ? startedExecution.executionProgress
         : { completedActionKeys: [] };
+      const readinessDecisions = readinessDecisionsFromExecutionPlan(executionPlan);
+      const readiness = await api.createSellListReadiness(readinessDecisions);
+      if (readiness.readiness.status !== "ready" || readiness.readiness.unresolvedLineIds.length > 0) {
+        throw new Error("Sell List readiness must be resolved before seller checkout starts.");
+      }
+
       const result = await executeSellListCheckout(request, executionId, executionPlan, executionProgress);
       if (result.completedLineIds.length === 0 && result.remainingLineQuantities.length === 0) {
         throw new Error("No Sell List lines were ready to execute. Refresh offer terms or choose listing inventory.");
       }
 
-      await api.checkoutSellList({ executionId, ...result });
+      await api.checkoutSellList({
+        executionId,
+        readinessSnapshotId: readiness.readiness.snapshotId,
+        readinessSourceRevision: readiness.readiness.sourceRevision,
+        readinessDecisions,
+        ...result,
+      });
       const query = new URLSearchParams({
         review: "completed",
         accepted: String(result.executionSummary.acceptedOfferCount),

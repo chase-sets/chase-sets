@@ -75,6 +75,23 @@ function createServices(): CheckoutSellListServices {
       finalized_at: null,
     })),
     mergeSellListIntoAccount: vi.fn(async () => ({ mergedLineCount: 1 })),
+    createReadinessSnapshot: vi.fn(async () => ({
+      schemaVersion: "checkout.sell-list-readiness.v1",
+      source: "sell-list",
+      sourceRevision: "slr_source",
+      snapshotId: "slr_ready",
+      status: "ready",
+      lineCount: 1,
+      includedLineIds: ["sll_1"],
+      unresolvedLineIds: [],
+      lineOutcomes: [{ lineId: "sll_1", outcome: "checkout", reason: "ready", action: "selected-offer" }],
+      sellerReadiness: {
+        payout: "not-evaluated",
+        shipFrom: "not-evaluated",
+        label: "not-evaluated",
+      },
+      customerSafeFacts: ["Ready for seller checkout."],
+    })),
     listLines: vi.fn(async () => []),
     getLatestReceipt: vi.fn(async () => null),
     projectors: [],
@@ -241,6 +258,34 @@ describe("checkout sell list routes", () => {
     );
   });
 
+  it("creates a signed-in Sell List readiness snapshot with pre-checkout sale action decisions", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/readiness", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lineActions: [{ lineId: "sll_1", action: "smart-match" }],
+          lineOutcomes: [{ lineId: "sll_2", outcome: "keep-in-list" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      readiness: { snapshotId: "slr_ready", status: "ready" },
+    });
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
+      sellerAccountId: "acc_seller",
+      decisions: {
+        lineActions: [{ lineId: "sll_1", action: "smart-match" }],
+        lineOutcomes: [{ lineId: "sll_2", outcome: "keep-in-list" }],
+      },
+    });
+  });
+
   it("removes a Sell List line", async () => {
     const services = createServices();
     const app = buildApp({ actor: sellerActor(), services });
@@ -274,7 +319,14 @@ describe("checkout sell list routes", () => {
       new Request("http://checkout.test/account/sell-list/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ executionId: "sle_1" }),
+        body: JSON.stringify({
+          executionId: "sle_1",
+          readinessSnapshotId: "slr_ready",
+          readinessSourceRevision: "slr_source",
+          readinessDecisions: {
+            lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
+          },
+        }),
       }),
     );
 
@@ -288,9 +340,37 @@ describe("checkout sell list routes", () => {
       expect.objectContaining({
         sellerAccountId: "acc_seller",
         executionId: "sle_1",
+        readinessSnapshotId: "slr_ready",
+        readinessSourceRevision: "slr_source",
+        readinessDecisions: {
+          lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
+          lineOutcomes: [],
+        },
       }),
       expect.any(Object),
     );
+  });
+
+  it("rejects Sell List checkout review without readiness evidence", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: sellerActor(), services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/sell-list/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ executionId: "sle_1" }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "validation_failed",
+        message: "Sell List readiness snapshot is required.",
+      },
+    });
+    expect(services.checkoutSellList).not.toHaveBeenCalled();
   });
 
   it("starts a durable Sell List execution before sale side effects", async () => {
@@ -408,6 +488,33 @@ describe("checkout sell list routes", () => {
         }),
       }),
     );
+  });
+
+  it("creates a guest Sell List readiness snapshot from the anonymous owner", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: null, services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/sell-list/readiness", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-sell-list-id": "anon_sell_1",
+        },
+        body: JSON.stringify({
+          lineOutcomes: [{ lineId: "sll_waiting", outcome: "keep-in-list" }],
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(services.createReadinessSnapshot).toHaveBeenCalledWith({
+      sellerAccountId: "anon_sell_1",
+      decisions: {
+        lineActions: [],
+        lineOutcomes: [{ lineId: "sll_waiting", outcome: "keep-in-list" }],
+      },
+    });
   });
 
   it("merges anonymous Sell List lines into a signed-in account", async () => {

@@ -133,6 +133,25 @@ Changed economics are represented by `freshness.reason` values such as `shipping
 
 Address problems are represented as validation and recovery state. Invalid or restricted addresses cannot confirm.
 
+## Sell List Readiness Snapshot
+
+Seller checkout review uses a Checkout-owned readiness snapshot with `schemaVersion: checkout.sell-list-readiness.v1`.
+The snapshot is produced from the current Sell List, records the source revision, included checkout line IDs,
+unresolved line IDs, customer-safe line outcomes, and the pre-checkout sale action chosen for each included line.
+Checkout recomputes the snapshot from current Sell List facts and rejects missing, stale, partial, blocked, or
+unresolved readiness input.
+
+Supported customer-safe outcomes before seller checkout are:
+
+- selected offer lines with current offer facts continue into seller checkout review;
+- product-level lines continue only when the pre-checkout review chooses a Smart Match offer or fallback listing action;
+- unresolved product-level lines stay in the Sell List outside checkout;
+- intentionally removed lines are excluded before seller checkout begins.
+
+The seller checkout form may display concise payout, listing, label, and next-step summary facts, but it must not
+silently choose sale actions, manufacture payout readiness, repair missing ship-from/label facts, or absorb provider
+diagnostics that belong in Sell List readiness or later provider-owned setup flows.
+
 ## Idempotency And Guest Merge
 
 Fresh session creation is idempotent by `creationIdempotencyKey`, which is derived from the source intent and the current checkout-relevant revision. Replaying creation for the same cart, buy-now, or Sell List state must return the same active session or replace it with a fresh regenerated session, not create duplicate customer commitments.

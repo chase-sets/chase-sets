@@ -22,6 +22,12 @@ import {
   type CheckoutSellListEvent,
   type CheckoutSellListState,
 } from "../domain/domain";
+import {
+  createSellListReadinessSnapshot,
+  validateSellListReadinessSnapshot,
+  type SellListReadinessDecisionInput,
+  type SellListReadinessSnapshot,
+} from "../domain/readiness";
 import { buildCheckoutSellListProjectionHandlers } from "../read-model/projection";
 import {
   getSellListExecution,
@@ -81,6 +87,9 @@ export type CheckoutSellListServices = Readonly<{
       executionId: string;
       completedLineIds?: readonly SellListLineId[] | null;
       remainingLineQuantities?: readonly { lineId: SellListLineId; quantity: number }[] | null;
+      readinessSnapshotId: string;
+      readinessSourceRevision: string;
+      readinessDecisions?: SellListReadinessDecisionInput | null;
       executionSummary?: Readonly<{
         acceptedOfferCount: number;
         createdListingCount: number;
@@ -125,6 +134,12 @@ export type CheckoutSellListServices = Readonly<{
     }>,
     context: EventStoreContext,
   ) => Promise<{ mergedLineCount: number }>;
+  createReadinessSnapshot: (
+    params: Readonly<{
+      sellerAccountId: string;
+      decisions?: SellListReadinessDecisionInput | null;
+    }>,
+  ) => Promise<SellListReadinessSnapshot>;
   listLines: (sellerAccountId: string) => ReturnType<typeof listSellListLines>;
   getLatestReceipt: (sellerAccountId: string) => ReturnType<typeof getLatestSellListReceipt>;
   getReceiptByExecutionId: (
@@ -264,13 +279,32 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       return { lineId: params.lineId, version: result.version };
     },
     checkoutSellList: async (params, context) => {
+      const currentLines = await listSellListLines(deps.db, params.sellerAccountId);
+      const readiness = validateSellListReadinessSnapshot(currentLines, {
+        snapshotId: params.readinessSnapshotId,
+        sourceRevision: params.readinessSourceRevision,
+        decisions: params.readinessDecisions,
+      });
+      if (!readiness.valid) {
+        throw new CheckoutDomainError("Sell List readiness snapshot is stale.");
+      }
+      if (readiness.current.status !== "ready" || readiness.current.unresolvedLineIds.length > 0) {
+        throw new CheckoutDomainError("Sell List readiness must be resolved before seller checkout starts.");
+      }
+      if (readiness.current.includedLineIds.length === 0) {
+        throw new CheckoutDomainError("Sell List readiness must include at least one checkout line.");
+      }
+      const completedLineIds = (params.completedLineIds ?? []).filter((lineId) =>
+        readiness.current.includedLineIds.includes(lineId),
+      );
+
       const result = await commandHandler({
         streamId: `checkout.sell-list-${params.sellerAccountId}`,
         command: {
           type: "CheckoutSellList",
           executionId: params.executionId,
           checkedOutAt: new Date().toISOString(),
-          completedLineIds: params.completedLineIds ?? null,
+          completedLineIds,
           remainingLineQuantities: params.remainingLineQuantities ?? null,
           executionSummary: params.executionSummary ?? null,
         },
@@ -292,7 +326,7 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
         sellerAccountId: params.sellerAccountId,
         version: result.version,
         status: "reviewed",
-        completedLineIds: params.completedLineIds ?? [],
+        completedLineIds,
       };
     },
     startSellListExecution: async (params) => {
@@ -432,6 +466,10 @@ export function createCheckoutSellListRuntime(deps: CheckoutSellListRuntimeDeps)
       }
 
       return { mergedLineCount: sourceLines.length };
+    },
+    createReadinessSnapshot: async (params) => {
+      const lines = await listSellListLines(deps.db, params.sellerAccountId);
+      return createSellListReadinessSnapshot(lines, params.decisions);
     },
     listLines: (sellerAccountId) => listSellListLines(deps.db, sellerAccountId),
     projectors: [sellListProjector],

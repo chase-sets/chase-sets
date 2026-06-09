@@ -267,6 +267,8 @@ export const checkoutEnglishTranslations = {
     "Start the Sell List execution before committing sale side effects.",
   "checkout.features.sellList.api.route.sell.list.execution.pending.not.found":
     "No pending Sell List execution is available.",
+  "checkout.features.sellList.api.route.sell.list.readiness.snapshot.required":
+    "Sell List readiness snapshot is required.",
   "checkout.features.sellList.api.route.sell.list.review.requires.seller.account":
     "Sell List review requires a seller account.",
   "checkout.features.sellList.ui.sellListPage.accept.selected.offer.during.checkout.review":

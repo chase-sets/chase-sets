@@ -53,3 +53,15 @@ Buy Cart produces a Checkout-owned `checkout.cart-readiness.v1` snapshot before 
 The snapshot records current cart revision, included line IDs, unresolved line IDs, customer-safe line outcomes,
 and optional fulfillment optimization accepted/declined state. Cart checkout session creation consumes that
 snapshot as the entry contract and fails closed when it is missing, stale, blocked, or unresolved.
+
+## Sell List Readiness
+
+Sell List produces a Checkout-owned `checkout.sell-list-readiness.v1` snapshot before seller checkout review can
+finalize sale actions. The snapshot records current Sell List revision, included line IDs, unresolved line IDs,
+customer-safe line outcomes, and the pre-checkout sale action chosen for each included line, such as selected offer,
+Smart Match offer, or fallback listing. Seller checkout review consumes that snapshot as the entry contract and fails
+closed when it is missing, stale, blocked, or unresolved.
+
+Product-level lines without a selected sale action stay in Sell List review/readiness. Payout, ship-from, label, and
+provider readiness facts must come from their owning contexts and later seller-checkout slices; Checkout does not trust
+client input to manufacture those facts.

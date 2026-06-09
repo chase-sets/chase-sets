@@ -9,12 +9,14 @@ import type {
   CheckoutSellListLineRow,
   CheckoutSellListReceiptRow,
 } from "./features/sell-list/read-model/queries";
+import type { SellListReadinessDecisionInput, SellListReadinessSnapshot } from "./features/sell-list/api/contracts";
 import type { CheckoutSessionRow } from "./features/sessions/read-model/queries";
 
 type CheckoutApiApp = ReturnType<typeof buildCheckoutApi>;
 const DEFAULT_BASE_URL = "/api/marketplace";
 
 export type { CartReadinessDecisionInput, CartReadinessSnapshot } from "./features/cart/api/contracts";
+export type { SellListReadinessDecisionInput, SellListReadinessSnapshot } from "./features/sell-list/api/contracts";
 
 export type CheckoutSelectedOptionInput = Readonly<{
   dimensionId: string;
@@ -306,6 +308,24 @@ export function createCheckoutApiClient({
         }),
       );
     },
+    async createSellListReadiness(
+      body: SellListReadinessDecisionInput = {},
+    ): Promise<{ readiness: SellListReadinessSnapshot }> {
+      return parseJsonResponse(await client.account["sell-list"].readiness.$post({ json: body, header: headers }));
+    },
+    async createGuestSellListReadiness(
+      anonymousSellListId: string,
+      body: SellListReadinessDecisionInput = {},
+    ): Promise<{ readiness: SellListReadinessSnapshot }> {
+      return parseJsonResponse(
+        await client.guest["sell-list"].readiness.$post({
+          json: body,
+          header: mergeHeaders(headers, {
+            "x-checkout-anonymous-sell-list-id": anonymousSellListId,
+          }),
+        }),
+      );
+    },
     async addSellListLine(body: AddCheckoutSellListLineRequest) {
       return parseJsonResponse(await client.account["sell-list"].$post({ json: body, header: headers }));
     },
@@ -373,6 +393,9 @@ export function createCheckoutApiClient({
     async checkoutSellList(
       body: Readonly<{
         executionId?: string;
+        readinessSnapshotId: string;
+        readinessSourceRevision: string;
+        readinessDecisions?: SellListReadinessDecisionInput | null;
         completedLineIds?: readonly string[];
         executionSummary?: Readonly<{
           acceptedOfferCount: number;
