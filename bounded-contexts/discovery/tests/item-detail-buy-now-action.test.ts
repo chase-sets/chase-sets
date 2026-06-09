@@ -512,6 +512,15 @@ describe("item detail buy now action", () => {
     expect(redirectUrl.searchParams.get("listingId")).toBe("");
     expect(redirectUrl.searchParams.get("fulfillmentMode")).toBe("optimize");
     expect(redirectUrl.searchParams.get("lockedListingId")).toBe("");
+    expect(redirectUrl.searchParams.get("catalogItemId")).toBe("cat_charizard");
+    expect(redirectUrl.searchParams.get("productId")).toBe("cat_charizard::form:raw");
+    expect(redirectUrl.searchParams.get("itemTitle")).toBe("Charizard");
+    expect(redirectUrl.searchParams.get("itemSubtitle")).toBe("Base Set 4/102 Holo Rare");
+    expect(redirectUrl.searchParams.get("selectedOptions")).toBe(
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+    expect(redirectUrl.searchParams.get("productSummary")).toBe("Raw");
+    expect(redirectUrl.searchParams.get("quantity")).toBe("2");
     expect(mockCreateCheckoutSession).not.toHaveBeenCalled();
   });
 

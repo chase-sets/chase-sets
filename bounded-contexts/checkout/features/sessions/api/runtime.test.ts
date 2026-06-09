@@ -163,4 +163,70 @@ describe("checkout session runtime", () => {
     expect(result.session.buyer_account_id).toBe("acc_buyer");
     expect(db.query).not.toHaveBeenCalled();
   });
+
+  it("can update a just-created Buy Now session before checkout_session_pages has projected it", async () => {
+    const { eventStore } = createInMemoryEventStore();
+    const db = {
+      query: vi.fn(async (sql: string) => {
+        if (sql.includes("checkout_session_pages")) {
+          throw new Error("checkout_session_pages should not be read by Buy Now command continuations");
+        }
+
+        if (sql.includes("checkout_catalog_items")) {
+          return {
+            rows: [
+              {
+                catalog_item_id: "cat_1",
+                status: "active",
+                product_schema: null,
+              },
+            ],
+          };
+        }
+
+        return { rows: [] };
+      }),
+    };
+    const services = createCheckoutSessionRuntime({
+      eventStore,
+      checkpointStore: createCheckpointStore(),
+      db,
+      cart: createCartServices() as never,
+    });
+
+    const created = await services.createBuyNow(
+      {
+        accountId: "acc_buyer" as never,
+        listingId: "lst_1",
+        catalogItemId: "cat_1",
+        productId: "cat_1::",
+        itemTitle: "Charizard",
+        itemSubtitle: null,
+        selectedOptions: [],
+        productSummary: null,
+        quantity: 1,
+        fulfillmentMode: "locked-listing",
+        lockedListingId: "lst_1",
+        shippingOption: "standard",
+        sessionIdOverride: "chk_buy_now_projection_lag" as never,
+      },
+      context,
+    );
+    const result = await services.selectShippingOption(
+      {
+        sessionId: created.sessionId,
+        accountId: "acc_buyer" as never,
+        shippingOption: "priority",
+      },
+      context,
+    );
+
+    expect(result.session.session_id).toBe("chk_buy_now_projection_lag");
+    expect(result.session.source_type).toBe("buy-now");
+    expect(result.session.shipping_option).toBe("priority");
+    expect(result.session.payment_id).toBeNull();
+    expect(result.session.order_ids).toEqual([]);
+    expect(db.query).toHaveBeenCalledTimes(1);
+    expect(String(db.query.mock.calls[0]?.[0])).toContain("checkout_catalog_items");
+  });
 });
