@@ -3,7 +3,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
 import { CatalogPrimaryWorkbenchPage } from "./primary-workbench-page";
-import { profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
+import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
 
 describe("CatalogPrimaryWorkbenchPage", () => {
   afterEach(() => {
@@ -56,5 +56,31 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByRole("link", { name: /Import to promotion workbench/i }).getAttribute("href")).toContain(
       "/catalog/integrations?",
     );
+  });
+
+  it("renders scoped durable import monitoring without hiding the primary provider pull", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Provider import operations" })).toBeTruthy();
+    expect(screen.getByText("Expected observations")).toBeTruthy();
+    expect(screen.getAllByText("100").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("import job job_001 is running (7/24).").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("7/24 work units, 29% complete").length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: /Pull provider data/i })[0]?.hasAttribute("disabled")).toBe(true);
+
+    const reviewLinks = screen.getAllByRole("link", { name: "Review observations" });
+    expect(reviewLinks.some((link) => link.getAttribute("href")?.includes("section=source-observation-review"))).toBe(
+      true,
+    );
+    expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 });
