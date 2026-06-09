@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { appendFreshWriteToken } from "@chase-sets/http/responses";
 
 const {
   mockClaimGuestCheckoutWithPasskey,
@@ -75,6 +76,24 @@ vi.mock("../support/request-support/api-client", () => ({
 }));
 
 import { action, loader } from "../routes/marketplace/account-payment";
+
+function paymentCommit(position: string, eventId: string) {
+  return {
+    commitPosition: position,
+    commitEventIds: [eventId],
+    commitPositions: [
+      {
+        sourceContextName: "payments",
+        maxGlobalPosition: position,
+        eventIds: [eventId],
+      },
+    ],
+  };
+}
+
+function freshPaymentRequest(path = "/checkout/payments/pay_1") {
+  return new Request(`http://localhost${appendFreshWriteToken(path, paymentCommit("42", "evt_payment"))}`);
+}
 
 describe("guest payment claim action", () => {
   beforeEach(() => {
@@ -357,5 +376,79 @@ describe("guest payment claim action", () => {
 
     expect(response?.status).toBe(401);
     expect(response?.statusText).toBe("Guest checkout link expired");
+  });
+
+  it("returns temporary recovery when a fresh payment handoff has not projected yet", async () => {
+    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    mockGetAccountPayment.mockRejectedValue(
+      new PaymentsApiError(404, {
+        error: { code: "not_found", message: "Payment not found." },
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await loader({
+        request: freshPaymentRequest(),
+        params: { paymentId: "pay_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(503);
+    expect(response?.statusText).toBe("Preparing payment");
+    await expect(response?.text()).resolves.toContain("getting your secure payment ready");
+  });
+
+  it("returns temporary recovery when a fresh payment handoff hits projection freshness timeout", async () => {
+    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    mockGetAccountPayment.mockRejectedValue(
+      new PaymentsApiError(503, {
+        error: {
+          code: "projection_freshness_timeout",
+          message: "Projection read model did not catch up before the freshness timeout.",
+        },
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await loader({
+        request: freshPaymentRequest(),
+        params: { paymentId: "pay_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(503);
+    expect(response?.statusText).toBe("Preparing payment");
+  });
+
+  it("returns permanent not-found recovery for stale or manual payment links", async () => {
+    const { PaymentsApiError } = await import("../support/request-support/api-client");
+    mockGetAccountPayment.mockRejectedValue(
+      new PaymentsApiError(404, {
+        error: { code: "not_found", message: "Payment not found." },
+      }),
+    );
+
+    let response: Response | null = null;
+    try {
+      await loader({
+        request: new Request("http://localhost/checkout/payments/pay_1"),
+        params: { paymentId: "pay_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      response = error as Response;
+    }
+
+    expect(response?.status).toBe(404);
+    expect(response?.statusText).toBe("");
+    await expect(response?.text()).resolves.toBe("Payment not found.");
   });
 });

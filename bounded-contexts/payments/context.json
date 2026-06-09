@@ -66,6 +66,13 @@
       "ownedTables": ["payments_order_cancellation_refund_effects"],
       "requiredDuringBootstrap": false,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "payments-payment-projection",
+      "sourceContextNames": ["payments"],
+      "ownedTables": ["payments_payment_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -90,7 +97,18 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/account/payments/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "payments_payment_pages"
+            }
+          ]
+        }
+      ]
     },
     {
       "mountPath": "/api/payments/provider",
@@ -111,13 +129,11 @@
       },
       "destination": {
         "routeId": "account-payment",
-        "transientRecovery": "Payment detail uses compatibility fresh-write recovery while exact Payments read-model dependencies are audited."
-      },
-      "exception": {
-        "status": "accepted",
-        "owner": "payments",
-        "reviewBy": "2026-07-31",
-        "reason": "Payment detail projection dependency and transient policy migration is tracked by #1084."
+        "apiContextName": "payments",
+        "apiRoutePath": "/account/payments/:id",
+        "readModelTables": ["payments_payment_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Payment detail uses exact Payments payment-page freshness and shared fresh-write transient recovery."
       }
     },
     {
@@ -132,13 +148,11 @@
       },
       "destination": {
         "routeId": "account-payment",
-        "transientRecovery": "Payment detail remains in compatibility fresh-write recovery pending exact route metadata."
-      },
-      "exception": {
-        "status": "accepted",
-        "owner": "payments",
-        "reviewBy": "2026-07-31",
-        "reason": "Payment detail self-refresh projection dependency classification is tracked by #1084."
+        "apiContextName": "payments",
+        "apiRoutePath": "/account/payments/:id",
+        "readModelTables": ["payments_payment_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Payment detail self-refresh uses exact Payments payment-page freshness and shared fresh-write transient recovery."
       }
     }
   ],

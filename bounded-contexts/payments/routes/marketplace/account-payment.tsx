@@ -6,11 +6,16 @@ import {
   redirect,
   useActionData,
   useLoaderData,
+  useLocation,
   useRevalidator,
   useRouteError,
 } from "react-router";
 import { RouterForm } from "@chase-sets/design-system/react-router";
-import { appendFreshWriteToken, loadFreshlyWrittenResource } from "@chase-sets/http/responses";
+import {
+  appendFreshWriteToken,
+  classifyFreshWriteReadError,
+  loadFreshlyWrittenResource,
+} from "@chase-sets/http/responses";
 import { requireActorFromAuthApi, resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import {
   completeBrowserAuthentication,
@@ -222,11 +227,29 @@ function guestPaymentAccessExpiredResponse() {
   });
 }
 
+function paymentPreparingTitle() {
+  return t("payments.routes.marketplace.accountPayment.payment.preparing");
+}
+
+function paymentPreparingResponse() {
+  return new Response(t("payments.routes.marketplace.accountPayment.payment.preparing.description"), {
+    status: 503,
+    statusText: paymentPreparingTitle(),
+  });
+}
+
 function isGuestPaymentAccessExpiredError(error: unknown) {
   return (
     isRouteErrorResponse(error) &&
     (error.status === 401 || error.status === 403) &&
     error.statusText === "Guest checkout link expired"
+  );
+}
+
+function isPaymentRecoveryError(error: unknown): error is { status: 404 | 503 } {
+  return (
+    isRouteErrorResponse(error) &&
+    (error.status === 404 || (error.status === 503 && error.statusText === paymentPreparingTitle()))
   );
 }
 
@@ -295,6 +318,11 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       (isAuthOrAuthorizationStatus(error, 401) || isAuthOrAuthorizationStatus(error, 403))
     ) {
       throw guestPaymentAccessExpiredResponse();
+    }
+
+    const freshWriteError = classifyFreshWriteReadError({ request, error });
+    if (freshWriteError.transient) {
+      throw paymentPreparingResponse();
     }
 
     if (
@@ -1170,6 +1198,75 @@ export default function MarketplaceAccountPaymentRoute() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
+  const location = useLocation();
+
+  if (isPaymentRecoveryError(error)) {
+    const isPreparing = error.status === 503;
+    const isGuestCheckoutPayment = location.pathname.startsWith("/checkout/payments/");
+    const primaryHref = isPreparing
+      ? `${location.pathname}${location.search}`
+      : isGuestCheckoutPayment
+        ? "/account/cart"
+        : "/account/purchases";
+
+    return (
+      <Page>
+        <PageHeader
+          eyebrow={t("payments.routes.marketplace.accountPayment.secure.checkout")}
+          title={
+            isPreparing
+              ? t("payments.routes.marketplace.accountPayment.payment.preparing")
+              : t("payments.routes.marketplace.accountPayment.payment.not.found")
+          }
+          description={
+            isPreparing
+              ? t("payments.routes.marketplace.accountPayment.payment.preparing.description")
+              : t("payments.routes.marketplace.accountPayment.payment.not.found.description")
+          }
+        />
+        <PageSection title={t("payments.routes.marketplace.accountPayment.recover.checkout")}>
+          <PaymentRecoveryPanel
+            statusLabel={
+              isPreparing
+                ? t("payments.routes.marketplace.accountPayment.payment.preparing")
+                : t("payments.routes.marketplace.accountPayment.link.unavailable")
+            }
+            title={
+              isPreparing
+                ? t("payments.routes.marketplace.accountPayment.payment.preparing")
+                : t("payments.routes.marketplace.accountPayment.payment.not.found")
+            }
+            description={
+              isPreparing
+                ? t("payments.routes.marketplace.accountPayment.payment.preparing.description")
+                : t("payments.routes.marketplace.accountPayment.payment.not.found.description")
+            }
+            chargeStatus={t("payments.routes.marketplace.accountPayment.payment.has.not.started")}
+            nextStep={
+              isPreparing
+                ? t("payments.routes.marketplace.accountPayment.refresh.payment.in.a.moment")
+                : t("payments.routes.marketplace.accountPayment.review.cart.or.purchases")
+            }
+            supportPath={t("payments.routes.marketplace.accountPayment.support.can.help.with.order.access")}
+            primaryAction={
+              <LinkButton href={primaryHref} leadingIcon={isPreparing ? "refreshCcw" : "cart"}>
+                {isPreparing
+                  ? t("payments.routes.marketplace.accountPayment.refresh.payment")
+                  : isGuestCheckoutPayment
+                    ? t("payments.routes.marketplace.accountPayment.return.to.cart")
+                    : t("payments.routes.marketplace.accountPayment.back.to.purchases")}
+              </LinkButton>
+            }
+            secondaryAction={
+              <LinkButton href="/" tone="secondary" leadingIcon="search">
+                {t("payments.routes.marketplace.accountPayment.continue.shopping")}
+              </LinkButton>
+            }
+          />
+        </PageSection>
+      </Page>
+    );
+  }
 
   if (!isGuestPaymentAccessExpiredError(error)) {
     throw error;
