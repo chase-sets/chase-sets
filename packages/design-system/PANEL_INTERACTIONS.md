@@ -23,6 +23,7 @@ Do not use "drawer" as a generic term. The only approved design-system drawer na
 | Side Sheet | Contextual side panel for staying on the current page. | Details, filters, edit panels, previews, inspectors, activity/comments, AI assistant, contextual settings. | Right by default; left only when the content modifies left-side navigation or filter scope. | Modal for blocking contextual tasks; non-modal for inspectable support content. | Close button, Escape when modal, outside press when modal, optional route/back-state close. |
 | Bottom Sheet | Contextual mobile panel for staying in context. | Mobile filters, contextual actions, pickers, lightweight details, short forms, share options. | Bottom edge, respecting safe areas. | Modal by default; non-modal only for persistent utility sheets that do not cover primary content. | Close button, drag down when safe, Escape or Back, outside press when modal. |
 | Modal Dialog | Blocking focused interaction. | Delete confirmation, discard changes, short required decision, urgent permission or recovery prompt. | Centered viewport surface. | Always modal. | Explicit action, close button only when cancellation is valid, Escape only when cancellation is valid. |
+| Reference Info Disclosure | Optional structured detail behind a visible fact or label. | Reference-data facts, source/status metadata, marketplace term explanations, payout calculation context, matching rules, stale-state context. | Trigger stays inline; detail opens as focused dialog or mobile sheet/dialog. | Modal detail surface. | Close button, Escape, outside press when valid, focus return to trigger. |
 | Popover/Menu | Lightweight anchored interaction. | More actions menu, account/workspace switcher, sort selector, compact formatting controls. | Anchored to trigger, collision-aware. | Non-modal by default; menu captures keyboard focus while open. | Item selection, outside press, Escape, trigger toggle, focus loss when appropriate. |
 | Full Page | Dedicated focused workflow. | Create report, checkout, onboarding, complex edit, setup, content-heavy detail, multi-step task. | Own route or route segment. | Page modality through navigation, not overlay modality. | Browser navigation, explicit cancel/back, save/continue actions, unsaved-change guard when needed. |
 
@@ -66,10 +67,18 @@ Do not use "drawer" as a generic term. The only approved design-system drawer na
 - Accessibility: dialogs always trap focus, set `role="dialog"` or `role="alertdialog"` as appropriate, include `aria-modal="true"`, return focus on close, and provide clear primary and secondary actions.
 - Example scenarios: confirmation before deleting, discard unsaved changes, revoke API key, confirm payout request.
 
+### Reference Info Disclosure
+
+- Use when: the user can proceed from the visible UI but may want structured supporting detail, provenance, source/status metadata, calculation context, or policy explanation.
+- Do not use when: the detail is required to choose safely, blocks the next action, validates a field, confirms a destructive action, or becomes a large workflow.
+- Responsive behavior: desktop opens a focused reference-detail dialog; mobile or cramped layouts use an accessible sheet/dialog equivalent.
+- Accessibility: the trigger must have a specific accessible name, expose `aria-haspopup="dialog"`, return focus after close, and avoid generic labels such as `More info`.
+- Example scenarios: Catalog admin Reference Record details, item-detail payout calculation context, Buy Cart matching explanation, registration timing detail, stale listing or offer context.
+
 ### Popover / Menu
 
 - Use when: the user needs a small anchored choice set or lightweight supporting content.
-- Do not use when: the content is scroll-heavy, critical, destructive without confirmation, form-heavy, or likely to collide with the viewport.
+- Do not use when: the content is scroll-heavy, critical, destructive without confirmation, form-heavy, likely to collide with the viewport, or structured reference detail better served by `ReferenceInfoDialog`.
 - Responsive behavior: if a desktop popover menu has too many items for mobile space, use a Bottom Sheet. If the content becomes complex, use a Full Page.
 - Accessibility: trigger must expose expanded state, menus use arrow-key navigation and typeahead where available, and focus returns to the trigger after close.
 - Example scenarios: More actions menu, account/workspace switcher, sort selector, share options when only a few targets exist.
@@ -92,9 +101,11 @@ Do not use "drawer" as a generic term. The only approved design-system drawer na
    Use Side Sheet on desktop/tablet or Bottom Sheet on mobile for lightweight content.
 4. Must the user make a blocking decision before continuing?
    Use Modal Dialog.
-5. Is the interaction anchored, brief, and lightweight?
+5. Is the interaction optional structured reference detail behind a visible fact?
+   Use Reference Info Disclosure.
+6. Is the interaction anchored, brief, and lightweight?
    Use Popover/Menu. On mobile, promote to Bottom Sheet if anchoring or space is weak.
-6. Is the task long, complex, sequential, content-heavy, or high stakes?
+7. Is the task long, complex, sequential, content-heavy, or high stakes?
    Use Full Page.
 
 When patterns overlap, prefer the pattern that protects task comprehension:

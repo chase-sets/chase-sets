@@ -1,5 +1,5 @@
 import { formatLanguageCodeLabel, t } from "@chase-sets/localization";
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import {
   Button,
   Combobox,
@@ -7,9 +7,10 @@ import {
   Dialog,
   Inline,
   KeyValueList,
-  LinkText,
   PageSection,
   ProgressiveDisclosure,
+  ReferenceInfoDialog,
+  ReferenceInfoTrigger,
   Stack,
   Text,
   TextInput,
@@ -186,10 +187,9 @@ function ReferenceValueCue({
   const reference = row.reference;
 
   return (
-    <LinkText
+    <ReferenceInfoTrigger
       href={toCatalogAdminHref(`/reference-records/${reference.referenceId}`)}
-      trailingIcon="info"
-      onClick={(event) => {
+      onClick={(event: MouseEvent<HTMLAnchorElement>) => {
         event.preventDefault();
         onSelectReference(reference);
       }}
@@ -200,7 +200,7 @@ function ReferenceValueCue({
       aria-haspopup="dialog"
     >
       {reference.name}
-    </LinkText>
+    </ReferenceInfoTrigger>
   );
 }
 
@@ -222,18 +222,15 @@ function ReferenceDetailDialog({
   }));
 
   return (
-    <Dialog
+    <ReferenceInfoDialog
       open
       onOpenChange={onOpenChange}
       title={reference.name}
       description={formatReferenceTypeLabel(reference.typeKey)}
       closeLabel={t("catalog.features.catalogItems.ui.catalogItemDetailPage.close.reference.detail")}
-    >
-      <Stack gap={4}>
-        <KeyValueList
-          density="compact"
-          variant="plain"
-          items={[
+      sections={[
+        {
+          items: [
             {
               key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.type"),
               value: formatReferenceTypeLabel(reference.typeKey),
@@ -246,34 +243,20 @@ function ReferenceDetailDialog({
               key: t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.key"),
               value: reference.key,
             },
-          ]}
-        />
-        <Stack gap={2}>
-          <Text weight="semibold">
-            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.attributes")}
-          </Text>
-          {attributes.length > 0 ? (
-            <KeyValueList density="compact" variant="plain" items={attributes} />
-          ) : (
-            <Text size="sm" tone="secondary">
-              {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.no.attributes")}
-            </Text>
-          )}
-        </Stack>
-        <Stack gap={2}>
-          <Text weight="semibold">
-            {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.relationships")}
-          </Text>
-          {relationships.length > 0 ? (
-            <KeyValueList density="compact" variant="plain" items={relationships} />
-          ) : (
-            <Text size="sm" tone="secondary">
-              {t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.no.relationships")}
-            </Text>
-          )}
-        </Stack>
-      </Stack>
-    </Dialog>
+          ],
+        },
+        {
+          title: t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.attributes"),
+          items: attributes,
+          emptyState: t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.no.attributes"),
+        },
+        {
+          title: t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.relationships"),
+          items: relationships,
+          emptyState: t("catalog.features.catalogItems.ui.catalogItemDetailPage.reference.no.relationships"),
+        },
+      ]}
+    />
   );
 }
 

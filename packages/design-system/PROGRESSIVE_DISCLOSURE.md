@@ -30,10 +30,26 @@ Disclosure is appropriate for:
 
 Disclosure is not appropriate for ranked search facets that directly shape the active result set; keep those facets visible with the primary filter controls.
 
+## Reference Info Disclosure
+
+Use `ReferenceInfoTrigger` and `ReferenceInfoDialog` when a visible label needs optional structured detail behind it. This is the canonical pattern for reference-data facts, source/status metadata, marketplace term explanations, payout calculation context, matching rules, registration timing, stale-state recovery, and non-blocking policy context.
+
+The pattern is intentionally more structured than a tooltip and less workflow-heavy than a standalone sheet or page:
+
+- The parent UI keeps the required decision fact visible.
+- The trigger is concise linked text or an equivalent inline control with a trailing `info` icon.
+- The dialog title names the explained thing, not generic `More info`.
+- Dialog content uses compact key/value facts, short plain-language body copy, and source/status metadata when useful.
+- Use at most one visible reference-info trigger per workflow or action cluster; group related details inside the dialog.
+
+Do not use reference-info disclosure for blocking errors, disabled-action recovery, validation feedback, destructive confirmations, or required commitment review. Use visible validation, inline recovery, `AlertDialog`, or a full review surface for those jobs.
+
 ## Component Defaults
 
 - `ProgressiveDisclosure` renders a single Base UI accordion section with design-system motion, focus, spacing, and tone treatment.
 - `ProgressiveDisclosureGroup` renders related sections in one frame and supports single-open or multi-open behavior.
+- `ReferenceInfoTrigger` renders the linked-info affordance used by admin and marketplace reference detail.
+- `ReferenceInfoDialog` renders structured reference detail with design-system dialog behavior and compact facts.
 - `summary` should describe the current disclosed state in plain language, for example `No seller limits set` or `Manual review`.
 - `description` explains why the section exists; it should not replace required labels or error text.
 - `tone` can call attention to informational, warning, accent, or neutral sections without becoming the primary action.

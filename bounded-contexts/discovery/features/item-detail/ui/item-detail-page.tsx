@@ -29,6 +29,8 @@ import {
   PageSection,
   ProductOptions,
   RatingSummary,
+  ReferenceInfoDialog,
+  ReferenceInfoTrigger,
   SegmentedControl,
   Stack,
   Surface,
@@ -135,7 +137,7 @@ function formatRelationshipType(value: string): string {
     .join(" ");
 }
 
-function ReferenceValueButton({
+function ReferenceValueCue({
   row,
   onSelectReference,
 }: {
@@ -147,10 +149,7 @@ function ReferenceValueButton({
   }
 
   return (
-    <Button
-      type="button"
-      size="sm"
-      tone="ghost"
+    <ReferenceInfoTrigger
       onClick={() => onSelectReference(row.reference!)}
       aria-label={t("discovery.features.itemDetail.ui.itemDetailPage.reference.value.aria", {
         label: row.label,
@@ -158,7 +157,7 @@ function ReferenceValueButton({
       })}
     >
       {row.reference.name}
-    </Button>
+    </ReferenceInfoTrigger>
   );
 }
 
@@ -180,18 +179,15 @@ function ReferenceDetailDialog({
   }));
 
   return (
-    <Dialog
+    <ReferenceInfoDialog
       open
       onOpenChange={onOpenChange}
       title={reference.name}
       description={formatReferenceTypeLabel(reference.typeKey)}
       closeLabel={t("discovery.features.itemDetail.ui.itemDetailPage.close.reference.detail")}
-    >
-      <Stack gap={4}>
-        <KeyValueList
-          density="compact"
-          variant="plain"
-          items={[
+      sections={[
+        {
+          items: [
             {
               key: t("discovery.features.itemDetail.ui.itemDetailPage.reference.type"),
               value: formatReferenceTypeLabel(reference.typeKey),
@@ -204,30 +200,20 @@ function ReferenceDetailDialog({
               key: t("discovery.features.itemDetail.ui.itemDetailPage.reference.key"),
               value: reference.key,
             },
-          ]}
-        />
-        <Stack gap={2}>
-          <Text weight="semibold">{t("discovery.features.itemDetail.ui.itemDetailPage.reference.attributes")}</Text>
-          {attributes.length > 0 ? (
-            <KeyValueList density="compact" variant="plain" items={attributes} />
-          ) : (
-            <Text size="sm" tone="secondary">
-              {t("discovery.features.itemDetail.ui.itemDetailPage.reference.no.attributes")}
-            </Text>
-          )}
-        </Stack>
-        <Stack gap={2}>
-          <Text weight="semibold">{t("discovery.features.itemDetail.ui.itemDetailPage.reference.relationships")}</Text>
-          {relationships.length > 0 ? (
-            <KeyValueList density="compact" variant="plain" items={relationships} />
-          ) : (
-            <Text size="sm" tone="secondary">
-              {t("discovery.features.itemDetail.ui.itemDetailPage.reference.no.relationships")}
-            </Text>
-          )}
-        </Stack>
-      </Stack>
-    </Dialog>
+          ],
+        },
+        {
+          title: t("discovery.features.itemDetail.ui.itemDetailPage.reference.attributes"),
+          items: attributes,
+          emptyState: t("discovery.features.itemDetail.ui.itemDetailPage.reference.no.attributes"),
+        },
+        {
+          title: t("discovery.features.itemDetail.ui.itemDetailPage.reference.relationships"),
+          items: relationships,
+          emptyState: t("discovery.features.itemDetail.ui.itemDetailPage.reference.no.relationships"),
+        },
+      ]}
+    />
   );
 }
 
@@ -956,7 +942,7 @@ function LoadedItemDetailPage({
   const detailItems = [
     ...referenceDetailRows.map((row) => ({
       key: row.label,
-      value: <ReferenceValueButton row={row} onSelectReference={setSelectedReference} />,
+      value: <ReferenceValueCue row={row} onSelectReference={setSelectedReference} />,
     })),
     ...metadataItems,
   ];

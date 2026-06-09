@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import userEvent from "@testing-library/user-event";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -92,6 +92,8 @@ import {
   ProductOptions,
   ProductMediaModule,
   ResponsiveEditSheet,
+  ReferenceInfoDialog,
+  ReferenceInfoTrigger,
   ReviewCard,
   SearchControlBar,
   AccountProfileHeader,
@@ -1965,6 +1967,75 @@ describe("design-system", () => {
 
     expect(await screen.findByRole("dialog", { name: "Review listing" })).toBeTruthy();
     expect(screen.getByText("Dialog content")).toBeTruthy();
+  });
+
+  it("renders reference info triggers and structured dialogs", async () => {
+    const user = userEvent.setup();
+    const onOpenReference = vi.fn((event: MouseEvent<HTMLAnchorElement>) => event.preventDefault());
+
+    const triggerRender = render(
+      <div>
+        <ReferenceInfoTrigger
+          href="/catalog/reference-records/ref_pokemon"
+          aria-label="View Manufacturer reference details for The Pokemon Company International"
+          onClick={onOpenReference}
+        >
+          The Pokemon Company International
+        </ReferenceInfoTrigger>
+        <ReferenceInfoTrigger aria-label="View estimated payout details">Estimated payout</ReferenceInfoTrigger>
+      </div>,
+    );
+
+    const referenceLink = screen.getByRole("link", {
+      name: "View Manufacturer reference details for The Pokemon Company International",
+    });
+    const payoutTrigger = screen.getByRole("button", { name: "View estimated payout details" });
+
+    expect(referenceLink.getAttribute("href")).toBe("/catalog/reference-records/ref_pokemon");
+    expect(referenceLink.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(referenceLink.className).toContain("text-accent");
+    expect(payoutTrigger.getAttribute("aria-haspopup")).toBe("dialog");
+
+    await user.click(referenceLink);
+    expect(onOpenReference).toHaveBeenCalledTimes(1);
+
+    triggerRender.unmount();
+
+    render(
+      <ReferenceInfoDialog
+        trigger={
+          <ReferenceInfoTrigger aria-label="View estimated payout details">Estimated payout</ReferenceInfoTrigger>
+        }
+        title="Estimated payout"
+        description="Current standard seller terms"
+        closeLabel="Close payout details"
+        summary="Estimated payout uses current standard seller terms."
+        sections={[
+          {
+            items: [
+              { key: "Offer total", value: "$80.00" },
+              { key: "Marketplace fee", value: "$7.20" },
+            ],
+          },
+          {
+            title: "Final review",
+            emptyState: "Final registered terms are confirmed before acceptance.",
+          },
+        ]}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "View estimated payout details" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Estimated payout" });
+    expect(within(dialog).getByText("Current standard seller terms")).toBeTruthy();
+    expect(within(dialog).getByText("Estimated payout uses current standard seller terms.")).toBeTruthy();
+    expect(within(dialog).getByText("Offer total")).toBeTruthy();
+    expect(within(dialog).getByText("$80.00")).toBeTruthy();
+    expect(within(dialog).getByText("Final registered terms are confirmed before acceptance.")).toBeTruthy();
+
+    await user.click(within(dialog).getByRole("button", { name: "Close payout details" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Estimated payout" })).toBeNull());
   });
 
   it("shows tooltips from focus", async () => {

@@ -11,6 +11,9 @@ export type { PromoBarMessage, PromoBarProps, PromoBarTone } from "./promo-bar";
 export { Dialog } from "./dialog";
 export type { DialogProps, PanelBodyLayout } from "./dialog";
 
+export { ReferenceInfoDialog, ReferenceInfoTrigger } from "./reference-info";
+export type { ReferenceInfoDialogProps, ReferenceInfoSection, ReferenceInfoTriggerProps } from "./reference-info";
+
 export { BottomSheet, FullPage, ModalDialog, NavigationDrawer, Sidebar, SideSheet } from "./panel-interactions";
 export type {
   BottomSheetHeight,
