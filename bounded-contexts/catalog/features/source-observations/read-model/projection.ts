@@ -93,9 +93,9 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
           observationId,
           data.catalogItemId,
           data.promotedAt,
-          data.promotionProfileKey ?? "legacy",
-          data.promotionProfileVersion ?? "legacy",
-          data.promotionPlanFingerprint ?? "legacy",
+          requireProjectionProfileMarker(data.promotionProfileKey, "Promotion profile key").toLowerCase(),
+          requireProjectionProfileMarker(data.promotionProfileVersion, "Promotion profile version"),
+          requireProjectionProfileMarker(data.promotionPlanFingerprint, "Promotion plan fingerprint"),
           event.timing.recordedAt,
         ],
       );
@@ -222,9 +222,15 @@ async function upsertObservation(
       input.data.sourceRecordHash,
       input.data.sourceUpdatedAt,
       input.data.observedAt,
-      input.data.sourceProfileKey ?? "legacy",
-      input.data.sourceProfileVersion ?? "legacy",
-      input.data.sourceMappingFingerprint ?? "legacy",
+      requireProjectionProfileMarker(
+        input.data.sourceProfileKey,
+        "Source observation source profile key",
+      ).toLowerCase(),
+      requireProjectionProfileMarker(input.data.sourceProfileVersion, "Source observation source profile version"),
+      requireProjectionProfileMarker(
+        input.data.sourceMappingFingerprint,
+        "Source observation source mapping fingerprint",
+      ),
       JSON.stringify(input.data.normalized),
       JSON.stringify(input.data.sourcePayload),
       input.status,
@@ -237,4 +243,15 @@ async function upsertObservation(
       input.updatedAt,
     ],
   );
+}
+
+function requireProjectionProfileMarker(value: string | null | undefined, label: string): string {
+  const marker = value?.trim();
+  if (!marker) {
+    throw new Error(`${label} is required for Source Observation projection.`);
+  }
+  if (marker.toLowerCase() === "legacy") {
+    throw new Error(`${label} cannot use the retired legacy marker.`);
+  }
+  return marker;
 }

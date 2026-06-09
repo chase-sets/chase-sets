@@ -370,7 +370,7 @@ describe("source observation runtime", () => {
     );
   });
 
-  it("promotes future provider observations through the same TCGplayer Product ID reference", async () => {
+  it("blocks future provider observations through the same TCGplayer Product ID reference instead of using another provider's compatible profile", async () => {
     const harness = createChangedObservationRefreshHarness({
       providerKey: "scryfall",
       status: "observed",
@@ -386,30 +386,13 @@ describe("source observation runtime", () => {
     });
     const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
 
-    const result = await services.promoteObservation({
-      observationId: "obs_changed",
-      context,
-    });
-
-    expect(result).toEqual({
-      observationId: "obs_changed",
-      catalogItemId: "cat_existing_scryfall_tcgplayer",
-    });
-    expect(harness.itemCommands).toContainEqual(
-      expect.objectContaining({
-        streamId: "catalog.item-cat_existing_scryfall_tcgplayer",
-        command: expect.objectContaining({
-          type: "LinkExternalCatalogItemReference",
-          providerKey: "tcgplayer",
-          externalKey: "product:610001",
-        }),
+    await expect(
+      services.promoteObservation({
+        observationId: "obs_changed",
+        context,
       }),
-    );
-    expect(harness.itemCommands).not.toContainEqual(
-      expect.objectContaining({
-        command: expect.objectContaining({ type: "CreateCatalogItem" }),
-      }),
-    );
+    ).rejects.toThrow("Provider 'scryfall' does not support Catalog Item promotion.");
+    expect(harness.itemCommands).toEqual([]);
   });
 
   it("blocks promotion when external Catalog Item references match multiple Catalog Items", async () => {
@@ -720,6 +703,7 @@ describe("source observation runtime", () => {
     const result = await services.reapplyObservations({
       observationIds: ["obs_changed"],
       context,
+      reapplyProfileMode: "original-source-profile",
     });
 
     expect(result).toMatchObject({
@@ -758,6 +742,36 @@ describe("source observation runtime", () => {
         }),
       }),
     ]);
+  });
+
+  it("fails original-profile reapply for promoted observations with retired legacy profile metadata", async () => {
+    const harness = createChangedObservationRefreshHarness({
+      status: "promoted",
+      sourceProfileVersion: "legacy",
+    });
+    const services = createSourceObservationRuntime(harness.deps, harness.items, harness.referenceData);
+
+    const result = await services.reapplyObservations({
+      observationIds: ["obs_changed"],
+      context,
+      reapplyProfileMode: "original-source-profile",
+    });
+
+    expect(result).toMatchObject({
+      requested: 1,
+      reapplied: 0,
+      skipped: 0,
+      failed: 1,
+      outcomes: [
+        {
+          observationId: "obs_changed",
+          status: "failed",
+          reason:
+            "Source Observation obs_changed is missing original source profile version and cannot be reapplied with original-source-profile mode.",
+        },
+      ],
+    });
+    expect(harness.itemCommands).toEqual([]);
   });
 
   it("links TCGplayer product ids as Catalog Item references during promotion", async () => {
@@ -799,6 +813,7 @@ describe("source observation runtime", () => {
     const result = await services.reapplyObservations({
       observationIds: ["obs_changed"],
       context,
+      reapplyProfileMode: "original-source-profile",
     });
 
     expect(result).toMatchObject({
@@ -2201,6 +2216,9 @@ function createChangedObservationRefreshHarness(
   input: {
     normalized?: SourceObservationPokemonCardNormalized;
     providerKey?: string;
+    sourceProfileKey?: string;
+    sourceProfileVersion?: string;
+    sourceMappingFingerprint?: string;
     expansionAttributes?: Readonly<Record<string, JsonValue>>;
     status?: string;
     promotedCatalogItemId?: string | null;
@@ -2230,6 +2248,9 @@ function createChangedObservationRefreshHarness(
     source_record_hash: "new-hash",
     source_updated_at: "2026-05-20T00:00:00.000Z",
     observed_at: "2026-05-20T00:00:00.000Z",
+    source_profile_key: input.sourceProfileKey ?? "pokemon-tcg",
+    source_profile_version: input.sourceProfileVersion ?? "2026.06.03",
+    source_mapping_fingerprint: input.sourceMappingFingerprint ?? "fingerprint:2026.06.03",
     normalized,
     source_payload: { id: "me02.5-136" },
     status: input.status ?? "changed",
@@ -2252,6 +2273,9 @@ function createChangedObservationRefreshHarness(
       sourceRecordHash: observationStatus === "observed" ? observationRow.source_record_hash : "old-hash",
       sourceUpdatedAt: observationStatus === "observed" ? observationRow.source_updated_at : null,
       observedAt: observationStatus === "observed" ? observationRow.observed_at : "2026-05-19T00:00:00.000Z",
+      sourceProfileKey: observationRow.source_profile_key,
+      sourceProfileVersion: observationRow.source_profile_version,
+      sourceMappingFingerprint: observationRow.source_mapping_fingerprint,
       normalized,
       sourcePayload: observationRow.source_payload,
     }),
@@ -2261,6 +2285,9 @@ function createChangedObservationRefreshHarness(
           storedEvent(2, streamId, "catalog.source-observation.promoted", {
             catalogItemId: observationRow.promoted_catalog_item_id ?? "cat_existing",
             promotedAt: "2026-05-19T00:00:00.000Z",
+            promotionProfileKey: observationRow.source_profile_key,
+            promotionProfileVersion: observationRow.source_profile_version,
+            promotionPlanFingerprint: "plan-fingerprint:2026.06.03",
           }),
         ]),
     ...(observationStatus === "changed"
@@ -2274,6 +2301,9 @@ function createChangedObservationRefreshHarness(
             sourceRecordHash: observationRow.source_record_hash,
             sourceUpdatedAt: observationRow.source_updated_at,
             observedAt: observationRow.observed_at,
+            sourceProfileKey: observationRow.source_profile_key,
+            sourceProfileVersion: observationRow.source_profile_version,
+            sourceMappingFingerprint: observationRow.source_mapping_fingerprint,
             normalized,
             sourcePayload: observationRow.source_payload,
           }),
@@ -2445,6 +2475,9 @@ function createBulkReviewJobHarness(
         source_record_hash: `hash-${index + 1}`,
         source_updated_at: "2026-05-20T00:00:00.000Z",
         observed_at: "2026-05-20T00:00:00.000Z",
+        source_profile_key: "pokemon-tcg",
+        source_profile_version: "2026.06.03",
+        source_mapping_fingerprint: "fingerprint:2026.06.03",
         normalized: pokemonObservation({
           expansionName: "Base Set",
           seriesName: "Base",
@@ -2767,6 +2800,9 @@ function createBulkReviewJobHarness(
             sourceRecordHash: row.source_record_hash,
             sourceUpdatedAt: row.source_updated_at,
             observedAt: row.observed_at,
+            sourceProfileKey: row.source_profile_key,
+            sourceProfileVersion: row.source_profile_version,
+            sourceMappingFingerprint: row.source_mapping_fingerprint,
             normalized: row.normalized,
             sourcePayload: row.source_payload,
           }),

@@ -85,6 +85,31 @@ describe("source observation domain", () => {
     });
   });
 
+  it("rejects retired legacy profile markers instead of recording fallback metadata", () => {
+    expect(() =>
+      decideSourceObservation(initialSourceObservationState, {
+        ...recordCommand,
+        sourceProfileVersion: "legacy",
+      }),
+    ).toThrow("Source observation source profile version cannot use the retired legacy marker.");
+  });
+
+  it("rejects retired legacy promotion markers", () => {
+    const recorded = decideSourceObservation(initialSourceObservationState, recordCommand);
+    const state = evolveSourceObservation(initialSourceObservationState, recorded[0]);
+
+    expect(() =>
+      decideSourceObservation(state, {
+        type: "PromoteSourceObservation",
+        catalogItemId: "cat_1",
+        promotedAt: "2026-05-15T00:01:00.000Z",
+        promotionProfileKey: "pokemon-tcg",
+        promotionProfileVersion: "legacy",
+        promotionPlanFingerprint: "plan-fingerprint",
+      }),
+    ).toThrow("Promotion profile version cannot use the retired legacy marker.");
+  });
+
   it("records same-hash refreshes while preserving observed review state", () => {
     const recorded = decideSourceObservation(initialSourceObservationState, recordCommand);
     const observed = evolveSourceObservation(initialSourceObservationState, recorded[0]);

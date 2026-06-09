@@ -588,6 +588,8 @@ export type PromotionReapplyServices = Readonly<{
     observationIds: readonly string[];
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
+    reapplyProfileMode: SourceObservationReapplyProfileMode;
+    profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   }) => Promise<BulkSourceObservationReapplyResult>;
   reapplyObservationScope: (input: {
     scope: SourceObservationFilterScope;
@@ -1183,7 +1185,7 @@ export function createSourceObservationRuntime(
   async function reapplyObservationFromRow(input: {
     observation: SourceObservationDetailRow;
     context: EventStoreContext;
-    reapplyProfileMode?: SourceObservationReapplyProfileMode;
+    reapplyProfileMode: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   }): Promise<{ observationId: string; catalogItemId: CatalogItemId }> {
     const normalized = requirePokemonCardPromotionObservation(
@@ -1194,7 +1196,7 @@ export function createSourceObservationRuntime(
       profileVersions,
       input.observation,
       normalized,
-      input.reapplyProfileMode ?? "original-source-profile",
+      input.reapplyProfileMode,
       input.profileSnapshot ?? null,
     );
     const providerProfile = providerProfileVersion.profile;
@@ -1243,7 +1245,7 @@ export function createSourceObservationRuntime(
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
     runReapplyObservation?: DurableSideEffectRunner;
-    reapplyProfileMode?: SourceObservationReapplyProfileMode;
+    reapplyProfileMode: SourceObservationReapplyProfileMode;
     profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
   }): Promise<BulkSourceObservationReapplyResult> {
     rolloutControlPolicy.assertAllowed({ capability: "reapply" });
@@ -1565,6 +1567,7 @@ export function createSourceObservationRuntime(
               observationIds: [observationId],
               context,
               runReapplyObservation: runBulkReviewSideEffect,
+              reapplyProfileMode: "current-active-profile",
             })
           : claimed.action === "promote"
             ? await promoteObservationIds({
@@ -1865,7 +1868,8 @@ export function createSourceObservationRuntime(
       .find(
         (job) =>
           JSON.stringify(job.scope) === JSON.stringify(scope) &&
-          integrationProfileSnapshotKey(job.profileSnapshot) === integrationProfileSnapshotKey(profileSnapshot),
+          integrationProfileSnapshotKey(job.profileSnapshot, job.jobId) ===
+            integrationProfileSnapshotKey(profileSnapshot, "new integration job"),
       );
     if (existingJob) {
       return existingJob;
@@ -2044,8 +2048,10 @@ export function createSourceObservationRuntime(
         observationIds: [claim.unit.payload.observationId],
         context,
         runReapplyObservation,
-        reapplyProfileMode:
-          claim.unit.payload.reapplyProfileMode ?? job.reapplyProfileMode ?? "original-source-profile",
+        reapplyProfileMode: requireIntegrationJobReapplyProfileMode(
+          claim.unit.payload.reapplyProfileMode ?? job.reapplyProfileMode,
+          job.jobId,
+        ),
         profileSnapshot: claim.unit.payload.profileSnapshot ?? job.profileSnapshot,
       });
       const outcome = integrationReapplyOutcomeFromBulkOutcome(
@@ -2329,7 +2335,7 @@ export function createSourceObservationRuntime(
       context: input.job.eventContext,
       onProgress: progressHandler,
       runReapplyObservation: createSourceObservationSideEffectRunner(jobContext),
-      reapplyProfileMode: input.job.reapplyProfileMode ?? "original-source-profile",
+      reapplyProfileMode: requireIntegrationJobReapplyProfileMode(input.job.reapplyProfileMode, input.job.jobId),
       profileSnapshot: input.job.profileSnapshot,
     });
     throwIfJobRunCancelled(input.context);
@@ -2917,6 +2923,7 @@ export function createSourceObservationRuntime(
         observationIds,
         context,
         onProgress,
+        reapplyProfileMode: "current-active-profile",
       });
     },
     rejectObservations: rejectObservationIds,
@@ -3754,11 +3761,6 @@ async function requireCatalogReapplyActiveProfileVersion(
     return providerProfile;
   }
 
-  const compatibleProfile = (await profileVersions.listProfileVersions()).find(isActivePromotionProfileVersion);
-  if (compatibleProfile) {
-    return compatibleProfile;
-  }
-
   throw new Error(`Provider '${normalizedProvider}' does not support Catalog Item promotion.`);
 }
 
@@ -3776,11 +3778,21 @@ async function requireCatalogPromotionProfileVersionForReapply(
     return requireCatalogPromotionProfileVersion(profileVersions, observation.provider_key, normalized);
   }
 
-  const sourceProfileKey = observation.source_profile_key?.trim() || "legacy";
-  const sourceProfileVersion = observation.source_profile_version?.trim() || "legacy";
-  if (sourceProfileVersion === "legacy") {
-    return requireCatalogPromotionProfileVersion(profileVersions, observation.provider_key, normalized);
-  }
+  const sourceProfileKey = requireOriginalSourceProfileMarker(
+    observation.source_profile_key,
+    "source profile key",
+    observation.observation_id,
+  ).toLowerCase();
+  const sourceProfileVersion = requireOriginalSourceProfileMarker(
+    observation.source_profile_version,
+    "source profile version",
+    observation.observation_id,
+  );
+  requireOriginalSourceProfileMarker(
+    observation.source_mapping_fingerprint,
+    "source mapping fingerprint",
+    observation.observation_id,
+  );
 
   const version = (await profileVersions.listProfileVersions(observation.provider_key)).find(
     (candidate) =>
@@ -3863,8 +3875,14 @@ function snapshotCatalogReapplyProfileVersion(
   return snapshotCatalogProfileVersion(version);
 }
 
-function integrationProfileSnapshotKey(snapshot: SourceObservationIntegrationProfileSnapshot | null): string {
-  return snapshot ? `${snapshot.providerKey}:${snapshot.profileKey}:${snapshot.profileVersion}` : "legacy";
+function integrationProfileSnapshotKey(
+  snapshot: SourceObservationIntegrationProfileSnapshot | null,
+  owner: string,
+): string {
+  if (!snapshot) {
+    throw new Error(`Source Observation integration job ${owner} is missing profile snapshot.`);
+  }
+  return `${snapshot.providerKey}:${snapshot.profileKey}:${snapshot.profileVersion}`;
 }
 
 function profileConnectorSourceVersion(
@@ -4560,15 +4578,6 @@ async function requireCatalogPromotionProfileVersion(
     return profile;
   }
 
-  const compatibleProfile = (await profileVersions.listProfileVersions()).find(
-    (candidate) =>
-      isActivePromotionProfileVersion(candidate) &&
-      candidate.profile.normalizedObservationMapping.kind === normalized.kind,
-  );
-  if (compatibleProfile) {
-    return compatibleProfile;
-  }
-
   if (profile && profile.profile.normalizedObservationMapping.kind !== normalized.kind) {
     throw new Error(
       `Provider '${providerKey}' promotion mapping '${profile.profile.normalizedObservationMapping.kind}' is not compatible with '${normalized.kind}' observations.`,
@@ -4576,6 +4585,30 @@ async function requireCatalogPromotionProfileVersion(
   }
 
   throw new Error(`Provider '${providerKey}' does not support Catalog Item promotion.`);
+}
+
+function requireOriginalSourceProfileMarker(
+  value: string | null | undefined,
+  label: string,
+  observationId: string,
+): string {
+  const marker = value?.trim();
+  if (!marker || marker.toLowerCase() === "legacy") {
+    throw new Error(
+      `Source Observation ${observationId} is missing original ${label} and cannot be reapplied with original-source-profile mode.`,
+    );
+  }
+  return marker;
+}
+
+function requireIntegrationJobReapplyProfileMode(
+  mode: SourceObservationReapplyProfileMode | null | undefined,
+  jobId: string,
+): SourceObservationReapplyProfileMode {
+  if (mode === "current-active-profile" || mode === "original-source-profile") {
+    return mode;
+  }
+  throw new Error(`Source Observation reapply job ${jobId} is missing reapply profile mode.`);
 }
 
 function isActivePromotionProfileVersion(version: CatalogProviderIntegrationProfileVersionRecord): boolean {

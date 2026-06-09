@@ -31,19 +31,8 @@ describe("catalog integration legacy cleanup", () => {
     );
   });
 
-  it("requires retained legacy paths to carry owner, reason, removal date, and launch gate", () => {
-    expect(catalogIntegrationRetainedLegacyPaths.map((path) => path.key)).toEqual([
-      "legacy-source-observation-profile-marker-read",
-    ]);
-
-    for (const path of catalogIntegrationRetainedLegacyPaths) {
-      expect(path.owner).toBe("catalog-source-observations");
-      expect(path.ownerIssue).toBeGreaterThan(0);
-      expect(path.reason).not.toHaveLength(0);
-      expect(path.removalDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(path.removalCriteria).not.toHaveLength(0);
-      expect(path.launchGate).not.toHaveLength(0);
-    }
+  it("does not retain legacy Source Observation marker reads as runtime compatibility paths", () => {
+    expect(catalogIntegrationRetainedLegacyPaths).toEqual([]);
   });
 
   it("passes clean pre-launch bootstrap readiness", () => {
