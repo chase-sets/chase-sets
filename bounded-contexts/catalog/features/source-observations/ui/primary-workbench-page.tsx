@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Badge,
   BulkActionBar,
@@ -44,6 +44,7 @@ type PrimaryWorkbenchStep = Readonly<{
 }>;
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
+type SourceObservationReviewRow = CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number];
 
 export interface CatalogPrimaryWorkbenchPageProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
@@ -62,6 +63,21 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
   );
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set(["review", "preview"]));
   const selectedCount = [...selectedKeys].filter((key) => selectableStepKeys.has(key)).length;
+  const [selectedObservationKeys, setSelectedObservationKeys] = useState<Set<string>>(
+    () => new Set(readModel.sourceObservationReview.selectedObservationIds),
+  );
+  const selectedObservationRouteKey = readModel.sourceObservationReview.selectedObservationIds.join("\u001f");
+  useEffect(() => {
+    setSelectedObservationKeys(
+      new Set(selectedObservationRouteKey.length > 0 ? selectedObservationRouteKey.split("\u001f") : []),
+    );
+  }, [selectedObservationRouteKey]);
+  const selectedObservationRows = readModel.sourceObservationReview.rows.filter((row) =>
+    selectedObservationKeys.has(row.observationId),
+  );
+  const selectedEligibleObservationCount = selectedObservationRows.filter(
+    (row) => row.promotionReadiness.state === "eligible",
+  ).length;
   const columns = useMemo<DataColumn<PrimaryWorkbenchStep>[]>(
     () => [
       {
@@ -195,6 +211,107 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
     ],
     [],
   );
+  const reviewColumns = useMemo<DataColumn<SourceObservationReviewRow>[]>(
+    () => [
+      {
+        key: "observation",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.observation"),
+        sortable: true,
+        cell: (row) => (
+          <div className="grid min-w-0 gap-1">
+            <div className="truncate text-sm font-semibold text-foreground">{row.displayName}</div>
+            <div className="text-xs leading-5 text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.external", {
+                provider: row.providerKey,
+                external: row.externalKey,
+              })}
+            </div>
+            <div className="flex min-w-0 flex-wrap gap-1">
+              {row.normalizedFactSummaries.slice(0, 3).map((fact) => (
+                <Badge key={fact} tone="neutral">
+                  {fact}
+                </Badge>
+              ))}
+            </div>
+          </div>
+        ),
+      },
+      {
+        key: "status",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.status"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.status"),
+        cell: (row) => (
+          <div className="grid gap-1">
+            <Badge tone={sourceObservationStatusTone(row.status)}>{stateLabel(row.status)}</Badge>
+            <span className="text-xs text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.changed", {
+                value: row.sourceUpdatedAt ?? row.changedAt,
+              })}
+            </span>
+          </div>
+        ),
+      },
+      {
+        key: "evidence",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.evidence"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.evidence"),
+        cell: (row) => (
+          <div className="grid min-w-0 gap-1">
+            <span className="text-sm text-foreground">{row.payloadSummary}</span>
+            <span className="text-xs leading-5 text-secondary">{row.redactionSummary}</span>
+            {row.duplicateEvidence.length > 0 ? (
+              <Badge tone="warning">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.count", {
+                  count: row.duplicateEvidence.length,
+                })}
+              </Badge>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        key: "readiness",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.readiness"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.table.readiness"),
+        cell: (row) => (
+          <div className="grid gap-1">
+            <Badge tone={row.promotionReadiness.state === "eligible" ? "success" : "warning"}>
+              {stateLabel(row.promotionReadiness.state)}
+            </Badge>
+            <BlockerList blockers={row.promotionReadiness.blockers} />
+          </div>
+        ),
+      },
+      {
+        key: "actions",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
+        align: "right",
+        cell: (row) => (
+          <div className="flex flex-wrap justify-end gap-2">
+            <SourceObservationEvidenceSheet row={row} />
+            {row.actions
+              .filter((actionEntry) => actionEntry.key !== "view-source-observation")
+              .map((actionEntry) => (
+                <Button
+                  key={actionEntry.key}
+                  size="sm"
+                  tone={actionEntry.key === "preview-promotion" ? "primary" : "secondary"}
+                  disabled={actionEntry.state !== "available" && actionEntry.state !== "degraded"}
+                  aria-label={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.action.aria", {
+                    action: rowActionLabel(actionEntry.key),
+                    observation: row.displayName,
+                  })}
+                >
+                  {rowActionLabel(actionEntry.key)}
+                </Button>
+              ))}
+          </div>
+        ),
+      },
+    ],
+    [],
+  );
 
   return (
     <section className="grid gap-5" data-catalog-primary-workbench="true">
@@ -309,8 +426,10 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
               <FilterArea
                 sticky={false}
                 activeFilterCount={activeFilterCount(readModel)}
-                panelTitle="Primary workbench context"
-                panelDescription="These canonical route keys preserve provider, unit, scope, profile, filters, selections, jobs, previews, and return paths."
+                panelTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.title")}
+                panelDescription={t(
+                  "catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.description",
+                )}
                 actions={
                   <Button size="sm" tone="secondary">
                     {t("catalog.features.sourceObservations.ui.primaryWorkbench.reset.view")}
@@ -398,7 +517,9 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
                           },
                           {
                             key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
-                            value: readModel.promotionPreview.commandPlanHash ?? "Preview required",
+                            value:
+                              readModel.promotionPreview.commandPlanHash ??
+                              t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
                           },
                           {
                             key: t("catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode"),
@@ -532,6 +653,115 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
                   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description",
                 )}
               />
+            </WorkflowModule>
+
+            <WorkflowModule
+              title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.title")}
+              description={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.description")}
+              status={
+                <Badge tone={readModel.sourceObservationReview.rows.length > 0 ? "success" : "warning"}>
+                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.status", {
+                    count: readModel.sourceObservationReview.pagination.total,
+                  })}
+                </Badge>
+              }
+              actions={
+                <>
+                  <Button size="sm" tone="secondary" leadingIcon="filter">
+                    {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
+                  </Button>
+                  <Button size="sm" leadingIcon="check" disabled={!isActionAvailable(readModel, "preview-promotion")}>
+                    {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
+                  </Button>
+                </>
+              }
+              headingLevel={2}
+              density="compact"
+            >
+              <FilterArea
+                sticky={false}
+                activeFilterCount={
+                  readModel.sourceObservationReview.filters.filter((filterEntry) => filterEntry.value).length
+                }
+                panelTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filters.title")}
+                panelDescription={t(
+                  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filters.description",
+                )}
+              >
+                {readModel.sourceObservationReview.filters.map((filterEntry) => (
+                  <Badge key={filterEntry.key} tone={filterEntry.serverApplied ? "info" : "warning"}>
+                    {filterEntry.label}:{" "}
+                    {filterEntry.value ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected")}
+                  </Badge>
+                ))}
+              </FilterArea>
+
+              <div className="flex min-w-0 flex-wrap gap-2">
+                {readModel.sourceObservationReview.savedFilters.map((savedFilter) => (
+                  <Badge key={savedFilter.key} tone="neutral">
+                    {savedFilter.label}
+                    {savedFilter.count === null
+                      ? ""
+                      : t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.count", {
+                          value: savedFilter.count,
+                        })}
+                  </Badge>
+                ))}
+              </div>
+
+              <DataTable
+                rows={[...readModel.sourceObservationReview.rows]}
+                columns={reviewColumns}
+                getRowId={(row) => row.observationId}
+                selectedKeys={selectedObservationKeys}
+                onSelectionChange={setSelectedObservationKeys}
+                isRowSelectable={(row) => row.promotionReadiness.state === "eligible"}
+                density="compact"
+                emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.title")}
+                emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.description")}
+              />
+
+              {selectedObservationKeys.size > 0 ? (
+                <div className="grid gap-3 rounded-tokenMd border border-border bg-surface-2 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="text-sm font-semibold text-foreground">
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.selected", {
+                        count: selectedObservationKeys.size,
+                      })}
+                    </div>
+                    <div className="flex flex-wrap justify-end gap-2">
+                      <Button
+                        size="sm"
+                        disabled={
+                          selectedEligibleObservationCount === 0 || !isActionAvailable(readModel, "preview-promotion")
+                        }
+                      >
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
+                      </Button>
+                      <Button size="sm" tone="secondary" disabled={selectedEligibleObservationCount === 0}>
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject")}
+                      </Button>
+                      <Button size="sm" tone="secondary" onClick={() => setSelectedObservationKeys(new Set())}>
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
+                      </Button>
+                    </div>
+                  </div>
+                  <KeyValueList
+                    items={[
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
+                        value: selectedEligibleObservationCount,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.command.plan"),
+                        value:
+                          readModel.promotionPreview.commandPlanHash ??
+                          t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
+                      },
+                    ]}
+                  />
+                </div>
+              ) : null}
             </WorkflowModule>
 
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
@@ -795,6 +1025,125 @@ function StepEvidenceSheet({
   );
 }
 
+function SourceObservationEvidenceSheet({ row }: { row: SourceObservationReviewRow }) {
+  return (
+    <SideSheet
+      title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.title", {
+        name: row.displayName,
+      })}
+      description={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.description")}
+      closeLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.evidence.close")}
+      width="lg"
+      trigger={
+        <Button size="sm" tone="secondary" leadingIcon="eye">
+          {t("catalog.features.sourceObservations.ui.primaryWorkbench.evidence")}
+        </Button>
+      }
+      footer={
+        <Button size="sm" disabled={row.promotionReadiness.state !== "eligible"}>
+          {row.promotionReadiness.state === "eligible"
+            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")
+            : t("catalog.features.sourceObservations.ui.primaryWorkbench.blocked")}
+        </Button>
+      }
+    >
+      <div className="grid gap-4">
+        <KeyValueList
+          items={[
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.provider"),
+              value: row.providerKey,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.external"),
+              value: row.externalKey,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.source.url"),
+              value: row.sourceUrl,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.hash"),
+              value: row.sourceRecordHash,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.observed"),
+              value: row.observedAt,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.changed"),
+              value: row.sourceUpdatedAt ?? row.changedAt,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.profile"),
+              value: row.sourceProfileVersion,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.promotion.profile"),
+              value:
+                row.promotionProfileVersion ??
+                t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.payload"),
+              value: row.payloadSummary,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.redaction"),
+              value: row.redactionSummary,
+            },
+            {
+              key: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.key.command.preview"),
+              value:
+                row.commandPreview.promotionPlanHash ??
+                t("catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required"),
+            },
+          ]}
+        />
+
+        <EvidenceList
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.normalized")}
+          items={row.normalizedFactSummaries}
+          empty={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+        />
+        <EvidenceList
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.duplicates")}
+          items={row.duplicateEvidence}
+          empty={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.duplicates")}
+        />
+        <EvidenceList
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.conflicts")}
+          items={row.conflictEvidence}
+          empty={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.conflicts")}
+        />
+        <EvidenceList
+          title={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.audit")}
+          items={row.auditTrail}
+          empty={t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}
+        />
+        <BlockerList blockers={row.promotionReadiness.blockers} />
+      </div>
+    </SideSheet>
+  );
+}
+
+function EvidenceList({ title, items, empty }: { title: string; items: readonly string[]; empty: string }) {
+  return (
+    <div className="grid gap-2">
+      <div className="text-sm font-semibold text-foreground">{title}</div>
+      {items.length > 0 ? (
+        <ul className="grid gap-1 text-sm leading-6 text-secondary">
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      ) : (
+        <Badge tone="success">{empty}</Badge>
+      )}
+    </div>
+  );
+}
+
 function BlockerList({ blockers }: { blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[] }) {
   if (blockers.length === 0) {
     return <Badge tone="success">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</Badge>;
@@ -804,7 +1153,7 @@ function BlockerList({ blockers }: { blockers: readonly CatalogPrimaryWorkbenchB
     <div className="flex min-w-0 flex-wrap gap-1.5">
       {blockers.map((blocker) => (
         <Badge key={blocker} tone={blocker.includes("denied") || blocker.includes("blocked") ? "danger" : "warning"}>
-          {blocker}
+          {stateLabel(blocker)}
         </Badge>
       ))}
     </div>
@@ -844,6 +1193,35 @@ function actionTone(state: CatalogPrimaryWorkbenchActionState) {
     return "warning";
   }
   return "neutral";
+}
+
+function sourceObservationStatusTone(status: string) {
+  if (status === "promoted") {
+    return "success";
+  }
+  if (status === "rejected") {
+    return "danger";
+  }
+  if (status === "changed") {
+    return "warning";
+  }
+
+  return "info";
+}
+
+function rowActionLabel(key: SourceObservationReviewRow["actions"][number]["key"]): string {
+  switch (key) {
+    case "view-source-observation":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.view");
+    case "preview-promotion":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion");
+    case "reject-source-observations":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject");
+    case "defer-source-observations":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer");
+    case "start-reapply":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reapply");
+  }
 }
 
 function jobStateTone(state: ImportJobRow["state"]) {

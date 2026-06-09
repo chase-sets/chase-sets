@@ -470,6 +470,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.empty.steps.title":
     "No primary workbench steps are available",
   "catalog.features.sourceObservations.ui.primaryWorkbench.evidence": "Evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.evidence.close": "Close evidence",
   "catalog.features.sourceObservations.ui.primaryWorkbench.evidence.sheet.description":
     "Redacted context, blockers, and command evidence stay attached to the primary workflow.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.evidence.sheet.title": "{label} evidence",
@@ -565,7 +566,88 @@ export const catalogEnglishTranslations = {
     "No provider transport blockers reported for the selected context.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.ready": "Ready",
   "catalog.features.sourceObservations.ui.primaryWorkbench.reset.view": "Reset view",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.observed": "Observed {observedAt}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.promoted": "Promoted {promotedAt}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.promotion.profile":
+    "Promotion profile {profileKey}@{profileVersion}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.provider.changed":
+    "Provider changed {changedAt}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.source.profile":
+    "Source profile {profileKey}@{profileVersion}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.unknown": "unknown",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.action.aria": "{action}: {observation}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.description":
+    "Selected eligible observations can be previewed before any Catalog-owned write runs.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.title": "Preview selected observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.conflict.changed":
+    "Changed normalized facts require promotion preview before Catalog writes.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.conflict.linked.catalog.item":
+    "Previously linked Catalog Item {itemId} needs review.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.defer": "Defer",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.description":
+    "Review provider observations with provenance, redacted facts, duplicate evidence, conflicts, and command readiness before promotion.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.catalog.reference":
+    "Catalog reference {provider}:{external}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.count": "{count} duplicate clue(s)",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.product.reference":
+    "Product reference {provider}:{external}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.description":
+    "Choose a provider context or pull provider data to review Source Observations here.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.title":
+    "No Source Observations in this context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.audit": "Audit trail preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.conflicts": "Conflict evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.description":
+    "Source provenance, normalized facts, redaction summaries, duplicate clues, command preview, and audit context stay together.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.duplicates": "Duplicate evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.conflicts":
+    "No conflict evidence reported",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.no.duplicates":
+    "No duplicate evidence reported",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.normalized": "Normalized facts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.evidence.title": "{name} evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.language": "Language",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.observed.after": "Observed after",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.observed.before": "Observed before",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.profile": "Profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.provider": "Provider",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.set": "Set",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.status": "Status",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.unit": "Unit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filters.description":
+    "Filters are preserved in the workbench route context and applied by the Source Observation review query when supported.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.filters.title": "Source Observation filters",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.changed": "Changed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.command.preview": "Command preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.external": "External key",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.hash": "Source hash",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.observed": "Observed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.payload": "Payload summary",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.promotion.profile": "Promotion profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.redaction": "Redaction summary",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.key.source.url": "Source URL",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.observations": "Review observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.payload.summary":
+    "{kind}; {imageCount} image URL(s); {externalReferenceCount} external reference(s) summarized.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required": "Preview required",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.reapply": "Reapply",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.redaction.summary":
+    "Provider payload withheld; normalized facts and provenance are redaction-safe.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.reject": "Reject",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.changed": "Changed since last pull",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.count": " ({value})",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.ready": "Ready for promotion preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.rejected": "Rejected audit trail",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.selected": "{count} observation(s) selected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.status": "{count} in review scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.table.changed": "Changed: {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.table.evidence": "Evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.table.external": "{provider}:{external}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.table.observation": "Observation",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.table.readiness": "Promotion readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.table.status": "Status",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.title": "Source Observation review",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.view": "View",
   "catalog.features.sourceObservations.ui.primaryWorkbench.save.context": "Save context",
   "catalog.features.sourceObservations.ui.primaryWorkbench.step.import.evidence":
     "{count} active or recent job(s) for the selected context.",
