@@ -385,6 +385,7 @@ const app = buildPlatformApiApp(runtime, {
   controlPlane,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
   readConsistencyAuditLogger: logger,
+  readConsistency: config.readConsistency,
   readinessChecks: [
     {
       name: "control.database",

@@ -10,6 +10,10 @@ import {
   resolvePlatformInternalAuthSecret,
 } from "@chase-sets/platform-runtime/http";
 import type { UcpBusinessSigningKeySet } from "@chase-sets/platform-runtime/ucp";
+import type {
+  ReadConsistencyExactDependencyMode,
+  ReadConsistencyRouteTuning,
+} from "@chase-sets/bounded-context-runtime";
 import { apiContextRegistry } from "./generated/api-context-registry";
 
 export type PlatformApiPaymentProcessorConfig =
@@ -93,6 +97,7 @@ export type PlatformApiBaseConfig = Readonly<{
   port: number;
   internalAuthSecret?: string;
   realtime?: PlatformApiRealtimeConfig;
+  readConsistency?: PlatformApiReadConsistencyConfig;
   paymentReconciliationIntervalMs?: number | null;
   sellerFundsReleaseIntervalMs?: number | null;
   payoutReconciliationIntervalMs?: number | null;
@@ -134,6 +139,13 @@ export type PlatformApiRealtimeConfig = Readonly<{
   cursorSigningSecret?: string;
   previousCursorSigningSecrets: readonly string[];
   streamLimiter: PlatformApiRealtimeStreamLimiterConfig;
+}>;
+
+export type PlatformApiReadConsistencyConfig = Readonly<{
+  timeoutMs: number;
+  pollIntervalMs: number;
+  exactDependencyMode: ReadConsistencyExactDependencyMode;
+  routeTuning: readonly ReadConsistencyRouteTuning[];
 }>;
 
 export type PlatformApiRealtimeStreamLimiterConfig =
@@ -223,6 +235,20 @@ function getPositiveNumberEnv(name: string, defaultValue: number) {
   return getOptionalPositiveNumberEnv(name, defaultValue) ?? defaultValue;
 }
 
+function getRequiredPositiveNumberEnv(name: string, defaultValue: number) {
+  const value = getOptionalEnv(name);
+  if (!value) {
+    return defaultValue;
+  }
+
+  const parsed = Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) {
+    return parsed;
+  }
+
+  throw new Error(`${name} must be a positive number.`);
+}
+
 function getBooleanEnv(name: string, defaultValue: boolean) {
   const value = getOptionalEnv(name);
   if (!value) {
@@ -249,6 +275,81 @@ function getOptionalJsonEnv<T>(name: string): T | null {
   } catch (error) {
     throw new Error(`${name} must contain valid JSON.`);
   }
+}
+
+function getReadConsistencyExactDependencyModeEnv(name: string): ReadConsistencyExactDependencyMode {
+  const value = getOptionalEnv(name) ?? "enabled";
+  if (value === "enabled" || value === "target-context") {
+    return value;
+  }
+
+  throw new Error(`${name} must be enabled or target-context.`);
+}
+
+function loadReadConsistencyRouteTuning(): readonly ReadConsistencyRouteTuning[] {
+  const value = getOptionalJsonEnv<unknown>("READ_CONSISTENCY_ROUTE_TUNING_JSON") ?? [];
+  if (!Array.isArray(value)) {
+    throw new Error("READ_CONSISTENCY_ROUTE_TUNING_JSON must be a JSON array.");
+  }
+
+  return value.map((entry, index) => {
+    if (!isRecord(entry)) {
+      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}] must be an object.`);
+    }
+
+    const mountPath = entry.mountPath;
+    const routePath = entry.routePath;
+    const targetContextName = entry.targetContextName;
+    const timeoutMs = entry.timeoutMs;
+    const pollIntervalMs = entry.pollIntervalMs;
+    const exactDependencyMode = entry.exactDependencyMode;
+
+    if (typeof mountPath !== "string" || !mountPath.trim().startsWith("/")) {
+      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].mountPath must be an absolute path string.`);
+    }
+    if (typeof routePath !== "string" || !routePath.trim().startsWith("/")) {
+      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].routePath must be an absolute path string.`);
+    }
+    if (targetContextName !== undefined && (typeof targetContextName !== "string" || !targetContextName.trim())) {
+      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].targetContextName must be a string when set.`);
+    }
+    if (timeoutMs !== undefined && !isPositiveNumber(timeoutMs)) {
+      throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].timeoutMs must be a positive number when set.`);
+    }
+    if (pollIntervalMs !== undefined && !isPositiveNumber(pollIntervalMs)) {
+      throw new Error(
+        `READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].pollIntervalMs must be a positive number when set.`,
+      );
+    }
+    if (
+      exactDependencyMode !== undefined &&
+      exactDependencyMode !== "enabled" &&
+      exactDependencyMode !== "target-context"
+    ) {
+      throw new Error(
+        `READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}].exactDependencyMode must be enabled or target-context when set.`,
+      );
+    }
+
+    return {
+      mountPath: mountPath.trim(),
+      routePath: routePath.trim(),
+      ...(typeof targetContextName === "string" ? { targetContextName: targetContextName.trim() } : {}),
+      ...(typeof timeoutMs === "number" ? { timeoutMs } : {}),
+      ...(typeof pollIntervalMs === "number" ? { pollIntervalMs } : {}),
+      ...(typeof exactDependencyMode === "string"
+        ? { exactDependencyMode: exactDependencyMode as ReadConsistencyExactDependencyMode }
+        : {}),
+    };
+  });
+}
+
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
 function getDeploymentEnvironment() {
@@ -532,6 +633,12 @@ function loadBaseConfig(): PlatformApiBaseConfig {
       cursorSigningSecret: getOptionalEnv("REALTIME_CURSOR_SIGNING_SECRET") ?? undefined,
       previousCursorSigningSecrets: getOptionalCsvEnv("REALTIME_PREVIOUS_CURSOR_SIGNING_SECRETS"),
       streamLimiter: loadRealtimeStreamLimiterConfig(),
+    },
+    readConsistency: {
+      timeoutMs: getRequiredPositiveNumberEnv("READ_CONSISTENCY_TIMEOUT_MS", 2_500),
+      pollIntervalMs: getRequiredPositiveNumberEnv("READ_CONSISTENCY_POLL_INTERVAL_MS", 75),
+      exactDependencyMode: getReadConsistencyExactDependencyModeEnv("READ_CONSISTENCY_EXACT_DEPENDENCY_MODE"),
+      routeTuning: loadReadConsistencyRouteTuning(),
     },
     paymentReconciliationIntervalMs: getOptionalPositiveNumberEnv("PAYMENT_RECONCILIATION_INTERVAL_MS", 300_000),
     sellerFundsReleaseIntervalMs: getOptionalPositiveNumberEnv("SELLER_FUNDS_RELEASE_INTERVAL_MS", 300_000),

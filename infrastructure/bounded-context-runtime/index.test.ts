@@ -2168,6 +2168,196 @@ describe("bounded context projection replay", () => {
     expect(refreshCart).not.toHaveBeenCalled();
   });
 
+  it("can fall back exact route dependencies to target-context waits through route tuning", async () => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const auditRecords: unknown[] = [];
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+    });
+    const refreshSession = vi.fn(async () => ({
+      lastGlobalPosition: "5",
+      state: "caught-up",
+      lastError: null,
+    }));
+    const refreshCart = vi.fn(async () => ({
+      lastGlobalPosition: "1",
+      state: "behind",
+      lastError: null,
+    }));
+
+    attachReadConsistencyMiddleware(
+      {
+        use: (_path, middleware) => {
+          middlewares.push(middleware);
+        },
+      },
+      [
+        {
+          contextName: "checkout",
+          mountPath: "/api/marketplace",
+          readFreshnessRoutes: [
+            {
+              routePath: "/account/checkout-sessions/:sessionId",
+              dependencies: [{ readModelTable: "checkout_session_pages" }],
+            },
+          ],
+        },
+      ],
+      [
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.session-projection",
+          ownedTables: ["checkout_session_pages"],
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshSession }],
+        },
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.cart-projection",
+          ownedTables: ["checkout_cart_line_pages"],
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshCart }],
+        },
+      ],
+      {
+        timeoutMs: 0,
+        pollIntervalMs: 1,
+        routeTuning: [
+          {
+            mountPath: "/api/marketplace",
+            routePath: "/account/checkout-sessions/:sessionId",
+            targetContextName: "checkout",
+            exactDependencyMode: "target-context",
+          },
+        ],
+        recordReadConsistencyAudit: (record) => auditRecords.push(record),
+      },
+    );
+
+    let nextCalled = false;
+    const result = await middlewares[0](
+      {
+        req: {
+          method: "GET",
+          path: "/api/marketplace/account/checkout-sessions/chk_1",
+          header: (name: string) => {
+            if (name === CHASE_SETS_READ_AFTER_WRITE_HEADER) {
+              return receipt;
+            }
+            return name === CHASE_SETS_READ_TARGET_CONTEXT_HEADER ? "checkout" : undefined;
+          },
+        },
+        json: (body: unknown, status: number) => ({ body, status }),
+      },
+      async () => {
+        nextCalled = true;
+      },
+    );
+
+    expect(nextCalled).toBe(false);
+    expect(refreshSession).toHaveBeenCalledTimes(1);
+    expect(refreshCart).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({
+      status: 503,
+      body: {
+        error: {
+          code: "projection_freshness_timeout",
+          waitMode: "target-context",
+          dependencies: [],
+          pending: [
+            {
+              targetContextName: "checkout",
+              projectionName: "checkout.cart-projection",
+              sourceContextName: "checkout",
+            },
+          ],
+        },
+      },
+    });
+    expect(auditRecords[0]).toMatchObject({
+      outcome: "timeout",
+      waitMode: "target-context",
+      dependencies: [],
+    });
+  });
+
+  it("uses route tuning timeout and poll interval without changing global defaults", async () => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+    });
+    const nowValues = [1_000, 1_000, 1_005, 1_010];
+    const refreshSession = vi.fn(async () => ({
+      lastGlobalPosition: "1",
+      state: "behind",
+      lastError: null,
+    }));
+
+    attachReadConsistencyMiddleware(
+      {
+        use: (_path, middleware) => {
+          middlewares.push(middleware);
+        },
+      },
+      [
+        {
+          contextName: "checkout",
+          mountPath: "/api/marketplace",
+          readFreshnessRoutes: [
+            {
+              routePath: "/account/checkout-sessions/:sessionId",
+              dependencies: [{ projectionName: "checkout.session-projection" }],
+            },
+          ],
+        },
+      ],
+      [
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.session-projection",
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshSession }],
+        },
+      ],
+      {
+        timeoutMs: 2_500,
+        pollIntervalMs: 75,
+        routeTuning: [
+          {
+            mountPath: "/api/marketplace",
+            routePath: "/account/checkout-sessions/:sessionId",
+            timeoutMs: 10,
+            pollIntervalMs: 5,
+          },
+        ],
+        nowMs: () => nowValues.shift() ?? 1_010,
+      },
+    );
+
+    const result = await middlewares[0](
+      {
+        req: {
+          method: "GET",
+          path: "/api/marketplace/account/checkout-sessions/chk_1",
+          header: (name: string) => (name === CHASE_SETS_READ_AFTER_WRITE_HEADER ? receipt : undefined),
+        },
+        json: (body: unknown, status: number) => ({ body, status }),
+      },
+      async () => undefined,
+    );
+
+    expect(result).toMatchObject({
+      status: 503,
+      body: {
+        error: {
+          code: "projection_freshness_timeout",
+          waitMode: "exact-dependency",
+        },
+      },
+    });
+    expect(refreshSession.mock.calls.length).toBeGreaterThan(1);
+    expect(refreshSession.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
   it("keeps target-context fallback for read routes without declared dependencies", async () => {
     const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
     const receipt = encodeFreshWriteReceipt({

@@ -37,9 +37,37 @@ Measure only records where `type=read-after-write.freshness`, `routePaths` conta
 | Permanent not-found while receipt is fresh | 0 allowed. | Fail the canary, fail release evidence, and block milestone closure. |
 | Missing receipt for critical route | 0 in canary; <= 0.05% in aggregate telemetry. | Fail the canary; investigate redirect or forwarding regression. |
 | Missing or invalid read target context | 0 in canary; <= 0.05% in aggregate telemetry. | Fail the canary; investigate request client or shared mount drift. |
-| Exact dependency fallback to target-context wait | 0 for critical Checkout session reads. | Fail structure/release evidence; route declaration or target context is wrong. |
+| Exact dependency fallback to target-context wait | 0 for critical Checkout session reads during normal rollout. | Fail structure/release evidence unless an active rollback is documented; route declaration or target context is wrong. |
 
 The current platform freshness wait timeout is 2,500 ms. Critical Checkout reads should normally complete before that timeout. A timeout is not a customer-visible failure by itself only when the route renders temporary preparing-checkout recovery and keeps retry bounded by the original token validity.
+
+## Rollout Controls
+
+Platform API exposes read consistency controls for critical freshness changes:
+
+- `READ_CONSISTENCY_TIMEOUT_MS`: global freshness wait timeout, default `2500`.
+- `READ_CONSISTENCY_POLL_INTERVAL_MS`: global polling interval, default `75`.
+- `READ_CONSISTENCY_EXACT_DEPENDENCY_MODE`: `enabled` by default; set to `target-context` only as an incident rollback that keeps receipt-based gating active while disabling exact-dependency narrowing.
+- `READ_CONSISTENCY_ROUTE_TUNING_JSON`: JSON array of route-specific overrides. Each entry requires `mountPath` and `routePath`, and may include `targetContextName`, `timeoutMs`, `pollIntervalMs`, and `exactDependencyMode`.
+
+Example scoped rollback for guest Buy Now:
+
+```json
+[
+  {
+    "mountPath": "/api/marketplace",
+    "routePath": "/account/checkout-sessions/:sessionId",
+    "targetContextName": "checkout",
+    "exactDependencyMode": "target-context",
+    "timeoutMs": 2500,
+    "pollIntervalMs": 75
+  }
+]
+```
+
+Use route tuning to hold or roll back a route without removing `readFreshnessRoutes`, disabling `afterWrite` receipt waits, or reintroducing permanent stale not-found behavior. Target-context fallback may reduce blast radius during deploy skew or dependency declaration incidents, but it can wait on unrelated projections and does not count as passing the critical Checkout exact-dependency gate.
+
+Targeted fast-path projection catch-up is not part of the current runtime. If #1085 approves #1072, the fast path must ship with an independent kill switch, rate limits, and rollback evidence so operators can disable catch-up without disabling the basic read consistency gate above.
 
 ## Customer-Visible Gate
 
