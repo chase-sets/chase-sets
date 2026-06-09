@@ -38,7 +38,7 @@ Given that shape, staging's four total projection runner slots are enough for th
 The platform API can still serve reads while projection workers are absent or restarting. That is intentional: API readiness should not fail merely because an eventually consistent worker is temporarily draining. The customer contract is:
 
 - exact dependency wait for `checkout.session-projection`;
-- temporary checkout recovery on `projection_freshness_timeout` or fresh-write not-found;
+- temporary checkout recovery on `projection_freshness_timeout`, fresh-write not-found, or route-bounded gateway/service timeout;
 - canary and operator evidence when timeout or lag persists.
 
 Do not "fix" worker absence by removing the read consistency gate or widening normal traffic to target-context waits. Use route tuning only as an incident rollback with an owner and evidence link.

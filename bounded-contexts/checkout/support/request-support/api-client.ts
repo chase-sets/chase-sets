@@ -16,10 +16,19 @@ export type {
 export type { CheckoutFulfillmentPreview } from "@chase-sets/ordering/server";
 import { createCheckoutApiClient } from "../../client";
 
-export function createCheckoutRequestApiClient(request: Request, options: Readonly<{ headers?: HeadersInit }> = {}) {
+export function createCheckoutRequestApiClient(
+  request: Request,
+  options: Readonly<{
+    headers?: HeadersInit;
+    requestTimeoutMs?: number;
+    recoverTransportErrorsAsGatewayTimeout?: boolean;
+  }> = {},
+) {
   return createCheckoutApiClient({
     baseUrl: resolveRequestApiBaseUrl(request, "/api/marketplace"),
     fetch: createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "checkout" }),
     headers: options.headers,
+    requestTimeoutMs: options.requestTimeoutMs,
+    recoverTransportErrorsAsGatewayTimeout: options.recoverTransportErrorsAsGatewayTimeout,
   });
 }

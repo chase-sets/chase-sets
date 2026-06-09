@@ -64,12 +64,13 @@ Detail loaders may still use bounded not-found retry as a compatibility fallback
 
 ## Fresh-Write Recovery Policy
 
-Read-model `404` responses are permanent by default. A route may treat a `404` as transient only when the current URL carries a valid, unexpired `afterWrite` receipt. Fresh-write receipts are short lived, with a small clock-skew allowance for redirects whose timestamp is slightly ahead of the route server. Malformed, far-future, and expired tokens must not trigger retries. Customer-facing routes that can plausibly be reached immediately after a write should prefer safe expired-token copy, such as asking the buyer to restart checkout and confirming that payment has not started, instead of showing a resource-centric not-found message. The same rule applies to `projection_freshness_timeout`: the API returns HTTP `503` when projection checkpoints do not catch up inside the bounded wait, and browser routes may render temporary recovery only while the same fresh-write receipt remains valid.
+Read-model `404` responses are permanent by default. A route may treat a `404` as transient only when the current URL carries a valid, unexpired `afterWrite` receipt. Fresh-write receipts are short lived, with a small clock-skew allowance for redirects whose timestamp is slightly ahead of the route server. Malformed, far-future, and expired tokens must not trigger retries. Customer-facing routes that can plausibly be reached immediately after a write should prefer safe expired-token copy, such as asking the buyer to restart checkout and confirming that payment has not started, instead of showing a resource-centric not-found message. The same rule applies to `projection_freshness_timeout`: the API returns HTTP `503` when projection checkpoints do not catch up inside the bounded wait, and browser routes may render temporary recovery only while the same fresh-write receipt remains valid. Checkout session reads also bound their server-side API fetch below the outer platform gateway timeout so an opaque `502`, `503`, or `504` during a valid receipt window can become Checkout-owned temporary recovery instead of a generic platform error page.
 
 The shared `@chase-sets/http/responses` helper `classifyFreshWriteReadError` owns this classification. Route loaders provide the current request and the API error. The helper returns the parsed receipt, HTTP status, API error code, and whether the state is transient. It classifies:
 
 - fresh receipt plus `404` as `transient-not-found`
 - fresh receipt plus `503 projection_freshness_timeout` as `transient-projection-timeout`
+- fresh receipt plus an opaque bounded `502`, `503`, or `504` gateway/service timeout as `transient-gateway-timeout`
 - missing, malformed, future-dated, or expired receipts plus `404` as `permanent-not-found`
 - fresh receipts with unrelated statuses or error codes as `fresh-write-unhandled`
 

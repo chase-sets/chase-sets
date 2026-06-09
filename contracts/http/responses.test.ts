@@ -184,18 +184,20 @@ describe("response consistency metadata", () => {
       errorCode: "projection_freshness_timeout",
     });
 
-    expect(
-      classifyFreshWriteReadError({
-        request: href,
-        error: { status: 504, body: null },
-        nowMs: 1,
-      }),
-    ).toMatchObject({
-      kind: "transient-gateway-timeout",
-      transient: true,
-      status: 504,
-      errorCode: null,
-    });
+    for (const status of [502, 503, 504]) {
+      expect(
+        classifyFreshWriteReadError({
+          request: href,
+          error: { status, body: null },
+          nowMs: 1,
+        }),
+      ).toMatchObject({
+        kind: "transient-gateway-timeout",
+        transient: true,
+        status,
+        errorCode: null,
+      });
+    }
   });
 
   it("classifies manual, malformed, and expired not-found reads as permanent", () => {

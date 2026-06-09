@@ -118,7 +118,7 @@
         "apiRoutePath": "/account/checkout-sessions/:sessionId",
         "readModelTables": ["checkout_session_pages"],
         "helperUses": ["loadFreshlyWrittenResource"],
-        "transientRecovery": "Checkout session loader converts fresh-write 404 and projection_freshness_timeout into temporary checkout recovery UI."
+        "transientRecovery": "Checkout session loader converts fresh-write 404, projection_freshness_timeout, and bounded gateway/service timeouts into temporary checkout recovery UI."
       }
     },
     {

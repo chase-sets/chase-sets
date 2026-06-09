@@ -39,7 +39,7 @@ The failed platform contract was:
 2. The browser handoff must carry that metadata as a short-lived `afterWrite` token.
 3. The destination route must forward the receipt and target read context to the API.
 4. The API must wait for only the exact required projection groups.
-5. While the original receipt is fresh, the browser route must render temporary recovery for `404` or `projection_freshness_timeout`, not permanent not-found copy.
+5. While the original receipt is fresh, the browser route must render temporary recovery for `404`, `projection_freshness_timeout`, or a route-bounded gateway/service timeout, not permanent not-found copy or a generic platform error page.
 
 The incident showed the customer-visible consequence of violating item 5 and lacking complete proof for items 1 through 4. The platform now has exact route dependency metadata, hardened forwarding helpers, transient recovery classification, and freshness audit records; the remaining milestone work must prove these guarantees through SLOs, topology review, tests, and canaries.
 
