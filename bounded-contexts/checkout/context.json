@@ -44,6 +44,31 @@
   ],
   "projectionGroups": [
     {
+      "projectionName": "checkout.cart-projection",
+      "sourceContextNames": ["checkout"],
+      "ownedTables": ["checkout_cart_line_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "checkout.sell-list-projection",
+      "sourceContextNames": ["checkout"],
+      "ownedTables": [
+        "checkout_sell_list_line_pages",
+        "checkout_sell_list_receipt_pages",
+        "checkout_sell_list_execution_pages"
+      ],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "checkout.session-projection",
+      "sourceContextNames": ["checkout"],
+      "ownedTables": ["checkout_session_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
       "projectionName": "checkout-catalog-item-projection",
       "sourceContextNames": ["catalog"],
       "ownedTables": [
@@ -62,7 +87,18 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/account/checkout-sessions/:sessionId",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "checkout_session_pages"
+            }
+          ]
+        }
+      ]
     }
   ],
   "deployableContributions": [

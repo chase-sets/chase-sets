@@ -15,6 +15,25 @@ export type ResolvedApiMount<TRouter = unknown> = BcApiMount &
     router: TRouter;
   }>;
 
+export type ReadConsistencyDependencyDeclaration = Readonly<
+  | {
+      projectionName: string;
+      readModelTable?: never;
+      targetContextName?: string;
+    }
+  | {
+      readModelTable: string;
+      projectionName?: never;
+      targetContextName?: string;
+    }
+>;
+
+export type ReadConsistencyRouteDependency = Readonly<{
+  routePath: string;
+  methods?: readonly ("GET" | "HEAD")[];
+  dependencies: readonly ReadConsistencyDependencyDeclaration[];
+}>;
+
 type ReadConsistencySubscriptionRunner = Readonly<{
   sourceContextName: string;
   refreshStatus: () => Promise<Readonly<{ lastGlobalPosition: string; state: string; lastError?: string | null }>>;
@@ -23,8 +42,16 @@ type ReadConsistencySubscriptionRunner = Readonly<{
 export type ReadConsistencyProjectionGroup = Readonly<{
   targetContextName: string;
   projectionName: string;
+  ownedTables?: readonly string[];
   subscriptionRunners: readonly ReadConsistencySubscriptionRunner[];
 }>;
+
+type ResolvedReadConsistencyDependency = Readonly<{
+  targetContextName: string;
+  projectionName: string;
+}>;
+
+type ReadConsistencyWaitMode = "target-context" | "exact-dependency";
 
 export class ProjectionFreshnessTimeoutError extends Error {
   public constructor(
@@ -39,6 +66,8 @@ export class ProjectionFreshnessTimeoutError extends Error {
         state: string;
         lastError: string | null;
       }>[];
+      waitMode: ReadConsistencyWaitMode;
+      dependencies: readonly ResolvedReadConsistencyDependency[];
     }>,
   ) {
     super("Projection read model did not catch up to the requested write receipt before the freshness timeout.");
@@ -161,6 +190,7 @@ export async function waitForProjectionFreshness(
     projectionGroups: readonly ReadConsistencyProjectionGroup[];
     targetContextNames: readonly string[];
     receipt: FreshWriteReceipt;
+    dependencies?: readonly ResolvedReadConsistencyDependency[];
     timeoutMs?: number;
     pollIntervalMs?: number;
     nowMs?: () => number;
@@ -177,6 +207,7 @@ export async function waitForProjectionFreshness(
       projectionGroups: input.projectionGroups,
       targetContextNames,
       receipt: input.receipt,
+      dependencies: input.dependencies,
     });
 
     if (pending.length === 0) {
@@ -184,7 +215,12 @@ export async function waitForProjectionFreshness(
     }
 
     if (nowMs() - startedAt >= timeoutMs) {
-      throw new ProjectionFreshnessTimeoutError({ targetContextNames, pending });
+      throw new ProjectionFreshnessTimeoutError({
+        targetContextNames,
+        pending,
+        waitMode: input.dependencies ? "exact-dependency" : "target-context",
+        dependencies: input.dependencies ?? [],
+      });
     }
 
     await delay(Math.min(pollIntervalMs, Math.max(0, timeoutMs - (nowMs() - startedAt))));
@@ -196,9 +232,11 @@ async function findPendingProjectionFreshness(
     projectionGroups: readonly ReadConsistencyProjectionGroup[];
     targetContextNames: readonly string[];
     receipt: FreshWriteReceipt;
+    dependencies?: readonly ResolvedReadConsistencyDependency[];
   }>,
 ) {
   const targetContextNameSet = new Set(input.targetContextNames);
+  const dependencies = input.dependencies ? normalizeResolvedDependencies(input.dependencies) : null;
   const pending: {
     targetContextName: string;
     projectionName: string;
@@ -211,6 +249,17 @@ async function findPendingProjectionFreshness(
 
   for (const group of input.projectionGroups) {
     if (!targetContextNameSet.has(group.targetContextName)) {
+      continue;
+    }
+
+    if (
+      dependencies &&
+      !dependencies.some(
+        (dependency) =>
+          dependency.targetContextName === group.targetContextName &&
+          dependency.projectionName === group.projectionName,
+      )
+    ) {
       continue;
     }
 
@@ -243,18 +292,36 @@ export function attachReadConsistencyMiddleware(
   app: Readonly<{
     use(path: string, middleware: (context: unknown, next: () => Promise<void>) => Promise<unknown>): unknown;
   }>,
-  mounts: readonly Pick<ResolvedApiMount, "contextName" | "mountPath">[],
+  mounts: readonly Pick<ResolvedApiMount, "contextName" | "mountPath" | "readFreshnessRoutes">[],
   projectionGroups: readonly ReadConsistencyProjectionGroup[],
   options: Readonly<{ timeoutMs?: number; pollIntervalMs?: number }> = {},
 ): void {
   const contextsByMountPath = new Map<string, string[]>();
+  const routeDependenciesByMountPath = new Map<string, ReturnType<typeof createRouteDependencyMatcher>[]>();
   for (const mount of mounts) {
     contextsByMountPath.set(mount.mountPath, [...(contextsByMountPath.get(mount.mountPath) ?? []), mount.contextName]);
+    for (const route of mount.readFreshnessRoutes ?? []) {
+      routeDependenciesByMountPath.set(mount.mountPath, [
+        ...(routeDependenciesByMountPath.get(mount.mountPath) ?? []),
+        createRouteDependencyMatcher(mount.contextName, mount.mountPath, route, projectionGroups),
+      ]);
+    }
   }
 
   for (const [mountPath, contextNames] of contextsByMountPath) {
+    const routeDependencyMatchers = routeDependenciesByMountPath.get(mountPath) ?? [];
+
     app.use(normalizeMountWildcard(mountPath), async (context: unknown, next) => {
-      const req = (context as { req?: { method?: string; header?: (name: string) => string | undefined } }).req;
+      const req = (
+        context as {
+          req?: {
+            method?: string;
+            header?: (name: string) => string | undefined;
+            path?: string;
+            url?: string;
+          };
+        }
+      ).req;
       const method = req?.method?.toUpperCase() ?? "GET";
       if (method !== "GET" && method !== "HEAD") {
         await next();
@@ -272,12 +339,26 @@ export function attachReadConsistencyMiddleware(
         requestedTargetContextName && contextNames.includes(requestedTargetContextName)
           ? [requestedTargetContextName]
           : contextNames;
+      const exactDependencies = resolveRouteDependenciesForRequest({
+        method,
+        mountPath,
+        path: req?.path,
+        url: req?.url,
+        requestedTargetContextName:
+          requestedTargetContextName && contextNames.includes(requestedTargetContextName)
+            ? requestedTargetContextName
+            : null,
+        matchers: routeDependencyMatchers,
+      });
 
       try {
         await waitForProjectionFreshness({
           projectionGroups,
-          targetContextNames,
+          targetContextNames: exactDependencies
+            ? [...new Set(exactDependencies.map((dependency) => dependency.targetContextName))]
+            : targetContextNames,
           receipt,
+          dependencies: exactDependencies ?? undefined,
           timeoutMs: options.timeoutMs,
           pollIntervalMs: options.pollIntervalMs,
         });
@@ -291,6 +372,8 @@ export function attachReadConsistencyMiddleware(
                   code: "projection_freshness_timeout",
                   message: error.message,
                   pending: error.details.pending,
+                  waitMode: error.details.waitMode,
+                  dependencies: error.details.dependencies,
                 },
               },
               503,
@@ -304,6 +387,149 @@ export function attachReadConsistencyMiddleware(
       await next();
     });
   }
+}
+
+function normalizeResolvedDependencies(
+  dependencies: readonly ResolvedReadConsistencyDependency[],
+): readonly ResolvedReadConsistencyDependency[] {
+  const seen = new Set<string>();
+  const normalized: ResolvedReadConsistencyDependency[] = [];
+
+  for (const dependency of dependencies) {
+    const key = `${dependency.targetContextName}:${dependency.projectionName}`;
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    normalized.push(dependency);
+  }
+
+  return normalized;
+}
+
+function createRouteDependencyMatcher(
+  contextName: string,
+  mountPath: string,
+  route: ReadConsistencyRouteDependency,
+  projectionGroups: readonly ReadConsistencyProjectionGroup[],
+) {
+  const methods = new Set((route.methods ?? ["GET", "HEAD"]).map((method) => method.toUpperCase()));
+  const routePattern = compileMountRelativeRoutePattern(route.routePath);
+  const dependencies = route.dependencies.flatMap((dependency) =>
+    resolveReadConsistencyDependency(contextName, dependency, projectionGroups),
+  );
+
+  return {
+    contextName,
+    mountPath,
+    methods,
+    routePattern,
+    dependencies,
+  };
+}
+
+function resolveReadConsistencyDependency(
+  contextName: string,
+  dependency: ReadConsistencyDependencyDeclaration,
+  projectionGroups: readonly ReadConsistencyProjectionGroup[],
+): readonly ResolvedReadConsistencyDependency[] {
+  const targetContextName = dependency.targetContextName ?? contextName;
+
+  if ("projectionName" in dependency && dependency.projectionName) {
+    const group = projectionGroups.find(
+      (candidate) =>
+        candidate.targetContextName === targetContextName && candidate.projectionName === dependency.projectionName,
+    );
+    if (!group) {
+      throw new Error(
+        `Read freshness dependency '${targetContextName}.${dependency.projectionName}' does not match a mounted projection group.`,
+      );
+    }
+
+    return [{ targetContextName, projectionName: dependency.projectionName }];
+  }
+
+  const tableName = dependency.readModelTable;
+  if (!tableName) {
+    throw new Error("Read freshness dependency must declare projectionName or readModelTable.");
+  }
+  const owners = projectionGroups.filter(
+    (candidate) => candidate.targetContextName === targetContextName && candidate.ownedTables?.includes(tableName),
+  );
+  if (owners.length === 0) {
+    throw new Error(
+      `Read freshness dependency table '${targetContextName}.${tableName}' does not match a mounted projection group owned table.`,
+    );
+  }
+  if (owners.length > 1) {
+    throw new Error(
+      `Read freshness dependency table '${targetContextName}.${tableName}' is owned by multiple mounted projection groups: ${owners
+        .map((owner) => owner.projectionName)
+        .join(", ")}.`,
+    );
+  }
+
+  return [{ targetContextName, projectionName: owners[0].projectionName }];
+}
+
+function resolveRouteDependenciesForRequest(
+  input: Readonly<{
+    method: string;
+    mountPath: string;
+    path?: string;
+    url?: string;
+    requestedTargetContextName: string | null;
+    matchers: readonly ReturnType<typeof createRouteDependencyMatcher>[];
+  }>,
+): readonly ResolvedReadConsistencyDependency[] | null {
+  const relativePath = normalizeRequestRelativePath(input.mountPath, input.path, input.url);
+  const matches = input.matchers.filter(
+    (matcher) => matcher.methods.has(input.method) && matcher.routePattern.test(relativePath),
+  );
+  const targetMatches = input.requestedTargetContextName
+    ? matches.filter((matcher) => matcher.contextName === input.requestedTargetContextName)
+    : matches;
+  const dependencies = normalizeResolvedDependencies(targetMatches.flatMap((matcher) => matcher.dependencies));
+
+  return dependencies.length > 0 ? dependencies : null;
+}
+
+function normalizeRequestRelativePath(mountPath: string, path?: string, url?: string): string {
+  const requestPath = path ?? (url ? new URL(url).pathname : mountPath);
+  const withoutMount = requestPath.startsWith(mountPath) ? requestPath.slice(mountPath.length) : requestPath;
+  const normalized = withoutMount.startsWith("/") ? withoutMount : `/${withoutMount}`;
+  return normalized === "/" ? "/" : normalized.replace(/\/+$/, "");
+}
+
+function compileMountRelativeRoutePattern(routePath: string): RegExp {
+  const normalized = normalizeRoutePath(routePath);
+  const parts = normalized.split("/").filter(Boolean);
+  const source = parts
+    .map((part) => {
+      if (part === "*") {
+        return ".+";
+      }
+      if (part.startsWith(":")) {
+        return "[^/]+";
+      }
+      return escapeRegex(part);
+    })
+    .join("/");
+
+  return new RegExp(`^/${source}$`);
+}
+
+function normalizeRoutePath(routePath: string): string {
+  const trimmed = routePath.trim();
+  if (!trimmed || trimmed === "/") {
+    return "/";
+  }
+  const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return withLeadingSlash.replace(/\/+$/, "");
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 export function mountApiRouters(
