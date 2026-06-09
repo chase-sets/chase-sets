@@ -10,6 +10,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Bounded Context Structure](./architecture/bounded-context-structure.md): directory, export, deployable-composition, and typed-ID rules.
 - [Checkout Fresh-State Start Gate](./architecture/checkout-fresh-state-start-gate.md): ownership, dependency order, unresolved-fulfillment readiness, first vertical slice, and launch evidence map for the Shopify-simple checkout rebuild.
 - [Cookie-Backed Continuation Handoff](./architecture/cookie-backed-continuation-handoff.md): document redirect, protected-loader recovery, and regression-test rules for auth/session cookie continuations.
+- [Checkout Surface Audit](./architecture/checkout-surface-audit.md): Shopify-simple Buy Cart and Sell List checkout gap inventory, fresh-state cleanup targets, and sequencing recommendation.
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
 - [Staging Representative Commerce State](./runbooks/staging-representative-commerce-state.md): staging-only representative marketplace data refresh policy and verification.
