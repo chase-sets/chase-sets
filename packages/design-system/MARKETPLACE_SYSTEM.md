@@ -84,9 +84,21 @@ Marketplace product actions use three user-facing intents: Buy, Sell, and Watch.
 
 - Search result cards may use compact Buy / Sell / Watch language because the user is still scanning, but the card should show one dominant primary action at a time. Buy is primary when active supply exists; Sell is primary when supply is wanted. Watch and the opposite trade-side intent stay visually secondary.
 - Item detail should use an action accordion rail, not a long flat action list. Buy, Sell, and Watch are the rail's top-level intent sections.
-- Inside Buy and Sell, show selected counterparty actions before product-level actions. For Buy, selected Listing actions are `Buy now` and `Add selected listing to buy cart`; product actions are `Add product to buy cart`, `Make offer`, and `Watch listings`. For Sell, selected Offer actions are `Sell now` and `Add selected offer to sell list`; product actions are `Add product to sell list`, `Create listing`, and `Watch offers`.
+- Inside Buy and Sell, show selected counterparty actions before product-level actions. For Buy, selected Listing actions are `Buy this listing` and `Add listing to Buy Cart`; product actions are `Add product to Buy Cart` and `Make offer`. For Sell, selected Offer actions are `Accept offer` and `Add offer to Sell List`; product actions are `Add product to Sell List` and `Create listing`.
 - Watch belongs beside Buy and Sell in the intent control. Listing alerts and offer alerts should not appear as buying or selling actions.
-- Advanced optimization and fallback rules do not belong in item-detail rails by default. Put them in Buy Cart and Sell List review.
+- Item-detail rail labels are object-first. Use `Best available listing` or `Selected listing`, `Selected product`, `Make an offer`, `Best available offer` or `Selected offer`, `List this product`, `Watch listings`, and `Watch offers` as the visible section frame before any mechanism copy.
+- Guests see the same Buy, Sell, and Watch choices as signed-in accounts. The rail can explain that account setup happens before checkout, offer acceptance, listing publication, payout, or alert activation, but it must not replace the action with `Register to sell` or similar account-gate copy.
+- Advanced matching, optimization, fallback, fee, payout-term, registration, stale-recovery, and alert-delivery rules do not belong in item-detail rails by default. Put them in Buy Cart, Sell List, checkout readiness, or Reference Info popups depending on where the user needs the detail.
+
+## Reference Info
+
+Use `ReferenceInfoTrigger` with `ReferenceInfoDialog` for compact marketplace and admin explanations that are useful to some users but would overload the main surface. This is the standard popup pattern for reference-data details in admin and for marketplace rail fine print; do not create competing tooltip, popover, or ad hoc disclosure patterns for the same job.
+
+- Required decision facts stay visible. Price, quantity, selected product options, public account identity and reputation, availability, essential payout preview, blocking errors, and final action buttons must not be hidden behind Reference Info.
+- Fine print goes in Reference Info. Use it for Buy Cart matching behavior, listing reservation nuance, Sell List matching behavior, payout calculation detail, standard-term explanations, fee basis, registration timing, stale quote recovery, and watch alert mechanics.
+- Use at most one visible Reference Info trigger per workflow or action cluster. The trigger label names the topic, such as `Buying this listing`, `Listing in Buy Cart`, `Estimated payout`, `Standard terms`, `Creating a listing`, `Watch listings`, or `Watch offers`.
+- Dialog copy should be structured and scannable: a one-sentence summary, then short key/value rows or short sections. Avoid multi-paragraph policy copy in the rail; link to durable policy pages from the dialog when the detail affects money or expectations.
+- Tooltip-only disclosure is not enough for marketplace rail fine print because these explanations affect buying, selling, payout, or alert expectations.
 
 ## Market Book
 

@@ -899,8 +899,8 @@ function DiscoveryItemDetailRealtimeView({
                       : context.visibleOffers.length > 0
                   }
                   canUseSellerFeatures={data.canUseSellerFeatures}
-                  canUseListingFeatures={data.canUseListingFeatures}
-                  canUseProductSellListFeatures={Boolean(context.selectedProductId)}
+                  canSelectListingAction={Boolean(context.selectedProductId)}
+                  canSelectProductSellListAction={Boolean(context.selectedProductId)}
                   renderSellNow={(formId) =>
                     data.canUseSellerFeatures
                       ? renderOfferMatch(formId, "plain", undefined, true, "sell-now")
