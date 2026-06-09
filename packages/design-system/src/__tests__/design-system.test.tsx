@@ -18,6 +18,17 @@ import {
   Card,
   CommerceSheet,
   Button,
+  CheckoutConfirmationPanel,
+  CheckoutExpressActions,
+  CheckoutFlowShell,
+  CheckoutFormSection,
+  CheckoutMobileSummaryDisclosure,
+  CheckoutReadinessPrompt,
+  CheckoutSavedInfoGroup,
+  CheckoutSavedInfoRow,
+  CheckoutStateNotice,
+  CheckoutStickyActionBar,
+  CheckoutSummaryPanel,
   Dialog,
   Inline,
   NavigationHeader,
@@ -706,6 +717,146 @@ describe("design-system", () => {
     expect(markup).toContain("Charizard Base Set");
     expect(markup).toContain("Verified Card Shop");
     expect(markup).toContain("Not charged yet");
+  });
+
+  it("renders Shopify-simple checkout shell primitives", () => {
+    const items = [
+      {
+        id: "line_1",
+        title: "Acerola's Mischief",
+        subtitle: "Raw - Damaged",
+        facts: ["Card Vault", "Ships Jun 16-19"],
+        quantity: "1",
+        price: "$25.99",
+        image: { src: "/fake-cdn/assets/acerola.png", alt: "Acerola's Mischief card" },
+      },
+    ];
+    const totals = [
+      { label: "Subtotal", value: "$25.99" },
+      { label: "Shipping", value: "$0.20" },
+      { label: "Credit", value: "-$0.00", muted: true },
+    ];
+    const summary = (
+      <CheckoutSummaryPanel
+        title="Order summary"
+        subtitle="1 item"
+        status="Ready"
+        statusTone="success"
+        items={items}
+        totals={totals}
+        totalLabel="Total"
+        total="$27.29"
+        currency="USD"
+        reassurance="Payment starts after final review."
+        actions={<Button>Pay now</Button>}
+      />
+    );
+    const markup = renderToString(
+      <CheckoutFlowShell
+        summaryLabel="Desktop checkout summary"
+        mobileSummary={
+          <CheckoutMobileSummaryDisclosure label="Order summary" collapsedSummary="1 item" total="$27.29">
+            {summary}
+          </CheckoutMobileSummaryDisclosure>
+        }
+        desktopSummary={summary}
+        stickyAction={
+          <CheckoutStickyActionBar
+            totalLabel="Total"
+            total="$27.29"
+            context="1 item"
+            primaryAction={<Button>Pay now</Button>}
+            secondaryAction={<Button tone="secondary">Back</Button>}
+          />
+        }
+        main={
+          <div>
+            <CheckoutExpressActions
+              label="Express checkout"
+              actions={
+                <>
+                  <Button>Shop Pay</Button>
+                  <Button tone="secondary">Google Pay</Button>
+                </>
+              }
+            />
+            <CheckoutSavedInfoGroup title="Saved checkout details">
+              <CheckoutSavedInfoRow
+                icon="home"
+                label="Ship to"
+                value="Todd Skelton"
+                supportingText="Wichita, KS"
+                action={<Button tone="ghost">Edit</Button>}
+              />
+              <CheckoutSavedInfoRow icon="creditCard" label="Payment" value="Mastercard ... 2738" status="Ready" />
+              <CheckoutSavedInfoRow icon="wallet" label="Payout" value="Bank account ready" status="Ready" />
+            </CheckoutSavedInfoGroup>
+            <CheckoutSummaryPanel
+              title="Sell list summary"
+              subtitle="2 cards"
+              status="Payout ready"
+              statusTone="success"
+              items={[
+                {
+                  id: "sell_line_1",
+                  title: "Pikachu Jungle",
+                  subtitle: "Lightly Played",
+                  facts: ["Quantity 1", "Condition review before payout"],
+                  price: "$18.40",
+                },
+              ]}
+              totals={[{ label: "Estimated offer", value: "$18.40" }]}
+              totalLabel="Estimated payout"
+              total="$18.40"
+            />
+            <CheckoutFormSection title="Delivery" description="Enter where this should ship.">
+              <TextInput label="Address" defaultValue="3354 Brush Creek Court" />
+            </CheckoutFormSection>
+            <CheckoutReadinessPrompt
+              tone="warning"
+              title="Save $4.20 by changing fulfillment"
+              description="This happens before checkout starts."
+              facts={[{ label: "Current allocation", value: "Valid" }]}
+              action={<Button>Use savings</Button>}
+              secondaryAction={<Button tone="secondary">Keep current</Button>}
+            />
+            <CheckoutStateNotice
+              tone="danger"
+              title="Address needs attention"
+              description="Update the postal code before payment."
+            />
+            <CheckoutConfirmationPanel
+              title="Order received"
+              description="A receipt was sent."
+              referenceLabel="Order"
+              referenceValue="ORD-1001"
+              totalLabel="Total"
+              total="$27.29"
+              nextSteps={[
+                { title: "History", description: "Order is in account history.", icon: "book" },
+                { title: "Support", description: "Use ORD-1001 for help.", icon: "help" },
+              ]}
+              actions={<Button>View order</Button>}
+            />
+          </div>
+        }
+      />,
+    );
+
+    expect(markup).toContain("Desktop checkout summary");
+    expect(markup).toContain("Order summary");
+    expect(markup).toContain("Acerola&#x27;s Mischief");
+    expect(markup).toContain('src="/fake-cdn/assets/acerola.png"');
+    expect(markup).toContain("Payment starts after final review.");
+    expect(markup).toContain("Saved checkout details");
+    expect(markup).toContain("Sell list summary");
+    expect(markup).toContain("Estimated payout");
+    expect(markup).toContain("Bank account ready");
+    expect(markup).toContain("Save $4.20 by changing fulfillment");
+    expect(markup).toContain("This happens before checkout starts.");
+    expect(markup).toContain("Address needs attention");
+    expect(markup).toContain("Order received");
+    expect(markup).toContain('data-primary-action-count="1"');
   });
 
   it("renders search controls with applied filters and saved search recovery", () => {

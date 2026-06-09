@@ -133,6 +133,10 @@ Progressive disclosure is the package-wide default for advanced use cases. Keep 
 
 Use [Progressive Disclosure](./PROGRESSIVE_DISCLOSURE.md) for the full component contract, accessibility rules, and first-flow recommendations.
 
+## Checkout Primitives
+
+Use [Checkout Primitives](./CHECKOUT_PRIMITIVES.md) for Shopify-simple buy and sell checkout shells, summaries, sticky actions, saved-info rows, readiness prompts, recovery states, and confirmation panels. Checkout business rules remain in the Checkout bounded context; the design-system primitives should receive only customer-safe facts.
+
 ## Panel Interactions
 
 Use [Panel Interaction Patterns](./PANEL_INTERACTIONS.md) to choose between navigation drawers, persistent sidebars, side sheets, bottom sheets, modal dialogs, popovers/menus, and full-page flows across desktop, tablet, mobile, and small mobile breakpoints.
