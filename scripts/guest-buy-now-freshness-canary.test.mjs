@@ -1,0 +1,176 @@
+import { mkdtemp, readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { describe, expect, it } from "vitest";
+import {
+  GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION,
+  PRODUCTION_FEASIBILITY_DECISION,
+  assertRedactedEvidence,
+  buildGuestBuyNowCanaryEvidence,
+  classifyGuestBuyNowObservation,
+  parseGuestBuyNowCanaryArgs,
+  runGuestBuyNowFreshnessCanary,
+  validateGuestBuyNowCanaryOptions,
+} from "./guest-buy-now-freshness-canary.mjs";
+
+const baseOptions = {
+  checkedAt: "2026-06-09T16:00:00.000Z",
+  environment: "staging",
+  fixtureKey: "staging-charizard-canary",
+  diagnosticCorrelationId: "diag_123",
+};
+
+describe("guest Buy Now freshness canary", () => {
+  it("classifies payable checkout as pass", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+      }),
+    ).toEqual({
+      finalState: "pass",
+      promotionDecision: "promote",
+      failureReason: null,
+    });
+  });
+
+  it("classifies preparing-checkout recovery as temporary", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        temporaryRecoveryVisible: true,
+        pageText: "Preparing checkout. Refresh checkout. Your payment has not started.",
+      }),
+    ).toEqual({
+      finalState: "temporary",
+      promotionDecision: "promote",
+      failureReason: null,
+    });
+  });
+
+  it("fails on the original permanent not-found symptom", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        permanentNotFoundVisible: true,
+      }),
+    ).toEqual({
+      finalState: "fail",
+      promotionDecision: "abort",
+      failureReason: "permanent-checkout-session-not-found",
+    });
+  });
+
+  it("fails closed when fresh receipt or guest cookie handoff is missing", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: false,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+      }).failureReason,
+    ).toBe("missing-after-write");
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: false,
+        checkoutReviewVisible: true,
+      }).failureReason,
+    ).toBe("missing-guest-cookie");
+  });
+
+  it("builds redacted pass evidence without sensitive identifiers", () => {
+    const evidence = buildGuestBuyNowCanaryEvidence({
+      ...baseOptions,
+      diagnosticCorrelationId: "diag raw!/value",
+      observation: {
+        latencyMs: 1250,
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        checkoutReviewVisible: true,
+        waitMode: "exact-dependency",
+        pageText:
+          "Checkout Summary Continue to payment chk_01KTMF9TCCPKGA3J3TYMGGXQ2R afterWrite=raw-token todd.skelton@outlook.com chase_sets_guest_checkout=secret",
+      },
+    });
+
+    expect(evidence).toMatchObject({
+      schemaVersion: GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION,
+      finalState: "pass",
+      promotionDecision: "promote",
+      latencyMs: 1250,
+      waitMode: "exact-dependency",
+      diagnosticCorrelationId: "diag-raw--value",
+      paymentOrOrderSideEffects: "not-attempted",
+      productionFeasibility: PRODUCTION_FEASIBILITY_DECISION,
+    });
+    expect(assertRedactedEvidence(evidence)).toEqual([]);
+  });
+
+  it("parses CLI and environment defaults", () => {
+    const parsed = parseGuestBuyNowCanaryArgs(["--item-path", "/items/canary"], {
+      GUEST_BUY_NOW_CANARY_OUT: "artifacts/guest-buy-now.json",
+      GUEST_BUY_NOW_CANARY_BASE_URL: "https://marketplace.staging.chasesets.com",
+      GUEST_BUY_NOW_CANARY_FIXTURE_KEY: "canary-fixture",
+      GUEST_BUY_NOW_CANARY_GUEST_EMAIL: "guest-buy-now-canary@example.test",
+      GUEST_BUY_NOW_CANARY_ENVIRONMENT: "staging",
+      GUEST_BUY_NOW_CANARY_TIMEOUT_MS: "1234",
+      GUEST_BUY_NOW_CANARY_CORRELATION_ID: "diag_1",
+    });
+
+    expect(parsed).toMatchObject({
+      outPath: "artifacts/guest-buy-now.json",
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      timeoutMs: 1234,
+      diagnosticCorrelationId: "diag_1",
+    });
+  });
+
+  it("requires explicit fixture configuration and rejects production browser canaries", () => {
+    expect(validateGuestBuyNowCanaryOptions({ environment: "staging" })).toEqual([
+      "GUEST_BUY_NOW_CANARY_BASE_URL or --base-url is required.",
+      "GUEST_BUY_NOW_CANARY_ITEM_PATH or --item-path is required.",
+      "GUEST_BUY_NOW_CANARY_FIXTURE_KEY or --fixture-key is required.",
+      "GUEST_BUY_NOW_CANARY_GUEST_EMAIL or --guest-email is required.",
+    ]);
+    expect(
+      validateGuestBuyNowCanaryOptions({
+        baseUrl: "https://marketplace.chasesets.com",
+        itemPath: "/items/canary",
+        fixtureKey: "canary-fixture",
+        guestEmail: "guest@example.test",
+        environment: "production",
+      }),
+    ).toContain(PRODUCTION_FEASIBILITY_DECISION.reason);
+  });
+
+  it("writes evidence and exits successfully for safe temporary state with injected observation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
+    const outFile = join(directory, "guest-buy-now.json");
+    const evidence = await runGuestBuyNowFreshnessCanary({
+      outPath: outFile,
+      baseUrl: "https://marketplace.staging.chasesets.com",
+      itemPath: "/items/canary",
+      fixtureKey: "canary-fixture",
+      guestEmail: "guest-buy-now-canary@example.test",
+      environment: "staging",
+      checkedAt: baseOptions.checkedAt,
+      diagnosticCorrelationId: "diag_123",
+      observe: async () => ({
+        latencyMs: 900,
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        temporaryRecoveryVisible: true,
+        pageText: "Preparing checkout Refresh checkout",
+      }),
+    });
+
+    expect(evidence.finalState).toBe("temporary");
+    expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
+  });
+});

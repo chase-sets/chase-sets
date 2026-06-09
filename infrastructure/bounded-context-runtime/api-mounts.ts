@@ -457,6 +457,7 @@ export function attachReadConsistencyMiddleware(
           dependencies: exactDependencies ?? undefined,
           timeoutMs,
           pollIntervalMs,
+          nowMs,
         });
       } catch (error) {
         if (error instanceof ProjectionFreshnessTimeoutError) {

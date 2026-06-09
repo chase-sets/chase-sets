@@ -106,9 +106,12 @@ Optional `production` variables for telemetry-backed canary analysis:
 - `CANARY_PROMETHEUS_QUERY_FILE`: repository-relative query file that maps required canary signals to baseline and canary PromQL.
 - `CANARY_OBSERVATION_WINDOW_SECONDS`: canary analysis window; defaults to `300`.
 
-Optional `staging` variable:
+Additional `staging` variables:
 
 - `GOOGLE_WORKSPACE_DKIM_TXT_VALUE`: the Google Admin Console-provided DKIM TXT value for `google._domainkey.staging.chasesets.com`. Leave unset until Google generates the key; MX and SPF remain managed without it.
+- `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH`: stable staging item detail path used by the guest Buy Now freshness canary. This is required for deployable staging releases and fails closed when missing.
+- `STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY`: operator-owned fixture identifier recorded in canary evidence. Defaults to `staging-guest-buy-now-fixture`.
+- `STAGING_GUEST_BUY_NOW_CANARY_TIMEOUT_MS`: browser wait timeout for the guest Buy Now freshness canary. Defaults to `45000`.
 
 SES values configured for platform environments:
 
@@ -241,7 +244,8 @@ The staging job:
 14. Waits for landing, admin, marketplace, staging root marketplace, and legacy redirect domains. Staging root is deployment-gated because it is the launch-facing marketplace root and App Platform routing/certificate validation depends on child-zone records while Gmail MX/TXT records coexist at the same owner name.
 15. Runs `pnpm run smoke:platform` against landing, admin, marketplace, and the staging marketplace root with strict staging smoke requirements, including marketplace UCP discovery at `/.well-known/ucp`, REST profile discovery at `/ucp/v1`, and MCP tool discovery at `/ucp/mcp`.
 16. Runs Playwright marketplace critical flows against the deployed staging marketplace with `PLAYWRIGHT_SKIP_WEB_SERVER=true`. The browser gate signs in with `MARKETPLACE_E2E_EMAIL`/`MARKETPLACE_E2E_PASSWORD` when configured, otherwise it registers a synthetic staging account, and verifies search plus critical account commerce surfaces across Buy Cart, Sell List, Listings, Submitted Offers, Offer Matches, Inventory, Purchases, Sales, Wallet, and Payouts.
-17. Runs `pnpm run stripe:money-smoke -- --edge-check --seller-flow` against staging with Stripe test-mode keys and a synthetic staging account. Optional GitHub environment variables `STAGING_SMOKE_ORDER_IDS`, `STAGING_SMOKE_BALANCE_CREDIT_AMOUNT`, `STAGING_SMOKE_PAYMENT_METHOD_CATEGORY`, `STAGING_SMOKE_CREATE_PAYMENT`, `STAGING_SMOKE_PAYOUT_AMOUNT`, and `STAGING_SMOKE_REQUEST_PAYOUT` can deepen the payment and payout probes when staging has known safe orders or payout-ready balances.
+17. Runs the [Guest Buy Now Freshness Canary](./guest-buy-now-freshness-canary.md) against the deployed staging marketplace fixture. The canary performs the signed-out Buy Now and guest contact flow, records write-submit-to-checkout-readiness latency in `artifacts/release-health/guest-buy-now-freshness-canary.json`, allows `pass` and safe `temporary` recovery states, and aborts on permanent checkout-session-not-found, missing `afterWrite`, or missing guest cookie handoff.
+18. Runs `pnpm run stripe:money-smoke -- --edge-check --seller-flow` against staging with Stripe test-mode keys and a synthetic staging account. Optional GitHub environment variables `STAGING_SMOKE_ORDER_IDS`, `STAGING_SMOKE_BALANCE_CREDIT_AMOUNT`, `STAGING_SMOKE_PAYMENT_METHOD_CATEGORY`, `STAGING_SMOKE_CREATE_PAYMENT`, `STAGING_SMOKE_PAYOUT_AMOUNT`, and `STAGING_SMOKE_REQUEST_PAYOUT` can deepen the payment and payout probes when staging has known safe orders or payout-ready balances.
 
 Production starts automatically only after this staging job deploys the release commit and passes all staging gates. Staging and production use separate GitHub Actions concurrency groups so a queued or paused production deployment cannot block the next staging check.
 
