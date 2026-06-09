@@ -185,7 +185,11 @@ This product has not launched, so there is no old checkout payload compatibility
 - migration backfills for abandoned pre-launch sessions
 - customer-facing compatibility toggles
 
-Legacy state can be reset or regenerated through #1132 as implementation replaces the old session model.
+Legacy state can be reset or regenerated through #1132 as implementation replaces the old session model. Runtime
+schema bootstrap may still use narrow, additive `checkout_session_pages` column guards for the final fresh-session
+columns so long-lived staging and proof databases converge during normal deploys. Those guards are deploy-safety
+plumbing only; they must not introduce old-session adapters, dual-write payloads, or customer-facing compatibility
+states.
 
 ## Test Expectations
 

@@ -59,7 +59,7 @@ The domain still needs fulfillment freshness, selected listing locks, supply sta
 | Area | Cleanup action | Rationale | Owning issues |
 | --- | --- | --- | --- |
 | Concept route | Delete `/checkout/concept` and its concept-only localization/UI once the real flow work begins. | Avoid shipping a second checkout entry point or preserving a compatibility design artifact. | #1112, #1132, #1116 |
-| Session schema | Rebuild `checkout_session_pages` with final columns instead of `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` compatibility patches. | Product is pre-launch; old session payload preservation is not needed. | #1132, #1100 |
+| Session schema | Keep `checkout_session_pages` final columns in the base table and allow narrow `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` guards for those same columns during live deploy bootstrap. | Product is pre-launch, so old session payload adapters are not needed; long-lived staging/proof databases still need deploy-safe schema convergence so guest Buy Now can reach checkout review without manual resets. | #1132, #1100 |
 | Cart schema | Rebuild `checkout_cart_line_pages` with final image, language, fulfillment, and availability columns in the base table. | Avoid migration leftovers and ambiguous old cart row shapes. | #1132, #1118 |
 | Catalog projection schema | Fold checkout catalog language/i18n compatibility columns into the fresh base schema. | Remove compatibility layering from checkout-owned catalog projection data. | #1132 |
 | Sell List receipts | Delete `checkout_sell_list_receipt_pages` and fallback reads from `read-model/queries.ts` once `checkout_sell_list_execution_receipt_pages` is canonical. | Legacy receipt fallback is a compatibility layer. | #1132, #1135 |
