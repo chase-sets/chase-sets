@@ -79,3 +79,5 @@ Attach the relevant redacted audit record summary to #1077 when closing the stag
 - Route fallback after a successful freshness wait.
 
 Use #1078 for SLO thresholds, #1082 for worker capacity conclusions, #1074 for E2E reproduction, and #1086 for synthetic canary coverage.
+
+The current critical Checkout thresholds are defined in [Projection Freshness SLOs](../architecture/projection-freshness-slos.md). Use that document as the source of truth for p95/p99 duration targets, timeout-rate gates, zero permanent-not-found tolerance, and guest Buy Now canary pass/fail language.
