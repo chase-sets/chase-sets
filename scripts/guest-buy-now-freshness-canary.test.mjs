@@ -9,6 +9,7 @@ import {
   buildGuestBuyNowCanaryEvidence,
   classifyGuestBuyNowObservation,
   parseGuestBuyNowCanaryArgs,
+  resolveGuestBuyNowItemPath,
   runGuestBuyNowFreshnessCanary,
   validateGuestBuyNowCanaryOptions,
 } from "./guest-buy-now-freshness-canary.mjs";
@@ -118,6 +119,7 @@ describe("guest Buy Now freshness canary", () => {
       GUEST_BUY_NOW_CANARY_ENVIRONMENT: "staging",
       GUEST_BUY_NOW_CANARY_TIMEOUT_MS: "1234",
       GUEST_BUY_NOW_CANARY_CORRELATION_ID: "diag_1",
+      GUEST_BUY_NOW_CANARY_SEARCH_QUERY: "pikachu",
     });
 
     expect(parsed).toMatchObject({
@@ -126,15 +128,16 @@ describe("guest Buy Now freshness canary", () => {
       itemPath: "/items/canary",
       fixtureKey: "canary-fixture",
       guestEmail: "guest-buy-now-canary@example.test",
+      searchQuery: "pikachu",
       timeoutMs: 1234,
       diagnosticCorrelationId: "diag_1",
     });
   });
 
-  it("requires explicit fixture configuration and rejects production browser canaries", () => {
-    expect(validateGuestBuyNowCanaryOptions({ environment: "staging" })).toEqual([
+  it("requires canary configuration and rejects production browser canaries", () => {
+    expect(validateGuestBuyNowCanaryOptions({ environment: "staging", searchQuery: "" })).toEqual([
       "GUEST_BUY_NOW_CANARY_BASE_URL or --base-url is required.",
-      "GUEST_BUY_NOW_CANARY_ITEM_PATH or --item-path is required.",
+      "GUEST_BUY_NOW_CANARY_ITEM_PATH/--item-path or GUEST_BUY_NOW_CANARY_SEARCH_QUERY/--search-query is required.",
       "GUEST_BUY_NOW_CANARY_FIXTURE_KEY or --fixture-key is required.",
       "GUEST_BUY_NOW_CANARY_GUEST_EMAIL or --guest-email is required.",
     ]);
@@ -147,6 +150,90 @@ describe("guest Buy Now freshness canary", () => {
         environment: "production",
       }),
     ).toContain(PRODUCTION_FEASIBILITY_DECISION.reason);
+  });
+
+  it("resolves an explicit item path before searching", async () => {
+    await expect(
+      resolveGuestBuyNowItemPath({
+        baseUrl: "https://marketplace.staging.chasesets.com",
+        itemPath: "items/canary",
+        searchQuery: "charizard",
+      }),
+    ).resolves.toBe("/items/canary");
+  });
+
+  it("discovers the first active buyable item from marketplace search", async () => {
+    const requestedUrls = [];
+    const responses = [
+      {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            items: [
+              { slug: "no-market", market_summary: null },
+              { slug: "empty-market", market_summary: { active_listing_count: 1, total_visible_quantity: 0 } },
+              { slug: "buyable-card", market_summary: { active_listing_count: 1, total_visible_quantity: 2 } },
+            ],
+          };
+        },
+      },
+      {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            market_listings: [
+              {
+                listing_id: "lst_1",
+                status: "active",
+                visible_quantity: 2,
+                selected_options: [
+                  { dimensionId: "dim_seed_form", optionId: "chc_seed_form_raw" },
+                  { dimensionId: "dim_seed_condition", optionId: "chc_seed_condition_near_mint" },
+                ],
+              },
+            ],
+          };
+        },
+      },
+    ];
+    const itemPath = await resolveGuestBuyNowItemPath(
+      {
+        baseUrl: "https://marketplace.staging.chasesets.com",
+        searchQuery: "charizard",
+      },
+      async (url) => {
+        requestedUrls.push(String(url));
+        return responses.shift();
+      },
+    );
+
+    expect(itemPath).toBe(
+      "/items/buyable-card?market=buy&dimension.dim_seed_form=chc_seed_form_raw&dimension.dim_seed_condition=chc_seed_condition_near_mint",
+    );
+    expect(requestedUrls[0]).toBe(
+      "https://marketplace.staging.chasesets.com/api/marketplace/items?q=charizard&includeTotal=true",
+    );
+    expect(requestedUrls[1]).toBe("https://marketplace.staging.chasesets.com/api/marketplace/items/buyable-card");
+  });
+
+  it("fails clearly when search cannot find a buyable item", async () => {
+    await expect(
+      resolveGuestBuyNowItemPath(
+        {
+          baseUrl: "https://marketplace.staging.chasesets.com",
+          searchQuery: "missing",
+        },
+        async () => ({
+          ok: true,
+          status: 200,
+          async json() {
+            return { items: [{ slug: "catalog-only", market_summary: null }] };
+          },
+        }),
+      ),
+    ).rejects.toThrow("found no active buyable marketplace item");
   });
 
   it("writes evidence and exits successfully for safe temporary state with injected observation", async () => {

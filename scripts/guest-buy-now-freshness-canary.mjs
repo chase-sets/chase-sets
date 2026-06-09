@@ -16,6 +16,7 @@ export const PRODUCTION_FEASIBILITY_DECISION = Object.freeze({
 const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_CONTACT_NAME = "Guest Buy Now Canary";
 const DEFAULT_GUEST_EMAIL = "guest-buy-now-canary@chasesets.test";
+const DEFAULT_SEARCH_QUERY = "charizard";
 const RAW_AFTER_WRITE_PATTERN = /afterWrite=[^&\s")]+/gi;
 const CHECKOUT_SESSION_ID_PATTERN = /\bchk_[0-9A-Za-z_:-]+\b/g;
 const GUEST_COOKIE_PATTERN = /chase_sets_guest_checkout=[^;\s]+/gi;
@@ -26,6 +27,8 @@ export function parseGuestBuyNowCanaryArgs(argv, env = process.env) {
     outPath: readOption(argv, "--out") ?? readEnv("GUEST_BUY_NOW_CANARY_OUT", env),
     baseUrl: readOption(argv, "--base-url") ?? readEnv("GUEST_BUY_NOW_CANARY_BASE_URL", env),
     itemPath: readOption(argv, "--item-path") ?? readEnv("GUEST_BUY_NOW_CANARY_ITEM_PATH", env),
+    searchQuery:
+      readOption(argv, "--search-query") ?? readEnv("GUEST_BUY_NOW_CANARY_SEARCH_QUERY", env) ?? DEFAULT_SEARCH_QUERY,
     fixtureKey: readOption(argv, "--fixture-key") ?? readEnv("GUEST_BUY_NOW_CANARY_FIXTURE_KEY", env),
     guestEmail: readOption(argv, "--guest-email") ?? readEnv("GUEST_BUY_NOW_CANARY_GUEST_EMAIL", env),
     contactName:
@@ -49,8 +52,10 @@ export function validateGuestBuyNowCanaryOptions(options) {
   if (!normalizeUrl(options.baseUrl)) {
     errors.push("GUEST_BUY_NOW_CANARY_BASE_URL or --base-url is required.");
   }
-  if (!normalizePath(options.itemPath)) {
-    errors.push("GUEST_BUY_NOW_CANARY_ITEM_PATH or --item-path is required.");
+  if (!normalizePath(options.itemPath) && !normalizeString(options.searchQuery)) {
+    errors.push(
+      "GUEST_BUY_NOW_CANARY_ITEM_PATH/--item-path or GUEST_BUY_NOW_CANARY_SEARCH_QUERY/--search-query is required.",
+    );
   }
   if (!normalizeString(options.fixtureKey)) {
     errors.push("GUEST_BUY_NOW_CANARY_FIXTURE_KEY or --fixture-key is required.");
@@ -185,25 +190,28 @@ export async function runGuestBuyNowFreshnessCanary(options) {
 }
 
 async function observeGuestBuyNowCheckout(options) {
-  const { chromium } = await import("playwright");
+  const { chromium } = await import("@playwright/test");
   const browser = await chromium.launch({ headless: options.headless });
   const context = await browser.newContext();
   const page = await context.newPage();
   const baseUrl = normalizeUrl(options.baseUrl);
-  const itemUrl = new URL(normalizePath(options.itemPath), baseUrl);
 
   try {
+    const itemPath = await resolveGuestBuyNowItemPath(options);
+    const itemUrl = new URL(itemPath, baseUrl);
     await page.goto(itemUrl.toString(), { waitUntil: "domcontentloaded", timeout: options.timeoutMs });
     await page
-      .getByRole("button", { name: /buy now/i })
+      .locator(
+        'button[type="submit"][name="intent"][value="buy-this-listing"]:not([disabled]), button[type="submit"][name="intent"][value="buy-now"]:not([disabled])',
+      )
       .first()
       .click({ timeout: options.timeoutMs });
     await page.waitForURL(/\/checkout\/start/, { timeout: options.timeoutMs });
     await page.getByLabel(/contact name/i).fill(options.contactName);
-    await page.getByLabel(/^email$/i).fill(options.guestEmail);
+    await page.getByLabel(/email/i).fill(options.guestEmail);
     const startedAt = Date.now();
     await page.getByRole("button", { name: /continue as guest/i }).click({ timeout: options.timeoutMs });
-    await page.waitForURL(/\/checkout\//, { timeout: options.timeoutMs });
+    await page.waitForURL(/\/checkout\/chk_/, { timeout: options.timeoutMs });
     await page.waitForLoadState("domcontentloaded", { timeout: options.timeoutMs });
 
     const finalUrl = new URL(page.url());
@@ -228,6 +236,75 @@ async function observeGuestBuyNowCheckout(options) {
   } finally {
     await browser.close();
   }
+}
+
+export async function resolveGuestBuyNowItemPath(options, fetchImpl = fetch) {
+  const configuredPath = normalizePath(options.itemPath);
+  if (configuredPath) {
+    return configuredPath;
+  }
+
+  const baseUrl = normalizeUrl(options.baseUrl);
+  const searchQuery = normalizeString(options.searchQuery);
+  if (!baseUrl || !searchQuery) {
+    throw new Error("Guest Buy Now canary requires a base URL and either an item path or search query.");
+  }
+
+  const searchUrl = new URL("/api/marketplace/items", baseUrl);
+  searchUrl.searchParams.set("q", searchQuery);
+  searchUrl.searchParams.set("includeTotal", "true");
+  const response = await fetchImpl(searchUrl);
+  if (!response.ok) {
+    throw new Error(`Guest Buy Now canary fixture search failed with HTTP ${response.status}.`);
+  }
+
+  const body = await response.json();
+  const candidates = (Array.isArray(body?.items) ? body.items : []).filter((candidate) => {
+    const summary = candidate?.market_summary;
+    return (
+      normalizeString(candidate?.slug) &&
+      Number(summary?.active_listing_count ?? 0) > 0 &&
+      Number(summary?.total_visible_quantity ?? 0) > 0
+    );
+  });
+
+  for (const candidate of candidates) {
+    const detailUrl = new URL(`/api/marketplace/items/${encodeURIComponent(candidate.slug)}`, baseUrl);
+    const detailResponse = await fetchImpl(detailUrl);
+    if (!detailResponse.ok) {
+      continue;
+    }
+
+    const path = pathFromBuyableDetail(candidate.slug, await detailResponse.json());
+    if (path) {
+      return path;
+    }
+  }
+
+  throw new Error(`Guest Buy Now canary found no active buyable marketplace item for search query '${searchQuery}'.`);
+}
+
+function pathFromBuyableDetail(slug, detail) {
+  const listing = (Array.isArray(detail?.market_listings) ? detail.market_listings : []).find(
+    (candidate) =>
+      normalizeString(candidate?.listing_id) &&
+      String(candidate?.status ?? "").toLowerCase() === "active" &&
+      Number(candidate?.visible_quantity ?? candidate?.quantity_cap ?? 0) > 0,
+  );
+  if (!listing) {
+    return null;
+  }
+
+  const params = new URLSearchParams({ market: "buy" });
+  for (const selection of Array.isArray(listing.selected_options) ? listing.selected_options : []) {
+    const dimensionId = normalizeString(selection?.dimensionId);
+    const optionId = normalizeString(selection?.optionId);
+    if (dimensionId && optionId) {
+      params.append(`dimension.${dimensionId}`, optionId);
+    }
+  }
+
+  return `/items/${slug}?${params.toString()}`;
 }
 
 function detectWaitMode(text) {
