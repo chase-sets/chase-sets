@@ -7,7 +7,7 @@ Signed-out Buy Now checkout is a critical read-after-write path. A shopper start
 - Discovery redirects signed-out Buy Now submissions to `/checkout/start` with the Buy Now source preserved.
 - Checkout starts guest checkout through Auth, writes the `chase_sets_guest_checkout` cookie on the document response, and redirects to `/checkout/:sessionId` with an `afterWrite` receipt.
 - Platform API freshness middleware must wait on the exact Checkout session dependency for `/api/marketplace/account/checkout-sessions/:sessionId`: `checkout.session-projection`, resolved from `checkout_session_pages`.
-- While the fresh receipt is valid, `404` and `projection_freshness_timeout` responses are temporary preparing-checkout states, not permanent checkout-session-not-found recovery.
+- While the fresh receipt is valid, `404`, `projection_freshness_timeout`, and bounded gateway/service timeout responses are temporary preparing-checkout states, not permanent checkout-session-not-found recovery.
 - Retrying or refreshing the same fresh URL must show the checkout session once `checkout_session_pages` catches up.
 - Payment and order side effects are not allowed before the shopper explicitly confirms checkout.
 
@@ -37,7 +37,7 @@ The #1074 integration coverage asserts:
 - guest cookie handoff on the document redirect;
 - `afterWrite` receipt preservation from the Checkout command response;
 - fresh `404` retry to eventual session readiness;
-- `projection_freshness_timeout` recovery as a temporary preparing-checkout state;
+- `projection_freshness_timeout` and bounded gateway/service timeout recovery as temporary preparing-checkout states;
 - exact dependency diagnostics for `checkout_session_pages` resolving to `checkout.session-projection`;
 - command-side Buy Now updates without reading `checkout_session_pages` while projection is behind;
 - no payment/order side effects before explicit checkout confirmation.

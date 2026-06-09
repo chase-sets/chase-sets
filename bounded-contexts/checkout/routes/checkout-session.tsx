@@ -40,6 +40,7 @@ const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.choose.shippi
 const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
   "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable",
 );
+const CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS = 2_000;
 
 async function loadWalletBalance(request: Request) {
   const response = await createForwardedAuthFetch(request, globalThis.fetch, { readTargetContextName: "settlement" })(
@@ -335,7 +336,10 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   if (!params.sessionId) {
     throw new Response(t("checkout.routes.checkoutSession.checkout.session.not.found"), { status: 404 });
   }
-  const api = createCheckoutRequestApiClient(request);
+  const api = createCheckoutRequestApiClient(request, {
+    requestTimeoutMs: CHECKOUT_SESSION_FRESH_READ_TIMEOUT_MS,
+    recoverTransportErrorsAsGatewayTimeout: true,
+  });
   const session = await loadFreshlyWrittenResource({
     request,
     isNotFound: (error) => error instanceof CheckoutApiError && error.status === 404,

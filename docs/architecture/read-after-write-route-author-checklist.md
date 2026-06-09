@@ -8,7 +8,7 @@ Use this checklist when a browser action writes durable state and immediately re
 2. The browser route carries that receipt in a short-lived `afterWrite` token.
 3. Server-side route clients forward the token as `Chase-Sets-Read-After-Write` and name the serving read context with `Chase-Sets-Read-Target-Context`.
 4. The API read consistency gate waits only for the exact projection groups required by the destination route.
-5. The destination route treats `404` and `projection_freshness_timeout` as temporary only while the original token is valid.
+5. The destination route treats `404`, `projection_freshness_timeout`, and any route-bounded gateway/service timeout as temporary only while the original token is valid.
 
 This pattern prevents a user-facing "not found" after a successful write without turning every read into a synchronous projection drain.
 
@@ -23,7 +23,7 @@ This pattern prevents a user-facing "not found" after a successful write without
 - Pass `readTargetContextName` from context-owned request clients on shared mounts such as `/api/marketplace`.
 - Declare the destination API route in the owning context's `apiMounts[].readFreshnessRoutes`.
 - Add or update the owning context's `readAfterWriteRouteInventory` entry.
-- Add route-owned transient recovery copy for valid fresh-write `404` and `503 projection_freshness_timeout`.
+- Add route-owned transient recovery copy for valid fresh-write `404`, `503 projection_freshness_timeout`, and any scoped opaque gateway/service timeout that the route intentionally bounds.
 - Keep permanent `404`, `401`, and `403` behavior intact for missing, expired, malformed, or wrong-actor handoffs.
 
 ## Exact Freshness Dependencies
@@ -97,6 +97,7 @@ Temporary states:
 
 - Fresh token plus `404`: the route may show preparation or refresh UI.
 - Fresh token plus `503 projection_freshness_timeout`: the route may show the same temporary recovery UI.
+- Fresh token plus a route-bounded opaque `502`, `503`, or `504`: the route may show the same temporary recovery UI when the request client intentionally prevents an outer platform timeout.
 
 Permanent states:
 
@@ -126,7 +127,7 @@ Checkout guest Buy Now:
 - API route: Checkout `/account/checkout-sessions/:sessionId`.
 - Dependency: `checkout_session_pages`, owned by `checkout.session-projection`.
 - Inventory id: `checkout.session-start-to-detail`.
-- Recovery: valid fresh-write `404` or `projection_freshness_timeout` renders temporary checkout preparation UI; expired handoff renders safe restart copy that confirms payment has not started.
+- Recovery: valid fresh-write `404`, `projection_freshness_timeout`, or route-bounded gateway/service timeout renders temporary checkout preparation UI; expired handoff renders safe restart copy that confirms payment has not started.
 
 Payments create to detail:
 
