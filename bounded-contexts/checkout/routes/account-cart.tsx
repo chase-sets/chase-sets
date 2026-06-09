@@ -4,10 +4,7 @@ import { redirect, useActionData, useLoaderData } from "react-router";
 import { appendFreshWriteToken } from "@chase-sets/http/responses";
 import { buildOpenGraphMeta } from "@chase-sets/platform-runtime/meta";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
-import { createIdentityRequestApiClient, type ShippingAddress } from "@chase-sets/identity/server";
-import { createOrderingRequestApiClient } from "@chase-sets/ordering/server";
-import { createPaymentsRequestApiClient } from "@chase-sets/payments/server";
-import { createCheckoutRequestApiClient, type CheckoutCartLine } from "../support/request-support/api-client";
+import { createCheckoutRequestApiClient } from "../support/request-support/api-client";
 import { readAnonymousCartId } from "../support/request-support/guest-checkout";
 import { CheckoutCartPage } from "../features/cart/ui/cart-page";
 
@@ -21,166 +18,17 @@ function latestWriteResult(results: readonly unknown[]): unknown {
   return [...results].reverse().find((result) => result !== undefined && result !== null) ?? null;
 }
 
-function cartLineToPreviewLine(line: CheckoutCartLine) {
-  return {
-    listingId: line.locked_listing_id,
-    cartLineId: line.line_id,
-    catalogItemId: line.catalog_catalog_item_id,
-    productId: line.product_id,
-    itemTitle: line.item_title,
-    itemSubtitle: line.item_subtitle,
-    selectedOptions: line.selected_options,
-    productSummary: line.product_summary,
-    quantity: line.quantity,
-    fulfillmentMode: line.fulfillment_mode,
-    lockedListingId: line.locked_listing_id,
-    sellerPreferenceId: line.seller_preference_id,
-  };
-}
-
-function shippingAddressSnapshot(address: ShippingAddress) {
-  return {
-    name: address.recipient_name,
-    company: address.company,
-    line1: address.line1,
-    line2: address.line2,
-    city: address.city,
-    state: address.state,
-    postalCode: address.postal_code,
-    country: address.country,
-    phone: address.phone,
-    email: address.email,
-  };
-}
-
-function normalizeShippingOption(value: string | null) {
-  return value === "priority" || value === "expedited" ? value : "standard";
-}
-
-function normalizeOptimizationGoal(value: string | null) {
-  return value === "fewest-shipments" ? value : "lowest-total";
-}
-
-function normalizePaymentMethodCategory(value: string | null) {
-  return value === "bank-account" || value === "platform-credit" ? value : "card";
-}
-
-function normalizePreviewText(value: string | null) {
-  const normalized = (value ?? "").trim();
-  return normalized.length > 0 ? normalized : null;
-}
-
-function previewAddressFromSearchParams(searchParams: URLSearchParams) {
-  const postalCode = normalizePreviewText(searchParams.get("previewPostalCode"));
-  const country = normalizePreviewText(searchParams.get("previewCountry")) ?? "US";
-  const state = normalizePreviewText(searchParams.get("previewState")) ?? "";
-  const city = normalizePreviewText(searchParams.get("previewCity")) ?? "";
-  if (!postalCode) {
-    return null;
-  }
-
-  return {
-    label: [postalCode, state, country].filter(Boolean).join(", "),
-    address: {
-      name: "Cart preview",
-      company: null,
-      line1: "Cart preview",
-      line2: null,
-      city,
-      state,
-      postalCode,
-      country,
-      phone: null,
-      email: null,
-    },
-  };
-}
-
-async function loadCartLandedCostPreview(
-  request: Request,
-  actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>,
-  cart: { items: readonly CheckoutCartLine[] },
-) {
-  const searchParams = new URL(request.url).searchParams;
-  const shippingOption = normalizeShippingOption(searchParams.get("previewShippingOption"));
-  const optimizationGoal = normalizeOptimizationGoal(searchParams.get("previewOptimizationGoal"));
-  const paymentMethodCategory = normalizePaymentMethodCategory(searchParams.get("previewPaymentMethodCategory"));
-  const searchedAddress = previewAddressFromSearchParams(searchParams);
-  let address: ReturnType<typeof shippingAddressSnapshot> | null = searchedAddress?.address ?? null;
-  let addressLabel = searchedAddress?.label ?? null;
-
-  try {
-    if (
-      !address &&
-      actor &&
-      actor.roleKey !== "guest-buyer" &&
-      Array.isArray(actor.permissions) &&
-      actor.permissions.includes("accounts.view")
-    ) {
-      const addresses = await createIdentityRequestApiClient(request).listShippingAddresses<{
-        items: readonly ShippingAddress[];
-      }>(actor.accountId);
-      const defaultAddress = addresses.items.find((item) => item.is_default) ?? addresses.items[0] ?? null;
-      if (defaultAddress) {
-        address = shippingAddressSnapshot(defaultAddress);
-        addressLabel = defaultAddress.label;
-      }
-    }
-
-    if (!address || !addressLabel || cart.items.length === 0) {
-      return null;
-    }
-
-    const preview = await createOrderingRequestApiClient(request).previewCheckoutFulfillment({
-      checkoutSessionId: `cart-preview:${actor?.accountId ?? readAnonymousCartId(request) ?? "guest"}`,
-      sourceType: "cart-checkout",
-      shippingOption,
-      shippingAddress: address,
-      optimizationGoal,
-      lines: cart.items.map(cartLineToPreviewLine),
-    });
-    const paymentPreview = await createPaymentsRequestApiClient(request)
-      .previewCheckoutStatus({
-        amount: preview.totals.totalAmount,
-        paymentMethodCategory,
-      })
-      .catch(() => null);
-
-    return {
-      addressLabel,
-      shippingOption,
-      optimizationGoal,
-      paymentMethodCategory,
-      previewDestination: {
-        city: address.city,
-        state: address.state,
-        postalCode: address.postalCode,
-        country: address.country,
-      },
-      preview,
-      paymentPreview,
-    };
-  } catch {
-    return null;
-  }
-}
-
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
 
   if (!canUseAccountCart(actor)) {
     const cart = await api.getGuestCart(readAnonymousCartId(request));
-    const landedCostPreview = await loadCartLandedCostPreview(request, actor, cart);
-    return landedCostPreview ? { cart, landedCostPreview } : { cart };
+    return { cart };
   }
 
   const cart = await api.getCart();
-  const landedCostPreview = await loadCartLandedCostPreview(request, actor, cart);
-  return {
-    cart,
-    ...(landedCostPreview ? { landedCostPreview } : {}),
-  };
+  return { cart };
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -247,84 +95,6 @@ export async function action({ request }: ActionFunctionArgs) {
       return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
     }
 
-    if (intent === "unlock-cart-line") {
-      const lineIds = formData
-        .getAll("lineId")
-        .map((lineId) => String(lineId ?? "").trim())
-        .filter(Boolean);
-
-      if (!useAccountCart && anonymousCartId) {
-        const results = await Promise.all(
-          lineIds.map((lineId) =>
-            api.updateGuestCartLineFulfillment(anonymousCartId, lineId, {
-              fulfillmentMode: "optimize",
-              lockedListingId: null,
-              sellerPreferenceId: null,
-              availabilityState: "available",
-            }),
-          ),
-        );
-        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
-      }
-
-      if (!useAccountCart) {
-        throw new Error(t("checkout.routes.accountCart.request.failed"));
-      }
-
-      const results = await Promise.all(
-        lineIds.map((lineId) =>
-          api.updateCartLineFulfillment(lineId, {
-            fulfillmentMode: "optimize",
-            lockedListingId: null,
-            sellerPreferenceId: null,
-            availabilityState: "available",
-          }),
-        ),
-      );
-      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
-    }
-
-    if (intent === "lock-cart-line") {
-      const lineIds = formData
-        .getAll("lineId")
-        .map((lineId) => String(lineId ?? "").trim())
-        .filter(Boolean);
-      const lockedListingId = String(formData.get("lockedListingId") ?? "").trim();
-      if (!lockedListingId) {
-        throw new Error("Choose a seller option before locking fulfillment.");
-      }
-
-      if (!useAccountCart && anonymousCartId) {
-        const results = await Promise.all(
-          lineIds.map((lineId) =>
-            api.updateGuestCartLineFulfillment(anonymousCartId, lineId, {
-              fulfillmentMode: "locked-listing",
-              lockedListingId,
-              sellerPreferenceId: null,
-              availabilityState: "available",
-            }),
-          ),
-        );
-        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
-      }
-
-      if (!useAccountCart) {
-        throw new Error(t("checkout.routes.accountCart.request.failed"));
-      }
-
-      const results = await Promise.all(
-        lineIds.map((lineId) =>
-          api.updateCartLineFulfillment(lineId, {
-            fulfillmentMode: "locked-listing",
-            lockedListingId,
-            sellerPreferenceId: null,
-            availabilityState: "available",
-          }),
-        ),
-      );
-      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
-    }
-
     return null;
   } catch (error) {
     return {
@@ -343,11 +113,5 @@ export default function CheckoutAccountCartRoute() {
   const data = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
 
-  return (
-    <CheckoutCartPage
-      cartLines={data.cart.items}
-      landedCostPreview={"landedCostPreview" in data ? data.landedCostPreview : null}
-      errorMessage={actionData?.error ?? null}
-    />
-  );
+  return <CheckoutCartPage cartLines={data.cart.items} errorMessage={actionData?.error ?? null} />;
 }

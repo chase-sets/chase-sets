@@ -22,6 +22,8 @@ const {
   mockMergeGuestCartToAccount,
   mockGetCart,
   mockGetGuestCart,
+  mockUpdateCartLineQuantity,
+  mockRemoveCartLine,
   mockGetGuestSellList,
   mockGetOfferMatch,
   mockListOfferMatches,
@@ -63,6 +65,8 @@ const {
   mockMergeGuestCartToAccount: vi.fn(),
   mockGetCart: vi.fn(),
   mockGetGuestCart: vi.fn(),
+  mockUpdateCartLineQuantity: vi.fn(),
+  mockRemoveCartLine: vi.fn(),
   mockGetGuestSellList: vi.fn(),
   mockGetOfferMatch: vi.fn(),
   mockListOfferMatches: vi.fn(),
@@ -132,7 +136,7 @@ import {
   loader as checkoutStartLoader,
 } from "./checkout-start";
 import { action as checkoutSessionAction, loader as checkoutSessionLoader } from "./checkout-session";
-import { loader as accountCartLoader } from "./account-cart";
+import { action as accountCartAction, loader as accountCartLoader } from "./account-cart";
 import { action as accountSellListAction } from "./account-sell-list";
 
 describe("checkout web routes", () => {
@@ -389,6 +393,74 @@ describe("checkout web routes", () => {
     expect(result).toEqual({ cart: { items: [], count: 0 } });
     expect(mockGetGuestCart).toHaveBeenCalledWith("anon_cart_1");
     expect(mockGetCart).not.toHaveBeenCalled();
+  });
+
+  it("updates the primary grouped cart line and removes duplicate line ids", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockUpdateCartLineQuantity.mockResolvedValue(checkoutCommit("43", "evt_quantity"));
+    mockRemoveCartLine.mockResolvedValue(checkoutCommit("44", "evt_duplicate_removed"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      updateCartLineQuantity: mockUpdateCartLineQuantity,
+      removeCartLine: mockRemoveCartLine,
+    });
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_primary");
+    form.append("lineId", "cli_duplicate");
+    form.set("quantity", "2");
+    form.set("quantityDelta", "1");
+    form.set("intent", "update-cart-line");
+
+    const response = (await accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockUpdateCartLineQuantity).toHaveBeenCalledWith("cli_primary", { quantity: 3 });
+    expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
+    expect(response.status).toBe(302);
+    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+      commitPosition: "44",
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "44", eventIds: ["evt_duplicate_removed"] }],
+    });
+  });
+
+  it("removes every grouped cart line id from the simplified cart page", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockRemoveCartLine
+      .mockResolvedValueOnce(checkoutCommit("45", "evt_primary_removed"))
+      .mockResolvedValueOnce(checkoutCommit("46", "evt_duplicate_removed"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      removeCartLine: mockRemoveCartLine,
+    });
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_primary");
+    form.append("lineId", "cli_duplicate");
+    form.set("intent", "remove-cart-line");
+
+    const response = (await accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_primary");
+    expect(mockRemoveCartLine).toHaveBeenCalledWith("cli_duplicate");
+    expect(response.status).toBe(302);
+    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+      commitPosition: "46",
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "46", eventIds: ["evt_duplicate_removed"] }],
+    });
   });
 
   it("adds a Marketplace offer match to the Checkout-owned sell list", async () => {
