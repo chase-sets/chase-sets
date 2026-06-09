@@ -1,5 +1,18 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { CHASE_SETS_INTERNAL_API_ORIGIN_ENV, resolveInternalApiOrigin, resolveRequestApiBaseUrl } from "./http";
+import {
+  CHASE_SETS_READ_AFTER_WRITE_HEADER,
+  CHASE_SETS_READ_TARGET_CONTEXT_HEADER,
+  appendFreshWriteToken,
+  decodeFreshWriteReceipt,
+  encodeFreshWriteReceipt,
+} from "@chase-sets/http/responses";
+import {
+  CHASE_SETS_INTERNAL_API_ORIGIN_ENV,
+  createForwardedAuthFetch,
+  createForwardedAuthHeaders,
+  resolveInternalApiOrigin,
+  resolveRequestApiBaseUrl,
+} from "./http";
 
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -52,5 +65,119 @@ describe("resolveRequestApiBaseUrl", () => {
     const request = new Request("https://admin.chasesets.test/catalog");
 
     expect(resolveRequestApiBaseUrl(request, "/api/catalog")).toBe("http://admin-support-api:8080/api/catalog");
+  });
+});
+
+describe("createForwardedAuthHeaders", () => {
+  it("forwards auth and read-after-write headers for route API clients", () => {
+    const observedAtMs = Date.now();
+    const href = appendFreshWriteToken(
+      "/account/listings/lst_1",
+      {
+        commitPositions: [
+          {
+            sourceContextName: "marketplace",
+            maxGlobalPosition: "42",
+            eventIds: ["evt_1"],
+          },
+        ],
+        commitEventIds: ["evt_1"],
+      },
+      observedAtMs,
+    );
+    const request = new Request(`https://marketplace.chasesets.test${href}`, {
+      headers: {
+        authorization: "Bearer account-token",
+        cookie: "session=sess_1",
+      },
+    });
+
+    const headers = createForwardedAuthHeaders(request, undefined, { readTargetContextName: "marketplace" });
+
+    expect(headers.get("authorization")).toBe("Bearer account-token");
+    expect(headers.get("cookie")).toBe("session=sess_1");
+    expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("marketplace");
+    expect(decodeFreshWriteReceipt(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER), observedAtMs)).toEqual({
+      observedAtMs,
+      sources: [
+        {
+          sourceContextName: "marketplace",
+          maxGlobalPosition: "42",
+          eventIds: ["evt_1"],
+        },
+      ],
+    });
+  });
+
+  it("preserves caller-provided freshness headers", () => {
+    const request = new Request("https://marketplace.chasesets.test/account/listings/lst_1", {
+      headers: {
+        authorization: "Bearer account-token",
+        cookie: "session=sess_1",
+      },
+    });
+    const explicitReceipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "9",
+          eventIds: ["evt_checkout"],
+        },
+      ],
+    });
+
+    const headers = createForwardedAuthHeaders(
+      request,
+      {
+        [CHASE_SETS_READ_AFTER_WRITE_HEADER]: explicitReceipt,
+        [CHASE_SETS_READ_TARGET_CONTEXT_HEADER]: "checkout",
+      },
+      { readTargetContextName: "marketplace" },
+    );
+
+    expect(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBe(explicitReceipt);
+    expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("checkout");
+  });
+});
+
+describe("createForwardedAuthFetch", () => {
+  it("adds include credentials and freshness-aware forwarded headers", async () => {
+    const request = new Request(
+      `https://marketplace.chasesets.test${appendFreshWriteToken(
+        "/checkout/chk_1",
+        {
+          commitPositions: [
+            {
+              sourceContextName: "checkout",
+              maxGlobalPosition: "9",
+              eventIds: ["evt_checkout"],
+            },
+          ],
+          commitEventIds: ["evt_checkout"],
+        },
+        Date.now(),
+      )}`,
+      {
+        headers: {
+          cookie: "guest=guest_1",
+        },
+      },
+    );
+    let receivedInit: RequestInit | undefined;
+    const fetchImpl: typeof globalThis.fetch = async (_input, init) => {
+      receivedInit = init;
+      return new Response("{}");
+    };
+
+    await createForwardedAuthFetch(request, fetchImpl, { readTargetContextName: "checkout" })(
+      "https://api.chasesets.test/api/marketplace/checkout-sessions/chk_1",
+    );
+
+    expect(receivedInit?.credentials).toBe("include");
+    const headers = new Headers(receivedInit?.headers);
+    expect(headers.get("cookie")).toBe("guest=guest_1");
+    expect(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("checkout");
   });
 });

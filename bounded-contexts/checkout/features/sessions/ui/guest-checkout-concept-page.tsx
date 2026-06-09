@@ -6,6 +6,7 @@ import {
   Divider,
   Grid,
   Icon,
+  Inset,
   Inline,
   LinkButton,
   NativeSelect,
@@ -186,7 +187,7 @@ export function GuestCheckoutConceptPage() {
                     ))}
                   </Grid>
                 </Stack>
-                <Surface tone="muted" padding={4}>
+                <Inset padding={4}>
                   <Stack gap={3}>
                     <Inline gap={2}>
                       <Icon name="truck" tone="accent" size="sm" />
@@ -200,7 +201,7 @@ export function GuestCheckoutConceptPage() {
                       {t("checkout.features.sessions.ui.guestCheckoutConcept.one.package.letter")}
                     </Text>
                   </Stack>
-                </Surface>
+                </Inset>
               </div>
             </Stack>
           </Surface>
@@ -283,14 +284,14 @@ export function GuestCheckoutConceptPage() {
                   type="email"
                 />
               </Grid>
-              <Surface tone="muted" padding={3}>
+              <Inset padding={3}>
                 <Inline gap={2}>
                   <Icon name="shield" tone="success" size="sm" />
                   <Text size="sm" weight="semibold">
                     {t("checkout.features.sessions.ui.guestCheckoutConcept.final.totals.before.payment")}
                   </Text>
                 </Inline>
-              </Surface>
+              </Inset>
             </Stack>
           </Surface>
           <StickyCtaBar

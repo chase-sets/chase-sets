@@ -5,7 +5,6 @@
   "type": "module",
   "exports": {
     ".": "./index.ts",
-    "./http": "./http.ts",
     "./provisioning": "./provisioning.ts",
     "./test-support": "./test-support.ts",
     "./web": "./web.ts"

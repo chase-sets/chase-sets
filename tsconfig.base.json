@@ -48,9 +48,6 @@
       "@chase-sets/bounded-context-runtime": [
         "./infrastructure/bounded-context-runtime/index.ts"
       ],
-      "@chase-sets/bounded-context-runtime/http": [
-        "./infrastructure/bounded-context-runtime/http.ts"
-      ],
       "@chase-sets/bounded-context-runtime/provisioning": [
         "./infrastructure/bounded-context-runtime/provisioning.ts"
       ],

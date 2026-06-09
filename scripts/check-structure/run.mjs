@@ -374,6 +374,19 @@ function extractImportSpecifiers(content) {
   return specifiers;
 }
 
+const retiredFreshnessDroppingForwardingImportMessage =
+  "retired freshness-dropping forwarding helper import; use @chase-sets/platform-runtime/http";
+
+export function retiredFreshnessDroppingForwardingImport(relativeFile, specifier) {
+  const normalizedSpecifier = specifier.replaceAll("\\", "/").replace(/\.(?:ts|tsx|js|jsx|mjs|cjs)$/, "");
+  const resolvedSpecifier = resolveRelativeSpecifier(relativeFile, normalizedSpecifier);
+
+  return (
+    normalizedSpecifier === "@chase-sets/bounded-context-runtime/http" ||
+    resolvedSpecifier === "infrastructure/bounded-context-runtime/http"
+  );
+}
+
 function stripContextManifestSurfaceExport(content) {
   return content
     .replace(/^\s*export\s+\{\s*default\s+as\s+contextManifest\s*\}\s+from\s+["']\.\/context\.json["'];?\s*$/gm, "")
@@ -2025,6 +2038,11 @@ export async function runStructureCheck(options = {}) {
     const routeOrShellSupportClassification = classifyRouteOrShellSupportFile(relativeFile);
     const importerContextRoot = getContextRoot(relativeFile);
     const importerContext = importerContextRoot ? contextManifests.get(importerContextRoot) : null;
+
+    if (retiredFreshnessDroppingForwardingImport(relativeFile, normalized)) {
+      addViolation(file, retiredFreshnessDroppingForwardingImportMessage);
+    }
+
     if (importerContext && resolvedSpecifier) {
       recordSupportFileConsumer(importerContext, relativeFile, resolvedSpecifier);
     }
