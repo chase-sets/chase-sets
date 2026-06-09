@@ -1,6 +1,7 @@
 export * from "./lib/utils";
 export * from "./brand/chase-sets-logo";
 export * from "./components/actions";
+export * from "./components/checkout";
 export * from "./components/data-display";
 export * from "./components/feedback";
 export * from "./components/forms";
