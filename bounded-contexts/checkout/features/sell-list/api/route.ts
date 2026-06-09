@@ -4,6 +4,7 @@ import { createId } from "@chase-sets/primitives/typed-ids";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
 import type { SellListExecutionSummary } from "../domain/domain";
+import { parseSellListReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutSellListServices } from "./runtime";
 
 function requireSellListAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables"]["actor"] }) {
@@ -128,6 +129,9 @@ function parseLineOutcomeAction(
 
 function parseSellListCheckoutBody(body: Record<string, unknown>) {
   const executionId = String(body.executionId ?? "").trim();
+  const readinessSnapshotId = String(body.readinessSnapshotId ?? body.readiness_snapshot_id ?? "").trim();
+  const readinessSourceRevision = String(body.readinessSourceRevision ?? body.readiness_source_revision ?? "").trim();
+  const readinessDecisions = parseSellListReadinessDecisionInput(body.readinessDecisions ?? body.readiness_decisions);
   const completedLineIds = Array.isArray(body.completedLineIds)
     ? body.completedLineIds.map(String).filter(Boolean)
     : [];
@@ -162,6 +166,9 @@ function parseSellListCheckoutBody(body: Record<string, unknown>) {
 
   return {
     executionId,
+    readinessSnapshotId,
+    readinessSourceRevision,
+    readinessDecisions,
     completedLineIds,
     remainingLineQuantities,
     executionSummary: executionSummary
@@ -176,6 +183,10 @@ function parseSellListCheckoutBody(body: Record<string, unknown>) {
         }
       : null,
   };
+}
+
+function hasSellListReadinessEvidence(body: ReturnType<typeof parseSellListCheckoutBody>) {
+  return Boolean(body.readinessSnapshotId && body.readinessSourceRevision);
 }
 
 function parseSellListExecutionBody(body: Record<string, unknown>) {
@@ -208,6 +219,21 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
       latestReceipt,
       latestPendingExecution,
     });
+  });
+
+  app.post("/sell-list/readiness", async (c) => {
+    const access = requireSellListAccess(c);
+    if (access.response) {
+      return access.response;
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const snapshot = await services.createReadinessSnapshot({
+      sellerAccountId: access.actor.accountId,
+      decisions: parseSellListReadinessDecisionInput(body),
+    });
+
+    return c.json({ readiness: snapshot });
   });
 
   app.post("/sell-list", async (c) => {
@@ -425,6 +451,17 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
 
     try {
       const executionId = checkoutBody.executionId || createId("sle");
+      if (!hasSellListReadinessEvidence(checkoutBody)) {
+        return c.json(
+          {
+            error: {
+              code: "validation_failed",
+              message: t("checkout.features.sellList.api.route.sell.list.readiness.snapshot.required"),
+            },
+          },
+          400,
+        );
+      }
 
       const existingReceipt =
         typeof services.getReceiptByExecutionId === "function"
@@ -461,6 +498,9 @@ export function createAccountSellListRoutes(services: CheckoutSellListServices) 
         {
           sellerAccountId: access.actor.accountId as never,
           executionId,
+          readinessSnapshotId: checkoutBody.readinessSnapshotId,
+          readinessSourceRevision: checkoutBody.readinessSourceRevision,
+          readinessDecisions: checkoutBody.readinessDecisions,
           completedLineIds: checkoutBody.completedLineIds as never,
           remainingLineQuantities: checkoutBody.remainingLineQuantities as never,
           executionSummary: checkoutBody.executionSummary,
@@ -497,6 +537,29 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
       items,
       count: items.reduce((sum, item) => sum + item.quantity, 0),
     });
+  });
+
+  app.post("/sell-list/readiness", async (c) => {
+    const ownerId = requireAnonymousSellListId(c);
+    if (!ownerId) {
+      return c.json(
+        {
+          error: {
+            code: "anonymous_sell_list_required",
+            message: t("checkout.features.cart.api.route.authentication.required"),
+          },
+        },
+        400,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const snapshot = await services.createReadinessSnapshot({
+      sellerAccountId: ownerId,
+      decisions: parseSellListReadinessDecisionInput(body),
+    });
+
+    return c.json({ readiness: snapshot });
   });
 
   app.post("/sell-list", async (c) => {

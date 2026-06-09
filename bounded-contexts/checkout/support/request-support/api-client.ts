@@ -4,6 +4,8 @@ export type {
   CheckoutApiClientOptions,
   CartReadinessDecisionInput,
   CartReadinessSnapshot,
+  SellListReadinessDecisionInput,
+  SellListReadinessSnapshot,
   CheckoutCartLine,
   AddCheckoutSellListLineRequest,
   CheckoutSellListLineRow,

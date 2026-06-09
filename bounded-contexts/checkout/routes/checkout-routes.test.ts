@@ -13,6 +13,7 @@ const {
   mockCreateAuthRequestApiClient,
   mockCreateCheckoutSession,
   mockCreateCartReadiness,
+  mockCreateSellListReadiness,
   mockGetCheckoutSession,
   mockPreviewCheckoutFulfillment,
   mockPreviewCheckoutStatus,
@@ -57,6 +58,7 @@ const {
   mockCreateAuthRequestApiClient: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
   mockCreateCartReadiness: vi.fn(),
+  mockCreateSellListReadiness: vi.fn(),
   mockGetCheckoutSession: vi.fn(),
   mockPreviewCheckoutFulfillment: vi.fn(),
   mockPreviewCheckoutStatus: vi.fn(),
@@ -167,6 +169,7 @@ describe("checkout web routes", () => {
       }),
     });
     mockCreateCartReadiness.mockResolvedValue(readyCartReadinessResponse());
+    mockCreateSellListReadiness.mockResolvedValue(readySellListReadinessResponse());
   });
 
   afterEach(() => {
@@ -221,6 +224,28 @@ describe("checkout web routes", () => {
           currency: "USD",
         },
         customerSafeFacts: ["Ready for checkout."],
+      },
+    };
+  }
+
+  function readySellListReadinessResponse() {
+    return {
+      readiness: {
+        schemaVersion: "checkout.sell-list-readiness.v1",
+        source: "sell-list",
+        sourceRevision: "slr_source",
+        snapshotId: "slr_ready",
+        status: "ready",
+        lineCount: 1,
+        includedLineIds: ["sll_1"],
+        unresolvedLineIds: [],
+        lineOutcomes: [{ lineId: "sll_1", outcome: "checkout", reason: "ready", action: "selected-offer" }],
+        sellerReadiness: {
+          payout: "not-evaluated",
+          shipFrom: "not-evaluated",
+          label: "not-evaluated",
+        },
+        customerSafeFacts: ["Ready for seller checkout."],
       },
     };
   }
@@ -587,6 +612,7 @@ describe("checkout web routes", () => {
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
       startSellListExecution: mockStartSellListExecution,
       recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
+      createSellListReadiness: mockCreateSellListReadiness,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
@@ -618,6 +644,12 @@ describe("checkout web routes", () => {
     });
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
       executionId: "sle_1",
+      readinessSnapshotId: "slr_ready",
+      readinessSourceRevision: "slr_source",
+      readinessDecisions: {
+        lineActions: [{ lineId: "sll_1", action: "selected-offer" }],
+        lineOutcomes: [],
+      },
       completedLineIds: ["sll_1"],
       remainingLineQuantities: [],
       executionSummary: {
@@ -662,6 +694,7 @@ describe("checkout web routes", () => {
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
       startSellListExecution: mockStartSellListExecution,
       recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
+      createSellListReadiness: mockCreateSellListReadiness,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
@@ -694,6 +727,12 @@ describe("checkout web routes", () => {
     expect(mockCreateListing).not.toHaveBeenCalled();
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
       executionId: "sle_1",
+      readinessSnapshotId: "slr_ready",
+      readinessSourceRevision: "slr_source",
+      readinessDecisions: {
+        lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+        lineOutcomes: [],
+      },
       completedLineIds: ["sll_product"],
       remainingLineQuantities: [],
       executionSummary: {
@@ -735,6 +774,7 @@ describe("checkout web routes", () => {
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 3 })),
       startSellListExecution: mockStartSellListExecution,
       recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
+      createSellListReadiness: mockCreateSellListReadiness,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
@@ -766,6 +806,12 @@ describe("checkout web routes", () => {
     });
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
       executionId: "sle_1",
+      readinessSnapshotId: "slr_ready",
+      readinessSourceRevision: "slr_source",
+      readinessDecisions: {
+        lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+        lineOutcomes: [],
+      },
       completedLineIds: [],
       remainingLineQuantities: [{ lineId: "sll_product", quantity: 1 }],
       executionSummary: expect.objectContaining({
@@ -782,6 +828,55 @@ describe("checkout web routes", () => {
       }),
     });
     expect(response.status).toBe(302);
+  });
+
+  it("keeps unresolved Sell List readiness out of seller checkout side effects", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
+    mockCreateSellListReadiness.mockResolvedValue({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        status: "needs-resolution",
+        unresolvedLineIds: ["sll_product"],
+      },
+    });
+    const sellListLine = {
+      line_id: "sll_product",
+      line_type: "product",
+      offer_id: null,
+      product_id: "cat_mewtwo::raw:nm",
+      item_title: "Mewtwo",
+      quantity: 1,
+    };
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getSellList: vi.fn(async () => ({ items: [sellListLine], count: 1 })),
+      startSellListExecution: mockStartSellListExecution,
+      recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
+      createSellListReadiness: mockCreateSellListReadiness,
+      checkoutSellList: mockCheckoutSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      acceptOfferMatch: mockAcceptOfferMatch,
+      createListing: mockCreateListing,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+    form.set("sellListExecutionId", "sle_1");
+
+    const result = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as { error: string };
+
+    expect(result.error).toBe("Sell List readiness must be resolved before seller checkout starts.");
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(mockCheckoutSellList).not.toHaveBeenCalled();
   });
 
   it("keeps capped fallback listing remainder in the Sell List", async () => {
@@ -806,6 +901,7 @@ describe("checkout web routes", () => {
       getSellList: vi.fn(async () => ({ items: [sellListLine], count: 4 })),
       startSellListExecution: mockStartSellListExecution,
       recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
+      createSellListReadiness: mockCreateSellListReadiness,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
@@ -843,6 +939,12 @@ describe("checkout web routes", () => {
     });
     expect(mockCheckoutSellList).toHaveBeenCalledWith({
       executionId: "sle_1",
+      readinessSnapshotId: "slr_ready",
+      readinessSourceRevision: "slr_source",
+      readinessDecisions: {
+        lineActions: [{ lineId: "sll_product", action: "smart-match" }],
+        lineOutcomes: [],
+      },
       completedLineIds: [],
       remainingLineQuantities: [{ lineId: "sll_product", quantity: 2 }],
       executionSummary: expect.objectContaining({
@@ -879,6 +981,7 @@ describe("checkout web routes", () => {
       getSellList: vi.fn(async () => ({ items: [], count: 0 })),
       startSellListExecution: mockStartSellListExecution,
       recordSellListExecutionProgress: mockRecordSellListExecutionProgress,
+      createSellListReadiness: mockCreateSellListReadiness,
       checkoutSellList: mockCheckoutSellList,
     });
     mockCreateMarketplaceRequestApiClient.mockReturnValue({
