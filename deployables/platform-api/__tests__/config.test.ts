@@ -131,7 +131,15 @@ describe("platform api config", () => {
       timeoutMs: 2_500,
       pollIntervalMs: 75,
       exactDependencyMode: "enabled",
-      routeTuning: [],
+      routeTuning: [
+        {
+          mountPath: "/api/marketplace",
+          routePath: "/account/checkout-sessions/:sessionId",
+          timeoutMs: 900,
+          pollIntervalMs: 50,
+          exactDependencyMode: "enabled",
+        },
+      ],
     });
   });
 
@@ -645,6 +653,13 @@ describe("platform api config", () => {
         {
           mountPath: "/api/marketplace",
           routePath: "/account/checkout-sessions/:sessionId",
+          timeoutMs: 900,
+          pollIntervalMs: 50,
+          exactDependencyMode: "enabled",
+        },
+        {
+          mountPath: "/api/marketplace",
+          routePath: "/account/checkout-sessions/:sessionId",
           targetContextName: "checkout",
           timeoutMs: 900,
           pollIntervalMs: 15,
@@ -652,6 +667,34 @@ describe("platform api config", () => {
         },
       ],
     });
+  });
+
+  it("keeps environment read consistency route tuning after critical defaults so operators can override", () => {
+    process.env.DATABASE_URL = "postgresql://localhost/chase_sets";
+    process.env.READ_CONSISTENCY_ROUTE_TUNING_JSON = JSON.stringify([
+      {
+        mountPath: "/api/marketplace",
+        routePath: "/account/checkout-sessions/:sessionId",
+        timeoutMs: 1200,
+        pollIntervalMs: 60,
+      },
+    ]);
+
+    expect(loadConfig().readConsistency?.routeTuning).toEqual([
+      {
+        mountPath: "/api/marketplace",
+        routePath: "/account/checkout-sessions/:sessionId",
+        timeoutMs: 900,
+        pollIntervalMs: 50,
+        exactDependencyMode: "enabled",
+      },
+      {
+        mountPath: "/api/marketplace",
+        routePath: "/account/checkout-sessions/:sessionId",
+        timeoutMs: 1200,
+        pollIntervalMs: 60,
+      },
+    ]);
   });
 
   it("rejects invalid read consistency exact dependency modes", () => {

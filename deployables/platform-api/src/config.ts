@@ -148,6 +148,16 @@ export type PlatformApiReadConsistencyConfig = Readonly<{
   routeTuning: readonly ReadConsistencyRouteTuning[];
 }>;
 
+const CRITICAL_READ_CONSISTENCY_ROUTE_TUNING: readonly ReadConsistencyRouteTuning[] = [
+  {
+    mountPath: "/api/marketplace",
+    routePath: "/account/checkout-sessions/:sessionId",
+    timeoutMs: 900,
+    pollIntervalMs: 50,
+    exactDependencyMode: "enabled",
+  },
+];
+
 export type PlatformApiRealtimeStreamLimiterConfig =
   | Readonly<{
       kind: "postgres";
@@ -292,7 +302,7 @@ function loadReadConsistencyRouteTuning(): readonly ReadConsistencyRouteTuning[]
     throw new Error("READ_CONSISTENCY_ROUTE_TUNING_JSON must be a JSON array.");
   }
 
-  return value.map((entry, index) => {
+  const environmentRouteTuning = value.map((entry, index) => {
     if (!isRecord(entry)) {
       throw new Error(`READ_CONSISTENCY_ROUTE_TUNING_JSON[${index}] must be an object.`);
     }
@@ -342,6 +352,8 @@ function loadReadConsistencyRouteTuning(): readonly ReadConsistencyRouteTuning[]
         : {}),
     };
   });
+
+  return [...CRITICAL_READ_CONSISTENCY_ROUTE_TUNING, ...environmentRouteTuning];
 }
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {

@@ -40,7 +40,8 @@ For `/api/marketplace/account/checkout-sessions/:sessionId`:
    - `projectionName=checkout.session-projection` and `sourceContextName=checkout` means the checkout session projection did not catch up before the bounded timeout.
    - `globalPositionLag` shows the remaining checkpoint distance at timeout.
    - `state` and `lastError` presence distinguish normal lag from worker error or degraded projection state without logging raw error text.
-6. If `outcome=fresh` but the route still renders a not-found state, investigate the route loader and API handler because the projection gate completed before the read.
+6. If the browser document returns an opaque 503/504 before the route renders checkout review or preparing-checkout recovery, treat it as a critical route-budget regression. The Checkout session route should use the built-in 900 ms freshness budget; inspect Platform API config, `READ_CONSISTENCY_ROUTE_TUNING_JSON`, and gateway/proxy timeout changes before increasing the budget.
+7. If `outcome=fresh` but the route still renders a not-found state, investigate the route loader and API handler because the projection gate completed before the read.
 
 ## Privacy Review
 

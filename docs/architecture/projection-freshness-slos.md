@@ -39,7 +39,9 @@ Measure only records where `type=read-after-write.freshness`, `routePaths` conta
 | Missing or invalid read target context | 0 in canary; <= 0.05% in aggregate telemetry. | Fail the canary; investigate request client or shared mount drift. |
 | Exact dependency fallback to target-context wait | 0 for critical Checkout session reads during normal rollout. | Fail structure/release evidence unless an active rollback is documented; route declaration or target context is wrong. |
 
-The current platform freshness wait timeout is 2,500 ms. Critical Checkout reads should normally complete before that timeout. A timeout is not a customer-visible failure by itself only when the route renders temporary preparing-checkout recovery and keeps retry bounded by the original token validity.
+The current platform freshness wait timeout is 2,500 ms. Critical Checkout reads should normally complete before that timeout. The Checkout session API route has a built-in route-scoped budget of 900 ms with a 50 ms poll interval so the marketplace document route keeps enough request time to render Checkout-owned temporary recovery instead of surfacing a proxy or document timeout. A timeout is not a customer-visible failure by itself only when the route renders temporary preparing-checkout recovery and keeps retry bounded by the original token validity.
+
+Critical fresh-write routes that render a browser document must set a route-scoped freshness budget below the document/proxy timeout, including render and retry overhead. Do not rely only on the global freshness timeout for those routes; if the gate waits until infrastructure times out, the customer loses the route-owned recovery contract.
 
 ## Rollout Controls
 
@@ -48,7 +50,7 @@ Platform API exposes read consistency controls for critical freshness changes:
 - `READ_CONSISTENCY_TIMEOUT_MS`: global freshness wait timeout, default `2500`.
 - `READ_CONSISTENCY_POLL_INTERVAL_MS`: global polling interval, default `75`.
 - `READ_CONSISTENCY_EXACT_DEPENDENCY_MODE`: `enabled` by default; set to `target-context` only as an incident rollback that keeps receipt-based gating active while disabling exact-dependency narrowing.
-- `READ_CONSISTENCY_ROUTE_TUNING_JSON`: JSON array of route-specific overrides. Each entry requires `mountPath` and `routePath`, and may include `targetContextName`, `timeoutMs`, `pollIntervalMs`, and `exactDependencyMode`.
+- `READ_CONSISTENCY_ROUTE_TUNING_JSON`: JSON array of route-specific overrides. Each entry requires `mountPath` and `routePath`, and may include `targetContextName`, `timeoutMs`, `pollIntervalMs`, and `exactDependencyMode`. Platform defaults include Checkout session route tuning first; env entries are applied after those defaults so an equally specific operator override wins by the runtime route-tuning tie breaker.
 
 Example scoped rollback for guest Buy Now:
 
