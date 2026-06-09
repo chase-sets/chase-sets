@@ -1,4 +1,4 @@
-import { readFreshWriteToken } from "@chase-sets/http/responses";
+import { classifyFreshWriteReadError, readApiErrorCode } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { CheckoutApiError } from "./api-client";
 
@@ -143,18 +143,7 @@ export function checkoutRecoveryForKind(kind: CheckoutRecoveryKind, currentPath 
 }
 
 function errorBodyCode(error: CheckoutApiError) {
-  const body = error.body;
-  if (!body || typeof body !== "object" || !("error" in body)) {
-    return null;
-  }
-
-  const apiError = (body as { error?: unknown }).error;
-  if (!apiError || typeof apiError !== "object" || !("code" in apiError)) {
-    return null;
-  }
-
-  const code = (apiError as { code?: unknown }).code;
-  return typeof code === "string" && code.trim() ? code : null;
+  return readApiErrorCode(error.body);
 }
 
 export function checkoutRecoveryForError(
@@ -192,21 +181,18 @@ export function checkoutRecoveryForError(
   return null;
 }
 
-function isProjectionFreshnessTimeout(error: CheckoutApiError) {
-  return error.status === 503 && errorBodyCode(error) === "projection_freshness_timeout";
-}
-
 export function checkoutRecoveryForFreshWriteError(
   error: unknown,
   actor: CheckoutActor,
   request: Request,
   currentPath = "/checkout/start",
 ): CheckoutRecovery | null {
-  if (!(error instanceof CheckoutApiError) || !readFreshWriteToken(request)) {
+  if (!(error instanceof CheckoutApiError)) {
     return checkoutRecoveryForError(error, actor, currentPath);
   }
 
-  if (error.status === 404 || isProjectionFreshnessTimeout(error)) {
+  const freshWriteError = classifyFreshWriteReadError({ request, error });
+  if (freshWriteError.transient) {
     return checkoutRecoveryForKind("checkout-preparing", currentPath);
   }
 

@@ -58,6 +58,21 @@ Exceptions are temporary migration records, not permanent bypasses. They must na
 
 Detail loaders may still use bounded not-found retry as a compatibility fallback, but the system-wide pattern is receipt propagation plus projection checkpoint gating. Synchronous write-drain is an explicit compatibility mode only, not the normal consistency contract.
 
+## Fresh-Write Recovery Policy
+
+Read-model `404` responses are permanent by default. A route may treat a `404` as transient only when the current URL carries a valid, unexpired `afterWrite` receipt. The same rule applies to `projection_freshness_timeout`: the API returns HTTP `503` when projection checkpoints do not catch up inside the bounded wait, and browser routes may render temporary recovery only while the same fresh-write receipt remains valid.
+
+The shared `@chase-sets/http/responses` helper `classifyFreshWriteReadError` owns this classification. Route loaders provide the current request and the API error. The helper returns the parsed receipt, HTTP status, API error code, and whether the state is transient. It classifies:
+
+- fresh receipt plus `404` as `transient-not-found`
+- fresh receipt plus `503 projection_freshness_timeout` as `transient-projection-timeout`
+- missing, malformed, future-dated, or expired receipts plus `404` as `permanent-not-found`
+- fresh receipts with unrelated statuses or error codes as `fresh-write-unhandled`
+
+Context routes own their recovery copy and actions. Shared code must not name business-specific resources such as checkout sessions, listings, payouts, or reviews. Checkout maps transient classifications to a temporary "preparing checkout" state with a refresh action, while stale or manual Checkout URLs keep the permanent not-found state. Non-Checkout detail routes should follow the same shape: Marketplace listing detail, Inventory import detail, Settlement payout detail, and Reputation review detail can map transient classifications to temporary resource-specific refresh states, but permanent `404` must remain a real not-found or access outcome.
+
+Termination is bounded by token validity and retry budgets. Route loaders must not refresh indefinitely, regenerate `afterWrite` tokens without a new write, or treat expired/malformed tokens as retryable. Repeated freshness timeouts should keep the same temporary recovery only until the original token expires, after which the route falls back to permanent not-found or the owning context's normal error handling. Fresh-write routes must keep `readAfterWriteRouteInventory` metadata current and name exact `readFreshnessRoutes` dependencies whenever the destination reads projection-owned tables.
+
 ## Idempotency
 
 The runtime records projection application rows keyed by `(projection_key, event_id)`. A replay skips handlers already marked `applied`, which protects projection handlers when a worker restarts after handler success but before checkpoint persistence.

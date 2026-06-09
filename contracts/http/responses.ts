@@ -107,6 +107,21 @@ export type FreshWriteReceipt = Readonly<{
   sources: readonly SourceCommitPosition[];
 }>;
 
+export type FreshWriteReadErrorKind =
+  | "transient-not-found"
+  | "transient-projection-timeout"
+  | "permanent-not-found"
+  | "not-fresh-write"
+  | "fresh-write-unhandled";
+
+export type FreshWriteReadErrorClassification = Readonly<{
+  kind: FreshWriteReadErrorKind;
+  transient: boolean;
+  receipt: FreshWriteReceipt | null;
+  status: number | null;
+  errorCode: string | null;
+}>;
+
 type MetadataCarrier = {
   [RESPONSE_METADATA]?: ResponseMetadata;
 };
@@ -371,6 +386,93 @@ export function readFreshWriteToken(
     commitPosition: decodeURIComponent(encodedPosition),
     observedAtMs,
     sources: [],
+  };
+}
+
+function errorStatus(error: unknown): number | null {
+  if (typeof error !== "object" || error === null || !("status" in error)) {
+    return null;
+  }
+
+  const status = (error as { status?: unknown }).status;
+  return Number.isInteger(status) ? Number(status) : null;
+}
+
+function errorBody(error: unknown): unknown {
+  if (typeof error !== "object" || error === null || !("body" in error)) {
+    return null;
+  }
+
+  return (error as { body?: unknown }).body;
+}
+
+export function readApiErrorCode(body: unknown): string | null {
+  if (typeof body !== "object" || body === null || !("error" in body)) {
+    return null;
+  }
+
+  const error = (body as { error?: unknown }).error;
+  if (typeof error !== "object" || error === null || !("code" in error)) {
+    return null;
+  }
+
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" && code.trim() ? code : null;
+}
+
+export function classifyFreshWriteReadError(
+  options: Readonly<{
+    request: Request | string | URL;
+    error: unknown;
+    nowMs?: number;
+    maxAgeMs?: number;
+    getStatus?: (error: unknown) => number | null;
+    getErrorCode?: (error: unknown) => string | null;
+    getBody?: (error: unknown) => unknown;
+  }>,
+): FreshWriteReadErrorClassification {
+  const receipt = readFreshWriteToken(options.request, options.nowMs, options.maxAgeMs);
+  const status = options.getStatus?.(options.error) ?? errorStatus(options.error);
+  const errorCode =
+    options.getErrorCode?.(options.error) ??
+    readApiErrorCode(options.getBody?.(options.error) ?? errorBody(options.error));
+
+  if (!receipt) {
+    return {
+      kind: status === 404 ? "permanent-not-found" : "not-fresh-write",
+      transient: false,
+      receipt: null,
+      status,
+      errorCode,
+    };
+  }
+
+  if (status === 404) {
+    return {
+      kind: "transient-not-found",
+      transient: true,
+      receipt,
+      status,
+      errorCode,
+    };
+  }
+
+  if (status === 503 && errorCode === "projection_freshness_timeout") {
+    return {
+      kind: "transient-projection-timeout",
+      transient: true,
+      receipt,
+      status,
+      errorCode,
+    };
+  }
+
+  return {
+    kind: "fresh-write-unhandled",
+    transient: false,
+    receipt,
+    status,
+    errorCode,
   };
 }
 
