@@ -2299,6 +2299,232 @@ describe("bounded context projection replay", () => {
     expect(refreshMarketInput).not.toHaveBeenCalled();
   });
 
+  it("honors read target context for multi-source receipts on shared mount routes", async () => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const refreshCheckoutResource = vi.fn(async () => ({
+      lastGlobalPosition: "1",
+      state: "behind",
+      lastError: "checkout should not be inspected",
+    }));
+    const refreshPaymentLocal = vi.fn(async () => ({
+      lastGlobalPosition: "11",
+      state: "caught-up",
+      lastError: null,
+    }));
+    const refreshPaymentCheckoutInput = vi.fn(async () => ({
+      lastGlobalPosition: "7",
+      state: "caught-up",
+      lastError: null,
+    }));
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [
+        { sourceContextName: "checkout", maxGlobalPosition: "7", eventIds: ["evt_checkout"] },
+        { sourceContextName: "payments", maxGlobalPosition: "11", eventIds: ["evt_payment"] },
+        { sourceContextName: "inventory", maxGlobalPosition: "99", eventIds: ["evt_inventory"] },
+      ],
+    });
+
+    attachReadConsistencyMiddleware(
+      {
+        use: (_path, middleware) => {
+          middlewares.push(middleware);
+        },
+      },
+      [
+        {
+          contextName: "checkout",
+          mountPath: "/api/marketplace",
+          readFreshnessRoutes: [
+            {
+              routePath: "/shared/:id",
+              dependencies: [{ projectionName: "checkout.shared-projection" }],
+            },
+          ],
+        },
+        {
+          contextName: "payments",
+          mountPath: "/api/marketplace",
+          readFreshnessRoutes: [
+            {
+              routePath: "/shared/:id",
+              dependencies: [{ projectionName: "payments.shared-projection" }],
+            },
+          ],
+        },
+      ],
+      [
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.shared-projection",
+          ownedTables: ["checkout_shared_pages"],
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshCheckoutResource }],
+        },
+        {
+          targetContextName: "payments",
+          projectionName: "payments.shared-projection",
+          ownedTables: ["payments_shared_pages"],
+          subscriptionRunners: [
+            { sourceContextName: "payments", refreshStatus: refreshPaymentLocal },
+            { sourceContextName: "checkout", refreshStatus: refreshPaymentCheckoutInput },
+          ],
+        },
+      ],
+      { timeoutMs: 0, pollIntervalMs: 1 },
+    );
+
+    let nextCalled = false;
+    await middlewares[0](
+      {
+        req: {
+          method: "GET",
+          path: "/api/marketplace/shared/pay_1",
+          header: (name: string) => {
+            if (name === CHASE_SETS_READ_AFTER_WRITE_HEADER) {
+              return receipt;
+            }
+            if (name === CHASE_SETS_READ_TARGET_CONTEXT_HEADER) {
+              return "payments";
+            }
+            return undefined;
+          },
+        },
+        json: (body: unknown, status: number) => ({ body, status }),
+      },
+      async () => {
+        nextCalled = true;
+      },
+    );
+
+    expect(nextCalled).toBe(true);
+    expect(refreshPaymentLocal).toHaveBeenCalledTimes(1);
+    expect(refreshPaymentCheckoutInput).toHaveBeenCalledTimes(1);
+    expect(refreshCheckoutResource).not.toHaveBeenCalled();
+  });
+
+  it("reports only pending dependency source pairs for multi-source shared mount timeouts", async () => {
+    const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
+    const refreshCheckoutResource = vi.fn(async () => ({
+      lastGlobalPosition: "1",
+      state: "behind",
+      lastError: "checkout should not be inspected",
+    }));
+    const refreshPaymentLocal = vi.fn(async () => ({
+      lastGlobalPosition: "11",
+      state: "caught-up",
+      lastError: null,
+    }));
+    const refreshPaymentCheckoutInput = vi.fn(async () => ({
+      lastGlobalPosition: "3",
+      state: "behind",
+      lastError: "checkout input lagging",
+    }));
+    const receipt = encodeFreshWriteReceipt({
+      observedAtMs: Date.now(),
+      sources: [
+        { sourceContextName: "checkout", maxGlobalPosition: "7", eventIds: ["evt_checkout"] },
+        { sourceContextName: "payments", maxGlobalPosition: "11", eventIds: ["evt_payment"] },
+        { sourceContextName: "inventory", maxGlobalPosition: "99", eventIds: ["evt_inventory"] },
+      ],
+    });
+
+    attachReadConsistencyMiddleware(
+      {
+        use: (_path, middleware) => {
+          middlewares.push(middleware);
+        },
+      },
+      [
+        {
+          contextName: "checkout",
+          mountPath: "/api/marketplace",
+          readFreshnessRoutes: [
+            {
+              routePath: "/shared/:id",
+              dependencies: [{ projectionName: "checkout.shared-projection" }],
+            },
+          ],
+        },
+        {
+          contextName: "payments",
+          mountPath: "/api/marketplace",
+          readFreshnessRoutes: [
+            {
+              routePath: "/shared/:id",
+              dependencies: [{ projectionName: "payments.shared-projection" }],
+            },
+          ],
+        },
+      ],
+      [
+        {
+          targetContextName: "checkout",
+          projectionName: "checkout.shared-projection",
+          ownedTables: ["checkout_shared_pages"],
+          subscriptionRunners: [{ sourceContextName: "checkout", refreshStatus: refreshCheckoutResource }],
+        },
+        {
+          targetContextName: "payments",
+          projectionName: "payments.shared-projection",
+          ownedTables: ["payments_shared_pages"],
+          subscriptionRunners: [
+            { sourceContextName: "payments", refreshStatus: refreshPaymentLocal },
+            { sourceContextName: "checkout", refreshStatus: refreshPaymentCheckoutInput },
+          ],
+        },
+      ],
+      { timeoutMs: 0, pollIntervalMs: 1 },
+    );
+
+    let nextCalled = false;
+    const result = await middlewares[0](
+      {
+        req: {
+          method: "GET",
+          path: "/api/marketplace/shared/pay_1",
+          header: (name: string) => {
+            if (name === CHASE_SETS_READ_AFTER_WRITE_HEADER) {
+              return receipt;
+            }
+            if (name === CHASE_SETS_READ_TARGET_CONTEXT_HEADER) {
+              return "payments";
+            }
+            return undefined;
+          },
+        },
+        json: (body: unknown, status: number) => ({ body, status }),
+      },
+      async () => {
+        nextCalled = true;
+      },
+    );
+
+    expect(nextCalled).toBe(false);
+    expect(refreshPaymentLocal).toHaveBeenCalledTimes(1);
+    expect(refreshPaymentCheckoutInput).toHaveBeenCalledTimes(1);
+    expect(refreshCheckoutResource).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: 503,
+      body: {
+        error: {
+          code: "projection_freshness_timeout",
+          waitMode: "exact-dependency",
+          dependencies: [{ targetContextName: "payments", projectionName: "payments.shared-projection" }],
+          pending: [
+            {
+              targetContextName: "payments",
+              projectionName: "payments.shared-projection",
+              sourceContextName: "checkout",
+              requiredGlobalPosition: "7",
+              lastGlobalPosition: "3",
+              lastError: "checkout input lagging",
+            },
+          ],
+        },
+      },
+    });
+  });
+
   it("returns exact dependency diagnostics in projection freshness timeout responses", async () => {
     const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
     const receipt = encodeFreshWriteReceipt({
