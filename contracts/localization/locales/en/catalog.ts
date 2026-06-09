@@ -478,6 +478,40 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode": "Failure mode",
   "catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode.value":
     "Blocked, stale, denied, and unsafe actions fail closed.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel": "Cancel",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description":
+    "Start a scoped provider import to create durable monitoring evidence for this context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title":
+    "No durable import jobs for this context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.evidence.link": "Audit evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.durable": "Durable import failed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.group": "{label} ({count})",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.partial": "Partial provider data",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.stale.replay": "Stale replay checkpoint",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.transport":
+    "Provider transport {category}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.progress.value":
+    "{completed}/{total} work units, {percent}% complete",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.resume": "Resume",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.retry": "Retry",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.review.link": "Review observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.failures": "Failure groups",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.job": "Durable job",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.profile": "Profile: {profile}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress": "Progress",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.adapter": "Adapter",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.credentials": "Credentials",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.description":
+    "Start the scoped provider pull, monitor durable progress, recover retryable failures, and jump straight to the affected Source Observations.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.description":
+    "Choose a provider, ingestion unit, import scope, and active profile before starting a provider pull.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.title":
+    "Import context is incomplete",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.expected": "Expected observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rollout": "Rollout",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.status": "{count} active",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.title": "Provider import operations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.transport": "Transport",
   "catalog.features.sourceObservations.ui.primaryWorkbench.key.profile": "Profile",
   "catalog.features.sourceObservations.ui.primaryWorkbench.key.provider": "Provider",
   "catalog.features.sourceObservations.ui.primaryWorkbench.key.promotion.preview": "Promotion preview",

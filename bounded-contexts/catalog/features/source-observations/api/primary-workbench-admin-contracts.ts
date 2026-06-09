@@ -261,12 +261,51 @@ export type CatalogPrimaryWorkbenchReadinessReadModel = Readonly<{
 
 export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
   freshness: CatalogAdminControlPlaneFreshnessState;
+  activeJobCount: number;
+  failedJobCount: number;
+  selectedScope: Readonly<{
+    providerKey: string;
+    unitKey: CatalogIntegrationUnitKey | null;
+    importScope: string;
+    profileVersion: string | null;
+    expectedObservationVolume: number;
+    observedCount: number;
+    changedCount: number;
+    promotedCount: number;
+    rejectedCount: number;
+    readiness: Readonly<{
+      adapterReadiness: "ready" | "blocked" | "degraded" | "unknown";
+      credentialReadiness: "ready" | "blocked" | "not-required" | "unknown";
+      rolloutEnabled: boolean;
+      providerTransport: readonly CatalogPrimaryWorkbenchProviderTransportCategory[];
+      blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    }>;
+  }> | null;
   jobs: readonly Readonly<{
     jobId: string;
     action: Extract<CatalogPrimaryWorkbenchCommandKey, "start-provider-import" | "start-reapply" | "start-replay">;
     state: "queued" | "running" | "completed" | "failed" | "cancelled";
     operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "completed";
+    summary: string;
+    completed: number;
+    total: number;
+    progressPercent: number;
+    providerKey: string;
+    profileVersion: string | null;
+    createdAt: string;
+    startedAt: string | null;
     consistency: CatalogAdminJobConsistency;
+    failureGroups: readonly Readonly<{
+      key: string;
+      label: string;
+      count: number;
+      severity: "warning" | "error";
+    }>[];
+    retryAvailable: boolean;
+    resumeAvailable: boolean;
+    cancelAvailable: boolean;
+    sourceObservationReviewHref: string;
+    auditEvidenceUrl: string;
     observationLinks: readonly string[];
     blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   }>[];
@@ -754,6 +793,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
     assertPrimaryWorkbenchBlockers(actionEntry.blockers);
   }
   assertPrimaryWorkbenchBlockers(value.readiness?.blockers);
+  assertPrimaryWorkbenchBlockers(value.importJobs?.selectedScope?.readiness.blockers);
   assertPrimaryWorkbenchBlockers(value.importJobs?.jobs.flatMap((job) => job.blockers));
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
 }

@@ -43,6 +43,8 @@ type PrimaryWorkbenchStep = Readonly<{
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
 }>;
 
+type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
+
 export interface CatalogPrimaryWorkbenchPageProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
   initialSection?: string;
@@ -110,6 +112,89 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
     ],
     [readModel],
   );
+  const jobColumns = useMemo<DataColumn<ImportJobRow>[]>(
+    () => [
+      {
+        key: "job",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.job"),
+        sortable: true,
+        cell: (job) => (
+          <div className="grid min-w-0 gap-1">
+            <div className="text-sm font-semibold text-foreground">{job.summary}</div>
+            <div className="text-xs text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.profile", {
+                profile:
+                  job.profileVersion ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+              })}
+            </div>
+          </div>
+        ),
+      },
+      {
+        key: "progress",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.progress"),
+        cell: (job) => (
+          <div className="grid min-w-0 gap-1">
+            <Badge tone={jobStateTone(job.state)}>{stateLabel(job.state)}</Badge>
+            <div className="text-xs text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.progress.value", {
+                completed: job.completed,
+                total: job.total,
+                percent: job.progressPercent,
+              })}
+            </div>
+          </div>
+        ),
+      },
+      {
+        key: "failures",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.failures"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.failures"),
+        cell: (job) =>
+          job.failureGroups.length > 0 ? (
+            <div className="flex min-w-0 flex-wrap gap-1.5">
+              {job.failureGroups.map((group) => (
+                <Badge key={group.key} tone={group.severity === "error" ? "danger" : "warning"}>
+                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.group", {
+                    label: failureGroupLabel(group),
+                    count: group.count,
+                  })}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <Badge tone="success">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</Badge>
+          ),
+      },
+      {
+        key: "actions",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
+        align: "right",
+        cell: (job) => (
+          <div className="flex flex-wrap justify-end gap-2">
+            <a className="text-sm font-semibold text-accent hover:underline" href={job.sourceObservationReviewHref}>
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.review.link")}
+            </a>
+            <a className="text-sm font-semibold text-accent hover:underline" href={job.auditEvidenceUrl}>
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.evidence.link")}
+            </a>
+            <Button size="sm" tone="secondary" disabled={!job.retryAvailable}>
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.retry")}
+            </Button>
+            <Button size="sm" tone="secondary" disabled={!job.resumeAvailable}>
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.resume")}
+            </Button>
+            <Button size="sm" tone="secondary" disabled={!job.cancelAvailable}>
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel")}
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [],
+  );
 
   return (
     <section className="grid gap-5" data-catalog-primary-workbench="true">
@@ -151,7 +236,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
           },
           {
             label: t("catalog.features.sourceObservations.ui.primaryWorkbench.metric.active.jobs"),
-            value: String(readModel.importJobs.jobs.length),
+            value: String(readModel.importJobs.activeJobCount),
             trend: t("catalog.features.sourceObservations.ui.primaryWorkbench.metric.job.view", {
               freshness: readModel.importJobs.freshness,
             }),
@@ -342,6 +427,111 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
                   ]}
                 />
               ) : null}
+            </WorkflowModule>
+
+            <WorkflowModule
+              title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.title")}
+              description={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.description")}
+              status={
+                <Badge tone={readModel.importJobs.activeJobCount > 0 ? "warning" : "success"}>
+                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.status", {
+                    count: readModel.importJobs.activeJobCount,
+                  })}
+                </Badge>
+              }
+              actions={
+                <Button
+                  size="sm"
+                  leadingIcon="refreshCcw"
+                  disabled={!isActionAvailable(readModel, "start-provider-import")}
+                >
+                  {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
+                </Button>
+              }
+              headingLevel={2}
+              density="compact"
+            >
+              {readModel.importJobs.selectedScope ? (
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                  <KeyValueList
+                    items={[
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.provider"),
+                        value: readModel.importJobs.selectedScope.providerKey,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.unit"),
+                        value:
+                          readModel.importJobs.selectedScope.unitKey ??
+                          t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.scope"),
+                        value: readModel.importJobs.selectedScope.importScope,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.key.profile"),
+                        value:
+                          readModel.importJobs.selectedScope.profileVersion ??
+                          t("catalog.features.sourceObservations.ui.primaryWorkbench.no.active.profile"),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.expected"),
+                        value: readModel.importJobs.selectedScope.expectedObservationVolume,
+                      },
+                    ]}
+                  />
+                  <KeyValueList
+                    items={[
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.adapter"),
+                        value: stateLabel(readModel.importJobs.selectedScope.readiness.adapterReadiness),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.credentials"),
+                        value: stateLabel(readModel.importJobs.selectedScope.readiness.credentialReadiness),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rollout"),
+                        value: readModel.importJobs.selectedScope.readiness.rolloutEnabled
+                          ? t("catalog.features.sourceObservations.ui.primaryWorkbench.ready")
+                          : t("catalog.features.sourceObservations.ui.primaryWorkbench.blocked"),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.transport"),
+                        value:
+                          readModel.importJobs.selectedScope.readiness.providerTransport.length > 0
+                            ? readModel.importJobs.selectedScope.readiness.providerTransport.join(", ")
+                            : t(
+                                "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.transport.ready.description",
+                              ),
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers"),
+                        value: readModel.importJobs.selectedScope.readiness.blockers.length,
+                      },
+                    ]}
+                  />
+                </div>
+              ) : (
+                <EmptyState
+                  title={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.title")}
+                  description={t(
+                    "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.empty.description",
+                  )}
+                />
+              )}
+
+              <DataTable
+                rows={[...readModel.importJobs.jobs]}
+                columns={jobColumns}
+                getRowId={(job) => job.jobId}
+                density="compact"
+                emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title")}
+                emptyDescription={t(
+                  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.description",
+                )}
+              />
             </WorkflowModule>
 
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
@@ -656,7 +846,40 @@ function actionTone(state: CatalogPrimaryWorkbenchActionState) {
   return "neutral";
 }
 
-function stateLabel(state: CatalogPrimaryWorkbenchActionState): string {
+function jobStateTone(state: ImportJobRow["state"]) {
+  if (state === "completed") {
+    return "success";
+  }
+  if (state === "failed" || state === "cancelled") {
+    return "danger";
+  }
+  if (state === "running" || state === "queued") {
+    return "warning";
+  }
+
+  return "neutral";
+}
+
+function failureGroupLabel(group: ImportJobRow["failureGroups"][number]): string {
+  if (group.key === "durable-job-failed") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.durable");
+  }
+  if (group.key === "partial-provider-data") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.partial");
+  }
+  if (group.key === "stale-replay") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.stale.replay");
+  }
+  if (group.key.startsWith("provider-transport-")) {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.transport", {
+      category: stateLabel(group.key.replace(/^provider-transport-/, "")),
+    });
+  }
+
+  return group.label;
+}
+
+function stateLabel(state: string): string {
   return state
     .split("-")
     .join(" ")

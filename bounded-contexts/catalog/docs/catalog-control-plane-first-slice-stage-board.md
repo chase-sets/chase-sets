@@ -10,7 +10,7 @@ The rebuild continues to use the clean launch contracts from [Catalog Control Pl
 | --- | --- | --- | --- |
 | Stage 0 cleanup | #1050-#1055 | Complete | #1050 and #1055 closed; PRs #1091, #1125, #1094, #1138, and #1143 provide cleanup evidence. |
 | Stage 1 contracts and IA | #1060, #1031, #1048, #1046, #1049 | Complete | API/read-model contracts, rebuilt IA, grouped navigation/mobile pattern, dense-workbench primitive proof, and primary-path framing accepted. |
-| Stage 2 primary workbench | #1056, #1038, #1039, #1040, #1057, #1058 | In implementation; #1056 is establishing the clean default workbench route and contract-backed UI shell | Provider/scope selection through import, Source Observation review, promotion preview, promotion/recovery, route context, and operator copy accepted together as one workbench. |
+| Stage 2 primary workbench | #1056, #1038, #1039, #1040, #1057, #1058 | In implementation; #1056 shipped the clean default workbench shell and #1038 is adding scoped durable import operations inside that rebuilt shell | Provider/scope selection through import, Source Observation review, promotion preview, promotion/recovery, route context, and operator copy accepted together as one workbench. |
 | Stage 3 hardening and proof | #1063, #1065, #1059, #1062, #1064, #1047 | Waiting on relevant Stage 1/2 contracts | Durable-job edge cases, provider transport budgets, instrumentation, real-provider proof, security/privacy, and no-confusion acceptance accepted. |
 | Stage 4 rollout and retirement | #1061, #1088, #1090 | Blocked by accepted first slice | Decision/risk register, production rollout, smoke/signoff, and complete old-surface deletion accepted. |
 
@@ -61,8 +61,8 @@ Until a specific assignee is added, first-slice implementation comments should n
 | #1048 | Stage 1 | PR #1152 | Complete; grouped section navigation and mobile translation accepted. |
 | #1046 | Stage 1 | PR #1161 | Complete; [Dense Admin Workbench Pattern](../../../packages/design-system/DENSE_ADMIN_WORKBENCH.md) and `DenseAdminWorkbenchProof` provide grouped navigation, dense table, action bar, side sheet, blocked/denied/degraded, focus, and responsive proof for downstream primary workbench adoption. |
 | #1049 | Stage 1 | PR #1148 | Complete; primary-path framing guides every Stage 1 artifact. |
-| #1056 | Stage 2 | Owner comment and current bounded-context delivery segment | In implementation; builds the clean default `/integrations` workbench target from the #1060 read-model contract and #1046 dense-workbench primitives, not the current two-page god page. |
-| #1038 | Stage 2 | Issue comment required before implementation PR | Ready for implementation as the durable import/job contributor to the #1056 workbench. |
+| #1056 | Stage 2 | Owner comment and PR #1169 | Complete; the clean default `/integrations` workbench target now composes the #1060 read-model contract and #1046 dense-workbench primitives, not the current two-page god page. |
+| #1038 | Stage 2 | Current bounded-context delivery segment | In implementation; adds scoped import readiness, durable job monitoring, grouped failure evidence, retry/resume/cancel availability, active-job conflict blocking, and Source Observation handoff links inside the rebuilt #1056 workbench. |
 | #1039 | Stage 2 | Issue comment required before implementation PR | Ready for implementation as the Source Observation evidence-row contributor to the #1056 workbench. |
 | #1040 | Stage 2 | Issue comment required before implementation PR | Ready for implementation as the promotion preview, promote/reject/defer, reapply, and replay contributor to the #1056 workbench. |
 | #1057 | Stage 2 | Issue comment required before implementation PR | Ready for implementation; #1056 establishes canonical route-context keys for provider, unit, scope, profile, filters, selections, job, preview, and return path. |
