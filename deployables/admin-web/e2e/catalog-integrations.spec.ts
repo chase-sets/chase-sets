@@ -75,86 +75,12 @@ async function authenticateCatalogAdmin(page: Page) {
   await addSessionCookie(page, origin, body.sessionToken!);
 }
 
-async function expectProfileAction(page: Page, name: RegExp) {
-  await expect(page.getByRole("button", { name }).filter({ visible: true }).first()).toBeVisible();
-}
-
 async function expectVisibleText(page: Page, text: string) {
   await expect(page.getByText(text).filter({ visible: true }).first()).toBeVisible();
 }
 
-async function openProfileDialog(page: Page, buttonName: RegExp, dialogName: string | RegExp) {
-  const button = page.getByRole("button", { name: buttonName }).filter({ visible: true }).first();
-  const dialog = page.getByRole("dialog", { name: dialogName });
-
-  await expect(button).toBeVisible();
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    await button.click();
-    try {
-      await expect(dialog).toBeVisible({ timeout: 3_000 });
-      return;
-    } catch (error) {
-      if (attempt === 4) {
-        throw error;
-      }
-      await page.waitForTimeout(500);
-    }
-  }
-}
-
-async function clickDialogFooterButton(page: Page, dialogName: string | RegExp, buttonName: string) {
-  const dialog = page.getByRole("dialog", { name: dialogName });
-  await dialog.getByRole("button", { name: buttonName }).filter({ hasText: buttonName }).click();
-  await expect(dialog).toBeHidden();
-}
-
-async function clickModuleTab(page: Page, name: string) {
-  const tab = page.getByRole("tab", { name });
-  await expect(tab).toBeVisible();
-  for (let attempt = 0; attempt < 5; attempt += 1) {
-    await tab.click();
-    try {
-      await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 3_000 });
-      return;
-    } catch (error) {
-      await tab.focus();
-      await page.keyboard.press("Enter");
-      try {
-        await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 1_000 });
-        return;
-      } catch {
-        await page.keyboard.press("Space");
-        try {
-          await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 1_000 });
-          return;
-        } catch {
-          // Retry after the page settles; the admin route can refresh read models during first load.
-        }
-      }
-      if (attempt === 4) {
-        throw error;
-      }
-      await page.waitForTimeout(500);
-    }
-  }
-}
-
-async function selectModuleTabWithKeyboard(page: Page, name: string) {
-  const tab = page.getByRole("tab", { name });
-  await expect(tab).toBeVisible();
-  await tab.focus();
-  await expect(tab).toBeFocused();
-  await page.keyboard.press("Enter");
-  try {
-    await expect(tab).toHaveAttribute("aria-selected", "true", { timeout: 1_000 });
-  } catch {
-    await page.keyboard.press("Space");
-    await expect(tab).toHaveAttribute("aria-selected", "true");
-  }
-}
-
 test.describe("catalog admin integrations", () => {
-  test("signed-in catalog operator can review provider profile management controls @catalog-admin-integrations", async ({
+  test("signed-in catalog operator sees the rebuilt primary import-to-promotion workbench @catalog-admin-integrations", async ({
     page,
   }) => {
     test.setTimeout(120_000);
@@ -168,74 +94,39 @@ test.describe("catalog admin integrations", () => {
     await page.waitForLoadState("networkidle");
 
     await expect(page).toHaveURL(/\/catalog\/integrations$/);
-    await expect(page.getByRole("heading", { name: "Catalog Integrations" }).first()).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Provider Profile Review" }).first()).toBeVisible();
-    await expectVisibleText(page, "Inspect executable provider profile versions");
-    await expectVisibleText(page, "TCGdex");
-    await expectVisibleText(page, "2026.06.03");
+    await expect(
+      page.getByRole("heading", {
+        name: "Pull provider data, review Source Observations, promote Catalog facts",
+      }),
+    ).toBeVisible();
+    await expectVisibleText(page, "Catalog control plane");
+    await expectVisibleText(page, "Import to promotion workbench");
+    await expectVisibleText(page, "Primary workflow");
+    await expectVisibleText(page, "Unblock provider data");
+    await expectVisibleText(page, "Govern and recover");
+    await expectVisibleText(page, "Verify release evidence");
 
-    await expectProfileAction(page, /^Dry run$/i);
-    await expectProfileAction(page, /^Clone$/i);
-    await expectProfileAction(page, /^Edit Profile$/i);
-    await expectProfileAction(page, /^Compare$/i);
-    await expectProfileAction(page, /^Evidence$/i);
-    await expectProfileAction(page, /^Activate$/i);
-    await expectProfileAction(page, /^Deprecate$/i);
-    await expectProfileAction(page, /^Rollback$/i);
-    await expectProfileAction(page, /^Retire$/i);
-
-    await clickModuleTab(page, "Validation");
-    await expectVisibleText(page, "Validation workbench");
-    await expect(page.getByRole("heading", { name: "Fixture validation workflow" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Dry-run evidence workflow" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Semantic comparison workflow" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Activation readiness workflow" })).toBeVisible();
-    await expectVisibleText(page, "Affected references");
-    await expectVisibleText(page, "Replay implication");
-    await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
-
-    await selectModuleTabWithKeyboard(page, "Operations");
-    await expectVisibleText(page, "Operations workbench");
-    await expect(page.getByRole("heading", { name: "Import and job operations" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Source Observation review workflow" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Promote and reapply workflow" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Rollback and retirement workflow" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Review Matching Observations" })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /Preview promotion/i }).first()).toBeVisible();
+    await expect(page.getByRole("cell", { name: /Choose provider, unit, scope, and profile/i }).first()).toBeVisible();
+    await expect(
+      page.getByRole("cell", { name: /Pull provider data through a durable import/i }).first(),
+    ).toBeVisible();
+    await expect(page.getByRole("cell", { name: /Review Source Observations/i }).first()).toBeVisible();
+    await expect(page.getByRole("cell", { name: /Preview Catalog promotion impact/i }).first()).toBeVisible();
+    await expect(page.getByRole("cell", { name: /Promote into Catalog Items/i }).first()).toBeVisible();
+    await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
+    await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
 
     await page.setViewportSize({ width: 390, height: 900 });
-    const importOperationsModule = page.getByLabel("Import and job operations").first();
-    await expect(importOperationsModule.getByRole("heading", { name: "Import and job operations" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Review Matching Observations" })).toBeVisible();
-    await expect(importOperationsModule.getByRole("button", { name: "Pull Provider Data" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toBeVisible();
+    await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
+    await expect(
+      page
+        .getByRole("listitem")
+        .filter({ hasText: /Promote into Catalog Items/i })
+        .first(),
+    ).toBeVisible();
     await page.setViewportSize({ width: 1280, height: 900 });
-
-    await openProfileDialog(page, /^Compare$/i, "Compare active profile");
-    await expect(page.getByRole("heading", { name: "Activation Readiness" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Semantic Changes" })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Candidate profile JSON" })).toHaveCount(0);
-    await expect(page.getByRole("textbox", { name: "Active profile JSON" })).toHaveCount(0);
-    await clickDialogFooterButton(page, "Compare active profile", "Close");
-
-    await openProfileDialog(page, /^Edit Profile$/i, "Edit Profile Basics");
-    await expect(page.getByLabel("Display name")).toBeVisible();
-    await expect(page.getByLabel("Contract owner")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Provider Options", exact: true })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Promotion Command Plan", exact: true })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Profile JSON" })).toHaveCount(0);
-    await clickDialogFooterButton(page, "Edit Profile Basics", "Cancel");
-
-    await openProfileDialog(page, /^Evidence$/i, "Migration evidence");
-    await expect(page.getByLabel("Before fingerprint")).toBeVisible();
-    await expect(page.getByLabel("After fingerprint")).toBeVisible();
-    await expect(page.getByLabel("Fixture run id")).toBeVisible();
-    await expect(page.getByLabel("Operator note")).toBeVisible();
-    await clickDialogFooterButton(page, "Migration evidence", "Cancel");
-
-    await openProfileDialog(page, /^Dry run$/i, /dry-run$/i);
-    const dryRunDialog = page.getByRole("dialog", { name: /dry-run$/i });
-    await expect(dryRunDialog.getByLabel("Fixture flow")).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Safe Payload Overrides" })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Fixture Payload JSON" })).toHaveCount(0);
   });
 });
