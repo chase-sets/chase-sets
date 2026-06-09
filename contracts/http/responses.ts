@@ -96,6 +96,7 @@ export function commandResponse(id: string, version: number, status = "accepted"
 const RESPONSE_METADATA = Symbol.for("@chase-sets/http.response-metadata");
 const FRESH_WRITE_PARAM = "afterWrite";
 const DEFAULT_FRESH_WRITE_MAX_AGE_MS = 30_000;
+const DEFAULT_FRESH_WRITE_CLOCK_SKEW_MS = 5_000;
 const DEFAULT_FRESH_WRITE_RETRY_DELAYS_MS = [75, 150, 300, 600, 1_000] as const;
 export const CHASE_SETS_COMMIT_RECEIPT_HEADER = "Chase-Sets-Commit-Receipt";
 export const CHASE_SETS_READ_AFTER_WRITE_HEADER = "Chase-Sets-Read-After-Write";
@@ -106,6 +107,13 @@ export type FreshWriteReceipt = Readonly<{
   commitPosition?: string;
   sources: readonly SourceCommitPosition[];
 }>;
+
+export type FreshWriteTokenState =
+  | Readonly<{ kind: "missing"; receipt: null }>
+  | Readonly<{ kind: "valid"; receipt: FreshWriteReceipt; ageMs: number }>
+  | Readonly<{ kind: "malformed"; receipt: null }>
+  | Readonly<{ kind: "expired"; receipt: null; observedAtMs: number; ageMs: number; maxAgeMs: number }>
+  | Readonly<{ kind: "future"; receipt: null; observedAtMs: number; ageMs: number; clockSkewMs: number }>;
 
 export type FreshWriteReadErrorKind =
   | "transient-not-found"
@@ -241,35 +249,71 @@ export function encodeFreshWriteReceipt(receipt: FreshWriteReceipt): string {
   return encodeURIComponent(JSON.stringify(receipt));
 }
 
-export function decodeFreshWriteReceipt(
+function validFreshWriteState(receipt: FreshWriteReceipt, nowMs: number, maxAgeMs: number, clockSkewMs: number) {
+  const ageMs = nowMs - receipt.observedAtMs;
+  if (ageMs < -clockSkewMs) {
+    return {
+      kind: "future",
+      receipt: null,
+      observedAtMs: receipt.observedAtMs,
+      ageMs,
+      clockSkewMs,
+    } satisfies FreshWriteTokenState;
+  }
+
+  if (ageMs > maxAgeMs) {
+    return {
+      kind: "expired",
+      receipt: null,
+      observedAtMs: receipt.observedAtMs,
+      ageMs,
+      maxAgeMs,
+    } satisfies FreshWriteTokenState;
+  }
+
+  return {
+    kind: "valid",
+    receipt,
+    ageMs,
+  } satisfies FreshWriteTokenState;
+}
+
+function decodeFreshWriteReceiptState(
   value: string | null | undefined,
-  nowMs = Date.now(),
-  maxAgeMs = DEFAULT_FRESH_WRITE_MAX_AGE_MS,
-): FreshWriteReceipt | null {
+  nowMs: number,
+  maxAgeMs: number,
+  clockSkewMs: number,
+): FreshWriteTokenState {
   if (!value) {
-    return null;
+    return { kind: "missing", receipt: null };
   }
 
   try {
     const parsed = JSON.parse(decodeURIComponent(value)) as unknown;
     if (!isFreshWriteReceipt(parsed)) {
-      return null;
+      return { kind: "malformed", receipt: null };
     }
 
-    const observedAtMs = Number(parsed.observedAtMs);
-    const ageMs = nowMs - observedAtMs;
-    if (ageMs < 0 || ageMs > maxAgeMs) {
-      return null;
-    }
-
-    return {
-      observedAtMs,
+    const receipt = {
+      observedAtMs: Number(parsed.observedAtMs),
       ...(parsed.commitPosition ? { commitPosition: parsed.commitPosition } : {}),
       sources: parsed.sources,
     };
+
+    return validFreshWriteState(receipt, nowMs, maxAgeMs, clockSkewMs);
   } catch {
-    return null;
+    return { kind: "malformed", receipt: null };
   }
+}
+
+export function decodeFreshWriteReceipt(
+  value: string | null | undefined,
+  nowMs = Date.now(),
+  maxAgeMs = DEFAULT_FRESH_WRITE_MAX_AGE_MS,
+  clockSkewMs = DEFAULT_FRESH_WRITE_CLOCK_SKEW_MS,
+): FreshWriteReceipt | null {
+  const state = decodeFreshWriteReceiptState(value, nowMs, maxAgeMs, clockSkewMs);
+  return state.kind === "valid" ? state.receipt : null;
 }
 
 function consistencyMetadataFromSource(source: unknown): ResponseConsistencyMetadata | null {
@@ -365,40 +409,51 @@ export function readFreshWriteToken(
   requestOrUrl: Request | string | URL,
   nowMs = Date.now(),
   maxAgeMs = DEFAULT_FRESH_WRITE_MAX_AGE_MS,
+  clockSkewMs = DEFAULT_FRESH_WRITE_CLOCK_SKEW_MS,
 ): FreshWriteReceipt | null {
+  const state = readFreshWriteTokenState(requestOrUrl, nowMs, maxAgeMs, clockSkewMs);
+  return state.kind === "valid" ? state.receipt : null;
+}
+
+export function readFreshWriteTokenState(
+  requestOrUrl: Request | string | URL,
+  nowMs = Date.now(),
+  maxAgeMs = DEFAULT_FRESH_WRITE_MAX_AGE_MS,
+  clockSkewMs = DEFAULT_FRESH_WRITE_CLOCK_SKEW_MS,
+): FreshWriteTokenState {
   const url =
     requestOrUrl instanceof URL
       ? requestOrUrl
       : new URL(typeof requestOrUrl === "string" ? requestOrUrl : requestOrUrl.url, "https://chase-sets.local");
   const token = url.searchParams.get(FRESH_WRITE_PARAM);
   if (!token) {
-    return null;
+    return { kind: "missing", receipt: null };
   }
 
   try {
     if (decodeURIComponent(token).startsWith("{")) {
-      return decodeFreshWriteReceipt(token, nowMs, maxAgeMs);
+      return decodeFreshWriteReceiptState(token, nowMs, maxAgeMs, clockSkewMs);
     }
   } catch {
-    return null;
+    return { kind: "malformed", receipt: null };
   }
 
   const [encodedPosition, observedAtText] = token.split(".");
   const observedAtMs = Number(observedAtText);
   if (!encodedPosition || !Number.isFinite(observedAtMs)) {
-    return null;
+    return { kind: "malformed", receipt: null };
   }
 
-  const ageMs = nowMs - observedAtMs;
-  if (ageMs < 0 || ageMs > maxAgeMs) {
-    return null;
+  try {
+    const receipt = {
+      commitPosition: decodeURIComponent(encodedPosition),
+      observedAtMs,
+      sources: [],
+    };
+    return validFreshWriteState(receipt, nowMs, maxAgeMs, clockSkewMs);
+  } catch {
+    return { kind: "malformed", receipt: null };
   }
-
-  return {
-    commitPosition: decodeURIComponent(encodedPosition),
-    observedAtMs,
-    sources: [],
-  };
 }
 
 function errorStatus(error: unknown): number | null {

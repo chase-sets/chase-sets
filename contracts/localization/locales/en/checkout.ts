@@ -525,6 +525,9 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutRecovery.checkout.needs.attention": "Checkout needs attention",
   "checkout.routes.checkoutRecovery.checkout.needs.attention.description":
     "We could not start checkout from the current cart or item. Review your Buy Cart or browse for another item.",
+  "checkout.routes.checkoutRecovery.checkout.handoff.expired": "Checkout needs a fresh start",
+  "checkout.routes.checkoutRecovery.checkout.handoff.expired.description":
+    "This checkout took longer than expected to become available. Review your Buy Cart or start checkout again from the item.",
   "checkout.routes.checkoutRecovery.refresh.checkout": "Refresh checkout",
   "checkout.routes.checkoutRecovery.view.buy.cart": "View Buy Cart",
   "checkout.features.sessions.ui.checkoutPage.wallet.available.description":
