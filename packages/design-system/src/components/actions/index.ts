@@ -22,6 +22,14 @@ export type { ToolbarProps, ToolbarButtonProps, ToolbarInputProps } from "./tool
 export { NavigationMenu } from "./navigation-menu";
 export type { NavigationMenuItem, NavigationMenuProps } from "./navigation-menu";
 
+export { SectionNavigation } from "./section-navigation";
+export type {
+  SectionNavigationGroup,
+  SectionNavigationItem,
+  SectionNavigationItemState,
+  SectionNavigationProps,
+} from "./section-navigation";
+
 export { Breadcrumbs } from "./breadcrumbs";
 export type { BreadcrumbItem, BreadcrumbsProps } from "./breadcrumbs";
 

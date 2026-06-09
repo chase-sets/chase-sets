@@ -4,7 +4,7 @@ The Catalog provider integration admin module is the operator surface for author
 
 Normal operator workflows must be fully UI driven. Operators should not need to edit profile JSON, fixture JSON, candidate JSON, active JSON, or dry-run result JSON to complete supported work. Versioned JSONB remains an acceptable persistence format, but the admin module must expose typed forms, guided controls, semantic comparisons, fixture workbenches, and diagnostics that map back to domain concepts.
 
-Raw JSON may remain as an internal support inspection affordance behind an explicit advanced permission, but it is not the primary authoring path and must not be required for activation, migration evidence, import, reapply, rollback, retirement, or review.
+The rebuilt launch control plane must not keep raw JSON editors, raw JSON support affordances, broad patch escape hatches, or compatibility-only UI branches. Support and audit review should expose typed, redacted evidence views instead of preserving retired JSON manipulation patterns.
 
 If the current design system cannot support the best implementation of this deep module, add the necessary primitives or components instead of forcing awkward controls or raw JSON editors into the workflow.
 
@@ -52,7 +52,7 @@ The admin module should save edits through typed section commands instead of arb
 - The server validates section shape, immutable profile identity, lifecycle constraints, evidence safety, fixture coverage, and mapping compatibility.
 - Validation diagnostics identify section and control paths with redacted messages suitable for display.
 - Successful saves return the updated authoring model or enough review data for the UI to refresh section diagnostics and activation readiness.
-- Generic JSON patch remains internal/deprecated compatibility infrastructure until all normal UI authoring paths have migrated.
+- Generic JSON patch and broad profile patch paths are pre-launch cleanup targets. Retiring them means complete deletion from UI code, API/client contracts used by the launch control plane, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions before the UX rebuild is accepted.
 
 Typed commands currently cover the first section-level slices for basics, provider options, connector, catalog field mapping, source contract, fixtures, source observation, normalized observation, external references, selected options, reference hierarchy, duplicate prevention, promotion plan, retirement plan, and migration evidence. Deeper field-specific commands may be added where they make validation, audit, or UI ergonomics meaningfully better.
 

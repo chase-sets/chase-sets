@@ -34,6 +34,7 @@ Application code should not introduce:
 - Overlays should use design-system Dialog, Sheet, Popover, Tooltip, Menu, and AlertDialog primitives instead of route-local overlay CSS.
 - Advanced, optional, risky, or low-frequency choices should use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup` rather than app-local show/hide controls.
 - Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionSurface`, `BulkActionBar`, `BulkActionPanel`, and `MetricStrip`.
+- Dense admin areas with one primary workflow and supporting detours should use [Section Navigation](./SECTION_NAVIGATION.md) for desktop left-side menu groups and the approved grouped mobile selector.
 - Each list action slot should wrap bulk actions in one `BulkActionSurface` and render at most one `BulkActionBar`. Combine selected-scope and matching-scope work into that one bar instead of stacking bottom action bars.
 - `BulkActionBar` should keep the selected-count fact visible, place the most likely safe action or configuration trigger in `primaryActions`, place supporting actions such as clearing selection in `secondaryActions`, and move advanced, rare, risky, or large action sets into `BulkActionPanel` or `overflowActions`.
 - `DetailPanel` applies default vertical spacing between direct child content blocks.
