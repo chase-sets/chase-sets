@@ -162,3 +162,17 @@ For each Catalog integration incident or release hardening pass, record:
 - job or work-unit outcome summary without job ids or observation ids in metric labels;
 - redaction check result;
 - remediation and verification date.
+
+For pre-launch data reset/drop runs, also record:
+
+- environment plan from `catalogIntegrationDataResetEnvironmentPlans`;
+- backup/snapshot/export decision or accepted data-loss approval;
+- approval reference for staging or production/prelaunch;
+- dry-run counts and before/after `collectCatalogIntegrationDataVerificationReport` output;
+- non-empty exact target tables from `catalogIntegrationDataResetTargetTables`;
+- forced active-job cleanup decision when queued/running jobs are intentionally wiped;
+- `evaluateCatalogIntegrationDataResetEvidence` result;
+- successful staging rehearsal reference for production/prelaunch resets;
+- staging or production smoke verification reference.
+
+When a legacy or compatibility path is retired, remove the code, patterns, and documentation completely. Do not leave fallback branches, compatibility shims, dual-path docs, or operator instructions for the retired path.

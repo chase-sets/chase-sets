@@ -68,18 +68,26 @@ After rollback, run a narrow import or reapply job and verify the completed job 
 Use the Catalog Integration Data Migration Reset and Legacy Cleanup plans when release needs to wipe unlaunched integration-control-plane data and rebuild from current bootstrap.
 
 1. Verify no Catalog integration or bulk review jobs are queued or running.
-2. Capture the before-reset verification report from `collectCatalogIntegrationDataVerificationReport`.
-3. Run the pre-launch wipe/rebuild path from `resetCatalogIntegrationPreLaunchData`.
-4. Confirm seeded provider profiles were rebuilt through the persisted profile version store.
-5. Confirm Source Observations, integration jobs, bulk review jobs, work units, and learned provider rate limits are empty.
-6. Confirm legacy Source Observation profile references are zero.
-7. Confirm profile section projections exist for retained or seeded profile versions.
-8. Confirm normal Admin authoring exposes section-scoped typed controls with `rawJsonBacked=false`.
-9. Record any retained admin-authored profile, Source Observation, fixture, job, or compatibility path with owner, reason, removal date, removal criteria, and launch gate in #804.
+2. Choose the environment plan from `catalogIntegrationDataResetEnvironmentPlans`.
+3. For staging or production/prelaunch, attach one backup/snapshot/export decision before destructive execution: create backup/export, skip backup because data loss is accepted for the named prelaunch Catalog integration data set, or retain data with owner/expiry because reset is unsafe.
+4. Capture dry-run counts and the before-reset verification report from `collectCatalogIntegrationDataVerificationReport`.
+5. Confirm the target table list is non-empty and matches `catalogIntegrationDataResetTargetTables`; do not add customer, order, billing, auth, marketplace, inventory, unrelated audit, or other launched bounded-context tables.
+6. Attach the successful staging rehearsal reference before production/prelaunch execution.
+7. Run the pre-launch wipe/rebuild path from `resetCatalogIntegrationPreLaunchData`.
+8. Confirm seeded provider profiles were rebuilt through the persisted profile version store.
+9. Confirm Source Observations, integration jobs, bulk review jobs, work units, provider option query cache rows, and learned provider rate limits are empty.
+10. Confirm legacy Source Observation profile references are zero.
+11. Confirm profile section projections exist for retained or seeded profile versions.
+12. Confirm normal Admin authoring exposes section-scoped typed controls with `rawJsonBacked=false`.
+13. Run staging or production smoke verification and attach the smoke reference.
+14. Evaluate the evidence packet with `evaluateCatalogIntegrationDataResetEvidence` and attach findings or the clean result to the private release evidence record.
+15. Record any retained admin-authored profile, Source Observation, fixture, job, or compatibility path with owner, reason, removal date, removal criteria, and launch gate in #804.
 
 Forced reset with active jobs is allowed only for explicit pre-launch cleanup decisions. Normal rollback should cancel or drain active work, activate the prior profile version, and enqueue fresh import/reapply work if needed.
 
 ## Retirement
+
+In legacy/compatibility cleanup plans, retire means completely remove the old code, patterns, and documentation. Do not keep hidden fallbacks, shims, dual-write paths, or stale docs after the removal milestone closes.
 
 Retire a profile version only after no Source Observations reference it as a source or promotion profile version. Admin retirement is blocked while references remain.
 
