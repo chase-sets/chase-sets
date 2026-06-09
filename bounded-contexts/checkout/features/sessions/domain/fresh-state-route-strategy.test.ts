@@ -72,7 +72,7 @@ describe("fresh-state checkout route strategy", () => {
       {
         routeId: "checkout-concept",
         routePath: "checkout/concept",
-        disposition: "internal-reference-only",
+        disposition: "removed",
         customerFacingCompatibility: false,
         replacementRouteId: null,
       },
