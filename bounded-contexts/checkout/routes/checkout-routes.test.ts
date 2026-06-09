@@ -2114,6 +2114,43 @@ describe("checkout web routes", () => {
     expect(recoveryBody.primaryAction?.href).toBe("/search");
   });
 
+  it("returns permanent checkout recovery for expired or malformed fresh checkout handoffs", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(404, {
+          error: { code: "not_found", message: "Checkout session not found." },
+        });
+      }),
+    });
+    const expiredPath = appendFreshWriteToken("/checkout/chk_1", checkoutCommit("42", "evt_checkout"), 1);
+    const requests = [
+      new Request(`http://localhost${expiredPath}`),
+      new Request("http://localhost/checkout/chk_1?afterWrite=%7Bnot-json"),
+    ];
+
+    for (const request of requests) {
+      let recoveryResponse: Response | null = null;
+      try {
+        await checkoutSessionLoader({
+          request,
+          params: { sessionId: "chk_1" },
+          context: undefined,
+        } as never);
+      } catch (error) {
+        recoveryResponse = error as Response;
+      }
+
+      expect(recoveryResponse?.status).toBe(404);
+      const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+        description?: string;
+        primaryAction?: { href?: string };
+      };
+      expect(recoveryBody.description).toContain("We could not find this checkout session.");
+      expect(recoveryBody.primaryAction?.href).toBe("/search");
+    }
+  });
+
   it("returns temporary recovery when a fresh checkout handoff has not projected yet", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     mockCreateCheckoutRequestApiClient.mockReturnValue({

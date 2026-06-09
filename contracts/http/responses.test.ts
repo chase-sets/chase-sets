@@ -4,6 +4,7 @@ import {
   appendFreshWriteToken,
   appendFreshWriteTokenFromSources,
   attachResponseMetadata,
+  classifyFreshWriteReadError,
   decodeFreshWriteReceipt,
   encodeCommitReceipt,
   getResponseMetadata,
@@ -91,5 +92,103 @@ describe("response consistency metadata", () => {
     expect(
       appendFreshWriteTokenFromSources("/checkout/chk_1?paymentMethodCategory=card", [{ status: "ok" }], 1234),
     ).toBe("/checkout/chk_1?paymentMethodCategory=card");
+  });
+
+  it("classifies fresh-write not-found and projection freshness timeouts as transient", () => {
+    const href = appendFreshWriteToken("/checkout/chk_1", { commitPositions: [checkoutSource], commitEventIds: [] }, 1);
+
+    expect(
+      classifyFreshWriteReadError({
+        request: href,
+        error: { status: 404, body: { error: { code: "not_found", message: "Not found." } } },
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "transient-not-found",
+      transient: true,
+      status: 404,
+      errorCode: "not_found",
+    });
+
+    expect(
+      classifyFreshWriteReadError({
+        request: href,
+        error: {
+          status: 503,
+          body: {
+            error: {
+              code: "projection_freshness_timeout",
+              message: "Projection read model did not catch up before the freshness timeout.",
+            },
+          },
+        },
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "transient-projection-timeout",
+      transient: true,
+      status: 503,
+      errorCode: "projection_freshness_timeout",
+    });
+  });
+
+  it("classifies manual, malformed, and expired not-found reads as permanent", () => {
+    expect(
+      classifyFreshWriteReadError({
+        request: "/checkout/chk_1",
+        error: { status: 404, body: { error: { code: "not_found", message: "Not found." } } },
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "permanent-not-found",
+      transient: false,
+      receipt: null,
+    });
+
+    expect(
+      classifyFreshWriteReadError({
+        request: "/checkout/chk_1?afterWrite=%7Bnot-json",
+        error: { status: 404, body: { error: { code: "not_found", message: "Not found." } } },
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "permanent-not-found",
+      transient: false,
+      receipt: null,
+    });
+
+    const expiredHref = appendFreshWriteToken(
+      "/checkout/chk_1",
+      { commitPositions: [checkoutSource], commitEventIds: [] },
+      1,
+    );
+    expect(
+      classifyFreshWriteReadError({
+        request: expiredHref,
+        error: { status: 404, body: { error: { code: "not_found", message: "Not found." } } },
+        nowMs: 40_000,
+      }),
+    ).toMatchObject({
+      kind: "permanent-not-found",
+      transient: false,
+      receipt: null,
+    });
+  });
+
+  it("does not classify unrelated fresh-write errors as transient", () => {
+    const href = appendFreshWriteToken("/checkout/chk_1", { commitPositions: [checkoutSource], commitEventIds: [] }, 1);
+
+    expect(
+      classifyFreshWriteReadError({
+        request: href,
+        error: { status: 503, body: { error: { code: "provider_failed", message: "Provider failed." } } },
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "fresh-write-unhandled",
+      transient: false,
+      status: 503,
+      errorCode: "provider_failed",
+    });
   });
 });
