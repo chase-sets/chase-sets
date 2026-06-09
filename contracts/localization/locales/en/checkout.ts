@@ -271,64 +271,40 @@ export const checkoutEnglishTranslations = {
     "Sell List readiness snapshot is required.",
   "checkout.features.sellList.api.route.sell.list.review.requires.seller.account":
     "Sell List review requires a seller account.",
-  "checkout.features.sellList.ui.sellListPage.accept.selected.offer.during.checkout.review":
-    "Accept selected offer during checkout review",
   "checkout.features.sellList.ui.sellListPage.add.selected.offers.or.products":
-    "Add selected offers or products from item pages before reviewing sale execution.",
+    "Add selected offers or products from item pages before reviewing seller checkout.",
   "checkout.features.sellList.ui.sellListPage.browse.products": "Browse products",
   "checkout.features.sellList.ui.sellListPage.buyer": "Buyer",
-  "checkout.features.sellList.ui.sellListPage.buyer.payment.already.authorized":
-    "Buyer payment already authorized by offer",
-  "checkout.features.sellList.ui.sellListPage.buyer.payment.confidence": "Buyer payment confidence",
-  "checkout.features.sellList.ui.sellListPage.buyer.trust.value": "{rating} rating across {reviews} reviews",
-  "checkout.features.sellList.ui.sellListPage.checked.before.commitment": "Checked before commitment",
   "checkout.features.sellList.ui.sellListPage.checkout": "Checkout",
-  "checkout.features.sellList.ui.sellListPage.checkout.owns.the.review.step":
-    "Checkout owns the review step because accepting offers uses payment triggers, sale commitment, payout, and fulfillment orchestration.",
+  "checkout.features.sellList.ui.sellListPage.checkout.issue": "Sell List issue",
+  "checkout.features.sellList.ui.sellListPage.choose.sale.action.before.checkout":
+    "Choose a ready offer or listing action before seller checkout.",
   "checkout.features.sellList.ui.sellListPage.create.account": "Create account",
-  "checkout.features.sellList.ui.sellListPage.create.fallback.listing.after.review":
-    "Create fallback listing after review",
-  "checkout.features.sellList.ui.sellListPage.create.fallback.listing": "Create fallback listing",
-  "checkout.features.sellList.ui.sellListPage.create.fallback.listing.for.remaining":
-    "Create fallback listing for remaining quantity",
-  "checkout.features.sellList.ui.sellListPage.create.listings": "create listings",
+  "checkout.features.sellList.ui.sellListPage.create.listing.for.remaining": "Create listing for remaining quantity",
   "checkout.features.sellList.ui.sellListPage.choose.inventory": "Choose inventory",
-  "checkout.features.sellList.ui.sellListPage.disabled": "disabled",
-  "checkout.features.sellList.ui.sellListPage.execute.sale.checkout": "Execute sale checkout",
-  "checkout.features.sellList.ui.sellListPage.execution.id": "Execution {executionId}",
-  "checkout.features.sellList.ui.sellListPage.execution": "Execution",
-  "checkout.features.sellList.ui.sellListPage.accept.ready.matches.only": "Accept ready matches only",
-  "checkout.features.sellList.ui.sellListPage.accept.matching.offers.only": "Accept matching offers only",
-  "checkout.features.sellList.ui.sellListPage.fallback.action": "Fallback action",
-  "checkout.features.sellList.ui.sellListPage.fallback.listing.floor": "Fallback listing floor",
-  "checkout.features.sellList.ui.sellListPage.fulfillment.commitment": "Fulfillment commitment",
-  "checkout.features.sellList.ui.sellListPage.inventory.and.shipping.are.confirmed":
-    "Inventory, shipping method, and handoff requirements are confirmed before sale work begins.",
+  "checkout.features.sellList.ui.sellListPage.expected.payout.before.checkout":
+    "Expected payout before seller checkout",
+  "checkout.features.sellList.ui.sellListPage.fallback.listing.ready.detail":
+    "Inventory and listing price are ready for the remaining quantity.",
   "checkout.features.sellList.ui.sellListPage.inventory": "Inventory",
-  "checkout.features.sellList.ui.sellListPage.inventory.ready": "Inventory ready",
-  "checkout.features.sellList.ui.sellListPage.inventory.ready.description":
-    "Checkout can create a fallback listing from this account-held inventory if no selected offer is accepted.",
   "checkout.features.sellList.ui.sellListPage.inventory.option.label": "{location} / {shipFrom} ({quantity})",
   "checkout.features.sellList.ui.sellListPage.inventory.required": "Inventory required",
-  "checkout.features.sellList.ui.sellListPage.inventory.required.description":
-    "Create or receive inventory before turning this product line into a fallback listing.",
   "checkout.features.sellList.ui.sellListPage.items": "Items",
   "checkout.features.sellList.ui.sellListPage.keep.selling": "Keep selling",
   "checkout.features.sellList.ui.sellListPage.keep.in.sell.list": "Keep in Sell List",
+  "checkout.features.sellList.ui.sellListPage.keep.remaining.in.sell.list": "Keep remaining quantity in Sell List",
+  "checkout.features.sellList.ui.sellListPage.line.readiness": "Line readiness",
   "checkout.features.sellList.ui.sellListPage.listing.price": "Listing price",
   "checkout.features.sellList.ui.sellListPage.matching.offers": "Matching offers",
   "checkout.features.sellList.ui.sellListPage.matching.offer.quantity": "{quantity} ready to accept",
-  "checkout.features.sellList.ui.sellListPage.match.confidence":
-    "Ranked by seller net, fulfillment coverage, and buyer trust: {buyerTrust}; {availableQuantity} available.",
   "checkout.features.sellList.ui.sellListPage.minimum.listing.price": "Minimum listing price",
   "checkout.features.sellList.ui.sellListPage.needs.refresh": "Needs refresh",
+  "checkout.features.sellList.ui.sellListPage.needs.action": "Needs action",
+  "checkout.features.sellList.ui.sellListPage.no.commitment.until.review":
+    "No seller commitment starts until this review is continued.",
   "checkout.features.sellList.ui.sellListPage.no.ready.matching.offers": "No ready matching offers",
-  "checkout.features.sellList.ui.sellListPage.no.product.lines": "No product lines",
-  "checkout.features.sellList.ui.sellListPage.new.buyer": "New buyer",
-  "checkout.features.sellList.ui.sellListPage.no.selected.offers": "No selected offers",
-  "checkout.features.sellList.ui.sellListPage.product.level.smart.match.selling":
-    "Product-level Smart Match selling will appear here.",
-  "checkout.features.sellList.ui.sellListPage.product.lines": "Product lines",
+  "checkout.features.sellList.ui.sellListPage.no.smart.match.offers.available":
+    "No ready Smart Match offers are available for this line.",
   "checkout.features.sellList.ui.sellListPage.payout.readiness": "Payout readiness",
   "checkout.features.sellList.ui.sellListPage.payout.setup.is.checked.before":
     "Payout setup and settlement readiness stay visible before accepting sale commitments.",
@@ -338,42 +314,32 @@ export const checkoutEnglishTranslations = {
     "Resolve payout requirements before accepting offers or creating fallback listings: {requirements}.",
   "checkout.features.sellList.ui.sellListPage.payout.readiness.unavailable.description":
     "Payout readiness could not be loaded. Refresh payout setup before accepting offers or creating fallback listings.",
-  "checkout.features.sellList.ui.sellListPage.products": "Products",
   "checkout.features.sellList.ui.sellListPage.quantity": "Quantity",
-  "checkout.features.sellList.ui.sellListPage.payment.authorization": "Payment authorization",
   "checkout.features.sellList.ui.sellListPage.offer": "Offer",
-  "checkout.features.sellList.ui.sellListPage.ready.to.accept": "Ready to accept",
+  "checkout.features.sellList.ui.sellListPage.offer.terms.need.refresh":
+    "Refresh this line before seller checkout so the offer terms are current.",
   "checkout.features.sellList.ui.sellListPage.ready": "Ready",
+  "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout": "Ready for seller checkout",
+  "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout.description":
+    "Every line has a pre-checkout sale action and payout setup is ready.",
+  "checkout.features.sellList.ui.sellListPage.readiness.needs.action": "{count} need action",
+  "checkout.features.sellList.ui.sellListPage.readiness.ready": "{count} ready",
+  "checkout.features.sellList.ui.sellListPage.rebuild.from.current.sell.list": "Rebuild from current Sell List",
+  "checkout.features.sellList.ui.sellListPage.remaining.quantity.action": "Remaining quantity action",
   "checkout.features.sellList.ui.sellListPage.remove": "Remove",
-  "checkout.features.sellList.ui.sellListPage.review.sale.checkout": "Review sale checkout",
-  "checkout.features.sellList.ui.sellListPage.review.value": "Review value",
+  "checkout.features.sellList.ui.sellListPage.resolve.before.seller.checkout":
+    "Resolve {count} line(s) before seller checkout starts.",
+  "checkout.features.sellList.ui.sellListPage.resolve.items": "Resolve items",
+  "checkout.features.sellList.ui.sellListPage.review.items": "Review items",
   "checkout.features.sellList.ui.sellListPage.expected.seller.payout": "Expected seller payout",
-  "checkout.features.sellList.ui.sellListPage.committed.seller.payout": "Committed seller payout",
-  "checkout.features.sellList.ui.sellListPage.committed.offer.gross": "Committed offer gross",
   "checkout.features.sellList.ui.sellListPage.future.listing.gross": "Future listing gross",
-  "checkout.features.sellList.ui.sellListPage.committed.payout.before.future.listings":
-    "Committed payout now; fallback listings remain future value until they sell.",
   "checkout.features.sellList.ui.sellListPage.estimated.sales.fees": "Estimated sales fees",
-  "checkout.features.sellList.ui.sellListPage.fallback.listing.gross": "Fallback listing gross",
-  "checkout.features.sellList.ui.sellListPage.gross.committed.value": "Gross committed value",
-  "checkout.features.sellList.ui.sellListPage.review.selected.offers.and.product.level":
-    "Review selected offers and product-level seller intent before Chase Sets creates commitments, payouts, and fulfillment work.",
-  "checkout.features.sellList.ui.sellListPage.sale.checkout.confidence": "Sale checkout confidence",
-  "checkout.features.sellList.ui.sellListPage.sale.checkout.review": "Sale checkout review",
-  "checkout.features.sellList.ui.sellListPage.sale.checkout.review.description":
-    "Selected offers, fallback listings, payout readiness, and fulfillment commitments are reviewed together before Checkout records sale intent.",
-  "checkout.features.sellList.ui.sellListPage.pending.execution.ready": "Sale checkout recovery ready",
-  "checkout.features.sellList.ui.sellListPage.pending.execution.ready.description":
-    "Execution {executionId} has {completedActionCount} completed action(s). Continue sale checkout to safely resume the pending work.",
-  "checkout.features.sellList.ui.sellListPage.pending.execution.started": "Started",
-  "checkout.features.sellList.ui.sellListPage.pending.execution.updated": "Last updated",
-  "checkout.features.sellList.ui.sellListPage.pending.execution.age": "Age",
-  "checkout.features.sellList.ui.sellListPage.pending.execution.age.minutes": "{minutes} minute(s)",
-  "checkout.features.sellList.ui.sellListPage.pending.execution.age.hours": "{hours} hour(s)",
-  "checkout.features.sellList.ui.sellListPage.pending.execution.completed.actions": "Completed actions",
-  "checkout.features.sellList.ui.sellListPage.pending.execution.remaining.actions": "Remaining actions",
-  "checkout.features.sellList.ui.sellListPage.retry.pending.execution": "Retry pending execution",
-  "checkout.features.sellList.ui.sellListPage.rebuild.pending.execution": "Rebuild from current Sell List",
+  "checkout.features.sellList.ui.sellListPage.simple.review.description":
+    "Review cards, payout readiness, and pre-checkout sale actions before seller checkout.",
+  "checkout.features.sellList.ui.sellListPage.pending.seller.checkout": "Seller checkout recovery ready",
+  "checkout.features.sellList.ui.sellListPage.pending.seller.checkout.description":
+    "A previous seller checkout was interrupted. Continue it or rebuild from the current Sell List.",
+  "checkout.features.sellList.ui.sellListPage.continue.pending.checkout": "Continue pending checkout",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded": "Sale checkout review recorded",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded.description":
     "Checkout recorded the seller-side review and cleared the Sell List items that were ready to execute.",
@@ -387,40 +353,38 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.receipt.recovery": "Recovery",
   "checkout.features.sellList.ui.sellListPage.receipt.remaining": "Remaining",
   "checkout.features.sellList.ui.sellListPage.receipt.result": "Result",
-  "checkout.features.sellList.ui.sellListPage.retry.remaining.lines": "Retry remaining lines",
-  "checkout.features.sellList.ui.sellListPage.retry.remaining.lines.description":
-    "Completed sale actions are recorded on the receipt. Any remaining lines stay in the Sell List for a fresh execution.",
   "checkout.features.sellList.ui.sellListPage.sale.review.before.commitment":
     "Review sale value, payout readiness, and fulfillment before commitment.",
   "checkout.features.sellList.ui.sellListPage.saved.for.later.description":
     "Keep adding products while signed out. Create an account when you are ready to review sale checkout, accept offers, create listings, and set up payouts.",
   "checkout.features.sellList.ui.sellListPage.saved.for.later.title": "Sell List saved on this device",
+  "checkout.features.sellList.ui.sellListPage.seller.checkout.readiness": "Seller checkout readiness",
+  "checkout.features.sellList.ui.sellListPage.seller.checkout.readiness.description":
+    "Checkout receives only ready Sell List lines. Item eligibility, sale action, payout, ship-from, and label readiness stay before seller checkout.",
   "checkout.features.sellList.ui.sellListPage.selected.offer": "Selected offer",
-  "checkout.features.sellList.ui.sellListPage.accept.smart.match.offer": "Accept this Smart Match offer",
-  "checkout.features.sellList.ui.sellListPage.accept.smart.match.offer.description":
-    "{buyer} offer; estimated seller net {sellerNet}.",
+  "checkout.features.sellList.ui.sellListPage.selected.offer.ready.detail":
+    "Offer terms are current and ready for seller checkout.",
   "checkout.features.sellList.ui.sellListPage.selected.offer.gross": "Selected offer gross",
-  "checkout.features.sellList.ui.sellListPage.selected.offer.lines.will.appear":
-    "Selected offer lines will appear here before sale checkout.",
-  "checkout.features.sellList.ui.sellListPage.selected.offer.seller.net": "Selected offer seller net",
-  "checkout.features.sellList.ui.sellListPage.selected.offer.value": "Selected offer value",
-  "checkout.features.sellList.ui.sellListPage.selected.offers": "Selected offers",
-  "checkout.features.sellList.ui.sellListPage.selected.offers.keep.buyer.payment":
-    "Selected offers keep buyer payment readiness attached while Checkout prepares sale execution.",
   "checkout.features.sellList.ui.sellListPage.sales.fee": "Sales fee",
   "checkout.features.sellList.ui.sellListPage.sell.list": "Sell List",
   "checkout.features.sellList.ui.sellListPage.sell.list.lines": "Sell List lines",
   "checkout.features.sellList.ui.sellListPage.seller.net": "Seller net",
+  "checkout.features.sellList.ui.sellListPage.ship.from.inventory": "Ship-from inventory",
   "checkout.features.sellList.ui.sellListPage.sign.in": "Sign in",
   "checkout.features.sellList.ui.sellListPage.sign.in.required": "Sign in required",
   "checkout.features.sellList.ui.sellListPage.sign.in.to.review.sale.checkout":
     "Create an account or sign in to review sale checkout, confirm inventory, accept offers, create listings, and continue payout setup.",
-  "checkout.features.sellList.ui.sellListPage.smart.match.offers.for.quantity":
-    "Smart Match offers for {quantity}; fallback {fallback}.",
+  "checkout.features.sellList.ui.sellListPage.smart.match.ready.detail":
+    "{count} ready Smart Match offer(s) can be used before seller checkout.",
   "checkout.features.sellList.ui.sellListPage.smart.match.seller.net": "Smart Match seller net",
-  "checkout.features.sellList.ui.sellListPage.smart.match.settings": "Smart Match settings",
+  "checkout.features.sellList.ui.sellListPage.some.items.need.action": "Some items need action",
   "checkout.features.sellList.ui.sellListPage.standard": "Standard",
-  "checkout.features.sellList.ui.sellListPage.why.this.match": "Why this match",
+  "checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout": "Continue to seller checkout",
+  "checkout.features.sellList.ui.sellListPage.pre.checkout.action": "Pre-checkout action",
+  "checkout.features.sellList.ui.sellListPage.product.line": "Product",
+  "checkout.features.sellList.ui.sellListPage.use.smart.match.offer": "Use {buyer} offer",
+  "checkout.features.sellList.ui.sellListPage.use.smart.match.offer.description":
+    "{quantity} item(s), estimated seller payout {sellerNet}.",
   "checkout.features.sellList.ui.sellListPage.your.sell.list.is.empty": "Your Sell List is empty",
   "checkout.routes.accountCart.cart.marketplace": "Buy Cart | Marketplace",
   "checkout.routes.accountCart.request.failed": "Request failed.",
