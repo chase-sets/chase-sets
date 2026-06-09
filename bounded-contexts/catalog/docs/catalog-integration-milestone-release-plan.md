@@ -151,7 +151,7 @@ Primary issues:
 
 - #770 migration and release plan
 - #787 observability and runbooks, documented in [Catalog Integration Observability](./catalog-integration-observability.md) and [Catalog Integration Operations](../../../docs/runbooks/catalog-integration-operations.md)
-- #789 raw JSON fallback retirement
+- typed profile authoring coverage
 - #801 rollout modes, feature flags, and kill switches, documented in [Catalog Integration Rollout Controls](./catalog-integration-rollout-controls.md)
 - #798 activation, rollback, retirement, replay, and reapply impact analysis, documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md)
 - #803 provider-data policy/legal signoff, documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
@@ -163,7 +163,7 @@ Exit criteria:
 - Observability verification covers provider option query metrics, integration job metrics, bulk review work-unit metrics, worker/request/projection platform metrics, redaction checks, alert starter conditions, and the [Catalog Integration Operations](../../../docs/runbooks/catalog-integration-operations.md) incident flows.
 - Legacy cleanup verification covers zero old Source Observations, zero legacy profile references, empty integration and bulk-review jobs/work units, rebuilt seeded profiles, rebuilt profile sections, `rawJsonBacked=false` section editors, and an owner/reason/removal-date launch gate for every retained compatibility path.
 - No unresolved P0-P2 release hardening findings remain.
-- Rollout controls expose default-open staged modes, provider/API emergency stops, import/promotion/reapply/activation kill switches, worker stops, raw JSON fallback quarantine, Admin surfacing, and rollback evidence.
+- Rollout controls expose default-open staged modes, provider/API emergency stops, import/promotion/reapply/activation kill switches, worker stops, Admin surfacing, and rollback evidence.
 - CI passes before merge queue entry.
 - Staging and production deployments are verified green after merge and rollout.
 
@@ -182,7 +182,7 @@ Use this order for the first broad Catalog Integration Control Plane launch. Lat
 9. Run the pre-launch reset or retained-data migration procedure from [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
 10. Rebuild seeded provider profile versions, section snapshot/read-model rows, section diagnostics, fixture coverage, and integration summary projections from canonical Catalog data.
 11. Verify provider adapters and integration units in dependency order: reference proof, TCGdex, TCGplayer, thin real-provider proof, then MTGJSON/Scryfall validation (#776, #785, #786, #800, #806).
-12. Enable rollout controls in staged mode with provider/API emergency stops, import, promotion, reapply, activation, worker, raw JSON fallback, and rollback switches available (#801).
+12. Enable rollout controls in staged mode with provider/API emergency stops, import, promotion, reapply, activation, worker, and rollback switches available (#801).
 13. Run the release verification checklist below in staging, then repeat production smoke, canary, branch, and observability evidence after production deploy.
 
 ## Migration And Reset Strategy
@@ -195,7 +195,7 @@ Resettable data:
 - profile section projections and section diagnostics
 - pre-launch fixture, dry-run, option-query cache, integration summary, bulk review, and job read models
 - pre-launch Source Observations and promotion/reapply work units that have not been intentionally retained
-- raw JSON fallback artifacts that are not needed for signed launch evidence
+- raw JSON editor artifacts that are not needed for signed launch evidence
 
 Retained data is the exception. It requires an owner, reason, launch gate, removal date or removal condition, compatibility mode, rollback behavior, and verification query. Retained data is allowed only when it is launched data, intentionally retained operator evidence, or deploy-skew compatibility required to keep a release safe.
 
@@ -232,7 +232,7 @@ Before merge queue entry for a launch PR or any provider-enablement PR, capture 
 - Diagnostic taxonomy checks prove codes, severity, blocking behavior, remediation, visibility, metric names, and redaction policy (#796).
 - Option-query checks prove caching, TTL, pagination, stale fallback, backpressure, degraded display, and provider emergency-stop behavior (#797).
 - Observability checks prove provider option query metrics, integration job metrics, bulk review work-unit metrics, worker/request/projection metrics, starter alerts, redaction-safe logs, and incident runbook coverage (#787).
-- Rollout-control checks prove staged modes, provider/API emergency stops, activation/import/promotion/reapply/worker kill switches, raw JSON fallback quarantine, Admin surfacing, rollback evidence, and default state (#801).
+- Rollout-control checks prove staged modes, provider/API emergency stops, activation/import/promotion/reapply/worker kill switches, Admin surfacing, rollback evidence, and default state (#801).
 - UX/accessibility checks prove dense workflow layout, responsive behavior, keyboard navigation, focus management, disabled-state explanations, and no overlapping UI text (#790).
 - E2E smoke and worker/job checks prove admin protected routes, health endpoints, provider readiness, durable job progress, projection lag handling, and worker resume behavior.
 - Final provider proof checks pass in order: reference provider, TCGdex, TCGplayer, thin real-provider proof, MTGJSON/Scryfall no-core-change validation (#776, #785, #786, #800, #806).

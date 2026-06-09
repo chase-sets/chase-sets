@@ -13,7 +13,7 @@ import {
 import { catalogProviderProfileEditableSectionMetadata } from "./provider-profile-admin-contracts";
 
 describe("catalog integration legacy cleanup", () => {
-  it("inventories resettable data surfaces and raw JSON compatibility paths", () => {
+  it("inventories resettable data surfaces and supported launch paths", () => {
     const resetSurfaceKeys = new Set(catalogIntegrationDataSurfacePolicies.map((surface) => surface.key));
     const inventoryResetSurfaceKeys = new Set(
       catalogIntegrationLegacyCleanupSurfaces
@@ -25,21 +25,15 @@ describe("catalog integration legacy cleanup", () => {
 
     expect(catalogIntegrationLegacyCleanupSurfaces).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ key: "broad-provider-profile-patch-route", action: "quarantine" }),
         expect.objectContaining({ key: "fixture-contract-metadata-and-payloads" }),
-        expect.objectContaining({
-          key: "transitional-static-profile-compatibility",
-          action: "retain-with-explicit-exception",
-        }),
+        expect.objectContaining({ key: "section-scoped-profile-commands" }),
       ]),
     );
   });
 
   it("requires retained legacy paths to carry owner, reason, removal date, and launch gate", () => {
     expect(catalogIntegrationRetainedLegacyPaths.map((path) => path.key)).toEqual([
-      "transitional-static-profile-compatibility",
       "legacy-source-observation-profile-marker-read",
-      "broad-provider-profile-patch-route",
     ]);
 
     for (const path of catalogIntegrationRetainedLegacyPaths) {
@@ -56,25 +50,6 @@ describe("catalog integration legacy cleanup", () => {
     const readiness = evaluateCatalogIntegrationLegacyCleanupReadiness({
       report: cleanReport(),
       editableSections: catalogProviderProfileEditableSectionMetadata(),
-      rawProfilePatchRouteQuarantined: true,
-      profileVersions: [
-        {
-          providerKey: "tcgdex",
-          profileVersion: "2026.06.04",
-          compatibilityMode: "executable-mapping-contract",
-          retirementPlan: null,
-        },
-        {
-          providerKey: "tcgplayer",
-          profileVersion: "2026.06.04",
-          compatibilityMode: "transitional-static-profile",
-          retirementPlan: {
-            trackingIssue: 789,
-            removeAfter: "executable-mapping-contract-activated",
-            diagnosticText: "Retire after TCGplayer executable mapping activation.",
-          },
-        },
-      ],
     });
 
     expect(readiness).toEqual({ launchReady: true, findings: [] });
@@ -90,15 +65,6 @@ describe("catalog integration legacy cleanup", () => {
         providerOptionRateLimits: 3,
       },
       editableSections: [{ section: "basics", rawJsonBacked: true }],
-      rawProfilePatchRouteQuarantined: false,
-      profileVersions: [
-        {
-          providerKey: "tcgdex",
-          profileVersion: "legacy-static",
-          compatibilityMode: "transitional-static-profile",
-          retirementPlan: null,
-        },
-      ],
     });
 
     expect(readiness.launchReady).toBe(false);
@@ -108,8 +74,6 @@ describe("catalog integration legacy cleanup", () => {
       "integration-jobs-not-reset",
       "provider-option-rate-limits-not-reset",
       "raw-json-section-editor",
-      "raw-profile-patch-route-unowned",
-      "transitional-profile-without-retirement",
     ]);
   });
 
@@ -118,14 +82,13 @@ describe("catalog integration legacy cleanup", () => {
       expect.arrayContaining([
         expect.stringContaining("pre-launch wipe/rebuild reset"),
         expect.stringContaining("rawJsonBacked=false"),
-        expect.stringContaining("broad profile patch route"),
+        expect.stringContaining("unsupported profile authoring compatibility code"),
       ]),
     );
 
     expect(catalogIntegrationLegacyCleanupVerificationQueries()).toEqual(
       expect.arrayContaining([
         expect.stringContaining("legacy_source_observation_references"),
-        expect.stringContaining("compatibility_mode = 'transitional-static-profile'"),
         expect.stringContaining("catalog_provider_profile_version_sections"),
       ]),
     );

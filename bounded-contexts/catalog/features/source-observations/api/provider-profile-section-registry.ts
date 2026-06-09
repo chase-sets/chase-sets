@@ -42,7 +42,6 @@ export type CatalogProviderProfileBasicsUpdateCommand = Readonly<{
   lifecycle?: "draft" | "test";
   displayName?: string;
   status?: "active" | "planned";
-  compatibilityMode?: "executable-mapping-contract" | "transitional-static-profile";
   capabilities?: readonly string[];
   supportedScopes?: readonly string[];
   languageOptions?: readonly string[];
@@ -156,7 +155,6 @@ export type CatalogProviderProfileVersionUpdatePatch = Readonly<{
   profile?: CatalogProviderIntegrationProfileVersionRecord["profile"];
   sourceContract?: CatalogProviderIntegrationProfileVersionRecord["sourceContract"];
   fixtures?: CatalogProviderIntegrationProfileVersionRecord["fixtures"];
-  compatibilityMode?: CatalogProviderIntegrationProfileVersionRecord["compatibilityMode"];
   retirementPlan?: CatalogProviderIntegrationProfileVersionRecord["retirementPlan"];
   executableMappingContract?: CatalogProviderIntegrationProfileVersionRecord["executableMappingContract"] | null;
   migrationEvidence?: CatalogProviderIntegrationProfileMigrationEvidence | null;
@@ -194,18 +192,12 @@ export const catalogProviderProfileSectionRegistry = [
       assertOptionalString(command.displayName, "displayName");
       assertOptionalEnum(command.status, ["active", "planned"], "status");
       assertOptionalEnum(command.lifecycle, ["draft", "test"], "lifecycle");
-      assertOptionalEnum(
-        command.compatibilityMode,
-        ["executable-mapping-contract", "transitional-static-profile"],
-        "compatibilityMode",
-      );
       assertOptionalStringArray(command.capabilities, "capabilities");
       assertOptionalStringArray(command.supportedScopes, "supportedScopes");
       assertOptionalStringArray(command.languageOptions, "languageOptions");
     },
     composePatch: (existing, command) => ({
       lifecycle: command.lifecycle,
-      compatibilityMode: command.compatibilityMode,
       profile: {
         ...existing.profile,
         displayName: command.displayName ?? existing.profile.displayName,

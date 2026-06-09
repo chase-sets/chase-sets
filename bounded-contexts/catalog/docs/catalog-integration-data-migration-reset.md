@@ -87,12 +87,11 @@ Expected clean pre-launch reset result:
 - Integration and bulk review job/work-unit tables are empty.
 - Legacy Source Observation profile references are zero.
 - Profile section projections exist for retained or seeded profile versions.
-- Normal Admin profile authoring uses section-scoped typed commands with `rawJsonBacked=false`; the broad profile patch route is quarantined under #789 or removed.
+- Normal Admin profile authoring uses section-scoped typed commands with `rawJsonBacked=false`.
 
 ## Relationship To Adjacent Issues
 
 - #804 owns retained-data exceptions, release cleanup inventory, and removal of legacy compatibility code in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md).
-- #789 owns raw JSON fallback retirement.
 - [Catalog Integration Data Governance](./catalog-integration-data-governance.md) owns provider payload, fixture, dry-run, diagnostic retention, redaction, and policy/legal signoff.
 - #791 owns job idempotency and deploy-skew behavior.
 - #793 owns wire schema compatibility policy and retained-data rules by surface.

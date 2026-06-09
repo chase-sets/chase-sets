@@ -1008,7 +1008,6 @@ describe("IntegrationManagementPage", () => {
           displayName: "Scrydex Draft",
           lifecycle: "draft",
           status: "planned",
-          compatibilityMode: "executable-mapping-contract",
           capabilities: expect.arrayContaining(["source-observation-import"]),
           supportedScopes: expect.arrayContaining(["product/card"]),
           languageOptions: ["en"],
@@ -3622,7 +3621,6 @@ function profileReview(
     lifecycle: "test",
     active: false,
     status: "planned",
-    compatibilityMode: "executable-mapping-contract",
     connectorKind: "scrydex-scryfall-json",
     sourceContract: {
       owner: "chase-sets/catalog",

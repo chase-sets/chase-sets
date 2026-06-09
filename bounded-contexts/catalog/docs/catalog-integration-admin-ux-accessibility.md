@@ -13,13 +13,13 @@ Operator acceptance journeys are tracked separately in [Catalog Integration Oper
 | Dense scanning | Workflow modules use compact headings, status pills, summary facts, tables, and scoped actions without marketing-style hero/card bloat. | `catalog-integrations.spec.ts` verifies validation and operations workflow modules by accessible heading. |
 | State coverage | Empty, loading, stale, error, blocked, and partial-success states have visible operator copy and do not collapse the module frame. | Unit tests must cover blocked readiness, disabled write actions, dry-run failures, and job progress states. |
 | Long diagnostics | Diagnostic text, remediation, evidence paths, and deeply nested section paths remain readable and associated with the affected workflow/module. | Unit tests should include long path and remediation examples in activation readiness or section diagnostics. |
-| High-volume lists | Job, Source Observation, diagnostic, audit, compare, and promotion tables stay compact and server-paginated where the read model can grow. | Query/read-model SLOs define pagination and stale-state expectations; UI tests verify representative dense tables render without raw JSON fallback. |
+| High-volume lists | Job, Source Observation, diagnostic, audit, compare, and promotion tables stay compact and server-paginated where the read model can grow. | Query/read-model SLOs define pagination and stale-state expectations; UI tests verify representative dense tables render without raw JSON editors. |
 | Keyboard flow | Module tabs, table actions, dialog actions, section editors, and destructive confirmations are reachable by keyboard and preserve focus context. | E2E tests must tab through the integration module tabs and into scoped workflow actions. |
 | Accessible names | Workflow modules, tabs, dialogs, progress, readiness checks, destructive actions, and evidence controls have stable accessible names. | Tests should use role/name selectors for module tabs, workflow headings, dialogs, and primary actions. |
 | Responsive behavior | Supported admin viewports keep workflow modules readable; action bars wrap instead of overlapping tables or status labels. | E2E tests should exercise desktop and compact admin widths for validation and operations modules. |
 | Impact clarity | Activation, rollback, retirement, bulk promotion, reapply, reject, and migration-evidence confirmations show affected references, profile version, scope, and blocking checks. | Dialog/unit tests verify impact facts before the confirm action is enabled. |
 | Readiness separation | Provider adapter/transport readiness is visually distinct from Catalog semantic readiness and activation readiness. | Health/readiness tests verify both adapter readiness and Catalog readiness labels are present. |
-| No raw JSON fallback | Normal workflows do not expose Profile JSON, Candidate profile JSON, Active profile JSON, Fixture Payload JSON, or Dry-run output JSON editors. | Unit and E2E tests assert these labels are absent in profile workbench, compare, edit, evidence, and dry-run workflows. |
+| No raw JSON editors | Normal workflows do not expose Profile JSON, Candidate profile JSON, Active profile JSON, Fixture Payload JSON, or Dry-run output JSON editors. | Unit and E2E tests assert these labels are absent in profile workbench, compare, edit, evidence, and dry-run workflows. |
 
 ## Dense-State Fixtures
 
@@ -38,7 +38,7 @@ Every release that changes Admin Control Plane workflow UI must record:
 - the focused unit or integration tests that cover the changed workflow states;
 - the E2E path that verifies the signed-in operator surface;
 - whether responsive/keyboard behavior was verified locally, in CI, or deferred with a follow-up issue;
-- any raw JSON fallback found during verification and the owner issue that quarantines it;
+- any raw JSON editor or profile snapshot workaround found during verification and the removal issue that owns it;
 - any high-volume list, stale-state, or long-diagnostic gap discovered during review.
 
 ## Related References

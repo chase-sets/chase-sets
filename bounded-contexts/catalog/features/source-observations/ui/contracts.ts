@@ -311,7 +311,6 @@ export interface CatalogProviderProfileVersionReview {
   lifecycle: string;
   active: boolean;
   status: string;
-  compatibilityMode: string;
   connectorKind: string;
   profile: JsonValue;
   sourceContract: {

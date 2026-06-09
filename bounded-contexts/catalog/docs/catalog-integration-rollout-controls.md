@@ -16,15 +16,13 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-ro
 
 ## Default State
 
-All operational controls default to open except raw JSON fallback quarantine. This keeps the shipped Admin workflows available until Ops explicitly enables a staged mode or kill switch.
-
-Raw JSON fallback quarantine defaults to active. It documents that normal operator workflows must use typed sections and command surfaces; raw JSON remains an internal compatibility escape hatch tied to #789.
+All operational controls default to open. This keeps the shipped Admin workflows available until Ops explicitly enables a staged mode or kill switch.
 
 ## Control Inventory
 
 | Control id | Env/config | Default | Owner | Blocks or degrades |
 | --- | --- | --- | --- | --- |
-| `control-plane-read-only` | `CATALOG_INTEGRATION_CONTROL_PLANE_MODE=read-only` | open | Catalog Source Observations | Blocks import, promotion, reapply, activation, raw JSON fallback |
+| `control-plane-read-only` | `CATALOG_INTEGRATION_CONTROL_PLANE_MODE=read-only` | open | Catalog Source Observations | Blocks import, promotion, reapply, and activation |
 | `dry-run-only` | `CATALOG_INTEGRATION_CONTROL_PLANE_MODE=dry-run-only` | open | Catalog Source Observations | Blocks import, promotion, reapply, activation; dry runs and reads remain available |
 | `rollback-ready-release-mode` | `CATALOG_INTEGRATION_CONTROL_PLANE_MODE=rollback-ready` | open | Ops/Release | Degraded release posture; operators should avoid broad changes and keep rollback evidence current |
 | `provider-adapter-disabled` | `CATALOG_INTEGRATION_DISABLED_PROVIDER_ADAPTERS=<provider list or all>` | open | Catalog Source Observations | Blocks provider transport, provider option queries, and imports for the scoped provider |
@@ -38,7 +36,6 @@ Raw JSON fallback quarantine defaults to active. It documents that normal operat
 | `activation-test-profiles-only` | `CATALOG_INTEGRATION_ACTIVATION_MODE=test-profiles-only` | open | Catalog Source Observations | Blocks activation unless the candidate profile lifecycle is `test` |
 | `worker-processing-disabled` | `CATALOG_INTEGRATION_WORKER_MODE=disabled` | open | Catalog Source Observations | Blocks integration worker job processing |
 | `worker-lane-limited` | `CATALOG_INTEGRATION_WORKER_MODE=lane-limited` | open | Ops/Release | Degrades worker throughput; lane counts remain platform-worker config |
-| `raw-json-fallback-quarantine` | `CATALOG_INTEGRATION_RAW_JSON_FALLBACK_QUARANTINE=false` disables quarantine | quarantined | Catalog Source Observations | Keeps raw JSON authoring out of supported operator workflows |
 
 Provider-scoped env values accept comma-separated provider keys, `all`, `true`, or `*`. Empty, `none`, `false`, and `open` mean no provider scope is disabled.
 
@@ -53,7 +50,6 @@ The policy evaluates capabilities instead of routes:
 - `reapply`: explicit reapply, scoped reapply jobs, and reapply worker turns.
 - `activation`: provider profile activation after the candidate lifecycle can be read.
 - `worker-job-processing`: integration worker claim/process loop.
-- `raw-json-fallback`: documented quarantine for internal compatibility escape hatches.
 
 This keeps controls server-side and worker-side; Admin UI button state is not the enforcement boundary.
 
@@ -79,7 +75,7 @@ Future audit persistence should append `rollout-control-denied` records to the C
 
 ## Staged Rollout Order
 
-1. Start with defaults open and raw JSON fallback quarantined.
+1. Start with defaults open.
 2. Enable `rollback-ready` during release windows so Admin reports degraded release posture while normal workflows remain available.
 3. Validate readiness, fixtures, dry runs, option queries, and import enqueue in staging.
 4. Enable one provider or ingestion unit at a time for import.

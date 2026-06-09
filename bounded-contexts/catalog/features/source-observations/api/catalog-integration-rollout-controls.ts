@@ -12,7 +12,6 @@ export type CatalogIntegrationRolloutControlId =
   | "activation-disabled"
   | "activation-test-profiles-only"
   | "rollback-ready-release-mode"
-  | "raw-json-fallback-quarantine"
   | "worker-processing-disabled"
   | "worker-lane-limited"
   | "provider-api-emergency-stop";
@@ -24,8 +23,7 @@ export type CatalogIntegrationRolloutCapability =
   | "promotion"
   | "reapply"
   | "activation"
-  | "worker-job-processing"
-  | "raw-json-fallback";
+  | "worker-job-processing";
 
 export type CatalogIntegrationRolloutControlStatus = "open" | "degraded" | "blocked";
 
@@ -33,7 +31,7 @@ export type CatalogIntegrationRolloutControl = Readonly<{
   controlId: CatalogIntegrationRolloutControlId;
   owner: "catalog-source-observations" | "ops-release";
   ownerIssue: 801;
-  defaultState: "open" | "quarantined";
+  defaultState: "open";
   status: CatalogIntegrationRolloutControlStatus;
   severity: "info" | "warning" | "error";
   capabilities: readonly CatalogIntegrationRolloutCapability[];
@@ -77,7 +75,6 @@ export type CatalogIntegrationRolloutControlConfig = Readonly<{
   disabledReapply?: readonly string[] | "all" | null;
   activationMode?: "open" | "disabled" | "test-profiles-only" | null;
   workerMode?: "open" | "disabled" | "lane-limited" | null;
-  rawJsonFallbackQuarantine?: boolean | null;
 }>;
 
 export type CatalogIntegrationRolloutControlPolicy = Readonly<{
@@ -144,7 +141,6 @@ export function createCatalogIntegrationRolloutControlPolicyFromEnv(
     disabledReapply: parseProviderScope(env.CATALOG_INTEGRATION_REAPPLY_DISABLED),
     activationMode: parseActivationMode(env.CATALOG_INTEGRATION_ACTIVATION_MODE),
     workerMode: parseWorkerMode(env.CATALOG_INTEGRATION_WORKER_MODE),
-    rawJsonFallbackQuarantine: parseBoolean(env.CATALOG_INTEGRATION_RAW_JSON_FALLBACK_QUARANTINE),
   });
 }
 
@@ -205,7 +201,6 @@ function buildCatalogIntegrationRolloutControlSnapshot(
     ),
     activationControl(config.activationMode ?? "open"),
     workerControl(config.workerMode ?? "open"),
-    rawJsonFallbackControl(config.rawJsonFallbackQuarantine ?? true),
   ];
 
   return {
@@ -269,7 +264,7 @@ function modeControl(mode: NonNullable<CatalogIntegrationRolloutControlConfig["c
       controlId: "control-plane-read-only",
       status: "blocked",
       severity: "error",
-      capabilities: ["import", "promotion", "reapply", "activation", "raw-json-fallback"],
+      capabilities: ["import", "promotion", "reapply", "activation"],
       message: CONTROL_PLANE_READ_ONLY_MESSAGE,
     });
   }
@@ -298,7 +293,7 @@ function modeControl(mode: NonNullable<CatalogIntegrationRolloutControlConfig["c
     controlId: "control-plane-read-only",
     status: "open",
     severity: "info",
-    capabilities: ["import", "promotion", "reapply", "activation", "raw-json-fallback"],
+    capabilities: ["import", "promotion", "reapply", "activation"],
     message: CONTROL_PLANE_OPEN_MESSAGE,
   });
 }
@@ -410,19 +405,6 @@ function workerControl(mode: NonNullable<CatalogIntegrationRolloutControlConfig[
   });
 }
 
-function rawJsonFallbackControl(quarantined: boolean) {
-  return control({
-    controlId: "raw-json-fallback-quarantine",
-    status: quarantined ? "blocked" : "open",
-    severity: quarantined ? "warning" : "info",
-    capabilities: ["raw-json-fallback"],
-    message: quarantined
-      ? "Raw JSON fallback authoring is quarantined behind the compatibility escape hatch."
-      : "Raw JSON fallback authoring quarantine is disabled.",
-    defaultState: "quarantined",
-  });
-}
-
 function control(input: {
   controlId: CatalogIntegrationRolloutControlId;
   status: CatalogIntegrationRolloutControlStatus;
@@ -432,7 +414,7 @@ function control(input: {
   providerKeys?: readonly string[];
   profileKeys?: readonly string[];
   unitKeys?: readonly string[];
-  defaultState?: "open" | "quarantined";
+  defaultState?: "open";
 }): CatalogIntegrationRolloutControl {
   return {
     controlId: input.controlId,
@@ -507,15 +489,4 @@ function parseActivationMode(value: string | undefined): CatalogIntegrationRollo
 function parseWorkerMode(value: string | undefined): CatalogIntegrationRolloutControlConfig["workerMode"] {
   const normalized = value?.trim().toLowerCase();
   return normalized === "disabled" || normalized === "lane-limited" ? normalized : null;
-}
-
-function parseBoolean(value: string | undefined): boolean | null {
-  const normalized = value?.trim().toLowerCase();
-  if (normalized === "true") {
-    return true;
-  }
-  if (normalized === "false") {
-    return false;
-  }
-  return null;
 }

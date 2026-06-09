@@ -75,13 +75,9 @@ Use the Catalog Integration Data Migration Reset and Legacy Cleanup plans when r
 6. Confirm legacy Source Observation profile references are zero.
 7. Confirm profile section projections exist for retained or seeded profile versions.
 8. Confirm normal Admin authoring exposes section-scoped typed controls with `rawJsonBacked=false`.
-9. Record any retained admin-authored profile, Source Observation, fixture, job, raw JSON route, or compatibility path with owner, reason, removal date, removal criteria, and launch gate in #804.
+9. Record any retained admin-authored profile, Source Observation, fixture, job, or compatibility path with owner, reason, removal date, removal criteria, and launch gate in #804.
 
 Forced reset with active jobs is allowed only for explicit pre-launch cleanup decisions. Normal rollback should cancel or drain active work, activate the prior profile version, and enqueue fresh import/reapply work if needed.
-
-The broad Provider Integration Profile patch route is quarantined under #789 for controlled internal or migration compatibility. Operators should not use it for normal profile authoring, validation, activation, dry-run, import, promotion/reapply, rollback, migration evidence, or retirement workflows.
-
-Compatibility calls to the broad route are rejected unless they include a `patch` object plus `rawJsonQuarantine.ownerIssue=789`, a non-empty `rawJsonQuarantine.reason`, and `rawJsonQuarantine.retirementCondition=section-scoped-typed-commands-complete`. Treat any operator-facing need for that envelope as a defect in the guided section workflow.
 
 ## Retirement
 

@@ -56,7 +56,7 @@ describe("Catalog integration operator acceptance journeys", () => {
     expect(doc).toContain("destructive recovery");
     expect(doc).toContain("audit");
     expect(doc).toContain("At least three failure/recovery paths");
-    expect(doc).toContain("Any raw JSON fallback discovered during acceptance");
+    expect(doc).toContain("Any raw JSON editor or profile snapshot workaround discovered during acceptance");
     expect(doc).toContain("post-merge deploy or no-runtime-deploy verification result");
   });
 

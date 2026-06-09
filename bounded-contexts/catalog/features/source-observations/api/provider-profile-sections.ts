@@ -74,7 +74,6 @@ export type CatalogProviderProfileIdentitySection = CatalogProviderProfileSectio
       profileVersion: string;
       displayName: string;
       status: CatalogProviderIntegrationProfileVersionRecord["profile"]["status"];
-      compatibilityMode: CatalogProviderIntegrationProfileVersionRecord["compatibilityMode"];
       capabilities: CatalogProviderIntegrationProfileVersionRecord["profile"]["capabilities"];
       supportedScopes: CatalogProviderIntegrationProfileVersionRecord["profile"]["supportedScopes"];
       languageOptions: readonly string[];
@@ -296,7 +295,6 @@ export function assembleCatalogProviderIngestionUnitProfileSections(
       profileVersion: version.profileVersion,
       displayName: version.profile.displayName,
       status: version.profile.status,
-      compatibilityMode: version.compatibilityMode,
       capabilities: version.profile.capabilities,
       supportedScopes: version.profile.supportedScopes,
       languageOptions: version.profile.languageOptions,

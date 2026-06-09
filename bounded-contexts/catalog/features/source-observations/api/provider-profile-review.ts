@@ -108,7 +108,6 @@ export type CatalogProviderProfileVersionReview = Readonly<{
   lifecycle: string;
   active: boolean;
   status: string;
-  compatibilityMode: string;
   connectorKind: string;
   profile: CatalogProviderIntegrationProfileVersionRecord["profile"];
   sourceContract: CatalogProviderIntegrationProfileVersionRecord["sourceContract"];
@@ -585,7 +584,6 @@ export async function updateCatalogProviderProfileVersionForReview(input: {
     profile: input.patch.profile ?? existing.profile,
     sourceContract: input.patch.sourceContract ?? existing.sourceContract,
     fixtures: input.patch.fixtures ?? existing.fixtures,
-    compatibilityMode: input.patch.compatibilityMode ?? existing.compatibilityMode,
     retirementPlan: Object.prototype.hasOwnProperty.call(input.patch, "retirementPlan")
       ? (input.patch.retirementPlan ?? null)
       : existing.retirementPlan,
@@ -792,14 +790,6 @@ function toSemanticDiff(
       active?.profile.status ?? null,
       "info",
       "Changes profile visibility/status only.",
-    ),
-    compare(
-      "compatibilityMode",
-      "Compatibility Mode",
-      candidate.compatibilityMode,
-      active?.compatibilityMode ?? null,
-      "warning",
-      "Changes which profile engine the admin and runtime expect.",
     ),
     compare(
       "profile.capabilities",
@@ -1348,8 +1338,7 @@ function sectionKeyForPath(pathValue: string): CatalogProviderProfileSectionKey 
     pathValue.startsWith("profile.capabilities") ||
     pathValue.startsWith("profile.supportedScopes") ||
     pathValue.startsWith("profile.languageOptions") ||
-    pathValue === "profile.status" ||
-    pathValue === "compatibilityMode"
+    pathValue === "profile.status"
   ) {
     return "profile-identity";
   }
@@ -1427,7 +1416,6 @@ function toProfileVersionReview(
     lifecycle: version.lifecycle,
     active: version.active,
     status: version.profile.status,
-    compatibilityMode: version.compatibilityMode,
     connectorKind: version.profile.connector.kind,
     profile: version.profile,
     sourceContract: version.sourceContract,

@@ -38,30 +38,13 @@ Seeded Provider Integration Profile versions are intentional bootstrap data. Adm
 
 | Path | Owner issue | Removal date | Launch gate |
 | --- | --- | --- | --- |
-| Transitional static profile compatibility | #804 | 2026-06-30 | No `transitional-static-profile` row may launch without fixture coverage and a retirement plan. |
 | Legacy Source Observation profile marker reads | #804 | 2026-06-30 | `legacy_source_observation_references` returns zero after reset. |
-| Broad Provider Integration Profile patch route | #789 | 2026-06-30 | Normal Admin workflows expose only section-scoped typed editors with `rawJsonBacked=false`. |
 
 These paths are compatibility exceptions, not normal authoring workflows. Adding a new retained path requires updating the typed inventory, this document, and focused tests.
 
-## Raw JSON Quarantine
+## Profile Authoring Contract
 
-Normal operators should not edit raw profile JSON. Supported authoring goes through section-scoped typed commands and the provider profile section registry.
-
-The broad profile patch route remains quarantined for controlled internal or migration compatibility while #789 retires raw JSON fallback paths. Normal calls receive `raw_profile_patch_quarantined` and must move to the relevant typed section command. The only accepted compatibility request shape is:
-
-```json
-{
-  "patch": {},
-  "rawJsonQuarantine": {
-    "ownerIssue": 789,
-    "reason": "Controlled internal compatibility or migration operation.",
-    "retirementCondition": "section-scoped-typed-commands-complete"
-  }
-}
-```
-
-This route must not become the normal Admin Control Plane workflow for profile authoring, validation, dry-run, activation, import, promotion/reapply, rollback, migration evidence, or retirement. Migration evidence is a normal operator workflow and saves through the `migration-evidence` section command.
+Normal operators should not edit raw profile JSON. Supported authoring goes through section-scoped typed commands and the provider profile section registry. Migration evidence is a normal operator workflow and saves through the `migration-evidence` section command.
 
 ## Fresh Bootstrap Expectations
 
@@ -74,7 +57,6 @@ After reset and bootstrap:
 - provider option rate-limit cache rows are empty
 - legacy Source Observation profile references are zero
 - editable section metadata reports `rawJsonBacked=false`
-- any transitional static profile has a retirement plan
 
 ## Release Checklist
 
@@ -86,8 +68,7 @@ Use the release checklist from `catalogIntegrationLegacyCleanupReleaseChecklist`
 4. Verify seeded active TCGdex, TCGplayer, and Scrydex profile versions are present after bootstrap.
 5. Verify profile section projections and diagnostics rebuilt from retained or seeded profile versions.
 6. Verify every editable Provider Integration Profile section reports `rawJsonBacked=false`.
-7. Verify the broad profile patch route rejects normal calls with `raw_profile_patch_quarantined` and accepts only explicit #789 compatibility metadata, or is removed before launch.
-8. Verify every retained transitional compatibility path has owner, reason, removal date, and launch gate.
+7. Verify unsupported profile authoring compatibility code, controls, fixtures, and durable docs are absent.
 
 ## Verification Queries
 
@@ -100,7 +81,6 @@ SELECT COUNT(*) AS integration_jobs FROM catalog_source_observation_integration_
 SELECT COUNT(*) AS integration_work_units FROM catalog_source_observation_integration_work_units;
 SELECT COUNT(*) AS bulk_review_jobs FROM catalog_source_observation_bulk_review_jobs;
 SELECT COUNT(*) AS bulk_review_work_units FROM catalog_source_observation_bulk_review_work_units;
-SELECT provider_key, profile_version, retirement_plan_json FROM catalog_provider_integration_profile_versions WHERE compatibility_mode = 'transitional-static-profile';
 SELECT provider_key, profile_version, lifecycle FROM catalog_provider_integration_profile_versions WHERE active = true AND lifecycle = 'active';
 SELECT COUNT(*) AS profile_sections FROM catalog_provider_profile_version_sections;
 SELECT COUNT(*) AS profile_section_diagnostics FROM catalog_provider_profile_version_section_diagnostics;
@@ -108,7 +88,6 @@ SELECT COUNT(*) AS profile_section_diagnostics FROM catalog_provider_profile_ver
 
 ## Related Issues
 
-- #789 retires raw JSON fallback authoring paths.
 - #792 provides executable pre-launch reset.
 - #793 owns schema compatibility policy.
 - #804 owns this legacy cleanup inventory and retained-path policy.

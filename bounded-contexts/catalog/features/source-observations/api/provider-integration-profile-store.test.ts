@@ -29,7 +29,6 @@ describe("catalog provider integration profile version store", () => {
       profileKey: "pokemon-tcg",
       profileVersion: "2026.06.03",
       active: true,
-      compatibilityMode: "executable-mapping-contract",
       sourceContract: {
         fixtureSetVersion: "tcgdex-pokemon-executable-v1",
       },
@@ -264,16 +263,8 @@ function legacyActiveTcgdexVersion(): CatalogProviderIntegrationProfileVersionRe
     active: true,
     sourceContract: {
       ...base.sourceContract,
-      fixtureSetVersion: "transitional-static-profile-v1",
+      fixtureSetVersion: "previous-executable-profile-v1",
     },
-    compatibilityMode: "transitional-static-profile",
-    retirementPlan: {
-      trackingIssue: 621,
-      removeAfter: "executable-mapping-contract-activated",
-      diagnosticText:
-        "Retire the static TCGdex profile wrapper after the executable mapping contract drives normalization, reference extraction, and promotion planning.",
-    },
-    executableMappingContract: undefined,
   };
 }
 
@@ -385,7 +376,6 @@ type PersistedProfileVersionRow = Readonly<{
   profile_json: string;
   source_contract_json: string;
   fixture_contract_json: string;
-  compatibility_mode: CatalogProviderIntegrationProfileVersionRecord["compatibilityMode"];
   retirement_plan_json: string | null;
   executable_mapping_contract_json: string | null;
   migration_evidence_json: string | null;
@@ -402,11 +392,10 @@ function rowFromInsertParams(params: readonly unknown[]): PersistedProfileVersio
     profile_json: String(params[5]),
     source_contract_json: String(params[6]),
     fixture_contract_json: String(params[7]),
-    compatibility_mode: params[8] as CatalogProviderIntegrationProfileVersionRecord["compatibilityMode"],
-    retirement_plan_json: typeof params[9] === "string" ? params[9] : null,
-    executable_mapping_contract_json: typeof params[10] === "string" ? params[10] : null,
-    migration_evidence_json: typeof params[11] === "string" ? params[11] : null,
-    authoring_audit_json: typeof params[12] === "string" ? params[12] : null,
+    retirement_plan_json: typeof params[8] === "string" ? params[8] : null,
+    executable_mapping_contract_json: typeof params[9] === "string" ? params[9] : null,
+    migration_evidence_json: typeof params[10] === "string" ? params[10] : null,
+    authoring_audit_json: typeof params[11] === "string" ? params[11] : null,
   };
 }
 

@@ -276,7 +276,6 @@ describe("catalog provider integration profiles", () => {
       profileKey: "scryfall-card-fixture",
       profileVersion: "2026.06.03",
       active: false,
-      compatibilityMode: "executable-mapping-contract",
       sourceContract: {
         repository: "chase-sets/chase-sets",
         fixtureSetVersion: "scrydex-scryfall-card-proof-v1",
@@ -301,7 +300,6 @@ describe("catalog provider integration profiles", () => {
       providerKey: "tcgdex",
       profileKey: "pokemon-tcg",
       active: true,
-      compatibilityMode: "executable-mapping-contract",
       sourceContract: {
         repository: "chase-sets/chase-sets",
         fixtureSetVersion: "tcgdex-pokemon-executable-v1",
@@ -326,7 +324,6 @@ describe("catalog provider integration profiles", () => {
       profileKey: "pokemon-tcg-automation-client",
       profileVersion: "2026.06.03",
       active: false,
-      compatibilityMode: "executable-mapping-contract",
       sourceContract: {
         repository: "todd-skelton/tcgplayer-automation-app",
         commit: "bf42aa8",
@@ -349,20 +346,19 @@ describe("catalog provider integration profiles", () => {
     });
   });
 
-  it("validates transitional static profile versions by requiring fixture coverage and a retirement path", () => {
-    const tcgplayerVersion = transitionalStaticVersion();
+  it("requires every profile version to carry an executable mapping contract", () => {
+    const tcgplayerVersion = executableTcgplayerVersion();
 
-    expect(validateCatalogProviderIntegrationProfileVersion(tcgplayerVersion)).toEqual([]);
     expect(
       validateCatalogProviderIntegrationProfileVersion({
         ...tcgplayerVersion,
         fixtures: { ...tcgplayerVersion.fixtures, coveredFlows: ["normal"] },
-        retirementPlan: null,
+        executableMappingContract: undefined,
       }),
     ).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: "missing-profile-fixture-flow" }),
-        expect.objectContaining({ code: "missing-retirement-plan" }),
+        expect.objectContaining({ code: "missing-executable-mapping-contract" }),
       ]),
     );
   });
@@ -435,25 +431,16 @@ function executableVersion(
     profile: tcgdexPokemonTcgProviderProfile,
     sourceContract: contract.sourceContract,
     fixtures: contract.fixtures,
-    compatibilityMode: "executable-mapping-contract",
     retirementPlan: null,
     executableMappingContract: contract,
   };
 }
 
-function transitionalStaticVersion(): CatalogProviderIntegrationProfileVersionRecord {
+function executableTcgplayerVersion(): CatalogProviderIntegrationProfileVersionRecord {
   const tcgplayerVersion = getCatalogProviderIntegrationProfileVersion("tcgplayer")!;
   return {
     ...tcgplayerVersion,
     profileVersion: "2026.06.02",
-    compatibilityMode: "transitional-static-profile",
-    retirementPlan: {
-      trackingIssue: 621,
-      removeAfter: "executable-mapping-contract-activated",
-      diagnosticText:
-        "Retire the static TCGplayer automation profile wrapper after the executable mapping contract covers product lines, set names, product details, SKUs, selected Options, and external references.",
-    },
-    executableMappingContract: undefined,
   };
 }
 

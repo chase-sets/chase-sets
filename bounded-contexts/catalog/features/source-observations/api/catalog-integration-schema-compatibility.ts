@@ -97,7 +97,7 @@ export const catalogIntegrationSchemaCompatibilityPolicies = [
     key: "provider-profile-version",
     displayName: "Provider Integration Profile version row",
     wireSchemaVersion: "catalog-provider-profile-version-v1",
-    semanticVersionMarkers: ["providerKey", "profileKey", "profileVersion", "compatibilityMode"],
+    semanticVersionMarkers: ["providerKey", "profileKey", "profileVersion"],
     retainedDataPolicy: "retain-when-referenced",
     deploySkewPolicy: "read-old-write-current",
     compatibilityScope:
