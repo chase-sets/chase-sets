@@ -55,8 +55,8 @@
       "sourceContextNames": ["checkout"],
       "ownedTables": [
         "checkout_sell_list_line_pages",
-        "checkout_sell_list_receipt_pages",
-        "checkout_sell_list_execution_pages"
+        "checkout_sell_list_execution_pages",
+        "checkout_sell_list_execution_receipt_pages"
       ],
       "requiredDuringBootstrap": false,
       "resetStrategy": "truncate-owned-tables"

@@ -133,24 +133,6 @@ export function buildCheckoutSellListProjectionHandlers(db: PgQueryable): Projec
             event.timing.recordedAt,
           ],
         );
-        await db.query(
-          `INSERT INTO checkout_sell_list_receipt_pages (
-             seller_account_id,
-             checked_out_at,
-             execution_summary,
-             updated_at
-           ) VALUES ($1, $2, $3, $4)
-           ON CONFLICT (seller_account_id) DO UPDATE
-           SET checked_out_at = EXCLUDED.checked_out_at,
-               execution_summary = EXCLUDED.execution_summary,
-               updated_at = EXCLUDED.updated_at`,
-          [
-            data.sellerAccountId,
-            data.checkedOutAt ?? event.timing.recordedAt,
-            JSON.stringify(data.executionSummary),
-            event.timing.recordedAt,
-          ],
-        );
       }
 
       if (Array.isArray(data.completedLineIds) && data.completedLineIds.length > 0) {
