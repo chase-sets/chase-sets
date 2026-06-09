@@ -26,12 +26,15 @@ Root error-boundary copy must only claim facts that are true for unknown failure
 
 Read-after-write helpers handle projection or read-model lag. They are not a substitute for browser cookie handoff correctness.
 
+If the destination loader also reads projection-backed data immediately after the write, preserve the `afterWrite` token across the document-level redirect and follow the [Read-After-Write Route Author Checklist](./read-after-write-route-author-checklist.md). Cookie visibility and projection freshness are separate requirements; guest checkout contact submit needs both.
+
 ## Implementation Checklist
 
 - Identify the cookie being created, cleared, rotated, or switched.
 - Identify the destination loader and the exact cookie-backed actor, account, guest, or claim state it depends on.
 - Use document-level redirect when the destination loader depends on the changed cookie.
 - Preserve any read-after-write token used for projection freshness.
+- Declare exact `readFreshnessRoutes` dependencies and route inventory metadata when the destination reads a projection-backed API resource.
 - Keep sensitive tokens out of URLs and client-readable state.
 - Catch expected API errors in the destination route and map them to route-owned recovery.
 - Keep unknown failures visible as real errors.

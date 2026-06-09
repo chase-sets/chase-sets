@@ -51,6 +51,8 @@ Routes should use `classifyFreshWriteReadError` from `@chase-sets/http/responses
 
 Route authors adding `appendFreshWriteToken`, `appendFreshWriteTokenFromSources`, or `loadFreshlyWrittenResource` must also update the owning context's `readAfterWriteRouteInventory` metadata. `pnpm run check:structure` fails when a helper use is missing from the inventory, when a critical route lacks exact `readFreshnessRoutes` dependencies, or when an exception is missing owner, reason, and renewal date.
 
+Use the [Read-After-Write Route Author Checklist](../architecture/read-after-write-route-author-checklist.md) before adding a post-write redirect or self-refresh on `/api/marketplace`. It defines the exact manifest fields, supported exception statuses, cookie-backed continuation requirements, and local checks that keep shared-mount projection waits narrow and predictable.
+
 Command responses do not imply downstream projections have drained. Clients that need read-your-writes behavior should keep response metadata attached, redirect with `afterWrite`, and let the API read consistency gate wait on projection checkpoints rather than depending on synchronous projector drain.
 
 Errors use one envelope:
