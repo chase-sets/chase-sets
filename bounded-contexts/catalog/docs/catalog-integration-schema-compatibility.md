@@ -28,7 +28,7 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-da
 
 ## Launch Boundary
 
-Pre-launch integration-control-plane data should be reset or rebuilt by default. Do not add compatibility adapters for old profile, payload, fixture, or job shapes unless #804 records a retained-data exception with owner, reason, removal date, removal criteria, and launch gate.
+Pre-launch integration-control-plane data should be reset or rebuilt by default. Do not add compatibility adapters for old profile, payload, fixture, or job shapes unless a retained-data evidence packet proves a clean launch capability or a launch blocker with owner, reason, expiry/removal criteria, and verification. Retired compatibility paths are not retained data; they must be completely deleted from code, patterns, tests, fixtures, docs, runbooks, and operator instructions.
 
 Compatibility is required for:
 
@@ -64,7 +64,7 @@ Provider adapters may add optional capabilities or diagnostics additively. A req
 
 Provider payload bodies, sampled payloads, and fixture payloads are not Catalog truth. Retaining payload bodies requires [Catalog Integration Data Governance](./catalog-integration-data-governance.md) approval and a retained-data exception. Logs, metrics, diagnostics, and audit evidence must use redacted summaries or stable references instead of raw provider payloads.
 
-Provider Integration Profile versions remain readable while referenced by Source Observations, jobs, rollback/deprecation history, or audit evidence. Bootstrap may preserve admin-authored profile rows, but unreferenced pre-launch rows can be reset by #804.
+Provider Integration Profile versions remain readable while referenced by Source Observations, jobs, rollback/deprecation history, or audit evidence. Bootstrap may preserve admin-authored profile rows only when retained-data evidence proves a clean launch capability or launch blocker; unreferenced pre-launch rows can be reset by the prelaunch reset/drop plan.
 
 Executable mapping contract changes are semantic compatibility changes when they alter Source Observation external keys, source hash material, selected Options, external references, Reference Record targets, duplicate-prevention order, or promotion command plans. Activation requires migration evidence when the mapping fingerprint changes in a breaking way.
 
@@ -83,7 +83,7 @@ Use reset/rebuild when all of these are true:
 - no active/queued durable job depends on it
 - no Source Observation, promotion, audit, or rollback workflow needs it for explanation
 
-Use compatibility adapters or migrations only when at least one of these is true:
+Use additive compatibility or migration only when at least one of these is true:
 
 - the data is launched or intentionally retained
 - an active, deprecated, retired, or audit-referenced profile version needs to be read
@@ -91,9 +91,11 @@ Use compatibility adapters or migrations only when at least one of these is true
 - the Admin UI or an operator journey consumes the DTO as a stable contract
 - a future provider addition needs an additive semantic primitive or adapter capability
 
+Do not use this policy to keep retired code, patterns, or documentation alive. A retired compatibility path must be completely deleted from runtime code, UI, routes, API/read-model contracts, clients, feature flags, aliases, shims, fixtures, seeds, screenshots, tests, docs, runbooks, release notes, and operator instructions.
+
 The pre-launch reset mode deletes integration jobs, work units, Source Observations, learned provider option rate limits, and non-admin-authored provider profile versions, then rebuilds seeded profile versions and section projections. Active jobs block reset unless an operator records an explicit forced pre-launch wipe decision.
 
-The #804 launch cleanup inventory additionally requires every temporary transitional static profile or broad profile patch route to be named in the cleanup table with a complete-removal launch gate. Legacy Source Observation marker reads are not retained paths; they are reset/drop verification only. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`; broad raw profile patching remains quarantined under #789 until it is completely removed or replaced by a named supported workflow.
+The Stage 0 cleanup gate requires every temporary transitional static profile or broad profile patch route to be deleted or named as launch-blocking. Legacy Source Observation marker reads are not retained paths; they are reset/drop verification only. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`; broad raw profile patching is not a launch workflow. #1090 owns complete deletion of current-page code, tests, fixtures, screenshots, docs, runbooks, and operator instructions after the rebuilt workbench is accepted.
 
 ## Test Expectations
 

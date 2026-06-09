@@ -81,7 +81,7 @@ Use the Catalog Integration Data Migration Reset and Legacy Cleanup plans when r
 12. Confirm normal Admin authoring exposes section-scoped typed controls with `rawJsonBacked=false`.
 13. Run staging or production smoke verification and attach the smoke reference.
 14. Evaluate the evidence packet with `evaluateCatalogIntegrationDataResetEvidence` and attach findings or the clean result to the private release evidence record.
-15. Record any retained admin-authored profile, Source Observation, fixture, job, or compatibility path with owner, reason, removal date, removal criteria, and launch gate in #804.
+15. Record any retained admin-authored profile, Source Observation, fixture, or job as either a clean launch capability or a launch blocker with owner, reason, expiry/removal criteria, and verification evidence. Retired compatibility paths are not retained data; they must be completely deleted from code, patterns, tests, fixtures, docs, runbooks, and operator instructions before launch.
 
 Forced reset with active jobs is allowed only for explicit pre-launch cleanup decisions. Normal rollback should cancel or drain active work, activate the prior profile version, and enqueue fresh import/reapply work if needed.
 

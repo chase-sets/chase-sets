@@ -1,12 +1,12 @@
 # Catalog Integration Legacy Cleanup
 
-Catalog owns removal of pre-launch Catalog Integration Control Plane data and compatibility paths. This policy implements #804 and uses the executable reset from [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
+Catalog owns removal of pre-launch Catalog Integration Control Plane data and compatibility paths. This policy supports the Stage 0 cleanup gate, the clean-contract handoff, and the executable reset from [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md).
 
 ## Policy
 
 The control plane has not launched. Prefer wipe and rebuild over backwards compatibility for unlaunched integration data.
 
-Retire means complete removal of code, runtime behavior, tests, fixtures, docs, runbooks, and operator instructions. Legacy Source Observation profile markers may remain only as reset/drop detection data before #792/#804 cleanup runs; they are not retained runtime compatibility paths and must not power promotion or reapply fallback behavior.
+Retire means complete removal of code, runtime behavior, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions. Legacy Source Observation profile markers may remain only as reset/drop detection data before cleanup runs; they are not retained runtime compatibility paths and must not power promotion or reapply fallback behavior.
 
 The typed inventory lives in:
 
@@ -24,18 +24,18 @@ bounded-contexts/catalog/features/source-observations/api/catalog-integration-le
 | Integration jobs, bulk review jobs, work units, and events | wipe | Job and work-unit tables are empty before launch verification. |
 | Provider option query cache | wipe | Provider option query cache rows are zero after reset. |
 | Learned provider option rate limits | wipe | Provider throttling cache rows are zero after reset. |
-| Fixture contract metadata and payloads | retain with explicit exception | Fixture metadata remains with profile versions; raw payload retention requires [Catalog Integration Data Governance](./catalog-integration-data-governance.md) and #804 retained-data evidence. |
+| Fixture contract metadata and payloads | retain with explicit exception | Fixture metadata remains with profile versions; raw payload retention requires [Catalog Integration Data Governance](./catalog-integration-data-governance.md) and retained-data evidence proving a clean launch capability or launch blocker with owner and expiry. |
 
 Seeded Provider Integration Profile versions are intentional bootstrap data. Admin-authored rows or migration-evidence rows can survive reset only when release evidence names the retained-data reason.
 
-## Retained Legacy Paths
+## Legacy Path Removal
 
-| Path | Owner issue | Removal date | Launch gate |
+| Path | Owner issue | Removal expectation | Launch gate |
 | --- | --- | --- | --- |
-| Transitional static profile compatibility | #804 | 2026-06-30 | No `transitional-static-profile` code, rows, tests, fixtures, docs, runbooks, or operator instructions remain at launch. |
-| Broad Provider Integration Profile patch route | #789 | 2026-06-30 | Broad raw patch code, controls, tests, docs, runbooks, and operator instructions are removed or replaced by a named supported workflow. |
+| Transitional static profile compatibility | #1053, #1055 | deleted before clean launch handoff | No `transitional-static-profile` code, rows, tests, fixtures, screenshots, docs, runbooks, release notes, or operator instructions remain at launch. |
+| Broad Provider Integration Profile patch route | #1053, #1090 | deleted before rebuilt workbench acceptance | Broad raw patch code, controls, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions are removed; section-scoped typed commands are the named supported workflow. |
 
-These paths are temporary pre-launch exceptions, not normal authoring workflows. Retiring one means completely deleting its code, runtime behavior, tests, fixtures, docs, runbooks, and operator instructions. Adding a new retained path requires updating the typed inventory, this document, and focused tests.
+These paths are not normal authoring workflows and are not allowed to survive as hidden or support-only compatibility. Retiring one means completely deleting its code, runtime behavior, product pattern, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions. Adding a new retained path is launch-blocking unless the path is rebuilt as a clean launch contract with focused tests and owner-approved evidence.
 
 Legacy Source Observation profile marker reads are deliberately excluded from retained legacy paths. They are verification queries for destructive cleanup only; runtime code must fail closed instead of treating missing or `legacy` source profile metadata as active-profile fallback.
 
@@ -85,6 +85,7 @@ SELECT COUNT(*) AS profile_section_diagnostics FROM catalog_provider_profile_ver
 
 ## Related Issues
 
-- #792 provides executable pre-launch reset.
+- #1054 provides executable pre-launch reset evidence.
 - #793 owns schema compatibility policy.
-- #804 owns this legacy cleanup inventory and retained-path policy.
+- #1055 owns the clean-contract handoff evidence.
+- #1090 owns complete deletion of old Catalog integrations pages, modules, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.

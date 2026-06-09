@@ -8,7 +8,7 @@ A provider integration profile is Catalog-owned setup for a product line or prov
 
 Provider integration profiles are not fake data. They are the authoring structure that lets operators import, review, promote, and publish real provider observations.
 
-Executable mapping semantics are documented in [Provider Integration Mapping Contract](./provider-integration-mapping-contract.md). The overall control-plane boundary is documented in [Catalog Integration Control Plane](./catalog-integration-control-plane.md). That contract is the migration target for profile versions, selectors, transforms, normalized Source Observation output, hash material, merge identity, external references, selected Options, Reference Record hierarchy, duplicate-prevention rules, and Catalog aggregate promotion command plans. Provider transport adapters should fetch provider payloads only; Catalog-owned profile data decides how those payloads become Catalog review facts.
+Executable mapping semantics are documented in [Provider Integration Mapping Contract](./provider-integration-mapping-contract.md). The overall control-plane boundary is documented in [Catalog Integration Control Plane](./catalog-integration-control-plane.md). That contract is the clean launch target for profile versions, selectors, transforms, normalized Source Observation output, hash material, merge identity, external references, selected Options, Reference Record hierarchy, duplicate-prevention rules, and Catalog aggregate promotion command plans. Provider transport adapters should fetch provider payloads only; Catalog-owned profile data decides how those payloads become Catalog review facts.
 
 The operator-facing workflow is documented in [Provider Integration Admin Module](./provider-integration-admin-module.md). Normal profile authoring, validation, dry-run, comparison, activation, import, promotion/reapply, rollback, migration-evidence, and retirement workflows must be typed and guided in admin. Operators should not need to edit raw JSON to complete supported work.
 
@@ -44,7 +44,7 @@ Pre-launch reset deletes non-admin-authored provider profile rows and then rebui
 
 Durable import jobs snapshot provider key, profile key, profile version, lifecycle, connector kind, connector source version, and source mapping fingerprint at enqueue time. Retries and worker handoff reload that snapshotted profile version, so activating a newer version while a job is queued does not change what the queued job writes. Integration reapply jobs snapshot `current-active-profile` mode and the active profile version; direct replay-style reapply uses the Source Observation's original source profile version and fails closed when that metadata is missing or still carries retired `legacy` markers. Legacy Source Observation profile markers are reset/drop evidence for the pre-launch cleanup gate, not a fallback to the active promotion profile.
 
-Profile version rows use `catalog-provider-profile-version-v1` compatibility. Referenced active, deprecated, retired, rollback, audit, job, or Source Observation profile versions remain readable. Unreferenced pre-launch profile rows should be reset or rebuilt by #804 instead of gaining permanent compatibility adapters.
+Profile version rows use the `catalog-provider-profile-version-v1` launch contract. Referenced active, deprecated, retired, rollback, audit, job, or Source Observation profile versions remain readable through that contract. Unreferenced pre-launch profile rows should be reset or rebuilt by the prelaunch data reset/drop plan instead of gaining permanent compatibility adapters.
 
 Profile edits, activation, rollback, deprecation, and retirement are blocked while same-provider import, reapply, or promote jobs are queued or running. This keeps activation and authoring decisions from racing a worker that is executing against an older snapshot or a review job that may refresh promoted Catalog Items.
 
@@ -105,7 +105,7 @@ The active TCGdex profile version carries an executable mapping contract for Sou
 
 #800 proves this profile-backed real-provider unit through the Admin readiness dry-run registry. The proof runner is keyed by `tcgdex:pokemon:single-card:source-observation-import`, uses deterministic fixture responses through the real TCGdex adapter transport path, and then sends the adapter payload envelope through the Catalog Integration Engine. The proof validates one Expansion scope and one Pokemon card Source Observation fact set without live network dependency or provider-specific runtime/API/admin/promotion branches. The current adapter provenance does not include a payload content hash, so the proof documents `sourceHash: null` until hash material is implemented against the governed payload and retention policy.
 
-TCGdex variant expansion, marketplace reference extraction, Pokemon Reference Record hierarchy provisioning, and Pokemon Catalog Item promotion planning still use reviewed named runtime helpers where generic profile interpretation cannot yet express the behavior safely. Those helpers are transitional compatibility points referenced by the executable mapping contract and provider profile data; they must remain deterministic, fixture-backed, and free of live provider calls.
+TCGdex variant expansion, marketplace reference extraction, Pokemon Reference Record hierarchy provisioning, and Pokemon Catalog Item promotion planning use reviewed named semantic helpers referenced by the executable mapping contract and provider profile data where generic profile interpretation cannot yet express the behavior safely. These helpers are clean launch extension points only when they are deterministic, fixture-backed, free of live provider calls, and covered by profile contract evidence; they are not retained compatibility branches.
 
 Provider option queries are profile-driven. The TCGdex profile declares language,
 Series, and Expansion query aliases, parent value policy, named transport
@@ -200,22 +200,20 @@ bridge provider references.
 
 The automation client remains transport-owned code for cookie authentication,
 domain-specific HTTP clients, throttling, pagination, endpoint DTOs, and response
-shape audit fixtures. Runtime DTO adaptation may still assemble deterministic
+shape audit fixtures. Runtime DTO adaptation may assemble deterministic
 product-form, barcode, source hash, and selected-option context before invoking
-the profile contract; those helpers are transitional Catalog semantic
-compatibility points. They can retire only after executable profile sections can
-express product-form normalization, barcode coalescing, selected Option review
-evidence, Product ID external Catalog Item references, SKU external Product
-references, duplicate-prevention evidence, Reference Record hierarchy evidence,
-and promotion command-plan readiness without importing price, listing, seller,
-inventory, order, or message facts into Catalog truth or hash material.
+the profile contract only as a reviewed clean launch helper. If a future generic
+profile section replaces one of these helpers, the old helper, tests, fixtures,
+docs, and operator instructions must be deleted completely. These helpers must
+not import price, listing, seller, inventory, order, or message facts into
+Catalog truth or hash material.
 
-The runtime still dispatches the existing `importTcgplayerScope` service and
-TCGplayer durable-job branch for API compatibility. Those branches may retire
-when the generic integration job executor can resolve any provider's active
-ingestion-unit profile, call the registered adapter for target planning and
-payload fetch, and invoke Catalog-owned normalization/recording through the
-same profile snapshot and job-resume guarantees.
+The runtime dispatches TCGplayer import work through the reviewed provider
+transport and durable-job boundary. #1090 owns complete deletion of any current
+page or route pattern that treats the TCGplayer branch as old-page compatibility
+after the rebuilt workbench is accepted. Future generic executor replacement
+must remove the old branch, tests, fixtures, screenshots, docs, and operator
+instructions in the same cleanup, not leave a compatibility alias.
 
 ## Scrydex Scryfall-Style Proof Profile
 

@@ -7,7 +7,7 @@ Catalog owns the permission policy for provider integration control-plane action
 Use the existing Catalog permissions:
 
 - `catalog.view`: inspect Catalog integration control-plane read models, profiles, Source Observations, readiness, job status, redacted diagnostics, and impact summaries.
-- `catalog.manage`: perform profile authoring, lifecycle, import, reapply, promotion, rejection, raw-profile compatibility, and other actions that can change Catalog-owned integration state or provider-facing workload.
+- `catalog.manage`: perform profile authoring, lifecycle, import, reapply, promotion, rejection, and other actions that can change Catalog-owned integration state or provider-facing workload.
 
 Catalog does not define new roles in this policy. Role-to-permission assignment remains upstream of Catalog.
 
@@ -35,7 +35,7 @@ Destructive actions must show an operator-facing confirmation path before execut
 - rollback, deprecation, retirement: lifecycle impact counts, active job conflicts, referenced observations, impacted Catalog Item samples, and external reference samples
 - import and reapply: provider, language, set or filter scope, active profile snapshot, expected work count where available, and active overlapping jobs
 - promote and reject: selected IDs or server-resolved filter scope, eligible/skipped counts, reason capture for rejection, and affected Catalog Item samples when available
-- raw-profile compatibility actions: quarantine owner issue, reason, retirement condition, and audit context
+- profile support inspection, when separately approved: read-only evidence scope, owner issue, redaction proof, and removal criteria when the support surface is temporary
 
 The server remains authoritative. UI confirmations help operators understand blast radius, but route guards, lifecycle consistency checks, rollout controls, and command validation must still block unsafe or unauthorized execution.
 
