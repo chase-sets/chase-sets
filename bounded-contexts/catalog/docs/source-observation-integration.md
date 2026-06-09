@@ -86,8 +86,10 @@ The implemented TCGplayer ingestion unit is
 sealed product, or One Piece units must add separate profile versions before
 runtime import enables them. Existing TCGplayer normalization helpers for product
 form, barcode, source hash, selected Options, duplicate-prevention evidence, and
-promotion readiness remain deterministic Catalog semantic compatibility points
-until profile interpretation can express those decisions safely.
+promotion readiness are reviewed Catalog semantic extension points until profile
+interpretation can express those decisions safely. Replacing one requires
+complete deletion of the old helper, tests, fixtures, docs, runbooks, and
+operator instructions.
 
 ## Promotion
 

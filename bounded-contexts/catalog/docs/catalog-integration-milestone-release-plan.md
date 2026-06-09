@@ -137,9 +137,9 @@ Primary issues:
 
 Exit criteria:
 
-- Current providers are behind ProviderAdapter boundaries or have documented transitional exceptions with retirement criteria.
-- #785 moves TCGdex option queries and Expansion import payload acquisition behind the registered `tcgdex` ProviderAdapter. Remaining TCGdex variant expansion, external-reference extraction, Reference Record hierarchy provisioning, and promotion command planning are Catalog semantic helpers referenced by the executable profile contract; they are deterministic, fixture-backed, and tracked as transitional compatibility until generic profile interpretation can express them safely.
-- #786 moves TCGplayer product-line, set-name, product, SKU option queries and Product/Set import payload acquisition behind the registered `tcgplayer` ProviderAdapter. The implemented profile-backed unit is `tcgplayer:pokemon:single-card:source-observation-import`; MTG single-card, MTG sealed-product, and One Piece single-card remain future split units until dedicated profile versions exist. Remaining TCGplayer product-form, barcode, selected Option, external-reference, duplicate-prevention, Reference Record hierarchy, and promotion-readiness helpers are Catalog semantic compatibility points with retirement criteria in the provider profile docs.
+- Current providers are behind ProviderAdapter boundaries or have reviewed extension points with removal criteria. Retired compatibility branches are launch blockers until completely deleted.
+- #785 moves TCGdex option queries and Expansion import payload acquisition behind the registered `tcgdex` ProviderAdapter. Remaining TCGdex variant expansion, external-reference extraction, Reference Record hierarchy provisioning, and promotion command planning are Catalog semantic helpers referenced by the executable profile contract; they are deterministic, fixture-backed, and reviewed extension points until generic profile interpretation can express them safely. Replacing one requires complete deletion of the old helper, tests, fixtures, docs, runbooks, and operator instructions.
+- #786 moves TCGplayer product-line, set-name, product, SKU option queries and Product/Set import payload acquisition behind the registered `tcgplayer` ProviderAdapter. The implemented profile-backed unit is `tcgplayer:pokemon:single-card:source-observation-import`; MTG single-card, MTG sealed-product, and One Piece single-card remain future split units until dedicated profile versions exist. Remaining TCGplayer product-form, barcode, selected Option, external-reference, duplicate-prevention, Reference Record hierarchy, and promotion-readiness helpers are reviewed Catalog semantic extension points with removal criteria in the provider profile docs.
 - #800 proves the target architecture with `tcgdex:pokemon:single-card:source-observation-import`: the Admin readiness path resolves a dry-run proof by `unitKey`, the proof runs the real TCGdex ProviderAdapter and Catalog Integration Engine with deterministic fixture transport, and readiness exposes normalized Source Observation evidence without adding provider-specific runtime/API/admin/promotion branches.
 - #806 MTGJSON and Scryfall validation passes the no-core-change gate and includes source-conflict evidence, documented in [Catalog Integration MTGJSON And Scryfall Validation](./catalog-integration-mtgjson-scryfall-validation.md). The validation proves `mtgjson:mtg:single-card:reference-data`, `mtgjson:mtg:set:reference-data`, `scryfall:mtg:single-card:reference-data`, and `scryfall:mtg:single-card:image-evidence` through ProviderAdapter extension points and Catalog Integration Engine dry-runs without registering production runtime branches. Production enablement remains gated by provider-data governance and policy/legal signoff.
 
@@ -155,13 +155,14 @@ Primary issues:
 - #801 rollout modes, feature flags, and kill switches, documented in [Catalog Integration Rollout Controls](./catalog-integration-rollout-controls.md)
 - #798 activation, rollback, retirement, replay, and reapply impact analysis, documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md)
 - #803 provider-data policy/legal signoff, documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md)
-- #804 legacy data and compatibility cleanup
+- #1050/#1055 Stage 0 cleanup gate and clean-contract handoff
+- #1090 complete deletion of old Catalog integrations pages after rebuilt workbench acceptance
 
 Exit criteria:
 
-- Release verification covers empty integration-data bootstrap, reset/migration, rollback, compatibility/deploy skew, idempotency, API compatibility, adapter/engine behavior, conflict precedence, admin workflows, credentials, audit/evidence, fixtures, governance/redaction/signoff, read-model freshness, diagnostics, backpressure, impact analysis, observability, RBAC, raw JSON retirement, UX/accessibility, operator journeys, E2E smoke tests, and worker/job verification.
+- Release verification covers empty integration-data bootstrap, reset/migration, rollback, schema/deploy skew, idempotency, launch API contracts, adapter/engine behavior, conflict precedence, admin workflows, credentials, audit/evidence, fixtures, governance/redaction/signoff, read-model freshness, diagnostics, backpressure, impact analysis, observability, RBAC, raw JSON retirement, UX/accessibility, operator journeys, E2E smoke tests, and worker/job verification.
 - Observability verification covers provider option query metrics, integration job metrics, bulk review work-unit metrics, worker/request/projection platform metrics, redaction checks, alert starter conditions, and the [Catalog Integration Operations](../../../docs/runbooks/catalog-integration-operations.md) incident flows.
-- Legacy cleanup verification covers zero old Source Observations, zero legacy profile references, empty integration and bulk-review jobs/work units, rebuilt seeded profiles, rebuilt profile sections, `rawJsonBacked=false` section editors, and an owner/reason/removal-date launch gate for every retained compatibility path.
+- Legacy cleanup verification covers zero old Source Observations, zero legacy profile references, empty integration and bulk-review jobs/work units, rebuilt seeded profiles, rebuilt profile sections, `rawJsonBacked=false` section editors, and proof that every retired compatibility path is completely deleted or explicitly launch-blocking.
 - No unresolved P0-P2 release hardening findings remain.
 - Rollout controls expose default-open staged modes, provider/API emergency stops, import/promotion/reapply/activation kill switches, worker stops, Admin surfacing, and rollback evidence.
 - CI passes before merge queue entry.
@@ -172,7 +173,7 @@ Exit criteria:
 Use this order for the first broad Catalog Integration Control Plane launch. Later provider launches can reuse the same order by substituting the provider-specific migration and fixture evidence.
 
 1. Confirm Phase 0 readiness signoff (#808), architecture gates, ownership map, and dependency gates from #780.
-2. Confirm the first shippable vertical slice (#799) remains green and that no broad implementation relies on raw JSON editing or provider-specific runtime, API, admin, promotion, or replay branches outside documented transitional exceptions.
+2. Confirm the first shippable vertical slice (#799) remains green and that no broad implementation relies on raw JSON editing or provider-specific runtime, API, admin, promotion, or replay branches outside reviewed extension points. Any retired compatibility branch is launch-blocking until completely deleted.
 3. Confirm ingestion-unit identity is present for every touched Source Observation, job, diagnostic, audit record, read model, fixture run, option query, adapter proof, and Admin state (#805).
 4. Confirm the ProviderAdapter contract and ownership model (#774) are the only provider transport extension path for new provider work.
 5. Confirm the Catalog Integration Engine responsibility model (#772) owns Source Observation normalization, diagnostics, duplicate-prevention evidence, conflict-aware promotion/reapply plans, and replay behavior.
@@ -197,17 +198,17 @@ Resettable data:
 - pre-launch Source Observations and promotion/reapply work units that have not been intentionally retained
 - raw JSON editor artifacts that are not needed for signed launch evidence
 
-Retained data is the exception. It requires an owner, reason, launch gate, removal date or removal condition, compatibility mode, rollback behavior, and verification query. Retained data is allowed only when it is launched data, intentionally retained operator evidence, or deploy-skew compatibility required to keep a release safe.
+Retained data is the exception. It requires an owner, reason, launch gate, removal date or removal condition, retention mode, rollback behavior, and verification query. Retained data is allowed only when it is launched data, intentionally retained operator evidence, or deploy-skew safety required to keep a release safe. Retired compatibility paths are not retained data.
 
 Backfill is required only for retained data. It must run after reset and before activation so retained Source Observations, jobs, diagnostics, audit records, and profile versions carry ingestion-unit identity, schema compatibility metadata, redaction-safe evidence, and conflict-precedence policy names.
 
-Compatibility paths must stay narrow:
+Compatibility and deploy-skew behavior must stay narrow:
 
-- compatibility mounts may preserve API callers during deploy skew, but new behavior should land behind focused subrouters and typed contracts
+- stable launch mounts may preserve API callers during deploy skew, but old mounts must either remain launched contracts or fail closed with documented operator-safe errors
 - section snapshot/read-model tables are query infrastructure rebuilt from canonical provider profile versions; they must not become a second source of profile truth
-- deprecated raw JSON patching may exist only under the #789 quarantine policy
-- provider-specific semantic helpers may remain only when the executable profile contract references them by reviewed function key and the helper has fixture coverage plus retirement criteria
-- provider transport compatibility belongs in ProviderAdapters, not Catalog profile config or deployable branches
+- broad raw JSON patching is retired as a normal operator workflow; section-scoped typed commands are the launch workflow
+- provider-specific semantic helpers may remain only when the executable profile contract references them by reviewed function key and the helper has fixture coverage plus removal criteria
+- provider transport deploy-skew belongs in ProviderAdapters, not Catalog profile config or deployable branches
 
 ## Release Verification Checklist
 
@@ -219,9 +220,9 @@ Before merge queue entry for a launch PR or any provider-enablement PR, capture 
 - ProviderAdapter verification proves credential readiness, option queries, target planning, payload acquisition envelopes, retries/backpressure, and transport diagnostics without Catalog semantic decisions (#774, #782, #797).
 - Catalog Integration Engine verification proves Source Observation normalization, diagnostics, duplicate prevention, Source Observation hash behavior, promotion-plan preview, replay/reapply impact analysis, and conflict precedence (#772, #798, #807).
 - Empty integration-data bootstrap is verified: seeded active/test profiles, profile sections, fixture coverage, diagnostics, summary projections, and adapter readiness rebuild from canonical sources.
-- Pre-launch reset verification confirms no stale Source Observations, legacy profile references, integration jobs, bulk-review work units, raw JSON authoring dependencies, or unowned compatibility paths remain (#804, #792).
+- Pre-launch reset verification confirms no stale Source Observations, legacy profile references, integration jobs, bulk-review work units, raw JSON authoring dependencies, or retired compatibility paths remain (#1054, #1055).
 - Retained-data backfill verification runs only for documented retained data and proves schema compatibility, ingestion-unit identity, redaction, audit, and rollback behavior (#793).
-- API compatibility and deploy-skew checks prove old mounts either remain intentionally compatible or fail with documented operator-safe errors.
+- API and deploy-skew checks prove old mounts either remain stable launched contracts or fail closed with documented operator-safe errors.
 - Idempotency and concurrency checks cover activation, rollback, deprecation, retirement, imports, reapply, promotion, retry/resume, partial failure, and active-job conflicts (#791).
 - Admin workflows pass guided profile authoring, fixture validation, dry run, semantic compare, activation readiness, import, Source Observation review, promote/reapply, rollback, retirement, impact preview, and audit/evidence journeys without raw JSON editing (#763, #777, #778, #779, #802).
 - Section registry and section read-model checks prove editable section metadata, typed commands, validation, patch composition, diagnostics, snapshot rebuild, stale-edit etags, and `rawJsonBacked=false` normal authoring paths.
@@ -271,8 +272,8 @@ The milestone is ready to close only when:
 - #796 gates #768 diagnostics/readiness UX.
 - #794 and #803 gate live provider sampling, fixture retention, dry-run retention, diagnostics retention, raw provider evidence display/export, and MTGJSON/Scryfall sampling.
 - #807 gates final #806 validation and release completion.
-- #804, #792, and #793 gate launch migration, reset, and compatibility decisions. #792 provides the executable pre-launch wipe/rebuild policy and verification queries; #804 provides the retained legacy path inventory and clean-start checklist.
-- #775 and #789 gate no-legacy-branch and no-raw-JSON release readiness.
+- #1054 and #1055 gate prelaunch reset/drop evidence and clean-contract handoff. #1090 owns complete deletion of old Catalog integrations pages, modules, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions after the rebuilt workbench is accepted.
+- #775 and #1053 gate no-legacy-branch and no-raw-JSON release readiness.
 
 ## Parallel Work After Phase 0
 

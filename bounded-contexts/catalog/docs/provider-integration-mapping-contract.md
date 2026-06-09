@@ -2,7 +2,7 @@
 
 Catalog provider integrations use an executable mapping contract to turn provider payload evidence into Catalog-owned review data and command plans. The broader control-plane boundary is documented in [Catalog Integration Control Plane](./catalog-integration-control-plane.md), and the new-provider architecture benchmark is documented in [Catalog Integration New-Provider Walkthrough](./catalog-integration-new-provider-walkthrough.md).
 
-This contract is the target migration path for Provider Integration Profiles. It does not replace provider transport adapters. Transport adapters fetch and parse provider payloads. Catalog-owned mapping profiles define what the payload means to Catalog.
+This contract is the clean launch path for Provider Integration Profiles. It does not replace provider transport adapters. Transport adapters fetch and parse provider payloads. Catalog-owned mapping profiles define what the payload means to Catalog.
 
 ## Ownership Boundary
 
@@ -112,7 +112,7 @@ Admin profile editing uses typed section commands, not arbitrary profile JSON ed
 - validation returns diagnostics with section/control paths that can be pinned to guided controls
 - lifecycle-sensitive commands respect draft, test, active, deprecated, and retired constraints
 - unsafe evidence categories block normalized output, hash material, merge identity, duplicate-prevention identity, promotion command inputs, and activation
-- raw JSON patching is internal/deprecated compatibility infrastructure until every normal authoring section has moved to typed commands
+- raw JSON patching is not a launch workflow; every normal authoring section uses typed commands, and any read-only support inspection path must stay separate from profile mutation
 
 The admin module workflow and no-raw-JSON policy are documented in [Provider Integration Admin Module](./provider-integration-admin-module.md).
 
@@ -122,19 +122,19 @@ The admin module workflow and no-raw-JSON policy are documented in [Provider Int
 - `test`: fixture-backed and usable in validation, dry runs, and explicit non-production jobs.
 - `active`: the default profile version for new import jobs.
 - `deprecated`: retained for replay or rollback, but not selected for new imports.
-- `retired`: retained only for historical Source Observation compatibility.
+- `retired`: retained only for historical Source Observation review and cannot be selected for new imports.
 
 Activating a profile version must validate the schema, fixture coverage, unsafe evidence use, required mappings, and redaction policy before import jobs run.
 
 Catalog API reads require `catalog.view`; profile authoring, lifecycle changes, production imports, promotion, reapply, rollback, and retirement require `catalog.manage` at the API host boundary and at the Catalog-owned control-plane route boundary. New dry-run submissions and POST-based impact/preview requests are also `catalog.manage` operations because they prepare or evaluate privileged follow-up work. Profile rows persist authoring audit metadata for actor, account, and timestamp evidence. Lifecycle diagnostics and dry-run output must keep sensitive provider material redacted in API responses, logs, and UI. The action matrix is documented in [Catalog Integration Admin Control Plane RBAC](./catalog-integration-admin-control-plane-rbac.md).
 
-## Replay Compatibility
+## Replay And Reapply Determinism
 
 Source Observations should record the profile version that produced their normalized data and hash material. Replaying or reapplying a Source Observation must be deterministic:
 
 - default replay uses the same profile version that produced the observation
 - operator-initiated reapply may use the currently active profile version
-- deprecated and retired profile versions remain readable until all observations that reference them are migrated or archived
+- deprecated and retired profile versions remain readable for referenced observations; missing or retired `legacy` markers fail closed and are reset/drop evidence, not a fallback to the current active profile
 - rollback means reactivating a prior validated profile version, not editing history in place
 
 ## Provider Coverage
