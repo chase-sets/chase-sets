@@ -1,7 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { validateCatalogPrimaryWorkbenchReadModelContract } from "../api/primary-workbench-admin-contracts";
-import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
-import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
+import {
+  buildCatalogPrimaryWorkbenchReadModel,
+  buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
+} from "./primary-workbench-read-model";
+import {
+  controlPlaneOverview,
+  profileReview,
+  sourceObservationListItem,
+  sourceObservationScope,
+} from "./primary-workbench-test-fixtures";
 
 describe("Catalog primary workbench read model", () => {
   it("builds a validated #1060 read model from typed Catalog admin data", () => {
@@ -205,5 +213,119 @@ describe("Catalog primary workbench read model", () => {
       "active-job-conflict",
       "concurrent-job",
     ]);
+  });
+
+  it("maps Source Observation rows into redaction-safe review evidence with command readiness", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_001",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: {
+        items: [
+          sourceObservationListItem({
+            normalized: {
+              ...sourceObservationListItem().normalized,
+              name: "A very long provider supplied Charizard display name with enough detail to test dense review rows",
+            },
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceObservationReview.filters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "providerKey", value: "tcgdex", serverApplied: true }),
+        expect.objectContaining({ key: "status", value: "changed", serverApplied: true }),
+        expect.objectContaining({ key: "setId", value: "base1", serverApplied: true }),
+      ]),
+    );
+    expect(readModel.sourceObservationReview.pagination).toMatchObject({ mode: "offset", total: 1, limit: 25 });
+    expect(readModel.sourceObservationReview.bulkSelection).toMatchObject({
+      selectedCount: 1,
+      eligibleSelectedCount: 1,
+    });
+    expect(readModel.sourceObservationReview.rows[0]).toMatchObject({
+      observationId: "obs_001",
+      providerKey: "tcgdex",
+      promotionReadiness: { state: "eligible", blockers: [] },
+      redactionSummary: expect.stringContaining("Provider payload withheld"),
+      commandPreview: { disposition: "eligible", confirmationRequired: true },
+      actions: expect.arrayContaining([
+        expect.objectContaining({ key: "preview-promotion", state: "available" }),
+        expect.objectContaining({ key: "reject-source-observations", state: "available" }),
+      ]),
+    });
+    expect(readModel.sourceObservationReview.rows[0]?.payloadSummary).not.toMatch(/raw JSON/i);
+  });
+
+  it("keeps visible promotion readiness counts tied to fetched review rows", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&filter.status=promoted",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: {
+        items: [
+          sourceObservationListItem({
+            status: "promoted",
+            promoted_catalog_item_id: "cat_item_001",
+            promoted_at: "2026-06-09T01:10:00.000Z",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.sourceObservationReview.counts.eligible).toBe(22);
+    expect(readModel.sourceObservationReview.rows[0]?.promotionReadiness.state).toBe("already-promoted");
+    expect(readModel.sourceObservationReview.promotionReadyCount).toBe(0);
+  });
+
+  it("fails closed for denied writes and does not fetch all-provider review rows without provider context", () => {
+    const noProviderQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery({
+      providerKey: null,
+      unitKey: null,
+      importScope: null,
+      profileVersion: null,
+      sourceObservationFilters: {},
+      selectedObservationIds: [],
+      jobId: null,
+      promotionPreviewId: null,
+      returnPath: null,
+    });
+
+    expect(noProviderQuery).toBeNull();
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      canManageCatalog: false,
+    });
+
+    expect(readModel.sourceObservationReview.rows[0]?.promotionReadiness).toMatchObject({
+      state: "blocked",
+      blockers: ["permission-denied"],
+    });
+    expect(readModel.sourceObservationReview.rows[0]?.actions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: "preview-promotion", state: "blocked", blockers: ["permission-denied"] }),
+        expect.objectContaining({
+          key: "reject-source-observations",
+          state: "denied",
+          blockers: ["permission-denied"],
+        }),
+      ]),
+    );
   });
 });

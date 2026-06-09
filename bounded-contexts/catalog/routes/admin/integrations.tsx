@@ -3,10 +3,17 @@ import type { ListResponse } from "@chase-sets/http/responses";
 import type { LoaderFunctionArgs, MetaFunction } from "react-router";
 import { useLoaderData, useRouteLoaderData } from "react-router";
 import { useMemo } from "react";
-import type { CatalogProviderProfileVersionReview, SourceObservationIntegrationScope } from "../../client";
+import type {
+  CatalogProviderProfileVersionReview,
+  SourceObservationIntegrationScope,
+  SourceObservationListItem,
+} from "../../client";
 import type { CatalogIntegrationControlPlaneOverview } from "../../features/source-observations/ui/contracts";
 import { CatalogPrimaryWorkbenchPage } from "../../features/source-observations/ui/primary-workbench-page";
-import { buildCatalogPrimaryWorkbenchReadModel } from "../../features/source-observations/ui/primary-workbench-read-model";
+import {
+  buildCatalogPrimaryWorkbenchReadModel,
+  buildCatalogPrimaryWorkbenchSourceObservationReviewQuery,
+} from "../../features/source-observations/ui/primary-workbench-read-model";
 import { createCatalogRequestApiClient } from "../../support/request-support/api-client";
 import { loadCatalogListRouteData } from "../../support/shell-support/list-query-state";
 
@@ -19,15 +26,40 @@ export async function loader({ request }: LoaderFunctionArgs) {
     api.listSourceObservationProviderProfiles<ListResponse<CatalogProviderProfileVersionReview>>(),
     api.getCatalogIntegrationControlPlaneOverview<CatalogIntegrationControlPlaneOverview>(),
   ]);
-  const readModel = buildCatalogPrimaryWorkbenchReadModel({
+  const preliminaryReadModel = buildCatalogPrimaryWorkbenchReadModel({
     requestUrl: request.url,
     scopes: routeData.data,
     profileReviews,
     controlPlaneOverview,
     canManageCatalog: true,
   });
+  const reviewPagination = { limit: 25, offset: 0 };
+  const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
+    preliminaryReadModel.routeContext,
+    reviewPagination,
+  );
+  const reviewObservations = reviewQuery
+    ? await api.listSourceObservations<ListResponse<SourceObservationListItem>>(reviewQuery)
+    : null;
+  const readModel = buildCatalogPrimaryWorkbenchReadModel({
+    requestUrl: request.url,
+    scopes: routeData.data,
+    profileReviews,
+    controlPlaneOverview,
+    reviewObservations,
+    reviewPagination,
+    canManageCatalog: true,
+  });
 
-  return { ...routeData, profileReviews, controlPlaneOverview, readModel, requestUrl: request.url };
+  return {
+    ...routeData,
+    profileReviews,
+    controlPlaneOverview,
+    reviewObservations,
+    reviewPagination,
+    readModel,
+    requestUrl: request.url,
+  };
 }
 
 export const meta: MetaFunction = () => [
@@ -51,6 +83,8 @@ export default function IntegrationsRoute() {
             scopes: routeData.data,
             profileReviews: routeData.profileReviews,
             controlPlaneOverview: routeData.controlPlaneOverview,
+            reviewObservations: routeData.reviewObservations,
+            reviewPagination: routeData.reviewPagination,
             canManageCatalog,
           }),
     [canManageCatalog, routeData],

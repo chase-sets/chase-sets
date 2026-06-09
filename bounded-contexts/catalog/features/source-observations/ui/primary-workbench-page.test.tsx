@@ -1,9 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-model";
 import { CatalogPrimaryWorkbenchPage } from "./primary-workbench-page";
-import { controlPlaneOverview, profileReview, sourceObservationScope } from "./primary-workbench-test-fixtures";
+import {
+  controlPlaneOverview,
+  profileReview,
+  sourceObservationListItem,
+  sourceObservationScope,
+} from "./primary-workbench-test-fixtures";
 
 describe("CatalogPrimaryWorkbenchPage", () => {
   afterEach(() => {
@@ -82,5 +87,112 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       true,
     );
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
+  it("renders Source Observation evidence rows, drawer details, and bulk selection without raw payloads", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: {
+        items: [
+          sourceObservationListItem({
+            normalized: {
+              ...sourceObservationListItem().normalized,
+              name: "A very long provider supplied Charizard display name with release diagnostics attached",
+            },
+            status_reason: "Provider changed rarity evidence during the latest pull.",
+          }),
+        ],
+        total: 1,
+        count: 1,
+      },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Source Observation review" })).toBeTruthy();
+    expect(screen.getAllByText(/A very long provider supplied Charizard/).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText("Provider payload withheld; normalized facts and provenance are redaction-safe.").length,
+    ).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", {
+        name: /Preview promotion: A very long provider supplied Charizard/i,
+      }).length,
+    ).toBeGreaterThan(0);
+
+    const reviewModule = screen.getByRole("heading", { name: "Source Observation review" }).closest("section");
+    expect(reviewModule).toBeTruthy();
+    const checkbox = within(reviewModule as HTMLElement).getAllByRole("checkbox")[0];
+    fireEvent.click(checkbox);
+
+    expect(screen.getByText("1 observation(s) selected")).toBeTruthy();
+
+    const evidenceButtons = screen.getAllByRole("button", { name: "Evidence" });
+    fireEvent.click(evidenceButtons[evidenceButtons.length - 1]!);
+
+    expect(screen.getByText(/Source provenance, normalized facts/)).toBeTruthy();
+    expect(screen.getByText("Provider changed rarity evidence during the latest pull.")).toBeTruthy();
+    expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
+  it("clears route-provided Source Observation selections when the review context changes", async () => {
+    const selectedReadModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_001",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+    const clearedReadModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    const { rerender } = render(<CatalogPrimaryWorkbenchPage readModel={selectedReadModel} />);
+
+    expect(screen.getByText("1 observation(s) selected")).toBeTruthy();
+
+    rerender(<CatalogPrimaryWorkbenchPage readModel={clearedReadModel} />);
+
+    await waitFor(() => {
+      expect(screen.queryByText("1 observation(s) selected")).toBeNull();
+    });
+  });
+
+  it("renders denied row actions without exposing provider bypass controls", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      canManageCatalog: false,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Source Observation review" })).toBeTruthy();
+    expect(
+      screen
+        .getAllByRole("button", { name: /Preview promotion: Charizard/i })
+        .every((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
+    expect(screen.getAllByText("Permission denied").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/all providers/i)).toBeNull();
   });
 });

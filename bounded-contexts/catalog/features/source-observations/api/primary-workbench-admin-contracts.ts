@@ -36,6 +36,13 @@ export type CatalogPrimaryWorkbenchCommandKey =
   | "start-reapply"
   | "start-replay";
 
+export type CatalogPrimaryWorkbenchSourceObservationRowActionKey =
+  | "view-source-observation"
+  | "preview-promotion"
+  | "reject-source-observations"
+  | "defer-source-observations"
+  | "start-reapply";
+
 export type CatalogPrimaryWorkbenchActionState =
   | "available"
   | "disabled"
@@ -319,6 +326,79 @@ export type CatalogPrimaryWorkbenchSourceObservationReviewReadModel = Readonly<{
   evidenceSummariesRedacted: boolean;
   duplicateConflictCount: number;
   promotionReadyCount: number;
+  filters: readonly Readonly<{
+    key:
+      | "providerKey"
+      | "unitKey"
+      | "profileVersion"
+      | "status"
+      | "language"
+      | "setId"
+      | "observedAfter"
+      | "observedBefore";
+    label: string;
+    value: string | null;
+    serverApplied: boolean;
+  }>[];
+  savedFilters: readonly Readonly<{
+    key: string;
+    label: string;
+    filters: Readonly<Record<string, string>>;
+    count: number | null;
+  }>[];
+  pagination: Readonly<{
+    mode: "offset";
+    limit: number;
+    offset: number;
+    total: number;
+    nextCursor: string | null;
+    previousCursor: string | null;
+  }>;
+  bulkSelection: Readonly<{
+    selectedCount: number;
+    eligibleSelectedCount: number;
+    actions: readonly CatalogPrimaryWorkbenchSourceObservationRowActionKey[];
+  }>;
+  rows: readonly CatalogPrimaryWorkbenchSourceObservationReviewRow[];
+}>;
+
+export type CatalogPrimaryWorkbenchSourceObservationReviewRow = Readonly<{
+  observationId: string;
+  providerKey: string;
+  externalKey: string;
+  displayName: string;
+  status: string;
+  statusReason: string | null;
+  languageCode: string;
+  sourceUrl: string;
+  sourceRecordHash: string;
+  sourceUpdatedAt: string | null;
+  observedAt: string;
+  changedAt: string;
+  sourceProfileVersion: string;
+  promotionProfileVersion: string | null;
+  normalizedFactSummaries: readonly string[];
+  payloadSummary: string;
+  redactionSummary: string;
+  duplicateEvidence: readonly string[];
+  conflictEvidence: readonly string[];
+  promotionReadiness: Readonly<{
+    state: "eligible" | "blocked" | "already-promoted" | "rejected";
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  }>;
+  commandPreview: Readonly<{
+    promotionPlanHash: string | null;
+    disposition: CatalogPrimaryWorkbenchPromotionDisposition;
+    confirmationRequired: boolean;
+  }>;
+  auditTrail: readonly string[];
+  detailHref: string;
+  actions: readonly Readonly<{
+    key: CatalogPrimaryWorkbenchSourceObservationRowActionKey;
+    state: CatalogPrimaryWorkbenchActionState;
+    blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+    href: string | null;
+  }>[];
 }>;
 
 export type CatalogPrimaryWorkbenchPromotionPreviewReadModel = Readonly<{
@@ -691,6 +771,11 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
       "sourceObservationReview.counts",
       "sourceObservationReview.cursor",
       "sourceObservationReview.evidenceSummariesRedacted",
+      "sourceObservationReview.filters",
+      "sourceObservationReview.pagination",
+      "sourceObservationReview.rows",
+      "sourceObservationReview.rows.actions",
+      "sourceObservationReview.rows.promotionReadiness",
       "promotionPreview.dispositions",
     ],
   ),
@@ -795,6 +880,12 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   assertPrimaryWorkbenchBlockers(value.readiness?.blockers);
   assertPrimaryWorkbenchBlockers(value.importJobs?.selectedScope?.readiness.blockers);
   assertPrimaryWorkbenchBlockers(value.importJobs?.jobs.flatMap((job) => job.blockers));
+  assertPrimaryWorkbenchBlockers(
+    value.sourceObservationReview?.rows.flatMap((row) => [
+      ...row.promotionReadiness.blockers,
+      ...row.actions.flatMap((actionEntry) => actionEntry.blockers),
+    ]),
+  );
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
 }
 

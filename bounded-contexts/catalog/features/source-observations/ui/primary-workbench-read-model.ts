@@ -1,4 +1,5 @@
 import type { ListResponse } from "@chase-sets/http/responses";
+import { t } from "@chase-sets/localization";
 import {
   catalogPrimaryWorkbenchContractVersion,
   catalogPrimaryWorkbenchDeploySkewPolicies,
@@ -14,6 +15,7 @@ import { defineCatalogIntegrationUnitKey, type CatalogIntegrationUnitKey } from 
 import type {
   CatalogIntegrationControlPlaneOverview,
   CatalogProviderProfileVersionReview,
+  SourceObservationListItem,
   SourceObservationIntegrationScope,
 } from "./contracts";
 import {
@@ -26,11 +28,15 @@ export type CatalogPrimaryWorkbenchInput = Readonly<{
   scopes: ListResponse<SourceObservationIntegrationScope>;
   profileReviews: ListResponse<CatalogProviderProfileVersionReview>;
   controlPlaneOverview: CatalogIntegrationControlPlaneOverview | null;
+  reviewObservations?: ListResponse<SourceObservationListItem> | null;
+  reviewPagination?: Readonly<{ limit: number; offset: number }>;
   canManageCatalog: boolean;
 }>;
 
 type CatalogIntegrationRecentJobReadModel =
   CatalogIntegrationControlPlaneOverview["unitActivity"]["units"][number]["recentJobs"][number];
+
+const defaultReviewPageSize = 25;
 
 export function buildCatalogPrimaryWorkbenchReadModel(
   input: CatalogPrimaryWorkbenchInput,
@@ -110,22 +116,19 @@ export function buildCatalogPrimaryWorkbenchReadModel(
       }),
       jobs: importJobRows,
     },
-    sourceObservationReview: {
-      freshness: scopeRows.length > 0 ? "fresh" : "partial",
-      counts: {
-        observed,
-        changed,
-        promoted,
-        rejected,
-        blocked: readinessBlockers.length,
-        eligible,
-      },
-      cursor: null,
-      selectedObservationIds: routeContext.selectedObservationIds,
-      evidenceSummariesRedacted: true,
-      duplicateConflictCount: 0,
-      promotionReadyCount: eligible,
-    },
+    sourceObservationReview: sourceObservationReviewFor({
+      canManage,
+      changed,
+      eligible,
+      observed,
+      promoted,
+      readinessBlockers,
+      rejected,
+      reviewObservations: input.reviewObservations ?? null,
+      reviewPagination: input.reviewPagination,
+      routeContext,
+      scopeRows,
+    }),
     promotionPreview: {
       previewId: routeContext.promotionPreviewId,
       freshness: eligible > 0 ? "fresh" : "partial",
@@ -161,6 +164,30 @@ export function buildCatalogPrimaryWorkbenchReadModel(
   validateCatalogPrimaryWorkbenchReadModelContract(readModel);
 
   return readModel;
+}
+
+export function buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
+  context: CatalogPrimaryWorkbenchRouteContext,
+  pagination: Readonly<{ limit?: number; offset?: number }> = {},
+): string | null {
+  if (!context.providerKey) {
+    return null;
+  }
+
+  const params = new URLSearchParams();
+  params.set("provider", context.providerKey);
+  params.set("limit", String(pagination.limit ?? defaultReviewPageSize));
+  params.set("offset", String(pagination.offset ?? 0));
+  setQueryParam(params, "status", context.sourceObservationFilters.status);
+  setQueryParam(
+    params,
+    "language",
+    context.sourceObservationFilters.language ?? importScopeSegment(context.importScope, 0),
+  );
+  setQueryParam(params, "setId", context.sourceObservationFilters.setId ?? importScopeSegment(context.importScope, 3));
+  setQueryParam(params, "search", context.sourceObservationFilters.search);
+
+  return params.toString();
 }
 
 function inferProviderKey(input: CatalogPrimaryWorkbenchInput): string | null {
@@ -398,6 +425,407 @@ function importJobsFor(
     observationLinks: [sourceObservationReviewHrefFor(routeContext, job)],
     blockers: job.operatorStatus === "stale" ? ["stale-replay"] : [],
   }));
+}
+
+function sourceObservationReviewFor(input: {
+  canManage: boolean;
+  changed: number;
+  eligible: number;
+  observed: number;
+  promoted: number;
+  readinessBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  rejected: number;
+  reviewObservations: ListResponse<SourceObservationListItem> | null;
+  reviewPagination: Readonly<{ limit: number; offset: number }> | undefined;
+  routeContext: CatalogPrimaryWorkbenchRouteContext;
+  scopeRows: readonly SourceObservationIntegrationScope[];
+}): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"] {
+  const limit = input.reviewPagination?.limit ?? defaultReviewPageSize;
+  const offset = input.reviewPagination?.offset ?? 0;
+  const total = input.reviewObservations?.total ?? 0;
+  const rows = (input.reviewObservations?.items ?? []).map((observation) =>
+    sourceObservationReviewRowFor(observation, {
+      canManage: input.canManage,
+      routeContext: input.routeContext,
+    }),
+  );
+  const duplicateConflictCount = rows.filter((row) => row.duplicateEvidence.length > 0).length;
+  const promotionReadyRowCount = rows.filter((row) => row.promotionReadiness.state === "eligible").length;
+  const promotionReadyCount = input.reviewObservations ? promotionReadyRowCount : input.eligible;
+  const selectedObservationIds = input.routeContext.selectedObservationIds;
+  const selectedRows = rows.filter((row) => selectedObservationIds.includes(row.observationId));
+
+  return {
+    freshness: input.scopeRows.length > 0 ? "fresh" : "partial",
+    counts: {
+      observed: input.observed,
+      changed: input.changed,
+      promoted: input.promoted,
+      rejected: input.rejected,
+      blocked: input.readinessBlockers.length,
+      eligible: input.eligible,
+    },
+    cursor: offset > 0 ? `offset:${offset}` : null,
+    selectedObservationIds,
+    evidenceSummariesRedacted: true,
+    duplicateConflictCount,
+    promotionReadyCount,
+    filters: reviewFiltersFor(input.routeContext),
+    savedFilters: savedReviewFiltersFor(input.routeContext, {
+      eligible: input.eligible,
+      changed: input.changed,
+      rejected: input.rejected,
+    }),
+    pagination: {
+      mode: "offset",
+      limit,
+      offset,
+      total,
+      nextCursor: offset + limit < total ? `offset:${offset + limit}` : null,
+      previousCursor: offset > 0 ? `offset:${Math.max(0, offset - limit)}` : null,
+    },
+    bulkSelection: {
+      selectedCount: selectedObservationIds.length,
+      eligibleSelectedCount: selectedRows.filter((row) => row.promotionReadiness.state === "eligible").length,
+      actions: ["preview-promotion", "reject-source-observations", "defer-source-observations"],
+    },
+    rows,
+  };
+}
+
+function sourceObservationReviewRowFor(
+  observation: SourceObservationListItem,
+  input: { canManage: boolean; routeContext: CatalogPrimaryWorkbenchRouteContext },
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number] {
+  const promotionReadiness = promotionReadinessFor(observation, input.canManage);
+  const duplicateEvidence = duplicateEvidenceFor(observation);
+  const conflictEvidence = conflictEvidenceFor(observation);
+  const detailHref = catalogPrimaryWorkbenchHref(
+    {
+      ...input.routeContext,
+      selectedObservationIds: [observation.observation_id],
+      sourceObservationFilters: {
+        ...input.routeContext.sourceObservationFilters,
+        providerKey: observation.provider_key,
+        status: observation.status,
+      },
+    },
+    "source-observation-review",
+  );
+
+  return {
+    observationId: observation.observation_id,
+    providerKey: observation.provider_key,
+    externalKey: observation.external_key,
+    displayName: observation.normalized.name,
+    status: observation.status,
+    statusReason: observation.status_reason,
+    languageCode: observation.language_code,
+    sourceUrl: observation.source_url,
+    sourceRecordHash: observation.source_record_hash,
+    sourceUpdatedAt: observation.source_updated_at,
+    observedAt: observation.observed_at,
+    changedAt: observation.updated_at,
+    sourceProfileVersion: observation.source_profile_version,
+    promotionProfileVersion: observation.promotion_profile_version,
+    normalizedFactSummaries: normalizedFactSummariesFor(observation),
+    payloadSummary: payloadSummaryFor(observation),
+    redactionSummary: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.redaction.summary"),
+    duplicateEvidence,
+    conflictEvidence,
+    promotionReadiness,
+    commandPreview: {
+      promotionPlanHash: observation.promotion_plan_fingerprint,
+      disposition: promotionReadiness.state === "eligible" ? "eligible" : "blocked",
+      confirmationRequired: promotionReadiness.state === "eligible",
+    },
+    auditTrail: auditTrailFor(observation),
+    detailHref,
+    actions: rowActionsFor(observation, {
+      canManage: input.canManage,
+      detailHref,
+      promotionReadiness,
+    }),
+  };
+}
+
+function reviewFiltersFor(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["filters"] {
+  return [
+    filter(
+      "providerKey",
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.provider"),
+      routeContext.providerKey,
+      Boolean(routeContext.providerKey),
+    ),
+    filter(
+      "unitKey",
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.unit"),
+      routeContext.unitKey,
+      Boolean(routeContext.unitKey),
+    ),
+    filter(
+      "profileVersion",
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.profile"),
+      routeContext.profileVersion,
+      Boolean(routeContext.profileVersion),
+    ),
+    filter(
+      "status",
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.status"),
+      routeContext.sourceObservationFilters.status ?? null,
+      true,
+    ),
+    filter(
+      "language",
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.language"),
+      routeContext.sourceObservationFilters.language ?? importScopeSegment(routeContext.importScope, 0),
+      true,
+    ),
+    filter(
+      "setId",
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.set"),
+      routeContext.sourceObservationFilters.setId ?? importScopeSegment(routeContext.importScope, 3),
+      true,
+    ),
+    filter(
+      "observedAfter",
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.observed.after"),
+      routeContext.sourceObservationFilters.observedAfter ?? null,
+      false,
+    ),
+    filter(
+      "observedBefore",
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.filter.observed.before"),
+      routeContext.sourceObservationFilters.observedBefore ?? null,
+      false,
+    ),
+  ];
+}
+
+function savedReviewFiltersFor(
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+  counts: { eligible: number; changed: number; rejected: number },
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["savedFilters"] {
+  const providerFilter: Record<string, string> = {};
+  if (routeContext.providerKey) {
+    providerFilter.providerKey = routeContext.providerKey;
+  }
+
+  return [
+    {
+      key: "ready-for-promotion",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.ready"),
+      filters: { ...providerFilter, status: "changed" },
+      count: counts.eligible,
+    },
+    {
+      key: "changed-since-last-pull",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.changed"),
+      filters: { ...providerFilter, status: "changed" },
+      count: counts.changed,
+    },
+    {
+      key: "rejected-audit",
+      label: t("catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.rejected"),
+      filters: { ...providerFilter, status: "rejected" },
+      count: counts.rejected,
+    },
+  ];
+}
+
+function filter(
+  key: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["filters"][number]["key"],
+  label: string,
+  value: string | null,
+  serverApplied: boolean,
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["filters"][number] {
+  return { key, label, value, serverApplied };
+}
+
+function normalizedFactSummariesFor(observation: SourceObservationListItem): readonly string[] {
+  const normalized = observation.normalized;
+  const facts = [
+    normalized.kind,
+    normalized.name,
+    normalized.expansionName ?? normalized.setName,
+    normalized.cardNumber,
+    "providerProductId" in normalized ? normalized.providerProductId : null,
+    "productLineName" in normalized ? normalized.productLineName : null,
+    "productCategoryName" in normalized ? normalized.productCategoryName : null,
+  ].filter((value): value is string => typeof value === "string" && value.trim().length > 0);
+
+  return [...new Set(facts)].slice(0, 5);
+}
+
+function payloadSummaryFor(observation: SourceObservationListItem): string {
+  const imageCount = observation.normalized.imageUrls.length;
+  const externalReferenceCount =
+    (observation.normalized.externalCatalogItemReferences?.length ?? 0) +
+    (observation.normalized.externalProductReferences?.length ?? 0) +
+    (observation.normalized.kind === "provider-product" ? observation.normalized.skuReferences.length : 0);
+
+  return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.payload.summary", {
+    kind: observation.normalized.kind,
+    imageCount,
+    externalReferenceCount,
+  });
+}
+
+function duplicateEvidenceFor(observation: SourceObservationListItem): readonly string[] {
+  const evidence = new Set<string>();
+  const mergeIdentity = observation.normalized.mergeIdentity;
+  if (mergeIdentity) {
+    evidence.add(
+      [
+        mergeIdentity.tcg,
+        mergeIdentity.productLineName,
+        mergeIdentity.setName,
+        mergeIdentity.printedProductName,
+        mergeIdentity.collectorNumber,
+        mergeIdentity.languageCode,
+        mergeIdentity.productForm,
+        mergeIdentity.barcode,
+      ]
+        .filter(Boolean)
+        .join(" / "),
+    );
+  }
+  for (const reference of observation.normalized.externalCatalogItemReferences ?? []) {
+    evidence.add(
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.catalog.reference", {
+        provider: reference.providerKey,
+        external: reference.externalKey,
+      }),
+    );
+  }
+  for (const reference of observation.normalized.externalProductReferences ?? []) {
+    evidence.add(
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.product.reference", {
+        provider: reference.providerKey,
+        external: reference.externalKey,
+      }),
+    );
+  }
+
+  return [...evidence].filter(Boolean).slice(0, 4);
+}
+
+function conflictEvidenceFor(observation: SourceObservationListItem): readonly string[] {
+  const evidence: string[] = [];
+  if (observation.status === "changed") {
+    evidence.push(t("catalog.features.sourceObservations.ui.primaryWorkbench.review.conflict.changed"));
+  }
+  if (observation.status_reason) {
+    evidence.push(observation.status_reason);
+  }
+  if (observation.promoted_catalog_item_id && observation.status !== "promoted") {
+    evidence.push(
+      t("catalog.features.sourceObservations.ui.primaryWorkbench.review.conflict.linked.catalog.item", {
+        itemId: observation.promoted_catalog_item_id,
+      }),
+    );
+  }
+
+  return evidence;
+}
+
+function promotionReadinessFor(
+  observation: SourceObservationListItem,
+  canManage: boolean,
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number]["promotionReadiness"] {
+  if (observation.status === "promoted") {
+    return { state: "already-promoted", blockers: ["no-promotion-eligible-observations"] };
+  }
+  if (observation.status === "rejected") {
+    return { state: "rejected", blockers: ["no-promotion-eligible-observations"] };
+  }
+  if (!canManage) {
+    return { state: "blocked", blockers: ["permission-denied"] };
+  }
+
+  return { state: "eligible", blockers: [] };
+}
+
+function rowActionsFor(
+  observation: SourceObservationListItem,
+  input: {
+    canManage: boolean;
+    detailHref: string;
+    promotionReadiness: CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number]["promotionReadiness"];
+  },
+): CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number]["actions"] {
+  const manageState: CatalogPrimaryWorkbenchActionReadModel["state"] = input.canManage ? "available" : "denied";
+  const manageBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[] = input.canManage
+    ? []
+    : ["permission-denied"];
+  const promotionBlockers = input.promotionReadiness.blockers;
+  const promotionState =
+    promotionBlockers.length > 0
+      ? input.promotionReadiness.state === "blocked"
+        ? "blocked"
+        : "disabled"
+      : manageState;
+
+  return [
+    { key: "view-source-observation", state: "available", blockers: [], href: input.detailHref },
+    { key: "preview-promotion", state: promotionState, blockers: promotionBlockers, href: input.detailHref },
+    {
+      key: "reject-source-observations",
+      state: observation.status === "observed" || observation.status === "changed" ? manageState : "disabled",
+      blockers:
+        observation.status === "observed" || observation.status === "changed"
+          ? manageBlockers
+          : ["no-promotion-eligible-observations"],
+      href: input.detailHref,
+    },
+    {
+      key: "defer-source-observations",
+      state: observation.status === "observed" || observation.status === "changed" ? manageState : "disabled",
+      blockers:
+        observation.status === "observed" || observation.status === "changed"
+          ? manageBlockers
+          : ["no-promotion-eligible-observations"],
+      href: input.detailHref,
+    },
+    {
+      key: "start-reapply",
+      state: observation.status === "promoted" ? manageState : "disabled",
+      blockers: observation.status === "promoted" ? manageBlockers : ["no-promotion-eligible-observations"],
+      href: input.detailHref,
+    },
+  ];
+}
+
+function auditTrailFor(observation: SourceObservationListItem): readonly string[] {
+  return [
+    t("catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.observed", {
+      observedAt: observation.observed_at,
+    }),
+    observation.source_updated_at
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.provider.changed", {
+          changedAt: observation.source_updated_at,
+        })
+      : null,
+    t("catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.source.profile", {
+      profileKey: observation.source_profile_key,
+      profileVersion: observation.source_profile_version,
+    }),
+    observation.promotion_profile_version
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.promotion.profile", {
+          profileKey:
+            observation.promotion_profile_key ??
+            t("catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.unknown"),
+          profileVersion: observation.promotion_profile_version,
+        })
+      : null,
+    observation.promoted_at
+      ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.audit.promoted", {
+          promotedAt: observation.promoted_at,
+        })
+      : null,
+  ].filter((value): value is string => Boolean(value));
 }
 
 function sourceObservationReviewHrefFor(
@@ -672,4 +1100,14 @@ function scopeKey(scope: SourceObservationIntegrationScope): string {
 
 function sum<T>(items: readonly T[], selector: (item: T) => number): number {
   return items.reduce((total, item) => total + selector(item), 0);
+}
+
+function importScopeSegment(importScope: string | null, index: number): string | null {
+  return importScope?.split(":")[index] || null;
+}
+
+function setQueryParam(params: URLSearchParams, key: string, value: string | null | undefined): void {
+  if (value) {
+    params.set(key, value);
+  }
 }
