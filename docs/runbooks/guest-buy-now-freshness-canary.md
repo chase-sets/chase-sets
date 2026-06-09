@@ -36,7 +36,8 @@ The script writes `artifacts/release-health/guest-buy-now-freshness-canary.json`
 - failure reason when present;
 - write-submit-to-final-state latency;
 - wait mode when visible;
-- booleans for `afterWrite`, guest cookie, permanent not-found, temporary recovery, and checkout review visibility.
+- checkout document status and known-state wait outcome;
+- booleans for `afterWrite`, guest cookie, permanent not-found, temporary recovery, checkout review visibility, and the platform generic error wrapper.
 
 The evidence must not contain guest email, contact name, guest token, cookie value, raw `afterWrite`, checkout session id, account/user ids, event ids, or full URLs.
 
@@ -64,5 +65,6 @@ A production browser variant is not feasible for this milestone. Even without mo
 2. If `missing-after-write` or `missing-guest-cookie`, check Checkout guest start and document redirect behavior.
 3. If `permanent-checkout-session-not-found`, check API freshness middleware, `checkout.session-projection`, worker lag, and the Checkout temporary recovery path.
 4. If fixture discovery reports no active buyable item, refresh representative commerce state or update `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`.
-5. If `checkout-review-state-not-detected`, confirm the resolved fixture still exposes Buy Now and reaches checkout review copy.
-6. Correlate the diagnostic id with read-after-write freshness audit records and projection operations.
+5. If `platform-error-page-detected`, check whether a customer-facing checkout recovery is returning a 5xx document. App Platform/Cloudflare replaces 5xx documents with its generic error wrapper, so temporary checkout recovery should render with a non-5xx document status while internal API freshness timeouts can remain 503 JSON.
+6. If `checkout-review-state-not-detected`, confirm the resolved fixture still exposes Buy Now and reaches checkout review copy.
+7. Correlate the diagnostic id with read-after-write freshness audit records and projection operations.

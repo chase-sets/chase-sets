@@ -51,6 +51,18 @@ function terraformServiceBlock(source, serviceName) {
   return source.slice(start, end);
 }
 
+function terraformJobBlock(source, jobName) {
+  const start = source.indexOf(`name               = "${jobName}"`);
+  expect(start).not.toBe(-1);
+
+  const nextJob = source.indexOf("\n    job", start + 1);
+  const nextDynamicJob = source.indexOf('\n    dynamic "job"', start + 1);
+  const nextIngress = source.indexOf("\n    ingress", start + 1);
+  const candidates = [nextJob, nextDynamicJob, nextIngress].filter((index) => index !== -1);
+  const end = candidates.length > 0 ? Math.min(...candidates) : source.length;
+  return source.slice(start, end);
+}
+
 function terraformStringList(source, localName) {
   const match = new RegExp(`${localName} = \\[([\\s\\S]*?)\\n  \\]`).exec(source);
   expect(match).not.toBeNull();
@@ -120,6 +132,10 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformOutputs).toContain('output "catalog_asset_public_base_url"');
     expect(platformVariables).not.toContain('variable "catalog_asset_s3_bucket"');
     expect(platformVariables).not.toContain('variable "catalog_asset_public_base_url"');
+
+    const platformBootstrapJob = terraformJobBlock(platformMain, "platform-bootstrap");
+    expect(platformBootstrapJob).toContain('key   = "DEPLOYMENT_ENVIRONMENT"');
+    expect(platformBootstrapJob).toContain("value = var.environment");
   });
 
   it("keeps shared Catalog asset buckets and CDN domains in their own stable root", () => {

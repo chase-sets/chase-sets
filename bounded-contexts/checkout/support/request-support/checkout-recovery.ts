@@ -93,7 +93,7 @@ export function checkoutRecoveryForKind(kind: CheckoutRecoveryKind, currentPath 
     case "checkout-preparing":
       return {
         kind,
-        status: 503,
+        status: 202,
         title: t("checkout.routes.checkoutRecovery.checkout.preparing"),
         description: t("checkout.routes.checkoutRecovery.checkout.preparing.description"),
         trustCue: t("checkout.routes.checkoutSession.payment.has.not.started"),

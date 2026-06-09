@@ -1492,6 +1492,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "DEPLOYMENT_ENVIRONMENT"
+          value = var.environment
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "CATALOG_ASSET_STORAGE_KIND"
           value = "s3"
           scope = "RUN_TIME"

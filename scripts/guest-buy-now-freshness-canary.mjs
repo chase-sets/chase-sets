@@ -21,6 +21,9 @@ const RAW_AFTER_WRITE_PATTERN = /afterWrite=[^&\s")]+/gi;
 const CHECKOUT_SESSION_ID_PATTERN = /\bchk_[0-9A-Za-z_:-]+\b/g;
 const GUEST_COOKIE_PATTERN = /chase_sets_guest_checkout=[^;\s]+/gi;
 const EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const PLATFORM_ERROR_PATTERN = /Error code:\s*(?:502|503|504)|Well,\s*This is unexpected/i;
+const CHECKOUT_STATE_PATTERN =
+  /Continue to payment|Checkout Summary|Payable total|Preparing checkout|Refresh checkout|Checkout session not found|We could not find this checkout session|Error code:\s*(?:502|503|504)|Well,\s*This is unexpected/i;
 
 export function parseGuestBuyNowCanaryArgs(argv, env = process.env) {
   return {
@@ -91,6 +94,13 @@ export function classifyGuestBuyNowObservation(observation) {
       failureReason: "missing-guest-cookie",
     };
   }
+  if (observation.platformErrorVisible || PLATFORM_ERROR_PATTERN.test(observation.pageText ?? "")) {
+    return {
+      finalState: "fail",
+      promotionDecision: "abort",
+      failureReason: "platform-error-page-detected",
+    };
+  }
   if (observation.temporaryRecoveryVisible || /Preparing checkout|Refresh checkout/i.test(observation.pageText ?? "")) {
     return {
       finalState: "temporary",
@@ -133,6 +143,9 @@ export function buildGuestBuyNowCanaryEvidence(input) {
     permanentNotFoundVisible: Boolean(input.observation?.permanentNotFoundVisible),
     temporaryRecoveryVisible: Boolean(input.observation?.temporaryRecoveryVisible),
     checkoutReviewVisible: Boolean(input.observation?.checkoutReviewVisible),
+    platformErrorVisible: Boolean(input.observation?.platformErrorVisible),
+    checkoutDocumentStatus: normalizeHttpStatus(input.observation?.checkoutDocumentStatus),
+    stateWaitOutcome: normalizeStateWaitOutcome(input.observation?.stateWaitOutcome),
     paymentOrOrderSideEffects: "not-attempted",
     redaction: {
       guestEmail: "redacted",
@@ -195,6 +208,20 @@ async function observeGuestBuyNowCheckout(options) {
   const context = await browser.newContext();
   const page = await context.newPage();
   const baseUrl = normalizeUrl(options.baseUrl);
+  const checkoutDocumentStatuses = [];
+  page.on("response", (response) => {
+    if (response.request().resourceType() !== "document") {
+      return;
+    }
+    try {
+      const url = new URL(response.url());
+      if (/\/checkout\/chk_/.test(url.pathname)) {
+        checkoutDocumentStatuses.push(response.status());
+      }
+    } catch {
+      // Ignore non-URL response identifiers from browser internals.
+    }
+  });
 
   try {
     const itemPath = await resolveGuestBuyNowItemPath(options);
@@ -213,6 +240,7 @@ async function observeGuestBuyNowCheckout(options) {
     await page.getByRole("button", { name: /continue as guest/i }).click({ timeout: options.timeoutMs });
     await page.waitForURL(/\/checkout\/chk_/, { timeout: options.timeoutMs });
     await page.waitForLoadState("domcontentloaded", { timeout: options.timeoutMs });
+    const stateWaitOutcome = await waitForKnownCheckoutState(page, options.timeoutMs);
 
     const finalUrl = new URL(page.url());
     const cookies = await context.cookies(baseUrl);
@@ -228,6 +256,9 @@ async function observeGuestBuyNowCheckout(options) {
       permanentNotFoundVisible: /Checkout session not found|We could not find this checkout session/i.test(pageText),
       temporaryRecoveryVisible: /Preparing checkout|Refresh checkout/i.test(pageText),
       checkoutReviewVisible: /Continue to payment|Checkout Summary|Payable total/i.test(pageText),
+      platformErrorVisible: PLATFORM_ERROR_PATTERN.test(pageText),
+      checkoutDocumentStatus: checkoutDocumentStatuses.at(-1) ?? null,
+      stateWaitOutcome,
       waitMode,
       pageText,
     };
@@ -235,6 +266,20 @@ async function observeGuestBuyNowCheckout(options) {
     return observation;
   } finally {
     await browser.close();
+  }
+}
+
+async function waitForKnownCheckoutState(page, timeoutMs) {
+  try {
+    await page.locator("body").waitFor({ state: "visible", timeout: timeoutMs });
+    await page.waitForFunction(
+      (patternSource) => new RegExp(patternSource, "i").test(document.body?.innerText ?? ""),
+      CHECKOUT_STATE_PATTERN.source,
+      { timeout: timeoutMs },
+    );
+    return "matched";
+  } catch {
+    return "timed-out";
   }
 }
 
@@ -330,6 +375,15 @@ function createDiagnosticCorrelationId() {
 
 function normalizeWaitMode(value) {
   return value === "exact-dependency" || value === "target-context" ? value : null;
+}
+
+function normalizeStateWaitOutcome(value) {
+  return value === "matched" || value === "timed-out" ? value : null;
+}
+
+function normalizeHttpStatus(value) {
+  const normalized = Number.parseInt(String(value ?? ""), 10);
+  return Number.isInteger(normalized) && normalized >= 100 && normalized <= 599 ? normalized : null;
 }
 
 function normalizeUrl(value) {

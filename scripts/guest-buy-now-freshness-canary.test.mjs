@@ -82,6 +82,21 @@ describe("guest Buy Now freshness canary", () => {
     ).toBe("missing-guest-cookie");
   });
 
+  it("fails clearly when the platform edge shows a generic error page", () => {
+    expect(
+      classifyGuestBuyNowObservation({
+        afterWritePresent: true,
+        guestCookiePresent: true,
+        platformErrorVisible: true,
+        pageText: "Error code: 503 Well, This is unexpected.",
+      }),
+    ).toEqual({
+      finalState: "fail",
+      promotionDecision: "abort",
+      failureReason: "platform-error-page-detected",
+    });
+  });
+
   it("builds redacted pass evidence without sensitive identifiers", () => {
     const evidence = buildGuestBuyNowCanaryEvidence({
       ...baseOptions,
@@ -91,6 +106,9 @@ describe("guest Buy Now freshness canary", () => {
         afterWritePresent: true,
         guestCookiePresent: true,
         checkoutReviewVisible: true,
+        platformErrorVisible: false,
+        checkoutDocumentStatus: 200,
+        stateWaitOutcome: "matched",
         waitMode: "exact-dependency",
         pageText:
           "Checkout Summary Continue to payment chk_01KTMF9TCCPKGA3J3TYMGGXQ2R afterWrite=raw-token todd.skelton@outlook.com chase_sets_guest_checkout=secret",
@@ -103,6 +121,9 @@ describe("guest Buy Now freshness canary", () => {
       promotionDecision: "promote",
       latencyMs: 1250,
       waitMode: "exact-dependency",
+      platformErrorVisible: false,
+      checkoutDocumentStatus: 200,
+      stateWaitOutcome: "matched",
       diagnosticCorrelationId: "diag-raw--value",
       paymentOrOrderSideEffects: "not-attempted",
       productionFeasibility: PRODUCTION_FEASIBILITY_DECISION,

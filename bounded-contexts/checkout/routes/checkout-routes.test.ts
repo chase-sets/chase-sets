@@ -1812,7 +1812,7 @@ describe("checkout web routes", () => {
       recoveryResponse = error as Response;
     }
 
-    expect(recoveryResponse?.status).toBe(503);
+    expect(recoveryResponse?.status).toBe(202);
     expect(recoveryResponse?.statusText).toBe("Preparing checkout");
     const recoveryText = (await recoveryResponse?.text()) ?? "";
     expect(recoveryText).toContain("getting your checkout ready");
@@ -2687,7 +2687,7 @@ describe("checkout web routes", () => {
       recoveryResponse = error as Response;
     }
 
-    expect(recoveryResponse?.status).toBe(503);
+    expect(recoveryResponse?.status).toBe(202);
     expect(recoveryResponse?.statusText).toBe("Preparing checkout");
     const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
       description?: string;
@@ -2724,7 +2724,7 @@ describe("checkout web routes", () => {
       recoveryResponse = error as Response;
     }
 
-    expect(recoveryResponse?.status).toBe(503);
+    expect(recoveryResponse?.status).toBe(202);
     expect(recoveryResponse?.statusText).toBe("Preparing checkout");
     await expect(recoveryResponse?.text()).resolves.toContain("Refresh checkout");
   });
@@ -2748,7 +2748,7 @@ describe("checkout web routes", () => {
       recoveryResponse = error as Response;
     }
 
-    expect(recoveryResponse?.status).toBe(503);
+    expect(recoveryResponse?.status).toBe(202);
     expect(recoveryResponse?.statusText).toBe("Preparing checkout");
     const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
       primaryAction?: { href?: string; label?: string };
