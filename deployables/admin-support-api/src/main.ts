@@ -65,6 +65,7 @@ const app = buildAdminSupportApiApp(runtime, {
   adminRegistrationEnabled: config.adminRegistrationEnabled,
   controlPlane,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
+  readConsistencyAuditLogger: logger,
   readinessChecks: runtime.mountedContexts.map((entry) => ({
     name: `${entry.contextName}.database`,
     check: async () => {

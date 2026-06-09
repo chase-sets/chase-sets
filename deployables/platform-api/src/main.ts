@@ -384,6 +384,7 @@ const app = buildPlatformApiApp(runtime, {
   internalAuthSecret: config.internalAuthSecret,
   controlPlane,
   getProjectionReplay: () => refreshProjectionReplaySummary(runtime),
+  readConsistencyAuditLogger: logger,
   readinessChecks: [
     {
       name: "control.database",

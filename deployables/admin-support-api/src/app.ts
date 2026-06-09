@@ -6,6 +6,7 @@ import {
   attachReadConsistencyMiddleware,
   attachWriteConsistencyMiddleware,
   mountApiRouters,
+  type ReadConsistencyAuditRecord,
 } from "@chase-sets/bounded-context-runtime";
 import { createHonoObservabilityMiddleware } from "@chase-sets/observability";
 import {
@@ -39,6 +40,9 @@ export type BuildAdminSupportApiOptions = Readonly<{
   adminRegistrationEnabled?: boolean;
   controlPlane?: PlatformControlPlane;
   isDraining?: () => boolean;
+  readConsistencyAuditLogger?: Readonly<{
+    info: (message: string, fields?: Readonly<Record<string, unknown>>) => void;
+  }>;
 }>;
 
 export function createAdminSupportApiHost(options: Parameters<typeof createApiHost>[2]): ApiHostRuntime {
@@ -111,7 +115,12 @@ export function buildAdminSupportApiApp(runtime: ApiHostRuntime, options: BuildA
   );
 
   attachWriteConsistencyMiddleware(app, apiMounts);
-  attachReadConsistencyMiddleware(app, apiMounts, runtime.projectionGroups);
+  attachReadConsistencyMiddleware(app, apiMounts, runtime.projectionGroups, {
+    recordReadConsistencyAudit: options.readConsistencyAuditLogger
+      ? (record: ReadConsistencyAuditRecord) =>
+          options.readConsistencyAuditLogger?.info("Read-after-write freshness evaluated.", record)
+      : undefined,
+  });
   mountApiRouters(app, apiMounts);
 
   return app;
