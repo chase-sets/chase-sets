@@ -1,4 +1,4 @@
-import { readApiErrorCode, recoverFreshWriteReadError } from "@chase-sets/http/responses";
+import { readApiErrorCode, readFreshWriteTokenState, recoverFreshWriteReadError } from "@chase-sets/http/responses";
 import { t } from "@chase-sets/localization";
 import { CheckoutApiError } from "./api-client";
 
@@ -12,6 +12,7 @@ export type CheckoutRecoveryAction = Readonly<{
 export type CheckoutRecoveryKind =
   | "access-required"
   | "cart-empty"
+  | "checkout-handoff-expired"
   | "checkout-preparing"
   | "guest-access-expired"
   | "request-validation"
@@ -97,6 +98,16 @@ export function checkoutRecoveryForKind(kind: CheckoutRecoveryKind, currentPath 
         description: t("checkout.routes.checkoutRecovery.checkout.preparing.description"),
         trustCue: t("checkout.routes.checkoutSession.payment.has.not.started"),
         primaryAction: refreshAction,
+        secondaryAction: browseAction,
+      };
+    case "checkout-handoff-expired":
+      return {
+        kind,
+        status: 410,
+        title: t("checkout.routes.checkoutRecovery.checkout.handoff.expired"),
+        description: t("checkout.routes.checkoutRecovery.checkout.handoff.expired.description"),
+        trustCue: t("checkout.routes.checkoutSession.payment.has.not.started"),
+        primaryAction: cartAction,
         secondaryAction: browseAction,
       };
     case "guest-access-expired":
@@ -198,6 +209,10 @@ export function checkoutRecoveryForFreshWriteError(
   });
   if (freshWriteRecovery) {
     return freshWriteRecovery;
+  }
+
+  if (error.status === 404 && readFreshWriteTokenState(request).kind === "expired") {
+    return checkoutRecoveryForKind("checkout-handoff-expired", currentPath);
   }
 
   return checkoutRecoveryForError(error, actor, currentPath);

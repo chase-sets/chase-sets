@@ -177,7 +177,15 @@ describe("createForwardedAuthFetch", () => {
     expect(receivedInit?.credentials).toBe("include");
     const headers = new Headers(receivedInit?.headers);
     expect(headers.get("cookie")).toBe("guest=guest_1");
-    expect(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER)).toBeTruthy();
+    expect(decodeFreshWriteReceipt(headers.get(CHASE_SETS_READ_AFTER_WRITE_HEADER))).toMatchObject({
+      sources: [
+        {
+          sourceContextName: "checkout",
+          maxGlobalPosition: "9",
+          eventIds: ["evt_checkout"],
+        },
+      ],
+    });
     expect(headers.get(CHASE_SETS_READ_TARGET_CONTEXT_HEADER)).toBe("checkout");
   });
 });
