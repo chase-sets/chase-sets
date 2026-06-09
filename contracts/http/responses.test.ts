@@ -183,6 +183,19 @@ describe("response consistency metadata", () => {
       status: 503,
       errorCode: "projection_freshness_timeout",
     });
+
+    expect(
+      classifyFreshWriteReadError({
+        request: href,
+        error: { status: 504, body: null },
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "transient-gateway-timeout",
+      transient: true,
+      status: 504,
+      errorCode: null,
+    });
   });
 
   it("classifies manual, malformed, and expired not-found reads as permanent", () => {
@@ -242,6 +255,19 @@ describe("response consistency metadata", () => {
       transient: false,
       status: 503,
       errorCode: "provider_failed",
+    });
+
+    expect(
+      classifyFreshWriteReadError({
+        request: "/checkout/chk_1",
+        error: { status: 504, body: null },
+        nowMs: 1,
+      }),
+    ).toMatchObject({
+      kind: "not-fresh-write",
+      transient: false,
+      status: 504,
+      errorCode: null,
     });
   });
 

@@ -118,6 +118,7 @@ export type FreshWriteTokenState =
 export type FreshWriteReadErrorKind =
   | "transient-not-found"
   | "transient-projection-timeout"
+  | "transient-gateway-timeout"
   | "permanent-not-found"
   | "not-fresh-write"
   | "fresh-write-unhandled";
@@ -527,6 +528,16 @@ export function classifyFreshWriteReadError(
   if (status === 503 && errorCode === "projection_freshness_timeout") {
     return {
       kind: "transient-projection-timeout",
+      transient: true,
+      receipt,
+      status,
+      errorCode,
+    };
+  }
+
+  if ((status === 502 || status === 503 || status === 504) && !errorCode) {
+    return {
+      kind: "transient-gateway-timeout",
       transient: true,
       receipt,
       status,

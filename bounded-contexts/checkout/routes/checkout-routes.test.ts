@@ -2729,6 +2729,36 @@ describe("checkout web routes", () => {
     await expect(recoveryResponse?.text()).resolves.toContain("Refresh checkout");
   });
 
+  it("returns temporary recovery when a fresh checkout handoff hits an opaque gateway timeout", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getCheckoutSession: vi.fn(async () => {
+        throw new MockCheckoutApiError(504, null);
+      }),
+    });
+
+    let recoveryResponse: Response | null = null;
+    try {
+      await checkoutSessionLoader({
+        request: freshCheckoutRequest(),
+        params: { sessionId: "chk_1" },
+        context: undefined,
+      } as never);
+    } catch (error) {
+      recoveryResponse = error as Response;
+    }
+
+    expect(recoveryResponse?.status).toBe(503);
+    expect(recoveryResponse?.statusText).toBe("Preparing checkout");
+    const recoveryBody = JSON.parse((await recoveryResponse?.text()) ?? "{}") as {
+      primaryAction?: { href?: string; label?: string };
+      trustCue?: string;
+    };
+    expect(recoveryBody.primaryAction?.href).toContain("/checkout/chk_1?afterWrite=");
+    expect(recoveryBody.primaryAction?.label).toBe("Refresh checkout");
+    expect(recoveryBody.trustCue).toBe("Your payment has not started.");
+  });
+
   it("retries a fresh checkout handoff until the session read model appears", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
     const getCheckoutSession = vi
