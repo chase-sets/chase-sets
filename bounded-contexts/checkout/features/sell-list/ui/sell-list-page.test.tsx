@@ -38,23 +38,118 @@ const productLine: CheckoutSellListLineRow = {
 };
 
 describe("checkout sell list page", () => {
-  it("presents sell list review as checkout-owned seller execution", () => {
-    const markup = renderToString(<CheckoutSellListPage sellListLines={[selectedOfferLine, productLine]} />);
+  it("renders a simple seller review with readiness and payout before checkout", () => {
+    const markup = renderToString(
+      <CheckoutSellListPage
+        sellListLines={[selectedOfferLine, productLine]}
+        payoutReadiness={{ status: "ready", missing_requirements: [] }}
+        offerReviews={[
+          {
+            lineId: "sll_offer",
+            status: "ready",
+            terms: {
+              marketplace_sales_fee_unit_amount: "35.00",
+              seller_net_unit_amount: "315.00",
+              shipping_allowance_percentage_bps: 0,
+              fee_quote_fingerprint: "fee_selected",
+            },
+            message: null,
+          },
+        ]}
+        productOfferReviews={[
+          {
+            lineId: "sll_product",
+            status: "ready",
+            offers: [
+              {
+                offer: {
+                  offer_id: "off_blastoise",
+                  buyer_display_name: "Misty",
+                  buyer_account_id: "acc_misty",
+                  price_amount: "410.00",
+                  quantity_requested: 1,
+                  offer_to_listing_price_bps: 10200,
+                  can_fulfill: true,
+                },
+                terms: {
+                  marketplace_sales_fee_unit_amount: "41.00",
+                  seller_net_unit_amount: "369.00",
+                  fee_quote_fingerprint: "fee_product",
+                },
+              },
+            ],
+            message: null,
+          },
+        ]}
+        inventoryItems={[
+          {
+            item_id: "inv_blastoise",
+            product_id: productLine.product_id,
+            item_title: "Blastoise",
+            product_summary: "Raw / Near Mint",
+            storage_location_name: "Home Vault",
+            ship_from_code: "KS",
+            available_quantity: 1,
+          },
+        ]}
+      />,
+    );
 
     expect(markup).toContain("Sell List");
-    expect(markup).toContain("Buyer payment already authorized by offer");
-    expect(markup).toContain("Selected offers");
+    expect(markup).toContain("Review cards, payout readiness, and pre-checkout sale actions before seller checkout.");
+    expect(markup).toContain("Ready for seller checkout");
+    expect(markup).toContain("Review items");
+    expect(markup).toContain("Selected offer");
+    expect(markup).toContain("Product");
     expect(markup).toContain("Ash Ketchum");
-    expect(markup).toContain("Accept selected offer during checkout review");
-    expect(markup).toContain("Sale checkout confidence");
+    expect(markup).toContain("Use Misty offer");
+    expect(markup).toContain("Expected seller payout");
+    expect(markup).toContain("$999.00");
     expect(markup).toContain("Payout readiness");
-    expect(markup).toContain("Selected offer seller net");
-    expect(markup).toContain("Smart Match seller net");
-    expect(markup).toContain("Future listing gross");
-    expect(markup).toContain("Committed seller payout");
-    expect(markup).toContain("Smart Match offers for");
-    expect(markup).toContain("Checkout owns the review step");
-    expect(markup).toContain("Execute sale checkout");
+    expect(markup).toContain("Line readiness");
+    expect(markup).toContain("Continue to seller checkout");
+    expect(markup).toContain('id="sell-list-checkout-form"');
+    expect(markup).toContain('name="offerFeeQuoteFingerprint:sll_offer"');
+    expect(markup).toContain('name="productOfferFeeQuoteFingerprint:sll_product:off_blastoise"');
+    expect(markup).not.toContain("Execute sale checkout");
+    expect(markup).not.toContain("Smart Match settings");
+    expect(markup).not.toContain("Checkout owns the review step");
+    expect(markup).not.toContain(">Execution<");
+  });
+
+  it("blocks seller checkout when payout or line readiness is unresolved", () => {
+    const blockedProductLine: CheckoutSellListLineRow = {
+      ...productLine,
+      fallback_mode: "none",
+      minimum_listing_price_amount: null,
+    };
+
+    const markup = renderToString(
+      <CheckoutSellListPage
+        sellListLines={[blockedProductLine]}
+        payoutReadiness={{ status: "restricted", missing_requirements: ["bank account"] }}
+        productOfferReviews={[
+          {
+            lineId: "sll_product",
+            status: "unavailable",
+            offers: [],
+            message: "No ready matching offers are currently available.",
+          },
+        ]}
+      />,
+    );
+
+    expect(markup).toContain("Some items need action");
+    expect(markup).toContain("Resolve 1 line(s) before seller checkout starts.");
+    expect(markup).toContain("Payout setup required");
+    expect(markup).toContain("bank account");
+    expect(markup).toContain("No ready Smart Match offers are available for this line.");
+    expect(markup).toContain("Resolve items");
+    expect(markup).toContain('href="/checkout/sell/readiness"');
+    expect(markup).toContain("disabled");
+    expect(markup).not.toContain("Continue sale checkout to safely resume");
+    expect(markup).not.toContain("provider diagnostics");
+    expect(markup).not.toContain("settlement internals");
   });
 
   it("confirms when sale checkout review is recorded", () => {
@@ -62,5 +157,15 @@ describe("checkout sell list page", () => {
 
     expect(markup).toContain("Sale checkout review recorded");
     expect(markup).toContain("cleared the Sell List items");
+  });
+
+  it("shows a simple empty Sell List recovery state", () => {
+    const markup = renderToString(<CheckoutSellListPage sellListLines={[]} />);
+
+    expect(markup).toContain("Your Sell List is empty");
+    expect(markup).toContain("Add selected offers or products");
+    expect(markup).toContain("Browse products");
+    expect(markup).not.toContain("Expected seller payout");
+    expect(markup).not.toContain("Continue to seller checkout");
   });
 });
