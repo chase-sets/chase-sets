@@ -29,6 +29,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [UCP Agent Commerce](./architecture/ucp-agent-commerce.md): Universal Commerce Protocol facade, REST/MCP surfaces, and bounded-context ownership.
 - [ADR 0007: Google Shopping Merchant Center Integration](./adr/0007-google-shopping-merchant-center-integration.md): Merchant account posture, feed ownership, export projection, and launch exclusions.
 - [ADR 0008: Admin Shell And IA Model](./adr/0008-admin-shell-and-ia-model.md): admin section taxonomy, Commercial Terms placement, shell navigation model, operations authorization, root hub, and admin page primitive direction.
+- [ADR 0009: Targeted Projection Catchup](./adr/0009-targeted-projection-catchup.md): no-go decision for route-time projection catchup, baseline freshness contract, and reopening criteria.
 - [Checkout Fresh-State Route Strategy](../bounded-contexts/checkout/docs/fresh-state-route-strategy.md): Shopify-simple checkout route map, legacy route disposition, readiness guardrails, and kill-switch behavior.
 - [Checkout Fresh Session Contracts](../bounded-contexts/checkout/docs/fresh-checkout-session-contracts.md): Milestone #17 buy/sell checkout snapshot, commands, state machine, idempotency, guest merge, and fresh-state compatibility rules.
 - [Checkout Session Projection Performance](../bounded-contexts/checkout/docs/checkout-session-projection-performance.md): guest Buy Now checkout freshness path, supporting indexes, projection transaction behavior, and remaining platform evidence gates.
@@ -146,6 +147,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0006: Stripe Connect Custom Account Experience](./adr/0006-stripe-connect-custom-account-experience.md)
 - [ADR 0007: Google Shopping Merchant Center Integration](./adr/0007-google-shopping-merchant-center-integration.md)
 - [ADR 0008: Admin Shell And IA Model](./adr/0008-admin-shell-and-ia-model.md)
+- [ADR 0009: Targeted Projection Catchup](./adr/0009-targeted-projection-catchup.md)
 
 ## Maintenance
 
