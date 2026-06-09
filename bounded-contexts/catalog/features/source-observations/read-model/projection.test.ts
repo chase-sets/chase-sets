@@ -60,9 +60,9 @@ describe("Source Observation projections", () => {
       "hash",
       null,
       "2026-05-28T14:04:00.000Z",
-      "legacy",
-      "legacy",
-      "legacy",
+      "pokemon-tcg",
+      "2026.06.03",
+      "mapping-fingerprint",
       JSON.stringify(normalized),
       JSON.stringify({ id: "base1-43" }),
       "promoted",
@@ -93,9 +93,30 @@ describe("Source Observation projections", () => {
     expect(query.mock.calls[0]?.[0]).not.toContain("promoted_catalog_item_id = EXCLUDED.promoted_catalog_item_id");
     expect(query.mock.calls[0]?.[1]?.[13]).toBe("changed");
   });
+
+  it("rejects retired legacy source profile markers instead of projecting fallback metadata", async () => {
+    const query = vi.fn(async (_sql: string, _params?: readonly unknown[]) => ({ rows: [] }));
+    const handlers = buildSourceObservationProjectionHandlers({ query });
+
+    await expect(
+      handlers["catalog.source-observation.changed"]?.({
+        streamId: "catalog.source-observation-tcgdex_en_base1_043",
+        data: observationData({ sourceProfileVersion: "legacy" }),
+        timing: { recordedAt: "2026-05-28T14:05:00.000Z" },
+      } as never),
+    ).rejects.toThrow("Source observation source profile version cannot use the retired legacy marker.");
+    expect(query).not.toHaveBeenCalled();
+  });
 });
 
-function observationData(overrides: Partial<{ sourceRecordHash: string }> = {}) {
+function observationData(
+  overrides: Partial<{
+    sourceRecordHash: string;
+    sourceProfileKey: string;
+    sourceProfileVersion: string;
+    sourceMappingFingerprint: string;
+  }> = {},
+) {
   return {
     observationId: "tcgdex_en_base1_043",
     providerKey: "tcgdex",
@@ -105,6 +126,9 @@ function observationData(overrides: Partial<{ sourceRecordHash: string }> = {}) 
     sourceRecordHash: "hash",
     sourceUpdatedAt: null,
     observedAt: "2026-05-28T14:04:00.000Z",
+    sourceProfileKey: "pokemon-tcg",
+    sourceProfileVersion: "2026.06.03",
+    sourceMappingFingerprint: "mapping-fingerprint",
     normalized,
     sourcePayload: { id: "base1-43" },
     ...overrides,

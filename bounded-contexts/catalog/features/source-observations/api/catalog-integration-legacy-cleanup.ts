@@ -214,18 +214,7 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
   },
 ] as const;
 
-export const catalogIntegrationRetainedLegacyPaths: readonly CatalogIntegrationRetainedLegacyPath[] = [
-  {
-    key: "legacy-source-observation-profile-marker-read",
-    ownerIssue: 804,
-    owner: "catalog-source-observations",
-    reason:
-      "Retained only so intentionally preserved Source Observation rows can be detected, reported, and reset before launch.",
-    removalDate: "2026-06-30",
-    removalCriteria: "Remove once production has launched with zero legacy Source Observation profile references.",
-    launchGate: "Release verification query for legacy_source_observation_references returns zero.",
-  },
-] as const;
+export const catalogIntegrationRetainedLegacyPaths: readonly CatalogIntegrationRetainedLegacyPath[] = [] as const;
 
 export function evaluateCatalogIntegrationLegacyCleanupReadiness(
   input: CatalogIntegrationLegacyCleanupReadinessInput,

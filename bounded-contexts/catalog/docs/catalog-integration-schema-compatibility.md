@@ -53,9 +53,9 @@ Compatibility is required for:
 | Diagnostic record | `catalog-integration-diagnostic-v1` | code, severity, blocking behavior, visibility | launched contract | read old, write current |
 | Fixture contract | `catalog-fixture-contract-v1` | fixture set version, required flows, profile version | resettable pre-launch | read old, write current |
 | Admin Control Plane read model | `catalog-admin-control-plane-read-model-v1` | query key, unit key, generated timestamp | launched contract | projection can lag |
-| Source Observation record | `catalog-source-observation-record-v1` | provider key, source profile version, source mapping fingerprint, promotion profile version | retain when referenced | read old, write current |
-| Integration durable job | `catalog-integration-durable-job-v1` | job kind, action, profile snapshot, reapply profile mode | retain when referenced | snapshot at enqueue |
-| Integration work unit | `catalog-integration-work-unit-v1` | job ID, unit ID, profile snapshot, reapply profile mode | retain when referenced | snapshot at enqueue |
+| Source Observation record | `catalog-source-observation-record-v1` | provider key, source profile version, source mapping fingerprint, promotion profile version | reset/drop when markers are missing or `legacy` | require explicit profile metadata |
+| Integration durable job | `catalog-integration-durable-job-v1` | job kind, action, profile snapshot, reapply profile mode | reset/drop when reapply profile mode or snapshot metadata is missing | snapshot at enqueue |
+| Integration work unit | `catalog-integration-work-unit-v1` | job ID, unit ID, profile snapshot, reapply profile mode | reset/drop when reapply profile mode or snapshot metadata is missing | snapshot at enqueue |
 | Audit/evidence record | `catalog-audit-evidence-record-v1` | event name, provider key, profile version, related job, related observation | launched contract | projection can lag |
 
 ## Rules By Surface
@@ -68,7 +68,7 @@ Provider Integration Profile versions remain readable while referenced by Source
 
 Executable mapping contract changes are semantic compatibility changes when they alter Source Observation external keys, source hash material, selected Options, external references, Reference Record targets, duplicate-prevention order, or promotion command plans. Activation requires migration evidence when the mapping fingerprint changes in a breaking way.
 
-Durable integration jobs and work units snapshot profile identity at enqueue time. Worker/API deploy skew must not switch a queued job to a newer active profile. Additive payload or result fields must tolerate older queued jobs and older worker code during a rolling deployment.
+Durable integration jobs and work units snapshot profile identity at enqueue time. Worker/API deploy skew must not switch a queued job to a newer active profile. Reapply jobs without `reapplyProfileMode` or profile snapshot metadata are pre-launch cleanup data and must be reset/dropped instead of defaulting to `original-source-profile`.
 
 Admin read models evolve additively. They must expose stale, degraded, empty, or blocked states instead of forcing UI modules to parse profile JSON, job payload JSON, or provider-specific snapshots.
 
@@ -93,7 +93,7 @@ Use compatibility adapters or migrations only when at least one of these is true
 
 The pre-launch reset mode deletes integration jobs, work units, Source Observations, learned provider option rate limits, and non-admin-authored provider profile versions, then rebuilds seeded profile versions and section projections. Active jobs block reset unless an operator records an explicit forced pre-launch wipe decision.
 
-The launch cleanup inventory additionally requires every retained legacy Source Observation marker read or retained prelaunch path to be named in the retained-path table. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`.
+The #804 launch cleanup inventory additionally requires every temporary transitional static profile or broad profile patch route to be named in the cleanup table with a complete-removal launch gate. Legacy Source Observation marker reads are not retained paths; they are reset/drop verification only. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`; broad raw profile patching remains quarantined under #789 until it is completely removed or replaced by a named supported workflow.
 
 ## Test Expectations
 

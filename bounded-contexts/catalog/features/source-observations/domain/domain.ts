@@ -146,9 +146,9 @@ export const initialSourceObservationState: SourceObservationState = {
   sourceRecordHash: "",
   sourceUpdatedAt: null,
   observedAt: null,
-  sourceProfileKey: "legacy",
-  sourceProfileVersion: "legacy",
-  sourceMappingFingerprint: "legacy",
+  sourceProfileKey: "",
+  sourceProfileVersion: "",
+  sourceMappingFingerprint: "",
   normalized: null,
   sourcePayload: null,
   status: "observed",
@@ -286,6 +286,9 @@ export const decideSourceObservation: AggregateDecider<
         command.sourceMappingFingerprint.trim().length > 0,
         "Source observations require a source mapping fingerprint.",
       );
+      assertLaunchProfileMarker(command.sourceProfileKey, "Source observation source profile key");
+      assertLaunchProfileMarker(command.sourceProfileVersion, "Source observation source profile version");
+      assertLaunchProfileMarker(command.sourceMappingFingerprint, "Source observation source mapping fingerprint");
 
       if (state.id !== null) {
         if (
@@ -339,6 +342,9 @@ export const decideSourceObservation: AggregateDecider<
       assert(command.promotionProfileKey.trim().length > 0, "Promotion requires a profile key.");
       assert(command.promotionProfileVersion.trim().length > 0, "Promotion requires a profile version.");
       assert(command.promotionPlanFingerprint.trim().length > 0, "Promotion requires a plan fingerprint.");
+      assertLaunchProfileMarker(command.promotionProfileKey, "Promotion profile key");
+      assertLaunchProfileMarker(command.promotionProfileVersion, "Promotion profile version");
+      assertLaunchProfileMarker(command.promotionPlanFingerprint, "Promotion plan fingerprint");
 
       return [
         {
@@ -358,6 +364,9 @@ export const decideSourceObservation: AggregateDecider<
       assert(command.promotionProfileKey.trim().length > 0, "Promotion plan requires a profile key.");
       assert(command.promotionProfileVersion.trim().length > 0, "Promotion plan requires a profile version.");
       assert(command.promotionPlanFingerprint.trim().length > 0, "Promotion plan requires a fingerprint.");
+      assertLaunchProfileMarker(command.promotionProfileKey, "Promotion plan profile key");
+      assertLaunchProfileMarker(command.promotionProfileVersion, "Promotion plan profile version");
+      assertLaunchProfileMarker(command.promotionPlanFingerprint, "Promotion plan fingerprint");
 
       return [
         {
@@ -515,27 +524,38 @@ function recordEventData(command: RecordSourceObservationCommand): SourceObserva
 }
 
 function sourceProfileKeyFromEvent(data: { sourceProfileKey?: string }): string {
-  return data.sourceProfileKey?.trim().toLowerCase() || "legacy";
+  return requireLaunchProfileMarker(data.sourceProfileKey, "Source observation source profile key").toLowerCase();
 }
 
 function sourceProfileVersionFromEvent(data: { sourceProfileVersion?: string }): string {
-  return data.sourceProfileVersion?.trim() || "legacy";
+  return requireLaunchProfileMarker(data.sourceProfileVersion, "Source observation source profile version");
 }
 
 function sourceMappingFingerprintFromEvent(data: { sourceMappingFingerprint?: string }): string {
-  return data.sourceMappingFingerprint?.trim() || "legacy";
+  return requireLaunchProfileMarker(data.sourceMappingFingerprint, "Source observation source mapping fingerprint");
 }
 
 function promotionProfileKeyFromEvent(data: { promotionProfileKey?: string }): string {
-  return data.promotionProfileKey?.trim().toLowerCase() || "legacy";
+  return requireLaunchProfileMarker(data.promotionProfileKey, "Promotion profile key").toLowerCase();
 }
 
 function promotionProfileVersionFromEvent(data: { promotionProfileVersion?: string }): string {
-  return data.promotionProfileVersion?.trim() || "legacy";
+  return requireLaunchProfileMarker(data.promotionProfileVersion, "Promotion profile version");
 }
 
 function promotionPlanFingerprintFromEvent(data: { promotionPlanFingerprint?: string }): string {
-  return data.promotionPlanFingerprint?.trim() || "legacy";
+  return requireLaunchProfileMarker(data.promotionPlanFingerprint, "Promotion plan fingerprint");
+}
+
+function assertLaunchProfileMarker(value: string, label: string): void {
+  requireLaunchProfileMarker(value, label);
+}
+
+function requireLaunchProfileMarker(value: string | null | undefined, label: string): string {
+  const marker = value?.trim();
+  assert(marker !== undefined && marker.length > 0, `${label} is required.`);
+  assert(marker.toLowerCase() !== "legacy", `${label} cannot use the retired legacy marker.`);
+  return marker;
 }
 
 function normalizeKey(value: string): string {

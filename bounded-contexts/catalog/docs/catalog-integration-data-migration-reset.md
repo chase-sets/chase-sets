@@ -48,6 +48,7 @@ Backfill is required only when retained data remains:
 
 - Profile section projections: rebuild section rows, fingerprints, validation status, and diagnostics from every retained or seeded profile version.
 - Source Observation profile references: retained observations must carry non-legacy `source_profile_version`, `source_mapping_fingerprint`, and `promotion_profile_version` when promoted.
+- Runtime promotion/reapply treats missing or `legacy` Source Observation profile metadata as blocked cleanup data; it does not fall back to an active provider profile.
 - Durable job profile snapshots: retained jobs and work units must keep snapshotted profile identity readable through deploy skew.
 - Fixture contracts: retained fixture metadata stays with provider profile versions; fixture payload retention must follow [Catalog Integration Data Governance](./catalog-integration-data-governance.md).
 

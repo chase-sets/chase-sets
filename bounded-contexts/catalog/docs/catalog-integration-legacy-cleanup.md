@@ -6,13 +6,7 @@ Catalog owns removal of pre-launch Catalog Integration Control Plane data and co
 
 The control plane has not launched. Prefer wipe and rebuild over backwards compatibility for unlaunched integration data.
 
-Retain a legacy path only when it has:
-
-- owner
-- reason
-- removal date
-- removal criteria
-- launch gate
+Retire means complete removal of code, runtime behavior, tests, fixtures, docs, runbooks, and operator instructions. Legacy Source Observation profile markers may remain only as reset/drop detection data before #792/#804 cleanup runs; they are not retained runtime compatibility paths and must not power promotion or reapply fallback behavior.
 
 The typed inventory lives in:
 
@@ -38,11 +32,14 @@ Seeded Provider Integration Profile versions are intentional bootstrap data. Adm
 
 | Path | Owner issue | Removal date | Launch gate |
 | --- | --- | --- | --- |
-| Legacy Source Observation profile marker reads | #804 | 2026-06-30 | `legacy_source_observation_references` returns zero after reset. |
+| Transitional static profile compatibility | #804 | 2026-06-30 | No `transitional-static-profile` code, rows, tests, fixtures, docs, runbooks, or operator instructions remain at launch. |
+| Broad Provider Integration Profile patch route | #789 | 2026-06-30 | Broad raw patch code, controls, tests, docs, runbooks, and operator instructions are removed or replaced by a named supported workflow. |
 
-These paths are compatibility exceptions, not normal authoring workflows. Adding a new retained path requires updating the typed inventory, this document, and focused tests.
+These paths are temporary pre-launch exceptions, not normal authoring workflows. Retiring one means completely deleting its code, runtime behavior, tests, fixtures, docs, runbooks, and operator instructions. Adding a new retained path requires updating the typed inventory, this document, and focused tests.
 
-## Profile Authoring Contract
+Legacy Source Observation profile marker reads are deliberately excluded from retained legacy paths. They are verification queries for destructive cleanup only; runtime code must fail closed instead of treating missing or `legacy` source profile metadata as active-profile fallback.
+
+## Raw JSON Quarantine
 
 Normal operators should not edit raw profile JSON. Supported authoring goes through section-scoped typed commands and the provider profile section registry. Migration evidence is a normal operator workflow and saves through the `migration-evidence` section command.
 
@@ -55,7 +52,7 @@ After reset and bootstrap:
 - Source Observations are empty until re-imported
 - integration jobs, bulk review jobs, and work units are empty
 - provider option rate-limit cache rows are empty
-- legacy Source Observation profile references are zero
+- legacy Source Observation profile references are zero and no runtime fallback consumes them
 - editable section metadata reports `rawJsonBacked=false`
 
 ## Release Checklist
@@ -64,7 +61,7 @@ Use the release checklist from `catalogIntegrationLegacyCleanupReleaseChecklist`
 
 1. Run the pre-launch wipe/rebuild reset and keep the before/after verification report with release evidence.
 2. Verify Source Observations, integration jobs, bulk review jobs, work units, and learned provider rate limits are empty.
-3. Verify legacy Source Observation profile references are zero.
+3. Verify legacy Source Observation profile references are zero and promotion/reapply tests fail closed when legacy markers are present.
 4. Verify seeded active TCGdex, TCGplayer, and Scrydex profile versions are present after bootstrap.
 5. Verify profile section projections and diagnostics rebuilt from retained or seeded profile versions.
 6. Verify every editable Provider Integration Profile section reports `rawJsonBacked=false`.

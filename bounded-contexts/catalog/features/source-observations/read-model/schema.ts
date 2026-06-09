@@ -10,9 +10,9 @@ export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS cat
   source_record_hash text NOT NULL,
   source_updated_at timestamptz NULL,
   observed_at timestamptz NOT NULL,
-  source_profile_key text NOT NULL DEFAULT 'legacy',
-  source_profile_version text NOT NULL DEFAULT 'legacy',
-  source_mapping_fingerprint text NOT NULL DEFAULT 'legacy',
+  source_profile_key text NOT NULL,
+  source_profile_version text NOT NULL,
+  source_mapping_fingerprint text NOT NULL,
   normalized jsonb NOT NULL,
   source_payload jsonb NOT NULL,
   status text NOT NULL DEFAULT 'observed',
@@ -27,12 +27,20 @@ export const catalogSourceObservationSchemaSql = `CREATE TABLE IF NOT EXISTS cat
 );
 
 ALTER TABLE catalog_source_observations
-  ADD COLUMN IF NOT EXISTS source_profile_key text NOT NULL DEFAULT 'legacy',
-  ADD COLUMN IF NOT EXISTS source_profile_version text NOT NULL DEFAULT 'legacy',
-  ADD COLUMN IF NOT EXISTS source_mapping_fingerprint text NOT NULL DEFAULT 'legacy',
+  ADD COLUMN IF NOT EXISTS source_profile_key text,
+  ADD COLUMN IF NOT EXISTS source_profile_version text,
+  ADD COLUMN IF NOT EXISTS source_mapping_fingerprint text,
   ADD COLUMN IF NOT EXISTS promotion_profile_key text NULL,
   ADD COLUMN IF NOT EXISTS promotion_profile_version text NULL,
   ADD COLUMN IF NOT EXISTS promotion_plan_fingerprint text NULL;
+
+ALTER TABLE catalog_source_observations
+  ALTER COLUMN source_profile_key DROP DEFAULT,
+  ALTER COLUMN source_profile_key SET NOT NULL,
+  ALTER COLUMN source_profile_version DROP DEFAULT,
+  ALTER COLUMN source_profile_version SET NOT NULL,
+  ALTER COLUMN source_mapping_fingerprint DROP DEFAULT,
+  ALTER COLUMN source_mapping_fingerprint SET NOT NULL;
 
 CREATE INDEX IF NOT EXISTS catalog_source_observations_provider_idx
   ON catalog_source_observations (provider_key, language_code);
