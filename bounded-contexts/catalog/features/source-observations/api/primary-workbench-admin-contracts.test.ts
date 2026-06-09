@@ -1,0 +1,442 @@
+import { describe, expect, it } from "vitest";
+import {
+  assertCatalogPrimaryWorkbenchActionState,
+  assertCatalogPrimaryWorkbenchBlockerCategory,
+  catalogPrimaryWorkbenchActions,
+  catalogPrimaryWorkbenchBlockers,
+  catalogPrimaryWorkbenchContractVersion,
+  catalogPrimaryWorkbenchDeploySkewPolicies,
+  catalogPrimaryWorkbenchDownstreamContracts,
+  catalogPrimaryWorkbenchInstrumentationDimensions,
+  catalogPrimaryWorkbenchRetirementPolicy,
+  catalogPrimaryWorkbenchSections,
+  validateCatalogPrimaryWorkbenchReadModelContract,
+  type CatalogPrimaryWorkbenchBlockerCategory,
+  type CatalogPrimaryWorkbenchReadModel,
+  type CatalogPrimaryWorkbenchSectionKey,
+} from "./primary-workbench-admin-contracts";
+
+describe("Catalog primary workbench admin contracts", () => {
+  it("defines the Stage 2 import-to-promotion workbench sections in primary-path order", () => {
+    const expectedSections: readonly CatalogPrimaryWorkbenchSectionKey[] = [
+      "provider-scope-selection",
+      "readiness",
+      "import-jobs",
+      "source-observation-review",
+      "promotion-preview",
+      "promotion-result",
+      "supporting-evidence",
+    ];
+
+    expect(catalogPrimaryWorkbenchSections.map((section) => section.key)).toEqual(expectedSections);
+    expect(catalogPrimaryWorkbenchSections.slice(0, 6).every((section) => section.defaultVisible)).toBe(true);
+    expect(catalogPrimaryWorkbenchSections.at(-1)).toMatchObject({
+      key: "supporting-evidence",
+      defaultVisible: false,
+    });
+  });
+
+  it("composes the existing generic Admin query keys needed by #1060 without provider-specific branches", () => {
+    const allQueryKeys = new Set(catalogPrimaryWorkbenchSections.flatMap((section) => section.queryKeys));
+
+    expect(allQueryKeys).toEqual(
+      new Set([
+        "integration-health-summary",
+        "provider-transport-readiness-summary",
+        "active-profile-version-summary",
+        "profile-section-status-summary",
+        "fixture-validation-summary",
+        "activation-readiness-summary",
+        "adapter-transport-diagnostics",
+        "import-job-progress-summary",
+        "source-observation-review-query",
+        "promotion-plan-preview",
+        "audit-evidence-timeline",
+        "dry-run-evidence-summary",
+        "semantic-version-comparison",
+        "replay-reapply-impact-summary",
+        "rollback-retirement-impact-summary",
+      ]),
+    );
+
+    for (const section of catalogPrimaryWorkbenchSections) {
+      expect(section.key).not.toMatch(/tcgdex|tcgplayer|scryfall|mtg|pokemon|integrations-page/i);
+      expect(section.queryKeys.join(" ")).not.toMatch(/tcgdex|tcgplayer|scryfall|mtg|pokemon/i);
+    }
+  });
+
+  it("pins explicit blocker categories instead of generic disabled booleans", () => {
+    const requiredBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[] = [
+      "permission-denied",
+      "authorization-denied",
+      "rollout-disabled",
+      "kill-switch-active",
+      "rbac-missing",
+      "active-job-conflict",
+      "concurrent-job",
+      "missing-active-profile",
+      "missing-fixture-coverage",
+      "provider-credential-missing",
+      "provider-credential-invalid",
+      "provider-transport-rate-limited",
+      "provider-transport-throttled",
+      "provider-transport-quota-exceeded",
+      "provider-transport-timeout",
+      "provider-transport-pagination-failure",
+      "provider-transport-partial-data",
+      "provider-transport-stale-cache",
+      "provider-transport-degraded",
+      "source-projection-stale",
+      "promotion-conflict",
+      "stale-promotion-preview",
+      "idempotency-replay",
+      "security-privacy-blocked",
+      "deploy-skew-unsupported-version",
+      "raw-json-retired",
+      "legacy-selector-retired",
+    ];
+    const categories = catalogPrimaryWorkbenchBlockers.map((blocker) => blocker.category);
+
+    for (const blocker of requiredBlockers) {
+      expect(categories).toContain(blocker);
+    }
+    for (const blocker of catalogPrimaryWorkbenchBlockers) {
+      expect(blocker.failClosed).toBe(true);
+      expect(blocker.copyKey).toMatch(/^catalog\.primary\./);
+      expect(blocker.instrumentationDimension).toBe("blocker_category");
+      expect(blocker.category).not.toBe("disabled");
+    }
+  });
+
+  it("fails closed for unknown blocker categories, action states, and missing security fields", () => {
+    expect(() => assertCatalogPrimaryWorkbenchBlockerCategory("provider-is-sad")).toThrow(
+      "Unknown primary workbench blocker category 'provider-is-sad' must fail closed.",
+    );
+    expect(() => assertCatalogPrimaryWorkbenchActionState("maybe")).toThrow(
+      "Unknown primary workbench action state 'maybe' must fail closed.",
+    );
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract({
+        schemaVersion: catalogPrimaryWorkbenchContractVersion,
+        routeContext: {
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          importScope: "changed",
+          profileVersion: "2026.06.04",
+          sourceObservationFilters: {},
+          selectedObservationIds: [],
+          jobId: null,
+          promotionPreviewId: null,
+          returnPath: "/admin/catalog/primary-workbench",
+        },
+        deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
+        instrumentation: {
+          dimensions: catalogPrimaryWorkbenchInstrumentationDimensions,
+          redactionSafe: true,
+        },
+      }),
+    ).toThrow("Primary workbench security/privacy fields are required and must fail closed when missing.");
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract({
+        schemaVersion: catalogPrimaryWorkbenchContractVersion,
+        routeContext: {
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          importScope: "changed",
+          profileVersion: "2026.06.04",
+          sourceObservationFilters: {},
+          selectedObservationIds: [],
+          jobId: null,
+          promotionPreviewId: null,
+          returnPath: "/admin/catalog/primary-workbench",
+        },
+        readiness: {
+          freshness: "fresh",
+          blockers: ["provider-is-sad" as never],
+          providerTransport: [],
+          rolloutEnabled: true,
+          rbacAllowed: true,
+          auditEvidenceUrl: null,
+        },
+        deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
+        securityPrivacy: {
+          redactionApplied: true,
+          governedDataClasses: [],
+          unsafeEvidenceBlocked: false,
+          missingSecurityFieldsBlocker: "security-privacy-blocked",
+        },
+        instrumentation: {
+          dimensions: catalogPrimaryWorkbenchInstrumentationDimensions,
+          redactionSafe: true,
+        },
+      }),
+    ).toThrow("Unknown primary workbench blocker category 'provider-is-sad' must fail closed.");
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract({
+        schemaVersion: catalogPrimaryWorkbenchContractVersion,
+        routeContext: {
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          importScope: "changed",
+          profileVersion: "2026.06.04",
+          sourceObservationFilters: {},
+          selectedObservationIds: [],
+          jobId: null,
+          promotionPreviewId: null,
+          returnPath: "/admin/catalog/primary-workbench",
+        },
+        deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[1],
+        securityPrivacy: {
+          redactionApplied: true,
+          governedDataClasses: [],
+          unsafeEvidenceBlocked: false,
+          missingSecurityFieldsBlocker: "security-privacy-blocked",
+        },
+        instrumentation: {
+          dimensions: catalogPrimaryWorkbenchInstrumentationDimensions,
+          redactionSafe: true,
+        },
+      }),
+    ).toThrow("Primary workbench deploy-skew policy is unsupported and must fail closed.");
+  });
+
+  it("defines fail-closed deploy-skew policy without legacy fallbacks", () => {
+    expect(catalogPrimaryWorkbenchDeploySkewPolicies).toEqual([
+      expect.objectContaining({ mode: "current", supported: true }),
+      expect.objectContaining({
+        mode: "old-ui-new-api",
+        supported: false,
+        failClosedBlocker: "deploy-skew-unsupported-version",
+      }),
+      expect.objectContaining({
+        mode: "new-ui-old-api",
+        supported: false,
+        failClosedBlocker: "deploy-skew-unsupported-version",
+      }),
+    ]);
+    expect(catalogPrimaryWorkbenchDeploySkewPolicies.flatMap((policy) => policy.forbiddenFallbacks)).toEqual(
+      expect.arrayContaining([
+        "legacy provider selector",
+        "current two-page module coupling",
+        "raw JSON broad patch",
+        "silent active-profile fallback",
+        "support-only legacy route",
+        "compatibility redirect",
+      ]),
+    );
+  });
+
+  it("defines retirement as complete removal across code, docs, evidence, and operator surfaces", () => {
+    expect(catalogPrimaryWorkbenchRetirementPolicy).toMatchObject({
+      term: "retire",
+      requiredDisposition: "complete-removal",
+    });
+    expect(catalogPrimaryWorkbenchRetirementPolicy.surfaces).toEqual(
+      expect.arrayContaining([
+        "runtime code",
+        "API routes",
+        "UI modules",
+        "route aliases",
+        "hidden flags",
+        "fallbacks",
+        "redirects",
+        "tests",
+        "fixtures",
+        "screenshots",
+        "documentation",
+        "runbooks",
+        "release notes",
+        "operator instructions",
+      ]),
+    );
+    expect(catalogPrimaryWorkbenchRetirementPolicy.forbiddenOutcomes).toEqual(
+      expect.arrayContaining([
+        "soft deprecation",
+        "compatibility shim",
+        "legacy support path",
+        "migration of the current two-page surface",
+        "raw JSON escape hatch",
+      ]),
+    );
+  });
+
+  it("pins command contracts with permission, idempotency, and confirmation semantics", () => {
+    const actionsByKey = new Map(catalogPrimaryWorkbenchActions.map((action) => [action.key, action]));
+
+    expect(actionsByKey.get("start-provider-import")).toMatchObject({
+      method: "POST",
+      requiredPermission: "catalog.manage",
+      idempotencyRequired: true,
+    });
+    expect(actionsByKey.get("execute-promotion")).toMatchObject({
+      requiredPermission: "catalog.manage",
+      confirmationRequired: true,
+      idempotencyRequired: true,
+      blockerCategories: expect.arrayContaining(["stale-promotion-preview", "security-privacy-blocked"]),
+    });
+    expect(actionsByKey.get("select-provider-scope")).toMatchObject({
+      method: "GET",
+      requiredPermission: "catalog.view",
+    });
+
+    for (const action of catalogPrimaryWorkbenchActions) {
+      expect(action.routePattern).toMatch(/^\/api\/catalog\/source-observations\/admin\//);
+      expect(action.routePattern).not.toContain("/catalog/integrations");
+      expect(action.routePattern).not.toContain("/admin/catalog/source-observations");
+      expect(action.routePattern).not.toMatch(/raw-json|legacy|compat/i);
+    }
+  });
+
+  it("maps every downstream Stage 2 and hardening issue to owned sections and fields", () => {
+    const downstreamIssues = catalogPrimaryWorkbenchDownstreamContracts.map((entry) => entry.issue);
+
+    expect(downstreamIssues).toEqual([
+      "#1056",
+      "#1038",
+      "#1039",
+      "#1040",
+      "#1057",
+      "#1058",
+      "#1059",
+      "#1062",
+      "#1063",
+      "#1064",
+      "#1065",
+    ]);
+
+    for (const downstream of catalogPrimaryWorkbenchDownstreamContracts) {
+      expect(downstream.consumes.length, downstream.issue).toBeGreaterThan(0);
+      expect(downstream.requiredFields.length, downstream.issue).toBeGreaterThan(0);
+    }
+  });
+
+  it("accepts a redaction-safe representative primary workbench read model", () => {
+    const readModel = {
+      schemaVersion: catalogPrimaryWorkbenchContractVersion,
+      generatedAt: "2026-06-09T00:00:00.000Z",
+      routeContext: {
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        importScope: "changed",
+        profileVersion: "2026.06.04",
+        sourceObservationFilters: { status: "changed" },
+        selectedObservationIds: ["obs_001"],
+        jobId: "job_001",
+        promotionPreviewId: "preview_001",
+        returnPath: "/admin/catalog/primary-workbench?provider=tcgdex",
+      },
+      providerScope: {
+        providers: [
+          {
+            providerKey: "tcgdex",
+            displayName: "TCGdex",
+            units: [
+              {
+                unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+                productDomain: "pokemon",
+                productForm: "single-card",
+                importScopes: ["changed", "set"],
+                activeProfile: null,
+              },
+            ],
+          },
+        ],
+      },
+      readiness: {
+        freshness: "partial",
+        blockers: ["provider-transport-rate-limited"],
+        providerTransport: ["rate-limit", "partial-data"],
+        rolloutEnabled: true,
+        rbacAllowed: true,
+        auditEvidenceUrl: "/admin/catalog/primary-workbench/audit?unit=tcgdex",
+      },
+      importJobs: {
+        freshness: "fresh",
+        jobs: [
+          {
+            jobId: "job_001",
+            action: "start-provider-import",
+            state: "running",
+            operatorStatus: "running",
+            consistency: {
+              schemaVersion: "catalog-integration-durable-job-v1",
+              compatibilityPolicy: "integration-durable-job",
+              duplicateSubmissionPolicy: "reuse-active-job",
+              profileSnapshotPolicy: "snapshotted-at-enqueue",
+              retryResumePolicy: "skip-completed-outcomes",
+              partialFailurePolicy: "mixed-outcomes",
+              workUnitClaimPolicy: "leased-work-units",
+            },
+            observationLinks: ["obs_001"],
+            blockers: [],
+          },
+        ],
+      },
+      sourceObservationReview: {
+        freshness: "fresh",
+        counts: {
+          observed: 2,
+          changed: 1,
+          promoted: 0,
+          rejected: 0,
+          blocked: 0,
+          eligible: 1,
+        },
+        cursor: "observedAt:obs_001",
+        selectedObservationIds: ["obs_001"],
+        evidenceSummariesRedacted: true,
+        duplicateConflictCount: 0,
+        promotionReadyCount: 1,
+      },
+      promotionPreview: {
+        previewId: "preview_001",
+        freshness: "fresh",
+        dispositions: {
+          eligible: 1,
+          skipped: 0,
+          blocked: 0,
+          conflicting: 0,
+          destructive: 0,
+          "stale-preview": 0,
+          "confirmation-required": 1,
+        },
+        commandPlanHash: "sha256:preview",
+        confirmationRequired: true,
+        destructiveCount: 0,
+        blockers: [],
+      },
+      promotionResult: {
+        resultId: "promotion_001",
+        promotedCatalogItemIds: ["cat_001"],
+        promotedReferenceIds: ["ref_001"],
+        skippedObservationIds: [],
+        auditEvidenceIds: ["aud_001"],
+      },
+      actions: [
+        {
+          key: "execute-promotion",
+          state: "available",
+          blockers: [],
+          copyKey: null,
+        },
+      ],
+      deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
+      securityPrivacy: {
+        redactionApplied: true,
+        governedDataClasses: ["audit-evidence", "dry-run-output-evidence"],
+        unsafeEvidenceBlocked: false,
+        missingSecurityFieldsBlocker: "security-privacy-blocked",
+      },
+      instrumentation: {
+        dimensions: catalogPrimaryWorkbenchInstrumentationDimensions,
+        redactionSafe: true,
+      },
+    } satisfies CatalogPrimaryWorkbenchReadModel;
+
+    validateCatalogPrimaryWorkbenchReadModelContract(readModel);
+
+    expect(readModel.readiness.providerTransport).toEqual(["rate-limit", "partial-data"]);
+    expect(readModel.promotionPreview.dispositions["confirmation-required"]).toBe(1);
+    expect(readModel.instrumentation.dimensions).toContain("route_context_preserved");
+  });
+});
