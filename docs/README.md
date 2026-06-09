@@ -27,6 +27,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [UCP Agent Commerce](./architecture/ucp-agent-commerce.md): Universal Commerce Protocol facade, REST/MCP surfaces, and bounded-context ownership.
 - [ADR 0007: Google Shopping Merchant Center Integration](./adr/0007-google-shopping-merchant-center-integration.md): Merchant account posture, feed ownership, export projection, and launch exclusions.
 - [ADR 0008: Admin Shell And IA Model](./adr/0008-admin-shell-and-ia-model.md): admin section taxonomy, Commercial Terms placement, shell navigation model, operations authorization, root hub, and admin page primitive direction.
+- [Checkout Fresh-State Route Strategy](../bounded-contexts/checkout/docs/fresh-state-route-strategy.md): Shopify-simple checkout route map, legacy route disposition, readiness guardrails, and kill-switch behavior.
 - [Discovery Google Shopping Feed Mapping](../bounded-contexts/discovery/docs/google-shopping-feed-mapping.md): product, offer, image, condition, shipping, returns, and eligibility mapping for Google Shopping rows.
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
 - [Marketplace OpenAPI](./api/marketplace.openapi.json): machine-readable API contract.
@@ -35,6 +36,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 ## Runbooks
 
 - [Money Operations](./runbooks/money-operations.md): checkout, wallet, Stripe payments, Connect payouts, launch checks, and smoke tests.
+- [Checkout Fresh-State Release](./runbooks/checkout-fresh-state-release.md): Shopify-simple checkout route activation, disablement, smoke validation, and release-note template.
 - [Marketplace Launch Evidence](./runbooks/marketplace-launch-evidence.md): redacted launch evidence packet, verifier, Tax posture, provider rehearsals, and launch-supply measurement proof.
 - [Email Operations](./runbooks/email-operations.md): Amazon SES identities, sender configuration, DNS requirements, and rollout checks.
 - [Tax Production Readiness](../bounded-contexts/tax/docs/production-tax-readiness.md): Tax readiness evidence, no-provider launch posture, and provider-required collection gating.

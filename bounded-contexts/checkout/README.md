@@ -39,3 +39,7 @@ Checkout owns account commerce intent and active checkout workflows before order
 Checkout seeds a demo account cart and a started cart checkout session owned entirely by this context. Ordering seeds only order commitments and must not recreate cart or sell-list data.
 
 This is a greenfield codebase, so local development environments should reset/bootstrap schemas when moving across checkout ownership changes. Obsolete Ordering cart or Marketplace sell-list read-model tables can be dropped during a dev refresh; Checkout owns `checkout_cart_line_pages`, `checkout_sell_list_line_pages`, and `checkout_session_pages`, while Payments owns payment read models.
+
+## Supporting Decisions
+
+- [Fresh-State Route Strategy](./docs/fresh-state-route-strategy.md): Shopify-simple Buy Cart, Sell List, readiness, checkout, confirmation, legacy route disposition, and kill-switch route strategy.
