@@ -33,7 +33,7 @@ import {
   type CartReadinessDecisionInput,
   type CreateCheckoutSessionRequest,
 } from "../support/request-support/api-client";
-import { parseCartReadinessDecisionInput } from "../features/cart/domain/readiness";
+import { parseCheckoutStartCartReadinessDecisions } from "../features/cart/api/readiness-decisions";
 import {
   checkoutRecoveryForError,
   checkoutRecoveryForKind,
@@ -83,7 +83,7 @@ function parseReadinessDecisions(value: FormDataEntryValue | null): CartReadines
     if (!parsed || typeof parsed !== "object") {
       return null;
     }
-    return parseCartReadinessDecisionInput(parsed);
+    return parseCheckoutStartCartReadinessDecisions(parsed);
   } catch {
     return null;
   }
