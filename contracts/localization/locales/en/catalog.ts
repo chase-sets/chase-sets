@@ -430,6 +430,137 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.integrations.profile.review.title": "Provider Profile Review",
   "catalog.features.sourceObservations.ui.integrations.profile.review.validation": "Validation",
   "catalog.features.sourceObservations.ui.integrations.profile.review.version": "Version",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.action.aria": "{action}: {label}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.applied": "Applied",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.banner.blocked.description":
+    "Resolve the named supporting workflow, then return to the same provider/unit/scope context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.banner.blocked.title": "Primary path has explicit blockers",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.description":
+    "Operators can pull provider data, review Source Observations, and prepare a promotion preview from this screen.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.title":
+    "Primary import-to-promotion path is ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.blocked": "Blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.choose.context": "Choose context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.choose.provider": "choose provider",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.choose.scope": "choose scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.choose.unit": "choose unit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection": "Clear selection",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.plan": "Command plan",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.configure.preview": "Configure preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.description":
+    "Route keys preserve provider, unit, scope, profile, filters, selections, jobs, previews, and return paths.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.title": "Context preservation",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.context.profile": "Profile: {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.context.provider": "Provider: {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.context.scope": "Scope: {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.context.unit": "Unit: {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.route.context": "Copy route context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.current": "Current",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.default.workspace": "Default workspace",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.degraded": "Degraded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.description":
+    "The rebuilt default workbench keeps provider import, Source Observation review, promotion preview, and promotion outcome evidence together. Supporting workflows explain or unblock this path.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations": "Eligible observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.empty.provider.scopes.description":
+    "Create an active typed provider profile before using the primary workbench.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.empty.provider.scopes.title":
+    "No provider scopes are ready for import",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.empty.steps.description":
+    "The workbench failed closed before exposing any provider data commands.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.empty.steps.title":
+    "No primary workbench steps are available",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.evidence": "Evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.evidence.sheet.description":
+    "Redacted context, blockers, and command evidence stay attached to the primary workflow.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.evidence.sheet.title": "{label} evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.eyebrow": "Catalog control plane",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.fail.closed": "Fail closed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode": "Failure mode",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.failure.mode.value":
+    "Blocked, stale, denied, and unsafe actions fail closed.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.key.profile": "Profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.key.provider": "Provider",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.key.promotion.preview": "Promotion preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.key.return.path": "Return path",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.key.scope": "Scope",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.key.selected.observations": "Selected observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.key.state": "State",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.key.unit": "Unit",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.metric.active.jobs": "Active jobs",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.metric.blockers": "Blockers",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.metric.changed": "{count} changed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.metric.fail.closed": "fail closed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.metric.job.view": "{freshness} job view",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.metric.observed": "Observed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.metric.promotion.candidates": "promotion candidates",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.metric.ready.for.preview": "Ready for preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.module.description":
+    "Provider context, durable import, review status, promotion preview, and command safety are shown as one cohesive workflow.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.module.title": "Import to promotion workbench",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.navigation.label": "Catalog control plane workflows",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.navigation.mobile.label": "Choose Catalog workflow",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.no.active.profile": "no active profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.none": "None",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.not.queued": "not queued",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.not.selected": "not selected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.open.audit.evidence": "Open audit evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.open.profile.authoring": "Open profile authoring",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.preview.panel.description":
+    "Preview Catalog-owned writes before any promotion command executes.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.preview.panel.title": "Promotion preview command",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion": "Preview promotion",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.primary.workbench": "primary workbench",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.promote.catalog.facts": "Promote Catalog facts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data": "Pull provider data",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.queue.preview": "Queue preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness": "Readiness",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.deploy.skew.description":
+    "Unsupported UI/API pairings fail closed before exposing unsafe commands.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.deploy.skew.label": "Deploy skew",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.rbac.description":
+    "Primary commands distinguish denied, disabled, blocked, unavailable, unsafe, and degraded states.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.rbac.label": "RBAC and rollout",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.recovery.description":
+    "Support signals stay attached to the primary action they block or explain.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.recovery.title": "Readiness and recovery",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.redaction.description":
+    "Provider payload and governed operator evidence stay redacted in the primary workbench.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.redaction.label": "Redacted evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.transport.label": "Provider transport",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.transport.ready.description":
+    "No provider transport blockers reported for the selected context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.ready": "Ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.reset.view": "Reset view",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.observations": "Review observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.save.context": "Save context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.import.evidence":
+    "{count} active or recent job(s) for the selected context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.import.label":
+    "Pull provider data through a durable import",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.preview.evidence":
+    "{eligible} eligible, {blocked} blocked, {destructive} destructive.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.preview.label": "Preview Catalog promotion impact",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.promote.evidence.done":
+    "{count} Catalog Items promoted.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.promote.evidence.pending":
+    "No Catalog writes run until the promotion preview is accepted.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.promote.label":
+    "Promote into Catalog Items or Catalog-owned references",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.provider.evidence":
+    "{count} provider option(s) available.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.provider.label":
+    "Choose provider, unit, scope, and profile",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.review.evidence":
+    "{changed} changed, {rejected} rejected, {promoted} promoted.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.step.review.label": "Review Source Observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.table.action": "Action",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers": "Blockers",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.table.primary.step": "Primary step",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.table.state": "State",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.title":
+    "Pull provider data, review Source Observations, promote Catalog facts",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.use.evidence": "Use evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.view.supporting.evidence": "View supporting evidence",
   "catalog.routes.admin.integrations.catalog.integrations.catalog.admin": "Catalog Integrations | Catalog Admin",
   "catalog.routes.admin.sourceObservations.source.observations.catalog.admin": "Source Observations | Catalog Admin",
   "catalog.routes.admin.sourceObservationsDetail.named.title": "{name} | Catalog Admin",
