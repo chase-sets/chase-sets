@@ -108,6 +108,20 @@
       "ownedTables": ["marketplace_supply_locations", "marketplace_supply_items", "marketplace_supply_holds"],
       "requiredDuringBootstrap": true,
       "resetStrategy": "replay-only"
+    },
+    {
+      "projectionName": "marketplace-listing-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_listing_pages", "marketplace_seller_listing_availability_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
+    },
+    {
+      "projectionName": "marketplace-offer-projection",
+      "sourceContextNames": ["marketplace"],
+      "ownedTables": ["marketplace_offer_pages"],
+      "requiredDuringBootstrap": false,
+      "resetStrategy": "truncate-owned-tables"
     }
   ],
   "hostPorts": [
@@ -127,7 +141,85 @@
     {
       "mountPath": "/api/marketplace",
       "kind": "primary",
-      "requiresAuth": true
+      "requiresAuth": true,
+      "readFreshnessRoutes": [
+        {
+          "routePath": "/account/listings/:id",
+          "methods": ["GET", "HEAD"],
+          "dependencies": [
+            {
+              "readModelTable": "marketplace_listing_pages"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "marketplace.listing-create-to-detail",
+      "owner": "marketplace",
+      "risk": "critical",
+      "source": {
+        "routeIds": ["account-listings", "account-listing"],
+        "actions": ["Create listing", "Update listing", "Publish listing"],
+        "command": "Marketplace listing commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-listing",
+        "apiContextName": "marketplace",
+        "apiRoutePath": "/account/listings/:id",
+        "readModelTables": ["marketplace_listing_pages"],
+        "helperUses": ["loadFreshlyWrittenResource"],
+        "transientRecovery": "Listing detail loader retries fresh-write not-found while the marketplace listing projection catches up."
+      }
+    },
+    {
+      "id": "marketplace.listing-list-self-refresh",
+      "owner": "marketplace",
+      "risk": "important",
+      "source": {
+        "routeId": "account-listings",
+        "actions": [
+          "Disable seller listing availability",
+          "Enable seller listing availability",
+          "Create listing and return to list"
+        ],
+        "command": "Marketplace listing list commands",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-listings",
+        "transientRecovery": "List refresh still needs exact dependency classification for listing and seller-availability read models."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "marketplace",
+        "reviewBy": "2026-07-31",
+        "reason": "Marketplace list self-refresh migration is tracked by #1084; the helper use is represented so new drift fails closed."
+      }
+    },
+    {
+      "id": "marketplace.submitted-offer-detail",
+      "owner": "marketplace",
+      "risk": "important",
+      "source": {
+        "routeId": "account-offer-submitted",
+        "actions": ["Load newly submitted offer"],
+        "command": "SubmitOffer",
+        "helperUses": ["loadFreshlyWrittenResource"]
+      },
+      "destination": {
+        "routeId": "account-offer-submitted",
+        "transientRecovery": "Submitted Offer detail uses compatibility fresh-write not-found retries until exact offer dependencies are declared."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "marketplace",
+        "reviewBy": "2026-07-31",
+        "reason": "Offer detail exact dependency migration is tracked by #1084."
+      }
     }
   ],
   "deployableContributions": [

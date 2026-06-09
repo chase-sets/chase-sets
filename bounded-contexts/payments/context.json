@@ -98,6 +98,50 @@
       "requiresAuth": false
     }
   ],
+  "readAfterWriteRouteInventory": [
+    {
+      "id": "payments.create-to-detail",
+      "owner": "payments",
+      "risk": "critical",
+      "source": {
+        "routeId": "account-payment-new",
+        "actions": ["Create account payment"],
+        "command": "Payments payment creation command",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "account-payment",
+        "transientRecovery": "Payment detail uses compatibility fresh-write recovery while exact Payments read-model dependencies are audited."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "payments",
+        "reviewBy": "2026-07-31",
+        "reason": "Payment detail projection dependency and transient policy migration is tracked by #1084."
+      }
+    },
+    {
+      "id": "payments.detail-self-refresh",
+      "owner": "payments",
+      "risk": "important",
+      "source": {
+        "routeId": "account-payment",
+        "actions": ["Refresh or continue payment detail after payment command"],
+        "command": "Payments detail commands",
+        "helperUses": ["appendFreshWriteToken", "loadFreshlyWrittenResource"]
+      },
+      "destination": {
+        "routeId": "account-payment",
+        "transientRecovery": "Payment detail remains in compatibility fresh-write recovery pending exact route metadata."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "payments",
+        "reviewBy": "2026-07-31",
+        "reason": "Payment detail self-refresh projection dependency classification is tracked by #1084."
+      }
+    }
+  ],
   "deployableContributions": [
     {
       "deployable": "marketplace-web",
