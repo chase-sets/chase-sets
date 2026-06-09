@@ -1446,6 +1446,60 @@ export async function runStructureCheck(options = {}) {
       if (!isBoolean(mount.requiresAuth)) {
         addPathViolation(mountLabel, "requiresAuth must be a boolean");
       }
+
+      if ("readFreshnessRoutes" in mount) {
+        if (!Array.isArray(mount.readFreshnessRoutes)) {
+          addPathViolation(mountLabel, "readFreshnessRoutes must be an array when provided");
+        } else {
+          for (const [routeIndex, route] of mount.readFreshnessRoutes.entries()) {
+            const routeLabel = `${mountLabel} readFreshnessRoutes[${routeIndex}]`;
+            if (!isPlainObject(route)) {
+              addPathViolation(routeLabel, "read freshness route must be an object");
+              continue;
+            }
+
+            if (typeof route.routePath !== "string" || !route.routePath.startsWith("/")) {
+              addPathViolation(routeLabel, "routePath must be a mount-relative absolute path");
+            }
+
+            if ("methods" in route) {
+              const supportedMethods = new Set(["GET", "HEAD"]);
+              if (
+                !Array.isArray(route.methods) ||
+                route.methods.length === 0 ||
+                !route.methods.every((method) => supportedMethods.has(method))
+              ) {
+                addPathViolation(routeLabel, "methods must contain GET and/or HEAD when provided");
+              }
+            }
+
+            if (!Array.isArray(route.dependencies) || route.dependencies.length === 0) {
+              addPathViolation(routeLabel, "dependencies must be a non-empty array");
+              continue;
+            }
+
+            for (const [dependencyIndex, dependency] of route.dependencies.entries()) {
+              const dependencyLabel = `${routeLabel} dependencies[${dependencyIndex}]`;
+              if (!isPlainObject(dependency)) {
+                addPathViolation(dependencyLabel, "read freshness dependency must be an object");
+                continue;
+              }
+
+              const hasProjectionName =
+                typeof dependency.projectionName === "string" && dependency.projectionName.length > 0;
+              const hasReadModelTable =
+                typeof dependency.readModelTable === "string" && dependency.readModelTable.length > 0;
+              if (hasProjectionName === hasReadModelTable) {
+                addPathViolation(dependencyLabel, "declare exactly one of projectionName or readModelTable");
+              }
+
+              if ("targetContextName" in dependency && typeof dependency.targetContextName !== "string") {
+                addPathViolation(dependencyLabel, "targetContextName must be a string when provided");
+              }
+            }
+          }
+        }
+      }
     }
 
     const expectedTopLevelDirectories = new Set(["features", "support", "routes", "tests", "docs"]);

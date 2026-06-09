@@ -54,10 +54,30 @@ export type BcHostPort = Readonly<{
 
 export type BcApiMountKind = "primary" | "additional";
 
+export type BcReadFreshnessDependency = Readonly<
+  | {
+      projectionName: string;
+      readModelTable?: never;
+      targetContextName?: string;
+    }
+  | {
+      readModelTable: string;
+      projectionName?: never;
+      targetContextName?: string;
+    }
+>;
+
+export type BcReadFreshnessRoute = Readonly<{
+  readonly routePath: string;
+  readonly methods?: readonly ("GET" | "HEAD")[];
+  readonly dependencies: readonly BcReadFreshnessDependency[];
+}>;
+
 export type BcApiMount = Readonly<{
   readonly mountPath: string;
   readonly kind: BcApiMountKind;
   readonly requiresAuth: boolean;
+  readonly readFreshnessRoutes?: readonly BcReadFreshnessRoute[];
 }>;
 
 export type BcEventSubscriptionDeclaration = Readonly<{
