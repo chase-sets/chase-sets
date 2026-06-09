@@ -9,7 +9,7 @@ The target is a fresh-state rebuild. Chase Sets has not launched, so the milesto
 - Checkout already owns the right intent boundaries: Buy Cart intent, Sell List intent, checkout session lifecycle, selected shipping option, checkout review state, and order/payment orchestration.
 - The customer-facing surfaces expose too much marketplace machinery. Seller allocation, fulfillment preview revisions, Smart Match tuning, fallback listing execution, fee fingerprints, payout readiness, and detailed package rules are correct domain concepts but should not sit inside the main checkout form.
 - Unassigned fulfillment must be resolved before checkout starts. Cart or a conditional pre-checkout readiness step can show unresolved lines, offer/wait actions, and optional savings from alternate fulfillment. The checkout form should only receive lines that are ready to buy or ready to sell.
-- The current concept route is useful as a design reference but should not become a second live checkout path. After the real flow ships, it should be deleted or hard-disabled before launch.
+- The concept route was a design reference only and must not become a second live checkout path. It should be deleted from customer route composition for launch.
 - Fresh-state cleanup needs concrete deletes, not compatibility migrations: old add-column schema patches, legacy Sell List receipt fallback reads, dense checkout copy, route tests for legacy behavior, and seed scenarios that imply old checkout contracts all need reset or removal.
 
 ## Surface Inventory
@@ -23,7 +23,7 @@ The target is a fresh-state rebuild. Chase Sets has not launched, so the milesto
 | Signed-in payment handoff | `account-payment` at `/account/payments/:paymentId` | `bounded-contexts/payments/routes/marketplace/account-payment.tsx` | `checkout-payment-composition.test.ts`; payment handler tests | Payments owns payment and recovery |
 | Sell List review | `account-sell-list` at `/account/sell-list` | `bounded-contexts/checkout/routes/account-sell-list.tsx`; `bounded-contexts/checkout/features/sell-list/ui/sell-list-page.tsx`; Sell List API, domain, projection, and read-model files | `sell-list-page.test.tsx`; `sell-list/api/route.test.ts`; `sell-list/domain/domain.test.ts`; `checkout-routes.test.ts` | Checkout owns seller intent and execution review; Marketplace owns offers/listings; Settlement owns payout readiness |
 | Guest Sell List | `account-sell-list` guest branch | `account-sell-list.tsx`; guest Sell List API/runtime support | `checkout-routes.test.ts`; `sell-list/api/route.test.ts` | Checkout lets guests collect Sell List intent but execution requires a signed-in account |
-| Checkout concept artifact | `checkout-concept` at `/checkout/concept` | `bounded-contexts/checkout/routes/checkout-concept.tsx`; `guest-checkout-concept-page.tsx` | `guest-checkout-concept-page.test.tsx`; route composition test | Checkout only; should remain a temporary design artifact |
+| Checkout concept artifact | `checkout-concept` at `/checkout/concept` | Deleted route module and concept UI | Route composition test asserts it is absent | Checkout only; removed before launch |
 | Marketplace shell | Top/bottom nav and guest checkout chrome | `deployables/marketplace/app/routes/layout.tsx` | `layout.test.tsx`; route composition test | Marketplace deployable composes Checkout, Auth, and Payments route contributions |
 | API docs and OpenAPI | `/api/marketplace/account/cart`; `/checkout-sessions`; `/checkout/status`; `/checkout/recover`; `/purchases/checkout`; `/sell-list` | `docs/api/marketplace-api.md`; `docs/api/marketplace.openapi.json` | Documentation contract and generated API references | Checkout, Payments, Ordering, Marketplace |
 | Localization | Checkout, cart, sessions, concept, Sell List copy | `contracts/localization/locales/en/checkout.ts` | UI and route tests assert current labels | Checkout copy with cross-context operational terms |
@@ -58,7 +58,7 @@ The domain still needs fulfillment freshness, selected listing locks, supply sta
 
 | Area | Cleanup action | Rationale | Owning issues |
 | --- | --- | --- | --- |
-| Concept route | Delete or hard-disable `/checkout/concept` after the real mockup/prototype is implemented. | Avoid shipping a second checkout entry point. | #1112, #1132, #1116 |
+| Concept route | Delete `/checkout/concept` and its concept-only localization/UI once the real flow work begins. | Avoid shipping a second checkout entry point or preserving a compatibility design artifact. | #1112, #1132, #1116 |
 | Session schema | Rebuild `checkout_session_pages` with final columns instead of `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` compatibility patches. | Product is pre-launch; old session payload preservation is not needed. | #1132, #1100 |
 | Cart schema | Rebuild `checkout_cart_line_pages` with final image, language, fulfillment, and availability columns in the base table. | Avoid migration leftovers and ambiguous old cart row shapes. | #1132, #1118 |
 | Catalog projection schema | Fold checkout catalog language/i18n compatibility columns into the fresh base schema. | Remove compatibility layering from checkout-owned catalog projection data. | #1132 |

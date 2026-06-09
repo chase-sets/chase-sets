@@ -24,7 +24,7 @@ export type CheckoutFreshStateRoute = {
 export type CheckoutLegacyRouteDisposition = {
   readonly routeId: string;
   readonly routePath: string;
-  readonly disposition: "remove-before-launch" | "hard-disable-before-launch" | "internal-reference-only";
+  readonly disposition: "remove-before-launch" | "hard-disable-before-launch" | "removed";
   readonly customerFacingCompatibility: false;
   readonly replacementRouteId: string | null;
 };
@@ -139,7 +139,7 @@ export const checkoutLegacyRouteDispositions = [
   {
     routeId: "checkout-concept",
     routePath: "checkout/concept",
-    disposition: "internal-reference-only",
+    disposition: "removed",
     customerFacingCompatibility: false,
     replacementRouteId: null,
   },

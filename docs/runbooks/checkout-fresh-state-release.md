@@ -19,10 +19,10 @@ The kill switch disables fresh checkout entry. It must not restore legacy dense 
    - `/checkout/sell/readiness`
    - `/checkout/sell/session/:sessionId`
    - `/checkout/sell/session/:sessionId/confirmation`
-2. Confirm legacy customer routes are removed, hard-disabled, or internal-only:
+2. Confirm legacy customer routes are removed or hard-disabled:
    - `/checkout/start`
    - `/checkout/:sessionId`
-   - `/checkout/concept`
+   - `/checkout/concept` is deleted from customer route composition
 3. Set `checkout.shopify-simple` to enabled for the target environment and subject set.
 4. Run the smoke validation below before expanding exposure.
 
@@ -32,7 +32,7 @@ The kill switch disables fresh checkout entry. It must not restore legacy dense 
 2. Confirm buy checkout entry redirects to `/account/cart?checkout=disabled`.
 3. Confirm sell checkout entry redirects to `/account/sell-list?checkout=disabled`.
 4. Confirm cart and Sell List remain reachable for review, removal, or save-for-later actions.
-5. Confirm disabled entry does not redirect to `/checkout/start`, `/checkout/:sessionId`, `/checkout/concept`, or any dense legacy checkout path.
+5. Confirm disabled entry does not redirect to `/checkout/start`, `/checkout/:sessionId`, the deleted `/checkout/concept` route, or any dense legacy checkout path.
 
 ## Smoke Validation
 

@@ -251,13 +251,6 @@
           "sourceContext": "checkout"
         },
         {
-          "routeId": "checkout-concept",
-          "routePath": "checkout/concept",
-          "fileExport": "./routes/checkout-concept",
-          "routeType": "route",
-          "sourceContext": "checkout"
-        },
-        {
           "routeId": "checkout-session",
           "routePath": "checkout/:sessionId",
           "fileExport": "./routes/checkout-session",
