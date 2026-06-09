@@ -36,11 +36,21 @@ describe("observability stack contracts", () => {
     expect(readStackFile("grafana/dashboards/public-presence-waitlist.json")).toContain(
       "chase_sets_public_presence_waitlist_events_total",
     );
+    expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain("Projection Freshness");
+    expect(readStackFile("grafana/dashboards/projection-freshness.json")).toContain(
+      "chase_sets_projection_freshness_evaluations_total",
+    );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "Platform API elevated 5xx rate",
     );
     expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
       "UCP signature verification failures",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
+      "Checkout freshness timeout rate above SLO",
+    );
+    expect(readStackFile("grafana/provisioning/alerting/platform-api-alerts.yml")).toContain(
+      "Projection freshness pending rows with projection errors",
     );
   });
 });

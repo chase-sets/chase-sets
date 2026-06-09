@@ -67,6 +67,63 @@ Forbidden in audit records:
 
 The shared observability logger redacts fields whose names look sensitive, but route and middleware code must still avoid putting sensitive values into the audit record.
 
+## Metrics And Alerts
+
+The audit callback also emits OpenTelemetry metrics through `@chase-sets/observability`:
+
+| Metric | Meaning | Primary labels |
+| --- | --- | --- |
+| `chase_sets_projection_freshness_evaluations_total` | Count of freshness gate evaluations expanded by bounded route, dependency, and source labels. | `outcome`, `method`, `mount_path`, `route_path`, `target_context`, `projection`, `source_context`, `wait_mode`, `receipt`, `target_context_header` |
+| `chase_sets_projection_freshness_wait_duration_ms` | Freshness gate wait duration histogram. | Same as evaluations. |
+| `chase_sets_projection_freshness_pending_total` | Timeout-only pending projection/source pairs. | `route_path`, `target_context`, `projection`, `source_context`, `wait_mode`, `state`, `last_error` |
+| `chase_sets_projection_freshness_pending_lag` | Timeout-only global-position lag histogram. | Same as pending count. |
+
+Grafana provisions a `Projection Freshness` dashboard with p95/p99 duration, outcome rate, missing receipt or target-context regressions, wait-mode mix, pending lag, and matching audit logs. Starter alerts cover the Checkout `checkout.session-projection` SLO and pending projection errors.
+
+Safe Checkout session queries:
+
+```promql
+histogram_quantile(0.95, sum by (le) (rate(chase_sets_projection_freshness_wait_duration_ms_bucket{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",projection="checkout.session-projection",source_context="checkout",outcome="fresh"}[30m])))
+```
+
+```promql
+sum(rate(chase_sets_projection_freshness_evaluations_total{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",projection="checkout.session-projection",source_context="checkout",outcome="timeout"}[30m])) / clamp_min(sum(rate(chase_sets_projection_freshness_evaluations_total{route_path="/account/checkout-sessions/:sessionId",target_context="checkout",projection="checkout.session-projection",source_context="checkout"}[30m])), 1)
+```
+
+```promql
+sum by (route_path, target_context, projection, source_context, wait_mode) (rate(chase_sets_projection_freshness_evaluations_total{route_path="/account/checkout-sessions/:sessionId"}[5m]))
+```
+
+```promql
+sum by (route_path, target_context, projection, source_context, state, last_error) (rate(chase_sets_projection_freshness_pending_total{route_path="/account/checkout-sessions/:sessionId"}[5m]))
+```
+
+Safe audit log query:
+
+```logql
+{service_name=~"platform-api|admin-support-api"} | json | type="read-after-write.freshness" | routePaths =~ ".*checkout-sessions.*"
+```
+
+Do not add labels or log filters for checkout session ids, account ids, event ids, guest email, contact name, cookies, full URLs, or raw `afterWrite` token values.
+
+## Operator Triage
+
+1. Open Grafana > `Projection Freshness` and filter for `/account/checkout-sessions/:sessionId`.
+2. If `missing-receipt` is non-zero, inspect the checkout-start redirect, cookie-backed guest handoff, and server-side request forwarding. Do not change worker capacity for this class.
+3. If `target_context_header` is `missing` or `present_invalid`, inspect the request client and shared mount routing before changing projection code.
+4. If `wait_mode=target-context` on Checkout without an active rollback note, inspect `READ_CONSISTENCY_EXACT_DEPENDENCY_MODE`, `READ_CONSISTENCY_ROUTE_TUNING_JSON`, and the context manifest `readFreshnessRoutes`.
+5. If `outcome=timeout`, check `pending` labels. `projection=checkout.session-projection`, `source_context=checkout`, growing lag, or `last_error=present` points to worker capacity, poison, or projection handler health.
+6. Open Admin > Operations > Projection Operations or call `GET /api/platform/projections` to confirm worker heartbeat, source lag, applicable lag, blocked stream count, poison event count, and runner state for the projection group.
+7. If the browser sees a generic platform 503/504 while the audit shows valid receipt and target context, treat the incident as a document route budget regression. The route should surface Checkout-owned temporary recovery before the edge timeout.
+8. If `outcome=fresh` but the browser still renders permanent not-found, treat it as a route/API read bug. Check authorization, session ownership, and read-model query behavior.
+
+Repair follows the owning runbook:
+
+- Worker absent, stale heartbeat, or source lag: use [Projection Operations](./projection-operations.md) and [Projection Freshness Worker Capacity](../architecture/projection-freshness-worker-capacity.md).
+- Poison or degraded projection: use [Projection Poison Events](./projection-poison-events.md).
+- Missing receipt, target context, or exact dependency: fix the route/request/platform contract before tuning timeouts.
+- Timeout with customer-safe temporary recovery but sustained SLO breach: hold rollout expansion and open a capacity or projection-performance follow-up.
+
 ## Follow-Up Use
 
 Attach the relevant redacted audit record summary to #1077 when closing the staging root-cause report. The summary should classify the failed platform contract as one of:
