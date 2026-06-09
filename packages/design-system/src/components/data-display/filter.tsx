@@ -224,11 +224,6 @@ export function FilterBottomSheet({
 
 export interface BulkActionBarProps extends Omit<HTMLAttributes<HTMLDivElement>, "className" | "style"> {
   count: number;
-  /**
-   * @deprecated Use primaryActions, secondaryActions, and overflowActions to
-   * preserve a clear action hierarchy.
-   */
-  actions?: ReactNode;
   primaryActions?: ReactNode;
   secondaryActions?: ReactNode;
   overflowActions?: MenuItem[];
@@ -254,7 +249,6 @@ export function BulkActionSurface({ children }: BulkActionSurfaceProps) {
 
 export function BulkActionBar({
   count,
-  actions,
   primaryActions,
   secondaryActions,
   overflowActions,
@@ -264,8 +258,7 @@ export function BulkActionBar({
 }: BulkActionBarProps) {
   const motionSettings = useChaseMotion();
   const nativeProps = toMotionDomProps(rest);
-  const visiblePrimaryActions = primaryActions ?? actions;
-  const hasPrimaryActions = hasActionContent(visiblePrimaryActions);
+  const hasPrimaryActions = hasActionContent(primaryActions);
   const hasSecondaryActions = hasActionContent(secondaryActions);
   const hasOverflowActions = (overflowActions?.length ?? 0) > 0;
   const hasActions = hasPrimaryActions || hasSecondaryActions || hasOverflowActions;
@@ -292,7 +285,7 @@ export function BulkActionBar({
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
             {hasPrimaryActions ? (
               <div data-bulk-action-region="primary" className="flex flex-wrap items-end gap-2">
-                {visiblePrimaryActions}
+                {primaryActions}
               </div>
             ) : null}
             {hasSecondaryActions ? (

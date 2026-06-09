@@ -937,7 +937,7 @@ describe("design-system", () => {
       <BulkActionBar
         count={169}
         formatSelectedLabel={(count) => `${count} matching Catalog Items`}
-        actions={
+        primaryActions={
           <>
             <Select label="Bulk Edit" items={[{ label: "Assign Blueprint", value: "assignBlueprint" }]} />
             <TextInput label="Blueprint ID" defaultValue="bpr_card" />

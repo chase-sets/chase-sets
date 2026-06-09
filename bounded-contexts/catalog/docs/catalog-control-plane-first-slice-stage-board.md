@@ -2,14 +2,14 @@
 
 This board operationalizes the first-slice delivery sequence for the Catalog Control Plane UX rebuild. It turns the milestone stage labels into entry gates, exit evidence, owner records, and follow-up rules so implementation can proceed without preserving the current two-page Catalog integrations surface as a migration target.
 
-The rebuild continues to use the clean launch contracts from [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md): the primary operator path is provider import -> Source Observation review -> promotion into Catalog Items or Catalog-owned references, and retired behavior must be completely deleted from code, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions. The product framing for that default operator path is documented in [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md), and the rebuilt route/workspace IA is documented in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md).
+The rebuild continues to use the clean launch contracts from [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md): the primary operator path is provider import -> Source Observation review -> promotion into Catalog Items or Catalog-owned references, and retired behavior must be completely deleted from code, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims. The product framing for that default operator path is documented in [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md), and the rebuilt route/workspace IA is documented in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md). The dense-workbench design-system proof is documented in [Dense Admin Workbench Pattern](../../../packages/design-system/DENSE_ADMIN_WORKBENCH.md).
 
 ## Stage Status
 
 | Stage | Issues | Current status | Exit evidence |
 | --- | --- | --- | --- |
 | Stage 0 cleanup | #1050-#1055 | Complete | #1050 and #1055 closed; PRs #1091, #1125, #1094, #1138, and #1143 provide cleanup evidence. |
-| Stage 1 contracts and IA | #1060, #1031, #1048, #1046, #1049 | Ready for implementation | API/read-model contracts, rebuilt IA, grouped navigation/mobile pattern, dense-workbench primitive proof, and primary-path framing accepted. |
+| Stage 1 contracts and IA | #1060, #1031, #1048, #1046, #1049 | In implementation; #1046 is the remaining Stage 1 exit gate | API/read-model contracts, rebuilt IA, grouped navigation/mobile pattern, dense-workbench primitive proof, and primary-path framing accepted. |
 | Stage 2 primary workbench | #1056, #1038, #1039, #1040, #1057, #1058 | Waiting on Stage 1 exit | Provider/scope selection through import, Source Observation review, promotion preview, promotion/recovery, route context, and operator copy accepted together as one workbench. |
 | Stage 3 hardening and proof | #1063, #1065, #1059, #1062, #1064, #1047 | Waiting on relevant Stage 1/2 contracts | Durable-job edge cases, provider transport budgets, instrumentation, real-provider proof, security/privacy, and no-confusion acceptance accepted. |
 | Stage 4 rollout and retirement | #1061, #1088, #1090 | Blocked by accepted first slice | Decision/risk register, production rollout, smoke/signoff, and complete old-surface deletion accepted. |
@@ -27,7 +27,7 @@ Stage 1 can begin because Stage 0 is complete and no open milestone issue carrie
 - migrate the current two-page Catalog integrations route layout or module boundaries;
 - reintroduce legacy provider selectors, scripted import endpoints, raw JSON broad patches, transitional profile mode, or silent active-profile fallback;
 - treat supporting workspaces as peers that bury the primary import-to-promotion path;
-- leave retired behavior in tests, fixtures, screenshots, docs, runbooks, release notes, or operator instructions.
+- leave retired behavior in code, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, or compatibility shims.
 
 ## Stage 1 Exit Gate
 
@@ -38,7 +38,7 @@ Stage 2 may become implementation-ready only after all Stage 1 issues have accep
 | #1060 | Shared admin API/read-model contract types, endpoint docs, blocker categories, deploy-skew/fail-closed behavior, complete retirement semantics, and contract verification for the primary workbench. Evidence target: [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md) and `bounded-contexts/catalog/features/source-observations/api/primary-workbench-admin-contracts.ts`. | #1056, #1038, #1039, #1040, #1057, #1058, #1063, #1059 |
 | #1031 | Rebuilt IA and workflow map showing each operator job start, completion point, evidence scope, and deleted/rebuilt current-page concepts, with a tested TypeScript manifest for grouped navigation and keyboard order. | #1048, #1056, #1057 |
 | #1048 | Grouped section navigation/submenu pattern, desktop left groups, mobile translation, context-preserving links, and responsibility boundaries. | #1046, #1056, #1057, #1047 |
-| #1046 | Dense-workbench primitive proof artifact covering grouped navigation, tables, action bars, drawers, blocked/denied/degraded states, focus, and responsive behavior. | #1056, #1038, #1039, #1040, #1047 |
+| #1046 | Dense-workbench primitive proof artifact covering grouped navigation, dense tables, action bars, side sheets, blocked/denied/degraded states, focus, and responsive behavior. Evidence target: [Dense Admin Workbench Pattern](../../../packages/design-system/DENSE_ADMIN_WORKBENCH.md) and `packages/design-system/src/patterns/dense-admin-workbench-proof.tsx`. | #1056, #1038, #1039, #1040, #1047 |
 | #1049 | Primary import-to-promotion framing accepted as the default operator path with supporting workflows linked as unblock/recovery branches. | #1056, #1038, #1039, #1040, #1059, #1062 |
 
 ## Owner Evidence Model
@@ -56,11 +56,11 @@ Until a specific assignee is added, first-slice implementation comments should n
 | Issue | Stage | Owner record | Current readiness |
 | --- | --- | --- | --- |
 | #1087 | Cross-stage coordination | #1087 comment and this board | Complete when this board ships and evidence comments are linked. |
-| #1060 | Stage 1 | Owner comment posted before implementation PR | In implementation; defines the primary workbench API/read-model contract, retirement semantics, blocker categories, deploy-skew fail-closed behavior, and downstream handoff fields. |
-| #1031 | Stage 1 | Issue comment required before implementation PR | Ready to start; blocks IA-dependent navigation and route work. |
-| #1048 | Stage 1 | Issue comment required before implementation PR | Ready to start after or alongside #1031 IA decisions. |
-| #1046 | Stage 1 | Issue comment required before implementation PR | Ready to start after #1048 chooses the grouped navigation pattern. |
-| #1049 | Stage 1 | Issue comment required before implementation PR | Ready to start; primary-path framing should guide every Stage 1 artifact. |
+| #1060 | Stage 1 | Owner comment and PR #1157 | Complete; [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md) defines API/read-model contracts, retirement semantics, blocker categories, deploy-skew fail-closed behavior, and downstream handoff fields. |
+| #1031 | Stage 1 | PR #1150 | Complete; rebuilt IA and workflow map accepted for downstream navigation and route work. |
+| #1048 | Stage 1 | PR #1152 | Complete; grouped section navigation and mobile translation accepted. |
+| #1046 | Stage 1 | Owner comment posted before implementation PR | In implementation; builds the dense admin workbench proof artifact for downstream primary workbench adoption. |
+| #1049 | Stage 1 | PR #1148 | Complete; primary-path framing guides every Stage 1 artifact. |
 | #1056 | Stage 2 | Issue comment required before implementation PR | Waiting on Stage 1 exit. |
 | #1038 | Stage 2 | Issue comment required before implementation PR | Waiting on #1060 and #1049. |
 | #1039 | Stage 2 | Issue comment required before implementation PR | Waiting on #1060, #1046, and #1049. |
@@ -86,7 +86,7 @@ Each stage exit comment should include:
 - accepted owner/signoff;
 - explicit statement that the next stage is ready or still blocked;
 - any P3+ follow-up with owner and reason;
-- confirmation that no retired behavior remains usable through hidden flags, fallbacks, redirects, aliases, old tests, fixtures, screenshots, docs, runbooks, release notes, or operator instructions.
+- confirmation that no retired behavior remains usable through hidden flags, fallbacks, redirects, aliases, support-only routes, compatibility shims, old tests, fixtures, screenshots, docs, runbooks, release notes, or operator instructions.
 
 ## Related References
 

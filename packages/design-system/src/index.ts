@@ -11,6 +11,7 @@ export * from "./icons";
 export * from "./motion/config";
 export * from "./motion/primitives";
 export * from "./patterns/app-shells";
+export * from "./patterns/dense-admin-workbench-proof";
 export * from "./primitives/layout";
 export * from "./primitives/typography";
 export * from "./theme/provider";

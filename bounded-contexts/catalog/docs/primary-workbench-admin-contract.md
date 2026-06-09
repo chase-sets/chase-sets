@@ -57,7 +57,7 @@ The contract validator fails closed when the schema version, route context, depl
 | `promotion-result` | Show promotion outcome, audit evidence, recovery links, reapply, and replay entry points. | `start-reapply`, `start-replay` | Visible |
 | `supporting-evidence` | Expose dry-run, semantic diff, impact analysis, rollback/retirement impact, and audit evidence. | None | Hidden by default |
 
-The first six sections form the primary workbench. `supporting-evidence` may be linked from blocked/degraded states, drawers, or secondary navigation, but it must not displace the provider-data-to-promotion path.
+The first six sections form the primary workbench. `supporting-evidence` may be linked from blocked/degraded states, evidence side sheets, or secondary navigation, but it must not displace the provider-data-to-promotion path.
 
 ## Endpoint Shape
 
@@ -119,7 +119,7 @@ These are not temporary launch aids. They are prohibited implementation outcomes
 
 ## Retirement Rule
 
-For this control plane rebuild, "retire", "remove", "deprecate", and "cleanup" mean complete removal, not soft deprecation. Retired behavior must be deleted from runtime code, API routes, UI modules, route aliases, hidden flags, fallbacks, redirects, tests, fixtures, screenshots, documentation, runbooks, release notes, and operator instructions.
+For this control plane rebuild, "retire", "remove", "deprecate", and "cleanup" mean complete removal, not soft deprecation. Retired behavior must be deleted from runtime code, API routes, UI modules, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims.
 
 Forbidden outcomes include compatibility shims, legacy support paths, migration of the current two-page surface, raw JSON escape hatches, support-only preserved routes, or docs that teach operators how to use retired behavior.
 
@@ -140,4 +140,3 @@ Forbidden outcomes include compatibility shims, legacy support paths, migration 
 | #1065 | Provider transport budgets | `readiness.providerTransport`, `readiness.blockers` |
 
 Downstream issues may add implementation-specific fields, but they must not weaken this contract by adding provider-specific workbench branches, generic disabled-only states, raw provider payload reads, or legacy route fallbacks.
-
