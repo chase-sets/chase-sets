@@ -29,6 +29,8 @@ This handoff closes the Stage 0 cleanup gate for the Catalog Control Plane UX re
 - P2 support-workspace issues remain follow-up work after the first slice unless #1087 promotes one because it directly blocks the primary import-to-promotion path.
 - #1090 owns complete deletion of the current two-page Catalog integrations pages, modules, tests, fixtures, screenshots, docs, runbooks, and operator instructions after the rebuilt workbench is accepted.
 
+The operational stage board for applying these rules is [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md).
+
 ## Stale Pattern Rejection
 
 New implementation work must not:
