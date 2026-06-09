@@ -128,6 +128,7 @@ describe("CatalogItemDetailPage", () => {
     })[0];
 
     expect(referenceValueTrigger.getAttribute("href")).toBe("/catalog/reference-records/ref_expansion");
+    expect(referenceValueTrigger.getAttribute("aria-haspopup")).toBe("dialog");
     expect(referenceValueTrigger.className).toContain("text-accent");
     expect(referenceValueTrigger.className).toContain("hover:underline");
     expect(referenceValueTrigger.className).not.toContain("min-h-8");

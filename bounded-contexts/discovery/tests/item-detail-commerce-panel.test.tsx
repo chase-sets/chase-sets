@@ -299,18 +299,20 @@ describe("item detail commerce panel", () => {
     fireEvent.click(screen.getByRole("tab", { name: "Details" }));
 
     await waitFor(() => expect(screen.getByText("Expansion")).toBeTruthy());
-    expect(
-      screen.getAllByRole("button", { name: "View Expansion reference details for Perfect Order" })[0],
-    ).toBeTruthy();
+    const referenceValueTrigger = screen.getAllByRole("button", {
+      name: "View Expansion reference details for Perfect Order",
+    })[0];
+
+    expect(referenceValueTrigger.getAttribute("aria-haspopup")).toBe("dialog");
+    expect(referenceValueTrigger.className).toContain("text-accent");
+    expect(referenceValueTrigger.className).toContain("hover:underline");
+    expect(referenceValueTrigger.className).not.toContain("min-h-8");
+    expect(referenceValueTrigger.className).not.toContain("text-xs");
     expect(screen.getByText("Series")).toBeTruthy();
     expect(screen.getAllByRole("button", { name: "View Series reference details for Mega Evolution" })[0]).toBeTruthy();
     expect(screen.queryByText("fld_seed_expansion")).toBeNull();
 
-    fireEvent.click(
-      screen.getAllByRole("button", {
-        name: "View Expansion reference details for Perfect Order",
-      })[0],
-    );
+    fireEvent.click(referenceValueTrigger);
 
     const dialog = screen.getByRole("dialog", { name: "Perfect Order" });
     expect(within(dialog).getByText("Reference type")).toBeTruthy();
