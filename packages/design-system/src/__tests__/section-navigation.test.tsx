@@ -11,7 +11,7 @@ const catalogGroups: SectionNavigationGroup[] = [
       {
         key: "import-promotion",
         label: "Import to promotion",
-        href: "/admin/catalog/integrations",
+        href: "/admin/catalog/primary-workbench?section=import-promotion",
         icon: "refreshCcw",
         description: "Pull, review, and promote provider data",
         count: 24,
@@ -19,7 +19,7 @@ const catalogGroups: SectionNavigationGroup[] = [
       {
         key: "observation-review",
         label: "Observation review",
-        href: "/admin/catalog/integrations/observations",
+        href: "/admin/catalog/primary-workbench?section=observation-review",
         state: "pending",
         statusLabel: "Ready",
       },
@@ -32,7 +32,7 @@ const catalogGroups: SectionNavigationGroup[] = [
       {
         key: "health",
         label: "Health triage",
-        href: "/admin/catalog/integrations/health",
+        href: "/admin/catalog/provider-health",
         state: "warning",
         statusLabel: "Needs evidence",
       },
@@ -52,7 +52,7 @@ const catalogGroups: SectionNavigationGroup[] = [
       {
         key: "lifecycle",
         label: "Lifecycle recovery",
-        href: "/admin/catalog/integrations/lifecycle",
+        href: "/admin/catalog/jobs-recovery",
         state: "blocked",
         statusLabel: "Blocked",
       },
@@ -78,7 +78,7 @@ describe("SectionNavigation", () => {
 
     const activeLink = within(nav).getByRole("link", { name: /Import to promotion/ });
     expect(activeLink.getAttribute("aria-current")).toBe("page");
-    expect(activeLink.getAttribute("href")).toBe("/admin/catalog/integrations");
+    expect(activeLink.getAttribute("href")).toBe("/admin/catalog/primary-workbench?section=import-promotion");
     expect(within(activeLink).getByText("24")).toBeTruthy();
 
     expect(within(nav).getByText("Needs evidence")).toBeTruthy();

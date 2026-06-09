@@ -71,6 +71,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 
 - [Design System](../packages/design-system/README.md)
 - [Marketplace Design Direction](../packages/design-system/MARKETPLACE_SYSTEM.md)
+- [Dense Admin Workbench Pattern](../packages/design-system/DENSE_ADMIN_WORKBENCH.md)
 - [Progressive Disclosure](../packages/design-system/PROGRESSIVE_DISCLOSURE.md)
 - [Panel Interaction Patterns](../packages/design-system/PANEL_INTERACTIONS.md)
 - [Section Navigation](../packages/design-system/SECTION_NAVIGATION.md)

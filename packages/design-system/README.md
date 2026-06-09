@@ -35,6 +35,7 @@ Application code should not introduce:
 - Advanced, optional, risky, or low-frequency choices should use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup` rather than app-local show/hide controls.
 - Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionSurface`, `BulkActionBar`, `BulkActionPanel`, and `MetricStrip`.
 - Dense admin areas with one primary workflow and supporting detours should use [Section Navigation](./SECTION_NAVIGATION.md) for desktop left-side menu groups and the approved grouped mobile selector.
+- Dense admin rebuilds should use [Dense Admin Workbench Pattern](./DENSE_ADMIN_WORKBENCH.md) and its `DenseAdminWorkbenchProof` artifact to validate grouped navigation, dense tables, selected-record commands, contextual evidence sheets, and blocked/denied/degraded states before app adoption.
 - Each list action slot should wrap bulk actions in one `BulkActionSurface` and render at most one `BulkActionBar`. Combine selected-scope and matching-scope work into that one bar instead of stacking bottom action bars.
 - `BulkActionBar` should keep the selected-count fact visible, place the most likely safe action or configuration trigger in `primaryActions`, place supporting actions such as clearing selection in `secondaryActions`, and move advanced, rare, risky, or large action sets into `BulkActionPanel` or `overflowActions`.
 - `DetailPanel` applies default vertical spacing between direct child content blocks.
@@ -153,6 +154,8 @@ The core rule is:
 ## Operational Workflows
 
 Use [Operational Workflow Patterns](./OPERATIONAL_WORKFLOWS.md) for task-focused account workstations such as shipment packing. These patterns cover `WorkstationLayout`, task progress, scan-first inputs, quantity-aware line items, operational locks, sticky task footers, and copyable references. Operational banners explain workflow control and must stay separate from marketplace trust or conversion banners.
+
+Use [Dense Admin Workbench Pattern](./DENSE_ADMIN_WORKBENCH.md) for rebuilt admin control planes where a primary operational path needs supporting detours, dense review queues, selected-record actions, evidence side sheets, and fail-closed blocker states.
 
 ## Responsive Defaults
 

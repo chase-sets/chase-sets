@@ -49,7 +49,7 @@ Use `count` for actionable quantities such as pending observations, failed jobs,
 
 The Catalog Control Plane uses `SectionNavigation` to keep provider import, Source Observation review, and promotion as the first and default workflow. Health, profile authoring, validation, lifecycle, governance, and audit screens are supporting detours that must preserve return context back to the primary path.
 
-Retiring the current catalog integrations or source-observations surfaces means complete deletion of old code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, and operator instructions. Do not keep hidden flags, fallback branches, redirects, aliases, shims, or support-only routes to preserve retired screens.
+Retiring the current catalog integrations or source-observations surfaces means complete deletion of old code, patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims.
 
 ## Example
 
@@ -69,7 +69,7 @@ import { SectionNavigation } from "@chase-sets/design-system";
         {
           key: "import-promotion",
           label: "Import to promotion",
-          href: "/admin/catalog/integrations",
+          href: "/admin/catalog/primary-workbench?section=import-promotion",
           description: "Pull, review, and promote provider data",
           count: 24,
         },
@@ -82,7 +82,7 @@ import { SectionNavigation } from "@chase-sets/design-system";
         {
           key: "health",
           label: "Health triage",
-          href: "/admin/catalog/integrations/health",
+          href: "/admin/catalog/provider-health",
           state: "warning",
           statusLabel: "Needs evidence",
         },
