@@ -12,6 +12,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Cookie-Backed Continuation Handoff](./architecture/cookie-backed-continuation-handoff.md): document redirect, protected-loader recovery, and regression-test rules for auth/session cookie continuations.
 - [Read-After-Write Route Author Checklist](./architecture/read-after-write-route-author-checklist.md): exact freshness dependencies, route inventory, transient recovery, cookie-backed continuation, and guardrail checks for post-write projection reads.
 - [Projection Freshness SLOs](./architecture/projection-freshness-slos.md): critical post-write read SLOs, rollout gates, and shared thresholds for guest Buy Now checkout freshness.
+- [Projection Freshness Worker Capacity](./architecture/projection-freshness-worker-capacity.md): worker topology, capacity defaults, operator evidence, and scaling order for critical projection freshness.
 - [Checkout Surface Audit](./architecture/checkout-surface-audit.md): Shopify-simple Buy Cart and Sell List checkout gap inventory, fresh-state cleanup targets, and sequencing recommendation.
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.

@@ -62,3 +62,4 @@ Workers also run `projection-generation-retention` as maintenance. It clears exp
 - Worker runner concurrency must not exceed `DATABASE_POOL_MAX` unless `ALLOW_WORKER_OVER_POOL_CAPACITY=true` is intentionally set for local testing.
 - Alert when the oldest queued projection operation is older than the claim TTL, when source lag grows while no worker heartbeat is fresh, or when poison/blocked-stream counts increase.
 - During DigitalOcean shared-resource incidents, reduce projection/job/dispatch concurrency before increasing app size so the database pool remains the first-class capacity budget.
+- For critical read-after-write routes, use the [Projection Freshness Worker Capacity](../architecture/projection-freshness-worker-capacity.md) audit to verify worker heartbeat, runner status, exact dependency mode, source lag, applicable lag, and route-level freshness timeout evidence before changing route code.
