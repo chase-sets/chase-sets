@@ -6,7 +6,7 @@ Normal operator workflows must be fully UI driven. Operators should not need to 
 
 Raw JSON may remain as an internal support inspection affordance behind an explicit advanced permission, but it is not the primary authoring path and must not be required for activation, migration evidence, import, reapply, rollback, retirement, or review.
 
-If the current design system cannot support the best implementation of this deep module, add the necessary primitives or components instead of forcing awkward controls or raw JSON fallback controls into the workflow.
+If the current design system cannot support the best implementation of this deep module, add the necessary primitives or components instead of forcing awkward controls or raw JSON editors into the workflow.
 
 ## Module Shape
 

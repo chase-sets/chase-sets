@@ -3,17 +3,12 @@ import type {
   CatalogIntegrationDataVerificationReport,
 } from "./catalog-integration-data-migration-reset";
 
-export type CatalogIntegrationLegacyCleanupSurfaceKind =
-  | "data-surface"
-  | "compatibility-code-path"
-  | "raw-json-authoring-path"
-  | "bootstrap-path";
+export type CatalogIntegrationLegacyCleanupSurfaceKind = "data-surface" | "bootstrap-path";
 
 export type CatalogIntegrationLegacyCleanupAction =
   | "wipe"
   | "wipe-and-rebuild"
   | "rebuild-from-profile-version"
-  | "quarantine"
   | "retain-with-explicit-exception";
 
 export type CatalogIntegrationLegacyCleanupSurface = Readonly<{
@@ -37,13 +32,6 @@ export type CatalogIntegrationRetainedLegacyPath = Readonly<{
   launchGate: string;
 }>;
 
-export type CatalogIntegrationLegacyProfileVersionSummary = Readonly<{
-  providerKey: string;
-  profileVersion: string;
-  compatibilityMode: "executable-mapping-contract" | "transitional-static-profile" | string;
-  retirementPlan: unknown;
-}>;
-
 export type CatalogIntegrationEditableSectionSummary = Readonly<{
   section: string;
   rawJsonBacked: boolean;
@@ -52,8 +40,6 @@ export type CatalogIntegrationEditableSectionSummary = Readonly<{
 export type CatalogIntegrationLegacyCleanupReadinessInput = Readonly<{
   report: CatalogIntegrationDataVerificationReport;
   editableSections: readonly CatalogIntegrationEditableSectionSummary[];
-  profileVersions: readonly CatalogIntegrationLegacyProfileVersionSummary[];
-  rawProfilePatchRouteQuarantined: boolean;
 }>;
 
 export type CatalogIntegrationLegacyCleanupReadinessFinding = Readonly<{
@@ -66,9 +52,7 @@ export type CatalogIntegrationLegacyCleanupReadinessFinding = Readonly<{
     | "provider-option-rate-limits-not-reset"
     | "seeded-profiles-missing"
     | "profile-sections-missing"
-    | "raw-json-section-editor"
-    | "raw-profile-patch-route-unowned"
-    | "transitional-profile-without-retirement";
+    | "raw-json-section-editor";
   severity: "p1" | "p2";
   releaseCheck: string;
 }>;
@@ -219,26 +203,6 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
       "Fixture payload bodies are retained only when governance and #804 retained-data evidence allow it.",
   },
   {
-    key: "transitional-static-profile-compatibility",
-    kind: "compatibility-code-path",
-    action: "retain-with-explicit-exception",
-    owner: "catalog-source-observations",
-    implementationReference:
-      "bounded-contexts/catalog/features/source-observations/api/provider-integration-profiles.ts",
-    reason: "A transitional profile can remain readable only while it carries fixture coverage and a retirement plan.",
-    releaseExpectation: "Every transitional static profile has tracking issue, diagnostic text, and removal criteria.",
-  },
-  {
-    key: "broad-provider-profile-patch-route",
-    kind: "raw-json-authoring-path",
-    action: "quarantine",
-    owner: "catalog-source-observations",
-    implementationReference: "bounded-contexts/catalog/features/source-observations/api/provider-profile-routes.ts",
-    reason:
-      "The broad patch endpoint accepts a profile-shaped JSON object and remains only as controlled compatibility for #789.",
-    releaseExpectation: "Normal Admin authoring uses section-scoped typed commands with rawJsonBacked set to false.",
-  },
-  {
     key: "section-scoped-profile-commands",
     kind: "bootstrap-path",
     action: "retain-with-explicit-exception",
@@ -252,16 +216,6 @@ export const catalogIntegrationLegacyCleanupSurfaces: readonly CatalogIntegratio
 
 export const catalogIntegrationRetainedLegacyPaths: readonly CatalogIntegrationRetainedLegacyPath[] = [
   {
-    key: "transitional-static-profile-compatibility",
-    ownerIssue: 804,
-    owner: "catalog-source-observations",
-    reason:
-      "Retained only for fixture-backed pre-launch profiles while their executable mapping contracts are activated.",
-    removalDate: "2026-06-30",
-    removalCriteria: "Remove after every seeded/provider profile uses executable-mapping-contract compatibility.",
-    launchGate: "No transitional-static-profile row may launch without a retirement plan and fixture coverage.",
-  },
-  {
     key: "legacy-source-observation-profile-marker-read",
     ownerIssue: 804,
     owner: "catalog-source-observations",
@@ -270,16 +224,6 @@ export const catalogIntegrationRetainedLegacyPaths: readonly CatalogIntegrationR
     removalDate: "2026-06-30",
     removalCriteria: "Remove once production has launched with zero legacy Source Observation profile references.",
     launchGate: "Release verification query for legacy_source_observation_references returns zero.",
-  },
-  {
-    key: "broad-provider-profile-patch-route",
-    ownerIssue: 789,
-    owner: "catalog-source-observations",
-    reason:
-      "Controlled internal compatibility while #789 finishes replacing raw JSON fallback paths with typed section commands.",
-    removalDate: "2026-06-30",
-    removalCriteria: "Remove or permission-split after typed commands cover all supported profile authoring workflows.",
-    launchGate: "Normal Admin workflows expose only section-scoped typed editors with rawJsonBacked false.",
   },
 ] as const;
 
@@ -363,24 +307,6 @@ export function evaluateCatalogIntegrationLegacyCleanupReadiness(
     }
   }
 
-  if (!input.rawProfilePatchRouteQuarantined) {
-    findings.push({
-      code: "raw-profile-patch-route-unowned",
-      severity: "p1",
-      releaseCheck: "The broad Provider Integration Profile patch route must be removed or quarantined under #789.",
-    });
-  }
-
-  for (const profile of input.profileVersions) {
-    if (profile.compatibilityMode === "transitional-static-profile" && !hasRetirementPlan(profile.retirementPlan)) {
-      findings.push({
-        code: "transitional-profile-without-retirement",
-        severity: "p1",
-        releaseCheck: `${profile.providerKey} ${profile.profileVersion} uses transitional static compatibility without a retirement plan.`,
-      });
-    }
-  }
-
   return {
     launchReady: findings.length === 0,
     findings,
@@ -395,8 +321,7 @@ export function catalogIntegrationLegacyCleanupReleaseChecklist(): readonly stri
     "Verify seeded active TCGdex, TCGplayer, and Scrydex profile versions are present after bootstrap.",
     "Verify profile section projections and diagnostics rebuilt from retained or seeded profile versions.",
     "Verify every editable Provider Integration Profile section reports rawJsonBacked=false.",
-    "Verify the broad profile patch route is quarantined under #789 or removed before launch.",
-    "Verify every retained transitional compatibility path has owner, reason, removal date, and launch gate.",
+    "Verify unsupported profile authoring compatibility code, controls, fixtures, and durable docs are absent.",
   ];
 }
 
@@ -408,26 +333,8 @@ export function catalogIntegrationLegacyCleanupVerificationQueries(): readonly s
     "SELECT COUNT(*) AS integration_work_units FROM catalog_source_observation_integration_work_units;",
     "SELECT COUNT(*) AS bulk_review_jobs FROM catalog_source_observation_bulk_review_jobs;",
     "SELECT COUNT(*) AS bulk_review_work_units FROM catalog_source_observation_bulk_review_work_units;",
-    "SELECT provider_key, profile_version, retirement_plan_json FROM catalog_provider_integration_profile_versions WHERE compatibility_mode = 'transitional-static-profile';",
     "SELECT provider_key, profile_version, lifecycle FROM catalog_provider_integration_profile_versions WHERE active = true AND lifecycle = 'active';",
     "SELECT COUNT(*) AS profile_sections FROM catalog_provider_profile_version_sections;",
     "SELECT COUNT(*) AS profile_section_diagnostics FROM catalog_provider_profile_version_section_diagnostics;",
   ];
-}
-
-function hasRetirementPlan(value: unknown): boolean {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  return (
-    typeof value.trackingIssue === "number" &&
-    value.removeAfter === "executable-mapping-contract-activated" &&
-    typeof value.diagnosticText === "string" &&
-    value.diagnosticText.trim().length > 0
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

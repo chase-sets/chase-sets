@@ -1346,10 +1346,6 @@ function ActivationReadinessWorkflow({
             value: replayImplication(profile),
           },
           {
-            key: t("catalog.features.sourceObservations.ui.integrationManagementPage.compatibility.mode"),
-            value: profile.compatibilityMode,
-          },
-          {
             key: t("catalog.features.sourceObservations.ui.integrationManagementPage.blocking.checks"),
             value: String(blockedChecks.length),
           },

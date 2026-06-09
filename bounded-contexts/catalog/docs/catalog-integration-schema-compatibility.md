@@ -93,7 +93,7 @@ Use compatibility adapters or migrations only when at least one of these is true
 
 The pre-launch reset mode deletes integration jobs, work units, Source Observations, learned provider option rate limits, and non-admin-authored provider profile versions, then rebuilds seeded profile versions and section projections. Active jobs block reset unless an operator records an explicit forced pre-launch wipe decision.
 
-The #804 launch cleanup inventory additionally requires every retained transitional static profile, legacy Source Observation marker read, or broad profile patch route to be named in the retained-path table. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`; broad raw profile patching remains quarantined under #789 until it is removed or permission-split.
+The launch cleanup inventory additionally requires every retained legacy Source Observation marker read or retained prelaunch path to be named in the retained-path table. Normal Admin workflows must stay section-scoped and typed with `rawJsonBacked=false`.
 
 ## Test Expectations
 

@@ -60,7 +60,6 @@ CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
   profile_json jsonb NOT NULL,
   source_contract_json jsonb NOT NULL,
   fixture_contract_json jsonb NOT NULL,
-  compatibility_mode text NOT NULL,
   retirement_plan_json jsonb NULL,
   executable_mapping_contract_json jsonb NULL,
   migration_evidence_json jsonb NULL,
@@ -72,12 +71,11 @@ CREATE TABLE IF NOT EXISTS catalog_provider_integration_profile_versions (
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (provider_key, profile_key, profile_version),
   CONSTRAINT catalog_provider_profile_lifecycle_check
-    CHECK (lifecycle IN ('draft', 'test', 'active', 'deprecated', 'retired')),
-  CONSTRAINT catalog_provider_profile_compatibility_mode_check
-    CHECK (compatibility_mode IN ('executable-mapping-contract', 'transitional-static-profile'))
+    CHECK (lifecycle IN ('draft', 'test', 'active', 'deprecated', 'retired'))
 );
 
 ALTER TABLE catalog_provider_integration_profile_versions
+  DROP COLUMN IF EXISTS compatibility_mode,
   ADD COLUMN IF NOT EXISTS migration_evidence_json jsonb NULL,
   ADD COLUMN IF NOT EXISTS authoring_audit_json jsonb NULL;
 

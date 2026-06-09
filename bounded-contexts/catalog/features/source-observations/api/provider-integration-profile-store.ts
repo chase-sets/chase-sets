@@ -4,7 +4,6 @@ import {
   catalogProviderIntegrationProfileVersions,
   type CatalogProviderIntegrationProfile,
   type CatalogProviderIntegrationProfileAuthoringAudit,
-  type CatalogProviderIntegrationProfileCompatibilityMode,
   type CatalogProviderIntegrationProfileMigrationEvidence,
   type CatalogProviderIntegrationProfileRetirementPlan,
   type CatalogProviderIntegrationProfileVersionRecord,
@@ -26,7 +25,6 @@ type CatalogProviderIntegrationProfileVersionRow = Readonly<{
   profile_json: CatalogProviderIntegrationProfile | string;
   source_contract_json: CatalogProviderMappingSourceContract | string;
   fixture_contract_json: CatalogProviderProfileFixtureContract | string;
-  compatibility_mode: CatalogProviderIntegrationProfileCompatibilityMode;
   retirement_plan_json: CatalogProviderIntegrationProfileRetirementPlan | string | null;
   executable_mapping_contract_json: CatalogProviderExecutableMappingContract | string | null;
   migration_evidence_json: CatalogProviderIntegrationProfileMigrationEvidence | string | null;
@@ -130,19 +128,17 @@ async function upsertProfileVersionSnapshot(
        profile_json,
        source_contract_json,
        fixture_contract_json,
-       compatibility_mode,
        retirement_plan_json,
        executable_mapping_contract_json,
        migration_evidence_json,
        authoring_audit_json
-     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10::jsonb, $11::jsonb, $12::jsonb, $13::jsonb)
+     ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb)
      ON CONFLICT (provider_key, profile_key, profile_version) DO UPDATE SET
        lifecycle = EXCLUDED.lifecycle,
        active = EXCLUDED.active,
        profile_json = EXCLUDED.profile_json,
        source_contract_json = EXCLUDED.source_contract_json,
        fixture_contract_json = EXCLUDED.fixture_contract_json,
-       compatibility_mode = EXCLUDED.compatibility_mode,
        retirement_plan_json = EXCLUDED.retirement_plan_json,
        executable_mapping_contract_json = EXCLUDED.executable_mapping_contract_json,
        migration_evidence_json = EXCLUDED.migration_evidence_json,
@@ -161,7 +157,6 @@ async function upsertProfileVersionSnapshot(
       JSON.stringify(version.profile),
       JSON.stringify(version.sourceContract),
       JSON.stringify(version.fixtures),
-      version.compatibilityMode,
       version.retirementPlan === null ? null : JSON.stringify(version.retirementPlan),
       version.executableMappingContract ? JSON.stringify(version.executableMappingContract) : null,
       version.migrationEvidence ? JSON.stringify(version.migrationEvidence) : null,
@@ -363,7 +358,6 @@ function rowToProfileVersion(
     profile: parseJsonField<CatalogProviderIntegrationProfile>(row.profile_json),
     sourceContract: parseJsonField<CatalogProviderMappingSourceContract>(row.source_contract_json),
     fixtures: parseJsonField<CatalogProviderProfileFixtureContract>(row.fixture_contract_json),
-    compatibilityMode: row.compatibility_mode,
     retirementPlan: row.retirement_plan_json
       ? parseJsonField<CatalogProviderIntegrationProfileRetirementPlan>(row.retirement_plan_json)
       : null,
@@ -391,7 +385,6 @@ function rowFromVersion(
     profile_json: version.profile,
     source_contract_json: version.sourceContract,
     fixture_contract_json: version.fixtures,
-    compatibility_mode: version.compatibilityMode,
     retirement_plan_json: version.retirementPlan,
     executable_mapping_contract_json: version.executableMappingContract ?? null,
     migration_evidence_json: version.migrationEvidence ?? null,

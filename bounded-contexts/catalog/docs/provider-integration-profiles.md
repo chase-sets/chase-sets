@@ -12,15 +12,15 @@ Executable mapping semantics are documented in [Provider Integration Mapping Con
 
 The operator-facing workflow is documented in [Provider Integration Admin Module](./provider-integration-admin-module.md). Normal profile authoring, validation, dry-run, comparison, activation, import, promotion/reapply, rollback, migration-evidence, and retirement workflows must be typed and guided in admin. Operators should not need to edit raw JSON to complete supported work.
 
-Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md). Schema versioning, launched-data compatibility, and resettable pre-launch data policy are documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider payload, fixture, dry-run, diagnostics, audit, logging, export, and policy/legal signoff rules are documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Fixture storage, provenance, sampling, coverage sufficiency, validation inputs, and activation-readiness behavior are documented in [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md). Activation, rollback, retirement, replay, and reapply workload previews are documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md). The executable pre-launch wipe/rebuild and rollback plan is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md). The retained legacy path inventory and raw JSON quarantine policy are documented in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md).
+Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md). Schema versioning, launched-data compatibility, and resettable pre-launch data policy are documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider payload, fixture, dry-run, diagnostics, audit, logging, export, and policy/legal signoff rules are documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Fixture storage, provenance, sampling, coverage sufficiency, validation inputs, and activation-readiness behavior are documented in [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md). Activation, rollback, retirement, replay, and reapply workload previews are documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md). The executable pre-launch wipe/rebuild and rollback plan is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md). The cleanup inventory is documented in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md).
 
 ## Versioned Data Path
 
 Catalog persists provider integration profiles in `catalog_provider_integration_profile_versions`.
-Each row carries the provider key, profile key, profile version, lifecycle, active flag, profile JSON, source contract metadata, fixture contract metadata, compatibility mode, optional executable mapping contract, and optional retirement plan.
+Each row carries the provider key, profile key, profile version, lifecycle, active flag, profile JSON, source contract metadata, fixture contract metadata, optional executable mapping contract, and optional retirement plan.
 Admin-authored rows also carry migration evidence and authoring audit metadata so operators can see who cloned or changed a version and what replay or fixture evidence justified activation.
 
-The current TCGdex and TCGplayer profiles are seeded through this versioned data path during Catalog bootstrap. TCGdex is active as an executable mapping profile version. TCGplayer is fixture-backed as an executable `test` profile version while its automation-client import workflows remain planned. Transitional static profiles must carry fixture coverage and a retirement issue.
+The current TCGdex, TCGplayer, and Scrydex profiles are seeded through this versioned data path during Catalog bootstrap. TCGdex is active as an executable mapping profile version. TCGplayer and Scrydex are fixture-backed executable `test` profile versions while their import workflows remain planned.
 
 Profile lifecycle values are:
 
@@ -30,7 +30,7 @@ Profile lifecycle values are:
 - `deprecated`: still readable for replay and rollback, but not selected for new imports.
 - `retired`: retained only for historical observations that still reference it.
 
-Activating a profile version validates fixture coverage, profile identity, and the executable mapping contract when one is present. Transitional static fixtures are allowed only with an explicit retirement path. New executable profile versions should not rely on static mapping code once their mapping contract can express the required normalization, external reference extraction, selected Option resolution, Reference Record hierarchy, duplicate-prevention policy, and promotion command plan.
+Activating a profile version validates fixture coverage, profile identity, and the executable mapping contract. Profile versions should express normalization, external reference extraction, selected Option resolution, Reference Record hierarchy, duplicate-prevention policy, and promotion command plan through the executable mapping contract.
 
 Admin activation is guarded by the fixture harness and migration evidence. The activation request returns structured diagnostics when fixture coverage, mapping identity, redaction, or migration evidence is incomplete. Activation must not make live provider calls; fixtures and committed profile data are the only allowed evidence for this gate.
 
@@ -81,7 +81,7 @@ Section rows are persisted as projections in `catalog_provider_profile_version_s
 
 The projection tables are query/read-model infrastructure, not a new profile authoring source. If a section projection is missing or stale, replaying the canonical provider profile version snapshot must recreate the same section rows and diagnostics.
 
-The broad Provider Integration Profile patch route is quarantined under #789 for controlled compatibility only. Normal Admin Control Plane authoring must use section-scoped typed commands, and every editable section metadata entry must report `rawJsonBacked=false`. Broad route calls are rejected unless the request includes `rawJsonQuarantine.ownerIssue=789`, a non-empty reason, and `rawJsonQuarantine.retirementCondition=section-scoped-typed-commands-complete`; normal Admin UI/client code should not expose this helper.
+Normal Admin Control Plane authoring must use section-scoped typed commands, and every editable section metadata entry must report `rawJsonBacked=false`. There is no supported profile-shaped JSON patch route for launch workflows.
 
 ## TCGdex Pokemon TCG Profile
 

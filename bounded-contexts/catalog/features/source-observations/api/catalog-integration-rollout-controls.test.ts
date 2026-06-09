@@ -5,15 +5,11 @@ import {
 } from "./catalog-integration-rollout-controls";
 
 describe("Catalog integration rollout controls", () => {
-  it("defaults control-plane operations to open while quarantining raw JSON fallback", () => {
+  it("defaults control-plane operations to open", () => {
     const policy = createCatalogIntegrationRolloutControlPolicy({}, "2026-06-08T00:00:00.000Z");
 
     expect(policy.decide({ capability: "import", providerKey: "tcgdex" })).toMatchObject({ allowed: true });
     expect(policy.decide({ capability: "promotion", providerKey: "tcgdex" })).toMatchObject({ allowed: true });
-    expect(policy.decide({ capability: "raw-json-fallback" })).toMatchObject({
-      allowed: false,
-      controls: [expect.objectContaining({ controlId: "raw-json-fallback-quarantine", ownerIssue: 801 })],
-    });
   });
 
   it("blocks provider transport and option queries when a provider adapter is disabled", () => {

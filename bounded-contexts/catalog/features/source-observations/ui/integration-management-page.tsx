@@ -162,16 +162,6 @@ const REQUIRED_FIXTURE_FLOW_OPTIONS = [
   "sealed-product",
   "unknown-option",
 ] as const;
-const PROFILE_COMPATIBILITY_MODE_OPTIONS = [
-  {
-    value: "executable-mapping-contract",
-    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.executable.mapping.contract"),
-  },
-  {
-    value: "transitional-static-profile",
-    label: t("catalog.features.sourceObservations.ui.integrationManagementPage.transitional.static.profile"),
-  },
-] satisfies SelectItem[];
 const PROFILE_STATUS_OPTIONS = [
   { value: "active", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.active") },
   { value: "planned", label: t("catalog.features.sourceObservations.ui.integrationManagementPage.planned") },
@@ -406,7 +396,6 @@ type ProfileBasicsForm = Readonly<{
   displayName: string;
   lifecycle: "draft" | "test";
   status: "active" | "planned";
-  compatibilityMode: "executable-mapping-contract" | "transitional-static-profile";
   capabilities: readonly string[];
   supportedScopes: readonly string[];
   languageOptionsText: string;
@@ -2442,7 +2431,6 @@ function buildProfileColumns(actions: ProfileRowActions): DataColumn<CatalogProv
               ? t("catalog.features.sourceObservations.ui.integrations.profile.review.active")
               : row.lifecycle}
           </StatusPill>
-          <span>{row.compatibilityMode}</span>
           <span>{row.referenceCount} refs</span>
         </Inline>
       ),
@@ -3499,18 +3487,6 @@ function ProfileBasicsEditor({
           value={form.status}
           onValueChange={(value) => setForm({ status: value === "active" ? "active" : "planned" })}
           items={PROFILE_STATUS_OPTIONS}
-          disabled={!editable}
-        />
-        <Select
-          label={t("catalog.features.sourceObservations.ui.integrationManagementPage.compatibility")}
-          value={form.compatibilityMode}
-          onValueChange={(value) =>
-            setForm({
-              compatibilityMode:
-                value === "transitional-static-profile" ? "transitional-static-profile" : "executable-mapping-contract",
-            })
-          }
-          items={PROFILE_COMPATIBILITY_MODE_OPTIONS}
           disabled={!editable}
         />
       </Inline>
@@ -7229,7 +7205,6 @@ function profileEditableJson(profile: CatalogProviderProfileVersionReview | null
       profile: null,
       sourceContract: null,
       fixtures: null,
-      compatibilityMode: null,
       retirementPlan: null,
       executableMappingContract: null,
     };
@@ -7239,7 +7214,6 @@ function profileEditableJson(profile: CatalogProviderProfileVersionReview | null
     profile: profile.profile,
     sourceContract: profile.sourceContract,
     fixtures: profile.fixtures,
-    compatibilityMode: profile.compatibilityMode,
     retirementPlan: profile.retirementPlan,
     executableMappingContract: profile.executableMappingContract,
   };
@@ -7283,10 +7257,6 @@ function profileBasicsForm(profile: CatalogProviderProfileVersionReview): Profil
     displayName: profile.displayName,
     lifecycle: profile.lifecycle === "test" ? "test" : "draft",
     status: profile.status === "active" ? "active" : "planned",
-    compatibilityMode:
-      profile.compatibilityMode === "transitional-static-profile"
-        ? "transitional-static-profile"
-        : "executable-mapping-contract",
     capabilities: [...profile.capabilities],
     supportedScopes: [...profile.supportedScopes],
     languageOptionsText: profile.languageOptions.join("\n"),
@@ -7324,7 +7294,6 @@ function buildProfileBasicsSectionCommands(
     displayName: form.displayName.trim(),
     lifecycle: form.lifecycle,
     status: form.status,
-    compatibilityMode: form.compatibilityMode,
     capabilities: [...form.capabilities],
     supportedScopes: [...form.supportedScopes],
     languageOptions: parseListInput(form.languageOptionsText),

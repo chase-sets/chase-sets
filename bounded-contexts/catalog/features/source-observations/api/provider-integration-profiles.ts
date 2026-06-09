@@ -383,10 +383,6 @@ export type CatalogProviderIntegrationProfile = Readonly<{
   }>;
 }>;
 
-export type CatalogProviderIntegrationProfileCompatibilityMode =
-  | "executable-mapping-contract"
-  | "transitional-static-profile";
-
 export type CatalogProviderIntegrationProfileRetirementPlan = Readonly<{
   trackingIssue: number;
   removeAfter: "executable-mapping-contract-activated";
@@ -421,7 +417,6 @@ export type CatalogProviderIntegrationProfileVersionRecord = Readonly<{
   profile: CatalogProviderIntegrationProfile;
   sourceContract: CatalogProviderMappingSourceContract;
   fixtures: CatalogProviderProfileFixtureContract;
-  compatibilityMode: CatalogProviderIntegrationProfileCompatibilityMode;
   retirementPlan: CatalogProviderIntegrationProfileRetirementPlan | null;
   executableMappingContract?: CatalogProviderExecutableMappingContract;
   migrationEvidence?: CatalogProviderIntegrationProfileMigrationEvidence | null;
@@ -1326,7 +1321,6 @@ export const catalogProviderIntegrationProfileVersions = [
     profile: scrydexScryfallCardProviderProfile,
     sourceContract: scrydexScryfallCardSourceObservationMappingContract.sourceContract,
     fixtures: scrydexScryfallCardSourceObservationMappingContract.fixtures,
-    compatibilityMode: "executable-mapping-contract",
     retirementPlan: null,
     executableMappingContract: scrydexScryfallCardSourceObservationMappingContract,
   },
@@ -1339,7 +1333,6 @@ export const catalogProviderIntegrationProfileVersions = [
     profile: tcgdexPokemonTcgProviderProfile,
     sourceContract: tcgdexPokemonCardSourceObservationMappingContract.sourceContract,
     fixtures: tcgdexPokemonCardSourceObservationMappingContract.fixtures,
-    compatibilityMode: "executable-mapping-contract",
     retirementPlan: null,
     executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract,
   },
@@ -1352,7 +1345,6 @@ export const catalogProviderIntegrationProfileVersions = [
     profile: tcgplayerAutomationClientProviderProfile,
     sourceContract: tcgplayerProviderProductSourceObservationMappingContract.sourceContract,
     fixtures: tcgplayerProviderProductSourceObservationMappingContract.fixtures,
-    compatibilityMode: "executable-mapping-contract",
     retirementPlan: null,
     executableMappingContract: tcgplayerProviderProductSourceObservationMappingContract,
   },
@@ -1502,17 +1494,6 @@ export function validateCatalogProviderIntegrationProfileVersion(
         diagnosticText: fixtureDiagnostic.diagnosticText,
       });
     }
-  }
-
-  if (version.compatibilityMode === "transitional-static-profile") {
-    if (!version.retirementPlan) {
-      diagnostics.push({
-        code: "missing-retirement-plan",
-        path: "retirementPlan",
-        diagnosticText: "Transitional static provider profiles must carry an explicit retirement path.",
-      });
-    }
-    return diagnostics;
   }
 
   if (!version.executableMappingContract) {
