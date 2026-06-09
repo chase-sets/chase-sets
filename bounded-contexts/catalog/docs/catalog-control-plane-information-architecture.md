@@ -4,7 +4,7 @@ This note is the Stage 1 IA contract for #1031. It defines how the rebuilt Catal
 
 The IA starts from the primary operator job: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workspaces exist to unblock, govern, recover, or verify that job. They are not equal peers that bury the default workflow, and they are not a one-to-one migration of the current `/catalog/integrations` and `/catalog/source-observations` pages.
 
-The authoritative TypeScript manifest is `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/information-architecture.ts`.
+The authoritative TypeScript manifest is `bounded-contexts/catalog/features/source-observations/ui/admin-control-plane/information-architecture.ts`. The grouped navigation application contract lives in [Catalog Control Plane Section Navigation](./catalog-control-plane-section-navigation.md).
 
 ## Workspace Groups
 
@@ -74,7 +74,7 @@ The IA manifest is covered by `information-architecture.test.ts`. The tests prov
 
 ## Downstream Use
 
-- #1048 implements grouped section navigation/submenus and the mobile translation against this group order.
+- #1048 implements grouped section navigation/submenus and the mobile translation against this group order, using [Catalog Control Plane Section Navigation](./catalog-control-plane-section-navigation.md) and the design-system [Section Navigation](../../../packages/design-system/SECTION_NAVIGATION.md) pattern.
 - #1046 implements dense-workbench primitives that can render the workspace responsibilities and evidence states.
 - #1057 owns route, deep-link, and context preservation details.
 - #1056 owns the cohesive default import-to-promotion workbench.
@@ -83,6 +83,7 @@ The IA manifest is covered by `information-architecture.test.ts`. The tests prov
 ## Related References
 
 - [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md)
+- [Catalog Control Plane Section Navigation](./catalog-control-plane-section-navigation.md)
 - [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md)
 - [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md)
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
