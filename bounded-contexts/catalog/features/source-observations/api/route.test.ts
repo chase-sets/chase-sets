@@ -113,7 +113,6 @@ describe("source observation routes", () => {
       ["/source-observations/provider-profiles/tcgdex/v1/rollback", { method: "POST" }],
       ["/source-observations/provider-profiles/tcgdex/v1/retire", { method: "POST" }],
       ["/source-observations/provider-profiles/tcgdex/v1/deprecate", { method: "POST" }],
-      ["/source-observations/imports/tcgdex-set", { method: "POST", body: "{}" }],
       ["/source-observations/integration-jobs", { method: "POST", body: "{}" }],
       ["/source-observations/bulk-promote/preview", { method: "POST", body: "{}" }],
       ["/source-observations/reapply/preview", { method: "POST", body: "{}" }],
@@ -426,70 +425,6 @@ describe("source observation routes", () => {
     });
   });
 
-  it("accepts TCGdex expansion ID as the Catalog-facing import request field", async () => {
-    const job = integrationJobFixture({
-      jobId: "job_import_base1",
-      action: "import",
-      scope: { provider: "tcgdex", language: "en", setId: "base1" },
-    });
-    const enqueueIntegrationJob = vi.fn(async () => job);
-    const services = {
-      enqueueIntegrationJob,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
-
-    const response = await app.request("/source-observations/imports/tcgdex-set", {
-      method: "POST",
-      body: JSON.stringify({ languageCode: "en", expansionId: "base1" }),
-      headers: { "content-type": "application/json" },
-    });
-
-    expect(response.status).toBe(202);
-    await expect(response.json()).resolves.toMatchObject({
-      jobId: "job_import_base1",
-      action: "import",
-      status: "queued",
-    });
-    expect(enqueueIntegrationJob).toHaveBeenCalledWith({
-      action: "import",
-      scope: {
-        provider: "tcgdex",
-        language: "en",
-        setId: "base1",
-      },
-      context,
-    });
-  });
-
-  it("returns rollout evidence when TCGdex imports are disabled", async () => {
-    const enqueueIntegrationJob = vi.fn(async () => {
-      throw rolloutDenied({ capability: "import", providerKey: "tcgdex" });
-    });
-    const services = {
-      enqueueIntegrationJob,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
-
-    const response = await app.request("/source-observations/imports/tcgdex-set", {
-      method: "POST",
-      body: JSON.stringify({ languageCode: "en", expansionId: "base1" }),
-      headers: { "content-type": "application/json" },
-    });
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "catalog_integration_rollout_control_denied",
-        diagnosticCode: "catalog-integration-rollout-control-denied",
-        capability: "import",
-        controlId: "provider-adapter-disabled",
-        ownerIssue: 801,
-        auditEventName: "rollout-control-denied",
-        metricKey: "catalog.integration.rollout.provider_adapter_disabled",
-      },
-    });
-  });
-
   it("streams TCGdex import job status events", async () => {
     const job = integrationJobFixture({
       jobId: "job_import_base1",
@@ -530,79 +465,6 @@ describe("source observation routes", () => {
     expect(readSseData(text)).toEqual([job]);
     expect(getIntegrationJob).toHaveBeenCalledWith("job_import_base1", context);
     expect(listIntegrationJobEvents).toHaveBeenCalledWith("job_import_base1", 0);
-  });
-
-  it("lists TCGdex metadata for language, series, and expansion selectors", async () => {
-    const listTcgdexLanguages = vi.fn(async () => [{ languageCode: "en" }]);
-    const listTcgdexSeries = vi.fn(async () => [{ seriesId: "me", name: "Mega Evolution", logoUrl: null }]);
-    const listTcgdexExpansions = vi.fn(async () => [
-      {
-        expansionId: "me02.5",
-        name: "Ascended Heroes",
-        seriesId: "me",
-        seriesName: "Mega Evolution",
-        logoUrl: null,
-        symbolUrl: null,
-        cardCount: 295,
-        officialCardCount: 217,
-      },
-    ]);
-    const services = {
-      listTcgdexLanguages,
-      listTcgdexSeries,
-      listTcgdexExpansions,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
-
-    const languagesResponse = await app.request("/source-observations/tcgdex/languages");
-    const seriesResponse = await app.request("/source-observations/tcgdex/series?languageCode=en");
-    const expansionsResponse = await app.request("/source-observations/tcgdex/expansions?languageCode=en&seriesId=me");
-
-    expect(languagesResponse.status).toBe(200);
-    await expect(languagesResponse.json()).resolves.toMatchObject({
-      items: [{ languageCode: "en" }],
-      total: 1,
-      count: 1,
-    });
-    expect(seriesResponse.status).toBe(200);
-    await expect(seriesResponse.json()).resolves.toMatchObject({
-      items: [{ seriesId: "me", name: "Mega Evolution" }],
-      total: 1,
-      count: 1,
-    });
-    expect(expansionsResponse.status).toBe(200);
-    await expect(expansionsResponse.json()).resolves.toMatchObject({
-      items: [{ expansionId: "me02.5", name: "Ascended Heroes" }],
-      total: 1,
-      count: 1,
-    });
-    expect(listTcgdexSeries).toHaveBeenCalledWith({ languageCode: "en" });
-    expect(listTcgdexExpansions).toHaveBeenCalledWith({
-      languageCode: "en",
-      seriesId: "me",
-    });
-  });
-
-  it("returns rollout evidence when provider adapter option queries are disabled", async () => {
-    const listTcgdexLanguages = vi.fn(async () => {
-      throw rolloutDenied({ capability: "provider-option-query", providerKey: "tcgdex" });
-    });
-    const services = {
-      listTcgdexLanguages,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
-
-    const response = await app.request("/source-observations/tcgdex/languages");
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "catalog_integration_rollout_control_denied",
-        capability: "provider-option-query",
-        controlId: "provider-adapter-disabled",
-        controls: [expect.objectContaining({ ownerIssue: 801 })],
-      },
-    });
   });
 
   it("lists provider-neutral integration options for Catalog import selectors", async () => {
@@ -648,62 +510,6 @@ describe("source observation routes", () => {
       queryKind: "expansions",
       languageCode: "en",
       parentValue: "me",
-    });
-  });
-
-  it("serves legacy TCGdex selectors through cache-aware option queries when available", async () => {
-    const queryIntegrationOptions = vi.fn(async () => ({
-      items: [
-        {
-          providerKey: "tcgdex",
-          queryKind: "series",
-          value: "me",
-          label: "Mega Evolution",
-          description: null,
-          parentValue: "en",
-          imageUrl: null,
-          metadata: { logoUrl: "https://img.example/me.png" },
-        },
-      ],
-      total: 1,
-      count: 1,
-      page: {
-        cursor: null,
-        nextCursor: null,
-        limit: 50,
-        hasMore: false,
-      },
-      cache: {
-        status: "fresh",
-        source: "cache",
-        cacheKey: "sha256:test",
-        fetchedAt: "2026-06-08T09:00:00.000Z",
-        expiresAt: "2026-06-08T09:15:00.000Z",
-        staleUntil: "2026-06-09T09:00:00.000Z",
-        cacheOnly: false,
-        forceRefresh: false,
-        degraded: false,
-        diagnostics: [],
-      },
-    }));
-    const services = {
-      queryIntegrationOptions,
-    } as unknown as SourceObservationRouteServices;
-    const app = buildApp(services);
-
-    const response = await app.request("/source-observations/tcgdex/series?languageCode=en");
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      items: [{ seriesId: "me", name: "Mega Evolution", logoUrl: "https://img.example/me.png" }],
-      total: 1,
-      count: 1,
-      cache: { status: "fresh", source: "cache" },
-    });
-    expect(queryIntegrationOptions).toHaveBeenCalledWith({
-      providerKey: "tcgdex",
-      queryKind: "series",
-      languageCode: "en",
     });
   });
 

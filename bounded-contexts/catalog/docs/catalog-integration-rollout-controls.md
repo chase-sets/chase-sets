@@ -46,9 +46,9 @@ Provider-scoped env values accept comma-separated provider keys, `all`, `true`, 
 
 The policy evaluates capabilities instead of routes:
 
-- `provider-option-query`: provider option routes and compatibility TCGdex selector routes.
+- `provider-option-query`: provider-neutral option query routes.
 - `provider-transport`: adapter-backed import planning and payload fetch boundaries.
-- `import`: compatibility import routes, neutral integration job enqueue, direct import services, and import worker turns.
+- `import`: neutral integration job enqueue, direct import services, and import worker turns.
 - `promotion`: single-observation promotion and bulk promotion jobs.
 - `reapply`: explicit reapply, scoped reapply jobs, and reapply worker turns.
 - `activation`: provider profile activation after the candidate lifecycle can be read.
