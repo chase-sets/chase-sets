@@ -85,6 +85,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Integration Schema Compatibility](../bounded-contexts/catalog/docs/catalog-integration-schema-compatibility.md)
 - [Catalog Integration Data Migration Reset](../bounded-contexts/catalog/docs/catalog-integration-data-migration-reset.md)
 - [Catalog Integration Legacy Cleanup](../bounded-contexts/catalog/docs/catalog-integration-legacy-cleanup.md)
+- [Catalog Control Plane Primary Path](../bounded-contexts/catalog/docs/catalog-control-plane-primary-path.md)
 - [Catalog Control Plane Clean Contract Handoff](../bounded-contexts/catalog/docs/catalog-control-plane-clean-contract-handoff.md)
 - [Catalog Control Plane First-Slice Stage Board](../bounded-contexts/catalog/docs/catalog-control-plane-first-slice-stage-board.md)
 - [Catalog Integration New-Provider Walkthrough](../bounded-contexts/catalog/docs/catalog-integration-new-provider-walkthrough.md)

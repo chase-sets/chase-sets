@@ -2,6 +2,8 @@
 
 Operator acceptance proves the Admin Control Plane supports real Catalog integration jobs from start to recovery. It is separate from the dense UX and accessibility checklist: UX checks prove the workspace is operable; these journeys prove operators can finish the work with realistic data, diagnostics, impact, and audit evidence.
 
+The primary-path framing for the rebuilt control plane is documented in [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md). Implementation evidence should treat J08 through J11 and J14 as the core import-to-promotion acceptance set unless a narrower issue explicitly states why one journey is out of scope.
+
 ## Acceptance Matrix
 
 | ID | Journey | Scenario type | Operator goal | Verification evidence |
@@ -58,6 +60,7 @@ If a journey cannot be validated because the underlying runtime capability does 
 ## Related References
 
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
+- [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md)
 - [Provider Integration Admin Module](./provider-integration-admin-module.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)
 - [Catalog Integration Audit Evidence](./catalog-integration-audit-evidence.md)
