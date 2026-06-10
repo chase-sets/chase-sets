@@ -80,6 +80,12 @@ The workbench contract pins command routes under the Source Observations admin A
 
 Admin page routes may wrap these API routes, but no implementation may preserve the current two-page Catalog integrations module structure, hidden compatibility redirects, support-only legacy routes, or raw JSON escape hatches.
 
+## Admin Route Command Bridge
+
+The rebuilt `/catalog/integrations` route may expose native form submits for the default workbench as a progressive-enhancement bridge while the clean admin API route patterns above are completed. That bridge must keep the primary-workbench command names (`start-provider-import`, `preview-promotion`, `execute-promotion`, `reject-source-observations`, `start-reapply`) in the UI payload, preserve provider/unit/scope/profile/filter/selection/job/preview context, and redirect back to the rebuilt workbench with sanitized success or fail-closed feedback. Promotion execution must re-check the live scope preview against a context-bound preview checkpoint before enqueueing work; profile, provider unit, import scope, filters, and selected observation ids are part of that checkpoint, and mutating commands clear the checkpoint after enqueueing.
+
+The bridge may translate to existing lower-level Source Observation API client methods as an implementation detail, but it must not expose the old two-page route structure, legacy provider selectors, raw JSON payloads, compatibility redirects, aliases, or support-only legacy paths. The existing preview backend is scope-based; selected ids are carried as execution context and freshness input until #1040 adds a selected-id preview route. If a command has no launch-ready backend route, the bridge must fail closed with `unsupported-command` instead of rendering a working-looking no-op. At the time of this #1056 segment, `defer-source-observations` and `start-replay` remain #1040-owned backend gaps and must not be presented as completed command paths.
+
 ## Blocker Categories
 
 Every blocked, denied, degraded, unsafe, unavailable, or disabled action must expose a `CatalogPrimaryWorkbenchBlockerCategory`. Generic disabled booleans are not enough.
