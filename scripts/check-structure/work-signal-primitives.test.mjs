@@ -29,6 +29,11 @@ const approvedDirectWorkSignalPrimitiveFiles = {
     reason:
       "Owns current same-job work-unit progress notifications; #1248 covers migration to shared waiter/metrics primitives.",
   },
+  "infrastructure/event-core-postgres/event-store.ts": {
+    owner: "event-core-postgres",
+    reason:
+      "Owns the lower-level after-commit event-store wake notification emission for #1219; the worker-owned relay consumes these composite-compatible envelopes in #1242, and #1238 tracks shared primitive consolidation without introducing a package cycle.",
+  },
   "infrastructure/platform-runtime/realtime-outbox-store.ts": {
     owner: "platform-runtime",
     reason: "Owns current realtime outbox notifications; #1248 reviews this path against listener budgets.",

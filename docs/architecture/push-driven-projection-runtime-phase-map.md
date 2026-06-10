@@ -62,7 +62,7 @@ Goal: make the original Checkout failure mode fast and safe without waiting for 
 Required work:
 
 - Add durable control-plane wake/readiness store in the control database.
-- Emit source-context event-store wake notifications after commit.
+- Emit source-context event-store wake notifications after commit using the [event-store wake notification contract](./event-store-wake-notifications.md).
 - Build active/standby worker-owned relay for enabled source contexts.
 - Build projection interest index and wake-intent scheduler.
 - Add checkpoint-readiness wakeups for API freshness waits.
