@@ -14,6 +14,7 @@ const {
   mockCreateCheckoutSession,
   mockCreateCartReadiness,
   mockCreateSellListReadiness,
+  mockCreateGuestSellListReadiness,
   mockGetCheckoutSession,
   mockPreviewCheckoutFulfillment,
   mockPreviewCheckoutStatus,
@@ -60,6 +61,7 @@ const {
   mockCreateCheckoutSession: vi.fn(),
   mockCreateCartReadiness: vi.fn(),
   mockCreateSellListReadiness: vi.fn(),
+  mockCreateGuestSellListReadiness: vi.fn(),
   mockGetCheckoutSession: vi.fn(),
   mockPreviewCheckoutFulfillment: vi.fn(),
   mockPreviewCheckoutStatus: vi.fn(),
@@ -144,6 +146,7 @@ import {
 import { action as checkoutSessionAction, loader as checkoutSessionLoader } from "./checkout-session";
 import { action as accountCartAction, loader as accountCartLoader } from "./account-cart";
 import { action as accountSellListAction } from "./account-sell-list";
+import { action as sellCheckoutSessionAction, loader as sellCheckoutSessionLoader } from "./sell-checkout-session";
 
 describe("checkout web routes", () => {
   beforeEach(() => {
@@ -172,6 +175,7 @@ describe("checkout web routes", () => {
     });
     mockCreateCartReadiness.mockResolvedValue(readyCartReadinessResponse());
     mockCreateSellListReadiness.mockResolvedValue(readySellListReadinessResponse());
+    mockCreateGuestSellListReadiness.mockResolvedValue(readySellListReadinessResponse());
   });
 
   afterEach(() => {
@@ -249,6 +253,30 @@ describe("checkout web routes", () => {
         },
         customerSafeFacts: ["Ready for seller checkout."],
       },
+    };
+  }
+
+  function guestSellListLine(overrides: Record<string, unknown> = {}) {
+    return {
+      seller_account_id: "anon_sell_1",
+      line_id: "sll_1",
+      line_type: "selected-offer",
+      offer_id: "off_1",
+      buyer_account_id: "acc_buyer",
+      buyer_display_name: "Buyer",
+      offer_price_amount: "38.00",
+      catalog_catalog_item_id: "cat_1",
+      product_id: "prod_1",
+      item_title: "Acerola's Mischief",
+      item_subtitle: "Raw / Damaged",
+      selected_options: [{ dimensionId: "Condition", optionId: "Damaged" }],
+      product_summary: "Raw card",
+      quantity: 1,
+      fallback_mode: "none",
+      minimum_listing_price_amount: null,
+      created_at: "2026-06-10T00:00:00.000Z",
+      updated_at: "2026-06-10T00:00:00.000Z",
+      ...overrides,
     };
   }
 
@@ -1176,6 +1204,290 @@ describe("checkout web routes", () => {
     expect(mockRemoveGuestSellListLine).toHaveBeenCalledWith("anon_sell_1", "sll_1");
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/sell-list");
+  });
+
+  it("starts guest seller checkout from a valid anonymous Sell List readiness snapshot", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toMatch(
+      /^\/checkout\/sell\/session\/chk_.+readinessSnapshotId=slr_ready&readinessSourceRevision=slr_source/,
+    );
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(mockCheckoutSellList).not.toHaveBeenCalled();
+  });
+
+  it("keeps guest seller checkout in Sell List recovery when readiness is blocked", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateGuestSellListReadiness.mockResolvedValue({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        status: "needs-resolution",
+        unresolvedLineIds: ["sll_1"],
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "review-sell-list-checkout");
+
+    const result = await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual({ error: "Resolve Sell List readiness before seller checkout starts." });
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(mockCheckoutSellList).not.toHaveBeenCalled();
+  });
+
+  it("loads guest seller checkout only when Sell List readiness still matches", async () => {
+    mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const result = await sellCheckoutSessionLoader({
+      request: new Request(
+        "http://localhost/checkout/sell/session/chk_sell_1?readinessSnapshotId=slr_ready&readinessSourceRevision=slr_source",
+        {
+          headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+        },
+      ),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
+    expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
+    expect(result.recovery).toBeNull();
+    expect(result.readiness?.snapshotId).toBe("slr_ready");
+    expect(result.lines).toEqual([expect.objectContaining({ line_id: "sll_1" })]);
+  });
+
+  it("fails guest seller checkout closed when readiness is stale", async () => {
+    mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const result = await sellCheckoutSessionLoader({
+      request: new Request(
+        "http://localhost/checkout/sell/session/chk_sell_1?readinessSnapshotId=slr_old&readinessSourceRevision=slr_old_source",
+        {
+          headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+        },
+      ),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.recovery).toEqual({ kind: "readiness-stale" });
+    expect(result.lines).toEqual([expect.objectContaining({ line_id: "sll_1" })]);
+  });
+
+  it("fails guest seller checkout closed when readiness is unresolved", async () => {
+    mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
+    mockCreateGuestSellListReadiness.mockResolvedValue({
+      readiness: {
+        ...readySellListReadinessResponse().readiness,
+        status: "needs-resolution",
+        unresolvedLineIds: ["sll_1"],
+        includedLineIds: [],
+      },
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const result = await sellCheckoutSessionLoader({
+      request: new Request(
+        "http://localhost/checkout/sell/session/chk_sell_1?readinessSnapshotId=slr_ready&readinessSourceRevision=slr_source",
+        {
+          headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+        },
+      ),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.recovery).toEqual({ kind: "readiness-blocked" });
+    expect(result.lines).toEqual([expect.objectContaining({ line_id: "sll_1" })]);
+  });
+
+  function guestSellCheckoutForm(overrides: Record<string, string> = {}) {
+    const form = new URLSearchParams({
+      readinessSnapshotId: "slr_ready",
+      readinessSourceRevision: "slr_source",
+      sellerName: "Jane Seller",
+      email: "jane@example.com",
+      phone: "555-0100",
+      shipFromName: "Jane Seller",
+      company: "",
+      shipFromLine1: "100 Market St",
+      shipFromLine2: "",
+      shipFromCity: "Wichita",
+      shipFromState: "KS",
+      shipFromPostalCode: "67202",
+      shipFromCountry: "US",
+      payoutHandoff: "create-account",
+      labelPreference: "prepaid-label",
+      termsAccepted: "accepted",
+      payoutState: "ready",
+      payoutEstimateState: "current",
+      riskState: "clear",
+      labelState: "ready",
+      ...overrides,
+    });
+    return form;
+  }
+
+  it("validates guest seller checkout contact and ship-from fields without side effects", async () => {
+    mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const form = guestSellCheckoutForm({ email: "", shipFromLine1: "", termsAccepted: "" });
+    form.delete("termsAccepted");
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+        },
+        body: form.toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.status).toBe("error");
+    expect(result.status === "error" ? result.fieldErrors : {}).toEqual(
+      expect.objectContaining({
+        email: "Enter a valid email address.",
+        shipFromLine1: "Enter address line 1.",
+        termsAccepted: "Confirm that you reviewed the seller checkout details.",
+      }),
+    );
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(mockCheckoutSellList).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["unsupported ship-from", { shipFromState: "PR" }, "shipFromState", "This ship-from region is not supported"],
+    ["payout setup required", { payoutState: "setup-required" }, "payoutHandoff", "Payout setup is required"],
+    ["payout setup failure", { payoutState: "failed" }, "payoutHandoff", "Payout setup is temporarily unavailable"],
+    ["changed payout", { payoutEstimateState: "changed" }, "form", "The payout estimate changed"],
+    ["risk hold", { riskState: "hold" }, "form", "This sale review is on hold"],
+    ["risk block", { riskState: "block" }, "form", "This sale review cannot continue"],
+    ["label failure", { labelState: "failed" }, "labelPreference", "Label readiness is unavailable"],
+  ])("blocks guest seller checkout on %s without side effects", async (_label, overrides, fieldName, message) => {
+    mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+        },
+        body: guestSellCheckoutForm(overrides).toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result.status).toBe("error");
+    expect(result.status === "error" ? result.fieldErrors[fieldName as keyof typeof result.fieldErrors] : "").toContain(
+      message,
+    );
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(mockCheckoutSellList).not.toHaveBeenCalled();
+  });
+
+  it("returns a guest seller confirmation handoff with no seller-committing side effects", async () => {
+    mockGetGuestSellList.mockResolvedValue({ items: [guestSellListLine()], count: 1 });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+      createGuestSellListReadiness: mockCreateGuestSellListReadiness,
+    });
+
+    const result = await sellCheckoutSessionAction({
+      request: new Request("http://localhost/checkout/sell/session/chk_sell_1", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_sell_list=anon_sell_1",
+        },
+        body: guestSellCheckoutForm().toString(),
+      }),
+      params: { sessionId: "chk_sell_1" },
+      context: undefined,
+    } as never);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        status: "confirmed",
+        confirmation: expect.objectContaining({
+          referenceId: "guest-sell-chk_sell_1",
+          sideEffects: {
+            label: "not-attempted",
+            payout: "not-attempted",
+            sale: "not-attempted",
+            notification: "not-attempted",
+            accountHistory: "not-attempted",
+          },
+        }),
+      }),
+    );
+    expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
+    expect(mockCreateListing).not.toHaveBeenCalled();
+    expect(mockCheckoutSellList).not.toHaveBeenCalled();
   });
 
   it("preserves buy-now checkout intent in the sign-in return target", async () => {
