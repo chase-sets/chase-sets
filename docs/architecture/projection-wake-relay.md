@@ -78,4 +78,4 @@ The fan-out core reports:
 
 The active runtime reports lease acquisition/miss/loss, listener connection/unavailability/disconnection, notification receipt, catch-up start/completion/failure, cursor advancement, and all fan-out core events.
 
-Later deployable and scheduler slices should attach these observer events to the shared work-signal metrics so dashboards can separate notify receipt, relay catch-up, fan-out, control-plane enqueue, worker claim, projection execution, and checkpoint readiness latency.
+The worker-side claim, execution, completion, and readiness path is documented in the [projection wake-intent scheduler](./projection-wake-scheduler.md). Later deployable slices should attach both relay and scheduler observer events to the shared work-signal metrics so dashboards can separate notify receipt, relay catch-up, fan-out, control-plane enqueue, worker claim, projection execution, and checkpoint readiness latency.

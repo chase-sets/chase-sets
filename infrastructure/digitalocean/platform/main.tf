@@ -231,7 +231,8 @@ check "worker_runner_capacity" {
       tonumber(local.worker_projection_concurrency) +
       tonumber(local.worker_job_concurrency) +
       tonumber(local.worker_dispatch_concurrency) +
-      tonumber(local.worker_scheduled_concurrency)
+      tonumber(local.worker_scheduled_concurrency) +
+      tonumber(local.worker_wake_concurrency)
     ) <= tonumber(local.worker_database_pool_max)
     error_message = "Worker runner concurrency must not exceed worker_database_pool_max. Increase worker_database_pool_max or reduce WORKER_*_MAX_CONCURRENT_RUNNERS."
   }
@@ -950,6 +951,12 @@ resource "digitalocean_app" "platform" {
         env {
           key   = "WORKER_JOB_MAX_CONCURRENT_RUNNERS"
           value = local.worker_job_concurrency
+          scope = "RUN_TIME"
+        }
+
+        env {
+          key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"
+          value = local.worker_wake_concurrency
           scope = "RUN_TIME"
         }
 

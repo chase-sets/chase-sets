@@ -34,6 +34,12 @@ import {
   type WorkerRunner,
   type WorkerRunnerLoop,
 } from "@chase-sets/platform-runtime/worker";
+import {
+  createProjectionWakeSchedulerRunners,
+  createWorkSignalCleanupRunner,
+  type ProjectionWakeSchedulerObserver,
+} from "@chase-sets/platform-runtime/projection-wake-scheduler";
+import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import { assertRunnerCapacity, summarizeRunnerCapacity } from "@chase-sets/platform-runtime/worker-capacity";
 import {
   createPostgresTransactionalEmailOutbox,
@@ -72,6 +78,7 @@ const config = loadConfig();
 const pools = createPlatformWorkerPools(config);
 await bootstrapPlatformControlPlane(pools.control);
 const controlPlane = createPostgresPlatformControlPlane(pools.control);
+const workSignalStore = createPostgresWorkSignalStore(pools.control);
 
 const paymentProcessorGateway =
   config.paymentProcessor.kind === "stripe"
@@ -163,7 +170,36 @@ const transactionalEmailDispatchRunners = createTransactionalEmailDispatchRunner
   config.workerId,
   transactionalEmailGateway,
 );
-const scheduledJobRunners = createScheduledJobRunners(runtime.services, config, controlPlane);
+const scheduledJobRunners = [
+  ...createScheduledJobRunners(runtime.services, config, controlPlane),
+  createWorkSignalCleanupRunner({
+    controlPlane,
+    workSignalStore,
+    intervalMs: config.projectionWakeScheduler.cleanupIntervalMs,
+    observer: createProjectionWakeSchedulerLogObserver(),
+  }),
+];
+const projectionWakeRunners = config.projectionWakeScheduler.enabled
+  ? createProjectionWakeSchedulerRunners({
+      workerId: config.workerId,
+      controlPlane,
+      workSignalStore,
+      projectionGroups: runtime.projectionGroups,
+      lanes: [
+        { lane: "hot", runnerCount: config.projectionWakeScheduler.hotLaneRunnerCount },
+        { lane: "standard", runnerCount: config.projectionWakeScheduler.standardLaneRunnerCount },
+        { lane: "bulk", runnerCount: config.projectionWakeScheduler.bulkLaneRunnerCount },
+      ],
+      maxClaimsPerRun: config.projectionWakeScheduler.maxClaimsPerRun,
+      claimTtlMs: config.projectionWakeScheduler.claimTtlMs,
+      leaseTtlMs: config.leaseTtlMs,
+      leaseRenewIntervalMs: config.leaseRenewIntervalMs,
+      retryBackoffBaseMs: config.projectionWakeScheduler.retryBackoffBaseMs,
+      retryBackoffMaxMs: config.projectionWakeScheduler.retryBackoffMaxMs,
+      maxAttempts: config.projectionWakeScheduler.maxAttempts,
+      observer: createProjectionWakeSchedulerLogObserver(),
+    })
+  : [];
 const runnerGroups = [
   createRunnerGroup("projections", projectionRunners, config.projectionMaxConcurrentRunners),
   createRunnerGroup("jobs", bulkJobRunners, config.jobMaxConcurrentRunners),
@@ -173,6 +209,12 @@ const runnerGroups = [
     config.dispatchMaxConcurrentRunners,
   ),
   createRunnerGroup("scheduled", scheduledJobRunners, config.scheduledMaxConcurrentRunners),
+  createRunnerGroup(
+    "wakes",
+    projectionWakeRunners,
+    config.projectionWakeScheduler.maxConcurrentRunners,
+    config.projectionWakeScheduler.pollIntervalMs,
+  ),
 ].filter((group) => group.runners.length > 0);
 const runnerLoops = runnerGroups.map((group) => ({
   ...group,
@@ -183,7 +225,7 @@ const runnerLoops = runnerGroups.map((group) => ({
     maxConcurrentRunners: group.maxConcurrentRunners,
     leaseTtlMs: config.leaseTtlMs,
     leaseRenewIntervalMs: config.leaseRenewIntervalMs,
-    pollIntervalMs: config.pollIntervalMs,
+    pollIntervalMs: group.pollIntervalMs ?? config.pollIntervalMs,
     observer: createWorkerObserver("platform-worker", group.name),
     onError: (error, runner) => {
       logger.error("Platform worker runner failed.", {
@@ -267,6 +309,7 @@ app.get("/internal/workers/status", async (c) => {
     capacity: runnerCapacity,
     loops: loopStatuses,
     durableWorkflows,
+    projectionWakeIntents: await workSignalStore.summarizeProjectionWakeIntents(),
     workers: await controlPlane.listWorkerHeartbeats(),
     runners: await controlPlane.listRunnerStatuses(),
     leases: await controlPlane.listLeases(),
@@ -303,13 +346,20 @@ type RunnerGroup = Readonly<{
   name: string;
   runners: readonly WorkerRunner[];
   maxConcurrentRunners: number;
+  pollIntervalMs?: number;
 }>;
 
-function createRunnerGroup(name: string, runners: readonly WorkerRunner[], maxConcurrentRunners: number): RunnerGroup {
+function createRunnerGroup(
+  name: string,
+  runners: readonly WorkerRunner[],
+  maxConcurrentRunners: number,
+  pollIntervalMs?: number,
+): RunnerGroup {
   return {
     name,
     runners,
     maxConcurrentRunners,
+    pollIntervalMs,
   };
 }
 
@@ -405,6 +455,61 @@ async function collectDurableWorkflowStatuses(services: Readonly<Record<string, 
     })),
   ]);
   return summaries.filter(Boolean);
+}
+
+function createProjectionWakeSchedulerLogObserver(): ProjectionWakeSchedulerObserver {
+  return {
+    wakeIntentClaimed: (event) =>
+      logger.info("Projection wake intent claimed.", {
+        type: "projection-wake.intent.claimed",
+        ...event,
+      }),
+    wakeIntentCompleted: (event) =>
+      logger.info("Projection wake intent completed.", {
+        type: "projection-wake.intent.completed",
+        ...event,
+      }),
+    wakeIntentNotReady: (event) =>
+      logger.warn("Projection wake intent retried before checkpoint readiness.", {
+        type: "projection-wake.intent.not_ready",
+        ...event,
+      }),
+    wakeIntentDeferred: (event) =>
+      logger.info("Projection wake intent deferred while the projection group lease was busy.", {
+        type: "projection-wake.intent.deferred",
+        ...event,
+      }),
+    wakeIntentUnknownTarget: (event) =>
+      logger.warn("Projection wake intent targeted an unknown projection group or checkpoint.", {
+        type: "projection-wake.intent.unknown_target",
+        ...event,
+      }),
+    wakeIntentRunFailed: (event) =>
+      logger.error("Projection wake intent run failed.", {
+        type: "projection-wake.intent.run_failed",
+        ...event,
+      }),
+    wakeIntentAttemptsExhausted: (event) =>
+      logger.error("Projection wake intent exhausted its scheduler attempts.", {
+        type: "projection-wake.intent.attempts_exhausted",
+        ...event,
+      }),
+    wakeIntentClaimLost: (event) =>
+      logger.warn("Projection wake intent claim was lost before completion.", {
+        type: "projection-wake.intent.claim_lost",
+        ...event,
+      }),
+    checkpointReadinessRecordFailed: (event) =>
+      logger.warn("Projection checkpoint readiness record failed after a wake completion.", {
+        type: "projection-wake.readiness.record_failed",
+        ...event,
+      }),
+    workSignalCleanupCompleted: (event) =>
+      logger.info("Work signal cleanup completed.", {
+        type: "work-signals.cleanup.completed",
+        ...event.result,
+      }),
+  };
 }
 
 function createWorkerObserver(workerKind: string, runnerGroup?: string): WorkerRuntimeObserver {
