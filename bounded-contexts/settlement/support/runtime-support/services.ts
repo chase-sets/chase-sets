@@ -4,6 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { TransactionalEmailOutbox } from "@chase-sets/communications-email";
 import { createPostgresTransactionalEmailOutbox } from "@chase-sets/transactional-email-outbox";
@@ -33,7 +34,10 @@ export function createSettlementServices(
   pool: PgTransactionalPool,
   ports: SettlementHostPorts = {},
 ): SettlementServices {
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "settlement" }),
+  });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const transactionalEmailOutbox = ports.transactionalEmailOutbox ?? createPostgresTransactionalEmailOutbox({ db });

@@ -1,4 +1,5 @@
 import { createPostgresEventStore, createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createInventoryCatalogItemRuntime } from "../../features/inventory-items/integrations/catalog/runtime";
@@ -28,7 +29,10 @@ export type InventoryHostPorts = Readonly<{
 }>;
 
 export function createInventoryServices(pool: PgTransactionalPool, ports: InventoryHostPorts = {}): InventoryServices {
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" }),
+  });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const deps = { eventStore, checkpointStore, db } as const;

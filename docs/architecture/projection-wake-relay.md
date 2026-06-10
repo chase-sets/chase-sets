@@ -47,6 +47,21 @@ The fan-out core does not claim that a source position has been fully caught up.
 
 The cursor advancement query verifies the supplied lease name, owner id, fencing token, and expiry against `platform_control_leases`. A stale relay process cannot advance the cursor after losing the active lease.
 
+## Deployable Hosting
+
+The platform worker hosts the relay as a long-lived supervised session beside its runner loops:
+
+1. Every implemented bounded context's runtime services pass a registry-derived `wakeNotifications` config to its Postgres event store, so write-side emission is wired everywhere and controlled exclusively by the source-context wake registry. Emission is after-commit, best-effort, and never fails the append.
+2. `startProjectionWakeRelaySupervisor` runs `runProjectionWakeRelayActiveSession` in a retry loop: `no-enabled-sources` idles on a long retry, `lease-missed` retries on the standby interval (another worker holds the fenced `projection-wake-relay:active` lease, giving active/standby failover across worker instances), `lease-lost` retries as standby, and session crashes use exponential backoff.
+3. Source runtimes use pooled query connections for durable catch-up reads and a dedicated listener pool (one connection) per source context, created only when the worker hosts that context's database pool, `WORKER_LISTENER_DATABASE_URL_<CONTEXT>` is configured, and the registry enables that source. A source without a listener URL runs catch-up-only and logs that state.
+4. Worker drain aborts the supervisor before stopping runner loops; listener pools close on shutdown. The worker status endpoint reports the supervisor state, configured sources, listener sources, and the loaded interest-index version.
+
+`WORKER_PROJECTION_WAKE_RELAY_ENABLED=false` is the deployable-level kill switch; the registry remains the per-source rollout control.
+
+## Listener URL Topology
+
+`LISTEN` requires direct or session-compatible connections. Staging context query URLs go through PgBouncer transaction pools, which cannot carry `LISTEN`, so Terraform provides the active relay with per-context direct cluster URLs for the wave-1 source contexts (`checkout`, `marketplace`, `ordering`, `payments`). Production reuses the App Platform database bindings, which are session-compatible, keeping the staging/production logical topology identical. Preview environments intentionally omit listener URLs because push rollout never targets previews. Only the active relay holds listener connections; ordinary workers and API processes keep pooled query URLs.
+
 ## Rollout Gate
 
 Default runtime behavior is disabled. `listSourceContextWakeRelayConfigs()` returns only source contexts whose registry entry has relay fan-out enabled. The same registry entry also controls write-side event-store wake emission, so a source context should not produce unexplained notifications or listen-only fan-out.
@@ -56,7 +71,6 @@ Production enablement still requires:
 - staging and production query/listener/control-plane topology parity,
 - DigitalOcean connection and backend budget proof,
 - durable wake-store capacity proof,
-- deployable listener URL wiring and runtime enablement,
 - SLO/load proof and rollout kill switches.
 
 ## Privacy And Fan-Out Precision

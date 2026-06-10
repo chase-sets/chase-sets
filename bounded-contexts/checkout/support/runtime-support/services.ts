@@ -4,6 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createCheckoutCartRuntime } from "../../features/cart/api/runtime";
 import { createCheckoutSellListRuntime } from "../../features/sell-list/api/runtime";
@@ -24,7 +25,10 @@ export function createCheckoutServices(
   pool: PgTransactionalPool,
   _options: CheckoutServiceOptions = {},
 ): CheckoutServices {
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "checkout" }),
+  });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const cart = createCheckoutCartRuntime({ eventStore, checkpointStore, db });

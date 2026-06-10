@@ -4,6 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPlatformFeedbackRuntime } from "../../features/platform-feedback/api/runtime";
 
@@ -15,7 +16,10 @@ export type ExperienceServices = Readonly<{
 }>;
 
 export function createExperienceServices(pool: PgTransactionalPool): ExperienceServices {
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "experience" }),
+  });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const platformFeedback = createPlatformFeedbackRuntime({

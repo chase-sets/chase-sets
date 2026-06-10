@@ -387,6 +387,146 @@ export async function runProjectionWakeRelayActiveSession(
   }
 }
 
+export const DEFAULT_PROJECTION_WAKE_RELAY_STANDBY_RETRY_MS = 15_000;
+export const DEFAULT_PROJECTION_WAKE_RELAY_NO_SOURCES_RETRY_MS = 60_000;
+export const DEFAULT_PROJECTION_WAKE_RELAY_FAILURE_BACKOFF_MS = 5_000;
+export const DEFAULT_PROJECTION_WAKE_RELAY_FAILURE_BACKOFF_MAX_MS = 60_000;
+
+export type ProjectionWakeRelaySupervisorState = Readonly<{
+  running: boolean;
+  sessionCount: number;
+  lastSessionStatus: ProjectionWakeRelayActiveSessionStatus | "error" | null;
+  lastSessionEndedAt: string | null;
+  lastError: string | null;
+}>;
+
+export type ProjectionWakeRelaySupervisorSessionEndedEvent = Readonly<{
+  status: ProjectionWakeRelayActiveSessionStatus | "error";
+  sessionCount: number;
+  retryDelayMs: number;
+  error?: unknown;
+}>;
+
+export type ProjectionWakeRelaySupervisorObserver = Readonly<{
+  sessionEnded?: (event: ProjectionWakeRelaySupervisorSessionEndedEvent) => void;
+}>;
+
+export type ProjectionWakeRelaySupervisorInput = Readonly<{
+  runSession: (signal: AbortSignal) => Promise<ProjectionWakeRelayActiveSessionResult>;
+  signal: AbortSignal;
+  standbyRetryMs?: number;
+  noSourcesRetryMs?: number;
+  failureBackoffMs?: number;
+  failureBackoffMaxMs?: number;
+  observer?: ProjectionWakeRelaySupervisorObserver;
+  now?: () => Date;
+}>;
+
+export type ProjectionWakeRelaySupervisor = Readonly<{
+  done: Promise<void>;
+  state: () => ProjectionWakeRelaySupervisorState;
+}>;
+
+export function startProjectionWakeRelaySupervisor(
+  input: ProjectionWakeRelaySupervisorInput,
+): ProjectionWakeRelaySupervisor {
+  const now = input.now ?? (() => new Date());
+  const standbyRetryMs = Math.max(
+    250,
+    Math.floor(input.standbyRetryMs ?? DEFAULT_PROJECTION_WAKE_RELAY_STANDBY_RETRY_MS),
+  );
+  const noSourcesRetryMs = Math.max(
+    250,
+    Math.floor(input.noSourcesRetryMs ?? DEFAULT_PROJECTION_WAKE_RELAY_NO_SOURCES_RETRY_MS),
+  );
+  const failureBackoffMs = Math.max(
+    250,
+    Math.floor(input.failureBackoffMs ?? DEFAULT_PROJECTION_WAKE_RELAY_FAILURE_BACKOFF_MS),
+  );
+  const failureBackoffMaxMs = Math.max(
+    failureBackoffMs,
+    Math.floor(input.failureBackoffMaxMs ?? DEFAULT_PROJECTION_WAKE_RELAY_FAILURE_BACKOFF_MAX_MS),
+  );
+
+  let sessionCount = 0;
+  let lastSessionStatus: ProjectionWakeRelayActiveSessionStatus | "error" | null = null;
+  let lastSessionEndedAt: string | null = null;
+  let lastError: string | null = null;
+  let running = !input.signal.aborted;
+  let consecutiveFailures = 0;
+
+  const notifySessionEnded = (event: ProjectionWakeRelaySupervisorSessionEndedEvent) => {
+    try {
+      input.observer?.sessionEnded?.(event);
+    } catch {
+      // Observers must never kill the supervisor loop.
+    }
+  };
+
+  const done = (async () => {
+    while (!input.signal.aborted) {
+      let retryDelayMs: number;
+      sessionCount += 1;
+
+      try {
+        const result = await input.runSession(input.signal);
+        lastSessionStatus = result.status;
+        lastError = null;
+        consecutiveFailures = 0;
+        // Lease-missed, lease-lost, and a clean "stopped" without an aborted
+        // supervisor signal all retry on the standby interval.
+        retryDelayMs = result.status === "no-enabled-sources" ? noSourcesRetryMs : standbyRetryMs;
+        notifySessionEnded({ status: result.status, sessionCount, retryDelayMs });
+      } catch (error) {
+        consecutiveFailures += 1;
+        lastSessionStatus = "error";
+        lastError = error instanceof Error ? error.message : String(error);
+        retryDelayMs = Math.min(failureBackoffMaxMs, failureBackoffMs * 2 ** Math.min(consecutiveFailures - 1, 10));
+        notifySessionEnded({ status: "error", sessionCount, retryDelayMs, error });
+      }
+
+      lastSessionEndedAt = now().toISOString();
+      if (input.signal.aborted) {
+        break;
+      }
+
+      await sleepUnlessAborted(retryDelayMs, input.signal);
+    }
+
+    running = false;
+  })();
+
+  return {
+    done,
+    state: () => ({
+      running,
+      sessionCount,
+      lastSessionStatus,
+      lastSessionEndedAt,
+      lastError,
+    }),
+  };
+}
+
+function sleepUnlessAborted(ms: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted || ms <= 0) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    timer.unref?.();
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
 export async function fanOutEventStoreWakeNotification(
   input: ProjectionWakeRelayFanOutInput,
 ): Promise<ProjectionWakeRelayFanOutResult> {

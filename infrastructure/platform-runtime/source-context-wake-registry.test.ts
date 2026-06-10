@@ -144,7 +144,71 @@ describe("source-context wake registry", () => {
       }),
     ).toThrow(/1246/);
   });
+
+  it("wires registry-gated wake notification config into every runtime event store", () => {
+    const boundedContextsDir = fileURLToPath(new URL("../../bounded-contexts", import.meta.url));
+    const unwiredServiceFiles: string[] = [];
+    let wiredServiceFileCount = 0;
+
+    for (const directoryName of readdirSync(boundedContextsDir).sort()) {
+      const contextJsonPath = join(boundedContextsDir, directoryName, "context.json");
+      if (!existsSync(contextJsonPath)) {
+        continue;
+      }
+
+      const contextJson = JSON.parse(readFileSync(contextJsonPath, "utf8")) as ContextJson;
+      const wiringPattern = new RegExp(
+        `createEventStoreWakeNotificationConfigForSourceContext\\(\\{\\s*sourceContextName: "${contextJson.contextName}",?\\s*\\}\\)`,
+      );
+      const supportDir = join(boundedContextsDir, directoryName, "support");
+      for (const serviceFile of collectServiceFiles(supportDir)) {
+        const content = readFileSync(serviceFile, "utf8");
+        if (!content.includes("createPostgresEventStore(")) {
+          continue;
+        }
+
+        if (wiringPattern.test(content)) {
+          wiredServiceFileCount += 1;
+        } else {
+          unwiredServiceFiles.push(serviceFile);
+        }
+      }
+    }
+
+    expect(unwiredServiceFiles).toEqual([]);
+    expect(wiredServiceFileCount).toBeGreaterThan(0);
+  });
 });
+
+// Seed/bootstrap scripts are exempt: they have no production wake path and the
+// relay catches up from durable event-store rows regardless of emission.
+const wakeWiringExemptFileNames = new Set(["seed.ts"]);
+
+function collectServiceFiles(directory: string): readonly string[] {
+  if (!existsSync(directory)) {
+    return [];
+  }
+
+  const files: string[] = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...collectServiceFiles(entryPath));
+      continue;
+    }
+
+    if (
+      entry.isFile() &&
+      entry.name.endsWith(".ts") &&
+      !entry.name.endsWith(".test.ts") &&
+      !wakeWiringExemptFileNames.has(entry.name)
+    ) {
+      files.push(entryPath);
+    }
+  }
+
+  return files;
+}
 
 type BoundedContextInventory = Readonly<{
   contextNames: readonly string[];
