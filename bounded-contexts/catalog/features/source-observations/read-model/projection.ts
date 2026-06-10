@@ -140,6 +140,19 @@ export function buildSourceObservationProjectionHandlers(db: PgQueryable): Proje
         [observationId, data.reason, event.timing.recordedAt],
       );
     },
+    "catalog.source-observation.deferred": async (event) => {
+      const observationId = extractObservationId(event.streamId);
+      const data = event.data as { reason: string; reviewStatus: "observed" | "changed" };
+
+      await db.query(
+        `UPDATE catalog_source_observations
+         SET status = $2,
+             status_reason = $3,
+             updated_at = $4
+         WHERE observation_id = $1`,
+        [observationId, data.reviewStatus, data.reason, event.timing.recordedAt],
+      );
+    },
   };
 }
 

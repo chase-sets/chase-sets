@@ -41,7 +41,8 @@ export type CatalogPrimaryWorkbenchSourceObservationRowActionKey =
   | "preview-promotion"
   | "reject-source-observations"
   | "defer-source-observations"
-  | "start-reapply";
+  | "start-reapply"
+  | "start-replay";
 
 export type CatalogPrimaryWorkbenchActionState =
   | "available"

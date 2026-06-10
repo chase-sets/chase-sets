@@ -213,6 +213,48 @@ describe("source observation domain", () => {
     ).toThrow("Only observed or changed source observations can be promoted.");
   });
 
+  it("defers reviewable observations while keeping them in the review queue", () => {
+    const recorded = decideSourceObservation(initialSourceObservationState, recordCommand);
+    const observed = evolveSourceObservation(initialSourceObservationState, recorded[0]);
+
+    const deferredEvent = decideSourceObservation(observed, {
+      type: "DeferSourceObservation",
+      deferredAt: "2026-05-15T00:02:00.000Z",
+      reason: " Needs better provider evidence. ",
+    })[0];
+
+    expect(deferredEvent).toMatchObject({
+      type: "catalog.source-observation.deferred",
+      data: {
+        deferredAt: "2026-05-15T00:02:00.000Z",
+        reason: "Needs better provider evidence.",
+        reviewStatus: "observed",
+      },
+    });
+    expect(evolveSourceObservation(observed, deferredEvent)).toMatchObject({
+      status: "observed",
+      statusReason: "Needs better provider evidence.",
+    });
+  });
+
+  it("does not allow terminal observations to be deferred", () => {
+    const recorded = decideSourceObservation(initialSourceObservationState, recordCommand);
+    const observed = evolveSourceObservation(initialSourceObservationState, recorded[0]);
+    const rejectedEvent = decideSourceObservation(observed, {
+      type: "RejectSourceObservation",
+      reason: "Duplicate",
+    })[0];
+    const rejected = evolveSourceObservation(observed, rejectedEvent);
+
+    expect(() =>
+      decideSourceObservation(rejected, {
+        type: "DeferSourceObservation",
+        deferredAt: "2026-05-15T00:02:00.000Z",
+        reason: "Needs better provider evidence.",
+      }),
+    ).toThrow("Only observed or changed source observations can be deferred.");
+  });
+
   it("marks changed promoted records for review without losing the Catalog Item link", () => {
     const recorded = decideSourceObservation(initialSourceObservationState, recordCommand);
     const observed = evolveSourceObservation(initialSourceObservationState, recorded[0]);

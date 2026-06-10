@@ -4,7 +4,12 @@ import type { JsonValue } from "@chase-sets/primitives/json";
 import type { Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { SourceObservationFilterScope } from "../read-model/queries";
-import type { BulkReviewJobServices, IntegrationJobServices, SourceObservationIntegrationJobScope } from "./runtime";
+import type {
+  BulkReviewJobServices,
+  IntegrationJobServices,
+  SourceObservationIntegrationJobScope,
+  SourceObservationReapplyProfileMode,
+} from "./runtime";
 
 export function parsePromotionScope(input: unknown): SourceObservationFilterScope {
   if (!input || typeof input !== "object") {
@@ -127,7 +132,13 @@ export function authoringAuditFromContext(context: CatalogAuthoringEnv["Variable
 }
 
 export function parseObservationIds(input: unknown): string[] {
-  return Array.isArray(input) ? input.map((observationId: unknown) => String(observationId)) : [];
+  return Array.isArray(input)
+    ? [...new Set(input.map((observationId: unknown) => String(observationId).trim()).filter(Boolean))]
+    : [];
+}
+
+export function parseReapplyProfileMode(input: unknown): SourceObservationReapplyProfileMode | null {
+  return input === "current-active-profile" || input === "original-source-profile" ? input : null;
 }
 
 export function streamBulkJobEvents(

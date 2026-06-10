@@ -146,6 +146,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
   const selectedEligibleObservationCount = selectedObservationRows.filter(
     (row) => row.promotionReadiness.state === "eligible",
   ).length;
+  const selectedReviewableObservationCount = selectedObservationRows.filter(isReviewableObservationRow).length;
   const columns = useMemo<DataColumn<PrimaryWorkbenchStep>[]>(
     () => [
       {
@@ -899,7 +900,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                 getRowId={(row) => row.observationId}
                 selectedKeys={selectedObservationKeys}
                 onSelectionChange={setSelectedObservationKeys}
-                isRowSelectable={(row) => row.promotionReadiness.state === "eligible"}
+                isRowSelectable={isReviewableObservationRow}
                 density="compact"
                 emptyTitle={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.title")}
                 emptyDescription={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.empty.description")}
@@ -923,6 +924,20 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                       >
                         {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
                       </CommandFormButton>
+                      <CommandFormButton
+                        readModel={readModel}
+                        intent="defer-source-observations"
+                        size="sm"
+                        tone="secondary"
+                        selectedObservationIds={[...selectedObservationKeys]}
+                        reason={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason")}
+                        disabled={
+                          selectedReviewableObservationCount === 0 ||
+                          !isActionAvailable(readModel, "defer-source-observations")
+                        }
+                      >
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer")}
+                      </CommandFormButton>
                       <Button size="sm" tone="secondary" onClick={() => setSelectedObservationKeys(new Set())}>
                         {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
                       </Button>
@@ -930,6 +945,10 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                   </div>
                   <KeyValueList
                     items={[
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.reviewable.observations"),
+                        value: selectedReviewableObservationCount,
+                      },
                       {
                         key: t("catalog.features.sourceObservations.ui.primaryWorkbench.eligible.observations"),
                         value: selectedEligibleObservationCount,
@@ -963,7 +982,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                         name="reason"
                         required
                         disabled={
-                          selectedEligibleObservationCount === 0 ||
+                          selectedReviewableObservationCount === 0 ||
                           !isActionAvailable(readModel, "reject-source-observations")
                         }
                       />
@@ -973,7 +992,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                       size="sm"
                       tone="secondary"
                       disabled={
-                        selectedEligibleObservationCount === 0 ||
+                        selectedReviewableObservationCount === 0 ||
                         !isActionAvailable(readModel, "reject-source-observations")
                       }
                     >
@@ -1234,28 +1253,24 @@ function RowCommandAction({
     observation: row.displayName,
   });
 
-  if (actionEntry.key === "preview-promotion") {
+  if (
+    actionEntry.key === "preview-promotion" ||
+    actionEntry.key === "defer-source-observations" ||
+    actionEntry.key === "start-reapply" ||
+    actionEntry.key === "start-replay"
+  ) {
     return (
       <CommandFormButton
         readModel={readModel}
-        intent="preview-promotion"
+        intent={actionEntry.key}
         selectedObservationIds={[row.observationId]}
         size="sm"
-        disabled={disabled}
-        aria-label={ariaLabel}
-      >
-        {rowActionLabel(actionEntry.key)}
-      </CommandFormButton>
-    );
-  }
-  if (actionEntry.key === "start-reapply") {
-    return (
-      <CommandFormButton
-        readModel={readModel}
-        intent="start-reapply"
-        selectedObservationIds={[row.observationId]}
-        size="sm"
-        tone="secondary"
+        tone={actionEntry.key === "preview-promotion" ? "primary" : "secondary"}
+        reason={
+          actionEntry.key === "defer-source-observations"
+            ? t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason")
+            : undefined
+        }
         disabled={disabled}
         aria-label={ariaLabel}
       >
@@ -1269,6 +1284,10 @@ function RowCommandAction({
       {rowActionLabel(actionEntry.key)}
     </Button>
   );
+}
+
+function isReviewableObservationRow(row: SourceObservationReviewRow): boolean {
+  return row.status === "observed" || row.status === "changed";
 }
 
 function ImportJobLifecycleAction({
@@ -1304,6 +1323,7 @@ type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
   selectedObservationIds?: readonly string[];
+  reason?: string;
   disabled?: boolean;
 };
 
@@ -1311,6 +1331,7 @@ function CommandFormButton({
   readModel,
   intent,
   selectedObservationIds,
+  reason,
   disabled = false,
   children,
   ...buttonProps
@@ -1324,6 +1345,7 @@ function CommandFormButton({
       data-catalog-primary-workbench-command={intent}
     >
       <CommandHiddenInputs readModel={readModel} intent={intent} selectedObservationIds={selectedObservationIds} />
+      {reason ? <input type="hidden" name="reason" value={reason} /> : null}
       <Button type="submit" disabled={disabled || !isActionAvailable(readModel, intent)} {...buttonProps}>
         {children}
       </Button>
@@ -1778,6 +1800,8 @@ function rowActionLabel(key: SourceObservationReviewRow["actions"][number]["key"
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.defer");
     case "start-reapply":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reapply");
+    case "start-replay":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.review.replay");
   }
 }
 

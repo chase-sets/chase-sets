@@ -315,13 +315,13 @@ describe("Catalog integrations route", () => {
   });
 
   it("preserves selected IDs while creating a scoped promotion preview token", async () => {
-    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
       eligible: 1,
       terminal: 0,
       scope: { provider: "tcgdex", language: "en", setId: "base1", status: "changed", search: "" },
     });
-    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservations });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ previewBulkPromoteSourceObservationIds });
 
     const response = await runAction(
       {
@@ -330,17 +330,12 @@ describe("Catalog integrations route", () => {
         unitKey: "tcgdex:pokemon:card:import",
         importScope: "en:3:base:base1",
         profileVersion: "2026.06.04",
-        selectedObservationIds: "obs_001",
+        selectedObservationIds: " obs_001,obs_001 ",
       },
       "https://admin.example/catalog/integrations?filter.status=changed",
     );
 
-    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({
-      provider: "tcgdex",
-      language: "en",
-      setId: "base1",
-      status: "changed",
-    });
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
     expect(response.headers.get("Location")).toContain("selectedObservationIds=obs_001");
     expect(response.headers.get("Location")).toContain(
       "promotionPreviewId=preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
@@ -365,7 +360,7 @@ describe("Catalog integrations route", () => {
   });
 
   it("executes promotion only when the live preview token matches the submitted context", async () => {
-    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
       eligible: 1,
       terminal: 0,
@@ -374,7 +369,7 @@ describe("Catalog integrations route", () => {
     const bulkPromoteSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_promote_123" });
     mockCreateCatalogRequestApiClient.mockReturnValue({
       bulkPromoteSourceObservations,
-      previewBulkPromoteSourceObservations,
+      previewBulkPromoteSourceObservationIds,
     });
 
     const response = await runAction({
@@ -388,12 +383,7 @@ describe("Catalog integrations route", () => {
         "preview-tcgdex_tcgdex_pokemon_card_import_en_3_base_base1_2026.06.04_en_base1_changed_none_obs_001-1-1",
     });
 
-    expect(previewBulkPromoteSourceObservations).toHaveBeenCalledWith({
-      provider: "tcgdex",
-      language: "en",
-      setId: "base1",
-      status: "changed",
-    });
+    expect(previewBulkPromoteSourceObservationIds).toHaveBeenCalledWith(["obs_001"]);
     expect(bulkPromoteSourceObservations).toHaveBeenCalledWith(["obs_001"]);
     expect(response.headers.get("Location")).toContain("jobId=job_promote_123");
     expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
@@ -401,7 +391,7 @@ describe("Catalog integrations route", () => {
   });
 
   it("rejects promotion execution when the stored preview belongs to a different profile context", async () => {
-    const previewBulkPromoteSourceObservations = vi.fn().mockResolvedValue({
+    const previewBulkPromoteSourceObservationIds = vi.fn().mockResolvedValue({
       matched: 1,
       eligible: 1,
       terminal: 0,
@@ -410,7 +400,7 @@ describe("Catalog integrations route", () => {
     const bulkPromoteSourceObservations = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({
       bulkPromoteSourceObservations,
-      previewBulkPromoteSourceObservations,
+      previewBulkPromoteSourceObservationIds,
     });
 
     const response = await runAction({
@@ -514,20 +504,37 @@ describe("Catalog integrations route", () => {
     expect(response.headers.get("Location")).toContain("commandResult=job-required");
   });
 
-  it("fails closed for commands without launch-ready backend paths", async () => {
-    mockCreateCatalogRequestApiClient.mockReturnValue({});
+  it("enqueues defer jobs and clears stale promotion previews", async () => {
+    const deferSourceObservations = vi.fn().mockResolvedValue({ jobId: "job_defer_123" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ deferSourceObservations });
 
     const deferResponse = await runAction({
       _intent: "defer-source-observations",
       selectedObservationIds: "obs_001",
+      promotionPreviewId: "preview-stale",
     });
+
+    expect(deferSourceObservations).toHaveBeenCalledWith(["obs_001"], "Deferred from the primary workbench.");
+    expect(deferResponse.headers.get("Location")).toContain("jobId=job_defer_123");
+    expect(deferResponse.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(deferResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
+    expect(deferResponse.headers.get("Location")).not.toContain("selectedObservationIds=obs_001");
+  });
+
+  it("enqueues original-profile replay jobs for selected Source Observations", async () => {
+    const replaySourceObservations = vi.fn().mockResolvedValue({ jobId: "job_replay_123" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({ replaySourceObservations });
+
     const replayResponse = await runAction({
       _intent: "start-replay",
       selectedObservationIds: "obs_001",
+      promotionPreviewId: "preview-stale",
     });
 
-    expect(deferResponse.headers.get("Location")).toContain("commandResult=unsupported-command");
-    expect(replayResponse.headers.get("Location")).toContain("commandResult=unsupported-command");
+    expect(replaySourceObservations).toHaveBeenCalledWith(["obs_001"]);
+    expect(replayResponse.headers.get("Location")).toContain("jobId=job_replay_123");
+    expect(replayResponse.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(replayResponse.headers.get("Location")).not.toContain("promotionPreviewId=");
   });
 
   it("returns sanitized feedback for invalid intents and API failures", async () => {

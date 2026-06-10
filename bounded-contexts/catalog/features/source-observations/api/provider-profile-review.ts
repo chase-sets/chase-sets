@@ -77,7 +77,7 @@ export class CatalogProviderProfileActivationValidationError extends Error {
 export type CatalogProviderProfileLifecycleBlockingJob = Readonly<{
   jobId: string;
   jobKind: "integration" | "bulk-review";
-  action: "import" | "reapply" | "promote" | "reject";
+  action: "import" | "reapply" | "promote" | "reject" | "defer";
   status: "queued" | "running" | string;
   providerKey: string | null;
   profileVersion: string | null;
