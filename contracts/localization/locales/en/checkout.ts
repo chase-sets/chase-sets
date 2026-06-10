@@ -259,8 +259,23 @@ export const checkoutEnglishTranslations = {
     "{count} item(s) changed fulfillment or availability. Resolve them in the cart before checkout continues.",
   "checkout.features.sessions.ui.checkoutPage.simple.checkout.description":
     "Enter contact, delivery, shipping, and payment details before secure payment starts.",
+  "checkout.features.sessions.ui.checkoutPage.signed.in.checkout.description":
+    "Review saved checkout details, edit anything needed, and pay securely.",
   "checkout.features.sessions.ui.checkoutPage.update.totals": "Update totals",
   "checkout.features.sessions.ui.checkoutPage.all.transactions.secure": "All transactions are secure and encrypted.",
+  "checkout.features.sessions.ui.checkoutPage.saved.checkout.details": "Checkout details",
+  "checkout.features.sessions.ui.checkoutPage.ready": "Ready",
+  "checkout.features.sessions.ui.checkoutPage.review.required": "Review required",
+  "checkout.features.sessions.ui.checkoutPage.ship.to": "Ship to",
+  "checkout.features.sessions.ui.checkoutPage.edit.contact": "Edit contact",
+  "checkout.features.sessions.ui.checkoutPage.edit.delivery": "Edit delivery",
+  "checkout.features.sessions.ui.checkoutPage.edit.shipping": "Edit shipping",
+  "checkout.features.sessions.ui.checkoutPage.edit.payment": "Edit payment",
+  "checkout.features.sessions.ui.checkoutPage.contact.row.supporting": "Receipt and delivery updates",
+  "checkout.features.sessions.ui.checkoutPage.contact.row.supporting.phone": "Receipt and delivery updates / {phone}",
+  "checkout.features.sessions.ui.checkoutPage.saved.payment.row.supporting.fast": "Ready for secure one-step payment.",
+  "checkout.features.sessions.ui.checkoutPage.saved.payment.row.supporting.secure.step":
+    "Uses the secure payment step before authorization.",
   "checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready": "Saved payment ready",
   "checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready.description":
     "{addressLabel} and {paymentMethodCategory} are ready. This payment method still uses the secure payment step before authorization.",

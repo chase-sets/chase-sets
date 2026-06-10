@@ -6,11 +6,14 @@ import {
   Badge,
   Button,
   Checkbox,
+  CheckoutSavedInfoGroup,
+  CheckoutSavedInfoRow,
   OrderProtectionModule,
   CheckoutLayout,
   Divider,
   Grid,
   Inline,
+  Icon,
   LinkButton,
   MarketplaceEmptyState,
   MarketplaceNotice,
@@ -79,8 +82,48 @@ export type CheckoutSavedPaymentInstrument = Readonly<{
   readiness: "ready" | "setup-required" | "removed";
 }>;
 
+export type CheckoutEditSection = "contact" | "delivery" | "shipping" | "payment";
+
 function deliveryWindowLabel(group: CheckoutFulfillmentPreview["sellerGroups"][number]) {
   return `${group.deliveryEstimate.earliestDate} - ${group.deliveryEstimate.latestDate}`;
+}
+
+function addressIsComplete(
+  address: Readonly<{
+    name: string;
+    line1: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  }>,
+) {
+  return [address.name, address.line1, address.city, address.state, address.postalCode, address.country].every(
+    (value) => value.trim().length > 0,
+  );
+}
+
+function addressSummary(
+  address: Readonly<{
+    line1: string;
+    line2: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  }>,
+) {
+  const region = [address.state, address.postalCode].filter((value) => value.trim().length > 0).join(" ");
+  const locality = [address.city, region].filter((value) => value.trim().length > 0).join(", ");
+  return [address.line1, address.line2, locality, address.country]
+    .filter((value) => value.trim().length > 0)
+    .join(", ");
+}
+
+function contactSupportingText(phone: string) {
+  return phone.trim().length > 0
+    ? t("checkout.features.sessions.ui.checkoutPage.contact.row.supporting.phone", { phone })
+    : t("checkout.features.sessions.ui.checkoutPage.contact.row.supporting");
 }
 
 function normalizedAddressSignature(
@@ -158,6 +201,8 @@ export function CheckoutSessionPage({
   savedCheckoutInstruments = [],
   canManageShippingAddresses = false,
   canSavePaymentMethods = false,
+  isSignedInBuyer = false,
+  initialEditSection = null,
 }: {
   session: CheckoutSessionRow;
   wallet?: { available_balance_amount: string; currency_code: string } | null;
@@ -172,14 +217,18 @@ export function CheckoutSessionPage({
   savedCheckoutInstruments?: readonly CheckoutSavedPaymentInstrument[];
   canManageShippingAddresses?: boolean;
   canSavePaymentMethods?: boolean;
+  isSignedInBuyer?: boolean;
+  initialEditSection?: CheckoutEditSection | null;
 }) {
   const lines = session.lines;
   const lineCount = lines.reduce((sum, line) => sum + line.quantity, 0);
   const hasPayment = Boolean(session.payment_id);
   const isOfferIntent = session.source_type === "offer-intent";
+  const signedInBuyCheckout = isSignedInBuyer && !isOfferIntent;
   const preview = fulfillmentPreview ?? null;
   const payment = paymentPreview ?? null;
   const [hasPendingReviewChanges, setHasPendingReviewChanges] = useState(false);
+  const [editingSection, setEditingSection] = useState<CheckoutEditSection | null>(initialEditSection);
   const readyCount = isOfferIntent ? 0 : (preview?.readyLineKeys.length ?? lines.length);
   const unavailableCount = isOfferIntent ? lines.length : (preview?.unavailableLineKeys.length ?? 0);
   const needsPaymentQuote = !isOfferIntent && !hasPayment && !payment;
@@ -264,6 +313,34 @@ export function CheckoutSessionPage({
   const savedAddressReady = Boolean(
     defaultSavedAddress && !selectedSavedPaymentInstrument && !isOfferIntent && !hasPayment,
   );
+  const contactReady = signedInBuyCheckout && addressDefaults.email.trim().length > 0;
+  const deliveryReady = signedInBuyCheckout && addressIsComplete(addressDefaults);
+  const shippingMethodReady = signedInBuyCheckout && Boolean(firstDeliveryGroup);
+  const paymentMethodReady = signedInBuyCheckout && Boolean(selectedSavedPaymentInstrument);
+  const showSavedCheckoutRows = Boolean(
+    signedInBuyCheckout && (contactReady || deliveryReady || shippingMethodReady || paymentMethodReady),
+  );
+  const activeEditSection = editingSection ?? initialEditSection;
+  const showContactForm = !signedInBuyCheckout || !contactReady || activeEditSection === "contact";
+  const showDeliveryForm = !signedInBuyCheckout || !deliveryReady || activeEditSection === "delivery";
+  const showShippingMethodForm = !signedInBuyCheckout || !shippingMethodReady || activeEditSection === "shipping";
+  const showPaymentForm = !signedInBuyCheckout || !paymentMethodReady || activeEditSection === "payment";
+  const selectedPaymentSupportingText =
+    selectedSavedPaymentInstrument?.confirmation_experience === "off-session-token"
+      ? t("checkout.features.sessions.ui.checkoutPage.saved.payment.row.supporting.fast")
+      : t("checkout.features.sessions.ui.checkoutPage.saved.payment.row.supporting.secure.step");
+  function editRowAction(section: CheckoutEditSection, label: string) {
+    return (
+      <button
+        type="button"
+        className="focus-ring inline-flex min-w-0 max-w-full items-center justify-center gap-2 rounded-tokenMd border border-border bg-surface-2 px-3 py-1.5 text-sm font-semibold leading-snug text-foreground shadow-tokenSm transition hover:border-accent hover:text-accent"
+        onClick={() => setEditingSection(section)}
+      >
+        <Icon name="edit" size="sm" tone="accent" />
+        <span className="min-w-0">{label}</span>
+      </button>
+    );
+  }
   function markReviewStale() {
     if (!isOfferIntent && !hasPayment) {
       setHasPendingReviewChanges(true);
@@ -422,7 +499,9 @@ export function CheckoutSessionPage({
         description={
           isOfferIntent
             ? t("checkout.features.sessions.ui.checkoutPage.confirm.shipping.place.purchase.intent")
-            : t("checkout.features.sessions.ui.checkoutPage.simple.checkout.description")
+            : signedInBuyCheckout
+              ? t("checkout.features.sessions.ui.checkoutPage.signed.in.checkout.description")
+              : t("checkout.features.sessions.ui.checkoutPage.simple.checkout.description")
         }
         actions={
           <LinkButton href="/account/cart" tone="secondary">
@@ -496,7 +575,7 @@ export function CheckoutSessionPage({
                 description={preview.materialChangeReasons.join(" ")}
               />
             ) : null}
-            {canUseAcceleratedSavedPayment ? (
+            {!showSavedCheckoutRows && canUseAcceleratedSavedPayment ? (
               <MarketplaceNotice
                 tone="success"
                 title={t("checkout.features.sessions.ui.checkoutPage.fast.checkout.ready")}
@@ -507,7 +586,7 @@ export function CheckoutSessionPage({
                 })}
               />
             ) : null}
-            {returningBuyerFastPath && !canUseAcceleratedSavedPayment ? (
+            {!showSavedCheckoutRows && returningBuyerFastPath && !canUseAcceleratedSavedPayment ? (
               <MarketplaceNotice
                 tone="info"
                 title={t("checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready")}
@@ -518,7 +597,7 @@ export function CheckoutSessionPage({
                 })}
               />
             ) : null}
-            {savedAddressReady ? (
+            {!showSavedCheckoutRows && savedAddressReady ? (
               <MarketplaceNotice
                 tone="info"
                 title={t("checkout.features.sessions.ui.checkoutPage.saved.address.ready")}
@@ -573,228 +652,341 @@ export function CheckoutSessionPage({
                     name="acknowledgedMaterialChanges"
                     value={preview?.materialChangeReasons.length ? "true" : ""}
                   />
-                  <PageSection title={t("checkout.features.sessions.ui.checkoutPage.contact")}>
-                    <Surface elevated glow>
-                      <Stack gap={3}>
-                        <TextInput
-                          label={t("checkout.features.sessions.ui.checkoutPage.email")}
-                          name="shippingEmail"
-                          type="email"
-                          defaultValue={addressDefaults.email}
-                          autoComplete="email"
-                          required={!isOfferIntent}
+                  {!showContactForm ? (
+                    <HiddenInput type="hidden" name="shippingEmail" value={addressDefaults.email} />
+                  ) : null}
+                  {!showDeliveryForm ? (
+                    <>
+                      <HiddenInput type="hidden" name="shippingAddressId" value={addressDefaults.shippingAddressId} />
+                      <HiddenInput type="hidden" name="shippingName" value={addressDefaults.name} />
+                      <HiddenInput type="hidden" name="shippingCompany" value={addressDefaults.company} />
+                      <HiddenInput type="hidden" name="shippingCountry" value={addressDefaults.country} />
+                      <HiddenInput type="hidden" name="shippingLine1" value={addressDefaults.line1} />
+                      <HiddenInput type="hidden" name="shippingLine2" value={addressDefaults.line2} />
+                      <HiddenInput type="hidden" name="shippingCity" value={addressDefaults.city} />
+                      <HiddenInput type="hidden" name="shippingState" value={addressDefaults.state} />
+                      <HiddenInput type="hidden" name="shippingPostalCode" value={addressDefaults.postalCode} />
+                      <HiddenInput type="hidden" name="shippingPhone" value={addressDefaults.phone} />
+                    </>
+                  ) : null}
+                  {!showShippingMethodForm ? (
+                    <HiddenInput type="hidden" name="shippingOption" value={session.shipping_option} />
+                  ) : null}
+                  {!showPaymentForm && !isOfferIntent ? (
+                    <>
+                      <HiddenInput
+                        type="hidden"
+                        name="previewPaymentMethodCategory"
+                        value={effectivePaymentMethodCategory}
+                      />
+                      {selectedSavedPaymentInstrument ? (
+                        <HiddenInput
+                          type="hidden"
+                          name="savedCheckoutInstrumentId"
+                          value={selectedSavedPaymentInstrument.instrument_id}
                         />
-                        {!isOfferIntent ? (
-                          <Checkbox
-                            label={t("checkout.features.sessions.ui.checkoutPage.email.me.with.news")}
-                            name="marketingOptIn"
-                            value="true"
+                      ) : null}
+                    </>
+                  ) : null}
+                  {showSavedCheckoutRows ? (
+                    <CheckoutSavedInfoGroup
+                      title={t("checkout.features.sessions.ui.checkoutPage.saved.checkout.details")}
+                    >
+                      {contactReady ? (
+                        <CheckoutSavedInfoRow
+                          icon="user"
+                          label={t("checkout.features.sessions.ui.checkoutPage.contact")}
+                          value={addressDefaults.email}
+                          supportingText={contactSupportingText(addressDefaults.phone)}
+                          status={t("checkout.features.sessions.ui.checkoutPage.ready")}
+                          statusTone="success"
+                          action={editRowAction(
+                            "contact",
+                            t("checkout.features.sessions.ui.checkoutPage.edit.contact"),
+                          )}
+                        />
+                      ) : null}
+                      {deliveryReady ? (
+                        <CheckoutSavedInfoRow
+                          icon="home"
+                          label={t("checkout.features.sessions.ui.checkoutPage.ship.to")}
+                          value={addressDefaults.name}
+                          supportingText={addressSummary(addressDefaults)}
+                          status={t("checkout.features.sessions.ui.checkoutPage.ready")}
+                          statusTone="success"
+                          action={editRowAction(
+                            "delivery",
+                            t("checkout.features.sessions.ui.checkoutPage.edit.delivery"),
+                          )}
+                        />
+                      ) : null}
+                      {shippingMethodReady && firstDeliveryGroup ? (
+                        <CheckoutSavedInfoRow
+                          icon="truck"
+                          label={t("checkout.features.sessions.ui.checkoutPage.shipping")}
+                          value={shippingOptionLabel(session.shipping_option)}
+                          supportingText={t("checkout.features.sessions.ui.checkoutPage.delivery.estimate.summary", {
+                            window: deliveryWindowLabel(firstDeliveryGroup),
+                            packageCount: firstDeliveryGroup.deliveryEstimate.packageCount,
+                            serviceLevel: firstDeliveryGroup.deliveryEstimate.serviceLevel,
+                            shippingOption: shippingOptionLabel(session.shipping_option),
+                          })}
+                          status={t("checkout.features.sessions.ui.checkoutPage.ready")}
+                          statusTone="success"
+                          action={editRowAction(
+                            "shipping",
+                            t("checkout.features.sessions.ui.checkoutPage.edit.shipping"),
+                          )}
+                        />
+                      ) : null}
+                      {paymentMethodReady && selectedSavedPaymentInstrument ? (
+                        <CheckoutSavedInfoRow
+                          icon="creditCard"
+                          label={t("checkout.features.sessions.ui.checkoutPage.payment")}
+                          value={selectedSavedPaymentInstrument.display_label}
+                          supportingText={selectedPaymentSupportingText}
+                          status={
+                            payment
+                              ? t("checkout.features.sessions.ui.checkoutPage.ready")
+                              : t("checkout.features.sessions.ui.checkoutPage.review.required")
+                          }
+                          statusTone={payment ? "success" : "warning"}
+                          action={editRowAction(
+                            "payment",
+                            t("checkout.features.sessions.ui.checkoutPage.edit.payment"),
+                          )}
+                        />
+                      ) : null}
+                    </CheckoutSavedInfoGroup>
+                  ) : null}
+                  {showContactForm ? (
+                    <PageSection title={t("checkout.features.sessions.ui.checkoutPage.contact")}>
+                      <Surface elevated glow>
+                        <Stack gap={3}>
+                          <TextInput
+                            label={t("checkout.features.sessions.ui.checkoutPage.email")}
+                            name="shippingEmail"
+                            type="email"
+                            defaultValue={addressDefaults.email}
+                            autoComplete="email"
+                            required={!isOfferIntent}
                           />
-                        ) : null}
-                      </Stack>
-                    </Surface>
-                  </PageSection>
+                          {!isOfferIntent ? (
+                            <Checkbox
+                              label={t("checkout.features.sessions.ui.checkoutPage.email.me.with.news")}
+                              name="marketingOptIn"
+                              value="true"
+                            />
+                          ) : null}
+                        </Stack>
+                      </Surface>
+                    </PageSection>
+                  ) : null}
 
-                  <PageSection
-                    title={t("checkout.features.sessions.ui.checkoutPage.delivery")}
-                    description={
-                      isOfferIntent
-                        ? t("checkout.features.sessions.ui.checkoutPage.destination.required.for.purchase.intent")
-                        : t("checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax")
-                    }
-                  >
-                    <Surface elevated>
-                      <Stack gap={3}>
-                        {savedShippingAddresses.length > 0 ? (
+                  {showDeliveryForm ? (
+                    <PageSection
+                      title={t("checkout.features.sessions.ui.checkoutPage.delivery")}
+                      description={
+                        isOfferIntent
+                          ? t("checkout.features.sessions.ui.checkoutPage.destination.required.for.purchase.intent")
+                          : t("checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax")
+                      }
+                    >
+                      <Surface elevated>
+                        <Stack gap={3}>
+                          {savedShippingAddresses.length > 0 ? (
+                            <NativeSelect
+                              label={t("checkout.features.sessions.ui.checkoutPage.saved.shipping.address")}
+                              name="shippingAddressId"
+                              defaultValue={addressDefaults.shippingAddressId}
+                              onChange={markReviewStale}
+                              items={[
+                                {
+                                  value: "__manual",
+                                  label: t("checkout.features.sessions.ui.checkoutPage.enter.a.new.address"),
+                                },
+                                ...savedShippingAddresses.map((address) => ({
+                                  value: address.shipping_address_id,
+                                  label: address.is_default
+                                    ? t("checkout.features.sessions.ui.checkoutPage.default.address.option", {
+                                        label: address.label,
+                                      })
+                                    : address.label,
+                                })),
+                              ]}
+                            />
+                          ) : null}
+                          <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.recipient.name")}
+                              name="shippingName"
+                              placeholder={t("checkout.features.sessions.ui.checkoutPage.recipient.placeholder")}
+                              defaultValue={addressDefaults.name}
+                              onChange={markReviewStale}
+                              required
+                            />
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.company")}
+                              name="shippingCompany"
+                              defaultValue={addressDefaults.company}
+                              autoComplete="shipping organization"
+                              onChange={markReviewStale}
+                            />
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.country")}
+                              name="shippingCountry"
+                              defaultValue={addressDefaults.country}
+                              autoComplete="shipping country"
+                              onChange={markReviewStale}
+                            />
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.address.line1")}
+                              name="shippingLine1"
+                              defaultValue={addressDefaults.line1}
+                              autoComplete="shipping address-line1"
+                              onChange={markReviewStale}
+                              required
+                            />
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.address.line2")}
+                              name="shippingLine2"
+                              defaultValue={addressDefaults.line2}
+                              autoComplete="shipping address-line2"
+                              onChange={markReviewStale}
+                            />
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.city")}
+                              name="shippingCity"
+                              defaultValue={addressDefaults.city}
+                              autoComplete="shipping address-level2"
+                              onChange={markReviewStale}
+                              required
+                            />
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.state")}
+                              name="shippingState"
+                              defaultValue={addressDefaults.state}
+                              autoComplete="shipping address-level1"
+                              onChange={markReviewStale}
+                              required
+                            />
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.postal.code")}
+                              name="shippingPostalCode"
+                              defaultValue={addressDefaults.postalCode}
+                              autoComplete="shipping postal-code"
+                              onChange={markReviewStale}
+                              required
+                            />
+                            <TextInput
+                              label={t("checkout.features.sessions.ui.checkoutPage.phone")}
+                              name="shippingPhone"
+                              defaultValue={addressDefaults.phone}
+                              autoComplete="shipping tel"
+                            />
+                          </Grid>
+                          {canManageShippingAddresses ? (
+                            <ProgressiveDisclosure
+                              title={t("checkout.features.sessions.ui.checkoutPage.address.preferences")}
+                              summary={
+                                savedShippingAddresses.length > 0
+                                  ? t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout")
+                                  : t("checkout.features.sessions.ui.checkoutPage.save.as.new.address")
+                              }
+                              tone="info"
+                            >
+                              <Grid columns={{ base: 1, md: 2 }} gap={3}>
+                                <NativeSelect
+                                  label={t("checkout.features.sessions.ui.checkoutPage.address.book.preference")}
+                                  name="addressBookAction"
+                                  defaultValue={savedShippingAddresses.length > 0 ? "checkout-only" : "save-new"}
+                                  items={[
+                                    {
+                                      value: "checkout-only",
+                                      label: t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout"),
+                                    },
+                                    {
+                                      value: "save-new",
+                                      label: t("checkout.features.sessions.ui.checkoutPage.save.as.new.address"),
+                                    },
+                                    {
+                                      value: "update-selected",
+                                      label: t("checkout.features.sessions.ui.checkoutPage.update.selected.address"),
+                                    },
+                                  ]}
+                                />
+                                <NativeSelect
+                                  label={t("checkout.features.sessions.ui.checkoutPage.default.address")}
+                                  name="makeDefaultShippingAddress"
+                                  defaultValue="false"
+                                  items={[
+                                    {
+                                      value: "false",
+                                      label: t("checkout.features.sessions.ui.checkoutPage.do.not.change.default"),
+                                    },
+                                    {
+                                      value: "true",
+                                      label: t("checkout.features.sessions.ui.checkoutPage.make.this.default"),
+                                    },
+                                  ]}
+                                />
+                              </Grid>
+                            </ProgressiveDisclosure>
+                          ) : null}
+                        </Stack>
+                      </Surface>
+                    </PageSection>
+                  ) : null}
+
+                  {showShippingMethodForm ? (
+                    <PageSection
+                      title={t("checkout.features.sessions.ui.checkoutPage.shipping.method")}
+                      description={t("checkout.features.sessions.ui.checkoutPage.shipping.method.description")}
+                    >
+                      <Surface elevated>
+                        <Stack gap={3}>
                           <NativeSelect
-                            label={t("checkout.features.sessions.ui.checkoutPage.saved.shipping.address")}
-                            name="shippingAddressId"
-                            defaultValue={addressDefaults.shippingAddressId}
+                            label={t("checkout.features.sessions.ui.checkoutPage.shipping.option")}
+                            name="shippingOption"
+                            defaultValue={session.shipping_option}
                             onChange={markReviewStale}
                             items={[
                               {
-                                value: "__manual",
-                                label: t("checkout.features.sessions.ui.checkoutPage.enter.a.new.address"),
+                                value: "standard",
+                                label: t("checkout.features.sessions.ui.checkoutPage.standard.insured"),
                               },
-                              ...savedShippingAddresses.map((address) => ({
-                                value: address.shipping_address_id,
-                                label: address.is_default
-                                  ? t("checkout.features.sessions.ui.checkoutPage.default.address.option", {
-                                      label: address.label,
-                                    })
-                                  : address.label,
-                              })),
+                              { value: "expedited", label: t("checkout.features.sessions.ui.checkoutPage.expedited") },
+                              {
+                                value: "priority",
+                                label: t("checkout.features.sessions.ui.checkoutPage.priority"),
+                              },
                             ]}
                           />
-                        ) : null}
-                        <Grid columns={{ base: 1, md: 2 }} gap={3}>
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.recipient.name")}
-                            name="shippingName"
-                            placeholder={t("checkout.features.sessions.ui.checkoutPage.recipient.placeholder")}
-                            defaultValue={addressDefaults.name}
-                            onChange={markReviewStale}
-                            required
-                          />
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.company")}
-                            name="shippingCompany"
-                            defaultValue={addressDefaults.company}
-                            autoComplete="shipping organization"
-                            onChange={markReviewStale}
-                          />
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.country")}
-                            name="shippingCountry"
-                            defaultValue={addressDefaults.country}
-                            autoComplete="shipping country"
-                            onChange={markReviewStale}
-                          />
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.address.line1")}
-                            name="shippingLine1"
-                            defaultValue={addressDefaults.line1}
-                            autoComplete="shipping address-line1"
-                            onChange={markReviewStale}
-                            required
-                          />
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.address.line2")}
-                            name="shippingLine2"
-                            defaultValue={addressDefaults.line2}
-                            autoComplete="shipping address-line2"
-                            onChange={markReviewStale}
-                          />
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.city")}
-                            name="shippingCity"
-                            defaultValue={addressDefaults.city}
-                            autoComplete="shipping address-level2"
-                            onChange={markReviewStale}
-                            required
-                          />
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.state")}
-                            name="shippingState"
-                            defaultValue={addressDefaults.state}
-                            autoComplete="shipping address-level1"
-                            onChange={markReviewStale}
-                            required
-                          />
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.postal.code")}
-                            name="shippingPostalCode"
-                            defaultValue={addressDefaults.postalCode}
-                            autoComplete="shipping postal-code"
-                            onChange={markReviewStale}
-                            required
-                          />
-                          <TextInput
-                            label={t("checkout.features.sessions.ui.checkoutPage.phone")}
-                            name="shippingPhone"
-                            defaultValue={addressDefaults.phone}
-                            autoComplete="shipping tel"
-                          />
-                        </Grid>
-                        {canManageShippingAddresses ? (
-                          <ProgressiveDisclosure
-                            title={t("checkout.features.sessions.ui.checkoutPage.address.preferences")}
-                            summary={
-                              savedShippingAddresses.length > 0
-                                ? t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout")
-                                : t("checkout.features.sessions.ui.checkoutPage.save.as.new.address")
-                            }
-                            tone="info"
-                          >
-                            <Grid columns={{ base: 1, md: 2 }} gap={3}>
-                              <NativeSelect
-                                label={t("checkout.features.sessions.ui.checkoutPage.address.book.preference")}
-                                name="addressBookAction"
-                                defaultValue={savedShippingAddresses.length > 0 ? "checkout-only" : "save-new"}
-                                items={[
-                                  {
-                                    value: "checkout-only",
-                                    label: t("checkout.features.sessions.ui.checkoutPage.use.for.this.checkout"),
-                                  },
-                                  {
-                                    value: "save-new",
-                                    label: t("checkout.features.sessions.ui.checkoutPage.save.as.new.address"),
-                                  },
-                                  {
-                                    value: "update-selected",
-                                    label: t("checkout.features.sessions.ui.checkoutPage.update.selected.address"),
-                                  },
-                                ]}
-                              />
-                              <NativeSelect
-                                label={t("checkout.features.sessions.ui.checkoutPage.default.address")}
-                                name="makeDefaultShippingAddress"
-                                defaultValue="false"
-                                items={[
-                                  {
-                                    value: "false",
-                                    label: t("checkout.features.sessions.ui.checkoutPage.do.not.change.default"),
-                                  },
-                                  {
-                                    value: "true",
-                                    label: t("checkout.features.sessions.ui.checkoutPage.make.this.default"),
-                                  },
-                                ]}
-                              />
-                            </Grid>
-                          </ProgressiveDisclosure>
-                        ) : null}
-                      </Stack>
-                    </Surface>
-                  </PageSection>
-
-                  <PageSection
-                    title={t("checkout.features.sessions.ui.checkoutPage.shipping.method")}
-                    description={t("checkout.features.sessions.ui.checkoutPage.shipping.method.description")}
-                  >
-                    <Surface elevated>
-                      <Stack gap={3}>
-                        <NativeSelect
-                          label={t("checkout.features.sessions.ui.checkoutPage.shipping.option")}
-                          name="shippingOption"
-                          defaultValue={session.shipping_option}
-                          onChange={markReviewStale}
-                          items={[
-                            {
-                              value: "standard",
-                              label: t("checkout.features.sessions.ui.checkoutPage.standard.insured"),
-                            },
-                            { value: "expedited", label: t("checkout.features.sessions.ui.checkoutPage.expedited") },
-                            {
-                              value: "priority",
-                              label: t("checkout.features.sessions.ui.checkoutPage.priority"),
-                            },
-                          ]}
-                        />
-                        {firstDeliveryGroup ? (
-                          <MarketplaceNotice
-                            tone="info"
-                            title={t("checkout.features.sessions.ui.checkoutPage.delivery.estimate")}
-                            description={t("checkout.features.sessions.ui.checkoutPage.delivery.estimate.summary", {
-                              window: deliveryWindowLabel(firstDeliveryGroup),
-                              packageCount: firstDeliveryGroup.deliveryEstimate.packageCount,
-                              serviceLevel: firstDeliveryGroup.deliveryEstimate.serviceLevel,
-                              shippingOption: shippingOptionLabel(session.shipping_option),
-                            })}
-                          />
-                        ) : (
-                          <MarketplaceNotice
-                            tone="info"
-                            title={t("checkout.features.sessions.ui.checkoutPage.shipping.after.address")}
-                            description={t(
-                              "checkout.features.sessions.ui.checkoutPage.shipping.after.address.description",
-                            )}
-                          />
-                        )}
-                      </Stack>
-                    </Surface>
-                  </PageSection>
-                  {!isOfferIntent ? (
+                          {firstDeliveryGroup ? (
+                            <MarketplaceNotice
+                              tone="info"
+                              title={t("checkout.features.sessions.ui.checkoutPage.delivery.estimate")}
+                              description={t("checkout.features.sessions.ui.checkoutPage.delivery.estimate.summary", {
+                                window: deliveryWindowLabel(firstDeliveryGroup),
+                                packageCount: firstDeliveryGroup.deliveryEstimate.packageCount,
+                                serviceLevel: firstDeliveryGroup.deliveryEstimate.serviceLevel,
+                                shippingOption: shippingOptionLabel(session.shipping_option),
+                              })}
+                            />
+                          ) : (
+                            <MarketplaceNotice
+                              tone="info"
+                              title={t("checkout.features.sessions.ui.checkoutPage.shipping.after.address")}
+                              description={t(
+                                "checkout.features.sessions.ui.checkoutPage.shipping.after.address.description",
+                              )}
+                            />
+                          )}
+                        </Stack>
+                      </Surface>
+                    </PageSection>
+                  ) : null}
+                  {!isOfferIntent && showPaymentForm ? (
                     <PageSection
                       title={t("checkout.features.sessions.ui.checkoutPage.payment")}
                       description={t("checkout.features.sessions.ui.checkoutPage.payment.section.description")}

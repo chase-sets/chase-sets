@@ -1,11 +1,15 @@
 // @vitest-environment jsdom
 
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CheckoutFulfillmentPreview } from "../../../support/request-support/api-client";
 import type { CheckoutSessionRow } from "../../../support/request-support/api-client";
 import { CheckoutSessionPage } from "./checkout-page";
+
+afterEach(() => {
+  cleanup();
+});
 
 const session: CheckoutSessionRow = {
   session_id: "chk_mixed",
@@ -209,6 +213,23 @@ const savedAddress = {
   is_default: true,
 };
 
+const signedInSavedAddress = {
+  ...savedAddress,
+  recipient_name: "Jane Smith",
+  phone: "312-555-0199",
+  email: "jane@example.com",
+};
+
+const savedCard = {
+  instrument_id: "pmi_card",
+  payment_method_category: "card" as const,
+  provider: "stripe",
+  display_label: "Visa ending in 4242",
+  confirmation_experience: "off-session-token" as const,
+  is_default: true,
+  readiness: "ready" as const,
+};
+
 describe("checkout session page", () => {
   it("renders simple checkout and keeps unavailable fulfillment in cart review", () => {
     const markup = renderToString(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
@@ -330,6 +351,163 @@ describe("checkout session page", () => {
     expect(providerStepMarkup).toContain("secure payment step before authorization");
     expect(providerStepMarkup).toContain("Pay now");
     expect(providerStepMarkup).not.toContain("Pay now with Bank account");
+  });
+
+  it("renders signed-in saved checkout rows and preserves collapsed checkout fields", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        canManageShippingAddresses
+        canSavePaymentMethods
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+      />,
+    );
+
+    expect(markup).toContain("Checkout details");
+    expect(markup).toContain("jane@example.com");
+    expect(markup).toContain("Receipt and delivery updates / 312-555-0199");
+    expect(markup).toContain("Ship to");
+    expect(markup).toContain("100 Market Street, Chicago, IL 60601, US");
+    expect(markup).toContain("Standard insured");
+    expect(markup).toContain("Visa ending in 4242");
+    expect(markup).toContain("Ready for secure one-step payment.");
+    expect(markup).toContain("Pay now with Visa ending in 4242");
+    expect(markup).toContain('name="shippingEmail"');
+    expect(markup).toContain('value="jane@example.com"');
+    expect(markup).toContain('name="savedCheckoutInstrumentId"');
+    expect(markup).not.toContain("Fast checkout ready");
+    expect(markup).not.toContain("Saved shipping address");
+    expect(markup).not.toContain("Recipient name");
+    expect(markup).not.toContain("Payment method");
+    expect(markup).not.toContain("Recalculate fulfillment");
+    expect(markup).not.toContain("Optimized seller listing");
+  });
+
+  it("renders focused signed-in edit sections from saved checkout rows", () => {
+    const { unmount } = render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        canManageShippingAddresses
+        canSavePaymentMethods
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+        initialEditSection="contact"
+      />,
+    );
+
+    expect(screen.getByText("Email")).toBeTruthy();
+    expect(screen.queryByText("Recipient name")).toBeNull();
+
+    unmount();
+
+    const secondRender = render(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        canManageShippingAddresses
+        canSavePaymentMethods
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+        initialEditSection="delivery"
+      />,
+    );
+
+    expect(screen.getByText("Recipient name")).toBeTruthy();
+    expect(screen.queryByText("Email")).toBeNull();
+
+    secondRender.unmount();
+  });
+
+  it("falls back to the delivery form when the saved shipping address is incomplete", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        savedShippingAddresses={[
+          {
+            ...signedInSavedAddress,
+            line1: "",
+          },
+        ]}
+        savedCheckoutInstruments={[savedCard]}
+      />,
+    );
+
+    expect(markup).toContain("Checkout details");
+    expect(markup).toContain("Recipient name");
+    expect(markup).toContain("Address line 1");
+    expect(markup).not.toContain("100 Market Street, Chicago, IL 60601, US");
+  });
+
+  it("keeps signed-in saved payment customer-safe when payment totals must be refreshed", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={null}
+        isSignedInBuyer
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+      />,
+    );
+
+    expect(markup).toContain("Visa ending in 4242");
+    expect(markup).toContain("Review required");
+    expect(markup).toContain("Update totals");
+    expect(markup).not.toContain("provider payload");
+    expect(markup).not.toContain("allocation");
+  });
+
+  it("renders customer-safe provider or risk holds without leaking internal checkout terms", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+        errorMessage="Payment review is paused until account review clears."
+        isSignedInBuyer
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+      />,
+    );
+
+    expect(markup).toContain("Checkout issue");
+    expect(markup).toContain("Payment review is paused until account review clears.");
+    expect(markup).not.toContain("provider payload");
+    expect(markup).not.toContain("read model");
+    expect(markup).not.toContain("allocation");
+  });
+
+  it("surfaces changed economics as review refresh without internal allocation copy", () => {
+    const markup = renderToString(
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={{
+          ...readyFulfillmentPreview,
+          materialChangeReasons: ["Fees changed. Review latest total."],
+        }}
+        paymentPreview={paymentPreview}
+        isSignedInBuyer
+        savedShippingAddresses={[signedInSavedAddress]}
+        savedCheckoutInstruments={[savedCard]}
+      />,
+    );
+
+    expect(markup).toContain("Fulfillment changed since your last preview");
+    expect(markup).toContain("Fees changed. Review latest total.");
+    expect(markup).not.toContain("Selected seller listing");
+    expect(markup).not.toContain("provider payload");
   });
 
   it("marks totals stale without submitting when checkout fields change or blur", () => {

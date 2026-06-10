@@ -33,7 +33,7 @@ import {
   type PaymentsSavedCheckoutInstrument,
 } from "@chase-sets/payments/server";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
-import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
+import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
 import { LinkButton, MarketplaceEmptyState, Page, PageSection } from "@chase-sets/design-system";
 
 const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.enter.contact.delivery.shipping.payment");
@@ -257,6 +257,10 @@ function isOfferIntentSession(session: Readonly<{ source_type: string }>) {
   return session.source_type === "offer-intent";
 }
 
+function parseCheckoutEditSection(value: string | null): CheckoutEditSection | null {
+  return value === "contact" || value === "delivery" || value === "shipping" || value === "payment" ? value : null;
+}
+
 async function loadFulfillmentPreview(
   request: Request,
   session: Awaited<ReturnType<ReturnType<typeof createCheckoutRequestApiClient>["getCheckoutSession"]>>,
@@ -397,10 +401,12 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       Array.isArray(actor.permissions) &&
       actor.permissions.includes("orders.manage"),
     ),
+    isSignedInBuyer: Boolean(actor && actor.roleKey !== "guest-buyer"),
     fulfillmentPreview,
     previewError,
     reviewRefreshed: searchParams.get("review") === "updated",
     paymentQuoteRequired: searchParams.get("quote") === "required",
+    initialEditSection: parseCheckoutEditSection(searchParams.get("edit")),
   };
 }
 
@@ -568,9 +574,11 @@ export default function CheckoutSessionRoute() {
       savedCheckoutInstruments={data.savedCheckoutInstruments}
       canManageShippingAddresses={data.canManageShippingAddresses}
       canSavePaymentMethods={data.canSavePaymentMethods}
+      isSignedInBuyer={data.isSignedInBuyer}
       errorMessage={actionData?.error ?? data.previewError ?? null}
       reviewRefreshed={data.reviewRefreshed}
       paymentQuoteRequired={data.paymentQuoteRequired}
+      initialEditSection={data.initialEditSection}
       isSubmitting={navigation.state === "submitting"}
     />
   );
