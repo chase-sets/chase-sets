@@ -428,6 +428,97 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.just.now": "Just now",
   "checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout": "Continue to seller checkout",
   "checkout.features.sellList.ui.sellListPage.pre.checkout.action": "Pre-checkout action",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.eyebrow": "Seller checkout",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.title": "Review sale checkout",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.description":
+    "Confirm contact, ship-from, payout setup, and label preferences before sale execution is prepared.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.back.to.sell.list": "Back to Sell List",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.back": "Back",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.review.sell.list": "Review Sell List",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.review.sale": "Review sale intent",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.fix.details": "Fix seller checkout details",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.create.account": "Create account",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.standard": "Standard",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.title": "Sale summary",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.subtitle": "{count} ready line(s)",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.status": "Ready",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.selected.offer": "Selected offer",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.product.line": "Product line",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.items": "Items",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.lines": "Lines",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.readiness": "Readiness",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.ready": "Ready",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.needs.review": "Needs review",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.estimated.payout": "Estimated payout",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.summary.reassurance":
+    "No label, payout, sale, notification, or account-history side effect starts in this guest review.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.mobile.summary": "Sale summary",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.mobile.summary.collapsed": "{count} ready line(s)",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.sticky.context": "Sale execution comes after account setup.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.contact.title": "Contact",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.contact.description":
+    "Use the contact details you want attached to this sale review.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.seller.name": "Seller name",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.email": "Email",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.phone": "Phone",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.ship.from.title": "Ship from",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.ship.from.description":
+    "This address is checked before label and sale execution in the next runtime slice.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.ship.from.name": "Ship-from name",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.company": "Company",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.address.line1": "Address line 1",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.address.line2": "Address line 2",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.city": "City",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.state": "State",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.postal.code": "Postal code",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.country": "Country",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.payout.title": "Payout",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.payout.description":
+    "Guest sellers finish account and payout setup before money movement is enabled.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.payout.method": "Payout setup",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.payout.create.account": "Create account and set up payout",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.label.title": "Label",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.label.description":
+    "Choose how label preparation should be handed off after account setup.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.label.preference": "Label preference",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.label.prepaid": "Prepare a prepaid label after account setup",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.label.later": "Review label after account setup",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.terms.title": "Review",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.terms.description":
+    "Confirm the sale facts before continuing to account setup.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.terms.accept": "I reviewed the seller checkout details",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.terms.accept.description":
+    "Final sale execution, labels, payout setup, and settlement are confirmed only after account setup.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.side.effect.boundary":
+    "This page records a guest review state only. It does not accept offers, create listings, buy labels, start payout, send notifications, or write seller account history.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.title": "Sale review ready",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.description":
+    "Your sale review is ready for account setup. No seller-committing side effects have started.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.reference": "Review reference",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.account.title": "Account setup",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.account.description":
+    "Create or sign in to attach verified seller and payout facts.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.label.title": "Label review",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.label.description":
+    "Label serviceability is confirmed before any label is purchased.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.side.effects.title": "No commitment yet",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.confirmation.side.effects.description":
+    "Sale, payout, label, notification, and account-history work stay pending.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.missing.sell.list": "Sell List access expired",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.missing.sell.list.description":
+    "Return to your Sell List to start seller checkout again.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.empty.sell.list": "Your Sell List is empty",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.empty.sell.list.description":
+    "Add a selected offer or product before seller checkout.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.readiness.required": "Review Sell List first",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.readiness.required.description":
+    "Seller checkout starts only from a current Sell List readiness snapshot.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.readiness.stale": "Sell List changed",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.readiness.stale.description":
+    "Refresh the Sell List review so payout and sale facts are current.",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.readiness.blocked": "Some items need attention",
+  "checkout.features.sellList.ui.guestSellCheckoutPage.recovery.readiness.blocked.description":
+    "Resolve item eligibility, sale action, ship-from, label, or payout readiness before seller checkout.",
   "checkout.features.sellList.ui.sellListPage.product.line": "Product",
   "checkout.features.sellList.ui.sellListPage.use.smart.match.offer": "Use {buyer} offer",
   "checkout.features.sellList.ui.sellListPage.use.smart.match.offer.description":
@@ -441,6 +532,8 @@ export const checkoutEnglishTranslations = {
     "Review selected offers and product-level seller intent before checkout creates sale commitments.",
   "checkout.routes.accountSellList.sell.list.chase.sets": "Sell List | Chase Sets",
   "checkout.routes.accountSellList.sell.list.request.failed": "Sell List request failed.",
+  "checkout.routes.accountSellList.sell.list.readiness.must.be.resolved":
+    "Resolve Sell List readiness before seller checkout starts.",
   "checkout.routes.accountSellList.matching.offers.do.not.cover.quantity.detail":
     "{itemTitle}: matching offers do not cover the requested quantity.",
   "checkout.routes.accountSellList.no.sale.action.completed.detail": "{itemTitle}: no sale action completed.",
@@ -453,6 +546,41 @@ export const checkoutEnglishTranslations = {
     "{itemTitle}: {executedQuantity} quantity executed; {remainingQuantity} remains in the Sell List.",
   "checkout.routes.accountSellList.selected.offer.accepted.detail": "{itemTitle}: selected offer accepted.",
   "checkout.routes.accountSellList.selected.offer.missing.detail": "{itemTitle}: selected offer is missing.",
+  "checkout.routes.sellCheckoutSession.meta.title": "Seller Checkout | Chase Sets",
+  "checkout.routes.sellCheckoutSession.meta.description":
+    "Review guest seller contact, ship-from, payout setup, label preference, and sale readiness.",
+  "checkout.routes.sellCheckoutSession.readiness.unavailable":
+    "Sell List readiness could not be refreshed. Return to the Sell List and try again.",
+  "checkout.routes.sellCheckoutSession.validation.seller.name.required": "Enter the seller name.",
+  "checkout.routes.sellCheckoutSession.validation.email.required": "Enter a valid email address.",
+  "checkout.routes.sellCheckoutSession.validation.ship.from.name.required": "Enter the ship-from name.",
+  "checkout.routes.sellCheckoutSession.validation.address.line1.required": "Enter address line 1.",
+  "checkout.routes.sellCheckoutSession.validation.city.required": "Enter the ship-from city.",
+  "checkout.routes.sellCheckoutSession.validation.state.required": "Enter the ship-from state.",
+  "checkout.routes.sellCheckoutSession.validation.state.unsupported":
+    "This ship-from region is not supported for guest seller checkout yet.",
+  "checkout.routes.sellCheckoutSession.validation.postal.code.required": "Enter the ship-from postal code.",
+  "checkout.routes.sellCheckoutSession.validation.country.unsupported":
+    "Guest seller checkout currently supports US ship-from addresses.",
+  "checkout.routes.sellCheckoutSession.validation.payout.handoff.required":
+    "Create account and payout setup is required before sale execution.",
+  "checkout.routes.sellCheckoutSession.validation.label.preference.required": "Choose a label preference.",
+  "checkout.routes.sellCheckoutSession.validation.terms.required":
+    "Confirm that you reviewed the seller checkout details.",
+  "checkout.routes.sellCheckoutSession.validation.payout.setup.required":
+    "Payout setup is required before seller checkout can continue.",
+  "checkout.routes.sellCheckoutSession.validation.payout.failed":
+    "Payout setup is temporarily unavailable. Try again after payout setup is ready.",
+  "checkout.routes.sellCheckoutSession.validation.payout.changed":
+    "The payout estimate changed. Return to the Sell List and refresh the review.",
+  "checkout.routes.sellCheckoutSession.validation.risk.hold":
+    "This sale review is on hold. Return to the Sell List for next steps.",
+  "checkout.routes.sellCheckoutSession.validation.risk.block":
+    "This sale review cannot continue. Return to the Sell List for support-safe recovery.",
+  "checkout.routes.sellCheckoutSession.validation.label.failed":
+    "Label readiness is unavailable. Refresh the Sell List before seller checkout.",
+  "checkout.routes.sellCheckoutSession.validation.readiness.recovery":
+    "Seller checkout readiness is no longer current.",
   "checkout.routes.checkoutSession.checkout.marketplace": "Checkout | Marketplace",
   "checkout.routes.checkoutSession.checkout.session.not.found": "Checkout session not found.",
   "checkout.routes.checkoutSession.checkout.session.not.found.2": "Checkout session not found.",

@@ -711,7 +711,22 @@ export async function action({ request }: ActionFunctionArgs) {
 
     if (intent === "review-sell-list-checkout" || intent === "rebuild-sell-list-checkout") {
       if (!useAccountSellList) {
-        return redirect(`/sign-in?returnTo=${encodeURIComponent("/account/sell-list")}`);
+        if (!anonymousSellListId) {
+          return redirect(`/sign-in?returnTo=${encodeURIComponent("/account/sell-list")}`);
+        }
+
+        const readiness = await api.createGuestSellListReadiness(anonymousSellListId);
+        if (readiness.readiness.status !== "ready" || readiness.readiness.unresolvedLineIds.length > 0) {
+          throw new Error(t("checkout.routes.accountSellList.sell.list.readiness.must.be.resolved"));
+        }
+
+        const query = new URLSearchParams({
+          readinessSnapshotId: readiness.readiness.snapshotId,
+          readinessSourceRevision: readiness.readiness.sourceRevision,
+        });
+        return redirect(
+          appendFreshWriteToken(`/checkout/sell/session/${createId("chk")}?${query.toString()}`, readiness),
+        );
       }
 
       await assertPayoutReady(request);

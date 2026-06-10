@@ -651,7 +651,7 @@ export function CheckoutSellListPage({
   const blockedLineCount = lineReadiness.filter((readiness) => !readiness.ready).length;
   const readyLineCount = sellListLines.length - blockedLineCount;
   const payoutIsReady = !isSignedIn || payoutReadiness?.status === "ready";
-  const canContinue = isSignedIn && payoutIsReady && blockedLineCount === 0 && sellListLines.length > 0;
+  const canContinue = payoutIsReady && blockedLineCount === 0 && sellListLines.length > 0;
   const readinessSummary =
     blockedLineCount > 0
       ? t("checkout.features.sellList.ui.sellListPage.readiness.needs.action", { count: blockedLineCount })
@@ -892,24 +892,18 @@ export function CheckoutSellListPage({
                     {t("checkout.features.sellList.ui.sellListPage.seller.checkout.readiness.description")}
                   </Text>
                   <Inline gap={2}>
-                    {isSignedIn ? (
-                      <Form spacing="none" id="sell-list-checkout-form" method="post">
-                        <HiddenInput type="hidden" name="sellListExecutionId" value={sellListExecutionId ?? ""} />
-                        <Button
-                          type="submit"
-                          name="intent"
-                          value="review-sell-list-checkout"
-                          leadingIcon="check"
-                          disabled={!canContinue}
-                        >
-                          {t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")}
-                        </Button>
-                      </Form>
-                    ) : (
-                      <LinkButton href="/register?returnTo=%2Faccount%2Fsell-list">
-                        {t("checkout.features.sellList.ui.sellListPage.create.account")}
-                      </LinkButton>
-                    )}
+                    <Form spacing="none" id="sell-list-checkout-form" method="post">
+                      <HiddenInput type="hidden" name="sellListExecutionId" value={sellListExecutionId ?? ""} />
+                      <Button
+                        type="submit"
+                        name="intent"
+                        value="review-sell-list-checkout"
+                        leadingIcon="check"
+                        disabled={!canContinue}
+                      >
+                        {t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")}
+                      </Button>
+                    </Form>
                     {blockedLineCount > 0 ? (
                       <LinkButton href="/checkout/sell/readiness" tone="secondary">
                         {t("checkout.features.sellList.ui.sellListPage.resolve.items")}
@@ -927,22 +921,16 @@ export function CheckoutSellListPage({
                 price={formatMoney(expectedSellerPayout)}
                 context={t("checkout.features.sellList.ui.sellListPage.expected.payout.before.checkout")}
                 primaryAction={
-                  isSignedIn ? (
-                    <Button
-                      type="submit"
-                      form="sell-list-checkout-form"
-                      name="intent"
-                      value="review-sell-list-checkout"
-                      leadingIcon="check"
-                      disabled={!canContinue}
-                    >
-                      {t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")}
-                    </Button>
-                  ) : (
-                    <LinkButton href="/register?returnTo=%2Faccount%2Fsell-list" leadingIcon="shield">
-                      {t("checkout.features.sellList.ui.sellListPage.create.account")}
-                    </LinkButton>
-                  )
+                  <Button
+                    type="submit"
+                    form="sell-list-checkout-form"
+                    name="intent"
+                    value="review-sell-list-checkout"
+                    leadingIcon="check"
+                    disabled={!canContinue}
+                  >
+                    {t("checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout")}
+                  </Button>
                 }
                 secondaryAction={
                   <LinkButton href={blockedLineCount > 0 ? "/checkout/sell/readiness" : "/search"} tone="secondary">

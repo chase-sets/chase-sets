@@ -223,6 +223,27 @@
         "reviewBy": "2026-07-31",
         "reason": "Self-refreshing account sell-list projection migration is tracked by #1084/#1083."
       }
+    },
+    {
+      "id": "checkout.guest-sell-list-to-checkout",
+      "owner": "checkout",
+      "risk": "important",
+      "source": {
+        "routeId": "account-sell-list",
+        "actions": ["Start guest seller checkout from Sell List readiness"],
+        "command": "CreateGuestSellListReadiness",
+        "helperUses": ["appendFreshWriteToken"]
+      },
+      "destination": {
+        "routeId": "sell-checkout-session",
+        "transientRecovery": "Guest sell checkout revalidates checkout.sell-list-readiness.v1 from the anonymous Sell List and fails closed to Sell List readiness recovery; no label, payout, sale, notification, or account-history side effects are attempted in this slice."
+      },
+      "exception": {
+        "status": "accepted",
+        "owner": "checkout",
+        "reviewBy": "2026-07-31",
+        "reason": "Guest sell checkout revalidates anonymous Sell List readiness through the existing guest Sell List API and does not have a persisted checkout-session read model until #1111 wires seller runtime orchestration."
+      }
     }
   ],
   "deployableContributions": [
@@ -240,6 +261,13 @@
           "routeId": "account-sell-list",
           "routePath": "account/sell-list",
           "fileExport": "./routes/account-sell-list",
+          "routeType": "route",
+          "sourceContext": "checkout"
+        },
+        {
+          "routeId": "sell-checkout-session",
+          "routePath": "checkout/sell/session/:sessionId",
+          "fileExport": "./routes/sell-checkout-session",
           "routeType": "route",
           "sourceContext": "checkout"
         },

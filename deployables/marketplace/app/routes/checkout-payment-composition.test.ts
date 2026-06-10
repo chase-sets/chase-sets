@@ -35,6 +35,18 @@ describe("marketplace checkout and payment composition", () => {
           sourceContext: "checkout",
         }),
         expect.objectContaining({
+          routeId: "account-sell-list",
+          routePath: "account/sell-list",
+          fileExport: "./routes/account-sell-list",
+          sourceContext: "checkout",
+        }),
+        expect.objectContaining({
+          routeId: "sell-checkout-session",
+          routePath: "checkout/sell/session/:sessionId",
+          fileExport: "./routes/sell-checkout-session",
+          sourceContext: "checkout",
+        }),
+        expect.objectContaining({
           routeId: "checkout-start",
           routePath: "checkout/start",
           fileExport: "./routes/checkout-start",
