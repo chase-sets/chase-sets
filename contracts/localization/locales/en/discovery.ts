@@ -379,6 +379,18 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.quantity.requested": "Quantity requested",
   "discovery.routes.itemDetail.quantity.available.count": "{count} available",
   "discovery.routes.itemDetail.quantity.to.list": "Quantity to list",
+  "discovery.routes.itemDetail.validation.price.required": "Enter a price greater than $0.00 using dollars and cents.",
+  "discovery.routes.itemDetail.validation.quantity.required": "Enter a quantity of 1 or more.",
+  "discovery.routes.itemDetail.validation.selected.listing.quantity.exceeded":
+    "Only {availableQuantity} available from this listing. Lower the quantity or choose another listing.",
+  "discovery.routes.itemDetail.validation.selected.listing.unavailable":
+    "This listing is no longer available. Choose another listing.",
+  "discovery.routes.itemDetail.validation.selected.offer.quantity.unavailable":
+    "{requestedQuantity} requested, but only {availableQuantity} available. Choose another offer or add product to Sell List.",
+  "discovery.routes.itemDetail.validation.selected.offer.unavailable":
+    "This offer is no longer available. Choose another offer.",
+  "discovery.routes.itemDetail.validation.threshold.invalid":
+    "Enter a target price of $0.00 or more using dollars and cents.",
   "discovery.routes.itemDetail.public.standard.terms.preview.unavailable":
     "Estimated payout is temporarily unavailable. You can still continue and review current seller terms after registration.",
   "discovery.routes.itemDetail.register.to.list.inventory.buy.cards":
