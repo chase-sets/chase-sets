@@ -20,6 +20,9 @@ import {
   NumberInput,
   PanelSectionAccordion,
   ProductOptions,
+  ReferenceInfoDialog,
+  type ReferenceInfoSection,
+  ReferenceInfoTrigger,
   SegmentedControl,
   OrderProtectionBadge,
   Stack,
@@ -28,7 +31,6 @@ import {
   TextInput,
   type IconName,
   type AccordionSectionEdge,
-  productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import { resolveActorFromAuthApi } from "@chase-sets/platform-runtime/auth";
 import type {
@@ -215,6 +217,57 @@ function formatTermsSource(terms: MarketplaceListingTermsPreview) {
   return t("discovery.routes.itemDetail.standard.terms");
 }
 
+function ReferenceInfoText({ lines }: { lines: readonly ReactNode[] }) {
+  return (
+    <Stack gap={2}>
+      {lines.map((line, index) => (
+        <Text key={index} size="sm" tone="secondary">
+          {line}
+        </Text>
+      ))}
+    </Stack>
+  );
+}
+
+function RailReferenceInfo({
+  triggerLabel,
+  ariaLabel,
+  title,
+  description,
+  summary,
+  sections,
+  lines,
+}: {
+  triggerLabel: string;
+  ariaLabel: string;
+  title: string;
+  description?: string;
+  summary?: ReactNode;
+  sections?: readonly ReferenceInfoSection[];
+  lines?: readonly ReactNode[];
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <ReferenceInfoTrigger tone="subtle" aria-label={ariaLabel} onClick={() => setOpen(true)}>
+        {triggerLabel}
+      </ReferenceInfoTrigger>
+      <ReferenceInfoDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={title}
+        description={description}
+        closeLabel={t("discovery.features.itemDetail.ui.itemDetailPage.close.reference.detail")}
+        summary={summary}
+        sections={sections ? [...sections] : undefined}
+      >
+        {lines?.length ? <ReferenceInfoText lines={lines} /> : null}
+      </ReferenceInfoDialog>
+    </>
+  );
+}
+
 export function ProductAlertCreationSection({
   formId,
   panelVariant = "card",
@@ -263,11 +316,40 @@ export function ProductAlertCreationSection({
                 <Text weight="semibold">
                   {isListingAlert ? t("discovery.routes.itemDetail.alert.criteria") : "Watch for offers"}
                 </Text>
-                <Text size="sm" tone="secondary">
-                  {isListingAlert
-                    ? t("discovery.routes.itemDetail.alert.matching.supply.at.target.price")
-                    : "Get a web notification when matching offer demand appears at your price."}
-                </Text>
+                <RailReferenceInfo
+                  triggerLabel={t(
+                    isListingAlert
+                      ? "discovery.routes.itemDetail.referenceInfo.watchListings.trigger"
+                      : "discovery.routes.itemDetail.referenceInfo.watchOffers.trigger",
+                  )}
+                  ariaLabel={t(
+                    isListingAlert
+                      ? "discovery.routes.itemDetail.referenceInfo.watchListings.aria"
+                      : "discovery.routes.itemDetail.referenceInfo.watchOffers.aria",
+                  )}
+                  title={t(
+                    isListingAlert
+                      ? "discovery.routes.itemDetail.referenceInfo.watchListings.title"
+                      : "discovery.routes.itemDetail.referenceInfo.watchOffers.title",
+                  )}
+                  summary={t(
+                    isListingAlert
+                      ? "discovery.routes.itemDetail.referenceInfo.watchListings.summary"
+                      : "discovery.routes.itemDetail.referenceInfo.watchOffers.summary",
+                  )}
+                  lines={[
+                    t(
+                      isListingAlert
+                        ? "discovery.routes.itemDetail.referenceInfo.watchListings.line1"
+                        : "discovery.routes.itemDetail.referenceInfo.watchOffers.line1",
+                    ),
+                    t(
+                      isListingAlert
+                        ? "discovery.routes.itemDetail.referenceInfo.watchListings.line2"
+                        : "discovery.routes.itemDetail.referenceInfo.watchOffers.line2",
+                    ),
+                  ]}
+                />
               </Stack>
               <Stack gap={1}>
                 <Text size="sm" tone="secondary">
@@ -338,9 +420,16 @@ export function MarketplaceOfferSubmissionSection({
           <Stack gap={3}>
             <Stack gap={1}>
               <Text weight="semibold">{t("discovery.routes.itemDetail.offer.details")}</Text>
-              <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.submit.product.wide.demand")}
-              </Text>
+              <RailReferenceInfo
+                triggerLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.trigger")}
+                ariaLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.aria")}
+                title={t("discovery.routes.itemDetail.referenceInfo.makeOffer.title")}
+                summary={t("discovery.routes.itemDetail.referenceInfo.makeOffer.summary")}
+                lines={[
+                  t("discovery.routes.itemDetail.referenceInfo.makeOffer.line1"),
+                  t("discovery.routes.itemDetail.referenceInfo.makeOffer.line2"),
+                ]}
+              />
             </Stack>
             <Stack gap={1}>
               <Text size="sm" tone="secondary">
@@ -363,11 +452,6 @@ export function MarketplaceOfferSubmissionSection({
                   : t("discovery.routes.itemDetail.choose.options.to.make.an.offer")}
               </Text>
             </Stack>
-            <Text size="sm" tone="secondary">
-              {productId
-                ? t("discovery.routes.itemDetail.offer.applies.to.matching.product.criteria")
-                : t("discovery.routes.itemDetail.choose.options.to.make.an.offer")}
-            </Text>
           </Stack>
         ) : null}
         {errorMessage ? <Text>{errorMessage}</Text> : null}
@@ -448,13 +532,23 @@ function MarketplaceOfferRegistrationSection({
                     })
                   : t("discovery.routes.itemDetail.choose.options.before.offer.registration")}
             </Text>
+            {!isAuthenticated ? (
+              <RailReferenceInfo
+                triggerLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.trigger")}
+                ariaLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.aria")}
+                title={t("discovery.routes.itemDetail.referenceInfo.makeOffer.title")}
+                summary={t("discovery.routes.itemDetail.referenceInfo.makeOffer.summary")}
+                lines={[
+                  t("discovery.routes.itemDetail.referenceInfo.makeOffer.line1"),
+                  t("discovery.routes.itemDetail.referenceInfo.makeOffer.line2"),
+                ]}
+              />
+            ) : null}
           </Stack>
         ) : null}
-        <Text size="sm" tone="secondary">
-          {isAuthenticated
-            ? "This account cannot submit product-wide offers yet."
-            : t("discovery.routes.itemDetail.offer.requires.account")}
-        </Text>
+        {isAuthenticated ? (
+          <Text size="sm">{t("discovery.routes.itemDetail.account.cannot.submit.product.wide.offers.yet")}</Text>
+        ) : null}
         <LinkButton href={registerHref} tone="secondary" block>
           {isAuthenticated
             ? "Complete account setup to make offer"
@@ -528,25 +622,6 @@ export function CheckoutPurchaseIntentSection({
   const addToCartSuccessData = isAddToCartActionData(addToCartFetcher.data) ? addToCartFetcher.data : null;
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
-  function getProductIntentGuidance() {
-    if (actionMode === "buy-now") {
-      return t("discovery.routes.itemDetail.checkout.immediately.with.best.matching.live.listing");
-    }
-
-    if (actionMode === "add-to-cart") {
-      return t("discovery.routes.itemDetail.add.to.cart.workflow.helper");
-    }
-
-    if (!productId) {
-      return t("discovery.routes.itemDetail.product.intent.choose.options.guidance");
-    }
-
-    return visibleListingCount === 0
-      ? t("discovery.routes.itemDetail.product.intent.no.supply.guidance")
-      : t("discovery.routes.itemDetail.product.intent.buy.guidance");
-  }
-
-  const productIntentGuidance = getProductIntentGuidance();
   const selectionHeading =
     selectedListing && actionMode !== "add-to-cart"
       ? t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing")
@@ -556,6 +631,37 @@ export function CheckoutPurchaseIntentSection({
       ? t("discovery.routes.itemDetail.best.available.price")
       : t("discovery.routes.itemDetail.selected.price")
     : t("discovery.routes.itemDetail.market.signal");
+  const purchaseReferenceInfo =
+    selectedListing && actionMode !== "add-to-cart"
+      ? {
+          triggerLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.trigger"),
+          ariaLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.aria"),
+          title: t("discovery.routes.itemDetail.referenceInfo.buyListing.title"),
+          summary: t("discovery.routes.itemDetail.referenceInfo.buyListing.summary"),
+          lines:
+            actionMode === "all"
+              ? [
+                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
+                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
+                  t("discovery.routes.itemDetail.referenceInfo.productCart.summary"),
+                  t("discovery.routes.itemDetail.referenceInfo.productCart.line1"),
+                  t("discovery.routes.itemDetail.referenceInfo.productCart.line2"),
+                ]
+              : [
+                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
+                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
+                ],
+        }
+      : {
+          triggerLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.trigger"),
+          ariaLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.aria"),
+          title: t("discovery.routes.itemDetail.referenceInfo.productCart.title"),
+          summary: t("discovery.routes.itemDetail.referenceInfo.productCart.summary"),
+          lines: [
+            t("discovery.routes.itemDetail.referenceInfo.productCart.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.productCart.line2"),
+          ],
+        };
   useEffect(() => {
     if (isAddToCartActionData(addToCartFetcher.data)) {
       notifyCartCountChanged(addToCartFetcher.data.quantity);
@@ -678,17 +784,19 @@ export function CheckoutPurchaseIntentSection({
                 {t("discovery.routes.itemDetail.add.to.cart.saves.buyer.intent")}
               </Text>
             ) : null}
-            {actionMode === "all" ? (
+            {!productId ? (
               <Text size="sm" tone="secondary">
-                {productIntentGuidance}
+                {t("discovery.routes.itemDetail.product.intent.choose.options.guidance")}
               </Text>
             ) : null}
+            {productId ? <RailReferenceInfo {...purchaseReferenceInfo} /> : null}
             <Inline gap={2}>
               <OrderProtectionBadge label={t("discovery.routes.itemDetail.buyer.protection.included")} />
               <SecurePaymentCue label={t("discovery.routes.itemDetail.secure.checkout")} />
             </Inline>
           </Stack>
         ) : null}
+        {!showSummary && productId ? <RailReferenceInfo {...purchaseReferenceInfo} /> : null}
         {errorMessage ? <Text>{errorMessage}</Text> : null}
         {addToCartSuccessData ? (
           <Banner
@@ -779,8 +887,37 @@ export function MarketplaceOfferMatchSection({
       ? (acceptedValue * acceptanceTerms.shipping_allowance_percentage_bps) / 10000
       : null;
   const quoteTime = acceptanceTerms ? new Date(acceptanceTerms.resolved_at).toLocaleString() : null;
+  const termsSource = acceptanceTerms
+    ? formatTermsSource(acceptanceTerms)
+    : t("discovery.routes.itemDetail.standard.terms");
   const selectedOfferBuyer = selectedOffer?.buyer_display_name ?? selectedOffer?.buyer_account_id ?? "Buyer account";
   const selectedOfferBuyerHref = selectedOffer?.buyer_slug ? `/accounts/${selectedOffer.buyer_slug}#feedback` : null;
+  const selectedOfferReferenceInfo =
+    actionMode === "add-to-sell-list"
+      ? {
+          triggerLabel: t("discovery.routes.itemDetail.referenceInfo.offerSellList.trigger"),
+          ariaLabel: t("discovery.routes.itemDetail.referenceInfo.offerSellList.aria"),
+          title: t("discovery.routes.itemDetail.referenceInfo.offerSellList.title"),
+          summary: t("discovery.routes.itemDetail.referenceInfo.offerSellList.summary"),
+          lines: [
+            t("discovery.routes.itemDetail.referenceInfo.offerSellList.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.offerSellList.line2"),
+          ],
+        }
+      : {
+          triggerLabel: t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.trigger"),
+          ariaLabel: t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.aria"),
+          title: t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.title"),
+          summary: t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.summary", {
+            source: termsSource,
+          }),
+          lines: [
+            t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.line2"),
+            t("discovery.routes.itemDetail.referenceInfo.acceptOffer.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.offerSellList.line1"),
+          ],
+        };
   const sellNowAction = (
     <Button type="submit" name="intent" value="sell-now" disabled={!selectedOffer?.can_fulfill} block>
       {t("discovery.routes.itemDetail.sell.now")}
@@ -879,12 +1016,37 @@ export function MarketplaceOfferMatchSection({
                         },
                       ]}
                     />
-                    <Text size="sm" tone="secondary">
-                      {t("discovery.routes.itemDetail.offer.terms.summary", {
-                        source: formatTermsSource(acceptanceTerms),
-                        time: quoteTime ?? t("discovery.routes.itemDetail.just.now"),
-                      })}
-                    </Text>
+                    <RailReferenceInfo
+                      {...selectedOfferReferenceInfo}
+                      sections={[
+                        {
+                          title: t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.facts"),
+                          items: [
+                            {
+                              key: t("discovery.routes.itemDetail.referenceInfo.marketplaceFee"),
+                              value: formatMoneyAmount(marketplaceFeeTotal),
+                            },
+                            {
+                              key: t("discovery.routes.itemDetail.shipping.allowance"),
+                              value: t("discovery.routes.itemDetail.shipping.allowance.amount", {
+                                amount: formatMoneyAmount(shippingAllowanceAmount),
+                                percentage: formatAllowancePercentage(
+                                  acceptanceTerms.shipping_allowance_percentage_bps,
+                                ),
+                              }),
+                            },
+                            {
+                              key: t("discovery.routes.itemDetail.referenceInfo.termsSource"),
+                              value: termsSource,
+                            },
+                            {
+                              key: t("discovery.routes.itemDetail.referenceInfo.quoteTime"),
+                              value: quoteTime ?? t("discovery.routes.itemDetail.just.now"),
+                            },
+                          ],
+                        },
+                      ]}
+                    />
                   </>
                 ) : (
                   <Text size="sm" tone="secondary">
@@ -951,13 +1113,20 @@ export function ProductSellListIntentSection({
           {showSummary ? (
             <Stack gap={2}>
               <Text weight="semibold">{t("discovery.routes.itemDetail.add.product.to.sell.list")}</Text>
-              <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.add.product.to.sell.list.summary")}
-              </Text>
               <ProductOptions
                 options={productOptionsFromSelectionDetails(productSelectionDetails)}
                 emptyLabel={productSummary ?? itemTitle}
                 variant={productSelectionDetails.length === 0 ? "chips" : "inline"}
+              />
+              <RailReferenceInfo
+                triggerLabel={t("discovery.routes.itemDetail.referenceInfo.productSellList.trigger")}
+                ariaLabel={t("discovery.routes.itemDetail.referenceInfo.productSellList.aria")}
+                title={t("discovery.routes.itemDetail.referenceInfo.productSellList.title")}
+                summary={t("discovery.routes.itemDetail.referenceInfo.productSellList.summary")}
+                lines={[
+                  t("discovery.routes.itemDetail.referenceInfo.productSellList.line1"),
+                  t("discovery.routes.itemDetail.referenceInfo.productSellList.line2"),
+                ]}
               />
             </Stack>
           ) : null}
@@ -1017,6 +1186,9 @@ export function MarketplaceSellerRegistrationSection({
     selectedOfferQuote && acceptedValue !== null
       ? (acceptedValue * selectedOfferQuote.shipping_allowance_percentage_bps) / 10000
       : null;
+  const selectedOfferQuoteSource = selectedOfferQuote
+    ? formatTermsSource(selectedOfferQuote)
+    : t("discovery.routes.itemDetail.standard.terms");
   const offerRegistrationPanel = selectedOffer ? (
     <FormPanel variant={panelVariant} glow>
       <Stack gap={3}>
@@ -1104,15 +1276,42 @@ export function MarketplaceSellerRegistrationSection({
               }
             />
             {selectedOfferQuote ? (
-              <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.registration.quote.summary", {
-                  source: formatTermsSource(selectedOfferQuote),
+              <RailReferenceInfo
+                triggerLabel={t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.trigger")}
+                ariaLabel={t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.aria")}
+                title={t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.title")}
+                summary={t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.summary", {
+                  source: selectedOfferQuoteSource,
                 })}
-              </Text>
+                sections={[
+                  {
+                    title: t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.facts"),
+                    items: [
+                      {
+                        key: t("discovery.routes.itemDetail.referenceInfo.marketplaceFee"),
+                        value: formatMoneyAmount(marketplaceFeeTotal),
+                      },
+                      {
+                        key: t("discovery.routes.itemDetail.shipping.allowance"),
+                        value: t("discovery.routes.itemDetail.shipping.allowance.amount", {
+                          amount: formatMoneyAmount(shippingAllowanceAmount),
+                          percentage: formatAllowancePercentage(selectedOfferQuote.shipping_allowance_percentage_bps),
+                        }),
+                      },
+                      {
+                        key: t("discovery.routes.itemDetail.referenceInfo.termsSource"),
+                        value: selectedOfferQuoteSource,
+                      },
+                    ],
+                  },
+                ]}
+                lines={[
+                  t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.line1"),
+                  t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.line2"),
+                  t("discovery.routes.itemDetail.referenceInfo.acceptOffer.line1"),
+                ]}
+              />
             ) : null}
-            <Text size="sm" tone="secondary">
-              {t("discovery.routes.itemDetail.register.to.confirm.inventory.and.see.payout")}
-            </Text>
           </Stack>
         ) : null}
         <LinkButton href={registerHref} leadingIcon="plus" block>
@@ -1130,11 +1329,6 @@ export function MarketplaceSellerRegistrationSection({
               {selectedOffer
                 ? t("discovery.routes.itemDetail.create.listing.after.registration")
                 : t("discovery.routes.itemDetail.sell.on.chase.sets")}
-            </Text>
-            <Text size="sm" tone="secondary">
-              {selectedOffer
-                ? t("discovery.routes.itemDetail.list.instead.of.accepting.offer")
-                : t("discovery.routes.itemDetail.register.to.list.inventory.buy.cards")}
             </Text>
             <KeyValueList
               density="compact"
@@ -1159,12 +1353,17 @@ export function MarketplaceSellerRegistrationSection({
                 },
               ]}
             />
-            {!selectedOffer && productSummary ? (
-              <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.start.with")}
-                <ProductOptions options={productOptionsFromSummary(productSummary)} variant="compact" />
-              </Text>
-            ) : !selectedOffer ? (
+            <RailReferenceInfo
+              triggerLabel={t("discovery.routes.itemDetail.referenceInfo.createListing.trigger")}
+              ariaLabel={t("discovery.routes.itemDetail.referenceInfo.createListing.aria")}
+              title={t("discovery.routes.itemDetail.referenceInfo.createListing.title")}
+              summary={t("discovery.routes.itemDetail.referenceInfo.createListing.summary")}
+              lines={[
+                t("discovery.routes.itemDetail.referenceInfo.createListing.line1"),
+                t("discovery.routes.itemDetail.referenceInfo.createListing.line2"),
+              ]}
+            />
+            {!selectedOffer && !productSummary ? (
               <Text size="sm" tone="secondary">
                 {t("discovery.routes.itemDetail.choose.product.options.first.then.register")}
               </Text>
@@ -1337,14 +1536,22 @@ export function MarketplaceListingSubmissionSection({
                 })}
               </Text>
             ) : null}
+            <RailReferenceInfo
+              triggerLabel={t("discovery.routes.itemDetail.referenceInfo.createListing.trigger")}
+              ariaLabel={t("discovery.routes.itemDetail.referenceInfo.createListing.aria")}
+              title={t("discovery.routes.itemDetail.referenceInfo.createListing.title")}
+              summary={t("discovery.routes.itemDetail.referenceInfo.createListing.summary")}
+              lines={[
+                t("discovery.routes.itemDetail.referenceInfo.createListing.line1"),
+                t("discovery.routes.itemDetail.referenceInfo.createListing.line2"),
+              ]}
+            />
           </Stack>
         ) : null}
         {listing ? <HiddenInput type="hidden" name="inventoryItemId" value={listing.inventory_item_id} /> : null}
-        {!listing ? (
+        {!listing && requiresShipFromSetup ? (
           <Text size="sm" tone="secondary">
-            {requiresShipFromSetup
-              ? t("discovery.routes.itemDetail.ship.from.setup.required")
-              : t("discovery.routes.itemDetail.listing.stock.created.automatically")}
+            {t("discovery.routes.itemDetail.ship.from.setup.required")}
           </Text>
         ) : null}
         {errorMessage ? <Text>{errorMessage}</Text> : null}

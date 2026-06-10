@@ -12,6 +12,7 @@ import {
   MarketplaceListingSubmissionSection,
   MarketplaceOfferMatchSection,
   MarketplaceSellerRegistrationSection,
+  ProductSellListIntentSection,
   SellActionCard,
   WatchActionCard,
 } from "../routes/item-detail";
@@ -344,8 +345,8 @@ describe("item detail commerce panel", () => {
     fireEvent.click(sellTab);
 
     expect(screen.getByText("List this product")).toBeTruthy();
-    expect(screen.getByText(/Product:/)).toBeTruthy();
-    expect(screen.getByLabelText("Product options: Raw, Near Mint")).toBeTruthy();
+    expect(screen.getByText("Product")).toBeTruthy();
+    expect(screen.getByLabelText("Raw / Near Mint")).toBeTruthy();
     expect(screen.getByRole("link", { name: "Continue to sell" }).getAttribute("href")).toBe(
       "/register?returnTo=%2Fitems%2Fcat_charizard",
     );
@@ -375,19 +376,44 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("$353.35 after $26.65 fee")).toBeTruthy();
     expect(screen.getByText("$19.00 (5%)")).toBeTruthy();
     expect(screen.getAllByText("Raw / Near Mint")).toHaveLength(2);
-    expect(screen.getByText("Estimated payout uses Standard terms.")).toBeTruthy();
+    expect(screen.queryByText("Estimated payout uses Standard terms.")).toBeNull();
     expect(
-      screen.getByText("Register to confirm inventory, see seller payout, and accept matching offers."),
-    ).toBeTruthy();
+      screen.queryByText("Register to confirm inventory, see seller payout, and accept matching offers."),
+    ).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View estimated payout details" }));
+    const payoutDialog = screen.getByRole("dialog", { name: "Estimated payout" });
+    expect(within(payoutDialog).getByText("Estimated payout uses Standard terms.")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Payout facts")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Marketplace sales fee")).toBeTruthy();
+    expect(within(payoutDialog).getByText("$26.65")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Shipping allowance")).toBeTruthy();
+    expect(within(payoutDialog).getByText("$19.00 (5%)")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Terms source")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Standard terms")).toBeTruthy();
+    fireEvent.click(within(payoutDialog).getByRole("button", { name: "Close reference detail" }));
     expect(screen.getByRole("link", { name: "Continue to accept offer" }).getAttribute("href")).toBe(
       "/register?returnTo=%2Fitems%2Fcat_charizard",
     );
     expect(screen.getByText("Create listing")).toBeTruthy();
-    expect(screen.getByText("Create a listing for this product instead.")).toBeTruthy();
+    expect(screen.queryByText("Create a listing for this product instead.")).toBeNull();
     expect(screen.getByText("Asking price")).toBeTruthy();
     expect(screen.getByText("Set before publishing")).toBeTruthy();
     expect(screen.getByText("Inventory")).toBeTruthy();
     expect(screen.getByText("Confirm before publishing")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "View creating a listing details" }));
+    const createListingDialog = screen.getByRole("dialog", { name: "Creating a listing" });
+    expect(
+      within(createListingDialog).getByText("A listing publishes your price and quantity for this product."),
+    ).toBeTruthy();
+    expect(
+      within(createListingDialog).getByText("Guests can draft the price and quantity before registration."),
+    ).toBeTruthy();
+    expect(
+      within(createListingDialog).getByText(
+        "Publication requires account, seller readiness, ship-from, and final validation.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(within(createListingDialog).getByRole("button", { name: "Close reference detail" }));
     expect(screen.getByRole("link", { name: "Continue to create listing" }).getAttribute("href")).toBe(
       "/register?returnTo=%2Fitems%2Fcat_charizard",
     );
@@ -410,6 +436,9 @@ describe("item detail commerce panel", () => {
     expect(listAction.closest("form")?.id).toBe("list-at-price-form");
     expect(listAction).toHaveProperty("disabled", false);
     expect(screen.getByText("Current best listing is 399.99.")).toBeTruthy();
+    expect(screen.queryByText("Listing stock is created automatically.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View creating a listing details" }));
+    expect(screen.getByRole("dialog", { name: "Creating a listing" })).toBeTruthy();
     expect(screen.queryByLabelText("Listing price")).toBeNull();
     expect(screen.queryByLabelText("Quantity to list")).toBeNull();
     expect(screen.queryByLabelText("Ship-from name")).toBeNull();
@@ -526,6 +555,7 @@ describe("item detail commerce panel", () => {
       "disabled",
       true,
     );
+    expect(within(buySheet).getByRole("button", { name: "View buying this listing details" })).toBeTruthy();
     expect(within(buySheet).queryByText("Desktop buy rail")).toBeNull();
   });
 
@@ -646,6 +676,33 @@ describe("item detail commerce panel", () => {
     fireEvent.click(screen.getByRole("button", { name: /Add product to Sell List/ }));
 
     expect(screen.getByText("Add product to Sell List form")).toBeTruthy();
+  });
+
+  it("keeps product Sell List guidance in Reference Info", () => {
+    renderWithDataRouter(
+      <ProductSellListIntentSection
+        catalogItemId="cat_charizard"
+        productId="cat_charizard::"
+        itemTitle="Charizard"
+        selectedOptions={[]}
+        productSelectionDetails={[
+          { label: "Form", value: "Raw" },
+          { label: "Condition", value: "Near Mint" },
+        ]}
+        productSummary="Raw / Near Mint"
+      />,
+    );
+
+    expect(screen.getAllByText("Add product to Sell List").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Chase Sets can match buyer demand during Sell List review.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "View product in Sell List details" }));
+    const sellListDialog = screen.getByRole("dialog", { name: "Product in Sell List" });
+    expect(within(sellListDialog).getByText("The Sell List saves this product and selected options.")).toBeTruthy();
+    expect(within(sellListDialog).getByText("Chase Sets can match buyer demand during Sell List review.")).toBeTruthy();
+    expect(
+      within(sellListDialog).getByText("No offer is accepted and no listing is created until you review and confirm."),
+    ).toBeTruthy();
   });
 
   it("disables product-level sell actions for offer-review accounts without listing capability", () => {
@@ -1299,7 +1356,14 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Offer details")).toBeTruthy();
     expect(screen.getByText("Product criteria")).toBeTruthy();
     expect(screen.getByText("1 listing matches this selection.")).toBeTruthy();
-    expect(screen.getByText("Sellers can review this offer for the selected product.")).toBeTruthy();
+    expect(screen.queryByText("Sellers can review this offer for the selected product.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View making an offer details" }));
+    const offerDialog = screen.getByRole("dialog", { name: "Making an offer" });
+    expect(
+      within(offerDialog).getByText("Your offer is product-level demand that eligible sellers can review."),
+    ).toBeTruthy();
+    expect(within(offerDialog).getByText("You choose price and quantity before submitting.")).toBeTruthy();
+    fireEvent.click(within(offerDialog).getByRole("button", { name: "Close reference detail" }));
     expect(screen.getByLabelText(/Offer price/)).toBeTruthy();
     expect(screen.getByLabelText(/Quantity requested/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Submit offer" })).toBeTruthy();
@@ -1311,9 +1375,18 @@ describe("item detail commerce panel", () => {
     );
 
     expect(await screen.findByText("Alert criteria")).toBeTruthy();
+    expect(screen.queryByText("Get notified when matching supply appears at or below your target.")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View listing alert details" }));
+    const listingAlertDialog = screen.getByRole("dialog", { name: "Listing alert" });
     expect(
-      screen.getAllByText("Get notified when matching supply appears at or below your target.").length,
-    ).toBeGreaterThan(0);
+      within(listingAlertDialog).getByText("Watch listings saves the selected product and target price."),
+    ).toBeTruthy();
+    expect(
+      within(listingAlertDialog).getByText(
+        "Alerts are created after account registration so notifications have an account destination.",
+      ),
+    ).toBeTruthy();
+    fireEvent.click(within(listingAlertDialog).getByRole("button", { name: "Close reference detail" }));
     expect(screen.getByLabelText("Maximum listing price")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Set alert" })).toBeTruthy();
     expect(screen.queryByText("Offer details")).toBeNull();
@@ -1344,6 +1417,15 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Chase Sets")).toBeTruthy();
     expect(screen.getByText("2 available")).toBeTruthy();
     expect(screen.getByLabelText("Product options: Form Raw, Condition Excellent")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "View buying this listing details" }));
+    const buyListingDialog = screen.getByRole("dialog", { name: "Buying this listing" });
+    expect(
+      within(buyListingDialog).getByText("Buy this listing keeps checkout focused on this seller's listing."),
+    ).toBeTruthy();
+    expect(
+      within(buyListingDialog).getByText("Quantity, price, and availability are checked again before payment."),
+    ).toBeTruthy();
+    fireEvent.click(within(buyListingDialog).getByRole("button", { name: "Close reference detail" }));
     const productQuantityText = screen.getByText("2 available").parentElement?.textContent ?? "";
     expect(productQuantityText.indexOf("Raw")).toBeGreaterThanOrEqual(0);
     expect(productQuantityText.indexOf("Raw")).toBeLessThan(productQuantityText.indexOf("2 available"));
@@ -1420,8 +1502,60 @@ describe("item detail commerce panel", () => {
     expect(screen.getByLabelText("Product options: Form Raw, Condition Near Mint")).toBeTruthy();
     expect(screen.getByText("$353.35 after $26.65 fee")).toBeTruthy();
     expect(screen.getByText("$19.00 (5%)")).toBeTruthy();
-    expect(screen.getByText(/Seller-specific terms/)).toBeTruthy();
+    expect(screen.queryByText(/Seller-specific terms/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View estimated payout details" }));
+    const payoutDialog = screen.getByRole("dialog", { name: "Estimated payout" });
+    expect(within(payoutDialog).getByText("Estimated payout uses Seller-specific terms.")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Seller-specific terms")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Marketplace sales fee")).toBeTruthy();
+    expect(within(payoutDialog).getByText("$26.65")).toBeTruthy();
+    expect(
+      within(payoutDialog).getByText(
+        "Accepting creates a seller commitment after registration, inventory/readiness checks, and final terms review.",
+      ),
+    ).toBeTruthy();
     expect(screen.queryByText(/csg_seller_override/)).toBeNull();
+  });
+
+  it("keeps offer Sell List guidance in Reference Info", () => {
+    render(
+      <MarketplaceOfferMatchSection
+        selectedOffer={{
+          ...baseAccountOfferMatch,
+          price_amount: "380.00",
+          buyer_display_name: "Top Loader Capital",
+          in_sell_list: false,
+          acceptance_terms: {
+            account_type: "personal",
+            basis_amount: "380.00",
+            marketplace_sales_fee_unit_amount: "26.65",
+            seller_net_unit_amount: "353.35",
+            shipping_allowance_percentage_bps: 500,
+            schedule_id: null,
+            agreement_id: null,
+            resolved_at: "2026-05-05T16:36:36.000Z",
+            fee_quote_fingerprint: "380.00|26.65|353.35|500|||",
+          },
+        }}
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        matchingOfferCount={1}
+        actionMode="add-to-sell-list"
+      />,
+    );
+
+    expect(screen.getByText("$353.35 after $26.65 fee")).toBeTruthy();
+    expect(screen.queryByText("Saving is not acceptance and does not create a sale.")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "View offer in Sell List details" }));
+    const offerSellListDialog = screen.getByRole("dialog", { name: "Offer in Sell List" });
+    expect(within(offerSellListDialog).getByText("The Sell List saves this offer for review.")).toBeTruthy();
+    expect(within(offerSellListDialog).getByText("Saving is not acceptance and does not create a sale.")).toBeTruthy();
+    expect(
+      within(offerSellListDialog).getByText(
+        "Create an account or sign in when you are ready to review final terms and commit.",
+      ),
+    ).toBeTruthy();
   });
 
   it("changes the selected offer when another offer is clicked", async () => {

@@ -625,6 +625,8 @@ export const discoveryEnglishTranslations = {
     "{count} {listingLabel} match this product. Sign in to place an offer accounts can track.",
   "discovery.routes.itemDetail.offer.requires.account":
     "Offers are tied to an account so sellers can evaluate the request and you can track the response.",
+  "discovery.routes.itemDetail.account.cannot.submit.product.wide.offers.yet":
+    "This account cannot submit product-wide offers yet.",
   "discovery.routes.itemDetail.offer.marketplace.fee": "Marketplace sales fee: {amount}",
   "discovery.routes.itemDetail.offer.quote.time": "Quote time: {time}",
   "discovery.routes.itemDetail.offer.seller.net": "Seller net: {amount}",
@@ -638,6 +640,88 @@ export const discoveryEnglishTranslations = {
     "Requested: {requested}. Your active supply covers {available}.",
   "discovery.routes.itemDetail.selling.product": "Selling: {productSummary}",
   "discovery.routes.itemDetail.standard.terms": "Standard terms",
+  "discovery.routes.itemDetail.referenceInfo.acceptOffer.line1":
+    "Accepting creates a seller commitment after registration, inventory/readiness checks, and final terms review.",
+  "discovery.routes.itemDetail.referenceInfo.buyListing.aria": "View buying this listing details",
+  "discovery.routes.itemDetail.referenceInfo.buyListing.line1":
+    "Quantity, price, and availability are checked again before payment.",
+  "discovery.routes.itemDetail.referenceInfo.buyListing.line2":
+    "If the listing changes or sells out, checkout will ask you to choose another match.",
+  "discovery.routes.itemDetail.referenceInfo.buyListing.summary":
+    "Buy this listing keeps checkout focused on this seller's listing.",
+  "discovery.routes.itemDetail.referenceInfo.buyListing.title": "Buying this listing",
+  "discovery.routes.itemDetail.referenceInfo.buyListing.trigger": "Buying this listing",
+  "discovery.routes.itemDetail.referenceInfo.createListing.aria": "View creating a listing details",
+  "discovery.routes.itemDetail.referenceInfo.createListing.line1":
+    "Guests can draft the price and quantity before registration.",
+  "discovery.routes.itemDetail.referenceInfo.createListing.line2":
+    "Publication requires account, seller readiness, ship-from, and final validation.",
+  "discovery.routes.itemDetail.referenceInfo.createListing.summary":
+    "A listing publishes your price and quantity for this product.",
+  "discovery.routes.itemDetail.referenceInfo.createListing.title": "Creating a listing",
+  "discovery.routes.itemDetail.referenceInfo.createListing.trigger": "Creating a listing",
+  "discovery.routes.itemDetail.referenceInfo.estimatedPayout.aria": "View estimated payout details",
+  "discovery.routes.itemDetail.referenceInfo.estimatedPayout.facts": "Payout facts",
+  "discovery.routes.itemDetail.referenceInfo.estimatedPayout.line1":
+    "It starts from the offer total, subtracts the marketplace sales fee, and shows the current shipping allowance.",
+  "discovery.routes.itemDetail.referenceInfo.estimatedPayout.line2":
+    "Final registered terms are confirmed before acceptance; if the payout changes, you will review the difference first.",
+  "discovery.routes.itemDetail.referenceInfo.estimatedPayout.summary": "Estimated payout uses {source}.",
+  "discovery.routes.itemDetail.referenceInfo.estimatedPayout.title": "Estimated payout",
+  "discovery.routes.itemDetail.referenceInfo.estimatedPayout.trigger": "Estimated payout",
+  "discovery.routes.itemDetail.referenceInfo.makeOffer.aria": "View making an offer details",
+  "discovery.routes.itemDetail.referenceInfo.makeOffer.line1": "You choose price and quantity before submitting.",
+  "discovery.routes.itemDetail.referenceInfo.makeOffer.line2":
+    "No payment is collected until an accepted offer reaches checkout review.",
+  "discovery.routes.itemDetail.referenceInfo.makeOffer.summary":
+    "Your offer is product-level demand that eligible sellers can review.",
+  "discovery.routes.itemDetail.referenceInfo.makeOffer.title": "Making an offer",
+  "discovery.routes.itemDetail.referenceInfo.makeOffer.trigger": "Making an offer",
+  "discovery.routes.itemDetail.referenceInfo.marketplaceFee": "Marketplace sales fee",
+  "discovery.routes.itemDetail.referenceInfo.offerSellList.aria": "View offer in Sell List details",
+  "discovery.routes.itemDetail.referenceInfo.offerSellList.line1":
+    "Saving is not acceptance and does not create a sale.",
+  "discovery.routes.itemDetail.referenceInfo.offerSellList.line2":
+    "Create an account or sign in when you are ready to review final terms and commit.",
+  "discovery.routes.itemDetail.referenceInfo.offerSellList.summary": "The Sell List saves this offer for review.",
+  "discovery.routes.itemDetail.referenceInfo.offerSellList.title": "Offer in Sell List",
+  "discovery.routes.itemDetail.referenceInfo.offerSellList.trigger": "Offer in Sell List",
+  "discovery.routes.itemDetail.referenceInfo.productCart.aria": "View buying this product details",
+  "discovery.routes.itemDetail.referenceInfo.productCart.line1":
+    "Chase Sets finds an available listing during cart review.",
+  "discovery.routes.itemDetail.referenceInfo.productCart.line2":
+    "You can choose or lock an exact listing before checkout.",
+  "discovery.routes.itemDetail.referenceInfo.productCart.summary":
+    "The Buy Cart saves the product and selected options.",
+  "discovery.routes.itemDetail.referenceInfo.productCart.title": "Buying this product",
+  "discovery.routes.itemDetail.referenceInfo.productCart.trigger": "Buying this product",
+  "discovery.routes.itemDetail.referenceInfo.productSellList.aria": "View product in Sell List details",
+  "discovery.routes.itemDetail.referenceInfo.productSellList.line1":
+    "Chase Sets can match buyer demand during Sell List review.",
+  "discovery.routes.itemDetail.referenceInfo.productSellList.line2":
+    "No offer is accepted and no listing is created until you review and confirm.",
+  "discovery.routes.itemDetail.referenceInfo.productSellList.summary":
+    "The Sell List saves this product and selected options.",
+  "discovery.routes.itemDetail.referenceInfo.productSellList.title": "Product in Sell List",
+  "discovery.routes.itemDetail.referenceInfo.productSellList.trigger": "Product in Sell List",
+  "discovery.routes.itemDetail.referenceInfo.quoteTime": "Quote time",
+  "discovery.routes.itemDetail.referenceInfo.termsSource": "Terms source",
+  "discovery.routes.itemDetail.referenceInfo.watchListings.aria": "View listing alert details",
+  "discovery.routes.itemDetail.referenceInfo.watchListings.line1":
+    "Alerts are created after account registration so notifications have an account destination.",
+  "discovery.routes.itemDetail.referenceInfo.watchListings.line2": "Criteria are rechecked before the alert is saved.",
+  "discovery.routes.itemDetail.referenceInfo.watchListings.summary":
+    "Watch listings saves the selected product and target price.",
+  "discovery.routes.itemDetail.referenceInfo.watchListings.title": "Listing alert",
+  "discovery.routes.itemDetail.referenceInfo.watchListings.trigger": "Listing alert",
+  "discovery.routes.itemDetail.referenceInfo.watchOffers.aria": "View offer alert details",
+  "discovery.routes.itemDetail.referenceInfo.watchOffers.line1":
+    "Alerts are created after account registration so notifications have an account destination.",
+  "discovery.routes.itemDetail.referenceInfo.watchOffers.line2": "Criteria are rechecked before the alert is saved.",
+  "discovery.routes.itemDetail.referenceInfo.watchOffers.summary":
+    "Watch offers saves the selected product and minimum buyer-demand threshold.",
+  "discovery.routes.itemDetail.referenceInfo.watchOffers.title": "Offer alert",
+  "discovery.routes.itemDetail.referenceInfo.watchOffers.trigger": "Offer alert",
   "discovery.routes.itemDetail.your.listing.summary": "Your {status} listing is {price}.",
   "discovery.routes.publicAccount.active.listing.count": "{count} active {listingLabel}",
   "discovery.routes.publicAccount.browse.active.listings": "Browse {count} active marketplace listings.",
