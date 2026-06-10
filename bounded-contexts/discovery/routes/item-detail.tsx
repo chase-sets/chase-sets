@@ -625,9 +625,18 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const item = await discoveryApi.getItemDetail(params.id!);
       const itemImage = selectItemImage(item, "thumbnail");
       const quantity = parsePositiveQuantity(formData.get("quantity"));
+      const productId = String(formData.get("productId") ?? "");
+      const sellerPreferenceId = String(formData.get("sellerPreferenceId") ?? "").trim();
+      const preferredListing = sellerPreferenceId ? findSelectedListingForAction(item, sellerPreferenceId) : null;
+      if (preferredListing) {
+        if (preferredListing.product_id !== productId) {
+          throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
+        }
+        assertSelectedListingQuantityAvailable(preferredListing, quantity);
+      }
       const cartLine = {
         catalogItemId: item.catalog_item_id,
-        productId: String(formData.get("productId") ?? ""),
+        productId,
         itemTitle: item.title,
         itemSubtitle: item.subtitle,
         itemImageUrl: itemImage.src,
@@ -640,6 +649,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         quantity,
         fulfillmentMode: "optimize" as const,
         lockedListingId: null,
+        sellerPreferenceId: preferredListing?.listing_id ?? null,
       };
 
       if (!canUseAccountCheckoutCart(actor)) {

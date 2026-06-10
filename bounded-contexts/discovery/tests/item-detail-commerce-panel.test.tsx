@@ -572,6 +572,7 @@ describe("item detail commerce panel", () => {
                     catalogItemId={context.itemId}
                     productId={context.selectedProductId}
                     selectedListing={context.selectedListing}
+                    selectedListingSource={context.selectedListingSource}
                     itemTitle={context.itemTitle}
                     selectedOptions={context.selectedProductOptions}
                     productSummary={context.selectedProductSummary}
@@ -1660,6 +1661,39 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText("Selected listing")).toBeNull();
   });
 
+  it("frames explicit selected-listing Buy Cart adds as a preference with reference detail", () => {
+    renderWithDataRouter(
+      <CheckoutPurchaseIntentSection
+        catalogItemId="cat_charizard"
+        productId="cat_charizard::"
+        selectedListing={baseListing}
+        selectedListingSource="explicit"
+        itemTitle="Charizard"
+        selectedOptions={[]}
+        productSummary="Raw / Near Mint"
+        visibleListingCount={1}
+        actionMode="add-to-cart"
+      />,
+    );
+
+    expect(screen.getByText("Selected listing")).toBeTruthy();
+    expect(screen.getByText("Selected price")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add listing to Buy Cart" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Add product to Buy Cart" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "View listing in Buy Cart details" }));
+    const listingCartDialog = screen.getByRole("dialog", { name: "Listing in Buy Cart" });
+    expect(
+      within(listingCartDialog).getByText(
+        "Adding a listing saves the product with this listing as the starting preference.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(listingCartDialog).getByText(
+        "Lock this listing from Buy Cart review if you want exact fulfillment before checkout.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("keeps shipping out of the item buy panel", () => {
     renderWithDataRouter(
       <CheckoutPurchaseIntentSection
@@ -1675,7 +1709,7 @@ describe("item detail commerce panel", () => {
 
     expect(screen.getByRole("button", { name: "Buy now" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Buy this listing" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Add product to Buy Cart" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add listing to Buy Cart" })).toBeTruthy();
     expect(screen.getByText("Selected price")).toBeTruthy();
     expect(screen.getByText("$399.99")).toBeTruthy();
     expect(screen.getByText("Chase Sets")).toBeTruthy();

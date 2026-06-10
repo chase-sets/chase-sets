@@ -591,48 +591,66 @@ export function CheckoutPurchaseIntentSection({
   const addToCartSuccessData = isAddToCartActionData(addToCartFetcher.data) ? addToCartFetcher.data : null;
   const addToCartError = getActionErrorMessage(addToCartFetcher.data);
   const addToCartPending = addToCartFetcher.state !== "idle";
+  const addToCartUsesSelectedListing = Boolean(selectedListing && selectedListingSource === "explicit");
+  const showSelectedListingContext = Boolean(
+    selectedListing && (actionMode !== "add-to-cart" || addToCartUsesSelectedListing),
+  );
   const selectionHeading =
-    selectedListing && actionMode !== "add-to-cart"
+    selectedListing && showSelectedListingContext
       ? selectedListingSource === "explicit"
         ? t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing")
         : t("discovery.routes.itemDetail.best.available.listing")
       : t("discovery.routes.itemDetail.selected.product");
   const priceLabel = selectedListing
-    ? actionMode === "add-to-cart" || selectedListingSource === "implicit"
+    ? (actionMode === "add-to-cart" && !addToCartUsesSelectedListing) || selectedListingSource === "implicit"
       ? t("discovery.routes.itemDetail.best.available.price")
       : t("discovery.routes.itemDetail.selected.price")
     : t("discovery.routes.itemDetail.market.signal");
+  const buyListingReferenceInfo = {
+    triggerLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.trigger"),
+    ariaLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.aria"),
+    title: t("discovery.routes.itemDetail.referenceInfo.buyListing.title"),
+    summary: t("discovery.routes.itemDetail.referenceInfo.buyListing.summary"),
+    lines:
+      actionMode === "all"
+        ? [
+            t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
+            t("discovery.routes.itemDetail.referenceInfo.listingCart.summary"),
+            t("discovery.routes.itemDetail.referenceInfo.listingCart.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.listingCart.line2"),
+          ]
+        : [
+            t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
+          ],
+  };
+  const listingCartReferenceInfo = {
+    triggerLabel: t("discovery.routes.itemDetail.referenceInfo.listingCart.trigger"),
+    ariaLabel: t("discovery.routes.itemDetail.referenceInfo.listingCart.aria"),
+    title: t("discovery.routes.itemDetail.referenceInfo.listingCart.title"),
+    summary: t("discovery.routes.itemDetail.referenceInfo.listingCart.summary"),
+    lines: [
+      t("discovery.routes.itemDetail.referenceInfo.listingCart.line1"),
+      t("discovery.routes.itemDetail.referenceInfo.listingCart.line2"),
+    ],
+  };
+  const productCartReferenceInfo = {
+    triggerLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.trigger"),
+    ariaLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.aria"),
+    title: t("discovery.routes.itemDetail.referenceInfo.productCart.title"),
+    summary: t("discovery.routes.itemDetail.referenceInfo.productCart.summary"),
+    lines: [
+      t("discovery.routes.itemDetail.referenceInfo.productCart.line1"),
+      t("discovery.routes.itemDetail.referenceInfo.productCart.line2"),
+    ],
+  };
   const purchaseReferenceInfo =
     selectedListing && actionMode !== "add-to-cart"
-      ? {
-          triggerLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.trigger"),
-          ariaLabel: t("discovery.routes.itemDetail.referenceInfo.buyListing.aria"),
-          title: t("discovery.routes.itemDetail.referenceInfo.buyListing.title"),
-          summary: t("discovery.routes.itemDetail.referenceInfo.buyListing.summary"),
-          lines:
-            actionMode === "all"
-              ? [
-                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
-                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
-                  t("discovery.routes.itemDetail.referenceInfo.productCart.summary"),
-                  t("discovery.routes.itemDetail.referenceInfo.productCart.line1"),
-                  t("discovery.routes.itemDetail.referenceInfo.productCart.line2"),
-                ]
-              : [
-                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line1"),
-                  t("discovery.routes.itemDetail.referenceInfo.buyListing.line2"),
-                ],
-        }
-      : {
-          triggerLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.trigger"),
-          ariaLabel: t("discovery.routes.itemDetail.referenceInfo.productCart.aria"),
-          title: t("discovery.routes.itemDetail.referenceInfo.productCart.title"),
-          summary: t("discovery.routes.itemDetail.referenceInfo.productCart.summary"),
-          lines: [
-            t("discovery.routes.itemDetail.referenceInfo.productCart.line1"),
-            t("discovery.routes.itemDetail.referenceInfo.productCart.line2"),
-          ],
-        };
+      ? buyListingReferenceInfo
+      : addToCartUsesSelectedListing
+        ? listingCartReferenceInfo
+        : productCartReferenceInfo;
   useEffect(() => {
     if (isAddToCartActionData(addToCartFetcher.data)) {
       notifyCartCountChanged(addToCartFetcher.data.quantity);
@@ -684,7 +702,9 @@ export function CheckoutPurchaseIntentSection({
     >
       {addToCartPending
         ? t("discovery.routes.itemDetail.adding.to.cart")
-        : t("discovery.routes.itemDetail.add.to.cart")}
+        : addToCartUsesSelectedListing
+          ? t("discovery.routes.itemDetail.add.listing.to.cart")
+          : t("discovery.routes.itemDetail.add.to.cart")}
     </Button>
   );
   const defaultActions =
@@ -705,6 +725,11 @@ export function CheckoutPurchaseIntentSection({
         <HiddenInput type="hidden" name="catalogItemId" value={catalogItemId} />
         <HiddenInput type="hidden" name="listingId" value="" />
         <HiddenInput type="hidden" name="lockedListingId" value={selectedListing?.listing_id ?? ""} />
+        <HiddenInput
+          type="hidden"
+          name="sellerPreferenceId"
+          value={addToCartUsesSelectedListing ? (selectedListing?.listing_id ?? "") : ""}
+        />
         <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />

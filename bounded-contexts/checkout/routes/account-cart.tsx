@@ -18,6 +18,13 @@ function latestWriteResult(results: readonly unknown[]): unknown {
   return [...results].reverse().find((result) => result !== undefined && result !== null) ?? null;
 }
 
+function cartLineIdsFromForm(formData: FormData) {
+  return formData
+    .getAll("lineId")
+    .map((lineId) => String(lineId ?? "").trim())
+    .filter(Boolean);
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   const api = createCheckoutRequestApiClient(request);
   const actor = await resolveActorFromAuthApi({ request });
@@ -42,10 +49,7 @@ export async function action({ request }: ActionFunctionArgs) {
 
   try {
     if (intent === "update-cart-line") {
-      const lineIds = formData
-        .getAll("lineId")
-        .map((lineId) => String(lineId ?? "").trim())
-        .filter(Boolean);
+      const lineIds = cartLineIdsFromForm(formData);
       const [primaryLineId, ...duplicateLineIds] = lineIds;
 
       const enteredQuantity = Number(formData.get("quantity") ?? 1);
@@ -76,11 +80,37 @@ export async function action({ request }: ActionFunctionArgs) {
       return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
     }
 
+    if (intent === "lock-preferred-listing") {
+      const lineIds = cartLineIdsFromForm(formData);
+      const sellerPreferenceId = String(formData.get("sellerPreferenceId") ?? "").trim();
+      if (!sellerPreferenceId || lineIds.length === 0) {
+        throw new Error(t("checkout.routes.accountCart.preferred.listing.missing"));
+      }
+
+      const fulfillment = {
+        fulfillmentMode: "locked-listing" as const,
+        lockedListingId: sellerPreferenceId,
+        sellerPreferenceId,
+        availabilityState: "available" as const,
+      };
+
+      if (!useAccountCart && anonymousCartId) {
+        const results = await Promise.all(
+          lineIds.map((lineId) => api.updateGuestCartLineFulfillment(anonymousCartId, lineId, fulfillment)),
+        );
+        return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
+      }
+
+      if (!useAccountCart) {
+        throw new Error(t("checkout.routes.accountCart.request.failed"));
+      }
+
+      const results = await Promise.all(lineIds.map((lineId) => api.updateCartLineFulfillment(lineId, fulfillment)));
+      return redirect(appendFreshWriteToken("/account/cart", latestWriteResult(results)));
+    }
+
     if (intent === "remove-cart-line") {
-      const lineIds = formData
-        .getAll("lineId")
-        .map((lineId) => String(lineId ?? "").trim())
-        .filter(Boolean);
+      const lineIds = cartLineIdsFromForm(formData);
 
       if (!useAccountCart && anonymousCartId) {
         const results = await Promise.all(lineIds.map((lineId) => api.removeGuestCartLine(anonymousCartId, lineId)));

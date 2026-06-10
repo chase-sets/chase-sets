@@ -252,6 +252,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.accept.offer.after.registration": "Accept offer",
   "discovery.routes.itemDetail.add.to.cart": "Add product to Buy Cart",
   "discovery.routes.itemDetail.add.to.cart.2": "Add to Buy Cart",
+  "discovery.routes.itemDetail.add.listing.to.cart": "Add listing to Buy Cart",
   "discovery.routes.itemDetail.add.to.cart.workflow.helper": "Save the selected product for Buy Cart review.",
   "discovery.routes.itemDetail.added.to.cart": "Added to buy cart",
   "discovery.routes.itemDetail.added.to.cart.description":
@@ -673,6 +674,15 @@ export const discoveryEnglishTranslations = {
     "Buy this listing keeps checkout focused on this seller's listing.",
   "discovery.routes.itemDetail.referenceInfo.buyListing.title": "Buying this listing",
   "discovery.routes.itemDetail.referenceInfo.buyListing.trigger": "Buying this listing",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.aria": "View listing in Buy Cart details",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.line1":
+    "The Buy Cart keeps this listing as the starting preference, but Smart Match can choose another available listing.",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.line2":
+    "Lock this listing from Buy Cart review if you want exact fulfillment before checkout.",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.summary":
+    "Adding a listing saves the product with this listing as the starting preference.",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.title": "Listing in Buy Cart",
+  "discovery.routes.itemDetail.referenceInfo.listingCart.trigger": "Listing in Buy Cart",
   "discovery.routes.itemDetail.referenceInfo.createListing.aria": "View creating a listing details",
   "discovery.routes.itemDetail.referenceInfo.createListing.line1":
     "Guests can draft the price and quantity before registration.",
