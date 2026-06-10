@@ -2171,10 +2171,10 @@ describe("checkout web routes", () => {
     ).not.toContain("Guest");
   });
 
-  it("confirms signed-in checkout and redirects to payment total review", async () => {
-    mockResolveActorFromAuthApi.mockResolvedValue({});
+  it("confirms signed-in checkout and redirects to payment detail", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", roleKey: "owner", permissions: [] });
     mockSelectShippingOption.mockResolvedValue({});
-    mockConfirmCheckoutSession.mockResolvedValue({ order_ids: ["ord_1"], status: "orders-created" });
+    mockConfirmCheckoutSession.mockResolvedValue({ payment_id: "pay_1", order_ids: ["ord_1"], status: "confirmed" });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       selectShippingOption: mockSelectShippingOption,
       confirmCheckoutSession: mockConfirmCheckoutSession,
@@ -2192,6 +2192,7 @@ describe("checkout web routes", () => {
     form.set("shippingPostalCode", "60601");
     form.set("shippingCountry", "US");
     form.set("previewPaymentMethodCategory", "bank-account");
+    form.set("marketplaceCheckoutFeeQuoteFingerprint", "quote_bank_1");
 
     const response = (await checkoutSessionAction({
       request: new Request("http://localhost/checkout/chk_1", {
@@ -2209,12 +2210,12 @@ describe("checkout web routes", () => {
     expect(mockConfirmCheckoutSession).toHaveBeenCalledWith("chk_1", {
       requestedBalanceCreditAmount: null,
       paymentMethodCategory: "bank-account",
-      marketplaceCheckoutFeeQuoteFingerprint: null,
+      marketplaceCheckoutFeeQuoteFingerprint: "quote_bank_1",
       savedCheckoutInstrumentId: null,
       savePaymentMethodForFuture: false,
       fulfillmentPreviewRevision: null,
       acknowledgedMaterialChanges: false,
-      deferPayment: true,
+      deferPayment: false,
       shippingAddress: {
         shippingAddressId: null,
         name: "Jane Smith",
@@ -2230,7 +2231,7 @@ describe("checkout web routes", () => {
       },
     });
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toBe("/account/payments/new?orderIds=ord_1");
+    expect(response.headers.get("Location")).toBe("/account/payments/pay_1");
   });
 
   it("starts payment from checkout review for accelerated saved-payment confirmation", async () => {

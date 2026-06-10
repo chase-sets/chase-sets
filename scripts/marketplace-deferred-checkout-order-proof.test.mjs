@@ -77,6 +77,7 @@ describe("marketplace deferred checkout order proof", () => {
     });
     expect(calls[1].body).toMatchObject({
       deferPayment: true,
+      deferredCheckoutOrderProofReference: "STRIPE-LIVE-PROOF-2026-05-30",
       acknowledgedMaterialChanges: true,
       shippingAddress: proofRequest.shippingAddress,
     });

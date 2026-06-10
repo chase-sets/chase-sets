@@ -453,11 +453,7 @@ describe("checkout session routes", () => {
     );
   });
 
-  it("can defer payment so signed-in checkout reviews exact fees before payment creation", async () => {
-    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
-      orderIds: ["ord_1"],
-      readyLineKeys: ["cli_1"],
-    });
+  it("rejects customer deferred payment before committing orders or payment", async () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
@@ -475,29 +471,32 @@ describe("checkout session routes", () => {
       }),
     );
 
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      order_ids: ["ord_1"],
-      status: "orders-created",
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "deferred_checkout_order_proof_required",
+        message: "Deferred checkout order creation is limited to operator proof flows.",
+      },
     });
-    expect(mockCreateCheckoutOrdersThroughOrdering).toHaveBeenCalledTimes(1);
-    expect(services.recordOrdersCreated).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "chk_1", orderIds: ["ord_1"] }),
-      expect.any(Object),
-    );
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
     expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
     expect(services.recordPaymentStarted).not.toHaveBeenCalled();
   });
 
-  it("allows production proof order creation to defer payment before fee quote review", async () => {
-    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
-      orderIds: ["ord_1"],
-      readyLineKeys: ["cli_1"],
-    });
+  it("rejects operator deferred payment when the proof reference is a placeholder", async () => {
     const services = createServices({
       getSession: vi.fn(async () => createSession()),
     });
-    const app = buildApp(services);
+    const app = buildApp(services, {
+      sessionId: "ses_1",
+      tenantId: "tnt_identity",
+      userId: "usr_ops",
+      accountId: "acc_buyer",
+      membershipId: "mbr_ops",
+      roleKey: "owner",
+      permissions: ["security.manage"],
+    });
 
     const response = await app.fetch(
       new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
@@ -506,6 +505,50 @@ describe("checkout session routes", () => {
         body: JSON.stringify({
           shippingAddress,
           deferPayment: true,
+          deferredCheckoutOrderProofReference: "TODO",
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "deferred_checkout_order_proof_required",
+        message: "Deferred checkout order creation is limited to operator proof flows.",
+      },
+    });
+    expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();
+    expect(mockCreateCheckoutPaymentThroughPayments).not.toHaveBeenCalled();
+    expect(services.recordOrdersCreated).not.toHaveBeenCalled();
+    expect(services.recordPaymentStarted).not.toHaveBeenCalled();
+  });
+
+  it("allows operator production proof order creation to defer payment before fee quote review", async () => {
+    mockCreateCheckoutOrdersThroughOrdering.mockResolvedValue({
+      orderIds: ["ord_1"],
+      readyLineKeys: ["cli_1"],
+    });
+    const services = createServices({
+      getSession: vi.fn(async () => createSession()),
+    });
+    const app = buildApp(services, {
+      sessionId: "ses_1",
+      tenantId: "tnt_identity",
+      userId: "usr_ops",
+      accountId: "acc_buyer",
+      membershipId: "mbr_ops",
+      roleKey: "owner",
+      permissions: ["security.manage"],
+    });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/account/checkout-sessions/chk_1/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          shippingAddress,
+          deferPayment: true,
+          deferredCheckoutOrderProofReference: "PRODUCTION-PROOF-2026-06-10",
         }),
       }),
     );

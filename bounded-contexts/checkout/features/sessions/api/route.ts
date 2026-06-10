@@ -53,6 +53,26 @@ function errorCode(error: unknown) {
   return "validation_failed";
 }
 
+const PLACEHOLDER_EVIDENCE_REFERENCE_PATTERN =
+  /^(?:tbd|todo|none|null|n\/a|na|placeholder|example|sample|test|ticket|record|launch-000)$/i;
+
+function normalizeProofReference(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function isValidProofReference(value: string) {
+  return value.length >= 6 && !PLACEHOLDER_EVIDENCE_REFERENCE_PATTERN.test(value);
+}
+
+function canDeferCheckoutPayment(actor: CheckoutApiEnv["Variables"]["actor"], proofReference: string) {
+  return (
+    actor?.roleKey !== "guest-buyer" &&
+    Array.isArray(actor?.permissions) &&
+    actor.permissions.includes("security.manage") &&
+    isValidProofReference(proofReference)
+  );
+}
+
 function checkoutSessionStartedResponse(result: CheckoutSessionCreateResult) {
   const commitEventIds = [...(result.commitEventIds ?? [])];
   const commitPositions = [...(result.commitPositions ?? [])];
@@ -389,9 +409,24 @@ export function createAccountCheckoutSessionRoutes(services: CheckoutSessionServ
     const fulfillmentPreviewRevision =
       typeof body.fulfillmentPreviewRevision === "string" ? body.fulfillmentPreviewRevision : null;
     const acknowledgedMaterialChanges = body.acknowledgedMaterialChanges === true;
-    const deferPayment = body.deferPayment === true && access.actor.roleKey !== "guest-buyer";
+    const requestedDeferredPayment = body.deferPayment === true;
+    const deferredCheckoutOrderProofReference = normalizeProofReference(body.deferredCheckoutOrderProofReference);
+    const deferPayment =
+      requestedDeferredPayment && canDeferCheckoutPayment(access.actor, deferredCheckoutOrderProofReference);
     const savePaymentMethodForFuture =
       body.savePaymentMethodForFuture === true && access.actor.roleKey !== "guest-buyer" && !savedCheckoutInstrumentId;
+
+    if (requestedDeferredPayment && !deferPayment) {
+      return c.json(
+        {
+          error: {
+            code: "deferred_checkout_order_proof_required",
+            message: t("checkout.features.sessions.api.route.deferred.checkout.order.proof.required"),
+          },
+        },
+        403,
+      );
+    }
 
     try {
       let session = await services.getSession(sessionId, access.actor.accountId);
