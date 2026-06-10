@@ -80,6 +80,8 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   hasListingStockLocation: false,
   viewerAccountId: null,
   initialMarketIntent: "buy" as const,
+  initialSelectedListingId: null,
+  initialSelectedOfferId: null,
   initialSelectedOptions: [],
   hasInitialSelectedOptionFilters: false,
   showSellerTab: true,
@@ -197,6 +199,17 @@ export function readInitialSelectedOptions(searchParams: URLSearchParams) {
     }));
 }
 
+export function readExplicitMarketSelectionId(searchParams: URLSearchParams, key: "listing" | "offer") {
+  const ids = new Set(
+    searchParams
+      .getAll(key)
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
 function hasInitialSelectedOptionFilters(searchParams: URLSearchParams) {
   return [...searchParams.entries()].some(([key, value]) => key.startsWith("dimension.") && value.trim().length > 0);
 }
@@ -263,6 +276,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   const initialMarketIntent: "buy" | "sell" | "watch" =
     url.searchParams.get("market") === "sell" ? "sell" : url.searchParams.get("market") === "watch" ? "watch" : "buy";
+  const initialSelectedListingId = readExplicitMarketSelectionId(url.searchParams, "listing");
+  const initialSelectedOfferId = readExplicitMarketSelectionId(url.searchParams, "offer");
   const initialSelectedOptions = readInitialSelectedOptions(url.searchParams);
   const initialSelectedOptionFiltersPresent = hasInitialSelectedOptionFilters(url.searchParams);
 
@@ -275,6 +290,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       hasListingStockLocation: false,
       viewerAccountId: null,
       initialMarketIntent,
+      initialSelectedListingId,
+      initialSelectedOfferId,
       initialSelectedOptions,
       hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
       showSellerTab: false,
@@ -359,6 +376,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       hasListingStockLocation,
       viewerAccountId: actor?.accountId ?? null,
       initialMarketIntent,
+      initialSelectedListingId,
+      initialSelectedOfferId,
       initialSelectedOptions,
       hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
       showSellerTab: true,
@@ -379,6 +398,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         hasListingStockLocation: false,
         viewerAccountId: null,
         initialMarketIntent,
+        initialSelectedListingId,
+        initialSelectedOfferId,
         initialSelectedOptions,
         hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
         showSellerTab: false,
@@ -400,6 +421,8 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       hasListingStockLocation: false,
       viewerAccountId: null,
       initialMarketIntent,
+      initialSelectedListingId,
+      initialSelectedOfferId,
       initialSelectedOptions,
       hasInitialSelectedOptionFilters: initialSelectedOptionFiltersPresent,
       showSellerTab: false,
@@ -767,6 +790,8 @@ function DiscoveryItemDetailRealtimeView({
       accountOfferMatches={data.accountOfferMatches}
       viewerAccountId={data.viewerAccountId}
       initialMarketIntent={data.initialMarketIntent}
+      initialSelectedListingId={data.initialSelectedListingId}
+      initialSelectedOfferId={data.initialSelectedOfferId}
       initialSelectedOptions={data.initialSelectedOptions}
       hasInitialSelectedOptionFilters={data.hasInitialSelectedOptionFilters}
       notFound={data.notFound}
@@ -797,6 +822,7 @@ function DiscoveryItemDetailRealtimeView({
                   catalogItemId={context.itemId}
                   productId={context.selectedProductId}
                   selectedListing={context.selectedListing}
+                  selectedListingSource={context.selectedListingSource}
                   itemTitle={context.itemTitle}
                   selectedOptions={context.selectedProductOptions}
                   productSelectionDetails={context.selectedProductSelectionDetails}
@@ -858,6 +884,7 @@ function DiscoveryItemDetailRealtimeView({
                   actions={actions}
                   actionMode={actionMode}
                   selectedOffer={context.selectedAccountOfferMatch}
+                  selectedOfferSource={context.selectedOfferSource}
                   productId={context.selectedProductId}
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   productSummary={context.selectedProductSummary}
@@ -898,6 +925,7 @@ function DiscoveryItemDetailRealtimeView({
                   productSummary={context.selectedProductSummary}
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   selectedOffer={context.selectedOffer}
+                  selectedOfferSource={context.selectedOfferSource}
                   matchingOfferCount={context.visibleOffers.length}
                   registerHref={data.registerToSellHref}
                 />

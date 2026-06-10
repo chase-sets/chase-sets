@@ -62,6 +62,12 @@ export const discoveryEnglishTranslations = {
   "discovery.features.itemDetail.ui.itemDetailPage.selected.listing": "Selected listing",
   "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.description":
     "Updates when you choose a different listing below.",
+  "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.unavailable": "Listing unavailable",
+  "discovery.features.itemDetail.ui.itemDetailPage.selected.listing.unavailable.description":
+    "That listing is no longer available. Showing the best available listing instead.",
+  "discovery.features.itemDetail.ui.itemDetailPage.selected.offer.unavailable": "Offer unavailable",
+  "discovery.features.itemDetail.ui.itemDetailPage.selected.offer.unavailable.description":
+    "That offer is no longer available. Showing the best offer for this product instead.",
   "discovery.features.itemDetail.ui.itemDetailPage.verified.seller": "Verified account",
   "discovery.features.itemDetail.ui.itemDetailPage.price": "Price",
   "discovery.features.itemDetail.ui.itemDetailPage.availability": "Availability",
@@ -265,7 +271,9 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.add.product.to.sell.list.summary": "Save the selected product for Sell List review.",
   "discovery.routes.itemDetail.available.offer.count": "{count} offers",
   "discovery.routes.itemDetail.availability": "Availability",
+  "discovery.routes.itemDetail.best.available.listing": "Best available listing",
   "discovery.routes.itemDetail.best.available.price": "Best available price",
+  "discovery.routes.itemDetail.best.offer.heading": "Best offer",
   "discovery.routes.itemDetail.browse.the.chase.sets.marketplace.with":
     "Browse the Chase Sets marketplace with server-rendered discovery results and item detail pages.",
   "discovery.routes.itemDetail.buy": "Buy",
