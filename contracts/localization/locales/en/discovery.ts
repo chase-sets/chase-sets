@@ -344,7 +344,6 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.offer.price": "Offer price",
   "discovery.routes.itemDetail.offer.shipping.destination": "Shipping destination",
   "discovery.routes.itemDetail.offer.total": "{amount} offer",
-  "discovery.routes.itemDetail.offer.from.buyer": "From {buyer}",
   "discovery.routes.itemDetail.same.buyer.shipping.allowance": "Estimated payout is shown before acceptance.",
   "discovery.routes.itemDetail.sell.alert.action.description":
     "Get notified when matching buyer demand appears at or above your target.",

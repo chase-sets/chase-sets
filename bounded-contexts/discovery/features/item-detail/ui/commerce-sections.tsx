@@ -888,7 +888,8 @@ export function MarketplaceOfferMatchSection({
   const termsSource = acceptanceTerms
     ? formatTermsSource(acceptanceTerms)
     : t("discovery.routes.itemDetail.standard.terms");
-  const selectedOfferBuyer = selectedOffer?.buyer_display_name ?? selectedOffer?.buyer_account_id ?? "Buyer account";
+  const selectedOfferBuyerName = selectedOffer?.buyer_display_name?.trim();
+  const selectedOfferBuyer = selectedOfferBuyerName || t("discovery.features.itemDetail.ui.itemDetailPage.buyer");
   const selectedOfferBuyerHref = selectedOffer?.buyer_slug ? `/accounts/${selectedOffer.buyer_slug}#feedback` : null;
   const selectedOfferReferenceInfo =
     actionMode === "add-to-sell-list"
@@ -1168,6 +1169,9 @@ export function MarketplaceSellerRegistrationSection({
   selectedOffer?: {
     buyer_display_name: string | null;
     buyer_account_id: string;
+    buyer_slug?: string | null;
+    buyer_average_rating?: string | null;
+    buyer_review_count?: number;
     price_amount: string;
     quantity_requested: number;
     public_standard_terms_preview?: MarketplaceListingTermsPreview | null;
@@ -1195,6 +1199,9 @@ export function MarketplaceSellerRegistrationSection({
     ? formatTermsSource(selectedOfferQuote)
     : t("discovery.routes.itemDetail.standard.terms");
   const selectedOfferQuoteTime = selectedOfferQuote ? new Date(selectedOfferQuote.resolved_at).toLocaleString() : null;
+  const selectedOfferBuyerName = selectedOffer?.buyer_display_name?.trim();
+  const selectedOfferBuyer = selectedOfferBuyerName || t("discovery.features.itemDetail.ui.itemDetailPage.buyer");
+  const selectedOfferBuyerHref = selectedOffer?.buyer_slug ? `/accounts/${selectedOffer.buyer_slug}#feedback` : null;
   const offerRegistrationPanel = selectedOffer ? (
     <FormPanel variant={panelVariant} glow>
       <Stack gap={3}>
@@ -1220,11 +1227,13 @@ export function MarketplaceSellerRegistrationSection({
                   </Badge>
                 ) : null}
               </Inline>
-              <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.offer.from.buyer", {
-                  buyer: selectedOffer.buyer_display_name ?? selectedOffer.buyer_account_id,
-                })}
-              </Text>
+              <AccountReputationSummary
+                accountName={selectedOfferBuyer}
+                href={selectedOfferBuyerHref}
+                averageRating={selectedOffer.buyer_average_rating}
+                reviewCount={selectedOffer.buyer_review_count ?? 0}
+                ratingLabel={t("discovery.features.itemDetail.ui.itemDetailPage.buyer.reputation")}
+              />
             </Stack>
             <KeyValueList
               density="compact"
@@ -1240,17 +1249,7 @@ export function MarketplaceSellerRegistrationSection({
                       },
                       {
                         key: t("discovery.routes.itemDetail.seller.payout"),
-                        value: t("discovery.routes.itemDetail.seller.payout.after.fee", {
-                          payout: formatMoneyAmount(sellerNetTotal),
-                          fee: formatMoneyAmount(marketplaceFeeTotal),
-                        }),
-                      },
-                      {
-                        key: t("discovery.routes.itemDetail.shipping.allowance"),
-                        value: t("discovery.routes.itemDetail.shipping.allowance.amount", {
-                          amount: formatMoneyAmount(shippingAllowanceAmount),
-                          percentage: formatAllowancePercentage(selectedOfferQuote.shipping_allowance_percentage_bps),
-                        }),
+                        value: formatMoneyAmount(sellerNetTotal),
                       },
                       {
                         key: t("discovery.routes.itemDetail.product"),
