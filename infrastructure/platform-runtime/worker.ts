@@ -235,7 +235,7 @@ export function collectWorkerRunners(
   }> = {},
 ): readonly WorkerRunner[] {
   const runners = [
-    ...runtime.projectionGroups.map(createProjectionGroupWorkerRunner),
+    ...runtime.projectionGroups.map((group) => createProjectionGroupWorkerRunner(group)),
     createSubscriptionLedgerCompactionRunner(runtime),
     createProjectionGenerationRetentionRunner(runtime),
   ];
@@ -550,7 +550,20 @@ export function createProjectionGroupRunnerLeaseName(
   });
 }
 
-function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): WorkerRunner {
+export class ProjectionGroupRevisionStaleError extends Error {
+  constructor(group: Pick<ContextProjectionGroup, "targetContextName" | "projectionName">) {
+    super(
+      `Projection group '${group.targetContextName}.${group.projectionName}' has a stale revision pending rebuild.`,
+    );
+    this.name = "ProjectionGroupRevisionStaleError";
+  }
+}
+
+export function createProjectionGroupWorkerRunner(
+  group: ContextProjectionGroup,
+  options: Readonly<{ revisionStaleBehavior?: "reset" | "reject" }> = {},
+): WorkerRunner {
+  const revisionStaleBehavior = options.revisionStaleBehavior ?? "reset";
   let rebuildingRevision: number | null = null;
 
   return {
@@ -562,6 +575,9 @@ function createProjectionGroupWorkerRunner(group: ContextProjectionGroup): Worke
       try {
         context?.throwIfLeaseLost?.();
         const status = await group.refreshStatus();
+        if (status.revisionStale && revisionStaleBehavior === "reject") {
+          throw new ProjectionGroupRevisionStaleError(group);
+        }
         if (status.revisionStale && rebuildingRevision !== group.projectionRevision) {
           context?.throwIfLeaseLost?.();
           await resetProjectionGroup(group, context);
@@ -944,20 +960,35 @@ function requireProjectionOperationField(
   return value;
 }
 
+export type RunWithRenewedLeaseInput = Readonly<{
+  leaseName: string;
+  ownerId: string;
+  ttlMs: number;
+  renewIntervalMs: number;
+  statementTimeoutMs?: number;
+  shouldAbort?: () => Promise<boolean>;
+  abortPollIntervalMs?: number;
+  metadata?: Record<string, unknown>;
+}>;
+
 async function runWithRenewedLease<T>(
   controlPlane: PlatformControlPlane,
-  input: Readonly<{
-    leaseName: string;
-    ownerId: string;
-    ttlMs: number;
-    renewIntervalMs: number;
-    statementTimeoutMs?: number;
-    shouldAbort?: () => Promise<boolean>;
-    abortPollIntervalMs?: number;
-    metadata?: Record<string, unknown>;
-  }>,
+  input: RunWithRenewedLeaseInput,
   work: (context: ProjectionRunContext) => Promise<T>,
 ): Promise<T> {
+  const outcome = await tryRunWithRenewedLease(controlPlane, input, work);
+  if (!outcome.acquired) {
+    throw new Error(`Projection runner lease '${input.leaseName}' is already active.`);
+  }
+
+  return outcome.result;
+}
+
+export async function tryRunWithRenewedLease<T>(
+  controlPlane: PlatformControlPlane,
+  input: RunWithRenewedLeaseInput,
+  work: (context: ProjectionRunContext) => Promise<T>,
+): Promise<Readonly<{ acquired: true; result: T }> | Readonly<{ acquired: false }>> {
   const lease = await controlPlane.acquireLease({
     leaseName: input.leaseName,
     ownerId: input.ownerId,
@@ -965,7 +996,7 @@ async function runWithRenewedLease<T>(
     metadata: input.metadata,
   });
   if (!lease) {
-    throw new Error(`Projection runner lease '${input.leaseName}' is already active.`);
+    return { acquired: false };
   }
 
   let leaseActive = true;
@@ -1018,7 +1049,7 @@ async function runWithRenewedLease<T>(
   abortPollTimer?.unref?.();
 
   try {
-    return await work({
+    const result = await work({
       ownerId: lease.ownerId,
       fencingToken: lease.fencingToken,
       operationId: typeof input.metadata?.operationId === "string" ? (input.metadata.operationId as string) : undefined,
@@ -1026,6 +1057,7 @@ async function runWithRenewedLease<T>(
       statementTimeoutMs: input.statementTimeoutMs,
       throwIfLeaseLost,
     });
+    return { acquired: true, result };
   } finally {
     clearInterval(renewalTimer);
     if (abortPollTimer) {

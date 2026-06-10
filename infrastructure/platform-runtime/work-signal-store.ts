@@ -202,6 +202,7 @@ export type ClaimProjectionWakeIntentInput = Readonly<{
   claimOwnerId: string;
   claimTtlMs: number;
   priorityLanes?: readonly WorkSignalPriorityLane[];
+  targetContextNames?: readonly string[];
 }>;
 
 export type CompleteProjectionWakeIntentInput = Readonly<{
@@ -256,10 +257,12 @@ export type WorkSignalStoreOptions = Readonly<{
   now?: () => Date;
 }>;
 
+export type ProjectionWakeIntentCompletionResult = "completed" | "requeued" | "lost";
+
 export type PostgresWorkSignalStore = Readonly<{
   enqueueProjectionWakeIntent(input: EnqueueProjectionWakeIntentInput): Promise<ProjectionWakeIntentRecord>;
   claimNextProjectionWakeIntent(input: ClaimProjectionWakeIntentInput): Promise<ProjectionWakeIntentRecord | null>;
-  completeProjectionWakeIntent(input: CompleteProjectionWakeIntentInput): Promise<boolean>;
+  completeProjectionWakeIntent(input: CompleteProjectionWakeIntentInput): Promise<ProjectionWakeIntentCompletionResult>;
   failProjectionWakeIntent(input: FailProjectionWakeIntentInput): Promise<boolean>;
   recordCheckpointReady(input: RecordCheckpointReadyInput): Promise<CheckpointReadinessRecord>;
   addCheckpointWaiter(input: AddCheckpointWaiterInput): Promise<CheckpointWaiterRecord>;
@@ -359,7 +362,6 @@ export function createPostgresWorkSignalStore(
           projectionName: input.projectionName,
           checkpointKey: input.checkpointKey,
           priorityLane,
-          requiredCursor: input.requiredCursor ?? null,
         });
 
       const result = await query<ProjectionWakeIntentRow>(
@@ -473,8 +475,13 @@ export function createPostgresWorkSignalStore(
     },
 
     async claimNextProjectionWakeIntent(input) {
+      if (input.targetContextNames && input.targetContextNames.length === 0) {
+        return null;
+      }
+
       const claimedUntil = addMs(now(), Math.max(1, input.claimTtlMs));
       const lanes = input.priorityLanes?.length ? [...input.priorityLanes] : ["hot", "standard", "bulk"];
+      const targetContextNames = input.targetContextNames?.length ? [...input.targetContextNames] : null;
       const result = await query<ProjectionWakeIntentRow>(
         db,
         `
@@ -487,6 +494,7 @@ export function createPostgresWorkSignalStore(
             )
             AND expires_at > now()
             AND priority_lane = ANY($3::text[])
+            AND ($4::text[] IS NULL OR target_context_name = ANY($4::text[]))
           ORDER BY
             CASE priority_lane
               WHEN 'hot' THEN 0
@@ -512,7 +520,7 @@ export function createPostgresWorkSignalStore(
         WHERE wake.wake_intent_id = claimable.wake_intent_id
         RETURNING ${prefixColumns("wake", WAKE_INTENT_COLUMNS)}
         `,
-        [input.claimOwnerId, formatTimestamp(claimedUntil), lanes],
+        [input.claimOwnerId, formatTimestamp(claimedUntil), lanes, targetContextNames],
       );
 
       const row = result.rows[0];
@@ -520,7 +528,7 @@ export function createPostgresWorkSignalStore(
     },
 
     async completeProjectionWakeIntent(input) {
-      const result = await query(
+      const result = await query<Readonly<{ state: ProjectionWakeIntentState }>>(
         db,
         `
         UPDATE platform_projection_wake_intents
@@ -547,11 +555,17 @@ export function createPostgresWorkSignalStore(
           AND claim_owner_id = $2
           AND claim_fencing_token = $3::bigint
           AND claimed_until > now()
+        RETURNING state
         `,
         [input.wakeIntentId, input.claimOwnerId, toPostgresInteger(input.claimFencingToken)],
       );
 
-      return (result.rowCount ?? 0) > 0;
+      const row = result.rows[0];
+      if (!row) {
+        return "lost";
+      }
+
+      return row.state === "queued" ? "requeued" : "completed";
     },
 
     async failProjectionWakeIntent(input) {
@@ -910,7 +924,6 @@ export function createProjectionWakeIntentCoalescingKey(input: {
   projectionName: string;
   checkpointKey: string;
   priorityLane: WorkSignalPriorityLane;
-  requiredCursor?: string | null;
 }): string {
   return [
     "projection-wake",
@@ -919,7 +932,6 @@ export function createProjectionWakeIntentCoalescingKey(input: {
     input.projectionName,
     input.checkpointKey,
     input.priorityLane,
-    input.requiredCursor ?? "",
   ].join(":");
 }
 

@@ -75,7 +75,7 @@ locals {
   database_size                 = local.is_staging ? var.staging_database_size : (local.is_non_production ? var.non_production_database_size : var.database_size)
 
   api_database_pool_max                         = "6"
-  worker_default_database_pool_max              = local.is_non_production ? 8 : 6
+  worker_default_database_pool_max              = local.is_staging ? 10 : (local.is_non_production ? 8 : 7)
   worker_database_pool_max                      = tostring(var.worker_database_pool_max > 0 ? var.worker_database_pool_max : local.worker_default_database_pool_max)
   bootstrap_database_pool_max                   = "4"
   database_pool_idle_timeout_ms                 = "5000"
@@ -86,6 +86,7 @@ locals {
   worker_job_concurrency                        = tostring(var.worker_job_concurrency > 0 ? var.worker_job_concurrency : local.worker_default_job_concurrency)
   worker_dispatch_concurrency                   = "1"
   worker_scheduled_concurrency                  = "1"
+  worker_wake_concurrency                       = local.is_staging ? "2" : "1"
   source_observation_bulk_job_lanes             = local.is_staging ? "4" : "1"
   source_observation_bulk_workflow_cap          = local.is_staging ? "4" : "1"
   source_observation_bulk_job_cap               = local.is_staging ? "2" : "1"

@@ -173,10 +173,15 @@ describe("DigitalOcean platform configuration", () => {
 
   it("keeps App Platform database and runner budgets explicit by component", () => {
     expectTerraformAssignment(platformLocals, "api_database_pool_max", '"6"');
-    expectTerraformAssignment(platformLocals, "worker_default_database_pool_max", "local.is_non_production ? 8 : 6");
+    expectTerraformAssignment(
+      platformLocals,
+      "worker_default_database_pool_max",
+      "local.is_staging ? 10 : (local.is_non_production ? 8 : 7)",
+    );
     expectTerraformAssignment(platformLocals, "worker_database_pool_max", "tostring(var.worker_database_pool_max");
     expectTerraformAssignment(platformLocals, "bootstrap_database_pool_max", '"4"');
     expectTerraformAssignment(platformLocals, "worker_projection_concurrency", '"2"');
+    expectTerraformAssignment(platformLocals, "worker_wake_concurrency", 'local.is_staging ? "2" : "1"');
     expectTerraformAssignment(platformLocals, "worker_default_job_concurrency", "local.is_staging ? 4 : 1");
     expectTerraformAssignment(platformLocals, "worker_job_concurrency", "tostring(var.worker_job_concurrency");
     expectTerraformAssignment(platformLocals, "source_observation_bulk_job_lanes", 'local.is_staging ? "4" : "1"');
@@ -233,8 +238,10 @@ describe("DigitalOcean platform configuration", () => {
     ]) {
       expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(1);
     }
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"')).toBe(1);
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
+    expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");
     expect(platformMain).toContain(
       'dynamic "worker" {\n      for_each = local.marketplace_platform_enabled ? [1] : []',
     );
