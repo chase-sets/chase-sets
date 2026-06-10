@@ -158,6 +158,17 @@ const fulfillmentPreview: CheckoutFulfillmentPreview = {
   materialChangeReasons: [],
 };
 
+const readySession: CheckoutSessionRow = {
+  ...session,
+  lines: session.lines.slice(0, 2),
+};
+
+const readyFulfillmentPreview: CheckoutFulfillmentPreview = {
+  ...fulfillmentPreview,
+  unavailableLineKeys: [],
+  unavailableLines: [],
+};
+
 const paymentPreview = {
   currency_code: "usd",
   amount: "489.00",
@@ -199,24 +210,27 @@ const savedAddress = {
 };
 
 describe("checkout session page", () => {
-  it("renders mixed optimized, locked, and unavailable fulfillment without leaking internal ids", () => {
+  it("renders simple checkout and keeps unavailable fulfillment in cart review", () => {
     const markup = renderToString(<CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} />);
 
-    expect(markup).toContain("Recalculate fulfillment");
-    expect(markup).toContain("Card Vault");
-    expect(markup).toContain("Optimized seller listing");
-    expect(markup).toContain("Selected seller listing");
-    expect(markup).toContain("Needs supply");
-    expect(markup).toContain("Make offer");
-    expect(markup).toContain("Product intent saved for live fulfillment preview");
+    expect(markup).toContain("Contact");
+    expect(markup).toContain("Delivery");
+    expect(markup).toContain("Shipping method");
+    expect(markup).toContain("Payment");
+    expect(markup).toContain("Order summary");
+    expect(markup).toContain("Review your buy cart first");
+    expect(markup).toContain("Review buy cart");
     expect(markup).toContain("Marketplace checkout fee");
-    expect(markup).toContain("Reviewed before payment");
-    expect(markup).toContain("Refresh totals");
     expect(markup).toContain("Delivery estimate");
-    expect(markup).toContain("Parcel postage");
-    expect(markup).toContain("required - order value");
-    expect(markup).toContain("Signature confirmation");
     expect(markup).toContain("Payment review comes next");
+    expect(markup).not.toContain("Recalculate fulfillment");
+    expect(markup).not.toContain("Card Vault");
+    expect(markup).not.toContain("Optimized seller listing");
+    expect(markup).not.toContain("Selected seller listing");
+    expect(markup).not.toContain("Make offer");
+    expect(markup).not.toContain("Product intent saved for live fulfillment preview");
+    expect(markup).not.toContain("Parcel postage");
+    expect(markup).not.toContain("Signature confirmation");
     expect(markup).not.toContain("lst_card_vault");
     expect(markup).not.toContain("cat_bulbasaur");
     expect(markup).not.toContain("acc_card_vault");
@@ -244,7 +258,6 @@ describe("checkout session page", () => {
     );
 
     expect(markup).toContain("Place purchase intent");
-    expect(markup).toContain("Ready to place purchase intent");
     expect(markup).toContain("No payment today");
     expect(markup).toContain("Sellers can accept your purchase intent");
     expect(markup).toContain("Destination is required so a seller knows where the purchase intent would ship");
@@ -254,7 +267,7 @@ describe("checkout session page", () => {
     expect(markup).not.toContain("Destination is required before purchases are created");
   });
 
-  it("renders saved shipping address selection with explicit address-book actions", () => {
+  it("renders saved shipping address selection with explicit address preferences", () => {
     const markup = renderToString(
       <CheckoutSessionPage
         session={session}
@@ -266,16 +279,16 @@ describe("checkout session page", () => {
 
     expect(markup).toContain("Saved shipping address");
     expect(markup).toContain("Home (default)");
-    expect(markup).toContain("Address book action");
-    expect(markup).toContain("Use for this checkout only");
+    expect(markup).toContain("Address preferences");
+    expect(markup).toContain("Use once for this checkout");
     expect(markup).toContain("Save as new address");
   });
 
   it("uses the one-page saved-payment CTA only for off-session saved instruments", () => {
     const acceleratedMarkup = renderToString(
       <CheckoutSessionPage
-        session={session}
-        fulfillmentPreview={fulfillmentPreview}
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
         paymentPreview={paymentPreview}
         savedShippingAddresses={[savedAddress]}
         savedCheckoutInstruments={[
@@ -293,8 +306,8 @@ describe("checkout session page", () => {
     );
     const providerStepMarkup = renderToString(
       <CheckoutSessionPage
-        session={session}
-        fulfillmentPreview={fulfillmentPreview}
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
         paymentPreview={paymentPreview}
         savedShippingAddresses={[savedAddress]}
         savedCheckoutInstruments={[
@@ -312,18 +325,22 @@ describe("checkout session page", () => {
     );
 
     expect(acceleratedMarkup).toContain("Fast checkout ready");
-    expect(acceleratedMarkup).toContain("Place order with Visa ending in 4242");
+    expect(acceleratedMarkup).toContain("Pay now with Visa ending in 4242");
     expect(providerStepMarkup).toContain("Saved payment ready");
     expect(providerStepMarkup).toContain("secure payment step before authorization");
-    expect(providerStepMarkup).toContain("Create purchases and continue to secure payment");
-    expect(providerStepMarkup).not.toContain("Place order with Bank account");
+    expect(providerStepMarkup).toContain("Pay now");
+    expect(providerStepMarkup).not.toContain("Pay now with Bank account");
   });
 
   it("marks totals stale without submitting when checkout fields change or blur", () => {
     const requestSubmit = vi.spyOn(HTMLFormElement.prototype, "requestSubmit").mockImplementation(() => undefined);
 
     render(
-      <CheckoutSessionPage session={session} fulfillmentPreview={fulfillmentPreview} paymentPreview={paymentPreview} />,
+      <CheckoutSessionPage
+        session={readySession}
+        fulfillmentPreview={readyFulfillmentPreview}
+        paymentPreview={paymentPreview}
+      />,
     );
 
     fireEvent.change(screen.getByLabelText(/Recipient name/), { target: { value: "Jamie Buyer" } });
@@ -332,7 +349,7 @@ describe("checkout session page", () => {
 
     expect(requestSubmit).not.toHaveBeenCalled();
     expect(screen.getByText("Totals need refresh")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: "Refresh totals" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("button", { name: "Update totals" }).length).toBeGreaterThan(0);
 
     requestSubmit.mockRestore();
   });

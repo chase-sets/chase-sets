@@ -538,7 +538,7 @@ describe("checkout session routes", () => {
     await expect(response.json()).resolves.toEqual({
       error: {
         code: "payment_quote_required",
-        message: "Review the latest payment quote before creating purchases.",
+        message: "Review the latest payable total before payment starts.",
       },
     });
     expect(mockCreateCheckoutOrdersThroughOrdering).not.toHaveBeenCalled();

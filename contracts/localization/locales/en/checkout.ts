@@ -77,7 +77,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.api.route.checkout.session.not.found.2": "Checkout session not found.",
   "checkout.features.sessions.api.route.forbidden": "Forbidden.",
   "checkout.features.sessions.api.route.payment.quote.required":
-    "Review the latest payment quote before creating purchases.",
+    "Review the latest payable total before payment starts.",
   "checkout.features.sessions.api.route.register.or.sign.in.before.placing.purchase.intent":
     "Register or sign in before placing purchase intent.",
   "checkout.features.sessions.api.route.request.failed": "Request failed.",
@@ -96,25 +96,22 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.buy.now": "Buy now",
   "checkout.features.sessions.ui.checkoutPage.buyer.protection": "Order Protection",
   "checkout.features.sessions.ui.checkoutPage.card": "Card",
-  "checkout.features.sessions.ui.checkoutPage.calculated.when.purchases.are.created":
-    "Calculated when purchases are created",
   "checkout.features.sessions.ui.checkoutPage.cart": "Buy cart",
   "checkout.features.sessions.ui.checkoutPage.catalog.item": "Catalog item: ",
   "checkout.features.sessions.ui.checkoutPage.checkout": "Checkout",
-  "checkout.features.sessions.ui.checkoutPage.checkout.creates.purchases.grouped.by.seller":
-    "Checkout creates purchases grouped by seller with final totals before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.checkout.issue": "Checkout issue",
   "checkout.features.sessions.ui.checkoutPage.checkout.status": "Checkout status",
   "checkout.features.sessions.ui.checkoutPage.checkout.summary": "Checkout Summary",
-  "checkout.features.sessions.ui.checkoutPage.choose.shipping.create.purchases.grouped.by":
-    "Choose shipping, create purchases grouped by seller, and continue to payment.",
   "checkout.features.sessions.ui.checkoutPage.confirm.shipping.place.purchase.intent":
     "Confirm shipping details and place purchase intent for a future seller match.",
   "checkout.features.sessions.ui.checkoutPage.continue.to.payment": "Continue to payment",
   "checkout.features.sessions.ui.checkoutPage.continue.to.payment.2": "Continue to payment",
-  "checkout.features.sessions.ui.checkoutPage.create.purchases.continue.to.payment":
-    "Create purchases and continue to secure payment",
+  "checkout.features.sessions.ui.checkoutPage.contact": "Contact",
+  "checkout.features.sessions.ui.checkoutPage.email.me.with.news": "Email me with news and offers",
   "checkout.features.sessions.ui.checkoutPage.delivery.estimate": "Delivery estimate",
+  "checkout.features.sessions.ui.checkoutPage.delivery.estimate.summary":
+    "{shippingOption}: {window}. {packageCount} package(s), {serviceLevel}.",
+  "checkout.features.sessions.ui.checkoutPage.delivery": "Delivery",
   "checkout.features.sessions.ui.checkoutPage.delivery.basis": "Delivery basis",
   "checkout.features.sessions.ui.checkoutPage.delivery.promise": "Delivery promise",
   "checkout.features.sessions.ui.checkoutPage.delivery.promise.preview":
@@ -127,14 +124,13 @@ export const checkoutEnglishTranslations = {
     "Estimated delivery {minimumDays}-{maximumDays} days after purchase",
   "checkout.features.sessions.ui.checkoutPage.final.totals.before.payment": "Final totals are shown before payment.",
   "checkout.features.sessions.ui.checkoutPage.final.totals.before.payment.description":
-    "This checkout total includes item subtotal, shipping, estimated tax, marketplace checkout fee, and wallet credit before purchases move to payment.",
+    "This checkout total includes item subtotal, shipping, estimated tax, marketplace checkout fee, and wallet credit before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.city": "City",
   "checkout.features.sessions.ui.checkoutPage.country": "Country",
-  "checkout.features.sessions.ui.checkoutPage.creating.purchases": "Creating purchases...",
   "checkout.features.sessions.ui.checkoutPage.destination.required.for.purchase.intent":
     "Destination is required so a seller knows where the purchase intent would ship if accepted.",
   "checkout.features.sessions.ui.checkoutPage.destination.required.for.sales.tax":
-    "Destination is required before purchases are created so sales tax can be quoted and stored with the order.",
+    "Delivery address is required before shipping, tax, and final totals can be confirmed.",
   "checkout.features.sessions.ui.checkoutPage.eligible.orders.are.protected.through.payment":
     "Eligible orders are protected through payment and fulfillment.",
   "checkout.features.sessions.ui.checkoutPage.expedited": "Expedited",
@@ -146,6 +142,8 @@ export const checkoutEnglishTranslations = {
     "Using {addressLabel} for fulfillment, shipping, and tax preview. Choose payment before placing the order.",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.ready": "Fulfillment Ready",
   "checkout.features.sessions.ui.checkoutPage.fulfillment.changed": "Fulfillment changed since your last preview",
+  "checkout.features.sessions.ui.checkoutPage.fulfillment.resolved.before.checkout":
+    "Cart review resolves fulfillment before checkout starts.",
   "checkout.features.sessions.ui.checkoutPage.items": "Items",
   "checkout.features.sessions.ui.checkoutPage.lines": "Lines",
   "checkout.features.sessions.ui.checkoutPage.marketplace.checkout.fee": "Marketplace checkout fee",
@@ -156,26 +154,28 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.order.totals.created": "Order totals created",
   "checkout.features.sessions.ui.checkoutPage.offer.submitted.after.review": "Offer submitted after review",
   "checkout.features.sessions.ui.checkoutPage.payment": "Payment",
+  "checkout.features.sessions.ui.checkoutPage.payment.section.description":
+    "Choose how the secure payment step should be prepared.",
   "checkout.features.sessions.ui.checkoutPage.payment.method": "Payment method",
   "checkout.features.sessions.ui.checkoutPage.payable.total": "Payable total",
   "checkout.features.sessions.ui.checkoutPage.payment.ready": "Payment ready",
   "checkout.features.sessions.ui.checkoutPage.payment.ready.2": "Payment ready",
   "checkout.features.sessions.ui.checkoutPage.payment.quote.required": "Review the latest payable total",
   "checkout.features.sessions.ui.checkoutPage.payment.quote.required.description":
-    "Purchases are not created until the marketplace checkout fee, wallet credit, and final payable total are visible on this page.",
+    "Payment does not start until the marketplace checkout fee, wallet credit, and final payable total are visible on this page.",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next": "Payment review comes next",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next.description":
-    "After purchases are created, the next page shows marketplace checkout fee, payment method choices, wallet credit, and final total before payment starts.",
+    "Review the latest total before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.payment.review.next.with.wallet":
-    "After purchases are created, the next page can apply up to {amount} {currency} wallet balance and shows the final total before payment starts.",
+    "Up to {amount} {currency} wallet balance can be applied before payment starts.",
   "checkout.features.sessions.ui.checkoutPage.payment.starts.only.after.orders.are":
-    "Payment starts only after orders are grouped by seller.",
+    "Payment starts only after final checkout review.",
   "checkout.features.sessions.ui.checkoutPage.platform.credit.only": "Platform credit only",
   "checkout.features.sessions.ui.checkoutPage.postal.code": "Postal code",
+  "checkout.features.sessions.ui.checkoutPage.processing.payment": "Processing payment...",
   "checkout.features.sessions.ui.checkoutPage.package.plan": "Package plan",
   "checkout.features.sessions.ui.checkoutPage.package.plan.value":
     "{packageCount} package{packagePlural} - {serviceLevel}",
-  "checkout.features.sessions.ui.checkoutPage.parcel.postage": "Parcel postage",
   "checkout.features.sessions.ui.checkoutPage.preview.after.address": "Preview after address",
   "checkout.features.sessions.ui.checkoutPage.pricing": "Pricing",
   "checkout.features.sessions.ui.checkoutPage.priority": "Priority",
@@ -190,9 +190,8 @@ export const checkoutEnglishTranslations = {
     "Shipping is saved with the intent so sellers can evaluate fulfillment before accepting. No order, tax quote, or payment is created today.",
   "checkout.features.sessions.ui.checkoutPage.purchase.intent.saved": "Purchase intent saved",
   "checkout.features.sessions.ui.checkoutPage.purchases.have.been.created.and.payment":
-    "Purchases have been created and payment is ready to continue.",
+    "Your order is ready to continue to payment.",
   "checkout.features.sessions.ui.checkoutPage.quantity": "Quantity",
-  "checkout.features.sessions.ui.checkoutPage.ready.to.create.purchases": "Ready to create purchases",
   "checkout.features.sessions.ui.checkoutPage.ready.to.place.purchase.intent": "Ready to place purchase intent",
   "checkout.features.sessions.ui.checkoutPage.ready.to.review.payment": "Ready to review payment",
   "checkout.features.sessions.ui.checkoutPage.recipient.name": "Recipient name",
@@ -208,22 +207,22 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.review.updated.description":
     "Your latest shipping, destination, and payment selections are reflected in this review.",
   "checkout.features.sessions.ui.checkoutPage.review.items": "Review Items",
+  "checkout.features.sessions.ui.checkoutPage.review.buy.cart": "Review buy cart",
   "checkout.features.sessions.ui.checkoutPage.review.payment.total": "Review payment total",
   "checkout.features.sessions.ui.checkoutPage.reviewed.before.payment": "Reviewed before payment",
   "checkout.features.sessions.ui.checkoutPage.secure.checkout": "Secure Checkout",
+  "checkout.features.sessions.ui.checkoutPage.secure.checkout.context": "Secure payment starts after this review.",
   "checkout.features.sessions.ui.checkoutPage.secure.payment": "Secure Payment",
-  "checkout.features.sessions.ui.checkoutPage.signature.confirmation": "Signature confirmation",
   "checkout.features.sessions.ui.checkoutPage.sellers.can.accept.purchase.intent.before.order":
     "Sellers can accept your purchase intent before an order and payment are created.",
-  "checkout.features.sessions.ui.checkoutPage.same.seller.shipping.credit": "Same-seller shipping credit",
-  "checkout.features.sessions.ui.checkoutPage.saved.payment.instrument.ready":
-    "Payments owns saved checkout instruments",
-  "checkout.features.sessions.ui.checkoutPage.saved.payment.instrument.ready.description":
-    "When a saved provider credential is available, Checkout can use its Payments-owned token reference without handling raw card or bank details.",
   "checkout.features.sessions.ui.checkoutPage.shipping": "Shipping",
+  "checkout.features.sessions.ui.checkoutPage.shipping.after.address": "Shipping updates after address",
+  "checkout.features.sessions.ui.checkoutPage.shipping.after.address.description":
+    "Enter a destination and update totals to review shipping, tax, and payment details.",
+  "checkout.features.sessions.ui.checkoutPage.shipping.method": "Shipping method",
+  "checkout.features.sessions.ui.checkoutPage.shipping.method.description":
+    "Choose the delivery speed for this checkout.",
   "checkout.features.sessions.ui.checkoutPage.ships.from": "Ships from",
-  "checkout.features.sessions.ui.checkoutPage.each.seller.grouped.purchase.applies.the.listing.credit":
-    "Each seller-grouped purchase applies the listing credit to shipping before payment is created.",
   "checkout.features.sessions.ui.checkoutPage.shipping.option": "Shipping option",
   "checkout.features.sessions.ui.checkoutPage.shipping.preference.is.captured.before.order":
     "Shipping preference is captured before order creation.",
@@ -232,6 +231,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.source": "Source",
   "checkout.features.sessions.ui.checkoutPage.standard": "Standard",
   "checkout.features.sessions.ui.checkoutPage.standard.insured": "Standard insured",
+  "checkout.features.sessions.ui.checkoutPage.subtotal": "Subtotal",
   "checkout.features.sessions.ui.checkoutPage.state": "State",
   "checkout.features.sessions.ui.checkoutPage.use.balance": "Use balance",
   "checkout.features.sessions.ui.checkoutPage.wallet.credit": "Wallet credit",
@@ -240,15 +240,27 @@ export const checkoutEnglishTranslations = {
     "Shipping, taxes, service charges, and available balance credits are reviewed before the secure payment step.",
   "checkout.features.sessions.ui.checkoutPage.totals.need.refresh": "Totals need refresh",
   "checkout.features.sessions.ui.checkoutPage.totals.need.refresh.description":
-    "Refresh totals to review the latest shipping, tax, fee, and payment details before purchases are created.",
+    "Update totals to review the latest shipping, tax, fee, and payment details before payment starts.",
+  "checkout.features.sessions.ui.checkoutPage.total": "Total",
   "checkout.features.sessions.ui.checkoutPage.no.payment.today": "No payment today",
   "checkout.features.sessions.ui.checkoutPage.no.available.supply": "No available supply",
-  "checkout.features.sessions.ui.checkoutPage.orders.then.payment.review":
-    "Purchases are created first so fees, wallet credit, and final total can be reviewed before payment.",
   "checkout.features.sessions.ui.checkoutPage.place.purchase.intent": "Place purchase intent",
-  "checkout.features.sessions.ui.checkoutPage.place.order.with.saved.payment":
-    "Place order with {paymentMethodCategory}",
+  "checkout.features.sessions.ui.checkoutPage.pay.now": "Pay now",
+  "checkout.features.sessions.ui.checkoutPage.pay.now.with.saved.payment": "Pay now with {paymentMethodCategory}",
+  "checkout.features.sessions.ui.checkoutPage.pending": "Pending",
   "checkout.features.sessions.ui.checkoutPage.placing.purchase.intent": "Placing purchase intent",
+  "checkout.features.sessions.ui.checkoutPage.order.summary": "Order summary",
+  "checkout.features.sessions.ui.checkoutPage.item.count": "{count} items",
+  "checkout.features.sessions.ui.checkoutPage.quantity.summary": "Qty {quantity}",
+  "checkout.features.sessions.ui.checkoutPage.not.applicable": "Not applicable",
+  "checkout.features.sessions.ui.checkoutPage.calculated.before.payment": "Calculated before payment",
+  "checkout.features.sessions.ui.checkoutPage.checkout.needs.cart.review": "Review your buy cart first",
+  "checkout.features.sessions.ui.checkoutPage.checkout.needs.cart.review.description":
+    "{count} item(s) changed fulfillment or availability. Resolve them in the cart before checkout continues.",
+  "checkout.features.sessions.ui.checkoutPage.simple.checkout.description":
+    "Enter contact, delivery, shipping, and payment details before secure payment starts.",
+  "checkout.features.sessions.ui.checkoutPage.update.totals": "Update totals",
+  "checkout.features.sessions.ui.checkoutPage.all.transactions.secure": "All transactions are secure and encrypted.",
   "checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready": "Saved payment ready",
   "checkout.features.sessions.ui.checkoutPage.saved.payment.step.ready.description":
     "{addressLabel} and {paymentMethodCategory} are ready. This payment method still uses the secure payment step before authorization.",
@@ -421,10 +433,10 @@ export const checkoutEnglishTranslations = {
     "Sign in with the account that started this checkout, or start checkout again.",
   "checkout.routes.checkoutSession.checkout.unavailable": "Checkout unavailable",
   "checkout.routes.checkoutSession.checkout.unavailable.description": "We could not open this checkout.",
-  "checkout.routes.checkoutSession.choose.shipping.and.create.purchases.grouped":
-    "Choose shipping and create purchases grouped by seller before payment.",
+  "checkout.routes.checkoutSession.enter.contact.delivery.shipping.payment":
+    "Enter contact, delivery, shipping, and payment details before secure payment starts.",
   "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable":
-    "Live fulfillment preview is temporarily unavailable. You can still review checkout and refresh before confirming.",
+    "Checkout totals are temporarily unavailable. Refresh before confirming payment.",
   "checkout.routes.checkoutSession.payment.has.not.started": "Your payment has not started.",
   "checkout.routes.checkoutSession.request.failed": "Request failed.",
   "checkout.routes.checkoutSession.secure.checkout": "Secure checkout",
@@ -530,45 +542,16 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutStart.offer.submitted.after.registration": "Offer submitted after registration",
   "checkout.features.sessions.api.route.fulfillment.preview.stale":
     "Fulfillment changed. Review the latest checkout preview before continuing.",
-  "checkout.features.sessions.ui.checkoutPage.allocation": "Allocation",
-  "checkout.features.sessions.ui.checkoutPage.current.preview": "Current preview",
   "checkout.features.sessions.ui.checkoutPage.estimated.tax": "Estimated tax",
   "checkout.features.sessions.ui.checkoutPage.estimated.total": "Estimated total",
   "checkout.features.sessions.ui.checkoutPage.estimate": "Estimate",
-  "checkout.features.sessions.ui.checkoutPage.fewest.shipments": "Fewest shipments",
-  "checkout.features.sessions.ui.checkoutPage.fulfillment": "Fulfillment",
-  "checkout.features.sessions.ui.checkoutPage.fulfillment.description":
-    "Review the current seller allocation before payment starts.",
-  "checkout.features.sessions.ui.checkoutPage.items.2": "Items",
-  "checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview": "Live fulfillment preview",
-  "checkout.features.sessions.ui.checkoutPage.live.fulfillment.preview.description":
-    "Prices and sellers are market signals until you confirm this preview. Unavailable product intents stay in your cart so you can make offers or wait for supply.",
-  "checkout.features.sessions.ui.checkoutPage.locked.listing": "Locked listing",
-  "checkout.features.sessions.ui.checkoutPage.locked.optimization.description":
-    "Every ready line is constrained to a selected seller listing. Unlock lines from the cart to let checkout optimize fulfillment.",
-  "checkout.features.sessions.ui.checkoutPage.locked.seller": "Locked seller",
-  "checkout.features.sessions.ui.checkoutPage.lowest.delivered.total": "Lowest delivered total",
-  "checkout.features.sessions.ui.checkoutPage.make.offer": "Make offer",
-  "checkout.features.sessions.ui.checkoutPage.needs.supply": "Needs supply",
-  "checkout.features.sessions.ui.checkoutPage.no.seller.feedback.yet": "No account feedback yet",
-  "checkout.features.sessions.ui.checkoutPage.optimization": "Optimization",
-  "checkout.features.sessions.ui.checkoutPage.optimization.locked": "Optimization is locked for this checkout",
-  "checkout.features.sessions.ui.checkoutPage.optimized": "Optimized",
-  "checkout.features.sessions.ui.checkoutPage.optimized.seller.listing": "Optimized seller listing",
-  "checkout.features.sessions.ui.checkoutPage.packages": "Packages",
-  "checkout.features.sessions.ui.checkoutPage.product.intent.saved":
-    "Product intent saved for live fulfillment preview",
-  "checkout.features.sessions.ui.checkoutPage.quantity.2": "Quantity",
-  "checkout.features.sessions.ui.checkoutPage.ready.now": "Ready now",
-  "checkout.features.sessions.ui.checkoutPage.recalculate.fulfillment": "Recalculate fulfillment",
-  "checkout.features.sessions.ui.checkoutPage.selected.seller.listing": "Selected seller listing",
-  "checkout.features.sessions.ui.checkoutPage.seller.group": "Seller group",
-  "checkout.features.sessions.ui.checkoutPage.seller.reputation": "Seller reputation",
   "checkout.features.sessions.ui.checkoutPage.shipping.2": "Shipping",
   "checkout.features.sessions.ui.checkoutPage.company": "Company",
   "checkout.features.sessions.ui.checkoutPage.phone": "Phone",
   "checkout.features.sessions.ui.checkoutPage.email": "Email",
-  "checkout.features.sessions.ui.checkoutPage.address.book.action": "Address book action",
+  "checkout.features.sessions.ui.checkoutPage.address.preferences": "Address preferences",
+  "checkout.features.sessions.ui.checkoutPage.address.book.preference": "Address book preference",
+  "checkout.features.sessions.ui.checkoutPage.default.address": "Default address",
   "checkout.features.sessions.ui.checkoutPage.default.address.option": "{label} (default)",
   "checkout.features.sessions.ui.checkoutPage.do.not.change.default": "Do not change default",
   "checkout.features.sessions.ui.checkoutPage.enter.a.new.address": "Enter a new address",
@@ -577,8 +560,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sessions.ui.checkoutPage.save.payment.method": "Save this payment method",
   "checkout.features.sessions.ui.checkoutPage.save.payment.method.description":
     "Use it for future Chase Sets checkout after this payment succeeds.",
-  "checkout.features.sessions.ui.checkoutPage.saved.address.default": "Saved address default",
   "checkout.features.sessions.ui.checkoutPage.saved.shipping.address": "Saved shipping address",
-  "checkout.features.sessions.ui.checkoutPage.update.selected.address": "Update selected address",
-  "checkout.features.sessions.ui.checkoutPage.use.for.this.checkout": "Use for this checkout only",
+  "checkout.features.sessions.ui.checkoutPage.update.selected.address": "Update selected saved address",
+  "checkout.features.sessions.ui.checkoutPage.use.for.this.checkout": "Use once for this checkout",
 } as const;
