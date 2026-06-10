@@ -12,6 +12,7 @@ export type {
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
   MarketplaceListingTermsPreview,
+  MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
 export type {
@@ -31,6 +32,7 @@ import type {
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
   MarketplaceListingTermsPreview,
+  MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
 } from "./features/listings/api/contracts";
 import type {
@@ -123,6 +125,22 @@ export function createMarketplaceApiClient({
         await client["products"][":productId"].listings.$get({
           param: { productId },
           header: headers,
+        }),
+      );
+    },
+    async previewPublicStandardListingTerms(
+      body: Record<string, unknown>,
+      options: Readonly<{ signal?: AbortSignal }> = {},
+    ): Promise<MarketplacePublicStandardTermsPreview> {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/terms/public-standard/listing-preview"), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+          },
+          body: JSON.stringify(body),
+          signal: options.signal,
         }),
       );
     },

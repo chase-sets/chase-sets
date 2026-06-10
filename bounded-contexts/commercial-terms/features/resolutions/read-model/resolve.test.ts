@@ -51,6 +51,42 @@ function createDb(
   } as PgQueryable;
 }
 
+function createPublicStandardDb(
+  options: Readonly<{
+    schedule?: {
+      schedule_id: string;
+      label: string;
+      marketplace_sales_fee_percentage_bps: number;
+      marketplace_sales_fee_fixed_amount: string;
+      shipping_allowance_percentage_bps?: number;
+      updated_at?: string;
+    } | null;
+    queries?: string[];
+  }>,
+): PgQueryable {
+  return {
+    query: async <TRow>(sql: string) => {
+      options.queries?.push(sql);
+
+      if (sql.includes("FROM commercial_terms_schedule_pages")) {
+        return {
+          rows: options.schedule
+            ? [
+                {
+                  ...options.schedule,
+                  shipping_allowance_percentage_bps: options.schedule.shipping_allowance_percentage_bps ?? 500,
+                  updated_at: options.schedule.updated_at ?? "2026-04-16T10:00:00.000Z",
+                } as TRow,
+              ]
+            : [],
+        };
+      }
+
+      throw new Error(`Unexpected SQL: ${sql}`);
+    },
+  } as PgQueryable;
+}
+
 describe("commercial terms resolver", () => {
   it("resolves the default schedule for personal accounts", async () => {
     const resolver = createCommercialTermsResolver({
@@ -223,6 +259,78 @@ describe("commercial terms resolver", () => {
 
     expect(result.marketplaceSalesFeeUnitAmount).toBe("0.01");
     expect(result.sellerNetUnitAmount).toBe("0.01");
+  });
+
+  it("resolves public standard listing terms from the personal default schedule without an account", async () => {
+    const queries: string[] = [];
+    const resolver = createCommercialTermsResolver({
+      db: createPublicStandardDb({
+        queries,
+        schedule: {
+          schedule_id: "cts_seed_personal_default",
+          label: "Personal Default",
+          marketplace_sales_fee_percentage_bps: 900,
+          marketplace_sales_fee_fixed_amount: "0.15",
+          shipping_allowance_percentage_bps: 500,
+          updated_at: "2026-04-16T10:00:00.000Z",
+        },
+      }),
+    });
+
+    const result = await resolver.resolvePublicStandardListingTerms({
+      amount: "380.00",
+      effectiveAt: "2026-05-05T16:36:36.000Z",
+    });
+
+    expect(result).toMatchObject({
+      accountType: "personal",
+      basisAmount: "380.00",
+      marketplaceSalesFeeUnitAmount: "34.35",
+      sellerNetUnitAmount: "345.65",
+      shippingAllowancePercentageBps: 500,
+      scheduleId: "cts_seed_personal_default",
+      scheduleLabel: "Personal Default",
+      scheduleUpdatedAt: "2026-04-16T10:00:00.000Z",
+      resolvedAt: "2026-05-05T16:36:36.000Z",
+    });
+    expect(queries.some((sql) => sql.includes("commercial_terms_account_pages"))).toBe(false);
+    expect(queries.some((sql) => sql.includes("commercial_terms_agreement_pages"))).toBe(false);
+  });
+
+  it("rounds public standard fee previews with the Commercial Terms formula", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createPublicStandardDb({
+        schedule: {
+          schedule_id: "cts_low_value",
+          label: "Low Value",
+          marketplace_sales_fee_percentage_bps: 500,
+          marketplace_sales_fee_fixed_amount: "0.00",
+        },
+      }),
+    });
+
+    const result = await resolver.resolvePublicStandardListingTerms({
+      amount: "0.02",
+      effectiveAt: "2026-04-16T10:00:00.000Z",
+    });
+
+    expect(result.marketplaceSalesFeeUnitAmount).toBe("0.01");
+    expect(result.sellerNetUnitAmount).toBe("0.01");
+  });
+
+  it("fails closed when public standard terms have no active schedule", async () => {
+    const resolver = createCommercialTermsResolver({
+      db: createPublicStandardDb({
+        schedule: null,
+      }),
+    });
+
+    await expect(
+      resolver.resolvePublicStandardListingTerms({
+        amount: "12.00",
+        effectiveAt: "2026-04-16T10:00:00.000Z",
+      }),
+    ).rejects.toThrow("No active public standard commercial terms were found");
   });
 
   it("fails when the account is not active", async () => {

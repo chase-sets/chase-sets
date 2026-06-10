@@ -8,11 +8,15 @@ import type { AddressSnapshot } from "@chase-sets/primitives/address-snapshot";
 import type { AccountId, ListingId } from "@chase-sets/primitives/typed-ids";
 import type { CommercialTermsResolver } from "../../../api";
 import type { MarketplaceRuntimeDeps } from "../../../support/runtime-support";
-import { quoteMarketplaceTerms } from "../../../support/runtime-support/fee-quotes";
+import {
+  quoteMarketplaceTerms,
+  quotePublicStandardMarketplaceTerms,
+} from "../../../support/runtime-support/fee-quotes";
 import type {
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingTermsPreview,
+  MarketplacePublicStandardTermsPreview,
 } from "../ui/contracts";
 import {
   decideMarketplaceListing,
@@ -156,6 +160,9 @@ export type MarketplaceListingServices = Readonly<{
   previewListingTerms: (
     params: Readonly<{ accountId: string; priceAmount: string }>,
   ) => Promise<MarketplaceListingTermsPreview>;
+  previewPublicStandardListingTerms: (
+    params: Readonly<{ priceAmount: string }>,
+  ) => Promise<MarketplacePublicStandardTermsPreview>;
   updateListingPrice: (
     params: Readonly<{
       accountId: string;
@@ -312,6 +319,12 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
   async function quoteListingTerms(accountId: string, priceAmount: string) {
     return quoteMarketplaceTerms(deps.commercialTermsResolver, {
       accountId,
+      priceAmount,
+    });
+  }
+
+  async function quotePublicStandardListingTerms(priceAmount: string) {
+    return quotePublicStandardMarketplaceTerms(deps.commercialTermsResolver, {
       priceAmount,
     });
   }
@@ -667,6 +680,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     addListingPhotos,
     previewListingTerms: async (params) => {
       return quoteListingTerms(params.accountId, params.priceAmount);
+    },
+    previewPublicStandardListingTerms: async (params) => {
+      return quotePublicStandardListingTerms(params.priceAmount);
     },
     updateListingPrice: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);

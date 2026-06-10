@@ -13,6 +13,7 @@ export type {
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
   MarketplaceListingTermsPreview,
+  MarketplacePublicStandardTermsPreview,
   MarketplaceMarketSummary,
   SubmittedOfferDetail,
   SubmittedOfferListItem,

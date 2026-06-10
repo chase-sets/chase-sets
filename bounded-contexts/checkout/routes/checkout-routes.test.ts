@@ -29,6 +29,7 @@ const {
   mockGetGuestSellList,
   mockGetOfferMatch,
   mockListOfferMatches,
+  mockPreviewPublicStandardListingTerms,
   mockPreviewOfferAcceptanceTerms,
   mockAcceptOfferMatch,
   mockCreateListing,
@@ -74,6 +75,7 @@ const {
   mockGetGuestSellList: vi.fn(),
   mockGetOfferMatch: vi.fn(),
   mockListOfferMatches: vi.fn(),
+  mockPreviewPublicStandardListingTerms: vi.fn(),
   mockPreviewOfferAcceptanceTerms: vi.fn(),
   mockAcceptOfferMatch: vi.fn(),
   mockCreateListing: vi.fn(),
@@ -1012,6 +1014,7 @@ describe("checkout web routes", () => {
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       getGuestSellList: mockGetGuestSellList,
     });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({});
 
     const { loader: accountSellListLoader } = await import("./account-sell-list");
     const result = await accountSellListLoader({
@@ -1026,8 +1029,87 @@ describe("checkout web routes", () => {
       isSignedIn: false,
       reviewCompleted: false,
       sellList: { items: [{ line_id: "sll_1", quantity: 1 }], count: 1 },
+      offerReviews: [],
     });
     expect(mockGetGuestSellList).toHaveBeenCalledWith("anon_sell_1");
+  });
+
+  it("loads public standard terms for anonymous selected-offer Sell List lines", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockPreviewPublicStandardListingTerms.mockResolvedValue({
+      account_type: "personal",
+      basis_amount: "380.00",
+      marketplace_sales_fee_unit_amount: "34.35",
+      seller_net_unit_amount: "345.65",
+      shipping_allowance_percentage_bps: 500,
+      source_kind: "public-standard-seller-terms",
+      source_label: "Standard seller terms",
+      schedule_label: "Personal Default",
+      source_updated_at: "2026-04-01T00:00:00.000Z",
+      resolved_at: "2026-04-28T00:00:00.000Z",
+    });
+    mockGetGuestSellList.mockResolvedValue({
+      items: [
+        {
+          line_id: "sll_1",
+          line_type: "selected-offer",
+          offer_price_amount: "380.00",
+          quantity: 1,
+        },
+      ],
+      count: 1,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      getGuestSellList: mockGetGuestSellList,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewPublicStandardListingTerms: mockPreviewPublicStandardListingTerms,
+    });
+
+    const { loader: accountSellListLoader } = await import("./account-sell-list");
+    const result = await accountSellListLoader({
+      request: new Request("http://localhost/account/sell-list", {
+        headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
+      }),
+      params: {},
+      context: undefined,
+    } as never);
+
+    expect(mockPreviewPublicStandardListingTerms).toHaveBeenCalledWith({ priceAmount: "380.00" });
+    expect(result).toEqual({
+      isSignedIn: false,
+      reviewCompleted: false,
+      sellList: {
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_price_amount: "380.00",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      },
+      offerReviews: [
+        {
+          lineId: "sll_1",
+          status: "ready",
+          message: null,
+          terms: expect.not.objectContaining({
+            fee_quote_fingerprint: expect.anything(),
+            schedule_id: expect.anything(),
+            agreement_id: expect.anything(),
+          }),
+        },
+      ],
+    });
+    expect(result.offerReviews[0]?.terms).toEqual(
+      expect.objectContaining({
+        seller_net_unit_amount: "345.65",
+        source_kind: "public-standard-seller-terms",
+        source_label: "Standard seller terms",
+      }),
+    );
   });
 
   it("merges anonymous Sell List lines after sign-in returns to Sell List review", async () => {

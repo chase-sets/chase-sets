@@ -371,6 +371,8 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.quantity.requested": "Quantity requested",
   "discovery.routes.itemDetail.quantity.available.count": "{count} available",
   "discovery.routes.itemDetail.quantity.to.list": "Quantity to list",
+  "discovery.routes.itemDetail.public.standard.terms.preview.unavailable":
+    "Estimated payout is temporarily unavailable. You can still continue and review current seller terms after registration.",
   "discovery.routes.itemDetail.register.to.list.inventory.buy.cards":
     "Register to list inventory, buy cards, and respond to offers from the same marketplace view.",
   "discovery.routes.itemDetail.register.to.confirm.inventory.and.see.payout":

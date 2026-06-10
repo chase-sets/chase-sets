@@ -362,6 +362,18 @@ describe("item detail commerce panel", () => {
           buyer_display_name: "Top Loader Capital",
           price_amount: "380.00",
           quantity_requested: 1,
+          public_standard_terms_preview: {
+            account_type: "personal",
+            basis_amount: "380.00",
+            marketplace_sales_fee_unit_amount: "34.35",
+            seller_net_unit_amount: "345.65",
+            shipping_allowance_percentage_bps: 500,
+            source_kind: "public-standard-seller-terms",
+            source_label: "Standard seller terms",
+            schedule_label: "Personal Default",
+            source_updated_at: "2026-05-05T16:36:36.000Z",
+            resolved_at: "2026-05-05T16:36:36.000Z",
+          },
         }}
         matchingOfferCount={5}
         registerHref="/register?returnTo=%2Fitems%2Fcat_charizard"
@@ -373,23 +385,23 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("From Top Loader Capital")).toBeTruthy();
     expect(screen.getByText("5 offers")).toBeTruthy();
     expect(screen.getByText("1 requested")).toBeTruthy();
-    expect(screen.getByText("$353.35 after $26.65 fee")).toBeTruthy();
+    expect(screen.getByText("$345.65 after $34.35 fee")).toBeTruthy();
     expect(screen.getByText("$19.00 (5%)")).toBeTruthy();
     expect(screen.getAllByText("Raw / Near Mint")).toHaveLength(2);
-    expect(screen.queryByText("Estimated payout uses Standard terms.")).toBeNull();
+    expect(screen.queryByText("Estimated payout uses Standard seller terms.")).toBeNull();
     expect(
       screen.queryByText("Register to confirm inventory, see seller payout, and accept matching offers."),
     ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View estimated payout details" }));
     const payoutDialog = screen.getByRole("dialog", { name: "Estimated payout" });
-    expect(within(payoutDialog).getByText("Estimated payout uses Standard terms.")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Estimated payout uses Standard seller terms.")).toBeTruthy();
     expect(within(payoutDialog).getByText("Payout facts")).toBeTruthy();
     expect(within(payoutDialog).getByText("Marketplace sales fee")).toBeTruthy();
-    expect(within(payoutDialog).getByText("$26.65")).toBeTruthy();
+    expect(within(payoutDialog).getByText("$34.35")).toBeTruthy();
     expect(within(payoutDialog).getByText("Shipping allowance")).toBeTruthy();
     expect(within(payoutDialog).getByText("$19.00 (5%)")).toBeTruthy();
     expect(within(payoutDialog).getByText("Terms source")).toBeTruthy();
-    expect(within(payoutDialog).getByText("Standard terms")).toBeTruthy();
+    expect(within(payoutDialog).getByText("Standard seller terms")).toBeTruthy();
     fireEvent.click(within(payoutDialog).getByRole("button", { name: "Close reference detail" }));
     expect(screen.getByRole("link", { name: "Continue to accept offer" }).getAttribute("href")).toBe(
       "/register?returnTo=%2Fitems%2Fcat_charizard",
@@ -415,6 +427,30 @@ describe("item detail commerce panel", () => {
     ).toBeTruthy();
     fireEvent.click(within(createListingDialog).getByRole("button", { name: "Close reference detail" }));
     expect(screen.getByRole("link", { name: "Continue to create listing" }).getAttribute("href")).toBe(
+      "/register?returnTo=%2Fitems%2Fcat_charizard",
+    );
+  });
+
+  it("does not invent a guest payout when the public standard terms preview is missing", () => {
+    render(
+      <MarketplaceSellerRegistrationSection
+        productSummary="Raw / Near Mint"
+        selectedOffer={{
+          buyer_account_id: "buyer_1",
+          buyer_display_name: "Top Loader Capital",
+          price_amount: "380.00",
+          quantity_requested: 1,
+          public_standard_terms_preview: null,
+        }}
+        matchingOfferCount={5}
+        registerHref="/register?returnTo=%2Fitems%2Fcat_charizard"
+      />,
+    );
+
+    expect(screen.queryByText(/after .* fee/)).toBeNull();
+    expect(screen.getByText(/Estimated payout is temporarily unavailable/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "View estimated payout details" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Continue to accept offer" }).getAttribute("href")).toBe(
       "/register?returnTo=%2Fitems%2Fcat_charizard",
     );
   });

@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { describe, expect, it, vi } from "vitest";
 import type { MarketplaceApiEnv } from "../../../api";
-import { createAccountListingRoutes } from "./route";
+import { createAccountListingRoutes, createPublicListingRoutes } from "./route";
 import type { MarketplaceListingServices } from "./runtime";
 
 function buildApp(
@@ -29,6 +29,7 @@ function buildApp(
     await next();
   });
 
+  app.route("/", createPublicListingRoutes(options.services));
   app.route("/account", createAccountListingRoutes(options.services));
 
   return app;
@@ -45,6 +46,18 @@ function createServices(): MarketplaceListingServices {
       listingId: "lst_checkout_fallback" as never,
       version: 1,
       feeQuoteFingerprint: "12.00|0.60|11.40|cts_default|",
+    })),
+    previewPublicStandardListingTerms: vi.fn(async () => ({
+      account_type: "personal",
+      basis_amount: "20.00",
+      marketplace_sales_fee_unit_amount: "1.95",
+      seller_net_unit_amount: "18.05",
+      shipping_allowance_percentage_bps: 500,
+      source_kind: "public-standard-seller-terms",
+      source_label: "Standard seller terms",
+      schedule_label: "Personal Default",
+      source_updated_at: "2026-04-17T00:00:00.000Z",
+      resolved_at: "2026-04-17T00:00:00.000Z",
     })),
     publishListing: vi.fn(async () => ({ listingId: "lst_1", version: 2 })),
     listSellerListingFeeHistory: vi.fn(async () => [
@@ -111,6 +124,42 @@ function createServices(): MarketplaceListingServices {
 }
 
 describe("marketplace listing routes", () => {
+  it("returns display-safe public standard terms without requiring a signed-in actor", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    const response = await app.fetch(
+      new Request("http://marketplace.test/terms/public-standard/listing-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priceAmount: "20.00" }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body).toMatchObject({
+      account_type: "personal",
+      basis_amount: "20.00",
+      marketplace_sales_fee_unit_amount: "1.95",
+      seller_net_unit_amount: "18.05",
+      shipping_allowance_percentage_bps: 500,
+      source_kind: "public-standard-seller-terms",
+      source_label: "Standard seller terms",
+      schedule_label: "Personal Default",
+      resolved_at: "2026-04-17T00:00:00.000Z",
+    });
+    expect(body).not.toHaveProperty("fee_quote_fingerprint");
+    expect(body).not.toHaveProperty("schedule_id");
+    expect(body).not.toHaveProperty("agreement_id");
+    expect(services.previewPublicStandardListingTerms).toHaveBeenCalledWith({
+      priceAmount: "20.00",
+    });
+  });
+
   it("passes Checkout-provided deterministic listing IDs into seller listing creation", async () => {
     const services = createServices();
     const app = buildApp({

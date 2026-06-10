@@ -19,6 +19,18 @@ export type ResolvedCommercialTerms = Readonly<{
   resolvedAt: string;
 }>;
 
+export type ResolvedPublicStandardCommercialTerms = Readonly<{
+  accountType: CommercialAccountType;
+  basisAmount: string;
+  marketplaceSalesFeeUnitAmount: string;
+  sellerNetUnitAmount: string;
+  shippingAllowancePercentageBps: number;
+  scheduleId: string;
+  scheduleLabel: string;
+  scheduleUpdatedAt: string;
+  resolvedAt: string;
+}>;
+
 export type CommercialTermsResolver = Readonly<{
   resolveListingTerms: (
     params: Readonly<{
@@ -34,6 +46,13 @@ export type CommercialTermsResolver = Readonly<{
       effectiveAt?: string;
     }>,
   ) => Promise<ResolvedCommercialTerms>;
+  resolvePublicStandardListingTerms: (
+    params: Readonly<{
+      accountType?: CommercialAccountType;
+      amount: string;
+      effectiveAt?: string;
+    }>,
+  ) => Promise<ResolvedPublicStandardCommercialTerms>;
 }>;
 
 type ProjectedAccount = Readonly<{
@@ -44,9 +63,11 @@ type ProjectedAccount = Readonly<{
 
 type ActiveSchedule = Readonly<{
   schedule_id: string;
+  label: string;
   marketplace_sales_fee_percentage_bps: number;
   marketplace_sales_fee_fixed_amount: string;
   shipping_allowance_percentage_bps: number;
+  updated_at: string;
 }>;
 
 type ActiveAgreement = Readonly<{
@@ -71,9 +92,11 @@ async function getActiveSchedule(db: PgQueryable, accountType: CommercialAccount
   const result = await db.query<ActiveSchedule>(
     `SELECT
        schedule_id,
+       label,
        marketplace_sales_fee_percentage_bps,
        marketplace_sales_fee_fixed_amount::text,
-       shipping_allowance_percentage_bps
+       shipping_allowance_percentage_bps,
+       updated_at::text AS updated_at
      FROM commercial_terms_schedule_pages
      WHERE account_type = $1
        AND status = 'active'
@@ -152,10 +175,46 @@ async function resolveTerms(
   };
 }
 
+async function resolvePublicStandardTerms(
+  db: PgQueryable,
+  params: Readonly<{
+    accountType?: CommercialAccountType;
+    amount: string;
+    effectiveAt?: string;
+  }>,
+): Promise<ResolvedPublicStandardCommercialTerms> {
+  const accountType = params.accountType ?? "personal";
+  const effectiveAt = params.effectiveAt ?? new Date().toISOString();
+  const amount = normalizeMoneyAmount(params.amount, {
+    fieldName: "Commercial terms amount",
+    allowZero: true,
+  });
+  const schedule = await getActiveSchedule(db, accountType, effectiveAt);
+  assert(schedule, `No active public standard commercial terms were found for ${accountType} accounts.`);
+
+  const marketplaceSalesFeeUnitAmount = applyFeeFormula(amount, {
+    percentageBps: schedule.marketplace_sales_fee_percentage_bps,
+    fixedAmount: schedule.marketplace_sales_fee_fixed_amount,
+  });
+
+  return {
+    accountType,
+    basisAmount: amount,
+    marketplaceSalesFeeUnitAmount,
+    sellerNetUnitAmount: subtractMoneyAmounts(amount, marketplaceSalesFeeUnitAmount),
+    shippingAllowancePercentageBps: schedule.shipping_allowance_percentage_bps,
+    scheduleId: schedule.schedule_id,
+    scheduleLabel: schedule.label,
+    scheduleUpdatedAt: schedule.updated_at,
+    resolvedAt: effectiveAt,
+  };
+}
+
 export function createCommercialTermsResolver(deps: Readonly<{ db: PgQueryable }>): CommercialTermsResolver {
   return {
     resolveListingTerms: (params) => resolveTerms(deps.db, params),
     resolveOrderTerms: (params) => resolveTerms(deps.db, params),
+    resolvePublicStandardListingTerms: (params) => resolvePublicStandardTerms(deps.db, params),
   };
 }
 
@@ -182,5 +241,23 @@ export function createNoopCommercialTermsResolver(): CommercialTermsResolver {
   return {
     resolveListingTerms: resolve,
     resolveOrderTerms: resolve,
+    resolvePublicStandardListingTerms: async (params) => {
+      const amount = normalizeMoneyAmount(params.amount, {
+        fieldName: "Commercial terms amount",
+        allowZero: true,
+      });
+
+      return {
+        accountType: params.accountType ?? "personal",
+        basisAmount: amount,
+        marketplaceSalesFeeUnitAmount: "0.00",
+        sellerNetUnitAmount: amount,
+        shippingAllowancePercentageBps: 500,
+        scheduleId: "noop_public_standard",
+        scheduleLabel: "Standard seller terms",
+        scheduleUpdatedAt: params.effectiveAt ?? new Date().toISOString(),
+        resolvedAt: params.effectiveAt ?? new Date().toISOString(),
+      };
+    },
   };
 }

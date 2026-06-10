@@ -18,6 +18,9 @@ import {
   PageSection,
   PriceBreakdown,
   ProductOptions,
+  ReferenceInfoDialog,
+  type ReferenceInfoSection,
+  ReferenceInfoTrigger,
   SecurePaymentIndicator,
   Stack,
   StickyCtaBar,
@@ -25,6 +28,7 @@ import {
   Text,
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
+import { useState } from "react";
 import type {
   CheckoutSellListExecutionRow,
   CheckoutSellListLineRow,
@@ -34,13 +38,24 @@ import type {
 type SellListOfferReview = Readonly<{
   lineId: string;
   status: "ready" | "unavailable";
-  terms: Readonly<{
-    marketplace_sales_fee_unit_amount: string;
-    seller_net_unit_amount: string;
-    shipping_allowance_percentage_bps: number;
-    fee_quote_fingerprint: string;
-  }> | null;
+  terms: SellListTermsPreview | null;
   message: string | null;
+}>;
+
+type SellListTermsPreview = Readonly<{
+  account_type?: string;
+  basis_amount: string;
+  marketplace_sales_fee_unit_amount: string;
+  seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
+  fee_quote_fingerprint?: string;
+  resolved_at?: string;
+  source_kind?: "public-standard-seller-terms";
+  source_label?: string;
+  source_updated_at?: string;
+  schedule_label?: string;
+  schedule_id?: string | null;
+  agreement_id?: string | null;
 }>;
 
 type SellListProductOfferReview = Readonly<{
@@ -117,6 +132,36 @@ function formatMoney(value: string | number | null) {
   }).format(amount);
 }
 
+function formatAllowancePercentage(bps: number) {
+  return `${new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(bps / 100)}%`;
+}
+
+function multiplyMoney(value: string | null | undefined, quantity: number) {
+  return moneyNumber(value) * quantity;
+}
+
+function isPublicStandardTerms(terms: SellListTermsPreview | null | undefined) {
+  return terms?.source_kind === "public-standard-seller-terms";
+}
+
+function termsSourceLabel(terms: SellListTermsPreview) {
+  if (terms.source_label) {
+    return terms.source_label;
+  }
+
+  if (terms.agreement_id) {
+    return t("checkout.features.sellList.ui.sellListPage.seller.specific.terms");
+  }
+
+  return t("checkout.features.sellList.ui.sellListPage.standard.terms");
+}
+
+function formatResolvedAt(terms: SellListTermsPreview) {
+  return terms.resolved_at
+    ? new Date(terms.resolved_at).toLocaleString()
+    : t("checkout.features.sellList.ui.sellListPage.just.now");
+}
+
 function productOptionsFromSelectedOptions(selections: readonly { dimensionId: string; optionId: string }[]) {
   return selections.map((selection) => ({
     dimensionLabel: selection.dimensionId,
@@ -133,7 +178,9 @@ function selectedOfferReadiness(review: SellListOfferReview | undefined): LineRe
     return {
       ready: true,
       label: t("checkout.features.sellList.ui.sellListPage.ready"),
-      detail: t("checkout.features.sellList.ui.sellListPage.selected.offer.ready.detail"),
+      detail: isPublicStandardTerms(review.terms)
+        ? t("checkout.features.sellList.ui.sellListPage.public.standard.offer.preview.ready.detail")
+        : t("checkout.features.sellList.ui.sellListPage.selected.offer.ready.detail"),
       tone: "success",
     };
   }
@@ -182,6 +229,76 @@ function readinessBadge(readiness: LineReadiness) {
   return <Badge tone={readiness.tone}>{readiness.label}</Badge>;
 }
 
+function SellListTermsReferenceInfo({ terms, quantity }: { terms: SellListTermsPreview; quantity: number }) {
+  const [open, setOpen] = useState(false);
+  const source = termsSourceLabel(terms);
+  const feeTotal = multiplyMoney(terms.marketplace_sales_fee_unit_amount, quantity);
+  const basisTotal = multiplyMoney(terms.basis_amount, quantity);
+  const allowanceBps = terms.shipping_allowance_percentage_bps ?? null;
+  const allowanceAmount =
+    allowanceBps !== null && Number.isFinite(basisTotal) ? (basisTotal * allowanceBps) / 10000 : null;
+  const sections: ReferenceInfoSection[] = [
+    {
+      title: t("checkout.features.sellList.ui.sellListPage.estimated.payout.facts"),
+      items: [
+        {
+          key: t("checkout.features.sellList.ui.sellListPage.sales.fee"),
+          value: formatMoney(feeTotal),
+        },
+        ...(allowanceBps !== null
+          ? [
+              {
+                key: t("checkout.features.sellList.ui.sellListPage.shipping.allowance"),
+                value: `${formatMoney(allowanceAmount)} (${formatAllowancePercentage(allowanceBps)})`,
+              },
+            ]
+          : []),
+        {
+          key: t("checkout.features.sellList.ui.sellListPage.terms.source"),
+          value: source,
+        },
+        {
+          key: t("checkout.features.sellList.ui.sellListPage.quote.time"),
+          value: formatResolvedAt(terms),
+        },
+      ],
+    },
+  ];
+  const lines = isPublicStandardTerms(terms)
+    ? [
+        t("checkout.features.sellList.ui.sellListPage.public.standard.terms.line1"),
+        t("checkout.features.sellList.ui.sellListPage.public.standard.terms.line2"),
+      ]
+    : [t("checkout.features.sellList.ui.sellListPage.registered.terms.line1")];
+
+  return (
+    <>
+      <ReferenceInfoTrigger
+        tone="subtle"
+        aria-label={t("checkout.features.sellList.ui.sellListPage.estimated.payout.aria")}
+        onClick={() => setOpen(true)}
+      >
+        {t("checkout.features.sellList.ui.sellListPage.estimated.payout")}
+      </ReferenceInfoTrigger>
+      <ReferenceInfoDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={t("checkout.features.sellList.ui.sellListPage.estimated.payout")}
+        summary={t("checkout.features.sellList.ui.sellListPage.estimated.payout.summary", { source })}
+        sections={sections}
+      >
+        <Stack gap={2}>
+          {lines.map((line, index) => (
+            <Text key={index} size="sm" tone="secondary">
+              {line}
+            </Text>
+          ))}
+        </Stack>
+      </ReferenceInfoDialog>
+    </>
+  );
+}
+
 function SelectedOfferRow({
   line,
   review,
@@ -216,6 +333,7 @@ function SelectedOfferRow({
           <Text size="sm" tone="secondary">
             {readiness.detail}
           </Text>
+          {review?.terms ? <SellListTermsReferenceInfo terms={review.terms} quantity={line.quantity} /> : null}
         </Stack>
         <KeyValueList
           density="compact"
@@ -242,7 +360,7 @@ function SelectedOfferRow({
         <Form spacing="none" method="post">
           <HiddenInput type="hidden" name="intent" value="remove-sell-list-line" />
           <HiddenInput type="hidden" name="lineId" value={line.line_id} />
-          {review?.terms ? (
+          {review?.terms?.fee_quote_fingerprint ? (
             <HiddenInput
               type="hidden"
               form="sell-list-checkout-form"

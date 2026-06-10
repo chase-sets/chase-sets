@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { CheckoutSellListPage } from "./sell-list-page";
@@ -48,6 +50,7 @@ describe("checkout sell list page", () => {
             lineId: "sll_offer",
             status: "ready",
             terms: {
+              basis_amount: "350.00",
               marketplace_sales_fee_unit_amount: "35.00",
               seller_net_unit_amount: "315.00",
               shipping_allowance_percentage_bps: 0,
@@ -167,5 +170,69 @@ describe("checkout sell list page", () => {
     expect(markup).toContain("Browse products");
     expect(markup).not.toContain("Expected seller payout");
     expect(markup).not.toContain("Continue to seller checkout");
+  });
+
+  it("shows guest selected-offer payout details through Reference Info without a fee fingerprint", () => {
+    const guestSelectedOfferLine: CheckoutSellListLineRow = {
+      ...selectedOfferLine,
+      line_id: "sll_guest_offer",
+      offer_price_amount: "380.00",
+      quantity: 1,
+    };
+
+    const { container } = render(
+      <CheckoutSellListPage
+        isSignedIn={false}
+        sellListLines={[guestSelectedOfferLine]}
+        offerReviews={[
+          {
+            lineId: "sll_guest_offer",
+            status: "ready",
+            terms: {
+              account_type: "personal",
+              basis_amount: "380.00",
+              marketplace_sales_fee_unit_amount: "34.35",
+              seller_net_unit_amount: "345.65",
+              shipping_allowance_percentage_bps: 500,
+              source_kind: "public-standard-seller-terms",
+              source_label: "Standard seller terms",
+              schedule_label: "Personal Default",
+              source_updated_at: "2026-04-01T00:00:00.000Z",
+              resolved_at: "2026-04-28T00:00:00.000Z",
+            },
+            message: null,
+          },
+        ]}
+      />,
+    );
+
+    expect(screen.getAllByText("$345.65").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText(
+        "Estimated payout is ready using current standard seller terms. Create an account to review final terms before committing.",
+      ),
+    ).toBeTruthy();
+    expect(container.querySelector('input[name^="offerFeeQuoteFingerprint"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "View estimated payout details" }));
+
+    const dialog = screen.getByRole("dialog", { name: "Estimated payout" });
+    expect(within(dialog).getByText("Estimated payout uses Standard seller terms.")).toBeTruthy();
+    expect(within(dialog).getByText("Sales fee")).toBeTruthy();
+    expect(within(dialog).getByText("$34.35")).toBeTruthy();
+    expect(within(dialog).getByText("Shipping allowance")).toBeTruthy();
+    expect(within(dialog).getByText("$19.00 (5%)")).toBeTruthy();
+    expect(within(dialog).getByText("Terms source")).toBeTruthy();
+    expect(within(dialog).getByText("Standard seller terms")).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        "This estimate uses public standard seller terms because no seller account is attached yet.",
+      ),
+    ).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        "After registration, Checkout refreshes seller-specific terms before any offer acceptance or sale commitment.",
+      ),
+    ).toBeTruthy();
   });
 });

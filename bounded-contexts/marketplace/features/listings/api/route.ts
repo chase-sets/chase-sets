@@ -771,6 +771,20 @@ export function createAccountListingRoutes(services: MarketplaceListingServices)
 export function createPublicListingRoutes(services: MarketplaceListingServices) {
   const app = new Hono<MarketplaceApiEnv>();
 
+  app.post("/terms/public-standard/listing-preview", async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+
+    try {
+      return c.json(
+        await services.previewPublicStandardListingTerms({
+          priceAmount: String(body.priceAmount ?? ""),
+        }),
+      );
+    } catch (error) {
+      return c.json({ error: { code: "validation_failed", message: errorMessage(error) } }, 400);
+    }
+  });
+
   app.get("/products/:productId/market-summary", async (c) => {
     const summary = await services.getMarketSummaryForItem(c.req.param("productId"));
     return c.json(summary);

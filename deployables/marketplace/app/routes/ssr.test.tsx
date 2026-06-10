@@ -237,6 +237,7 @@ describe("marketplace SSR routes", () => {
               image_urls: [],
               market_summary: null,
               market_listings: [],
+              offer_demand_matches: [],
               product_schema: null,
               updated_at: "2026-03-26T00:00:00.000Z",
             }),
