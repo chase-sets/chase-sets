@@ -63,6 +63,7 @@ Required work:
 
 - Add durable control-plane wake/readiness store in the control database.
 - Emit source-context event-store wake notifications after commit using the [event-store wake notification contract](./event-store-wake-notifications.md).
+- Classify source-context rollout state using the [source-context wake registry](./source-context-wake-registry.md) before enabling writer or relay behavior.
 - Build active/standby worker-owned relay for enabled source contexts.
 - Build projection interest index and wake-intent scheduler.
 - Add checkpoint-readiness wakeups for API freshness waits.
@@ -73,7 +74,7 @@ Required work:
 Hard blockers for Checkout push-first rollout:
 
 - ADR accepted and Phase 1 topology approved.
-- Checkout source context enabled in the relay registry.
+- Checkout source context enabled in the source-context wake registry for both event-store wake emission and relay fan-out.
 - Connection budget proves Phase 1 fits staging and production proof mode.
 - Guest Buy Now canary proves pay-ready or safe temporary recovery inside SLO.
 - Kill switches can disable push wakes without removing exact freshness waits.
@@ -87,6 +88,7 @@ Required work:
 - Adapt durable job event waits to shared notification/waiter/metrics primitives or document a budgeted exception.
 - Keep platform projection operation event waits on the work-signal composite and preserve mixed-version compatibility with the earlier raw notification payload during rollout.
 - Review realtime SSE wake signals against DigitalOcean listener budgets; migrate to the composite listener/relay path or document a budgeted local-listener exception.
+- Use the source-context wake registry as the rollout input for writer config, relay config, connection budget, wake-store capacity budget, dashboards, runbooks, and migration inventory.
 - Add structure checks that block new unreviewed direct wake/listener helpers.
 - Add compatibility wrappers so old and new helper APIs can overlap safely during rolling deployments.
 
@@ -103,7 +105,7 @@ Goal: finish milestone-wide rollout and remove stale patterns.
 
 Required work:
 
-- Expand source contexts through the relay registry by owner-approved rollout waves.
+- Expand source contexts through the source-context wake registry by owner-approved rollout waves.
 - Prove combined projection wake, durable job, projection operation, realtime, and scheduled/manual trigger load.
 - Complete production proof mode and promotion evidence.
 - Retire stale passive polling assumptions, duplicate listener helpers, obsolete docs, and obsolete tests.
