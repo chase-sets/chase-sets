@@ -17,7 +17,6 @@ import type { SettlementPayoutReadinessRow } from "@chase-sets/settlement/server
 import {
   createCheckoutRequestApiClient,
   type CheckoutSellListLineRow,
-  type CheckoutSellListReceiptRow,
   type SellListReadinessDecisionInput,
 } from "../support/request-support/api-client";
 import { readAnonymousSellListId } from "../support/request-support/guest-checkout";
@@ -233,31 +232,16 @@ async function loadPayoutReadiness(request: Request): Promise<SettlementPayoutRe
   }
 }
 
-async function assertPayoutReady(request: Request) {
-  let readiness: SettlementPayoutReadinessRow;
-  try {
-    readiness = await createSettlementRequestApiClient(request).getPayoutReadiness();
-  } catch {
-    throw new Error("Payout readiness is unavailable. Refresh payout setup before committing sale checkout.");
-  }
-
-  if (readiness.status !== "ready") {
-    throw new Error("Finish payout setup before committing sale checkout.");
-  }
-}
-
 export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   const api = createCheckoutRequestApiClient(request);
   const anonymousSellListId = readAnonymousSellListId(request);
-  const reviewCompleted = new URL(request.url).searchParams.get("review") === "completed";
 
   if (!canUseAccountSellList(actor)) {
     const sellList = await api.getGuestSellList(anonymousSellListId);
 
     return {
       isSignedIn: false,
-      reviewCompleted: false,
       sellList,
       offerReviews: await loadGuestSellListOfferReviews(request, sellList.items),
     };
@@ -271,11 +255,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
   return {
     isSignedIn: true,
-    sellListExecutionId: sellList.latestPendingExecution?.execution_id ?? createId("sle"),
-    latestPendingExecution: sellList.latestPendingExecution ?? null,
-    reviewCompleted,
     sellList,
-    latestReceipt: sellList.latestReceipt ?? null,
     offerReviews: await loadSellListOfferReviews(request, sellList.items),
     productOfferReviews: await loadSellListProductOfferReviews(request, sellList.items),
     inventoryItems: await loadSellListInventory(request, sellList.items),
@@ -287,17 +267,12 @@ function formValue(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
 }
 
-function deterministicSellListListingId(executionId: string, actionKey: string) {
-  const compact = `${executionId}:${actionKey}`.replace(/[^a-zA-Z0-9]/g, "").slice(0, 80);
-  return `lst_${compact}`;
-}
-
-type SellListExecutionPlan = Readonly<{
+type SellListReviewPlan = Readonly<{
   version: 1;
-  lines: readonly SellListExecutionPlanLine[];
+  lines: readonly SellListReviewPlanLine[];
 }>;
 
-type SellListExecutionPlanLine = Readonly<{
+type SellListReviewPlanLine = Readonly<{
   lineId: string;
   lineType: "selected-offer" | "product";
   itemTitle: string;
@@ -309,26 +284,13 @@ type SellListExecutionPlanLine = Readonly<{
   skippedReasons: readonly string[];
 }>;
 
-type SellListExecutionProgress = Readonly<{
-  completedActionKeys: readonly string[];
-}>;
-
-function isSellListExecutionPlan(value: unknown): value is SellListExecutionPlan {
-  return (
-    Boolean(value) &&
-    typeof value === "object" &&
-    (value as { version?: unknown }).version === 1 &&
-    Array.isArray((value as { lines?: unknown }).lines)
-  );
-}
-
-async function buildSellListExecutionPlan(
+async function buildSellListReviewPlan(
   request: Request,
   lines: readonly CheckoutSellListLineRow[],
   formData: FormData,
-): Promise<SellListExecutionPlan> {
+): Promise<SellListReviewPlan> {
   const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const executionLines: SellListExecutionPlanLine[] = [];
+  const reviewLines: SellListReviewPlanLine[] = [];
 
   for (const line of lines) {
     if (line.line_type === "selected-offer") {
@@ -347,7 +309,7 @@ async function buildSellListExecutionPlan(
         );
       }
 
-      executionLines.push({
+      reviewLines.push({
         lineId: line.line_id,
         lineType: "selected-offer",
         itemTitle: line.item_title,
@@ -392,7 +354,7 @@ async function buildSellListExecutionPlan(
     }
 
     const createFallbackListing = formValue(formData, `fallbackMode:${line.line_id}`) === "create-listing";
-    let fallbackListing: SellListExecutionPlanLine["fallbackListing"] = null;
+    let fallbackListing: SellListReviewPlanLine["fallbackListing"] = null;
     if (plannedRemainingQuantity > 0 && createFallbackListing) {
       const inventoryItemId = formValue(formData, `inventoryItemId:${line.line_id}`);
       const priceAmount = formValue(formData, `priceAmount:${line.line_id}`);
@@ -413,7 +375,7 @@ async function buildSellListExecutionPlan(
       );
     }
 
-    executionLines.push({
+    reviewLines.push({
       lineId: line.line_id,
       lineType: "product",
       itemTitle: line.item_title,
@@ -426,22 +388,19 @@ async function buildSellListExecutionPlan(
     });
   }
 
-  return { version: 1, lines: executionLines };
+  return { version: 1, lines: reviewLines };
 }
 
-function isSellListExecutionProgress(value: unknown): value is SellListExecutionProgress {
-  return (
-    Boolean(value) &&
-    typeof value === "object" &&
-    Array.isArray((value as { completedActionKeys?: unknown }).completedActionKeys)
-  );
-}
-
-function readinessDecisionsFromExecutionPlan(plan: SellListExecutionPlan): SellListReadinessDecisionInput {
+function readinessDecisionsFromReviewPlan(plan: SellListReviewPlan): SellListReadinessDecisionInput {
   const lineActions: Array<NonNullable<SellListReadinessDecisionInput["lineActions"]>[number]> = [];
   const lineOutcomes: Array<NonNullable<SellListReadinessDecisionInput["lineOutcomes"]>[number]> = [];
 
   for (const line of plan.lines) {
+    if (line.skippedReasons.length > 0) {
+      lineOutcomes.push({ lineId: line.lineId, outcome: "keep-in-list" });
+      continue;
+    }
+
     if (line.lineType === "selected-offer" && line.selectedOffer) {
       lineActions.push({ lineId: line.lineId, action: "selected-offer" });
       continue;
@@ -463,193 +422,29 @@ function readinessDecisionsFromExecutionPlan(plan: SellListExecutionPlan): SellL
   return { lineActions, lineOutcomes };
 }
 
-async function executeSellListCheckout(
-  request: Request,
-  executionId: string,
-  executionPlan: SellListExecutionPlan,
-  executionProgress: SellListExecutionProgress,
+function encodeReadinessDecisions(decisions: SellListReadinessDecisionInput) {
+  return JSON.stringify({
+    lineActions: decisions.lineActions ?? [],
+    lineOutcomes: decisions.lineOutcomes ?? [],
+  });
+}
+
+function encodeSellListReviewPlan(plan: SellListReviewPlan) {
+  return JSON.stringify(plan);
+}
+
+function sellCheckoutRedirectUrl(
+  readiness: Readonly<{ readiness: Readonly<{ snapshotId: string; sourceRevision: string }> }>,
+  decisions: SellListReadinessDecisionInput,
+  reviewPlan: SellListReviewPlan,
 ) {
-  const marketplaceApi = createMarketplaceRequestApiClient(request);
-  const checkoutApi = createCheckoutRequestApiClient(request);
-  const completedActionKeys = new Set(executionProgress.completedActionKeys);
-  const completedLineIds: string[] = [];
-  const remainingLineQuantities: Array<{ lineId: string; quantity: number }> = [];
-  const skippedReasons: string[] = [];
-  const lineOutcomes: NonNullable<CheckoutSellListReceiptRow["execution_summary"]["lineOutcomes"]>[number][] = [];
-  let acceptedOfferCount = 0;
-  let createdListingCount = 0;
-
-  for (const line of executionPlan.lines) {
-    skippedReasons.push(...line.skippedReasons);
-
-    if (line.lineType === "selected-offer") {
-      if (!line.selectedOffer) {
-        lineOutcomes.push({
-          lineId: line.lineId,
-          itemTitle: line.itemTitle,
-          status: "skipped",
-          action: "kept-in-sell-list",
-          quantity: line.quantity,
-          remainingQuantity: line.quantity,
-          detail:
-            line.skippedReasons.join(" ") ||
-            t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle: line.itemTitle }),
-        });
-        continue;
-      }
-
-      const actionKey = `selected-offer:${line.lineId}:${line.selectedOffer.offerId}`;
-      try {
-        if (!completedActionKeys.has(actionKey)) {
-          await marketplaceApi.acceptOfferMatch(line.selectedOffer.offerId, {
-            feeQuoteFingerprint: line.selectedOffer.feeQuoteFingerprint,
-            sourceActionKey: `${executionId}:${actionKey}`,
-          });
-          await checkoutApi.recordSellListExecutionProgress(executionId, { completedActionKey: actionKey });
-          completedActionKeys.add(actionKey);
-        }
-        completedLineIds.push(line.lineId);
-        acceptedOfferCount += 1;
-        lineOutcomes.push({
-          lineId: line.lineId,
-          itemTitle: line.itemTitle,
-          status: "completed",
-          action: "accepted-offer",
-          quantity: line.quantity,
-          remainingQuantity: 0,
-          detail: t("checkout.routes.accountSellList.selected.offer.accepted.detail", { itemTitle: line.itemTitle }),
-        });
-      } catch (error) {
-        const detail = t("checkout.routes.accountSellList.offer.accept.failed.detail", {
-          itemTitle: line.itemTitle,
-          message: error instanceof Error ? error.message : t("checkout.routes.accountSellList.offer.accept.failed"),
-        });
-        skippedReasons.push(detail);
-        lineOutcomes.push({
-          lineId: line.lineId,
-          itemTitle: line.itemTitle,
-          status: "skipped",
-          action: "kept-in-sell-list",
-          quantity: line.quantity,
-          remainingQuantity: line.quantity,
-          detail,
-        });
-      }
-      continue;
-    }
-
-    let remainingQuantity = line.quantity;
-    let acceptedQuantity = 0;
-    let listingQuantity = 0;
-
-    for (const target of line.productOfferTargets) {
-      const actionKey = `smart-match:${line.lineId}:${target.offerId}`;
-      try {
-        if (!completedActionKeys.has(actionKey)) {
-          await marketplaceApi.acceptOfferMatch(target.offerId, {
-            feeQuoteFingerprint: target.feeQuoteFingerprint,
-            sourceActionKey: `${executionId}:${actionKey}`,
-          });
-          await checkoutApi.recordSellListExecutionProgress(executionId, { completedActionKey: actionKey });
-          completedActionKeys.add(actionKey);
-        }
-        acceptedOfferCount += 1;
-        acceptedQuantity += target.quantity;
-        remainingQuantity -= target.quantity;
-      } catch (error) {
-        skippedReasons.push(`${line.itemTitle}: ${error instanceof Error ? error.message : "offer accept failed"}`);
-      }
-    }
-
-    if (line.fallbackListing && remainingQuantity > 0) {
-      const actionKey = `fallback-listing:${line.lineId}:${line.fallbackListing.inventoryItemId}:${line.fallbackListing.priceAmount}:${line.fallbackListing.quantityCap}`;
-      try {
-        if (!completedActionKeys.has(actionKey)) {
-          await marketplaceApi.createListing({
-            ...line.fallbackListing,
-            listingIdOverride: deterministicSellListListingId(executionId, actionKey),
-            sourceActionKey: `${executionId}:${actionKey}`,
-          });
-          await checkoutApi.recordSellListExecutionProgress(executionId, { completedActionKey: actionKey });
-          completedActionKeys.add(actionKey);
-        }
-        createdListingCount += 1;
-        listingQuantity = line.fallbackListing.quantityCap;
-        remainingQuantity -= line.fallbackListing.quantityCap;
-      } catch (error) {
-        skippedReasons.push(`${line.itemTitle}: ${error instanceof Error ? error.message : "listing create failed"}`);
-      }
-    }
-
-    if (remainingQuantity <= 0) {
-      completedLineIds.push(line.lineId);
-      const action =
-        acceptedQuantity > 0 && listingQuantity > 0
-          ? "mixed"
-          : acceptedQuantity > 0
-            ? "accepted-smart-match"
-            : "created-listing";
-      lineOutcomes.push({
-        lineId: line.lineId,
-        itemTitle: line.itemTitle,
-        status: "completed",
-        action,
-        quantity: line.quantity,
-        remainingQuantity: 0,
-        detail: t("checkout.routes.accountSellList.sale.action.completed.detail", {
-          itemTitle: line.itemTitle,
-          acceptedQuantity,
-          listingQuantity,
-        }),
-      });
-    } else if (acceptedQuantity > 0 || listingQuantity > 0) {
-      remainingLineQuantities.push({ lineId: line.lineId, quantity: remainingQuantity });
-      const detail = t("checkout.routes.accountSellList.sale.action.partial.detail", {
-        itemTitle: line.itemTitle,
-        executedQuantity: line.quantity - remainingQuantity,
-        remainingQuantity,
-      });
-      skippedReasons.push(detail);
-      lineOutcomes.push({
-        lineId: line.lineId,
-        itemTitle: line.itemTitle,
-        status: "partial",
-        action:
-          acceptedQuantity > 0 && listingQuantity > 0
-            ? "mixed"
-            : acceptedQuantity > 0
-              ? "accepted-smart-match"
-              : "created-listing",
-        quantity: line.quantity,
-        remainingQuantity,
-        detail,
-      });
-    } else {
-      lineOutcomes.push({
-        lineId: line.lineId,
-        itemTitle: line.itemTitle,
-        status: "skipped",
-        action: "kept-in-sell-list",
-        quantity: line.quantity,
-        remainingQuantity: line.quantity,
-        detail:
-          line.skippedReasons.join(" ") ||
-          t("checkout.routes.accountSellList.no.sale.action.completed.detail", { itemTitle: line.itemTitle }),
-      });
-    }
-  }
-
-  return {
-    completedLineIds,
-    remainingLineQuantities,
-    executionSummary: {
-      acceptedOfferCount,
-      createdListingCount,
-      skippedLineCount: lineOutcomes.filter((outcome) => outcome.status !== "completed").length,
-      skippedReasons,
-      lineOutcomes,
-    },
-  };
+  const query = new URLSearchParams({
+    readinessSnapshotId: readiness.readiness.snapshotId,
+    readinessSourceRevision: readiness.readiness.sourceRevision,
+    readinessDecisions: encodeReadinessDecisions(decisions),
+    sellListReviewPlan: encodeSellListReviewPlan(reviewPlan),
+  });
+  return `/checkout/sell/session/${createId("chk")}?${query.toString()}`;
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -709,7 +504,7 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
-    if (intent === "review-sell-list-checkout" || intent === "rebuild-sell-list-checkout") {
+    if (intent === "review-sell-list-checkout") {
       if (!useAccountSellList) {
         if (!anonymousSellListId) {
           return redirect(`/sign-in?returnTo=${encodeURIComponent("/account/sell-list")}`);
@@ -729,82 +524,17 @@ export async function action({ request }: ActionFunctionArgs) {
         );
       }
 
-      await assertPayoutReady(request);
       const sellList = await api.getSellList();
-      const executionId =
-        intent === "rebuild-sell-list-checkout"
-          ? createId("sle")
-          : formValue(formData, "sellListExecutionId") || createId("sle");
-
-      const existingReceipt =
-        executionId && typeof api.getSellListExecutionReceipt === "function"
-          ? await api.getSellListExecutionReceipt(executionId).catch(() => null)
-          : null;
-      if (existingReceipt) {
-        const query = new URLSearchParams({
-          review: "completed",
-          execution: executionId,
-          accepted: String(existingReceipt.execution_summary.acceptedOfferCount ?? 0),
-          listings: String(existingReceipt.execution_summary.createdListingCount ?? 0),
-          skipped: String(existingReceipt.execution_summary.skippedLineCount ?? 0),
-        });
-        return redirect(`/account/sell-list?${query.toString()}`);
-      }
-
-      const plannedExecution = await buildSellListExecutionPlan(request, sellList.items, formData);
-      const startedExecution =
-        typeof api.startSellListExecution === "function"
-          ? await api.startSellListExecution({ executionId, executionPlan: plannedExecution })
-          : {
-              status: "pending" as const,
-              executionPlan: plannedExecution,
-              executionProgress: { completedActionKeys: [] },
-              executionSummary: null,
-            };
-      if (startedExecution.status === "finalized") {
-        const summary = startedExecution.executionSummary ?? {};
-        const query = new URLSearchParams({
-          review: "completed",
-          execution: executionId,
-          accepted: String(summary.acceptedOfferCount ?? 0),
-          listings: String(summary.createdListingCount ?? 0),
-          skipped: String(summary.skippedLineCount ?? 0),
-        });
-        return redirect(`/account/sell-list?${query.toString()}`);
-      }
-
-      const executionPlan = isSellListExecutionPlan(startedExecution.executionPlan)
-        ? startedExecution.executionPlan
-        : plannedExecution;
-      const executionProgress = isSellListExecutionProgress(startedExecution.executionProgress)
-        ? startedExecution.executionProgress
-        : { completedActionKeys: [] };
-      const readinessDecisions = readinessDecisionsFromExecutionPlan(executionPlan);
+      const reviewPlan = await buildSellListReviewPlan(request, sellList.items, formData);
+      const readinessDecisions = readinessDecisionsFromReviewPlan(reviewPlan);
       const readiness = await api.createSellListReadiness(readinessDecisions);
       if (readiness.readiness.status !== "ready" || readiness.readiness.unresolvedLineIds.length > 0) {
         throw new Error("Sell List readiness must be resolved before seller checkout starts.");
       }
 
-      const result = await executeSellListCheckout(request, executionId, executionPlan, executionProgress);
-      if (result.completedLineIds.length === 0 && result.remainingLineQuantities.length === 0) {
-        throw new Error("No Sell List lines were ready to execute. Refresh offer terms or choose listing inventory.");
-      }
-
-      await api.checkoutSellList({
-        executionId,
-        readinessSnapshotId: readiness.readiness.snapshotId,
-        readinessSourceRevision: readiness.readiness.sourceRevision,
-        readinessDecisions,
-        ...result,
-      });
-      const query = new URLSearchParams({
-        review: "completed",
-        accepted: String(result.executionSummary.acceptedOfferCount),
-        listings: String(result.executionSummary.createdListingCount),
-        skipped: String(result.executionSummary.skippedLineCount),
-      });
-      query.set("execution", executionId);
-      return redirect(`/account/sell-list?${query.toString()}`);
+      return redirect(
+        appendFreshWriteToken(sellCheckoutRedirectUrl(readiness, readinessDecisions, reviewPlan), readiness),
+      );
     }
 
     return null;
@@ -829,9 +559,6 @@ export default function CheckoutAccountSellListRoute() {
     <CheckoutSellListPage
       sellListLines={data.sellList.items}
       isSignedIn={data.isSignedIn}
-      reviewCompleted={data.reviewCompleted}
-      sellListExecutionId={"sellListExecutionId" in data ? data.sellListExecutionId : null}
-      latestReceipt={"latestReceipt" in data ? data.latestReceipt : null}
       offerReviews={"offerReviews" in data ? data.offerReviews : []}
       productOfferReviews={"productOfferReviews" in data ? data.productOfferReviews : []}
       inventoryItems={"inventoryItems" in data ? data.inventoryItems : []}
