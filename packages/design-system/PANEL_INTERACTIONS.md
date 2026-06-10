@@ -74,6 +74,7 @@ Do not use "drawer" as a generic term. The only approved design-system drawer na
 - Responsive behavior: desktop opens a focused reference-detail dialog; mobile or cramped layouts use an accessible sheet/dialog equivalent.
 - Accessibility: the trigger must have a specific accessible name, expose `aria-haspopup="dialog"`, return focus after close, and avoid generic labels such as `More info`.
 - Example scenarios: Catalog admin Reference Record details, item-detail payout calculation context, Buy Cart matching explanation, registration timing detail, stale listing or offer context.
+- Full contract: [Reference Info Popup](./REFERENCE_INFO.md) owns the admin and marketplace usage rules and wrapper boundary.
 
 ### Popover / Menu
 

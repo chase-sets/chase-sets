@@ -34,6 +34,8 @@ Disclosure is not appropriate for ranked search facets that directly shape the a
 
 Use `ReferenceInfoTrigger` and `ReferenceInfoDialog` when a visible label needs optional structured detail behind it. This is the canonical pattern for reference-data facts, source/status metadata, marketplace term explanations, payout calculation context, matching rules, registration timing, stale-state recovery, and non-blocking policy context.
 
+Use [Reference Info Popup](./REFERENCE_INFO.md) for the complete admin and marketplace pattern contract, wrapper rule, and privacy guidance.
+
 The pattern is intentionally more structured than a tooltip and less workflow-heavy than a standalone sheet or page:
 
 - The parent UI keeps the required decision fact visible.
