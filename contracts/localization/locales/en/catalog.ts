@@ -486,6 +486,116 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.provider": "Provider: {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.scope": "Scope: {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.unit": "Unit: {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.active.profile.missing": "Active profile missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.authorization.denied": "Authorization denied",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.blocked": "Blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.catalog.api.unavailable":
+    "Catalog API unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.catalog.promotion.complete":
+    "Catalog promotion complete",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.command.unavailable": "Command unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.concurrent.jobs.detected":
+    "Concurrent jobs detected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.confirmation.required": "Confirmation required",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.degraded": "Degraded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.duplicate.evidence.conflict":
+    "Duplicate evidence conflict",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.evidence.panel.failed": "Evidence panel failed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.fixture.coverage.missing":
+    "Fixture coverage missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.fixture.validation.blocked":
+    "Fixture validation blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.idempotency.replay.in.progress":
+    "Idempotency replay in progress",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.import.already.running": "Import already running",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.import.completed.with.partial.data":
+    "Import completed with partial data",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.import.context.is.incomplete":
+    "Import context is incomplete",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.job.not.found": "Job not found",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.kill.switch.active": "Kill switch active",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.needs.input": "Needs input",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.no.audit.evidence.for.this.context":
+    "No audit evidence for this context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.no.durable.import.jobs.for.this.context":
+    "No durable import jobs for this context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.no.observations.selected":
+    "No observations selected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.no.promotable.observations":
+    "No promotable observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.no.provider.scopes.are.ready.for.import":
+    "No provider scopes are ready for import",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.no.source.observations.in.this.context":
+    "No Source Observations in this context",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.nothing.ready.to.review":
+    "Nothing ready to review",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.observations.deferred": "Observations deferred",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.observations.rejected": "Observations rejected",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.old.selector.removed": "Old selector removed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.partial.provider.data": "Partial provider data",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.payload.escape.hatch.removed":
+    "Payload escape hatch removed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.permission.denied": "Permission denied",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.evidence.missing":
+    "Profile evidence missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.profile.version.missing":
+    "Profile version missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.promotion.conflict": "Promotion conflict",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.promotion.preview.is.stale":
+    "Promotion preview is stale",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.promotion.preview.required":
+    "Promotion preview required",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.context.required":
+    "Provider context required",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.credential.expired":
+    "Provider credential expired",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.credential.invalid":
+    "Provider credential invalid",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.credential.missing":
+    "Provider credential missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.data.pulled": "Provider data pulled",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.degraded": "Provider degraded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.pagination.failed":
+    "Provider pagination failed",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.pull.blocked": "Provider pull blocked",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.pull.denied": "Provider pull denied",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.quota.exhausted":
+    "Provider quota exhausted",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.throttle": "Provider throttle",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.provider.timeout": "Provider timeout",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.rate.limit.cooldown": "Rate limit cooldown",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.rbac.grant.missing": "RBAC grant missing",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.read.model.degraded": "Read model degraded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.read.model.partial": "Read model partial",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.read.model.unavailable": "Read model unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.ready": "Ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.reapply.complete": "Reapply complete",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.replay.complete": "Replay complete",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.review.evidence.degraded":
+    "Review evidence degraded",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.rollout.stopped": "Rollout stopped",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.route.could.not.load": "Route could not load",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.security.or.privacy.block":
+    "Security or privacy block",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.security.or.privacy.blocker":
+    "Security or privacy blocker",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.source.observation.not.found":
+    "Source Observation not found",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.source.observation.projection.stale":
+    "Source Observation projection stale",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.stale.promotion.preview":
+    "Stale promotion preview",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.stale.provider.cache": "Stale provider cache",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.stale.replay.checkpoint":
+    "Stale replay checkpoint",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.telemetry.unavailable": "Telemetry unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unavailable": "Unavailable",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unsafe": "Unsafe",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unsupported.control.plane.version":
+    "Unsupported control-plane version",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.label.unsupported.deployed.version":
+    "Unsupported deployed version",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix": "Next:",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.route.context": "Copy route context",
   "catalog.features.sourceObservations.ui.primaryWorkbench.current": "Current",
   "catalog.features.sourceObservations.ui.primaryWorkbench.default.workspace": "Default workspace",

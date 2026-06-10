@@ -107,6 +107,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Catalog Control Plane Primary Path](../bounded-contexts/catalog/docs/catalog-control-plane-primary-path.md)
 - [Catalog Control Plane Information Architecture](../bounded-contexts/catalog/docs/catalog-control-plane-information-architecture.md)
 - [Catalog Control Plane Section Navigation](../bounded-contexts/catalog/docs/catalog-control-plane-section-navigation.md)
+- [Catalog Control Plane Operator Copy](../bounded-contexts/catalog/docs/catalog-control-plane-operator-copy.md)
 - [Catalog Control Plane Clean Contract Handoff](../bounded-contexts/catalog/docs/catalog-control-plane-clean-contract-handoff.md)
 - [Catalog Control Plane First-Slice Stage Board](../bounded-contexts/catalog/docs/catalog-control-plane-first-slice-stage-board.md)
 - [Catalog Primary Workbench Admin Contract](../bounded-contexts/catalog/docs/primary-workbench-admin-contract.md)

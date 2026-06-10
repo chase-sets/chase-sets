@@ -128,6 +128,49 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
+  it("renders provider transport blockers with operator reason and next step copy", () => {
+    const baseOverview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview({
+        readiness: {
+          ...baseOverview.readiness,
+          units: [
+            {
+              ...baseOverview.readiness.units[0]!,
+              transportReadiness: "blocked",
+              diagnostics: [
+                {
+                  code: "provider-timeout",
+                  severity: "error",
+                  message: "Provider timeout while fetching payloads.",
+                  unitKey: "tcgdex:pokemon:card:import",
+                  retryAfterSeconds: null,
+                  source: "provider-adapter",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getAllByText("Provider timeout").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/The adapter timed out before receiving a complete provider response/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Next: Retry the provider pull after checking health triage/i).length).toBeGreaterThan(
+      0,
+    );
+    expect(screen.queryByText("provider-transport-timeout")).toBeNull();
+  });
+
   it("renders Source Observation evidence rows, drawer details, and bulk selection without raw payloads", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
@@ -253,6 +296,10 @@ describe("CatalogPrimaryWorkbenchPage", () => {
         .every((button) => button.hasAttribute("disabled")),
     ).toBe(true);
     expect(screen.getAllByText("Permission denied").length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/This operator account cannot run the requested Catalog command/i).length,
+    ).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Next: Ask an admin to grant catalog.manage/i).length).toBeGreaterThan(0);
     expect(screen.queryByText(/all providers/i)).toBeNull();
   });
 });
