@@ -83,7 +83,7 @@ export type CatalogIntegrationJob<T = unknown> = Readonly<{
   }> | null;
   reapplyProfileMode: "original-source-profile" | "current-active-profile" | null;
   status: "queued" | "running" | "completed" | "failed";
-  operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "completed";
+  operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "cancelled" | "completed";
   consistency: Readonly<{
     duplicateSubmissionPolicy: "reuse-active-job";
     profileSnapshotPolicy: "snapshotted-at-enqueue";
@@ -1475,6 +1475,33 @@ export function createCatalogApiClient({
       });
       return parseJsonResponse<T>(response);
     },
+    async retrySourceObservationIntegrationJob<T>(jobId: string): Promise<T> {
+      return sourceObservationIntegrationJobLifecycleCommand<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        jobId,
+        command: "retry",
+      });
+    },
+    async resumeSourceObservationIntegrationJob<T>(jobId: string): Promise<T> {
+      return sourceObservationIntegrationJobLifecycleCommand<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        jobId,
+        command: "resume",
+      });
+    },
+    async cancelSourceObservationIntegrationJob<T>(jobId: string): Promise<T> {
+      return sourceObservationIntegrationJobLifecycleCommand<T>({
+        baseUrl,
+        fetch: configuredFetch,
+        headers,
+        jobId,
+        command: "cancel",
+      });
+    },
     async listActiveSourceObservationIntegrationJobs<T>(): Promise<T> {
       const response = await configuredFetch(
         `${baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs/active`,
@@ -1503,6 +1530,25 @@ export function createCatalogApiClient({
 }
 
 export const api = createCatalogApiClient();
+
+async function sourceObservationIntegrationJobLifecycleCommand<T>(input: {
+  baseUrl: string;
+  fetch: typeof globalThis.fetch;
+  headers?: HeadersInit;
+  jobId: string;
+  command: "retry" | "resume" | "cancel";
+}): Promise<T> {
+  const response = await input.fetch(
+    `${input.baseUrl.replace(/\/$/, "")}/source-observations/integration-jobs/${encodeURIComponent(input.jobId)}/${
+      input.command
+    }`,
+    {
+      method: "POST",
+      headers: headersToRecord(input.headers),
+    },
+  );
+  return parseJsonResponse<T>(response);
+}
 
 async function startBulkJob<T>(input: {
   baseUrl: string;

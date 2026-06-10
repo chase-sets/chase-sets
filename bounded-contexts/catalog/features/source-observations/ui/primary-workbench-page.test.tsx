@@ -120,6 +120,13 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText("import job job_001 is running (7/24).").length).toBeGreaterThan(0);
     expect(screen.getAllByText("7/24 work units, 29% complete").length).toBeGreaterThan(0);
     expect(screen.getAllByRole("button", { name: /Pull provider data/i })[0]?.hasAttribute("disabled")).toBe(true);
+    expect(screen.getAllByRole("button", { name: "Cancel" }).length).toBeGreaterThan(0);
+
+    const cancelForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="cancel-import-job"]',
+    );
+    expect(cancelForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("cancel-import-job");
+    expect(cancelForm?.querySelector<HTMLInputElement>('input[name="jobId"]')?.value).toBe("job_001");
 
     const reviewLinks = screen.getAllByRole("link", { name: "Review observations" });
     expect(reviewLinks.some((link) => link.getAttribute("href")?.includes("section=source-observation-review"))).toBe(

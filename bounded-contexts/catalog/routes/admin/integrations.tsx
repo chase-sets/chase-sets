@@ -32,6 +32,9 @@ import { loadCatalogListRouteData } from "../../support/shell-support/list-query
 type CatalogPrimaryWorkbenchFormIntent = Extract<
   CatalogPrimaryWorkbenchActionReadModel["key"],
   | "start-provider-import"
+  | "retry-import-job"
+  | "resume-import-job"
+  | "cancel-import-job"
   | "preview-promotion"
   | "execute-promotion"
   | "reject-source-observations"
@@ -116,6 +119,37 @@ export async function action({ request }: ActionFunctionArgs) {
           intent,
           status: "success",
           result: "job-queued",
+        });
+      }
+      case "retry-import-job":
+      case "resume-import-job":
+      case "cancel-import-job": {
+        if (!context.jobId) {
+          return commandRedirect({
+            context: { ...context, selectedObservationIds },
+            intent,
+            status: "error",
+            result: "job-required",
+          });
+        }
+
+        const job =
+          intent === "retry-import-job"
+            ? await api.retrySourceObservationIntegrationJob<CatalogCommandJobResponse>(context.jobId)
+            : intent === "resume-import-job"
+              ? await api.resumeSourceObservationIntegrationJob<CatalogCommandJobResponse>(context.jobId)
+              : await api.cancelSourceObservationIntegrationJob<CatalogCommandJobResponse>(context.jobId);
+
+        return commandRedirect({
+          context: {
+            ...context,
+            selectedObservationIds,
+            jobId: stringValue(job.jobId) ?? context.jobId,
+            promotionPreviewId: null,
+          },
+          intent,
+          status: "success",
+          result: intent === "cancel-import-job" ? "job-cancelled" : "job-queued",
         });
       }
       case "preview-promotion": {
@@ -349,8 +383,10 @@ function commandFeedbackFromUrl(url: string | URL): CatalogPrimaryWorkbenchComma
 function isCommandFeedbackResult(value: string | null): value is CatalogPrimaryWorkbenchCommandFeedback["result"] {
   return (
     value === "job-queued" ||
+    value === "job-cancelled" ||
     value === "preview-ready" ||
     value === "preview-required" ||
+    value === "job-required" ||
     value === "reason-required" ||
     value === "unsupported-command" ||
     value === "invalid-intent" ||

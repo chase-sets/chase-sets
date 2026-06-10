@@ -13,6 +13,7 @@ import {
   type DurableJobEvent,
   type DurableJobExecutionContext,
   type DurableJobRecord,
+  type DurableJobStatus,
 } from "@chase-sets/platform-runtime/durable-job-store";
 import {
   createPostgresDurableJobWorkUnitStore,
@@ -345,6 +346,12 @@ export type SourceObservationIntegrationJobResult = Readonly<{
   outcomes: readonly SourceObservationIntegrationJobOutcome[];
 }>;
 
+type SourceObservationIntegrationDurableJobRecord = DurableJobRecord<
+  SourceObservationIntegrationJobPayload,
+  BulkSourceObservationProgress,
+  SourceObservationIntegrationJobResult
+>;
+
 export type SourceObservationIntegrationJobOperatorStatus =
   | "queued"
   | "running"
@@ -352,7 +359,31 @@ export type SourceObservationIntegrationJobOperatorStatus =
   | "retried"
   | "partial"
   | "failed"
+  | "cancelled"
   | "completed";
+
+export type SourceObservationIntegrationJobLifecycleCommandErrorCode =
+  | "job_not_found"
+  | "unsupported_action"
+  | "unsupported_state";
+
+export class SourceObservationIntegrationJobLifecycleCommandError extends Error {
+  constructor(
+    public readonly code: SourceObservationIntegrationJobLifecycleCommandErrorCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "SourceObservationIntegrationJobLifecycleCommandError";
+  }
+}
+
+export function isSourceObservationIntegrationJobLifecycleCommandError(
+  error: unknown,
+): error is SourceObservationIntegrationJobLifecycleCommandError {
+  return error instanceof SourceObservationIntegrationJobLifecycleCommandError;
+}
+
+const OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE = "Operator cancelled provider import job.";
 
 export type SourceObservationIntegrationJobConsistency = Readonly<{
   duplicateSubmissionPolicy: "reuse-active-job";
@@ -641,6 +672,18 @@ export type IntegrationJobServices = Readonly<{
   enqueueIntegrationJob: (input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationIntegrationJob>;
+  retryIntegrationJob: (input: {
+    jobId: string;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationIntegrationJob>;
+  resumeIntegrationJob: (input: {
+    jobId: string;
+    context: EventStoreContext;
+  }) => Promise<SourceObservationIntegrationJob>;
+  cancelIntegrationJob: (input: {
+    jobId: string;
     context: EventStoreContext;
   }) => Promise<SourceObservationIntegrationJob>;
   getIntegrationJob: (
@@ -1903,6 +1946,146 @@ export function createSourceObservationRuntime(
     return toSourceObservationIntegrationJob(job);
   }
 
+  async function retryIntegrationJob(input: {
+    jobId: string;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationJob> {
+    const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    if (job.status === "running" && isDurableJobClaimExpired(job)) {
+      return resumeIntegrationJob(input);
+    }
+    if (job.status === "queued" || job.status === "running") {
+      return toSourceObservationIntegrationJob(job);
+    }
+
+    const operatorStatus = integrationJobOperatorStatus(job);
+    if (operatorStatus === "completed") {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Completed provider import jobs without failed outcomes cannot be retried.",
+      );
+    }
+
+    const retryResult = retryableIntegrationJobResult(job.result, job.progress.total);
+    const requeued = await integrationJobStore.requeue({
+      jobId: job.jobId,
+      progress: bulkProgress(retryResult.outcomes.length, retryResult.requested, null, null, "queued"),
+      result: retryResult,
+      errorMessage: null,
+      allowedStatuses: ["failed", "completed"],
+    });
+
+    if (!requeued) {
+      const currentJob = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+      if (currentJob.status === "queued" || currentJob.status === "running") {
+        return toSourceObservationIntegrationJob(currentJob);
+      }
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Provider import job could not be requeued for retry.",
+      );
+    }
+
+    return toSourceObservationIntegrationJob(requeued);
+  }
+
+  async function resumeIntegrationJob(input: {
+    jobId: string;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationJob> {
+    const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    if (job.status === "queued") {
+      return toSourceObservationIntegrationJob(job);
+    }
+    if (job.status !== "running") {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Only queued or stale running provider import jobs can be resumed.",
+      );
+    }
+    if (!isDurableJobClaimExpired(job)) {
+      return toSourceObservationIntegrationJob(job);
+    }
+
+    const requeued = await integrationJobStore.requeue({
+      jobId: job.jobId,
+      progress: {
+        ...job.progress,
+        phase: "queued",
+      },
+      result: job.result ?? undefined,
+      errorMessage: null,
+      allowedStatuses: ["running"],
+      requireExpiredClaim: true,
+    });
+
+    if (!requeued) {
+      return toSourceObservationIntegrationJob(await requireImportIntegrationLifecycleJob(input.jobId, input.context));
+    }
+
+    return toSourceObservationIntegrationJob(requeued);
+  }
+
+  async function cancelIntegrationJob(input: {
+    jobId: string;
+    context: EventStoreContext;
+  }): Promise<SourceObservationIntegrationJob> {
+    const job = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+    if (isOperatorCancelledIntegrationJob(job)) {
+      return toSourceObservationIntegrationJob(job);
+    }
+    if (job.status !== "queued" && job.status !== "running") {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Only queued or running provider import jobs can be cancelled.",
+      );
+    }
+
+    const cancelled = await integrationJobStore.cancel({
+      jobId: job.jobId,
+      progress: {
+        ...job.progress,
+        phase: "failed",
+      },
+      errorMessage: OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE,
+      allowedStatuses: ["queued", "running"],
+    });
+
+    if (!cancelled) {
+      const currentJob = await requireImportIntegrationLifecycleJob(input.jobId, input.context);
+      if (isOperatorCancelledIntegrationJob(currentJob)) {
+        return toSourceObservationIntegrationJob(currentJob);
+      }
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Provider import job could not be cancelled from its current state.",
+      );
+    }
+
+    return toSourceObservationIntegrationJob(cancelled);
+  }
+
+  async function requireImportIntegrationLifecycleJob(
+    jobId: string,
+    context: EventStoreContext,
+  ): Promise<SourceObservationIntegrationDurableJobRecord> {
+    const job = await integrationJobStore.get(jobId);
+    if (!job || !jobMatchesContext(job, context)) {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "job_not_found",
+        "Provider import job was not found for the current operator context.",
+      );
+    }
+    if (job.payload.action !== "import") {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_action",
+        "Only provider import jobs support retry, resume, and cancel lifecycle commands.",
+      );
+    }
+
+    return job;
+  }
+
   async function processNextIntegrationJob(
     input: {
       claimOwnerId: string;
@@ -2197,7 +2380,10 @@ export function createSourceObservationRuntime(
     throwIfJobRunCancelled(input.context);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(expansions.length, []);
     const completedExpansionIds = new Set(
-      previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean),
+      previousResult.outcomes
+        .filter((outcome) => outcome.status !== "failed")
+        .map((outcome) => outcome.expansionId)
+        .filter(Boolean),
     );
     const nextExpansion = expansions.find((expansion) => !completedExpansionIds.has(expansion.expansionId));
 
@@ -2510,7 +2696,12 @@ export function createSourceObservationRuntime(
     const targets = await resolveTcgplayerImportTargets(input.scope);
     throwIfJobRunCancelled(input.context);
     const previousResult = input.job.result ?? summarizeIntegrationJobOutcomes(targets.length, []);
-    const completedTargetIds = new Set(previousResult.outcomes.map((outcome) => outcome.expansionId).filter(Boolean));
+    const completedTargetIds = new Set(
+      previousResult.outcomes
+        .filter((outcome) => outcome.status !== "failed")
+        .map((outcome) => outcome.expansionId)
+        .filter(Boolean),
+    );
     const nextTarget = targets.find((target) => !completedTargetIds.has(target.targetId));
 
     if (!nextTarget) {
@@ -2965,6 +3156,9 @@ export function createSourceObservationRuntime(
     processNextBulkReviewJob,
     getBulkReviewWorkUnitSummary: (input = {}) => bulkReviewWorkUnitStore.summarize({ jobId: input.jobId ?? null }),
     enqueueIntegrationJob,
+    retryIntegrationJob,
+    resumeIntegrationJob,
+    cancelIntegrationJob,
     getIntegrationJob: async (jobId, context) => {
       const job = await integrationJobStore.get(jobId);
       if (job && context && !jobMatchesContext(job, context)) {
@@ -4759,7 +4953,7 @@ function toSourceObservationIntegrationJob(
     profileSnapshot: job.payload.profileSnapshot ?? null,
     reapplyProfileMode: normalizeReapplyProfileMode(job.payload.reapplyProfileMode),
     status: job.status,
-    operatorStatus: integrationJobOperatorStatus(job.status, result),
+    operatorStatus: integrationJobOperatorStatus(job),
     consistency: {
       duplicateSubmissionPolicy: "reuse-active-job",
       profileSnapshotPolicy: "snapshotted-at-enqueue",
@@ -4778,14 +4972,46 @@ function toSourceObservationIntegrationJob(
 }
 
 function integrationJobOperatorStatus(
-  status: SourceObservationBulkJobStatus,
-  result: SourceObservationIntegrationJobResult | null,
+  job: SourceObservationIntegrationDurableJobRecord,
 ): SourceObservationIntegrationJobOperatorStatus {
-  if (status === "completed" && result && result.failed > 0) {
+  if (isOperatorCancelledIntegrationJob(job)) {
+    return "cancelled";
+  }
+  if (job.status === "running" && isDurableJobClaimExpired(job)) {
+    return "stale";
+  }
+  if (job.status === "completed" && job.result && job.result.failed > 0) {
     return "partial";
   }
 
-  return status;
+  return job.status;
+}
+
+function isOperatorCancelledIntegrationJob(job: Readonly<{ status: DurableJobStatus; errorMessage: string | null }>) {
+  return job.status === "failed" && job.errorMessage === OPERATOR_CANCELLED_INTEGRATION_IMPORT_MESSAGE;
+}
+
+function isDurableJobClaimExpired(job: Readonly<{ claimedUntil: string | null }>) {
+  if (!job.claimedUntil) {
+    return true;
+  }
+
+  const claimedUntil = Date.parse(job.claimedUntil);
+  return !Number.isFinite(claimedUntil) || claimedUntil <= Date.now();
+}
+
+function retryableIntegrationJobResult(
+  result: SourceObservationIntegrationJobResult | null,
+  requestedFallback: number,
+): SourceObservationIntegrationJobResult {
+  if (!result) {
+    return summarizeIntegrationJobOutcomes(Math.max(0, requestedFallback), []);
+  }
+
+  return summarizeIntegrationJobOutcomes(
+    result.requested,
+    result.outcomes.filter((outcome) => outcome.status !== "failed"),
+  );
 }
 
 function toSourceObservationIntegrationJobEventSnapshot(

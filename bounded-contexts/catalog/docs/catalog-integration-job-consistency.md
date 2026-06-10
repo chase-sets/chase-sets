@@ -13,7 +13,9 @@ Catalog owns consistency for provider profile lifecycle work, integration jobs, 
 ## Retry And Resume
 
 - Worker turns are bounded. Each successful turn persists progress and mixed outcomes before releasing the claim.
-- Retrying an import skips expansion or target outcomes already recorded on the job result.
+- Retrying an import requeues the same durable job id, preserves the snapshotted profile, keeps successful expansion or target outcomes, and prunes failed outcomes so only failed provider work runs again.
+- Resuming an import requeues the same durable job only when it is queued or the running claim is stale. A live running claim returns the current job snapshot instead of creating duplicate provider work.
+- Cancelling an import marks the durable job as failed with operator status `cancelled`, clears live claims, records a status event, and leaves successful mixed outcomes visible for audit. Completed jobs and unsupported actions fail closed.
 - Reapply work units are claimed independently and use Source Observation IDs as unit IDs, so replaying worker setup does not enqueue duplicate units for completed observations.
 - Lost parent-job or work-unit leases cause a handoff instead of marking the job failed. The next worker resumes from durable outcomes and terminal work-unit states.
 - API and worker deploy skew is safe because jobs execute against their snapshotted profile version instead of whichever version is active after deployment.
@@ -37,6 +39,7 @@ Admin job summaries expose both durable state and operator status:
 - `retried`: reserved for projections that aggregate retry attempts from work-unit history.
 - `partial`: the job completed with one or more failed outcomes.
 - `failed`: the job itself failed before a complete mixed result was durable.
+- `cancelled`: an operator cancelled a queued or running provider import job.
 - `completed`: all requested work completed without failed outcomes.
 
 The job DTO also exposes consistency policy names: duplicate submissions reuse active jobs, profile snapshots are captured at enqueue, retry/resume skips completed outcomes, partial failures are mixed outcomes, and work is claimed through leased job turns or leased work units depending on the workflow.
@@ -46,3 +49,5 @@ The job DTO also exposes consistency policy names: duplicate submissions reuse a
 Rollback activates a prior validated profile version and deprecates the current active version; it does not rewrite observations or running jobs. Retirement requires the profile to be inactive and unreferenced by Source Observations, and it is blocked while matching active jobs are present.
 
 Pre-launch reset is blocked while integration or bulk review jobs are queued or running. Forced active-job cleanup is only for explicit pre-launch wipe decisions; normal rollback cancels or drains active work, activates the prior profile version, and enqueues fresh import/reapply work when the rollback must affect new processing.
+
+For the Catalog Control Plane rebuild, "retire", "remove", "deprecate", and "cleanup" mean complete deletion from runtime code, API routes, UI modules, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims.

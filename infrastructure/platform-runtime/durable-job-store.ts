@@ -78,6 +78,20 @@ export type DurableJobStore<
     progress: TProgress;
     result?: TResult | null;
   }) => Promise<boolean>;
+  requeue: (input: {
+    jobId: string;
+    progress: TProgress;
+    result?: TResult | null;
+    errorMessage?: string | null;
+    allowedStatuses?: readonly DurableJobStatus[];
+    requireExpiredClaim?: boolean;
+  }) => Promise<DurableJobRecord<TPayload, TProgress, TResult> | null>;
+  cancel: (input: {
+    jobId: string;
+    progress: TProgress;
+    errorMessage: string;
+    allowedStatuses?: readonly DurableJobStatus[];
+  }) => Promise<DurableJobRecord<TPayload, TProgress, TResult> | null>;
   complete: (input: { jobId: string; claimOwnerId: string; progress: TProgress; result: TResult }) => Promise<boolean>;
   fail: (input: { jobId: string; claimOwnerId: string; progress: TProgress; errorMessage: string }) => Promise<boolean>;
   get: (jobId: string) => Promise<DurableJobRecord<TPayload, TProgress, TResult> | null>;
@@ -349,6 +363,53 @@ export function createPostgresDurableJobStore<
         ],
       );
       return Boolean(job);
+    },
+    requeue: async (input) => {
+      const allowedStatuses: DurableJobStatus[] = input.allowedStatuses?.length
+        ? [...new Set(input.allowedStatuses)]
+        : ["failed", "completed"];
+      return updateAndAppend(
+        `UPDATE ${jobsTable}
+         SET status = 'queued',
+             progress = $2::jsonb,
+             result = COALESCE($3::jsonb, result),
+             error_message = $4,
+             claim_owner_id = NULL,
+             claimed_until = NULL,
+             completed_at = NULL,
+             updated_at = now()
+         WHERE job_id = $1
+           AND status = ANY($5::text[])
+           AND ($6::boolean = false OR claimed_until IS NULL OR claimed_until <= now())
+         RETURNING ${DURABLE_JOB_COLUMNS}`,
+        [
+          input.jobId,
+          JSON.stringify(input.progress),
+          input.result === undefined ? null : JSON.stringify(input.result),
+          input.errorMessage ?? null,
+          allowedStatuses,
+          input.requireExpiredClaim ?? false,
+        ],
+      );
+    },
+    cancel: async (input) => {
+      const allowedStatuses: DurableJobStatus[] = input.allowedStatuses?.length
+        ? [...new Set(input.allowedStatuses)]
+        : ["queued", "running"];
+      return updateAndAppend(
+        `UPDATE ${jobsTable}
+         SET status = 'failed',
+             progress = $2::jsonb,
+             error_message = $3,
+             claim_owner_id = NULL,
+             claimed_until = NULL,
+             completed_at = now(),
+             updated_at = now()
+         WHERE job_id = $1
+           AND status = ANY($4::text[])
+         RETURNING ${DURABLE_JOB_COLUMNS}`,
+        [input.jobId, JSON.stringify(input.progress), input.errorMessage, allowedStatuses],
+      );
     },
     waitForEvents: async (input) => {
       const timeoutMs = Math.max(100, Math.floor(input.timeoutMs ?? 500));

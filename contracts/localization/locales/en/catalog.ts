@@ -180,6 +180,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.source.observation.not.found": "Source observation not found.",
   "catalog.features.sourceObservations.api.route.bulk.job.not.found": "Bulk job was not found.",
   "catalog.features.sourceObservations.api.route.integration.job.invalid.action": "Unknown integration job action.",
+  "catalog.features.sourceObservations.api.route.integration.job.lifecycle.unsupported":
+    "Integration job lifecycle command is not available for this job state.",
   "catalog.features.sourceObservations.api.route.integration.job.not.found": "Integration job was not found.",
   "catalog.features.sourceObservations.api.route.impact.profile.version.required":
     "Provider key and profile version are required for impact analysis.",
@@ -453,10 +455,15 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.key": "Defer decision",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.value": "Defer keeps observations in review",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.error.title": "Command needs attention",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.description":
+    "The durable provider import job was cancelled for this provider and scope.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.title": "Job cancelled",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed":
     "The command did not complete. Review the named blockers, then retry from this workbench.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.invalid.intent":
     "The submitted command is not part of the rebuilt primary workbench contract.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.job.required":
+    "Choose a durable import job before retrying, resuming, or cancelling it.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.description":
     "Promotion preview is ready for the current provider, scope, filters, and selection checkpoint.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.required":
@@ -644,6 +651,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.empty.title":
     "No durable import jobs for this context",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.evidence.link": "Audit evidence",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.cancelled": "Operator cancelled",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.durable": "Durable import failed",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.group": "{label} ({count})",
   "catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.partial": "Partial provider data",

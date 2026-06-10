@@ -1428,6 +1428,127 @@ describe("source observation runtime", () => {
     });
   });
 
+  it("retries provider integration jobs by preserving successful outcomes and pruning failed outcomes", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      existingJob: {
+        ...integrationJobRow({
+          jobId: "job_retry",
+          action: "import",
+          scope: { provider: "tcgdex", language: "en", seriesId: "base" },
+          profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
+          eventContext: context,
+        }),
+        status: "completed",
+        progress: {
+          phase: "completed",
+          completed: 2,
+          total: 2,
+          currentName: null,
+          status: "failed",
+        },
+        result: {
+          requested: 2,
+          imported: 1,
+          observed: 102,
+          reapplied: 0,
+          skipped: 0,
+          failed: 1,
+          outcomes: [
+            {
+              providerKey: "tcgdex",
+              languageCode: "en",
+              expansionId: "base1",
+              status: "imported",
+              observed: 102,
+              reapplied: 0,
+              reason: null,
+            },
+            {
+              providerKey: "tcgdex",
+              languageCode: "en",
+              expansionId: "base2",
+              status: "failed",
+              observed: 0,
+              reapplied: 0,
+              reason: "Provider timeout.",
+            },
+          ],
+        },
+        completed_at: "2026-05-28T00:00:05.000Z",
+      },
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const job = await services.retryIntegrationJob({ jobId: "job_retry", context });
+
+    expect(job).toMatchObject({
+      jobId: "job_retry",
+      status: "queued",
+      progress: {
+        phase: "queued",
+        completed: 1,
+        total: 2,
+      },
+      result: {
+        requested: 2,
+        imported: 1,
+        failed: 0,
+      },
+    });
+    expect(job.result?.outcomes).toEqual([expect.objectContaining({ expansionId: "base1", status: "imported" })]);
+    expect(harness.jobEvents[harness.jobEvents.length - 1]?.snapshot).toMatchObject({
+      jobId: "job_retry",
+      status: "queued",
+    });
+  });
+
+  it("cancels provider integration jobs as operator-cancelled failed durable jobs", async () => {
+    const harness = createIntegrationJobDedupeHarness({
+      existingJob: {
+        ...integrationJobRow({
+          jobId: "job_cancel",
+          action: "import",
+          scope: { provider: "tcgdex", language: "en", seriesId: "base" },
+          profileSnapshot: tcgdexProfileSnapshot("2026.06.03"),
+          eventContext: context,
+          progress: {
+            phase: "processing",
+            completed: 1,
+            total: 2,
+            currentName: "Base Set",
+            status: "imported",
+          },
+        }),
+        status: "running",
+        claim_owner_id: "worker-1",
+        claimed_until: "2026-05-28T00:10:00.000Z",
+      },
+    });
+    const services = createSourceObservationRuntime(
+      harness.deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    const job = await services.cancelIntegrationJob({ jobId: "job_cancel", context });
+
+    expect(job).toMatchObject({
+      jobId: "job_cancel",
+      status: "failed",
+      operatorStatus: "cancelled",
+      progress: {
+        phase: "failed",
+        completed: 1,
+        total: 2,
+      },
+      errorMessage: "Operator cancelled provider import job.",
+    });
+  });
+
   it("processes queued TCGplayer imports through the durable integration worker", async () => {
     const tcgplayerHarness = createTcgplayerImportHarness();
     const harness = createIntegrationJobClaimHandoffHarness({
@@ -1818,6 +1939,7 @@ function tcgplayerProductDetail(input: {
 function createIntegrationJobDedupeHarness(
   input: { existingJob?: Record<string, unknown>; reapplyObservationIds?: readonly string[] } = {},
 ) {
+  let existingJob = input.existingJob ? { ...input.existingJob } : undefined;
   const insertedJobs: Record<string, unknown>[] = [];
   const insertedWorkUnits: Array<Readonly<{ unitId: string; unitKind: string; payload: Record<string, unknown> }>> = [];
   const jobEvents: Record<string, unknown>[] = [];
@@ -1835,8 +1957,8 @@ function createIntegrationJobDedupeHarness(
         ) {
           activeLookupValues = values;
           return {
-            rowCount: input.existingJob ? 1 : 0,
-            rows: (input.existingJob ? [input.existingJob] : []) as T[],
+            rowCount: existingJob ? 1 : 0,
+            rows: (existingJob ? [existingJob] : []) as T[],
           };
         }
 
@@ -1892,10 +2014,50 @@ function createIntegrationJobDedupeHarness(
         }
 
         if (
+          sql.includes("UPDATE catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("completed_at = NULL") &&
+          existingJob?.job_id === values[0]
+        ) {
+          const currentJob = existingJob!;
+          existingJob = {
+            ...currentJob,
+            status: "queued",
+            progress: JSON.parse(String(values[1])),
+            result: values[2] == null ? currentJob.result : JSON.parse(String(values[2])),
+            error_message: values[3] as string | null,
+            claim_owner_id: null,
+            claimed_until: null,
+            completed_at: null,
+            updated_at: "2026-05-28T00:00:10.000Z",
+          };
+          return { rowCount: 1, rows: [existingJob] as T[] };
+        }
+
+        if (
+          sql.includes("UPDATE catalog_source_observation_integration_durable_jobs") &&
+          sql.includes("status = 'failed'") &&
+          existingJob?.job_id === values[0]
+        ) {
+          const currentJob = existingJob!;
+          existingJob = {
+            ...currentJob,
+            status: "failed",
+            progress: JSON.parse(String(values[1])),
+            error_message: String(values[2]),
+            claim_owner_id: null,
+            claimed_until: null,
+            completed_at: "2026-05-28T00:00:10.000Z",
+            updated_at: "2026-05-28T00:00:10.000Z",
+          };
+          return { rowCount: 1, rows: [existingJob] as T[] };
+        }
+
+        if (
           sql.includes("FROM catalog_source_observation_integration_durable_jobs") &&
           sql.includes("WHERE job_id = $1")
         ) {
-          const row = insertedJobs.find((job) => job.job_id === values[0]);
+          const row =
+            existingJob?.job_id === values[0] ? existingJob : insertedJobs.find((job) => job.job_id === values[0]);
           return {
             rowCount: row ? 1 : 0,
             rows: (row ? [row] : []) as T[],

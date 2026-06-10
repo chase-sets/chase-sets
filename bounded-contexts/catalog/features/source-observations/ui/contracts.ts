@@ -673,6 +673,7 @@ export type SourceObservationIntegrationJobOperatorStatus =
   | "retried"
   | "partial"
   | "failed"
+  | "cancelled"
   | "completed";
 
 export interface SourceObservationIntegrationProfileSnapshot {

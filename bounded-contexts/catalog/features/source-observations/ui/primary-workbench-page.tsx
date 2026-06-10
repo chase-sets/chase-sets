@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   Badge,
   BulkActionBar,
@@ -61,6 +61,9 @@ type SourceObservationReviewRow = CatalogPrimaryWorkbenchReadModel["sourceObserv
 type CatalogPrimaryWorkbenchSubmitIntent = Extract<
   CatalogPrimaryWorkbenchActionReadModel["key"],
   | "start-provider-import"
+  | "retry-import-job"
+  | "resume-import-job"
+  | "cancel-import-job"
   | "preview-promotion"
   | "execute-promotion"
   | "reject-source-observations"
@@ -74,8 +77,10 @@ export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
   intent: string;
   result:
     | "job-queued"
+    | "job-cancelled"
     | "preview-ready"
     | "preview-required"
+    | "job-required"
     | "reason-required"
     | "unsupported-command"
     | "invalid-intent"
@@ -243,6 +248,21 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         align: "right",
         cell: (job) => (
           <div className="flex flex-wrap justify-end gap-2">
+            {job.retryAvailable ? (
+              <ImportJobLifecycleAction readModel={readModel} job={job} intent="retry-import-job">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.retry")}
+              </ImportJobLifecycleAction>
+            ) : null}
+            {job.resumeAvailable ? (
+              <ImportJobLifecycleAction readModel={readModel} job={job} intent="resume-import-job">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.resume")}
+              </ImportJobLifecycleAction>
+            ) : null}
+            {job.cancelAvailable ? (
+              <ImportJobLifecycleAction readModel={readModel} job={job} intent="cancel-import-job" tone="danger">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel")}
+              </ImportJobLifecycleAction>
+            ) : null}
             <a className="text-sm font-semibold text-accent hover:underline" href={job.sourceObservationReviewHref}>
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.review.link")}
             </a>
@@ -253,7 +273,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
         ),
       },
     ],
-    [],
+    [readModel],
   );
   const reviewColumns = useMemo<DataColumn<SourceObservationReviewRow>[]>(
     () => [
@@ -1163,6 +1183,35 @@ function RowCommandAction({
   );
 }
 
+function ImportJobLifecycleAction({
+  readModel,
+  job,
+  intent,
+  tone = "secondary",
+  children,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  job: ImportJobRow;
+  intent: Extract<CatalogPrimaryWorkbenchSubmitIntent, "retry-import-job" | "resume-import-job" | "cancel-import-job">;
+  tone?: ButtonProps["tone"];
+  children: ReactNode;
+}) {
+  return (
+    <Form
+      spacing="none"
+      method="post"
+      action={catalogPrimaryWorkbenchHref({ ...readModel.routeContext, jobId: job.jobId }, "import-to-promotion")}
+      className="inline-flex"
+      data-catalog-primary-workbench-command={intent}
+    >
+      <CommandHiddenInputs readModel={readModel} intent={intent} jobId={job.jobId} />
+      <Button type="submit" size="sm" tone={tone}>
+        {children}
+      </Button>
+    </Form>
+  );
+}
+
 type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
@@ -1198,13 +1247,16 @@ function CommandHiddenInputs({
   readModel,
   intent,
   selectedObservationIds,
+  jobId,
 }: {
   readModel: CatalogPrimaryWorkbenchReadModel;
   intent: CatalogPrimaryWorkbenchSubmitIntent;
   selectedObservationIds?: readonly string[];
+  jobId?: string | null;
 }) {
   const context = readModel.routeContext;
   const observationIds = selectedObservationIds ?? context.selectedObservationIds;
+  const jobIdValue = jobId ?? context.jobId ?? "";
 
   return (
     <>
@@ -1214,7 +1266,7 @@ function CommandHiddenInputs({
       <input type="hidden" name="importScope" value={context.importScope ?? ""} />
       <input type="hidden" name="profileVersion" value={context.profileVersion ?? ""} />
       <input type="hidden" name="selectedObservationIds" value={observationIds.join(",")} />
-      <input type="hidden" name="jobId" value={context.jobId ?? ""} />
+      <input type="hidden" name="jobId" value={jobIdValue} />
       <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
     </>
   );
@@ -1656,6 +1708,9 @@ function jobStateTone(state: ImportJobRow["state"]) {
 }
 
 function failureGroupLabel(group: ImportJobRow["failureGroups"][number]): string {
+  if (group.key === "durable-job-cancelled") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.cancelled");
+  }
   if (group.key === "durable-job-failed") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.durable");
   }
@@ -1699,6 +1754,9 @@ function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedback["res
   if (result === "preview-ready") {
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.title");
   }
+  if (result === "job-cancelled") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.title");
+  }
 
   return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title");
 }
@@ -1708,6 +1766,9 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
     if (feedback.result === "preview-ready") {
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.description");
     }
+    if (feedback.result === "job-cancelled") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.cancelled.description");
+    }
 
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description");
   }
@@ -1715,6 +1776,8 @@ function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeed
   switch (feedback.result) {
     case "preview-required":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.required");
+    case "job-required":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.job.required");
     case "reason-required":
       return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required");
     case "unsupported-command":

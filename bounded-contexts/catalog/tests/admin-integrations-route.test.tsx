@@ -257,6 +257,39 @@ describe("Catalog integrations route", () => {
     expect(response.headers.get("Location")).toContain("commandResult=job-queued");
   });
 
+  it("bridges provider import lifecycle commands to durable job APIs", async () => {
+    const retrySourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_123" });
+    const resumeSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_123" });
+    const cancelSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_123" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      retrySourceObservationIntegrationJob,
+      resumeSourceObservationIntegrationJob,
+      cancelSourceObservationIntegrationJob,
+    });
+
+    const retryResponse = await runAction({ _intent: "retry-import-job", jobId: "job_import_123" });
+    const resumeResponse = await runAction({ _intent: "resume-import-job", jobId: "job_import_123" });
+    const cancelResponse = await runAction({ _intent: "cancel-import-job", jobId: "job_import_123" });
+
+    expect(retrySourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
+    expect(resumeSourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
+    expect(cancelSourceObservationIntegrationJob).toHaveBeenCalledWith("job_import_123");
+    expect(retryResponse.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(resumeResponse.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(cancelResponse.headers.get("Location")).toContain("commandResult=job-cancelled");
+  });
+
+  it("requires a durable import job id before lifecycle commands can run", async () => {
+    const retrySourceObservationIntegrationJob = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({ retrySourceObservationIntegrationJob });
+
+    const response = await runAction({ _intent: "retry-import-job" });
+
+    expect(retrySourceObservationIntegrationJob).not.toHaveBeenCalled();
+    expect(response.headers.get("Location")).toContain("commandStatus=error");
+    expect(response.headers.get("Location")).toContain("commandResult=job-required");
+  });
+
   it("fails closed for commands without launch-ready backend paths", async () => {
     mockCreateCatalogRequestApiClient.mockReturnValue({});
 

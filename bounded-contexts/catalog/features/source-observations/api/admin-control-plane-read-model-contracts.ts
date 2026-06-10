@@ -467,6 +467,7 @@ export type CatalogAdminJobOperatorStatus =
   | "retried"
   | "partial"
   | "failed"
+  | "cancelled"
   | "completed";
 export type CatalogAdminJobConsistency = Readonly<{
   schemaVersion: Extract<CatalogIntegrationWireSchemaVersion, "catalog-integration-durable-job-v1">;
