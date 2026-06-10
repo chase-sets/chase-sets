@@ -6,6 +6,10 @@ Realtime SSE is a platform transport over bounded-context owned projection outbo
 Contexts publish client-facing projection patches after read model updates. Deployables
 only compose context stores into `/api/realtime/events`.
 
+## Push-Driven Migration Note
+
+Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md) and the [Push-Driven Projection Runtime Phase Map](../architecture/push-driven-projection-runtime-phase-map.md). Realtime wake signals must either migrate through the platform work-signal composite or remain as documented, connection-budgeted exceptions. Context-owned realtime outbox rows remain the source of truth, and clients must continue to replay from durable cursors after reconnects.
+
 ## Message Contract
 
 Publish `projection.patch` messages only. Do not stream raw domain events.

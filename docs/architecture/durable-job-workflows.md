@@ -2,6 +2,10 @@
 
 Durable jobs are the platform pattern for user- or operator-triggered work that can outlive one HTTP request, API process, worker process, or deployment.
 
+## Push-Driven Migration Note
+
+Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md) and the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md). Durable job event notifications, waits, and SSE replay are migration candidates for the platform work-signal composite, but context-owned durable job and event tables remain the source of truth. Request paths must continue to enqueue or observe durable work instead of streaming long-running work inline.
+
 Use this pattern when a workflow:
 
 - loops over a variable number of records,
