@@ -245,6 +245,12 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformLocals).toContain("worker_listener_database_urls");
     expect(occurrenceCount(platformMain, "for_each = local.worker_listener_database_urls")).toBe(1);
     expect(platformMain).toContain('key   = "WORKER_LISTENER_DATABASE_URL_${upper(replace(env.key, "-", "_"))}"');
+    expectTerraformAssignment(
+      platformLocals,
+      "read_consistency_wake_before_wait_enabled",
+      'local.is_staging ? "true" : "false"',
+    );
+    expect(occurrenceCount(platformMain, 'key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"')).toBe(1);
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");

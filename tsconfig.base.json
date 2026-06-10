@@ -387,6 +387,9 @@
       "@chase-sets/platform-runtime/projection-wake-scheduler": [
         "./infrastructure/platform-runtime/projection-wake-scheduler.ts"
       ],
+      "@chase-sets/platform-runtime/read-consistency-work-signals": [
+        "./infrastructure/platform-runtime/read-consistency-work-signals.ts"
+      ],
       "@chase-sets/platform-runtime/realtime": [
         "./infrastructure/platform-runtime/realtime.ts"
       ],

@@ -512,6 +512,12 @@ resource "digitalocean_app" "platform" {
         }
 
         env {
+          key   = "READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED"
+          value = local.read_consistency_wake_before_wait_enabled
+          scope = "RUN_TIME"
+        }
+
+        env {
           key   = "DATABASE_POOL_MAX"
           value = local.api_database_pool_max
           scope = "RUN_TIME"

@@ -160,6 +160,7 @@ const projectionRunners = collectWorkerRunners(runtime, {
   projectionOperationClaimTtlMs: config.leaseTtlMs * 4,
   projectionOperationLeaseTtlMs: config.leaseTtlMs,
   projectionOperationLeaseRenewIntervalMs: config.leaseRenewIntervalMs,
+  workSignalStore,
   observer: createWorkerObserver("platform-worker"),
 });
 const bulkJobRunners = [

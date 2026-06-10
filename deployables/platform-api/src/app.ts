@@ -87,7 +87,7 @@ export type BuildPlatformApiOptions = Readonly<{
   }>;
   readConsistency?: Pick<
     ReadConsistencyMiddlewareOptions,
-    "timeoutMs" | "pollIntervalMs" | "exactDependencyMode" | "routeTuning"
+    "timeoutMs" | "pollIntervalMs" | "exactDependencyMode" | "routeTuning" | "workSignalGateway"
   >;
 }>;
 
@@ -323,6 +323,7 @@ export function buildPlatformApiApp(runtime: ApiHostRuntime, options: BuildPlatf
     pollIntervalMs: options.readConsistency?.pollIntervalMs,
     exactDependencyMode: options.readConsistency?.exactDependencyMode,
     routeTuning: options.readConsistency?.routeTuning,
+    workSignalGateway: options.readConsistency?.workSignalGateway,
     recordReadConsistencyAudit: (record: ReadConsistencyAuditRecord) => {
       recordProjectionFreshnessAudit(record);
       options.readConsistencyAuditLogger?.info("Read-after-write freshness evaluated.", record);

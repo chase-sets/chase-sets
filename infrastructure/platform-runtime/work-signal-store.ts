@@ -265,6 +265,7 @@ export type PostgresWorkSignalStore = Readonly<{
   completeProjectionWakeIntent(input: CompleteProjectionWakeIntentInput): Promise<ProjectionWakeIntentCompletionResult>;
   failProjectionWakeIntent(input: FailProjectionWakeIntentInput): Promise<boolean>;
   recordCheckpointReady(input: RecordCheckpointReadyInput): Promise<CheckpointReadinessRecord>;
+  clearCheckpointReadiness(input: Readonly<{ checkpointKeys: readonly string[] }>): Promise<number>;
   addCheckpointWaiter(input: AddCheckpointWaiterInput): Promise<CheckpointWaiterRecord>;
   cleanupExpiredWorkSignals(input?: CleanupExpiredWorkSignalsInput): Promise<WorkSignalCleanupResult>;
   summarizeProjectionWakeIntents(): Promise<ProjectionWakeIntentSummary>;
@@ -697,6 +698,23 @@ export function createPostgresWorkSignalStore(
 
         return mapCheckpointReadinessRow(requireSingleRow(result.rows));
       });
+    },
+
+    async clearCheckpointReadiness(input) {
+      if (input.checkpointKeys.length === 0) {
+        return 0;
+      }
+
+      const result = await query(
+        db,
+        `
+        DELETE FROM platform_projection_checkpoint_readiness
+        WHERE checkpoint_key = ANY($1::text[])
+        `,
+        [[...input.checkpointKeys]],
+      );
+
+      return result.rowCount ?? 0;
     },
 
     async addCheckpointWaiter(input) {

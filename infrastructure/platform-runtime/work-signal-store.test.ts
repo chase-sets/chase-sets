@@ -247,6 +247,30 @@ describe("work signal store", () => {
     ).resolves.toBe("lost");
   });
 
+  it("clears checkpoint readiness rows for reset checkpoints", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresWorkSignalStore(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return { rows: [], rowCount: 2 };
+        },
+      },
+      { now: () => NOW },
+    );
+
+    await expect(
+      store.clearCheckpointReadiness({
+        checkpointKeys: ["checkout-session-pages:checkout:v1", "checkout-session-pages:marketplace:v1"],
+      }),
+    ).resolves.toBe(2);
+    expect(calls[0].sql).toContain("DELETE FROM platform_projection_checkpoint_readiness");
+    expect(calls[0].sql).toContain("checkpoint_key = ANY($1::text[])");
+
+    await expect(store.clearCheckpointReadiness({ checkpointKeys: [] })).resolves.toBe(0);
+    expect(calls).toHaveLength(1);
+  });
+
   it("claims nothing when an empty target filter is provided", async () => {
     const calls: string[] = [];
     const store = createPostgresWorkSignalStore(
