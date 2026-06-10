@@ -1,9 +1,15 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { platformUcpRuntimeSchemaSql } from "./ucp";
 import { platformWorkSignalStoreSchemaSql } from "./work-signal-store";
+import {
+  createPostgresWorkSignalWaiter,
+  emitPostgresWorkSignalNotification,
+  type PostgresWorkSignalNotification,
+} from "./work-signal-composite";
 
 const DEFAULT_PROJECTION_OPERATION_LIMIT = 50;
 const PROJECTION_OPERATION_NOTIFY_CHANNEL = "platform_projection_operation_events";
+const PROJECTION_OPERATION_WORK_SIGNAL_KIND = "projection-operation.event";
 
 export const platformControlPlaneSchemaSql = `
 CREATE TABLE IF NOT EXISTS platform_control_leases (
@@ -1053,10 +1059,14 @@ async function appendProjectionOperationEvent(db: PgQueryable, operation: Projec
      ) VALUES ($1, $2, 'status', $3::jsonb, now())`,
     [operation.operationId, sequence, JSON.stringify(operation)],
   );
-  await db.query(`SELECT pg_notify($1, $2)`, [
-    PROJECTION_OPERATION_NOTIFY_CHANNEL,
-    JSON.stringify({ operationId: operation.operationId, sequence }),
-  ]);
+  await emitPostgresWorkSignalNotification(db, {
+    channel: PROJECTION_OPERATION_NOTIFY_CHANNEL,
+    envelope: {
+      kind: PROJECTION_OPERATION_WORK_SIGNAL_KIND,
+      source: "platform-control-plane",
+      payload: { operationId: operation.operationId, sequence },
+    },
+  });
 }
 
 async function listProjectionOperationEvents(
@@ -1132,67 +1142,34 @@ async function runControlPlaneWrite<T>(db: PgTransactionalPool, work: (queryable
   }
 }
 
-type ProjectionOperationNotificationClient = Awaited<ReturnType<PgTransactionalPool["connect"]>> & {
-  on?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
-  off?: (event: "notification" | "error", listener: (message?: { payload?: string }) => void) => void;
-};
-
 function createProjectionOperationNotificationWaiter(db: PgTransactionalPool) {
-  let clientPromise: Promise<ProjectionOperationNotificationClient> | null = null;
-
-  async function getClient() {
-    clientPromise ??= (async () => {
-      const client = (await db.connect()) as ProjectionOperationNotificationClient;
-      const reset = () => {
-        client.off?.("error", reset);
-        clientPromise = null;
-        client.release();
-      };
-      client.on?.("error", reset);
-      await client.query(`LISTEN ${PROJECTION_OPERATION_NOTIFY_CHANNEL}`);
-      return client;
-    })();
-
-    return clientPromise;
-  }
+  const waiter = createPostgresWorkSignalWaiter(db, {
+    channel: PROJECTION_OPERATION_NOTIFY_CHANNEL,
+  });
 
   return {
     wait: async (input: Readonly<{ operationId: string; signal?: AbortSignal; timeoutMs?: number }>) => {
-      const timeoutMs = Math.max(100, Math.floor(input.timeoutMs ?? 500));
-      if (input.signal?.aborted) {
-        return waitForProjectionOperationTimeout(timeoutMs, input.signal);
-      }
-
-      const eventClient = await getClient();
-      await new Promise<void>((resolve) => {
-        let settled = false;
-        const cleanup = () => {
-          if (settled) {
-            return;
-          }
-          settled = true;
-          clearTimeout(timer);
-          input.signal?.removeEventListener("abort", cleanup);
-          eventClient.off?.("notification", onNotification);
-          eventClient.off?.("error", cleanup);
-          resolve();
-        };
-        const onNotification = (message?: { payload?: string }) => {
-          if (projectionOperationNotificationMatches(message?.payload, input.operationId)) {
-            cleanup();
-          }
-        };
-        const timer = setTimeout(cleanup, timeoutMs);
-
-        input.signal?.addEventListener("abort", cleanup, { once: true });
-        eventClient.on?.("notification", onNotification);
-        eventClient.on?.("error", cleanup);
+      await waiter.wait({
+        timeoutMs: input.timeoutMs,
+        signal: input.signal,
+        matches: (notification) => projectionOperationNotificationMatches(notification, input.operationId),
       });
     },
   };
 }
 
-function projectionOperationNotificationMatches(payload: string | undefined, operationId: string): boolean {
+function projectionOperationNotificationMatches(
+  notification: PostgresWorkSignalNotification,
+  operationId: string,
+): boolean {
+  if (
+    notification.envelope?.kind === PROJECTION_OPERATION_WORK_SIGNAL_KIND &&
+    notification.envelope.payload.operationId === operationId
+  ) {
+    return true;
+  }
+
+  const payload = notification.payload;
   if (!payload) {
     return false;
   }
@@ -1203,22 +1180,4 @@ function projectionOperationNotificationMatches(payload: string | undefined, ope
   } catch {
     return false;
   }
-}
-
-function waitForProjectionOperationTimeout(ms: number, signal?: AbortSignal): Promise<void> {
-  if (signal?.aborted) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(timer);
-        resolve();
-      },
-      { once: true },
-    );
-  });
 }

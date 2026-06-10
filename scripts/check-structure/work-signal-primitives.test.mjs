@@ -19,11 +19,6 @@ const approvedDirectWorkSignalPrimitiveFiles = {
     reason:
       "Wires the current realtime SSE wake signal; #1248 decides whether it migrates to the composite relay path or remains a budgeted exception.",
   },
-  "infrastructure/platform-runtime/control-plane.ts": {
-    owner: "platform-runtime",
-    reason:
-      "Owns current platform projection operation event notifications; #1248 folds this into the work-signal composite contract.",
-  },
   "infrastructure/platform-runtime/durable-job-store.ts": {
     owner: "platform-runtime",
     reason:
@@ -42,6 +37,11 @@ const approvedDirectWorkSignalPrimitiveFiles = {
     owner: "platform-runtime",
     reason:
       "Owns the current realtime Postgres LISTEN wake signal; #1236/#1248 require migration or a budgeted local-listener exception.",
+  },
+  "infrastructure/platform-runtime/work-signal-composite.ts": {
+    owner: "platform-runtime",
+    reason:
+      "Owns the supported composite Postgres notification emission and listener/waiter primitives; other direct uses must migrate here or carry a tracked exception.",
   },
 };
 

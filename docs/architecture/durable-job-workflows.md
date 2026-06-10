@@ -30,6 +30,9 @@ The shared infrastructure is intentionally small:
 - `durable-job-store.ts` provides the Postgres claim/update/event mechanics, notification wakeups, claimed release, and terminal-row pruning.
 - `durable-job-work-units.ts` provides same-job work-unit claim mechanics for workflows that need bounded parallel lanes without turning every row into a platform runner.
 - `durable-job-events.ts` provides SSE cursor parsing, keepalive, event formatting, stream limiting, and polling fallback.
+- `work-signal-composite.ts` is the supported platform surface for new notification envelopes, Postgres `pg_notify` emission, dedicated `LISTEN` waiters, payload safety checks, timeout fallback, and observer hooks.
+
+Direct durable-job and realtime notification helpers predate the composite. Treat them as compatibility adapters pending #1238/#1230 migration work, not as patterns for new job, operation, projection, or realtime wake paths.
 
 Domain payloads, progress language, result shapes, permissions, and worker composition stay in the owning bounded context. The payload is worker-private. API and SSE responses must return public job status snapshots that exclude worker payload, event context, claim owner, and claim expiration fields.
 
@@ -64,7 +67,7 @@ Use fair claim ordering by fewest active claims per parent job, then oldest pare
 
 When a lane finds no claimable unit, the owning workflow should reconcile active parent jobs whose known work units are all terminal. The reconciliation must lock the parent, verify that no queued or running units remain, recompute the public progress/result from carried outcomes plus terminal unit outcomes, append the final status event atomically, and clear stale parent claim metadata. Stale requested totals from pre-work-unit migration or changing filter eligibility must not keep a parent job active after every resolvable unit has a terminal outcome; preserve any real mixed failures in the final result instead of hiding them.
 
-Projection operations are platform control-plane jobs rather than bounded-context jobs, but they follow the same durability contract: progress writes renew the claim to `now + ttl`, terminal writes require the live claim, operation state and event append commit together, SSE uses notification-backed waits, and event sequence numbers are reserved through the operation row instead of recomputing from event history. Long rebuild and retry operations must renew the operation claim while the inner projection-group lease is held, and the inner operation must abort when either claim is lost.
+Projection operations are platform control-plane jobs rather than bounded-context jobs, but they follow the same durability contract: progress writes renew the claim to `now + ttl`, terminal writes require the live claim, operation state and event append commit together, SSE uses work-signal-composite notification-backed waits, and event sequence numbers are reserved through the operation row instead of recomputing from event history. Long rebuild and retry operations must renew the operation claim while the inner projection-group lease is held, and the inner operation must abort when either claim is lost.
 
 ## API Shape
 

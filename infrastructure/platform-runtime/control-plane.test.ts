@@ -242,6 +242,17 @@ describe("platform control plane", () => {
     expect(claimCall?.sql).toContain("claim_fencing_token = COALESCE");
     expect(claimCall?.sql).toContain("RETURNING operation.operation_id");
     expect(calls.some((call) => call.sql.includes("RETURNING event_sequence"))).toBe(true);
+    const notifyCall = calls.find((call) => call.sql.includes("pg_notify"));
+    expect(notifyCall?.params?.[0]).toBe("platform_projection_operation_events");
+    expect(JSON.parse(String(notifyCall?.params?.[1]))).toMatchObject({
+      schemaVersion: 1,
+      payloadVersion: 1,
+      kind: "projection-operation.event",
+      source: "platform-control-plane",
+      payload: {
+        operationId: "projection-operation-1",
+      },
+    });
   });
 
   it("filters projection operation history by target, state, and actor", async () => {
