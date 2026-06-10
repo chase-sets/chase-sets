@@ -192,6 +192,19 @@ CREATE TABLE IF NOT EXISTS platform_scheduled_runners (
 CREATE INDEX IF NOT EXISTS platform_scheduled_runners_next_run_idx
   ON platform_scheduled_runners (next_run_at);
 
+CREATE TABLE IF NOT EXISTS platform_projection_wake_relay_cursors (
+  source_context_name text PRIMARY KEY,
+  last_fanout_position bigint NOT NULL CHECK (last_fanout_position >= 0),
+  last_required_cursor text,
+  owner_id text NOT NULL,
+  fencing_token bigint NOT NULL CHECK (fencing_token >= 1),
+  metadata jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS platform_projection_wake_relay_cursors_updated_at_idx
+  ON platform_projection_wake_relay_cursors (updated_at DESC);
+
 ${platformWorkSignalStoreSchemaSql}
 
 ${platformUcpRuntimeSchemaSql}
@@ -257,6 +270,16 @@ export type ProjectionOperationSummary = Readonly<{
   oldestQueuedAt: string | null;
   oldestRunningAt: string | null;
   averageDurationMs: string | null;
+}>;
+
+export type ProjectionWakeRelayCursorRecord = Readonly<{
+  sourceContextName: string;
+  lastFanOutPosition: bigint;
+  lastRequiredCursor: string | null;
+  ownerId: string;
+  fencingToken: string;
+  metadata: Record<string, unknown>;
+  updatedAt: string;
 }>;
 
 export type PlatformControlPlane = Readonly<{
@@ -374,6 +397,16 @@ export type PlatformControlPlane = Readonly<{
     }>,
   ) => Promise<boolean>;
   recordScheduledRunnerCompleted: (input: Readonly<{ runnerName: string }>) => Promise<void>;
+  getProjectionWakeRelayCursor: (sourceContextName: string) => Promise<ProjectionWakeRelayCursorRecord | null>;
+  advanceProjectionWakeRelayCursor: (
+    input: Readonly<{
+      sourceContextName: string;
+      lastFanOutPosition: bigint | number | string;
+      lastRequiredCursor?: string | null;
+      lease: PlatformLease;
+      metadata?: Record<string, unknown>;
+    }>,
+  ) => Promise<ProjectionWakeRelayCursorRecord | null>;
 }>;
 
 type LeaseRow = Readonly<{
@@ -410,6 +443,16 @@ type ProjectionOperationEventRow = Readonly<{
   event_name: "status";
   snapshot: unknown;
   created_at: Date | string;
+}>;
+
+type ProjectionWakeRelayCursorRow = Readonly<{
+  source_context_name: string;
+  last_fanout_position: string | number | bigint;
+  last_required_cursor: string | null;
+  owner_id: string;
+  fencing_token: string | number | bigint;
+  metadata: unknown;
+  updated_at: Date | string;
 }>;
 
 export async function bootstrapPlatformControlPlane(db: PgQueryable): Promise<void> {
@@ -937,6 +980,106 @@ export function createPostgresPlatformControlPlane(db: PgTransactionalPool): Pla
         [input.runnerName],
       );
     },
+    getProjectionWakeRelayCursor: async (sourceContextName) => {
+      const result = await db.query<ProjectionWakeRelayCursorRow>(
+        `SELECT source_context_name,
+                last_fanout_position,
+                last_required_cursor,
+                owner_id,
+                fencing_token,
+                metadata,
+                updated_at
+         FROM platform_projection_wake_relay_cursors
+         WHERE source_context_name = $1`,
+        [sourceContextName],
+      );
+
+      return result.rows[0] ? mapProjectionWakeRelayCursorRow(result.rows[0]) : null;
+    },
+    advanceProjectionWakeRelayCursor: async (input) => {
+      const result = await db.query<ProjectionWakeRelayCursorRow>(
+        `WITH active_lease AS (
+           SELECT 1
+           FROM platform_control_leases
+           WHERE lease_name = $4
+             AND owner_id = $5
+             AND fencing_token = $6::bigint
+             AND expires_at > now()
+         ),
+         existing AS (
+           SELECT source_context_name,
+                  last_fanout_position,
+                  last_required_cursor,
+                  owner_id,
+                  fencing_token,
+                  metadata,
+                  updated_at
+           FROM platform_projection_wake_relay_cursors
+           WHERE source_context_name = $1
+         ),
+         inserted AS (
+           INSERT INTO platform_projection_wake_relay_cursors (
+             source_context_name,
+             last_fanout_position,
+             last_required_cursor,
+             owner_id,
+             fencing_token,
+             metadata,
+             updated_at
+           )
+           SELECT $1, $2::bigint, $3, $5, $6::bigint, $7::jsonb, now()
+           WHERE EXISTS (SELECT 1 FROM active_lease)
+             AND NOT EXISTS (SELECT 1 FROM existing)
+           ON CONFLICT (source_context_name) DO NOTHING
+           RETURNING source_context_name,
+                     last_fanout_position,
+                     last_required_cursor,
+                     owner_id,
+                     fencing_token,
+                     metadata,
+                     updated_at
+         ),
+         updated AS (
+           UPDATE platform_projection_wake_relay_cursors cursor
+           SET last_fanout_position = $2::bigint,
+               last_required_cursor = $3,
+               owner_id = $5,
+               fencing_token = $6::bigint,
+               metadata = cursor.metadata || $7::jsonb,
+               updated_at = now()
+           WHERE cursor.source_context_name = $1
+             AND cursor.last_fanout_position < $2::bigint
+             AND EXISTS (SELECT 1 FROM active_lease)
+           RETURNING cursor.source_context_name,
+                     cursor.last_fanout_position,
+                     cursor.last_required_cursor,
+                     cursor.owner_id,
+                     cursor.fencing_token,
+                     cursor.metadata,
+                     cursor.updated_at
+         )
+         SELECT * FROM inserted
+         UNION ALL
+         SELECT * FROM updated
+         UNION ALL
+         SELECT existing.*
+         FROM existing
+         WHERE existing.last_fanout_position >= $2::bigint
+           AND EXISTS (SELECT 1 FROM active_lease)
+         LIMIT 1`,
+        [
+          input.sourceContextName,
+          input.lastFanOutPosition.toString(),
+          input.lastRequiredCursor ?? null,
+          input.lease.leaseName,
+          input.lease.ownerId,
+          input.lease.fencingToken,
+          JSON.stringify(input.metadata ?? {}),
+        ],
+      );
+
+      return result.rows[0] ? mapProjectionWakeRelayCursorRow(result.rows[0]) : null;
+    },
   };
 }
 
@@ -1005,6 +1148,18 @@ function mapLeaseRow(row: LeaseRow): PlatformLease {
     ownerId: row.owner_id,
     fencingToken: String(row.fencing_token),
     expiresAt: row.expires_at instanceof Date ? row.expires_at.toISOString() : String(row.expires_at),
+  };
+}
+
+function mapProjectionWakeRelayCursorRow(row: ProjectionWakeRelayCursorRow): ProjectionWakeRelayCursorRecord {
+  return {
+    sourceContextName: row.source_context_name,
+    lastFanOutPosition: BigInt(row.last_fanout_position),
+    lastRequiredCursor: row.last_required_cursor,
+    ownerId: row.owner_id,
+    fencingToken: String(row.fencing_token),
+    metadata: readJsonRecord(row.metadata) ?? {},
+    updatedAt: formatTimestamp(row.updated_at),
   };
 }
 

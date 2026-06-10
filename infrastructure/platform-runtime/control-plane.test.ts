@@ -25,6 +25,7 @@ describe("platform control plane", () => {
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_wake_intents");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_checkpoint_readiness");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_checkpoint_waiters");
+    expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_wake_relay_cursors");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_status_snapshots");
     expect(statements[0]).toContain("CREATE TABLE IF NOT EXISTS platform_projection_operations");
     expect(statements[0]).toContain("ADD COLUMN IF NOT EXISTS fencing_token bigint");
@@ -155,6 +156,74 @@ describe("platform control plane", () => {
     });
 
     expect(calls[0].sql).toContain("EXCLUDED.fencing_token >= platform_runner_statuses.fencing_token");
+  });
+
+  it("persists projection wake relay cursors with active lease fencing", async () => {
+    const calls: Array<{ sql: string; params: readonly unknown[] | undefined }> = [];
+    const cursorRow = {
+      source_context_name: "checkout",
+      last_fanout_position: "102",
+      last_required_cursor: "checkout:102",
+      owner_id: "worker-a",
+      fencing_token: "7",
+      metadata: { reason: "catch-up" },
+      updated_at: "2026-06-10T12:00:00.000Z",
+    };
+    const controlPlane = createPostgresPlatformControlPlane({
+      connect: async () => {
+        throw new Error("not used");
+      },
+      query: async (sql: string, params?: readonly unknown[]) => {
+        calls.push({ sql, params });
+        if (sql.includes("FROM platform_projection_wake_relay_cursors") && !sql.includes("active_lease")) {
+          return { rows: [cursorRow], rowCount: 1 };
+        }
+        if (sql.includes("WITH active_lease")) {
+          return { rows: [cursorRow], rowCount: 1 };
+        }
+
+        return { rows: [], rowCount: 0 };
+      },
+    });
+
+    await expect(controlPlane.getProjectionWakeRelayCursor("checkout")).resolves.toMatchObject({
+      sourceContextName: "checkout",
+      lastFanOutPosition: 102n,
+      lastRequiredCursor: "checkout:102",
+      ownerId: "worker-a",
+      fencingToken: "7",
+    });
+    await expect(
+      controlPlane.advanceProjectionWakeRelayCursor({
+        sourceContextName: "checkout",
+        lastFanOutPosition: "102",
+        lastRequiredCursor: "checkout:102",
+        lease: {
+          leaseName: "projection-wake-relay:active",
+          ownerId: "worker-a",
+          fencingToken: "7",
+          expiresAt: "2026-06-10T12:01:00.000Z",
+        },
+        metadata: { reason: "catch-up" },
+      }),
+    ).resolves.toMatchObject({
+      sourceContextName: "checkout",
+      lastFanOutPosition: 102n,
+      fencingToken: "7",
+    });
+
+    expect(calls[1].sql).toContain("WITH active_lease AS");
+    expect(calls[1].sql).toContain("expires_at > now()");
+    expect(calls[1].sql).toContain("cursor.last_fanout_position < $2::bigint");
+    expect(calls[1].params).toEqual([
+      "checkout",
+      "102",
+      "checkout:102",
+      "projection-wake-relay:active",
+      "worker-a",
+      "7",
+      JSON.stringify({ reason: "catch-up" }),
+    ]);
   });
 
   it("enqueues and claims projection operations with fencing", async () => {

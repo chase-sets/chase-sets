@@ -1,11 +1,22 @@
 import {
+  assertPostgresEventStoreWakeNotificationChannel,
+  DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
+  DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
   EVENT_STORE_WAKE_NOTIFICATION_KIND,
   EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION,
   EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION,
   type EventStoreWakeNotificationEnvelope,
   type EventStoreWakeNotificationPayload,
+  type PgPoolClient,
+  type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
-import { parseGlobalPosition, type GlobalPosition } from "@chase-sets/event-core/storage";
+import type { EventStore } from "@chase-sets/event-core/event-store";
+import {
+  parseGlobalPosition,
+  ZERO_GLOBAL_POSITION,
+  type GlobalPosition,
+  type StoredEvent,
+} from "@chase-sets/event-core/storage";
 import { parseIsoUtcTimestamp, type IsoUtcTimestamp } from "@chase-sets/primitives/iso-utc-timestamp";
 
 import {
@@ -13,6 +24,7 @@ import {
   ProjectionInterestIndexStaleError,
   type ProjectionInterestIndex,
 } from "./projection-interest-index";
+import type { PlatformControlPlane, PlatformLease, ProjectionWakeRelayCursorRecord } from "./control-plane";
 import { listSourceContextWakeRelayConfigs, type SourceContextWakeRelayConfig } from "./source-context-wake-registry";
 import type {
   EnqueueProjectionWakeIntentInput,
@@ -24,9 +36,13 @@ import type {
 
 export const PROJECTION_WAKE_RELAY_FAN_OUT_SCHEMA_VERSION = 1;
 export const PROJECTION_WAKE_RELAY_FAN_OUT_METADATA_VERSION = 1;
+export const PROJECTION_WAKE_RELAY_ACTIVE_LEASE_NAME = "projection-wake-relay:active";
+export const DEFAULT_PROJECTION_WAKE_RELAY_CATCH_UP_BATCH_SIZE = 100;
+export const DEFAULT_PROJECTION_WAKE_RELAY_RECONNECT_BACKOFF_MS = 1_000;
 
 export type ProjectionWakeRelayFanOutStatus = "enqueued" | "skipped";
 export type ProjectionWakeRelaySkippedReason = "source-disabled" | "no-interests";
+export type ProjectionWakeRelayCatchUpReason = "startup" | "notification" | "reconnect";
 export type ProjectionWakeRelayFanOutFailureReason =
   | "invalid-notification"
   | "stale-interest-index"
@@ -34,6 +50,60 @@ export type ProjectionWakeRelayFanOutFailureReason =
   | "unexpected";
 
 export type ProjectionWakeRelayWorkSignalStore = Pick<PostgresWorkSignalStore, "enqueueProjectionWakeIntent">;
+export type ProjectionWakeRelayControlPlane = Pick<
+  PlatformControlPlane,
+  "acquireLease" | "renewLease" | "releaseLease" | "getProjectionWakeRelayCursor" | "advanceProjectionWakeRelayCursor"
+>;
+
+type ProjectionWakeRelayListenerClient = PgPoolClient &
+  Readonly<{
+    on?: (
+      event: "notification" | "error",
+      listener: (message?: Readonly<{ channel?: string; payload?: string }>) => void,
+    ) => unknown;
+    off?: (
+      event: "notification" | "error",
+      listener: (message?: Readonly<{ channel?: string; payload?: string }>) => void,
+    ) => unknown;
+    removeListener?: (
+      event: "notification" | "error",
+      listener: (message?: Readonly<{ channel?: string; payload?: string }>) => void,
+    ) => unknown;
+  }>;
+
+export type ProjectionWakeRelaySourceRuntime = Readonly<{
+  sourceContextName: string;
+  eventStore: Pick<EventStore, "readAll">;
+  listenerPool?: Pick<PgTransactionalPool, "connect">;
+  streamPrefixes?: readonly string[];
+}>;
+
+export type ProjectionWakeRelayActiveSessionInput = Readonly<{
+  workerId: string;
+  controlPlane: ProjectionWakeRelayControlPlane;
+  projectionInterestIndex: ProjectionInterestIndex;
+  workSignalStore: ProjectionWakeRelayWorkSignalStore;
+  sources: readonly ProjectionWakeRelaySourceRuntime[];
+  relayConfigs?: readonly SourceContextWakeRelayConfig[];
+  leaseName?: string;
+  leaseTtlMs: number;
+  leaseRenewIntervalMs: number;
+  catchUpBatchSize?: number;
+  reconnectBackoffMs?: number;
+  signal?: AbortSignal;
+  observer?: ProjectionWakeRelayRuntimeObserver;
+  now?: () => Date;
+}>;
+
+export type ProjectionWakeRelayActiveSessionStatus = "stopped" | "lease-missed" | "lease-lost" | "no-enabled-sources";
+
+export type ProjectionWakeRelayActiveSessionResult = Readonly<{
+  status: ProjectionWakeRelayActiveSessionStatus;
+  leaseName: string;
+  sourceContextNames: readonly string[];
+  caughtUpEventCount: number;
+  cursorAdvanceCount: number;
+}>;
 
 export type ProjectionWakeRelayFanOutInput = Readonly<{
   notification: unknown;
@@ -68,6 +138,75 @@ export type ProjectionWakeRelayFanOutObserver = Readonly<{
   fanOutSucceeded?: (event: ProjectionWakeRelayFanOutSucceededEvent) => void;
   fanOutFailed?: (event: ProjectionWakeRelayFanOutFailedEvent) => void;
 }>;
+
+export type ProjectionWakeRelayRuntimeObserver = ProjectionWakeRelayFanOutObserver &
+  Readonly<{
+    sessionSkipped?: (event: ProjectionWakeRelaySessionSkippedEvent) => void;
+    leaseAcquired?: (event: ProjectionWakeRelayLeaseEvent) => void;
+    leaseMissed?: (event: ProjectionWakeRelayLeaseEvent) => void;
+    leaseLost?: (event: ProjectionWakeRelayLeaseEvent & Readonly<{ error?: unknown }>) => void;
+    sourceCatchUpStarted?: (event: ProjectionWakeRelaySourceCatchUpStartedEvent) => void;
+    sourceCatchUpCompleted?: (event: ProjectionWakeRelaySourceCatchUpCompletedEvent) => void;
+    sourceCatchUpFailed?: (event: ProjectionWakeRelaySourceCatchUpFailedEvent) => void;
+    cursorAdvanced?: (event: ProjectionWakeRelayCursorAdvancedEvent) => void;
+    listenerConnected?: (event: ProjectionWakeRelayListenerEvent) => void;
+    listenerUnavailable?: (event: ProjectionWakeRelayListenerEvent & Readonly<{ error: unknown }>) => void;
+    listenerDisconnected?: (event: ProjectionWakeRelayListenerEvent & Readonly<{ error?: unknown }>) => void;
+    notificationReceived?: (event: ProjectionWakeRelayNotificationReceivedEvent) => void;
+  }>;
+
+export type ProjectionWakeRelaySessionSkippedEvent = Readonly<{
+  leaseName: string;
+  reason: "no-enabled-sources";
+  configuredSourceCount: number;
+  matchedSourceCount: number;
+}>;
+
+export type ProjectionWakeRelayLeaseEvent = Readonly<{
+  leaseName: string;
+  workerId: string;
+  ownerId?: string;
+  fencingToken?: string;
+}>;
+
+export type ProjectionWakeRelaySourceCatchUpStartedEvent = Readonly<{
+  sourceContextName: string;
+  reason: ProjectionWakeRelayCatchUpReason;
+  afterGlobalPosition: string;
+}>;
+
+export type ProjectionWakeRelaySourceCatchUpCompletedEvent = Readonly<{
+  sourceContextName: string;
+  reason: ProjectionWakeRelayCatchUpReason;
+  eventCount: number;
+  cursorAdvanceCount: number;
+  lastFanOutPosition: string | null;
+}>;
+
+export type ProjectionWakeRelaySourceCatchUpFailedEvent = Readonly<{
+  sourceContextName: string;
+  reason: ProjectionWakeRelayCatchUpReason;
+  error: unknown;
+}>;
+
+export type ProjectionWakeRelayCursorAdvancedEvent = Readonly<{
+  sourceContextName: string;
+  reason: ProjectionWakeRelayCatchUpReason;
+  lastFanOutPosition: string;
+  lastRequiredCursor: string;
+  ownerId: string;
+  fencingToken: string;
+}>;
+
+export type ProjectionWakeRelayListenerEvent = Readonly<{
+  sourceContextName: string;
+  channel: string;
+}>;
+
+export type ProjectionWakeRelayNotificationReceivedEvent = ProjectionWakeRelayListenerEvent &
+  Readonly<{
+    payloadBytes: number;
+  }>;
 
 export type ProjectionWakeRelayNotificationRejectedEvent = Readonly<{
   reason: string;
@@ -122,6 +261,129 @@ export class ProjectionWakeRelayNotificationRejectedError extends Error {
     super(`Projection wake relay rejected event-store wake notification: ${reason}.`, options);
     this.name = "ProjectionWakeRelayNotificationRejectedError";
     this.reason = reason;
+  }
+}
+
+export async function runProjectionWakeRelayActiveSession(
+  input: ProjectionWakeRelayActiveSessionInput,
+): Promise<ProjectionWakeRelayActiveSessionResult> {
+  const leaseName = input.leaseName ?? PROJECTION_WAKE_RELAY_ACTIVE_LEASE_NAME;
+  const relayConfigs = input.relayConfigs ?? listSourceContextWakeRelayConfigs();
+  const activeSources = selectActiveRelaySources(input.sources, relayConfigs);
+
+  if (activeSources.length === 0) {
+    input.observer?.sessionSkipped?.({
+      leaseName,
+      reason: "no-enabled-sources",
+      configuredSourceCount: relayConfigs.filter((config) => config.relayFanOutEnabled).length,
+      matchedSourceCount: 0,
+    });
+    return {
+      status: "no-enabled-sources",
+      leaseName,
+      sourceContextNames: [],
+      caughtUpEventCount: 0,
+      cursorAdvanceCount: 0,
+    };
+  }
+
+  const lease = await input.controlPlane.acquireLease({
+    leaseName,
+    ownerId: input.workerId,
+    ttlMs: input.leaseTtlMs,
+    metadata: {
+      kind: "projection-wake-relay",
+      sourceContextNames: activeSources.map((source) => source.source.sourceContextName),
+    },
+  });
+
+  if (!lease) {
+    input.observer?.leaseMissed?.({ leaseName, workerId: input.workerId });
+    return {
+      status: "lease-missed",
+      leaseName,
+      sourceContextNames: activeSources.map((source) => source.source.sourceContextName),
+      caughtUpEventCount: 0,
+      cursorAdvanceCount: 0,
+    };
+  }
+
+  input.observer?.leaseAcquired?.({
+    leaseName,
+    workerId: input.workerId,
+    ownerId: lease.ownerId,
+    fencingToken: lease.fencingToken,
+  });
+
+  const abortController = new AbortController();
+  const abortFromInput = () => abortController.abort();
+  if (input.signal?.aborted) {
+    abortController.abort();
+  } else {
+    input.signal?.addEventListener("abort", abortFromInput, { once: true });
+  }
+
+  let leaseActive = true;
+  let caughtUpEventCount = 0;
+  let cursorAdvanceCount = 0;
+  const sourceStates = activeSources.map((activeSource) =>
+    createRelaySourceState(input, activeSource.source, activeSource.config, lease, abortController.signal, (result) => {
+      caughtUpEventCount += result.eventCount;
+      cursorAdvanceCount += result.cursorAdvanceCount;
+    }),
+  );
+
+  const renewalTimer = setInterval(
+    () => {
+      void input.controlPlane
+        .renewLease(lease, input.leaseTtlMs)
+        .then((renewed) => {
+          leaseActive = leaseActive && renewed;
+          if (!renewed) {
+            input.observer?.leaseLost?.({
+              leaseName,
+              workerId: input.workerId,
+              ownerId: lease.ownerId,
+              fencingToken: lease.fencingToken,
+            });
+            abortController.abort();
+          }
+        })
+        .catch((error: unknown) => {
+          leaseActive = false;
+          input.observer?.leaseLost?.({
+            leaseName,
+            workerId: input.workerId,
+            ownerId: lease.ownerId,
+            fencingToken: lease.fencingToken,
+            error,
+          });
+          abortController.abort();
+        });
+    },
+    Math.max(1_000, Math.min(input.leaseRenewIntervalMs, Math.floor(input.leaseTtlMs / 3))),
+  );
+  renewalTimer.unref?.();
+
+  try {
+    await Promise.all(sourceStates.map((state) => connectSourceListener(state)));
+    await Promise.all(sourceStates.map((state) => enqueueSourceCatchUp(state, "startup")));
+    await waitForProjectionWakeRelayAbort(abortController.signal);
+    await Promise.allSettled(sourceStates.map((state) => state.processing));
+
+    return {
+      status: leaseActive ? "stopped" : "lease-lost",
+      leaseName,
+      sourceContextNames: sourceStates.map((state) => state.source.sourceContextName),
+      caughtUpEventCount,
+      cursorAdvanceCount,
+    };
+  } finally {
+    input.signal?.removeEventListener("abort", abortFromInput);
+    clearInterval(renewalTimer);
+    abortController.abort();
+    await Promise.allSettled(sourceStates.map((state) => stopSourceListener(state)));
+    await input.controlPlane.releaseLease(lease);
   }
 }
 
@@ -265,6 +527,427 @@ export async function fanOutEventStoreWakeNotification(
   });
 
   return result;
+}
+
+type ActiveProjectionWakeRelaySource = Readonly<{
+  source: ProjectionWakeRelaySourceRuntime;
+  config: SourceContextWakeRelayConfig;
+}>;
+
+type ProjectionWakeRelaySourceCatchUpResult = Readonly<{
+  eventCount: number;
+  cursorAdvanceCount: number;
+  lastFanOutPosition: string | null;
+}>;
+
+type ProjectionWakeRelaySourceState = {
+  readonly input: ProjectionWakeRelayActiveSessionInput;
+  readonly source: ProjectionWakeRelaySourceRuntime;
+  readonly config: SourceContextWakeRelayConfig;
+  readonly lease: PlatformLease;
+  readonly signal: AbortSignal;
+  readonly onCatchUpResult: (result: ProjectionWakeRelaySourceCatchUpResult) => void;
+  processing: Promise<void>;
+  stopped: boolean;
+  listenerClient: ProjectionWakeRelayListenerClient | null;
+  notificationListener: ((message?: Readonly<{ channel?: string; payload?: string }>) => void) | null;
+  errorListener: ((message?: Readonly<{ channel?: string; payload?: string }>) => void) | null;
+  reconnectTimer: ReturnType<typeof setTimeout> | null;
+};
+
+function selectActiveRelaySources(
+  sources: readonly ProjectionWakeRelaySourceRuntime[],
+  relayConfigs: readonly SourceContextWakeRelayConfig[],
+): readonly ActiveProjectionWakeRelaySource[] {
+  const sourcesByContext = new Map(sources.map((source) => [source.sourceContextName, source]));
+
+  return relayConfigs.flatMap((config) => {
+    if (!config.relayFanOutEnabled) {
+      return [];
+    }
+
+    const source = sourcesByContext.get(config.sourceContextName);
+    return source ? [{ source, config }] : [];
+  });
+}
+
+function createRelaySourceState(
+  input: ProjectionWakeRelayActiveSessionInput,
+  source: ProjectionWakeRelaySourceRuntime,
+  config: SourceContextWakeRelayConfig,
+  lease: PlatformLease,
+  signal: AbortSignal,
+  onCatchUpResult: (result: ProjectionWakeRelaySourceCatchUpResult) => void,
+): ProjectionWakeRelaySourceState {
+  return {
+    input,
+    source,
+    config,
+    lease,
+    signal,
+    onCatchUpResult,
+    processing: Promise.resolve(),
+    stopped: false,
+    listenerClient: null,
+    notificationListener: null,
+    errorListener: null,
+    reconnectTimer: null,
+  };
+}
+
+async function connectSourceListener(state: ProjectionWakeRelaySourceState): Promise<boolean> {
+  if (state.signal.aborted || state.stopped || !state.source.listenerPool) {
+    return false;
+  }
+
+  const channel = assertPostgresEventStoreWakeNotificationChannel(
+    state.config.channel ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
+  );
+
+  try {
+    const client = (await state.source.listenerPool.connect()) as ProjectionWakeRelayListenerClient;
+    const onNotification = (message?: Readonly<{ channel?: string; payload?: string }>) => {
+      if (message?.channel !== channel) {
+        return;
+      }
+
+      state.input.observer?.notificationReceived?.({
+        sourceContextName: state.source.sourceContextName,
+        channel,
+        payloadBytes: message.payload ? byteLengthUtf8(message.payload) : 0,
+      });
+      void enqueueSourceCatchUp(state, "notification", { fatal: false });
+    };
+    const onError = (message?: Readonly<{ channel?: string; payload?: string }>) => {
+      state.input.observer?.listenerDisconnected?.({
+        sourceContextName: state.source.sourceContextName,
+        channel,
+        error: message,
+      });
+      void disconnectSourceListener(state).finally(() => scheduleSourceListenerReconnect(state));
+    };
+
+    state.listenerClient = client;
+    state.notificationListener = onNotification;
+    state.errorListener = onError;
+    client.on?.("notification", onNotification);
+    client.on?.("error", onError);
+
+    await client.query(`LISTEN ${channel}`);
+    state.input.observer?.listenerConnected?.({
+      sourceContextName: state.source.sourceContextName,
+      channel,
+    });
+    return true;
+  } catch (error) {
+    state.input.observer?.listenerUnavailable?.({
+      sourceContextName: state.source.sourceContextName,
+      channel,
+      error,
+    });
+    await disconnectSourceListener(state);
+    scheduleSourceListenerReconnect(state);
+    return false;
+  }
+}
+
+function scheduleSourceListenerReconnect(state: ProjectionWakeRelaySourceState): void {
+  if (state.signal.aborted || state.stopped || !state.source.listenerPool || state.reconnectTimer) {
+    return;
+  }
+
+  const reconnectBackoffMs = Math.max(
+    100,
+    Math.floor(state.input.reconnectBackoffMs ?? DEFAULT_PROJECTION_WAKE_RELAY_RECONNECT_BACKOFF_MS),
+  );
+  state.reconnectTimer = setTimeout(() => {
+    state.reconnectTimer = null;
+    void connectSourceListener(state)
+      .then((connected) => (connected ? enqueueSourceCatchUp(state, "reconnect", { fatal: false }) : undefined))
+      .catch((error: unknown) => {
+        state.input.observer?.sourceCatchUpFailed?.({
+          sourceContextName: state.source.sourceContextName,
+          reason: "reconnect",
+          error,
+        });
+      });
+  }, reconnectBackoffMs);
+  state.reconnectTimer.unref?.();
+}
+
+async function stopSourceListener(state: ProjectionWakeRelaySourceState): Promise<void> {
+  state.stopped = true;
+  if (state.reconnectTimer) {
+    clearTimeout(state.reconnectTimer);
+    state.reconnectTimer = null;
+  }
+
+  await disconnectSourceListener(state);
+}
+
+async function disconnectSourceListener(state: ProjectionWakeRelaySourceState): Promise<void> {
+  const client = state.listenerClient;
+  const channel = assertPostgresEventStoreWakeNotificationChannel(
+    state.config.channel ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
+  );
+
+  if (!client) {
+    return;
+  }
+
+  if (state.notificationListener) {
+    removePostgresListener(client, "notification", state.notificationListener);
+  }
+  if (state.errorListener) {
+    removePostgresListener(client, "error", state.errorListener);
+  }
+
+  state.listenerClient = null;
+  state.notificationListener = null;
+  state.errorListener = null;
+
+  let disconnectError: unknown;
+  try {
+    await client.query(`UNLISTEN ${channel}`);
+  } catch (error) {
+    disconnectError = error;
+  } finally {
+    client.release();
+  }
+
+  if (disconnectError) {
+    state.input.observer?.listenerDisconnected?.({
+      sourceContextName: state.source.sourceContextName,
+      channel,
+      error: disconnectError,
+    });
+  }
+}
+
+function removePostgresListener(
+  client: ProjectionWakeRelayListenerClient,
+  event: "notification" | "error",
+  listener: (message?: Readonly<{ channel?: string; payload?: string }>) => void,
+): void {
+  if (client.off) {
+    client.off(event, listener);
+    return;
+  }
+
+  client.removeListener?.(event, listener);
+}
+
+function enqueueSourceCatchUp(
+  state: ProjectionWakeRelaySourceState,
+  reason: ProjectionWakeRelayCatchUpReason,
+  options: Readonly<{ fatal: boolean }> = { fatal: true },
+): Promise<void> {
+  const operation = state.processing
+    .then(async () => {
+      const result = await catchUpRelaySource(state, reason);
+      state.onCatchUpResult(result);
+    })
+    .catch((error: unknown) => {
+      state.input.observer?.sourceCatchUpFailed?.({
+        sourceContextName: state.source.sourceContextName,
+        reason,
+        error,
+      });
+      if (options.fatal) {
+        throw error;
+      }
+    });
+
+  state.processing = operation.catch(() => undefined);
+  return operation;
+}
+
+async function catchUpRelaySource(
+  state: ProjectionWakeRelaySourceState,
+  reason: ProjectionWakeRelayCatchUpReason,
+): Promise<ProjectionWakeRelaySourceCatchUpResult> {
+  const cursor = await state.input.controlPlane.getProjectionWakeRelayCursor(state.source.sourceContextName);
+  let afterGlobalPosition = cursorPosition(cursor);
+  let eventCount = 0;
+  let cursorAdvanceCount = 0;
+  let lastFanOutPosition: string | null = null;
+  const batchSize = Math.max(
+    1,
+    Math.floor(state.input.catchUpBatchSize ?? DEFAULT_PROJECTION_WAKE_RELAY_CATCH_UP_BATCH_SIZE),
+  );
+
+  state.input.observer?.sourceCatchUpStarted?.({
+    sourceContextName: state.source.sourceContextName,
+    reason,
+    afterGlobalPosition,
+  });
+
+  while (!state.signal.aborted) {
+    const events = await state.source.eventStore.readAll({
+      afterGlobalPosition: parseGlobalPosition(afterGlobalPosition),
+      streamPrefixes: sourceStreamPrefixes(state.source),
+      limit: batchSize,
+    });
+
+    if (events.length === 0) {
+      break;
+    }
+
+    const sourceEvents = events.filter((event) => eventBelongsToSource(event, state.source));
+    if (sourceEvents.length === 0) {
+      break;
+    }
+
+    for (const group of groupCatchUpEvents(sourceEvents)) {
+      const notification = createCatchUpWakeNotificationEnvelope({
+        source: state.source,
+        events: group,
+        now: state.input.now ?? (() => new Date()),
+      });
+      const fanOutResult = await fanOutEventStoreWakeNotification({
+        notification,
+        projectionInterestIndex: state.input.projectionInterestIndex,
+        workSignalStore: state.input.workSignalStore,
+        relayConfigs: [state.config],
+        metadata: {
+          projectionWakeRelayCatchUpReason: reason,
+          projectionWakeRelayLeaseName: state.lease.leaseName,
+          projectionWakeRelayOwnerId: state.lease.ownerId,
+          projectionWakeRelayFencingToken: state.lease.fencingToken,
+        },
+        observer: state.input.observer,
+      });
+      const advanced = await state.input.controlPlane.advanceProjectionWakeRelayCursor({
+        sourceContextName: state.source.sourceContextName,
+        lastFanOutPosition: fanOutResult.lastGlobalPosition,
+        lastRequiredCursor: fanOutResult.requiredCursor,
+        lease: state.lease,
+        metadata: {
+          reason,
+          streamCategory: fanOutResult.streamCategory,
+          projectionInterestIndexVersion: fanOutResult.projectionInterestIndexVersion,
+        },
+      });
+
+      if (!advanced || advanced.lastFanOutPosition < BigInt(fanOutResult.lastGlobalPosition)) {
+        throw new Error(
+          `Projection wake relay cursor advance was rejected for source '${state.source.sourceContextName}'.`,
+        );
+      }
+
+      eventCount += group.length;
+      cursorAdvanceCount += 1;
+      afterGlobalPosition = fanOutResult.lastGlobalPosition;
+      lastFanOutPosition = fanOutResult.lastGlobalPosition;
+      state.input.observer?.cursorAdvanced?.({
+        sourceContextName: state.source.sourceContextName,
+        reason,
+        lastFanOutPosition: fanOutResult.lastGlobalPosition,
+        lastRequiredCursor: fanOutResult.requiredCursor,
+        ownerId: advanced.ownerId,
+        fencingToken: advanced.fencingToken,
+      });
+    }
+
+    if (events.length < batchSize) {
+      break;
+    }
+  }
+
+  state.input.observer?.sourceCatchUpCompleted?.({
+    sourceContextName: state.source.sourceContextName,
+    reason,
+    eventCount,
+    cursorAdvanceCount,
+    lastFanOutPosition,
+  });
+
+  return {
+    eventCount,
+    cursorAdvanceCount,
+    lastFanOutPosition,
+  };
+}
+
+function cursorPosition(cursor: ProjectionWakeRelayCursorRecord | null): string {
+  return cursor ? cursor.lastFanOutPosition.toString() : ZERO_GLOBAL_POSITION;
+}
+
+function sourceStreamPrefixes(source: ProjectionWakeRelaySourceRuntime): readonly string[] {
+  return source.streamPrefixes?.length ? source.streamPrefixes : [`${source.sourceContextName}.`];
+}
+
+function eventBelongsToSource(event: StoredEvent, source: ProjectionWakeRelaySourceRuntime): boolean {
+  return sourceStreamPrefixes(source).some((prefix) => event.streamId.startsWith(prefix));
+}
+
+function groupCatchUpEvents(events: readonly StoredEvent[]): readonly (readonly StoredEvent[])[] {
+  const groups: StoredEvent[][] = [];
+  let current: StoredEvent[] = [];
+  let currentStreamCategory: string | null = null;
+
+  for (const event of events) {
+    const category = streamCategory(event.streamId);
+    if (current.length > 0 && currentStreamCategory !== category) {
+      groups.push(current);
+      current = [];
+    }
+    current.push(event);
+    currentStreamCategory = category;
+  }
+
+  if (current.length > 0) {
+    groups.push(current);
+  }
+
+  return groups;
+}
+
+function createCatchUpWakeNotificationEnvelope(input: {
+  source: ProjectionWakeRelaySourceRuntime;
+  events: readonly StoredEvent[];
+  now: () => Date;
+}): EventStoreWakeNotificationEnvelope {
+  const firstEvent = input.events[0];
+  const lastEvent = input.events[input.events.length - 1];
+
+  if (!firstEvent || !lastEvent) {
+    throw new Error("Projection wake relay catch-up requires at least one source event.");
+  }
+
+  return {
+    schemaVersion: EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION,
+    payloadVersion: EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION,
+    kind: EVENT_STORE_WAKE_NOTIFICATION_KIND,
+    source: DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE,
+    emittedAt: parseIsoUtcTimestamp(input.now().toISOString()),
+    ...(firstEvent.traceId ? { correlationId: firstEvent.traceId } : {}),
+    payload: {
+      sourceContextName: input.source.sourceContextName,
+      streamCategory: streamCategory(firstEvent.streamId),
+      firstGlobalPosition: firstEvent.globalPosition,
+      lastGlobalPosition: lastEvent.globalPosition,
+      eventCount: input.events.length,
+      eventTypes: [...new Set(input.events.map((event) => event.eventType))].sort((left, right) =>
+        left.localeCompare(right),
+      ),
+    },
+  };
+}
+
+function streamCategory(streamId: string): string {
+  const lastDashIndex = streamId.lastIndexOf("-");
+  return lastDashIndex > 0 ? streamId.slice(0, lastDashIndex) : streamId;
+}
+
+function waitForProjectionWakeRelayAbort(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
 }
 
 export function parseEventStoreWakeNotificationEnvelope(notification: unknown): EventStoreWakeNotificationEnvelope {
@@ -504,4 +1187,8 @@ function assertSafeRelayMetadata(value: unknown, path: readonly string[] = []): 
     }
     assertSafeRelayMetadata(nestedValue, nextPath);
   }
+}
+
+function byteLengthUtf8(value: string): number {
+  return typeof Buffer !== "undefined" ? Buffer.byteLength(value, "utf8") : new TextEncoder().encode(value).length;
 }
