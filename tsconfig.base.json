@@ -390,6 +390,9 @@
       "@chase-sets/platform-runtime/realtime-web": [
         "./infrastructure/platform-runtime/realtime-web.ts"
       ],
+      "@chase-sets/platform-runtime/source-context-wake-registry": [
+        "./infrastructure/platform-runtime/source-context-wake-registry.ts"
+      ],
       "@chase-sets/platform-runtime/ucp": [
         "./infrastructure/platform-runtime/ucp.ts"
       ],

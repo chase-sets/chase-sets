@@ -8,7 +8,7 @@ The durable event-store rows remain authoritative. A missed, duplicate, delayed,
 
 ## Emission Contract
 
-`createPostgresEventStore` can emit a wake notification when `wakeNotifications.enabled` is true. The notification is disabled by default.
+`createPostgresEventStore` can emit a wake notification when `wakeNotifications.enabled` is true. The notification is disabled by default. Runtime service factories should derive that flag from the [source-context wake registry](./source-context-wake-registry.md) so write-side emission and relay fan-out move through the same rollout gate.
 
 The append path writes event rows and updates the stream version inside the append transaction. After `COMMIT` succeeds, it sends one notification on the same checked-out client:
 
