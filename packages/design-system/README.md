@@ -34,7 +34,7 @@ Application code should not introduce:
 - Panel interactions must use the canonical pattern taxonomy from [Panel Interaction Patterns](./PANEL_INTERACTIONS.md): `NavigationDrawer`, `Sidebar`, `SideSheet`, `BottomSheet`, `ModalDialog`, `Popover`/`Menu`, and `FullPage`. The package does not expose generic drawer or legacy dropdown aliases.
 - Overlays should use design-system Dialog, Sheet, Popover, Tooltip, Menu, and AlertDialog primitives instead of route-local overlay CSS.
 - Advanced, optional, risky, or low-frequency choices should use `ProgressiveDisclosure` or `ProgressiveDisclosureGroup` rather than app-local show/hide controls.
-- Optional structured reference detail should use `ReferenceInfoTrigger` and `ReferenceInfoDialog`: linked text with a trailing `info` icon opening a focused reference-detail dialog/sheet. Do not use Tooltip, raw Popover, or local Dialog clones for reference-data facts, marketplace terms, payout calculations, matching rules, registration timing, stale-state recovery, or policy context.
+- Optional structured reference detail should use `ReferenceInfoTrigger` and `ReferenceInfoDialog`: linked text with a trailing `info` icon opening a design-system-owned reference-detail dialog or sheet equivalent. Do not use Tooltip, raw Popover, or local Dialog clones for reference-data facts, marketplace terms, payout calculations, matching rules, registration timing, stale-state recovery, or policy context. Use [Reference Info Popup](./REFERENCE_INFO.md) for the full admin and marketplace pattern contract.
 - Data-heavy admin screens should use `DataTable`, `DetailPanel`, `FilterBar`, `BulkActionSurface`, `BulkActionBar`, `BulkActionPanel`, and `MetricStrip`.
 - Dense admin areas with one primary workflow and supporting detours should use [Section Navigation](./SECTION_NAVIGATION.md) for desktop left-side menu groups and the approved grouped mobile selector.
 - Dense admin rebuilds should use [Dense Admin Workbench Pattern](./DENSE_ADMIN_WORKBENCH.md) and its `DenseAdminWorkbenchProof` artifact to validate grouped navigation, dense tables, selected-record commands, contextual evidence sheets, and blocked/denied/degraded states before app adoption.
@@ -136,6 +136,8 @@ Migration cleanup checklist:
 Progressive disclosure is the package-wide default for advanced use cases. Keep required decision facts and the current primary action visible, then disclose supporting controls or deeper explanation through the exported disclosure primitives.
 
 Use [Progressive Disclosure](./PROGRESSIVE_DISCLOSURE.md) for the full component contract, accessibility rules, and first-flow recommendations.
+
+Use [Reference Info Popup](./REFERENCE_INFO.md) when the disclosure is optional structured reference detail behind a visible fact or label.
 
 ## Checkout Primitives
 

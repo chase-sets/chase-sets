@@ -94,6 +94,8 @@ Marketplace product actions use three user-facing intents: Buy, Sell, and Watch.
 
 Use `ReferenceInfoTrigger` with `ReferenceInfoDialog` for compact marketplace and admin explanations that are useful to some users but would overload the main surface. This is the standard popup pattern for reference-data details in admin and for marketplace rail fine print; do not create competing tooltip, popover, or ad hoc disclosure patterns for the same job.
 
+The canonical contract lives in [Reference Info Popup](./REFERENCE_INFO.md). Marketplace rail wrappers should own only localized topic copy and data mapping; overlay behavior, focus management, trigger treatment, and compact fact layout stay in the design-system primitive.
+
 - Required decision facts stay visible. Price, quantity, selected product options, public account identity and reputation, availability, essential payout preview, blocking errors, and final action buttons must not be hidden behind Reference Info.
 - Fine print goes in Reference Info. Use it for Buy Cart matching behavior, listing reservation nuance, Sell List matching behavior, payout calculation detail, standard-term explanations, fee basis, registration timing, stale quote recovery, and watch alert mechanics.
 - Use at most one visible Reference Info trigger per workflow or action cluster. The trigger label names the topic, such as `Buying this listing`, `Listing in Buy Cart`, `Estimated payout`, `Standard terms`, `Creating a listing`, `Watch listings`, or `Watch offers`.
