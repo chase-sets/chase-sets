@@ -6,7 +6,7 @@ Milestone #19 moves projection readiness from polling-first to push-first withou
 
 ## Ownership Boundaries
 
-Shared Platform Runtime infrastructure owns the generic wake, listener, waiter, lease, worker, and metrics primitives. Platform Operations owns operator-facing rollout, release, and projection operation language. Bounded contexts keep their event facts, durable job tables, read models, projections, route recovery behavior, and durable job semantics.
+Shared Platform Runtime infrastructure owns the generic wake, listener, waiter, lease, worker, and metrics primitives through one documented work-signal runtime/API surface. Platform Operations owns operator-facing rollout, release, and projection operation language. Bounded contexts keep their event facts, durable job tables, read models, projections, route recovery behavior, and durable job semantics.
 
 Durable truth stays where it already belongs:
 
@@ -25,7 +25,7 @@ Every milestone issue belongs to at least one blocker class. When an issue spans
 
 | Blocker Class | First Gate | Issues | Release Meaning |
 | --- | --- | --- | --- |
-| Program and architecture fitness | Phase 0 PR readiness | #1217, #1218, #1248, #1249 | The ADR, composite boundaries, source-of-truth ownership, and dependency map are accepted before runtime changes land. |
+| Program and architecture fitness | Phase 0 PR readiness | #1217, #1218, #1248, #1249 | The ADR, composite boundaries, source-of-truth ownership, and dependency map are accepted before production push enablement or broad consumer rollout. |
 | Checkout hot-path blocker | Phase 1 Checkout enablement | #1219, #1220, #1221, #1222, #1223, #1225, #1226, #1227, #1231, #1237, #1239, #1240, #1242, #1246 | Guest Buy Now and other critical read-after-write pages can wake, wait, and prove pay-ready readiness without route-time projection execution. |
 | Production topology, safety, and rollout blocker | Phase 1 production proof mode | #1228, #1229, #1235, #1236, #1243, #1244 | Production cannot enable push-first Checkout until observability, kill switches, privacy review, listener topology, staging/prod parity, and DigitalOcean budgets pass. |
 | Composite migration blocker | Phase 2 composite rollout | #1224, #1232, #1238, #1245 | Projection groups, projection operations, notification utilities, and source-context rollout waves move through shared primitives or carry owner-approved exceptions. |
@@ -33,9 +33,11 @@ Every milestone issue belongs to at least one blocker class. When an issue spans
 
 Issue classification is a rollout control, not just bookkeeping. A later phase may start behind flags, but an earlier gate cannot be considered closed while one of its listed issues still lacks its required evidence.
 
+Phase 0 gates production enablement and broad consumer rollout. Foundational implementation slices may land behind flags before every Phase 0 artifact is complete, but the ADR and phase-gate review must validate, amend, or explicitly supersede those contracts before Phase 1 enablement.
+
 ## Phase 0: Architecture And Guardrails
 
-Goal: make the intended runtime shape hard to misunderstand before implementation begins.
+Goal: make the intended runtime shape hard to misunderstand before production push enablement or broad consumer rollout.
 
 Required work:
 
@@ -43,11 +45,13 @@ Required work:
 - Publish this phase map.
 - Add static guardrails that inventory direct `LISTEN`, `UNLISTEN`, `pg_notify`, and direct realtime wake-signal construction.
 - Document existing durable job, projection operation, and realtime wake paths as either migration candidates or budgeted exceptions.
+- Document the single owning work-signal runtime/API surface and thin adapter policy.
 - Update docs index entries so the architecture is discoverable.
 
 Exit evidence:
 
 - ADR and phase map are linked from `docs/README.md`.
+- Foundational contracts that landed behind flags are revalidated by ADR and phase-gate review before Phase 1 enablement.
 - Guardrail tests pass and list current approved direct wake/listener files.
 - No runtime behavior changes are required for Phase 0.
 
