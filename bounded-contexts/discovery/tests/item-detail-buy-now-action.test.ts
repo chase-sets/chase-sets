@@ -141,6 +141,100 @@ describe("item detail buy now action", () => {
     expect(result.item?.offer_demand_matches).toHaveLength(1);
   });
 
+  it("attaches display-safe public standard terms previews to item detail offers", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [],
+        offer_demand_matches: [
+          {
+            offer_id: "offer_charizard",
+            catalog_catalog_item_id: "cat_charizard",
+            status: "submitted",
+            price_amount: "380.00",
+          },
+        ],
+      }),
+    });
+    const previewPublicStandardListingTerms = vi.fn().mockResolvedValue({
+      account_type: "personal",
+      basis_amount: "380.00",
+      marketplace_sales_fee_unit_amount: "34.35",
+      seller_net_unit_amount: "345.65",
+      shipping_allowance_percentage_bps: 500,
+      source_kind: "public-standard-seller-terms",
+      source_label: "Standard seller terms",
+      schedule_label: "Personal Default",
+      source_updated_at: "2026-05-05T16:36:36.000Z",
+      resolved_at: "2026-05-05T16:36:36.000Z",
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewPublicStandardListingTerms,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(previewPublicStandardListingTerms).toHaveBeenCalledWith({ priceAmount: "380.00" });
+    const preview = result.item?.offer_demand_matches[0]?.public_standard_terms_preview;
+    expect(preview).toEqual(
+      expect.objectContaining({
+        seller_net_unit_amount: "345.65",
+        marketplace_sales_fee_unit_amount: "34.35",
+        source_label: "Standard seller terms",
+      }),
+    );
+    expect("fee_quote_fingerprint" in (preview ?? {})).toBe(false);
+    expect("schedule_id" in (preview ?? {})).toBe(false);
+    expect("agreement_id" in (preview ?? {})).toBe(false);
+  });
+
+  it("skips public standard terms previews for registered viewers", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({
+      accountId: "acc_buyer",
+      permissions: [],
+    });
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+        subtitle: "Base Set 4/102 Holo Rare",
+        market_listings: [],
+        offer_demand_matches: [
+          {
+            offer_id: "offer_charizard",
+            catalog_catalog_item_id: "cat_charizard",
+            status: "submitted",
+            price_amount: "380.00",
+          },
+        ],
+      }),
+    });
+    const previewPublicStandardListingTerms = vi.fn();
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewPublicStandardListingTerms,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const result = await loader({
+      request: new Request("http://localhost/items/charizard-base-set"),
+      params: { id: "charizard-base-set" },
+      context: {},
+    } as never);
+
+    expect(previewPublicStandardListingTerms).not.toHaveBeenCalled();
+    expect(result.item?.offer_demand_matches[0]?.public_standard_terms_preview).toBeUndefined();
+  });
+
   it("hands product offer intent to checkout without seller permissions", async () => {
     mockRequireActorFromAuthApi.mockResolvedValue({
       accountId: "acc_buyer",

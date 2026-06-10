@@ -47,15 +47,15 @@ type MarketplaceListingTermsPreview = Readonly<{
   marketplace_sales_fee_unit_amount: string;
   seller_net_unit_amount: string;
   shipping_allowance_percentage_bps: number;
-  schedule_id: string | null;
-  agreement_id: string | null;
+  schedule_id?: string | null;
+  agreement_id?: string | null;
   resolved_at: string;
-  fee_quote_fingerprint: string;
+  fee_quote_fingerprint?: string;
+  source_kind?: "public-standard-seller-terms";
+  source_label?: string;
+  schedule_label?: string;
+  source_updated_at?: string;
 }>;
-
-const PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_BPS = 700;
-const PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_FIXED_AMOUNT = 0.05;
-const PUBLIC_SELLER_QUOTE_SHIPPING_ALLOWANCE_BPS = 500;
 
 type ProductSelectionDisplayDetail = Readonly<{
   label: ReactNode;
@@ -166,46 +166,11 @@ function parseQuantity(value: number | null | undefined): number {
   return Number.isFinite(quantity) ? quantity : 0;
 }
 
-function roundMoneyAmount(value: number) {
-  return Math.round((value + Number.EPSILON) * 100) / 100;
-}
-
-function toMoneyAmount(value: number) {
-  return roundMoneyAmount(value).toFixed(2);
-}
-
-function createSellerRegistrationQuote(priceAmount: string): MarketplaceListingTermsPreview | null {
-  const basisAmount = parseMoneyAmount(priceAmount);
-
-  if (basisAmount === null) {
-    return null;
+function formatTermsSource(terms: MarketplaceListingTermsPreview) {
+  if (terms.source_label) {
+    return terms.source_label;
   }
 
-  const marketplaceFeeUnitAmount = roundMoneyAmount(
-    (basisAmount * PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_BPS) / 10000 + PUBLIC_SELLER_QUOTE_MARKETPLACE_FEE_FIXED_AMOUNT,
-  );
-  const sellerNetUnitAmount = Math.max(0, roundMoneyAmount(basisAmount - marketplaceFeeUnitAmount));
-
-  return {
-    account_type: "personal",
-    basis_amount: toMoneyAmount(basisAmount),
-    marketplace_sales_fee_unit_amount: toMoneyAmount(marketplaceFeeUnitAmount),
-    seller_net_unit_amount: toMoneyAmount(sellerNetUnitAmount),
-    shipping_allowance_percentage_bps: PUBLIC_SELLER_QUOTE_SHIPPING_ALLOWANCE_BPS,
-    schedule_id: "public_seller_quote",
-    agreement_id: null,
-    resolved_at: new Date().toISOString(),
-    fee_quote_fingerprint: [
-      toMoneyAmount(basisAmount),
-      toMoneyAmount(marketplaceFeeUnitAmount),
-      toMoneyAmount(sellerNetUnitAmount),
-      PUBLIC_SELLER_QUOTE_SHIPPING_ALLOWANCE_BPS,
-      "public_seller_quote",
-    ].join("|"),
-  };
-}
-
-function formatTermsSource(terms: MarketplaceListingTermsPreview) {
   if (terms.agreement_id) {
     return t("discovery.routes.itemDetail.seller.specific.terms");
   }
@@ -1167,11 +1132,12 @@ export function MarketplaceSellerRegistrationSection({
     buyer_account_id: string;
     price_amount: string;
     quantity_requested: number;
+    public_standard_terms_preview?: MarketplaceListingTermsPreview | null;
   } | null;
   matchingOfferCount?: number;
   registerHref: string;
 }) {
-  const selectedOfferQuote = selectedOffer ? createSellerRegistrationQuote(selectedOffer.price_amount) : null;
+  const selectedOfferQuote = selectedOffer?.public_standard_terms_preview ?? null;
   const acceptedQuantity = selectedOffer?.quantity_requested ?? 0;
   const acceptedValue = selectedOffer ? multiplyMoneyAmount(selectedOffer.price_amount, acceptedQuantity) : null;
   const marketplaceFeeTotal =
@@ -1189,6 +1155,7 @@ export function MarketplaceSellerRegistrationSection({
   const selectedOfferQuoteSource = selectedOfferQuote
     ? formatTermsSource(selectedOfferQuote)
     : t("discovery.routes.itemDetail.standard.terms");
+  const selectedOfferQuoteTime = selectedOfferQuote ? new Date(selectedOfferQuote.resolved_at).toLocaleString() : null;
   const offerRegistrationPanel = selectedOffer ? (
     <FormPanel variant={panelVariant} glow>
       <Stack gap={3}>
@@ -1275,6 +1242,11 @@ export function MarketplaceSellerRegistrationSection({
                     ]
               }
             />
+            {!selectedOfferQuote ? (
+              <Text size="sm" tone="secondary">
+                {t("discovery.routes.itemDetail.public.standard.terms.preview.unavailable")}
+              </Text>
+            ) : null}
             {selectedOfferQuote ? (
               <RailReferenceInfo
                 triggerLabel={t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.trigger")}
@@ -1301,6 +1273,10 @@ export function MarketplaceSellerRegistrationSection({
                       {
                         key: t("discovery.routes.itemDetail.referenceInfo.termsSource"),
                         value: selectedOfferQuoteSource,
+                      },
+                      {
+                        key: t("discovery.routes.itemDetail.referenceInfo.quoteTime"),
+                        value: selectedOfferQuoteTime ?? t("discovery.routes.itemDetail.just.now"),
                       },
                     ],
                   },

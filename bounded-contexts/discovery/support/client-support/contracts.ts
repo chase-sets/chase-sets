@@ -1,5 +1,18 @@
 export type DiscoveryProductAssetRole = "source" | "thumbnail" | "search-card" | "catalog-detail";
 
+export interface DiscoveryPublicStandardTermsPreview {
+  account_type: string;
+  basis_amount: string;
+  marketplace_sales_fee_unit_amount: string;
+  seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
+  source_kind: "public-standard-seller-terms";
+  source_label: string;
+  schedule_label: string;
+  source_updated_at: string;
+  resolved_at: string;
+}
+
 export interface DiscoveryProductAssetVariant {
   role: DiscoveryProductAssetRole;
   width: number;
@@ -292,6 +305,7 @@ export interface DiscoveryOffer {
   buyer_slug?: string | null;
   buyer_average_rating?: string | null;
   buyer_review_count?: number;
+  public_standard_terms_preview?: DiscoveryPublicStandardTermsPreview | null;
   created_at: string;
   updated_at: string;
 }

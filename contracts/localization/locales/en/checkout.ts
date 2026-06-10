@@ -282,6 +282,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.create.account": "Create account",
   "checkout.features.sellList.ui.sellListPage.create.listing.for.remaining": "Create listing for remaining quantity",
   "checkout.features.sellList.ui.sellListPage.choose.inventory": "Choose inventory",
+  "checkout.features.sellList.ui.sellListPage.estimated.payout": "Estimated payout",
+  "checkout.features.sellList.ui.sellListPage.estimated.payout.aria": "View estimated payout details",
+  "checkout.features.sellList.ui.sellListPage.estimated.payout.facts": "Payout facts",
+  "checkout.features.sellList.ui.sellListPage.estimated.payout.summary": "Estimated payout uses {source}.",
   "checkout.features.sellList.ui.sellListPage.expected.payout.before.checkout":
     "Expected payout before seller checkout",
   "checkout.features.sellList.ui.sellListPage.fallback.listing.ready.detail":
@@ -314,10 +318,19 @@ export const checkoutEnglishTranslations = {
     "Resolve payout requirements before accepting offers or creating fallback listings: {requirements}.",
   "checkout.features.sellList.ui.sellListPage.payout.readiness.unavailable.description":
     "Payout readiness could not be loaded. Refresh payout setup before accepting offers or creating fallback listings.",
+  "checkout.features.sellList.ui.sellListPage.public.standard.offer.preview.ready.detail":
+    "Estimated payout is ready using current standard seller terms. Create an account to review final terms before committing.",
+  "checkout.features.sellList.ui.sellListPage.public.standard.terms.line1":
+    "This estimate uses public standard seller terms because no seller account is attached yet.",
+  "checkout.features.sellList.ui.sellListPage.public.standard.terms.line2":
+    "After registration, Checkout refreshes seller-specific terms before any offer acceptance or sale commitment.",
   "checkout.features.sellList.ui.sellListPage.quantity": "Quantity",
+  "checkout.features.sellList.ui.sellListPage.quote.time": "Quote time",
   "checkout.features.sellList.ui.sellListPage.offer": "Offer",
   "checkout.features.sellList.ui.sellListPage.offer.terms.need.refresh":
     "Refresh this line before seller checkout so the offer terms are current.",
+  "checkout.features.sellList.ui.sellListPage.registered.terms.line1":
+    "Seller checkout revalidates the current fee quote before committing a sale.",
   "checkout.features.sellList.ui.sellListPage.ready": "Ready",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout": "Ready for seller checkout",
   "checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout.description":
@@ -361,6 +374,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.seller.checkout.readiness": "Seller checkout readiness",
   "checkout.features.sellList.ui.sellListPage.seller.checkout.readiness.description":
     "Checkout receives only ready Sell List lines. Item eligibility, sale action, payout, ship-from, and label readiness stay before seller checkout.",
+  "checkout.features.sellList.ui.sellListPage.seller.specific.terms": "Seller-specific terms",
   "checkout.features.sellList.ui.sellListPage.selected.offer": "Selected offer",
   "checkout.features.sellList.ui.sellListPage.selected.offer.ready.detail":
     "Offer terms are current and ready for seller checkout.",
@@ -370,6 +384,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.sell.list.lines": "Sell List lines",
   "checkout.features.sellList.ui.sellListPage.seller.net": "Seller net",
   "checkout.features.sellList.ui.sellListPage.ship.from.inventory": "Ship-from inventory",
+  "checkout.features.sellList.ui.sellListPage.shipping.allowance": "Shipping allowance",
   "checkout.features.sellList.ui.sellListPage.sign.in": "Sign in",
   "checkout.features.sellList.ui.sellListPage.sign.in.required": "Sign in required",
   "checkout.features.sellList.ui.sellListPage.sign.in.to.review.sale.checkout":
@@ -379,6 +394,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.smart.match.seller.net": "Smart Match seller net",
   "checkout.features.sellList.ui.sellListPage.some.items.need.action": "Some items need action",
   "checkout.features.sellList.ui.sellListPage.standard": "Standard",
+  "checkout.features.sellList.ui.sellListPage.standard.terms": "Standard terms",
+  "checkout.features.sellList.ui.sellListPage.terms.source": "Terms source",
+  "checkout.features.sellList.ui.sellListPage.just.now": "Just now",
   "checkout.features.sellList.ui.sellListPage.continue.to.seller.checkout": "Continue to seller checkout",
   "checkout.features.sellList.ui.sellListPage.pre.checkout.action": "Pre-checkout action",
   "checkout.features.sellList.ui.sellListPage.product.line": "Product",

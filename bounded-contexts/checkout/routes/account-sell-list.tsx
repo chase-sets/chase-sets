@@ -11,6 +11,7 @@ import type {
   OfferMatchListItem,
   MarketplaceListingInventoryItemOption,
   MarketplaceListingTermsPreview,
+  MarketplacePublicStandardTermsPreview,
 } from "@chase-sets/marketplace/server";
 import type { SettlementPayoutReadinessRow } from "@chase-sets/settlement/server";
 import {
@@ -29,7 +30,7 @@ function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFrom
 type SellListOfferReview = Readonly<{
   lineId: string;
   status: "ready" | "unavailable";
-  terms: MarketplaceListingTermsPreview | null;
+  terms: MarketplaceListingTermsPreview | MarketplacePublicStandardTermsPreview | null;
   message: string | null;
 }>;
 
@@ -78,6 +79,44 @@ async function loadSellListOfferReviews(
           message: error instanceof Error ? error.message : "Offer terms are unavailable.",
         };
       }
+    }),
+  );
+}
+
+async function loadGuestSellListOfferReviews(
+  request: Request,
+  lines: readonly CheckoutSellListLineRow[],
+): Promise<readonly SellListOfferReview[]> {
+  const marketplaceApi = createMarketplaceRequestApiClient(request);
+  const previewPublicStandardListingTerms = marketplaceApi.previewPublicStandardListingTerms?.bind(marketplaceApi);
+  const selectedOfferLines = lines.filter((line) => line.line_type === "selected-offer" && line.offer_price_amount);
+  if (typeof previewPublicStandardListingTerms !== "function" || selectedOfferLines.length === 0) {
+    return [];
+  }
+
+  const previewByPrice = new Map<string, Promise<MarketplacePublicStandardTermsPreview | null>>();
+  const previewForPrice = (priceAmount: string) => {
+    if (!previewByPrice.has(priceAmount)) {
+      previewByPrice.set(
+        priceAmount,
+        previewPublicStandardListingTerms({ priceAmount })
+          .then((preview) => preview)
+          .catch(() => null),
+      );
+    }
+
+    return previewByPrice.get(priceAmount)!;
+  };
+
+  return Promise.all(
+    selectedOfferLines.map(async (line) => {
+      const terms = line.offer_price_amount ? await previewForPrice(line.offer_price_amount) : null;
+      return {
+        lineId: line.line_id,
+        status: terms ? ("ready" as const) : ("unavailable" as const),
+        terms,
+        message: terms ? null : "Public standard seller terms are temporarily unavailable.",
+      };
     }),
   );
 }
@@ -214,10 +253,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const reviewCompleted = new URL(request.url).searchParams.get("review") === "completed";
 
   if (!canUseAccountSellList(actor)) {
+    const sellList = await api.getGuestSellList(anonymousSellListId);
+
     return {
       isSignedIn: false,
       reviewCompleted: false,
-      sellList: await api.getGuestSellList(anonymousSellListId),
+      sellList,
+      offerReviews: await loadGuestSellListOfferReviews(request, sellList.items),
     };
   }
 

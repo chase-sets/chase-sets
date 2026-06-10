@@ -24,6 +24,7 @@ import {
   createMarketplaceRequestApiClient,
   type MarketplaceListingInventoryItemOption,
   type MarketplaceListingTermsPreview,
+  type MarketplacePublicStandardTermsPreview,
 } from "@chase-sets/marketplace/server";
 import { createInventoryRequestApiClient } from "@chase-sets/inventory/server";
 import {
@@ -134,6 +135,40 @@ function buildRegisterToSellHref(request: Request) {
 
 function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
   return Boolean(actor && !actor.permissions.includes("guest-checkout.manage"));
+}
+
+async function attachPublicStandardOfferTerms(
+  marketplaceApi: ReturnType<typeof createMarketplaceRequestApiClient>,
+  item: DiscoveryItemDetail,
+): Promise<DiscoveryItemDetail> {
+  const previewPublicStandardListingTerms = marketplaceApi.previewPublicStandardListingTerms?.bind(marketplaceApi);
+  if (typeof previewPublicStandardListingTerms !== "function" || item.offer_demand_matches.length === 0) {
+    return item;
+  }
+
+  const previewByPrice = new Map<string, Promise<MarketplacePublicStandardTermsPreview | null>>();
+  const previewForPrice = (priceAmount: string) => {
+    if (!previewByPrice.has(priceAmount)) {
+      previewByPrice.set(
+        priceAmount,
+        previewPublicStandardListingTerms({ priceAmount })
+          .then((preview) => preview)
+          .catch(() => null),
+      );
+    }
+
+    return previewByPrice.get(priceAmount)!;
+  };
+
+  return {
+    ...item,
+    offer_demand_matches: await Promise.all(
+      item.offer_demand_matches.map(async (offer) => ({
+        ...offer,
+        public_standard_terms_preview: offer.price_amount ? await previewForPrice(offer.price_amount) : null,
+      })),
+    ),
+  };
 }
 
 export function readInitialSelectedOptions(searchParams: URLSearchParams) {
@@ -253,12 +288,16 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
   }
 
   try {
-    const item = await api.getItemDetail(id);
+    let item = await api.getItemDetail(id);
     if (item.slug && id !== item.slug) {
       throw redirect(`/items/${item.slug}${url.search}`, { status: 301 });
     }
 
     const actor = await resolveActorFromAuthApi({ request });
+    if (!canUseAccountSellList(actor)) {
+      item = await attachPublicStandardOfferTerms(marketplaceApi, item);
+    }
+
     const canReviewAccountOfferMatches = Boolean(
       actor?.permissions.includes("offers.view") && actor.permissions.includes("listings.view"),
     );

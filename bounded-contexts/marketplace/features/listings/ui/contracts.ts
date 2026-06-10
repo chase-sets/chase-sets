@@ -153,6 +153,19 @@ export interface MarketplaceListingTermsPreview {
   fee_quote_fingerprint: string;
 }
 
+export interface MarketplacePublicStandardTermsPreview {
+  account_type: "personal" | "business" | "enterprise";
+  basis_amount: string;
+  marketplace_sales_fee_unit_amount: string;
+  seller_net_unit_amount: string;
+  shipping_allowance_percentage_bps: number;
+  source_kind: "public-standard-seller-terms";
+  source_label: string;
+  schedule_label: string;
+  source_updated_at: string;
+  resolved_at: string;
+}
+
 export interface MarketplaceListingFeeHistoryEntry {
   event_type: string;
   stream_version: number;
