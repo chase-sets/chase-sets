@@ -1,0 +1,208 @@
+import { EventEmitter } from "node:events";
+
+import { describe, expect, it, vi } from "vitest";
+import type { PgPoolClient, PgTransactionalPool } from "@chase-sets/event-core-postgres";
+import {
+  createPostgresWorkSignalWaiter,
+  createWorkSignalEnvelope,
+  emitPostgresWorkSignalNotification,
+  parseWorkSignalEnvelope,
+  serializeWorkSignalEnvelope,
+} from "./work-signal-composite";
+
+const NOW = new Date("2026-06-10T12:00:00.000Z");
+
+describe("work signal composite", () => {
+  it("emits bounded versioned Postgres notifications through the active queryable", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] | undefined }> = [];
+    const emitted: unknown[] = [];
+
+    await emitPostgresWorkSignalNotification(
+      {
+        query: async (sql: string, values?: readonly unknown[]) => {
+          calls.push({ sql, values });
+          return { rows: [], rowCount: 1 };
+        },
+      },
+      {
+        channel: "platform_projection_operation_events",
+        envelope: {
+          kind: "projection-operation.event",
+          source: "platform-control-plane",
+          payload: { operationId: "projection-operation-1", sequence: 2 },
+          correlationId: "corr_1",
+        },
+        now: () => NOW,
+        observer: {
+          notificationEmitted: (event) => emitted.push(event),
+        },
+      },
+    );
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].sql).toBe("SELECT pg_notify($1, $2)");
+    expect(calls[0].values?.[0]).toBe("platform_projection_operation_events");
+    const envelope = parseWorkSignalEnvelope(String(calls[0].values?.[1]));
+    expect(envelope).toMatchObject({
+      schemaVersion: 1,
+      payloadVersion: 1,
+      kind: "projection-operation.event",
+      source: "platform-control-plane",
+      emittedAt: NOW.toISOString(),
+      correlationId: "corr_1",
+      payload: {
+        operationId: "projection-operation-1",
+        sequence: 2,
+      },
+    });
+    expect(emitted[0]).toMatchObject({
+      channel: "platform_projection_operation_events",
+      kind: "projection-operation.event",
+      correlationId: "corr_1",
+    });
+  });
+
+  it("rejects sensitive payload keys and oversize notification envelopes", () => {
+    expect(() =>
+      serializeWorkSignalEnvelope(
+        createWorkSignalEnvelope(
+          {
+            kind: "event-store.commit",
+            source: "event-store",
+            payload: { sourceContextName: "checkout", guestEmail: "buyer@example.com" },
+          },
+          { now: () => NOW },
+        ),
+      ),
+    ).toThrow(/sensitive payload key/);
+
+    expect(() =>
+      serializeWorkSignalEnvelope(
+        createWorkSignalEnvelope(
+          {
+            kind: "event-store.commit",
+            source: "event-store",
+            payload: { sourceContextName: "checkout", cursor: "x".repeat(200) },
+          },
+          { now: () => NOW },
+        ),
+        { maxPayloadBytes: 50 },
+      ),
+    ).toThrow(/exceeds the 50 byte limit/);
+
+    expect(
+      parseWorkSignalEnvelope(
+        JSON.stringify({
+          schemaVersion: 1,
+          payloadVersion: 1,
+          kind: "unknown.event",
+          source: "test",
+          emittedAt: NOW.toISOString(),
+          payload: { id: "safe" },
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("waits on a dedicated listener connection and matches work-signal envelopes", async () => {
+    const client = createNotificationClient();
+    const pool = createPoolForClient(client);
+    const received: unknown[] = [];
+    const waiter = createPostgresWorkSignalWaiter(pool, {
+      channel: "platform_projection_operation_events",
+      observer: {
+        notificationReceived: (event) => received.push(event),
+      },
+    });
+    const wait = waiter.wait({
+      timeoutMs: 1_000,
+      matches: (notification) =>
+        notification.envelope?.kind === "projection-operation.event" &&
+        notification.envelope.payload.operationId === "projection-operation-1",
+    });
+
+    await vi.waitFor(() => {
+      expect(client.queries).toContain("LISTEN platform_projection_operation_events");
+    });
+
+    client.emit("notification", {
+      channel: "platform_projection_operation_events",
+      payload: serializeWorkSignalEnvelope(
+        createWorkSignalEnvelope(
+          {
+            kind: "projection-operation.event",
+            source: "platform-control-plane",
+            payload: { operationId: "projection-operation-1", sequence: 2 },
+          },
+          { now: () => NOW },
+        ),
+      ),
+    });
+
+    await expect(wait).resolves.toBe("notified");
+    expect(received[0]).toMatchObject({
+      kind: "projection-operation.event",
+      matchedWaiterCount: 1,
+      waiterCount: 1,
+    });
+
+    await waiter.stop();
+    expect(client.queries).toContain("UNLISTEN platform_projection_operation_events");
+    expect(client.isReleased()).toBe(true);
+  });
+
+  it("falls back to a bounded timeout when LISTEN is unavailable", async () => {
+    const client = createNotificationClient({
+      failListen: true,
+    });
+    const pool = createPoolForClient(client);
+    const unavailable: unknown[] = [];
+    const waiter = createPostgresWorkSignalWaiter(pool, {
+      channel: "platform_projection_operation_events",
+      observer: {
+        listenerUnavailable: (event) => unavailable.push(event),
+      },
+    });
+
+    await expect(
+      waiter.wait({
+        timeoutMs: 100,
+        matches: () => true,
+      }),
+    ).resolves.toBe("listener-unavailable");
+    expect(unavailable[0]).toMatchObject({ channel: "platform_projection_operation_events" });
+    expect(client.isReleased()).toBe(true);
+  });
+});
+
+function createNotificationClient(options: { failListen?: boolean } = {}) {
+  const emitter = new EventEmitter();
+  const queries: string[] = [];
+  let released = false;
+
+  return Object.assign(emitter, {
+    queries,
+    isReleased: () => released,
+    query: async (sql: string) => {
+      queries.push(sql);
+      if (options.failListen && sql.includes("LISTEN")) {
+        throw new Error("LISTEN is unavailable on this connection.");
+      }
+      return { rows: [], rowCount: 0 };
+    },
+    release: () => {
+      released = true;
+    },
+  }) as unknown as PgPoolClient &
+    EventEmitter & {
+      readonly queries: string[];
+      isReleased: () => boolean;
+    };
+}
+
+function createPoolForClient(client: PgPoolClient): PgTransactionalPool {
+  return {
+    connect: async () => client,
+    query: async () => ({ rows: [], rowCount: 0 }),
+  };
+}

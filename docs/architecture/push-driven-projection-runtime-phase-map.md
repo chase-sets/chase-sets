@@ -85,7 +85,7 @@ Goal: consolidate related job/event wake paths through shared primitives without
 Required work:
 
 - Adapt durable job event waits to shared notification/waiter/metrics primitives or document a budgeted exception.
-- Adapt platform projection operation event waits to the composite.
+- Keep platform projection operation event waits on the work-signal composite and preserve mixed-version compatibility with the earlier raw notification payload during rollout.
 - Review realtime SSE wake signals against DigitalOcean listener budgets; migrate to the composite listener/relay path or document a budgeted local-listener exception.
 - Add structure checks that block new unreviewed direct wake/listener helpers.
 - Add compatibility wrappers so old and new helper APIs can overlap safely during rolling deployments.
