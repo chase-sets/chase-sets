@@ -48,6 +48,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.authentication.context.missing.4": "Authentication context missing.",
   "marketplace.features.listings.api.route.authentication.context.missing.5": "Authentication context missing.",
   "marketplace.features.listings.api.route.authentication.context.missing.6": "Authentication context missing.",
+  "marketplace.features.listings.api.route.anonymous.listing.draft.required":
+    "Listing draft session is missing. Start a new listing draft from the item page.",
   "marketplace.features.listings.api.route.authentication.required": "Authentication required.",
   "marketplace.features.listings.api.route.forbidden": "Forbidden.",
   "marketplace.features.listings.api.route.listing.not.found": "Listing not found.",
@@ -460,6 +462,8 @@ export const marketplaceEnglishTranslations = {
   "marketplace.routes.accountListing.listing.not.found": "Listing not found.",
   "marketplace.routes.accountListing.fee.quote.stale": "Fee quote is stale. Refresh the fee preview before continuing.",
   "marketplace.routes.accountListings.listings.marketplace": "Listings | Marketplace",
+  "marketplace.routes.accountListings.listing.draft.not.found":
+    "Listing draft was not found. Start a new listing draft from the item page.",
   "marketplace.routes.accountListings.manage.active.draft.paused.and.withdrawn":
     "Manage active, draft, paused, and withdrawn listings from your marketplace account.",
   "marketplace.routes.accountOfferMatch.forbidden": "Forbidden.",

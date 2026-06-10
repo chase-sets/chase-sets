@@ -21,7 +21,9 @@ import {
   selectDiscoveryProductAssetUrl,
 } from "../support/client-support/product-assets";
 import {
+  appendAnonymousListingDraftCookie,
   createMarketplaceRequestApiClient,
+  ensureAnonymousListingDraftOwnerId,
   MarketplaceApiError,
   type OfferMatchListItem,
   type MarketplaceListingInventoryItemOption,
@@ -88,6 +90,8 @@ const EMPTY_ITEM_DETAIL_RESULT = {
   hasInitialSelectedOptionFilters: false,
   showSellerTab: true,
   canUseSellerFeatures: false,
+  canUseListingFeatures: false,
+  canUseGuestListingDraft: false,
   canSubmitOffers: false,
   registerToSellHref: "/register",
   notFound: false,
@@ -134,6 +138,11 @@ function buildRegisterToSellHref(request: Request) {
   const url = new URL(request.url);
   const returnTo = `${url.pathname}${url.search}`;
 
+  return `/register?returnTo=${encodeURIComponent(returnTo)}`;
+}
+
+function buildRegisterToClaimListingDraftHref(intentId: string) {
+  const returnTo = `/account/listings?claimListingIntent=${encodeURIComponent(intentId)}`;
   return `/register?returnTo=${encodeURIComponent(returnTo)}`;
 }
 
@@ -447,6 +456,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       showSellerTab: false,
       canUseSellerFeatures: false,
       canUseListingFeatures: false,
+      canUseGuestListingDraft: false,
       canSubmitOffers: false,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: true,
@@ -471,6 +481,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
     const canSellOnItem = Boolean(
       actor?.permissions.includes("listings.view") && actor.permissions.includes("listings.manage"),
     );
+    const canUseGuestListingDraft = !canUseAccountSellList(actor);
     const canSubmitOffers = Boolean(actor);
     let accountOfferMatches: DiscoveryOfferMatchWithTerms[] = [];
     let sellerInventoryItems: DiscoverySellerInventoryItem[] = [];
@@ -533,6 +544,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       showSellerTab: true,
       canUseSellerFeatures: canReviewAccountOfferMatches || canSellOnItem,
       canUseListingFeatures: canSellOnItem,
+      canUseGuestListingDraft,
       canSubmitOffers,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: false,
@@ -555,6 +567,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
         showSellerTab: false,
         canUseSellerFeatures: false,
         canUseListingFeatures: false,
+        canUseGuestListingDraft: false,
         canSubmitOffers: false,
         registerToSellHref: buildRegisterToSellHref(request),
         notFound: true,
@@ -578,6 +591,7 @@ export async function loader({ request, params }: LoaderFunctionArgs) {
       showSellerTab: false,
       canUseSellerFeatures: false,
       canUseListingFeatures: false,
+      canUseGuestListingDraft: false,
       canSubmitOffers: false,
       registerToSellHref: buildRegisterToSellHref(request),
       notFound: true,
@@ -878,10 +892,6 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "list-at-price") {
-      await requireActorFromAuthApi({
-        request,
-        permission: "listings.manage",
-      });
       const item = await discoveryApi.getItemDetail(params.id!);
 
       const listingId = String(formData.get("listingId") ?? "").trim();
@@ -891,6 +901,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const quantityCap = parsePositiveQuantity(formData.get("quantityCap"));
 
       if (listingId) {
+        await requireActorFromAuthApi({
+          request,
+          permission: "listings.manage",
+        });
         const quote = await marketplaceApi.previewListingTerms({ priceAmount });
         await marketplaceApi.updateListingPrice(listingId, {
           priceAmount,
@@ -904,6 +918,31 @@ export async function action({ request, params }: ActionFunctionArgs) {
       }
 
       const inventoryItemId = String(formData.get("inventoryItemId") ?? "").trim();
+      const selectedOptions = parseSelectedOptions(formData.get("selectedOptions"));
+      const productId = String(formData.get("productId") ?? "").trim();
+      const productSummary = String(formData.get("productSummary") ?? "").trim() || null;
+      const actor = await resolveActorFromAuthApi({ request });
+
+      if (!canUseAccountSellList(actor)) {
+        const anonymousListingDraftOwnerId = ensureAnonymousListingDraftOwnerId(request);
+        const draft = await marketplaceApi.createAnonymousListingDraftIntent(anonymousListingDraftOwnerId, {
+          sourcePath: `/items/${item.slug || item.catalog_item_id}?market=sell`,
+          catalogItemId: item.catalog_item_id,
+          productId,
+          selectedOptions,
+          productSummary,
+          priceAmount,
+          quantityCap,
+        });
+        const response = redirect(buildRegisterToClaimListingDraftHref(draft.intent_id));
+        appendAnonymousListingDraftCookie(response.headers, anonymousListingDraftOwnerId, request);
+        return response;
+      }
+
+      await requireActorFromAuthApi({
+        request,
+        permission: "listings.manage",
+      });
       const listingBody = inventoryItemId
         ? {
             inventoryItemId,
@@ -917,7 +956,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
             inventorySnapshot: (
               await inventoryApi.ensureListingStock({
                 catalogItemId: item.catalog_item_id,
-                selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
+                selectedOptions,
                 quantity: quantityCap,
               })
             ).snapshot,
@@ -1121,6 +1160,7 @@ function DiscoveryItemDetailRealtimeView({
                   bestListing={context.bestListing}
                   ownListing={ownListing}
                   hasListingStockLocation={data.hasListingStockLocation}
+                  allowDraftWithoutShipFromSetup={data.canUseGuestListingDraft}
                   errorMessage={actionErrorMessage}
                 />
               );
@@ -1208,7 +1248,7 @@ function DiscoveryItemDetailRealtimeView({
                     )
                   }
                   renderListing={(formId) =>
-                    data.canUseListingFeatures
+                    data.canUseListingFeatures || data.canUseGuestListingDraft
                       ? renderListingSubmission(formId, "plain", undefined, true)
                       : renderSellerRegistration("plain", true, "listing")
                   }

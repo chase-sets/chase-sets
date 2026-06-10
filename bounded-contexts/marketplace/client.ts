@@ -9,6 +9,7 @@ export type {
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
+  MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
   MarketplaceListingTermsPreview,
@@ -29,6 +30,7 @@ import type {
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingInventoryItemOption,
+  MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingListItem,
   MarketplaceSellerListingAvailability,
   MarketplaceListingTermsPreview,
@@ -51,11 +53,7 @@ export class MarketplaceApiError extends Error {
     public readonly status: number,
     public readonly body: unknown,
   ) {
-    super(
-      typeof body === "object" && body !== null && "error" in body
-        ? String((body as Record<string, unknown>).error)
-        : `API error ${status}`,
-    );
+    super(marketplaceApiErrorMessage(status, body));
   }
 }
 
@@ -80,6 +78,29 @@ function headersToRecord(headers: HeadersInit | undefined): Record<string, strin
 function queryFromString(query: string) {
   const params = new URLSearchParams(query);
   return Object.fromEntries(params.entries());
+}
+
+function marketplaceApiErrorMessage(status: number, body: unknown) {
+  if (!body || typeof body !== "object" || !("error" in body)) {
+    return `API error ${status}`;
+  }
+
+  const error = (body as { error?: unknown }).error;
+  if (!error || typeof error !== "object") {
+    return String(error ?? `API error ${status}`);
+  }
+
+  const message = (error as { message?: unknown }).message;
+  if (typeof message === "string" && message.trim()) {
+    return message;
+  }
+
+  const code = (error as { code?: unknown }).code;
+  if (typeof code === "string" && code.trim()) {
+    return code;
+  }
+
+  return `API error ${status}`;
 }
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
@@ -144,6 +165,24 @@ export function createMarketplaceApiClient({
         }),
       );
     },
+    async createAnonymousListingDraftIntent(
+      anonymousOwnerId: string,
+      body: Record<string, unknown>,
+      options: Readonly<{ signal?: AbortSignal }> = {},
+    ): Promise<MarketplaceAnonymousListingDraftIntent> {
+      return parseJsonResponse(
+        await configuredFetch(joinApiPath(baseUrl, "/guest/listing-draft-intents"), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...headersToRecord(headers),
+            "x-marketplace-anonymous-listing-draft-id": anonymousOwnerId,
+          },
+          body: JSON.stringify(body),
+          signal: options.signal,
+        }),
+      );
+    },
     async listSellerListings(query = ""): Promise<ListResponse<MarketplaceListingListItem>> {
       return parseJsonResponse(
         await client.account.listings.$get({
@@ -181,6 +220,25 @@ export function createMarketplaceApiClient({
           json: {},
           header: headers,
         }),
+      );
+    },
+    async claimAnonymousListingDraftIntent(
+      anonymousOwnerId: string,
+      intentId: string,
+    ): Promise<MarketplaceAnonymousListingDraftIntent> {
+      return parseJsonResponse(
+        await configuredFetch(
+          joinApiPath(baseUrl, `/account/listing-draft-intents/${encodeURIComponent(intentId)}/claim`),
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...headersToRecord(headers),
+              "x-marketplace-anonymous-listing-draft-id": anonymousOwnerId,
+            },
+            body: JSON.stringify({}),
+          },
+        ),
       );
     },
     async getSellerListing(id: string): Promise<MarketplaceListingDetail> {

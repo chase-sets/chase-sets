@@ -3,6 +3,7 @@ export type {
   MarketplaceListingDetail,
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingInventoryItemOption,
+  MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingListItem,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceSellerListingAvailability,

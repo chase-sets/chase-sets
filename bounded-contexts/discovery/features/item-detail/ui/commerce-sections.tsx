@@ -1474,6 +1474,7 @@ export function MarketplaceListingSubmissionSection({
   bestListing,
   ownListing,
   hasListingStockLocation,
+  allowDraftWithoutShipFromSetup = false,
   errorMessage,
 }: {
   formId?: string;
@@ -1494,12 +1495,13 @@ export function MarketplaceListingSubmissionSection({
   } | null;
   ownListing: DiscoveryMarketListing | null;
   hasListingStockLocation: boolean;
+  allowDraftWithoutShipFromSetup?: boolean;
   errorMessage?: string | null;
 }) {
   const listing = ownListing ?? null;
   const listPrice = listing?.price_amount ?? bestListing?.price_amount ?? "";
   const defaultQuantity = listing?.quantity_cap ?? 1;
-  const requiresShipFromSetup = !listing && !hasListingStockLocation;
+  const requiresShipFromSetup = !listing && !hasListingStockLocation && !allowDraftWithoutShipFromSetup;
   const canUseListAction = Boolean(productId && listPrice && !requiresShipFromSetup);
   const defaultActions = listing ? (
     <LinkButton href={`/account/listings/${listing.listing_id}`} block>
@@ -1516,6 +1518,7 @@ export function MarketplaceListingSubmissionSection({
       <Stack gap={3}>
         <HiddenInput type="hidden" name="productId" value={productId ?? ""} />
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
+        <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
         <HiddenInput type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
         <HiddenInput type="hidden" name="priceAmount" value={listPrice} />
         <HiddenInput type="hidden" name="quantityCap" value={String(defaultQuantity)} />

@@ -8,12 +8,14 @@ import { appendFreshWriteToken, type ListResponse } from "@chase-sets/http/respo
 import {
   createMarketplaceRequestApiClient,
   MarketplaceApiError,
+  type MarketplaceAnonymousListingDraftIntent,
   type MarketplaceListingInventoryItemOption,
   type MarketplaceListingFeeLockReportEntry,
   type MarketplaceListingListItem,
   type MarketplaceSellerListingAvailability,
   type MarketplaceListingTermsPreview,
 } from "../support/request-support/api-client";
+import { readAnonymousListingDraftOwnerId } from "../support/request-support/anonymous-listing-draft";
 import { createInventoryRequestApiClient, type InventoryItemListItem } from "@chase-sets/inventory/server";
 import { MarketplaceListingListPage } from "../features/listings/ui/listing-list-page";
 import { applyMarketplaceListPatch } from "../support/realtime-support/patches";
@@ -115,6 +117,21 @@ function createListingApiForm(listingBody: Record<string, unknown>, listingPhoto
   return apiForm;
 }
 
+function createFormFromClaimedDraft(draft: MarketplaceAnonymousListingDraftIntent) {
+  return {
+    inventoryItemId: "",
+    catalogItemId: draft.catalog_item_id,
+    selectedOptions: draft.selected_options,
+    priceAmount: draft.price_amount,
+    quantityCap: String(draft.quantity_cap),
+    maxUnitsPerOrder: draft.max_units_per_order ? String(draft.max_units_per_order) : "",
+    maxUnitsPerDay: draft.max_units_per_day ? String(draft.max_units_per_day) : "",
+    maxUnitsPerCustomerAccount: draft.max_units_per_customer_account
+      ? String(draft.max_units_per_customer_account)
+      : "",
+  };
+}
+
 export async function loader({ request }: LoaderFunctionArgs) {
   await requireActorFromAuthApi({ request, permission: "listings.view" });
   const marketplaceApi = createMarketplaceRequestApiClient(request);
@@ -123,6 +140,9 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const selectedInventoryItemId = searchParams.get("inventoryItemId");
   const selectedCatalogItemId = searchParams.get("catalogItemId");
   const recommendedPrice = searchParams.get("recommendedPrice") ?? "";
+  const claimListingIntentId = searchParams.get("claimListingIntent")?.trim() ?? "";
+  let claimedDraft: MarketplaceAnonymousListingDraftIntent | null = null;
+  let claimError: string | null = null;
 
   const [listings, feeLockReport, items, storageLocations] = await Promise.all([
     marketplaceApi.listSellerListings(DEFAULT_LISTING_QUERY),
@@ -130,6 +150,21 @@ export async function loader({ request }: LoaderFunctionArgs) {
     inventoryApi.listItems(DEFAULT_ITEM_QUERY),
     inventoryApi.listStorageLocations("limit=100&offset=0"),
   ]);
+
+  if (claimListingIntentId) {
+    const anonymousOwnerId = readAnonymousListingDraftOwnerId(request);
+    if (!anonymousOwnerId) {
+      claimError = t("marketplace.routes.accountListings.listing.draft.not.found");
+    } else {
+      try {
+        claimedDraft = await marketplaceApi.claimAnonymousListingDraftIntent(anonymousOwnerId, claimListingIntentId);
+      } catch (error) {
+        claimError =
+          error instanceof Error ? error.message : t("marketplace.routes.accountListings.listing.draft.not.found");
+      }
+    }
+  }
+
   const listingAvailability = await marketplaceApi.getSellerListingAvailability();
   const inventoryItems = (items.items as InventoryItemListItem[])
     .filter((inventoryItem) => inventoryItem.available_quantity > 0)
@@ -146,29 +181,32 @@ export async function loader({ request }: LoaderFunctionArgs) {
     listingAvailability,
     inventoryItems,
     hasListingStockLocation: storageLocations.items.some((location) => location.name === LISTING_STOCK_LOCATION_NAME),
-    createForm: selectedInventoryItem
-      ? {
-          inventoryItemId: selectedInventoryItem.item_id,
-          catalogItemId: selectedInventoryItem.catalog_catalog_item_id,
-          selectedOptions: selectedInventoryItem.selected_options,
-          priceAmount: recommendedPrice,
-          quantityCap: "1",
-          maxUnitsPerOrder: "",
-          maxUnitsPerDay: "",
-          maxUnitsPerCustomerAccount: "",
-        }
-      : selectedCatalogItemId
+    claimError,
+    createForm: claimedDraft
+      ? createFormFromClaimedDraft(claimedDraft)
+      : selectedInventoryItem
         ? {
-            inventoryItemId: "",
-            catalogItemId: selectedCatalogItemId,
-            selectedOptions: [],
+            inventoryItemId: selectedInventoryItem.item_id,
+            catalogItemId: selectedInventoryItem.catalog_catalog_item_id,
+            selectedOptions: selectedInventoryItem.selected_options,
             priceAmount: recommendedPrice,
             quantityCap: "1",
             maxUnitsPerOrder: "",
             maxUnitsPerDay: "",
             maxUnitsPerCustomerAccount: "",
           }
-        : null,
+        : selectedCatalogItemId
+          ? {
+              inventoryItemId: "",
+              catalogItemId: selectedCatalogItemId,
+              selectedOptions: [],
+              priceAmount: recommendedPrice,
+              quantityCap: "1",
+              maxUnitsPerOrder: "",
+              maxUnitsPerDay: "",
+              maxUnitsPerCustomerAccount: "",
+            }
+          : null,
   };
 }
 
@@ -352,7 +390,7 @@ function MarketplaceAccountListingsRealtimeView({
       hasListingStockLocation={data.hasListingStockLocation}
       createForm={actionData?.createForm ?? data.createForm ?? undefined}
       createPreview={actionData?.createPreview as MarketplaceListingTermsPreview | null | undefined}
-      errorMessage={actionData?.error ?? null}
+      errorMessage={actionData?.error ?? data.claimError ?? null}
     />
   );
 }
