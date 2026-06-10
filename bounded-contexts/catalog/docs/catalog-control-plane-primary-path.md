@@ -3,6 +3,7 @@
 The rebuilt Catalog Control Plane starts with the operator job that matters most: pull provider data, review Source Observations, and promote eligible sources into Catalog Items or Catalog-owned references. Supporting workflows exist to explain, unblock, govern, recover, or verify that path. They must not bury it behind implementation-oriented modules or preserve the current two-page Catalog integrations layout as the target architecture.
 
 This framing is the Stage 1 product contract for #1049. It complements the rebuilt route/workspace contract in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md), the first-slice sequencing in [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md), and the clean-launch rules in [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md).
+Operator-facing labels, blocked-state explanations, next steps, provider transport copy, resilience copy, and glossary terms are owned by [Catalog Control Plane Operator Copy](./catalog-control-plane-operator-copy.md).
 
 ## Default Journey
 
@@ -61,6 +62,7 @@ Primary-path blockers must be explicit categories, not generic disabled states. 
 - audit/evidence expectation when the operator resolves or overrides the blocker.
 
 Unknown blocker categories must fail closed and should link to diagnostics or release evidence instead of falling back to raw JSON, legacy selectors, or the old page modules.
+Visible blocker copy must use the #1058 operator-copy contract: every blocked or disabled primary-path action needs a human label, reason, next step, and supporting workflow target.
 
 ## Route And Context Rules
 
@@ -100,6 +102,7 @@ Any exception is launch-blocking until it is rebuilt as a clean launch contract 
 - [Catalog Control Plane First-Slice Stage Board](./catalog-control-plane-first-slice-stage-board.md)
 - [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md)
 - [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md)
+- [Catalog Control Plane Operator Copy](./catalog-control-plane-operator-copy.md)
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)

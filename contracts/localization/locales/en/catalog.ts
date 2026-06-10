@@ -486,6 +486,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.provider": "Provider: {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.scope": "Scope: {value}",
   "catalog.features.sourceObservations.ui.primaryWorkbench.context.unit": "Unit: {value}",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix": "Next:",
   "catalog.features.sourceObservations.ui.primaryWorkbench.copy.route.context": "Copy route context",
   "catalog.features.sourceObservations.ui.primaryWorkbench.current": "Current",
   "catalog.features.sourceObservations.ui.primaryWorkbench.default.workspace": "Default workspace",

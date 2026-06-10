@@ -8,7 +8,7 @@ The authoritative TypeScript surface lives in:
 bounded-contexts/catalog/features/source-observations/api/primary-workbench-admin-contracts.ts
 ```
 
-The contract composes the shared query inventory in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md), the read-model SLO states in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md), and the first-slice provider transport budgets in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md). It exists so Stage 2 workbench implementation can consume one typed API boundary instead of preserving page-specific selectors, raw JSON patches, or provider-specific UI branches.
+The contract composes the shared query inventory in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md), the read-model SLO states in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md), the first-slice provider transport budgets in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md), and the operator-facing copy system in [Catalog Control Plane Operator Copy](./catalog-control-plane-operator-copy.md). It exists so Stage 2 workbench implementation can consume one typed API boundary instead of preserving page-specific selectors, raw JSON patches, or provider-specific UI branches.
 
 ## Primary Path
 
@@ -98,7 +98,7 @@ Every blocked, denied, degraded, unsafe, unavailable, or disabled action must ex
 | Unsupported or skewed commands | `unsupported-command`, `deploy-skew-unsupported-version` |
 | Retired behavior | `raw-json-retired`, `legacy-selector-retired` |
 
-All blocker contracts set `failClosed: true`, map to primary-path copy keys, and emit the redaction-safe `blocker_category` instrumentation dimension.
+All blocker contracts set `failClosed: true`, map to primary-path copy keys, and emit the redaction-safe `blocker_category` instrumentation dimension. The UI must render blocker categories through `primary-workbench-copy.ts`, which gives each category a human label, reason, next step, support target, and language group. It must not derive visible copy by splitting category slugs.
 
 ## Deploy Skew
 
@@ -132,7 +132,7 @@ Forbidden outcomes include compatibility shims, legacy support paths, migration 
 | #1039 | Source Observation review | `sourceObservationReview.counts`, `sourceObservationReview.cursor`, `sourceObservationReview.evidenceSummariesRedacted`, `promotionPreview.dispositions` |
 | #1040 | Promotion preview and execution | `promotionPreview.commandPlanHash`, `promotionPreview.dispositions`, `promotionResult.auditEvidenceIds` |
 | #1057 | Route-context preservation | `routeContext.providerKey`, `routeContext.unitKey`, `routeContext.importScope`, `routeContext.selectedObservationIds`, `routeContext.promotionPreviewId` |
-| #1058 | Operator copy and blocked-state clarity | `actions.copyKey`, `readiness.blockers` |
+| #1058 | Operator copy and blocked-state clarity | `actions.copyKey`, `readiness.blockers`, `primary-workbench-copy.ts`, `catalogPrimaryWorkbenchBlockerCopy`, `catalogPrimaryWorkbenchProviderTransportCopy`, `catalogPrimaryWorkbenchGlossaryTerms` |
 | #1059 | Telemetry and instrumentation | `instrumentation.dimensions`, `instrumentation.redactionSafe` |
 | #1062 | Real-provider proof | `providerScope.providers.providerKey`, `readiness.providerTransport`, `promotionResult.promotedCatalogItemIds` |
 | #1063 | Durable-job edge cases | `importJobs.jobs.consistency`, `promotionPreview.blockers` |

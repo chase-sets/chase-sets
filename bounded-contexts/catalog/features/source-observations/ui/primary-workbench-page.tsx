@@ -24,6 +24,7 @@ import type {
   CatalogPrimaryWorkbenchActionReadModel,
   CatalogPrimaryWorkbenchActionState,
   CatalogPrimaryWorkbenchBlockerCategory,
+  CatalogPrimaryWorkbenchProviderTransportCategory,
   CatalogPrimaryWorkbenchReadModel,
 } from "../api/primary-workbench-admin-contracts";
 import {
@@ -35,6 +36,11 @@ import {
   catalogPrimaryWorkbenchSupportingHref,
   normalizeCatalogPrimaryWorkbenchSection,
 } from "./primary-workbench-route-context";
+import {
+  catalogPrimaryWorkbenchProviderTransportSummary,
+  getCatalogPrimaryWorkbenchBlockerCopy,
+  getCatalogPrimaryWorkbenchProviderTransportCopy,
+} from "./primary-workbench-copy";
 
 type PrimaryWorkbenchStepKey = "provider" | "import" | "review" | "preview" | "promote";
 
@@ -317,27 +323,34 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
         header: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
         mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.action"),
         align: "right",
-        cell: (row) => (
-          <div className="flex flex-wrap justify-end gap-2">
-            <SourceObservationEvidenceSheet row={row} />
-            {row.actions
-              .filter((actionEntry) => actionEntry.key !== "view-source-observation")
-              .map((actionEntry) => (
-                <Button
-                  key={actionEntry.key}
-                  size="sm"
-                  tone={actionEntry.key === "preview-promotion" ? "primary" : "secondary"}
-                  disabled={actionEntry.state !== "available" && actionEntry.state !== "degraded"}
-                  aria-label={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.action.aria", {
-                    action: rowActionLabel(actionEntry.key),
-                    observation: row.displayName,
-                  })}
-                >
-                  {rowActionLabel(actionEntry.key)}
-                </Button>
-              ))}
-          </div>
-        ),
+        cell: (row) => {
+          const rowActionBlockers = uniqueBlockers(row.actions.flatMap((actionEntry) => actionEntry.blockers));
+
+          return (
+            <div className="grid justify-items-end gap-2">
+              <div className="flex flex-wrap justify-end gap-2">
+                <SourceObservationEvidenceSheet row={row} />
+                {row.actions
+                  .filter((actionEntry) => actionEntry.key !== "view-source-observation")
+                  .map((actionEntry) => (
+                    <Button
+                      key={actionEntry.key}
+                      size="sm"
+                      tone={actionEntry.key === "preview-promotion" ? "primary" : "secondary"}
+                      disabled={actionEntry.state !== "available" && actionEntry.state !== "degraded"}
+                      aria-label={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.action.aria", {
+                        action: rowActionLabel(actionEntry.key),
+                        observation: row.displayName,
+                      })}
+                    >
+                      {rowActionLabel(actionEntry.key)}
+                    </Button>
+                  ))}
+              </div>
+              <BlockerList blockers={rowActionBlockers} compact hideWhenEmpty />
+            </div>
+          );
+        },
       },
     ],
     [],
@@ -652,7 +665,9 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
                         key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.transport"),
                         value:
                           readModel.importJobs.selectedScope.readiness.providerTransport.length > 0
-                            ? readModel.importJobs.selectedScope.readiness.providerTransport.join(", ")
+                            ? catalogPrimaryWorkbenchProviderTransportSummary(
+                                readModel.importJobs.selectedScope.readiness.providerTransport,
+                              )
                             : t(
                                 "catalog.features.sourceObservations.ui.primaryWorkbench.readiness.transport.ready.description",
                               ),
@@ -1081,7 +1096,7 @@ function readinessItems(readModel: CatalogPrimaryWorkbenchReadModel): readonly W
           : t("catalog.features.sourceObservations.ui.primaryWorkbench.ready"),
       description:
         readModel.readiness.providerTransport.length > 0
-          ? readModel.readiness.providerTransport.join(", ")
+          ? catalogPrimaryWorkbenchProviderTransportSummary(readModel.readiness.providerTransport)
           : t("catalog.features.sourceObservations.ui.primaryWorkbench.readiness.transport.ready.description"),
     },
     {
@@ -1289,18 +1304,41 @@ function EvidenceList({ title, items, empty }: { title: string; items: readonly 
   );
 }
 
-function BlockerList({ blockers }: { blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[] }) {
-  if (blockers.length === 0) {
+function BlockerList({
+  blockers,
+  compact = false,
+  hideWhenEmpty = false,
+}: {
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  compact?: boolean;
+  hideWhenEmpty?: boolean;
+}) {
+  const visibleBlockers = uniqueBlockers(blockers);
+  if (visibleBlockers.length === 0) {
+    if (hideWhenEmpty) {
+      return null;
+    }
+
     return <Badge tone="success">{t("catalog.features.sourceObservations.ui.primaryWorkbench.none")}</Badge>;
   }
 
   return (
-    <div className="flex min-w-0 flex-wrap gap-1.5">
-      {blockers.map((blocker) => (
-        <Badge key={blocker} tone={blocker.includes("denied") || blocker.includes("blocked") ? "danger" : "warning"}>
-          {stateLabel(blocker)}
-        </Badge>
-      ))}
+    <div className={compact ? "grid min-w-0 gap-1 text-left" : "grid min-w-0 gap-2 text-left"}>
+      {visibleBlockers.map((blocker) => {
+        const copy = getCatalogPrimaryWorkbenchBlockerCopy(blocker);
+
+        return (
+          <div key={blocker} className={compact ? "grid min-w-0 gap-1" : "grid min-w-0 gap-1.5"}>
+            <div className="flex min-w-0 flex-wrap gap-1.5">
+              <Badge tone={blockerTone(blocker)}>{copy.label}</Badge>
+            </div>
+            <div className={compact ? "max-w-72 text-xs leading-5 text-secondary" : "text-xs leading-5 text-secondary"}>
+              {copy.reason} {t("catalog.features.sourceObservations.ui.primaryWorkbench.copy.next.prefix")}{" "}
+              {copy.nextStep}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -1394,12 +1432,26 @@ function failureGroupLabel(group: ImportJobRow["failureGroups"][number]): string
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.stale.replay");
   }
   if (group.key.startsWith("provider-transport-")) {
+    const category = group.key.replace(/^provider-transport-/, "") as CatalogPrimaryWorkbenchProviderTransportCategory;
+
     return t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.failure.transport", {
-      category: stateLabel(group.key.replace(/^provider-transport-/, "")),
+      category: getCatalogPrimaryWorkbenchProviderTransportCopy(category).label,
     });
   }
 
   return group.label;
+}
+
+function blockerTone(blocker: CatalogPrimaryWorkbenchBlockerCategory) {
+  const group = getCatalogPrimaryWorkbenchBlockerCopy(blocker).group;
+  if (group === "permission" || group === "rollout" || group === "security-privacy" || group === "retirement") {
+    return "danger";
+  }
+  if (group === "provider-transport" || group === "resilience" || group === "job") {
+    return "warning";
+  }
+
+  return blocker.includes("blocked") ? "danger" : "warning";
 }
 
 function stateLabel(state: string): string {
@@ -1423,6 +1475,12 @@ function activeFilterCount(readModel: CatalogPrimaryWorkbenchReadModel): number 
     readModel.routeContext.profileVersion,
     ...Object.values(readModel.routeContext.sourceObservationFilters),
   ].filter(Boolean).length;
+}
+
+function uniqueBlockers(
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[],
+): readonly CatalogPrimaryWorkbenchBlockerCategory[] {
+  return [...new Set(blockers)];
 }
 
 function findNavigationHref(groups: SectionNavigationGroup[], key: string): string | undefined {

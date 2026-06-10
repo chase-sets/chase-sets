@@ -2,7 +2,7 @@
 
 This board operationalizes the first-slice delivery sequence for the Catalog Control Plane UX rebuild. It turns the milestone stage labels into entry gates, exit evidence, owner records, and follow-up rules so implementation can proceed without preserving the current two-page Catalog integrations surface as a migration target.
 
-The rebuild continues to use the clean launch contracts from [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md): the primary operator path is provider import -> Source Observation review -> promotion into Catalog Items or Catalog-owned references, and retired behavior must be completely deleted from code, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims. The product framing for that default operator path is documented in [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md), and the rebuilt route/workspace IA is documented in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md). The dense-workbench design-system proof is documented in [Dense Admin Workbench Pattern](../../../packages/design-system/DENSE_ADMIN_WORKBENCH.md).
+The rebuild continues to use the clean launch contracts from [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md): the primary operator path is provider import -> Source Observation review -> promotion into Catalog Items or Catalog-owned references, and retired behavior must be completely deleted from code, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, and compatibility shims. The product framing for that default operator path is documented in [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md), and the rebuilt route/workspace IA is documented in [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md). The dense-workbench design-system proof is documented in [Dense Admin Workbench Pattern](../../../packages/design-system/DENSE_ADMIN_WORKBENCH.md).
 
 ## Stage Status
 
@@ -27,7 +27,7 @@ Stage 1 can begin because Stage 0 is complete and no open milestone issue carrie
 - migrate the current two-page Catalog integrations route layout or module boundaries;
 - reintroduce legacy provider selectors, scripted import endpoints, raw JSON broad patches, transitional profile mode, or silent active-profile fallback;
 - treat supporting workspaces as peers that bury the primary import-to-promotion path;
-- leave retired behavior in code, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, or compatibility shims.
+- leave retired behavior in code, product patterns, tests, fixtures, screenshots, documentation, runbooks, release notes, operator instructions, aliases, flags, fallbacks, redirects, support-only routes, or compatibility shims.
 
 ## Stage 1 Exit Gate
 
@@ -66,7 +66,7 @@ Until a specific assignee is added, first-slice implementation comments should n
 | #1039 | Stage 2 | Owner comment and current bounded-context delivery segment | In implementation; adds provider-scoped Source Observation review rows, filters, pagination metadata, redacted evidence drawer data, duplicate/conflict summaries, bulk selection, and permission-aware row actions inside the rebuilt #1056 workbench. |
 | #1040 | Stage 2 | Issue comment required before implementation PR | Ready for implementation as the promotion preview, promote/reject/defer, reapply, and replay contributor to the #1056 workbench. |
 | #1057 | Stage 2 | Owner comment and PR #1247 | Complete; canonical route-context keys preserve provider, unit, scope, profile, filters, selections, job, preview, and return path across rebuilt workbench navigation. |
-| #1058 | Stage 2 | Issue comment required before implementation PR | Ready for implementation against #1060 blocker categories and the #1056 primary-path screen responsibility. |
+| #1058 | Stage 2 | Owner comment and current bounded-context delivery segment | In implementation; adds the operator-facing copy contract, blocker next-step language, provider transport wording, resilience copy, and shared glossary for the rebuilt primary workbench. |
 | #1063 | Stage 3 | Issue comment required before implementation PR | Waiting on #1060 durable-job fields and Stage 2 workflow behavior. |
 | #1065 | Stage 3 | Owner comment and current bounded-context delivery segment | In implementation; defines [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md), selected TCGdex proof provider, supplemental TCGplayer transport evidence, reliability categories, performance budgets, and #1062 evidence gates. |
 | #1059 | Stage 3 | Issue comment required before implementation PR | Waiting on #1049 path framing and Stage 2 event points. |
@@ -86,13 +86,14 @@ Each stage exit comment should include:
 - accepted owner/signoff;
 - explicit statement that the next stage is ready or still blocked;
 - any P3+ follow-up with owner and reason;
-- confirmation that no retired behavior remains usable through hidden flags, fallbacks, redirects, aliases, support-only routes, compatibility shims, old tests, fixtures, screenshots, docs, runbooks, release notes, or operator instructions.
+- confirmation that no retired behavior remains usable through hidden flags, fallbacks, redirects, aliases, support-only routes, compatibility shims, old tests, fixtures, screenshots, documentation, runbooks, release notes, or operator instructions.
 
 ## Related References
 
 - [Catalog Control Plane Clean Contract Handoff](./catalog-control-plane-clean-contract-handoff.md)
 - [Catalog Control Plane Primary Path](./catalog-control-plane-primary-path.md)
 - [Catalog Control Plane Information Architecture](./catalog-control-plane-information-architecture.md)
+- [Catalog Control Plane Operator Copy](./catalog-control-plane-operator-copy.md)
 - [Catalog Integration Control Plane](./catalog-integration-control-plane.md)
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
