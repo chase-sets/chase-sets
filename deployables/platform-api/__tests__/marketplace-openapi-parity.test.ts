@@ -84,6 +84,22 @@ function createRouteInventoryRuntime(): RouteInventoryRuntime {
       projectionHandlerSets: [],
     }));
   const services = Object.fromEntries(mountedContexts.map((entry) => [entry.contextName, entry.services]));
+  const projectionGroups = mountedContexts.flatMap((entry) =>
+    (entry.module.projectionGroups ?? []).map((group) => ({
+      projectionName: group.projectionName,
+      projectionRevision: group.projectionRevision ?? 1,
+      targetContextName: entry.contextName,
+      sourceContextNames: group.sourceContextNames,
+      ownedTables: group.ownedTables,
+      resetStrategy: group.resetStrategy,
+      requiredDuringBootstrap: group.requiredDuringBootstrap ?? false,
+      subscriptionRunners: [],
+      reset: async () => {},
+      getStatus: () => ({}) as never,
+      refreshStatus: async () => ({}) as never,
+      markRevisionSynced: async () => {},
+    })),
+  );
 
   return {
     mountedContexts,
@@ -92,7 +108,7 @@ function createRouteInventoryRuntime(): RouteInventoryRuntime {
       services: entry.services,
     })),
     services,
-    projectionGroups: [],
+    projectionGroups,
     subscriptionRunners: [],
   } as RouteInventoryRuntime;
 }

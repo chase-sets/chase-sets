@@ -375,6 +375,9 @@
       "@chase-sets/platform-runtime/process-lifecycle": [
         "./infrastructure/platform-runtime/process-lifecycle.ts"
       ],
+      "@chase-sets/platform-runtime/projection-interest-index": [
+        "./infrastructure/platform-runtime/projection-interest-index.ts"
+      ],
       "@chase-sets/platform-runtime/projection-operations-routes": [
         "./infrastructure/platform-runtime/projection-operations-routes.ts"
       ],

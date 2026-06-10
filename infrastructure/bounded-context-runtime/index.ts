@@ -1316,6 +1316,8 @@ export type ContextSubscriptionRunner = Readonly<{
   targetContextName: string;
   subscriptionVersion: number;
   checkpointKey: string;
+  eventTypes?: readonly string[];
+  streamPrefixes?: readonly string[];
   order: number;
   runOnce: (context?: ProjectionRunContext) => Promise<ProjectorRunResult>;
   getStatus: () => ContextSubscriptionStatus;
@@ -1466,6 +1468,8 @@ export function createSubscriptionRunner(
     targetContextName,
     subscriptionVersion: subscription.subscriptionVersion,
     checkpointKey,
+    eventTypes: subscriptionEventTypes,
+    streamPrefixes: subscription.streamPrefixes,
     order: subscription.order ?? 0,
     getStatus: () => ({ ...status }),
     refreshStatus: async () => {
