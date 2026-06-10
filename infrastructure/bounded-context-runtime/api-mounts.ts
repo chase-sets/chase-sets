@@ -46,7 +46,7 @@ export type ReadConsistencyProjectionGroup = Readonly<{
   subscriptionRunners: readonly ReadConsistencySubscriptionRunner[];
 }>;
 
-type ResolvedReadConsistencyDependency = Readonly<{
+export type ResolvedReadConsistencyDependency = Readonly<{
   targetContextName: string;
   projectionName: string;
 }>;
@@ -133,18 +133,21 @@ export function createResolvedApiMount<TRouter>(
     mountPath: string;
     kind: string;
     requiresAuth: boolean;
+    readFreshnessRoutes?: BcApiMount["readFreshnessRoutes"];
   }>,
   router: TRouter,
 ): ResolvedApiMount<TRouter> {
-  if (mount.kind !== "primary" && mount.kind !== "additional") {
-    throw new Error(`Invalid API mount kind '${mount.kind}' for context '${contextName}'.`);
+  const kind = mount.kind;
+  if (kind !== "primary" && kind !== "additional") {
+    throw new Error(`Invalid API mount kind '${kind}' for context '${contextName}'.`);
   }
 
   return {
     contextName,
     mountPath: mount.mountPath,
-    kind: mount.kind,
+    kind,
     requiresAuth: mount.requiresAuth,
+    readFreshnessRoutes: mount.readFreshnessRoutes,
     router,
   };
 }
@@ -592,7 +595,7 @@ function createRouteTuningMatcher(tuning: ReadConsistencyRouteTuning, index: num
   };
 }
 
-function resolveReadConsistencyDependency(
+export function resolveReadConsistencyDependency(
   contextName: string,
   dependency: ReadConsistencyDependencyDeclaration,
   projectionGroups: readonly ReadConsistencyProjectionGroup[],
