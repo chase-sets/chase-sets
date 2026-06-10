@@ -185,6 +185,45 @@ function renderLineOptions(line: CheckoutCartLineGroup) {
   );
 }
 
+function cartListingLabel(line: CheckoutCartLineGroup, listingId: string | null) {
+  if (!listingId) {
+    return t("checkout.features.cart.ui.cartPage.selected.listing");
+  }
+
+  const listing = line.seller_options.find((option) => option.listing_id === listingId);
+  return listing?.seller_display_name ?? t("checkout.features.cart.ui.cartPage.selected.listing");
+}
+
+function ListingPreferenceStatus({ line }: { line: CheckoutCartLineGroup }) {
+  if (line.fulfillment_mode === "locked-listing" && line.locked_listing_id) {
+    return (
+      <Stack gap={1}>
+        <Badge tone="success">{t("checkout.features.cart.ui.cartPage.locked.listing")}</Badge>
+        <Text size="sm" tone="secondary">
+          {t("checkout.features.cart.ui.cartPage.locked.listing.summary", {
+            listing: cartListingLabel(line, line.locked_listing_id),
+          })}
+        </Text>
+      </Stack>
+    );
+  }
+
+  if (!line.seller_preference_id) {
+    return null;
+  }
+
+  return (
+    <Stack gap={1}>
+      <Badge tone="neutral">{t("checkout.features.cart.ui.cartPage.preferred.listing")}</Badge>
+      <Text size="sm" tone="secondary">
+        {t("checkout.features.cart.ui.cartPage.preferred.listing.summary", {
+          listing: cartListingLabel(line, line.seller_preference_id),
+        })}
+      </Text>
+    </Stack>
+  );
+}
+
 function ProductImage({ line }: { line: CheckoutCartLineGroup }) {
   return (
     <div className="relative h-24 w-20 shrink-0 overflow-hidden rounded-tokenMd border border-[var(--border)] bg-[var(--surface-2)] shadow-tokenSm sm:h-28 sm:w-24">
@@ -225,6 +264,11 @@ function QuantityControls({ line }: { line: CheckoutCartLineGroup }) {
 function CartLineActions({ line }: { line: CheckoutCartLineGroup }) {
   return (
     <Stack gap={2}>
+      {line.seller_preference_id && line.fulfillment_mode !== "locked-listing" ? (
+        <Button type="submit" size="md" name="intent" value="lock-preferred-listing" tone="secondary" block>
+          {t("checkout.features.cart.ui.cartPage.lock.this.listing")}
+        </Button>
+      ) : null}
       <Button type="submit" size="md" tone="secondary" leadingIcon="check" block>
         {t("checkout.features.cart.ui.cartPage.update")}
       </Button>
@@ -247,6 +291,7 @@ function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
       {line.lineIds.map((lineId) => (
         <HiddenInput key={lineId} type="hidden" name="lineId" value={lineId} />
       ))}
+      <HiddenInput type="hidden" name="sellerPreferenceId" value={line.seller_preference_id ?? ""} />
       <Surface element="article" tone="default" padding={4}>
         <div className="grid min-w-0 gap-4 md:grid-cols-[auto_minmax(0,1fr)_minmax(10rem,12rem)_minmax(9rem,11rem)] md:items-start">
           <div className="flex min-w-0 gap-3">
@@ -283,6 +328,7 @@ function CartLineRow({ line }: { line: CheckoutCartLineGroup }) {
               <Badge tone={readinessTone(line)}>{readinessLabel(line)}</Badge>
             </Inline>
             {renderLineOptions(line)}
+            <ListingPreferenceStatus line={line} />
             {!hasFulfillmentPath(line) ? (
               <Text size="sm" tone="secondary">
                 {t("checkout.features.cart.ui.cartPage.resolve.before.checkout")}

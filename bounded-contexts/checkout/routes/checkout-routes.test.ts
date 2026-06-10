@@ -27,6 +27,8 @@ const {
   mockGetCart,
   mockGetGuestCart,
   mockUpdateCartLineQuantity,
+  mockUpdateCartLineFulfillment,
+  mockUpdateGuestCartLineFulfillment,
   mockRemoveCartLine,
   mockGetGuestSellList,
   mockGetOfferMatch,
@@ -76,6 +78,8 @@ const {
   mockGetCart: vi.fn(),
   mockGetGuestCart: vi.fn(),
   mockUpdateCartLineQuantity: vi.fn(),
+  mockUpdateCartLineFulfillment: vi.fn(),
+  mockUpdateGuestCartLineFulfillment: vi.fn(),
   mockRemoveCartLine: vi.fn(),
   mockGetGuestSellList: vi.fn(),
   mockGetOfferMatch: vi.fn(),
@@ -567,6 +571,88 @@ describe("checkout web routes", () => {
     expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
       commitPosition: "44",
       sources: [{ sourceContextName: "checkout", maxGlobalPosition: "44", eventIds: ["evt_duplicate_removed"] }],
+    });
+  });
+
+  it("locks preferred listing fulfillment for signed-in grouped cart lines", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_buyer", permissions: ["checkout.manage"] });
+    mockUpdateCartLineFulfillment
+      .mockResolvedValueOnce(checkoutCommit("45", "evt_primary_locked"))
+      .mockResolvedValueOnce(checkoutCommit("46", "evt_duplicate_locked"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      updateCartLineFulfillment: mockUpdateCartLineFulfillment,
+    });
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_primary");
+    form.append("lineId", "cli_duplicate");
+    form.set("sellerPreferenceId", "lst_card_vault");
+    form.set("intent", "lock-preferred-listing");
+
+    const response = (await accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockUpdateCartLineFulfillment).toHaveBeenCalledWith("cli_primary", {
+      fulfillmentMode: "locked-listing",
+      lockedListingId: "lst_card_vault",
+      sellerPreferenceId: "lst_card_vault",
+      availabilityState: "available",
+    });
+    expect(mockUpdateCartLineFulfillment).toHaveBeenCalledWith("cli_duplicate", {
+      fulfillmentMode: "locked-listing",
+      lockedListingId: "lst_card_vault",
+      sellerPreferenceId: "lst_card_vault",
+      availabilityState: "available",
+    });
+    expect(response.status).toBe(302);
+    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+      commitPosition: "46",
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "46", eventIds: ["evt_duplicate_locked"] }],
+    });
+  });
+
+  it("locks preferred listing fulfillment for guest cart lines", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(guestCheckoutActor());
+    mockUpdateGuestCartLineFulfillment.mockResolvedValue(checkoutCommit("47", "evt_guest_locked"));
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      updateGuestCartLineFulfillment: mockUpdateGuestCartLineFulfillment,
+    });
+
+    const form = new URLSearchParams();
+    form.append("lineId", "cli_guest");
+    form.set("sellerPreferenceId", "lst_card_vault");
+    form.set("intent", "lock-preferred-listing");
+
+    const response = (await accountCartAction({
+      request: new Request("http://localhost/account/cart", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          cookie: "chase_sets_anonymous_cart=anon_cart_1",
+        },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockUpdateGuestCartLineFulfillment).toHaveBeenCalledWith("anon_cart_1", "cli_guest", {
+      fulfillmentMode: "locked-listing",
+      lockedListingId: "lst_card_vault",
+      sellerPreferenceId: "lst_card_vault",
+      availabilityState: "available",
+    });
+    expect(response.status).toBe(302);
+    expect(readFreshWriteToken(response.headers.get("Location") ?? "")).toMatchObject({
+      commitPosition: "47",
+      sources: [{ sourceContextName: "checkout", maxGlobalPosition: "47", eventIds: ["evt_guest_locked"] }],
     });
   });
 

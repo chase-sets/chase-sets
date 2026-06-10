@@ -38,6 +38,10 @@ export const checkoutEnglishTranslations = {
     "1 item needs fulfillment or availability resolved before checkout.",
   "checkout.features.cart.ui.cartPage.items": "Items",
   "checkout.features.cart.ui.cartPage.increase": "Increase",
+  "checkout.features.cart.ui.cartPage.lock.this.listing": "Lock this listing",
+  "checkout.features.cart.ui.cartPage.locked.listing": "Locked listing",
+  "checkout.features.cart.ui.cartPage.locked.listing.summary":
+    "{listing} is locked for checkout unless availability changes.",
   "checkout.features.cart.ui.cartPage.needs.fulfillment": "Needs fulfillment",
   "checkout.features.cart.ui.cartPage.needs.review": "Needs review",
   "checkout.features.cart.ui.cartPage.no.payment.until.checkout": "No payment until checkout.",
@@ -47,6 +51,9 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.product.image.alt": "{title} product",
   "checkout.features.cart.ui.cartPage.quantity": "Quantity",
   "checkout.features.cart.ui.cartPage.price.at.checkout": "Price at checkout",
+  "checkout.features.cart.ui.cartPage.preferred.listing": "Preferred listing",
+  "checkout.features.cart.ui.cartPage.preferred.listing.summary":
+    "{listing} is the starting preference. Smart Match may choose another available listing.",
   "checkout.features.cart.ui.cartPage.ready": "Ready",
   "checkout.features.cart.ui.cartPage.remove": "Remove",
   "checkout.features.cart.ui.cartPage.resolve.before.checkout":
@@ -56,6 +63,7 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.ui.cartPage.review.items.before.checkout":
     "Review quantities and remove anything you do not want before checkout.",
   "checkout.features.cart.ui.cartPage.shipping.and.tax": "Shipping and tax",
+  "checkout.features.cart.ui.cartPage.selected.listing": "Selected listing",
   "checkout.features.cart.ui.cartPage.keep.shopping": "Keep shopping",
   "checkout.features.cart.ui.cartPage.standard": "Standard",
   "checkout.features.cart.ui.cartPage.subtotal": "Subtotal",
@@ -631,6 +639,7 @@ export const checkoutEnglishTranslations = {
     "{quantity} item(s), estimated seller payout {sellerNet}.",
   "checkout.features.sellList.ui.sellListPage.your.sell.list.is.empty": "Your Sell List is empty",
   "checkout.routes.accountCart.cart.marketplace": "Buy Cart | Marketplace",
+  "checkout.routes.accountCart.preferred.listing.missing": "Choose a preferred listing before locking this cart line.",
   "checkout.routes.accountCart.request.failed": "Request failed.",
   "checkout.routes.accountCart.review.cart.lines.adjust.quantity.and":
     "Review Buy Cart lines, adjust quantity, and start checkout.",

@@ -108,6 +108,25 @@ describe("checkout cart page", () => {
     expect(markup).not.toContain("cat_charizard");
   });
 
+  it("shows preferred listing context and a cart-side lock action", () => {
+    const preferredLine: CheckoutCartLine = {
+      ...cartLine,
+      seller_preference_id: "lst_card_vault",
+    };
+
+    const markup = renderToString(<CheckoutCartPage cartLines={[preferredLine]} />);
+
+    expect(markup).toContain("Preferred listing");
+    expect(markup).toContain(
+      "Card Vault is the starting preference. Smart Match may choose another available listing.",
+    );
+    expect(markup).toContain("Lock this listing");
+    expect(markup).toContain('value="lock-preferred-listing"');
+    expect(markup).toContain('name="intent"');
+    expect(markup).toContain('name="sellerPreferenceId" value="lst_card_vault"');
+    expect(markup).not.toContain("Locked listing");
+  });
+
   it("blocks checkout and hands unresolved fulfillment to readiness", () => {
     const unavailableLine: CheckoutCartLine = {
       ...cartLine,
