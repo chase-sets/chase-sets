@@ -62,6 +62,8 @@ type ProductSelectionDisplayDetail = Readonly<{
   value: ReactNode;
 }>;
 
+type MarketSelectionSource = "explicit" | "implicit";
+
 function productOptionsFromSelectionDetails(selections: readonly ProductSelectionDisplayDetail[]) {
   return selections.map((selection) => ({
     dimensionLabel: selection.label,
@@ -533,6 +535,7 @@ export function CheckoutPurchaseIntentSection({
   catalogItemId,
   productId,
   selectedListing,
+  selectedListingSource = "explicit",
   itemTitle,
   selectedOptions,
   productSelectionDetails = [],
@@ -558,6 +561,7 @@ export function CheckoutPurchaseIntentSection({
     seller_average_rating?: string | null;
     seller_review_count?: number;
   } | null;
+  selectedListingSource?: MarketSelectionSource;
   itemTitle: string;
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
@@ -589,10 +593,12 @@ export function CheckoutPurchaseIntentSection({
   const addToCartPending = addToCartFetcher.state !== "idle";
   const selectionHeading =
     selectedListing && actionMode !== "add-to-cart"
-      ? t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing")
+      ? selectedListingSource === "explicit"
+        ? t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing")
+        : t("discovery.routes.itemDetail.best.available.listing")
       : t("discovery.routes.itemDetail.selected.product");
   const priceLabel = selectedListing
-    ? actionMode === "add-to-cart"
+    ? actionMode === "add-to-cart" || selectedListingSource === "implicit"
       ? t("discovery.routes.itemDetail.best.available.price")
       : t("discovery.routes.itemDetail.selected.price")
     : t("discovery.routes.itemDetail.market.signal");
@@ -804,6 +810,7 @@ export function MarketplaceOfferMatchSection({
   actions,
   actionMode = "all",
   selectedOffer,
+  selectedOfferSource = "explicit",
   productId,
   productSelectionDetails = [],
   productSummary,
@@ -830,6 +837,7 @@ export function MarketplaceOfferMatchSection({
     buyer_review_count?: number;
     acceptance_terms?: MarketplaceListingTermsPreview | null;
   } | null;
+  selectedOfferSource?: MarketSelectionSource;
   productId: string | null;
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
   productSummary?: string | null;
@@ -924,7 +932,11 @@ export function MarketplaceOfferMatchSection({
         />
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">{t("discovery.routes.itemDetail.selected.offer.heading")}</Text>
+            <Text weight="semibold">
+              {selectedOfferSource === "explicit"
+                ? t("discovery.routes.itemDetail.selected.offer.heading")
+                : t("discovery.routes.itemDetail.best.offer.heading")}
+            </Text>
             {selectedOffer ? (
               <>
                 <Stack gap={1}>
@@ -1119,6 +1131,7 @@ export function MarketplaceSellerRegistrationSection({
   productSummary,
   productSelectionDetails = [],
   selectedOffer,
+  selectedOfferSource = "explicit",
   matchingOfferCount,
   registerHref,
 }: {
@@ -1134,6 +1147,7 @@ export function MarketplaceSellerRegistrationSection({
     quantity_requested: number;
     public_standard_terms_preview?: MarketplaceListingTermsPreview | null;
   } | null;
+  selectedOfferSource?: MarketSelectionSource;
   matchingOfferCount?: number;
   registerHref: string;
 }) {
@@ -1161,7 +1175,11 @@ export function MarketplaceSellerRegistrationSection({
       <Stack gap={3}>
         {showSummary ? (
           <Stack gap={1}>
-            <Text weight="semibold">{t("discovery.routes.itemDetail.selected.offer.heading")}</Text>
+            <Text weight="semibold">
+              {selectedOfferSource === "explicit"
+                ? t("discovery.routes.itemDetail.selected.offer.heading")
+                : t("discovery.routes.itemDetail.best.offer.heading")}
+            </Text>
             <Stack gap={1}>
               <Inline gap={2}>
                 <Text weight="semibold">

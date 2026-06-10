@@ -72,6 +72,10 @@ export type ItemDetailMarketplaceSectionContext = Readonly<{
   selectedListing: DiscoveryMarketListing | null;
   selectedOffer: DiscoveryOffer | null;
   selectedAccountOfferMatch: DiscoveryAccountOfferMatch | null;
+  selectedListingSource: MarketSelectionSource;
+  selectedOfferSource: MarketSelectionSource;
+  staleSelectedListingId: string | null;
+  staleSelectedOfferId: string | null;
   bestListing: DiscoveryMarketListing | null;
   bestOffer: DiscoveryOffer | null;
   bestAccountOfferMatch: DiscoveryAccountOfferMatch | null;
@@ -96,6 +100,8 @@ export type ItemDetailCommerceSections = Readonly<{
 
 type MarketIntent = "buy" | "sell" | "watch";
 type MarketBookTab = "listings" | "offers" | "sales" | "details";
+type MarketSelectionSource = "explicit" | "implicit";
+type ExplicitSelectionParam = "listing" | "offer";
 
 function productOptionsFromSelectionDetails(selections: readonly { label: ReactNode; value: ReactNode }[]) {
   return selections.map((selection) => ({
@@ -432,6 +438,8 @@ function getInitialSelections(
   marketIntent: MarketIntent,
   initialSelectedOptions: readonly { dimensionId: string; optionId: string }[] = [],
   hasInitialSelectedOptionFilters = false,
+  initialSelectedListingId: string | null = null,
+  initialSelectedOfferId: string | null = null,
 ): Record<string, string> {
   if (!data?.product_schema) {
     return {};
@@ -444,10 +452,57 @@ function getInitialSelections(
     );
   }
 
+  const explicitListing = initialSelectedListingId
+    ? data.market_listings.find((listing) => listing.listing_id === initialSelectedListingId)
+    : null;
+  const explicitOffer = initialSelectedOfferId
+    ? data.offer_demand_matches.find((offer) => offer.offer_id === initialSelectedOfferId)
+    : null;
+  const explicitEntry =
+    marketIntent === "sell" ? (explicitOffer ?? explicitListing) : (explicitListing ?? explicitOffer);
+
+  if (explicitEntry) {
+    return normalizeProductSearchOptionsForSchema(data.product_schema, selectionsFromListing(explicitEntry));
+  }
+
   const sourceEntries = marketIntent === "sell" ? data.offer_demand_matches : data.market_listings;
   const selections = sourceEntries.length === 1 ? selectionsFromListing(sourceEntries[0]) : {};
 
   return normalizeProductSearchOptionsForSchema(data.product_schema, selections);
+}
+
+function readMarketIntentFromSearch(searchParams: URLSearchParams): MarketIntent {
+  return searchParams.get("market") === "sell" ? "sell" : searchParams.get("market") === "watch" ? "watch" : "buy";
+}
+
+function readExplicitSelectionId(searchParams: URLSearchParams, key: ExplicitSelectionParam) {
+  const ids = new Set(
+    searchParams
+      .getAll(key)
+      .map((value) => value.trim())
+      .filter(Boolean),
+  );
+
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
+function commitItemDetailUrl(url: URL, mode: "push" | "replace") {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const nextUrl = `${url.pathname}${url.search}${url.hash}`;
+  const currentUrl = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+
+  if (nextUrl === currentUrl) {
+    return;
+  }
+
+  if (mode === "push") {
+    window.history.pushState(window.history.state, "", nextUrl);
+  } else {
+    window.history.replaceState(window.history.state, "", nextUrl);
+  }
 }
 
 function updateMarketIntentUrl(marketIntent: "buy" | "sell" | "watch") {
@@ -457,7 +512,36 @@ function updateMarketIntentUrl(marketIntent: "buy" | "sell" | "watch") {
 
   const url = new URL(window.location.href);
   url.searchParams.set("market", marketIntent);
-  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  commitItemDetailUrl(url, "replace");
+}
+
+function updateExplicitSelectionUrl(
+  selection: { listingId?: string | null; offerId?: string | null },
+  mode: "push" | "replace" = "push",
+) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const url = new URL(window.location.href);
+
+  if ("listingId" in selection) {
+    if (selection.listingId) {
+      url.searchParams.set("listing", selection.listingId);
+    } else {
+      url.searchParams.delete("listing");
+    }
+  }
+
+  if ("offerId" in selection) {
+    if (selection.offerId) {
+      url.searchParams.set("offer", selection.offerId);
+    } else {
+      url.searchParams.delete("offer");
+    }
+  }
+
+  commitItemDetailUrl(url, mode);
 }
 
 function formatListingCount(count: number): string {
@@ -679,6 +763,8 @@ export function ItemDetailPage({
   accountOfferMatches = [],
   viewerAccountId = null,
   initialMarketIntent = "buy",
+  initialSelectedListingId = null,
+  initialSelectedOfferId = null,
   initialSelectedOptions = [],
   hasInitialSelectedOptionFilters = false,
   renderCommerce,
@@ -689,6 +775,8 @@ export function ItemDetailPage({
   accountOfferMatches?: readonly DiscoveryAccountOfferMatch[];
   viewerAccountId?: string | null;
   initialMarketIntent?: MarketIntent;
+  initialSelectedListingId?: string | null;
+  initialSelectedOfferId?: string | null;
   initialSelectedOptions?: readonly { dimensionId: string; optionId: string }[];
   hasInitialSelectedOptionFilters?: boolean;
   renderCommerce?: (context: ItemDetailMarketplaceSectionContext) => ItemDetailCommerceSections | null;
@@ -724,6 +812,8 @@ export function ItemDetailPage({
       accountOfferMatches={accountOfferMatches}
       viewerAccountId={viewerAccountId}
       initialMarketIntent={initialMarketIntent}
+      initialSelectedListingId={initialSelectedListingId}
+      initialSelectedOfferId={initialSelectedOfferId}
       initialSelectedOptions={initialSelectedOptions}
       hasInitialSelectedOptionFilters={hasInitialSelectedOptionFilters}
       renderCommerce={renderCommerce}
@@ -736,6 +826,8 @@ function LoadedItemDetailPage({
   accountOfferMatches,
   viewerAccountId,
   initialMarketIntent,
+  initialSelectedListingId,
+  initialSelectedOfferId,
   initialSelectedOptions,
   hasInitialSelectedOptionFilters,
   renderCommerce,
@@ -744,6 +836,8 @@ function LoadedItemDetailPage({
   accountOfferMatches: readonly DiscoveryAccountOfferMatch[];
   viewerAccountId: string | null;
   initialMarketIntent: MarketIntent;
+  initialSelectedListingId: string | null;
+  initialSelectedOfferId: string | null;
   initialSelectedOptions: readonly { dimensionId: string; optionId: string }[];
   hasInitialSelectedOptionFilters: boolean;
   renderCommerce?: (context: ItemDetailMarketplaceSectionContext) => ItemDetailCommerceSections | null;
@@ -751,10 +845,17 @@ function LoadedItemDetailPage({
   const initialSelectedOptionsKey = JSON.stringify(initialSelectedOptions);
   const [selectedReference, setSelectedReference] = useState<DiscoveryReferenceRecordRef | null>(null);
   const [selections, setSelections] = useState<Record<string, string>>(() =>
-    getInitialSelections(data, initialMarketIntent, initialSelectedOptions, hasInitialSelectedOptionFilters),
+    getInitialSelections(
+      data,
+      initialMarketIntent,
+      initialSelectedOptions,
+      hasInitialSelectedOptionFilters,
+      initialSelectedListingId,
+      initialSelectedOfferId,
+    ),
   );
-  const [selectedListingId, setSelectedListingId] = useState<string | null>(null);
-  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(null);
+  const [selectedListingId, setSelectedListingId] = useState<string | null>(initialSelectedListingId);
+  const [selectedOfferId, setSelectedOfferId] = useState<string | null>(initialSelectedOfferId);
   const [marketIntent, setMarketIntent] = useState<MarketIntent>(initialMarketIntent);
   const [activeMobileCommerce, setActiveMobileCommerce] = useState<"buy" | "sell" | "watch" | null>(null);
   const [marketBookTab, setMarketBookTab] = useState<MarketBookTab>(
@@ -763,14 +864,29 @@ function LoadedItemDetailPage({
 
   useEffect(() => {
     setSelections(
-      getInitialSelections(data, initialMarketIntent, initialSelectedOptions, hasInitialSelectedOptionFilters),
+      getInitialSelections(
+        data,
+        initialMarketIntent,
+        initialSelectedOptions,
+        hasInitialSelectedOptionFilters,
+        initialSelectedListingId,
+        initialSelectedOfferId,
+      ),
     );
-    setSelectedListingId(null);
-    setSelectedOfferId(null);
+    setSelectedListingId(initialSelectedListingId);
+    setSelectedOfferId(initialSelectedOfferId);
     setMarketIntent(initialMarketIntent);
     setMarketBookTab(initialMarketIntent === "sell" ? "offers" : "listings");
     setActiveMobileCommerce(null);
-  }, [data.catalog_item_id, initialMarketIntent, initialSelectedOptionsKey, hasInitialSelectedOptionFilters]);
+  }, [
+    data,
+    data.catalog_item_id,
+    initialMarketIntent,
+    initialSelectedListingId,
+    initialSelectedOfferId,
+    initialSelectedOptionsKey,
+    hasInitialSelectedOptionFilters,
+  ]);
 
   const images = buildItemDetailImages(data);
   const imageFallback = data.image_fallback ?? {
@@ -811,6 +927,56 @@ function LoadedItemDetailPage({
   const itemOfferDemandMatches = (data.offer_demand_matches ?? []).filter(
     (offer) => offer.catalog_catalog_item_id === data.catalog_item_id,
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const applyUrlState = () => {
+      const url = new URL(window.location.href);
+      const nextMarketIntent = readMarketIntentFromSearch(url.searchParams);
+      const nextSelectedListingId = readExplicitSelectionId(url.searchParams, "listing");
+      const nextSelectedOfferId = readExplicitSelectionId(url.searchParams, "offer");
+      const selectedListingEntry = nextSelectedListingId
+        ? data.market_listings.find(
+            (listing) =>
+              listing.catalog_catalog_item_id === data.catalog_item_id && listing.listing_id === nextSelectedListingId,
+          )
+        : null;
+      const selectedOfferEntry = nextSelectedOfferId
+        ? data.offer_demand_matches.find(
+            (offer) => offer.catalog_catalog_item_id === data.catalog_item_id && offer.offer_id === nextSelectedOfferId,
+          )
+        : null;
+      const explicitEntry =
+        nextMarketIntent === "sell"
+          ? (selectedOfferEntry ?? selectedListingEntry)
+          : (selectedListingEntry ?? selectedOfferEntry);
+
+      setMarketIntent(nextMarketIntent);
+      setMarketBookTab(nextMarketIntent === "sell" ? "offers" : "listings");
+      setSelectedListingId(nextSelectedListingId);
+      setSelectedOfferId(nextSelectedOfferId);
+      setSelections(
+        data.product_schema && explicitEntry
+          ? normalizeProductSearchOptionsForSchema(data.product_schema, selectionsFromListing(explicitEntry))
+          : getInitialSelections(
+              data,
+              nextMarketIntent,
+              initialSelectedOptions,
+              hasInitialSelectedOptionFilters,
+              nextSelectedListingId,
+              nextSelectedOfferId,
+            ),
+      );
+    };
+
+    window.addEventListener("popstate", applyUrlState);
+
+    return () => window.removeEventListener("popstate", applyUrlState);
+  }, [data, initialSelectedOptionsKey, hasInitialSelectedOptionFilters]);
+
   const categories = [...new Map(data.categories.map((category) => [category.categoryId, category] as const)).values()];
   const tags = uniqueDisplayValues(data.tags);
   const buyableMarketListings = itemMarketListings.filter((listing) => getListingAvailableQuantity(listing) > 0);
@@ -819,8 +985,12 @@ function LoadedItemDetailPage({
       data.product_schema ? matchesSelectedOptions(listing, selections) : true,
     ),
   );
-  const selectedListing =
-    visibleListings.find((listing) => listing.listing_id === selectedListingId) ?? visibleListings[0] ?? null;
+  const explicitSelectedListing = selectedListingId
+    ? (visibleListings.find((listing) => listing.listing_id === selectedListingId) ?? null)
+    : null;
+  const selectedListing = explicitSelectedListing ?? visibleListings[0] ?? null;
+  const selectedListingSource: MarketSelectionSource = explicitSelectedListing ? "explicit" : "implicit";
+  const staleSelectedListingId = selectedListingId && !explicitSelectedListing ? selectedListingId : null;
   const singleMatchingListing =
     !hasCompleteProductSelection && visibleListings.length === 1 ? visibleListings[0] : null;
   const explicitSelectedProductId = hasCompleteProductSelection
@@ -856,8 +1026,12 @@ function LoadedItemDetailPage({
     marketIntent === "sell" && bestAccountOfferMatch
       ? (matchingOffers.find((offer) => offer.offer_id === bestAccountOfferMatch.offer_id) ?? null)
       : null;
-  const selectedOffer =
-    matchingOffers.find((offer) => offer.offer_id === selectedOfferId) ?? defaultSellerOffer ?? bestOffer ?? null;
+  const explicitSelectedOffer = selectedOfferId
+    ? (matchingOffers.find((offer) => offer.offer_id === selectedOfferId) ?? null)
+    : null;
+  const selectedOffer = explicitSelectedOffer ?? defaultSellerOffer ?? bestOffer ?? null;
+  const selectedOfferSource: MarketSelectionSource = explicitSelectedOffer ? "explicit" : "implicit";
+  const staleSelectedOfferId = selectedOfferId && !explicitSelectedOffer ? selectedOfferId : null;
   const selectedAccountOfferMatch = selectedOffer
     ? (matchingAccountOfferMatches.find((offer) => offer.offer_id === selectedOffer.offer_id) ??
       bestAccountOfferMatch ??
@@ -990,11 +1164,28 @@ function LoadedItemDetailPage({
     selectedListing,
     selectedOffer,
     selectedAccountOfferMatch,
+    selectedListingSource,
+    selectedOfferSource,
+    staleSelectedListingId,
+    staleSelectedOfferId,
     bestListing,
     bestOffer,
     bestAccountOfferMatch,
   } satisfies ItemDetailMarketplaceSectionContext;
   const commerceSections = renderCommerce?.(marketplaceContext) ?? null;
+  const staleSelectionBanner = staleSelectedListingId ? (
+    <Banner
+      tone="warning"
+      title={t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing.unavailable")}
+      description={t("discovery.features.itemDetail.ui.itemDetailPage.selected.listing.unavailable.description")}
+    />
+  ) : staleSelectedOfferId ? (
+    <Banner
+      tone="warning"
+      title={t("discovery.features.itemDetail.ui.itemDetailPage.selected.offer.unavailable")}
+      description={t("discovery.features.itemDetail.ui.itemDetailPage.selected.offer.unavailable.description")}
+    />
+  ) : null;
   const commerceContent = commerceSections ? (
     marketIntent === "watch" && commerceSections.watch ? (
       commerceSections.watch
@@ -1184,6 +1375,39 @@ function LoadedItemDetailPage({
       {activeMobileCommerceContent}
     </CommerceBottomSheet>
   ) : null;
+  const clearExplicitMarketSelection = (mode: "push" | "replace" = "push") => {
+    setSelectedListingId(null);
+    setSelectedOfferId(null);
+    updateExplicitSelectionUrl({ listingId: null, offerId: null }, mode);
+  };
+  const clearProductFilters = () => {
+    clearExplicitMarketSelection();
+    setSelections({});
+  };
+  const handleProductSelectionChange = (dimensionId: string, optionId: string) => {
+    clearExplicitMarketSelection();
+    setSelections((current) =>
+      normalizeProductSearchOptionsForSchema(data.product_schema!, applyOptionFilter(current, dimensionId, optionId)),
+    );
+  };
+  const selectMarketListing = (listing: DiscoveryMarketListing) => {
+    setSelectedListingId(listing.listing_id);
+    setSelectedOfferId(null);
+    updateExplicitSelectionUrl({ listingId: listing.listing_id, offerId: null });
+
+    if (data.product_schema) {
+      setSelections(normalizeProductSearchOptionsForSchema(data.product_schema, selectionsFromListing(listing)));
+    }
+  };
+  const selectMarketOffer = (offer: DiscoveryOffer) => {
+    setSelectedOfferId(offer.offer_id);
+    setSelectedListingId(null);
+    updateExplicitSelectionUrl({ listingId: null, offerId: offer.offer_id });
+
+    if (data.product_schema) {
+      setSelections(normalizeProductSearchOptionsForSchema(data.product_schema, selectionsFromListing(offer)));
+    }
+  };
   const productOptionSelector =
     data.product_schema && data.product_schema.dimensions.length > 0 ? (
       <Card variant="feature">
@@ -1197,14 +1421,7 @@ function LoadedItemDetailPage({
             schema={data.product_schema}
             selections={selections}
             optionSummaries={optionSummaries}
-            onSelectionChange={(dimensionId, optionId) =>
-              setSelections((current) =>
-                normalizeProductSearchOptionsForSchema(
-                  data.product_schema!,
-                  applyOptionFilter(current, dimensionId, optionId),
-                ),
-              )
-            }
+            onSelectionChange={handleProductSelectionChange}
           />
           <Stack gap={1}>
             <Text size="sm" weight="semibold">
@@ -1285,6 +1502,7 @@ function LoadedItemDetailPage({
           }
           market={
             <Stack gap={4}>
+              {staleSelectionBanner}
               {productOptionSelector}
               <MarketplaceMarketSummary
                 priceLabel={
@@ -1336,7 +1554,7 @@ function LoadedItemDetailPage({
                                 })}
                           </Text>
                           {hasActiveFilters ? (
-                            <Button type="button" tone="ghost" size="sm" onClick={() => setSelections({})}>
+                            <Button type="button" tone="ghost" size="sm" onClick={clearProductFilters}>
                               {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters")}
                             </Button>
                           ) : null}
@@ -1355,17 +1573,6 @@ function LoadedItemDetailPage({
                               const isSelected = selectedListing?.listing_id === listing.listing_id;
                               const purchaseLimit = formatListingPurchaseLimit(listing);
                               const isLowestPrice = isLowestPriceListing(listing, visibleListings);
-                              const selectListing = () => {
-                                setSelectedListingId(listing.listing_id);
-                                if (data.product_schema) {
-                                  setSelections(
-                                    normalizeProductSearchOptionsForSchema(
-                                      data.product_schema,
-                                      selectionsFromListing(listing),
-                                    ),
-                                  );
-                                }
-                              };
                               const sellerName =
                                 listing.seller_display_name ??
                                 t("discovery.features.itemDetail.ui.itemDetailPage.seller");
@@ -1438,7 +1645,7 @@ function LoadedItemDetailPage({
                                           { seller: sellerName, price: formatMoney(listing.price_amount) },
                                         )}
                                         leadingIcon={isSelected ? "check" : undefined}
-                                        onClick={selectListing}
+                                        onClick={() => selectMarketListing(listing)}
                                       >
                                         {isSelected
                                           ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")
@@ -1474,7 +1681,7 @@ function LoadedItemDetailPage({
                                   </LinkButton>
                                 )}
                                 {hasActiveFilters ? (
-                                  <Button type="button" tone="secondary" size="sm" onClick={() => setSelections({})}>
+                                  <Button type="button" tone="secondary" size="sm" onClick={clearProductFilters}>
                                     {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters.2")}
                                   </Button>
                                 ) : null}
@@ -1502,7 +1709,7 @@ function LoadedItemDetailPage({
                             })}
                           </Text>
                           {hasActiveFilters ? (
-                            <Button type="button" tone="ghost" size="sm" onClick={() => setSelections({})}>
+                            <Button type="button" tone="ghost" size="sm" onClick={clearProductFilters}>
                               {t("discovery.features.itemDetail.ui.itemDetailPage.clear.filters.3")}
                             </Button>
                           ) : null}
@@ -1531,17 +1738,6 @@ function LoadedItemDetailPage({
                                 getProductSelectionDetails(offer.selected_options),
                                 t("discovery.features.itemDetail.ui.itemDetailPage.standard.2"),
                               );
-                              const selectOffer = () => {
-                                setSelectedOfferId(offer.offer_id);
-                                if (data.product_schema) {
-                                  setSelections(
-                                    normalizeProductSearchOptionsForSchema(
-                                      data.product_schema,
-                                      selectionsFromListing(offer),
-                                    ),
-                                  );
-                                }
-                              };
 
                               return (
                                 <ComparisonListRow
@@ -1612,7 +1808,7 @@ function LoadedItemDetailPage({
                                           { buyer: buyerName, price: formatMoney(offer.price_amount) },
                                         )}
                                         leadingIcon={isSelected ? "check" : undefined}
-                                        onClick={selectOffer}
+                                        onClick={() => selectMarketOffer(offer)}
                                       >
                                         {isSelected
                                           ? t("discovery.features.itemDetail.ui.itemDetailPage.selected")

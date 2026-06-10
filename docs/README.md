@@ -15,6 +15,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Projection Freshness Worker Capacity](./architecture/projection-freshness-worker-capacity.md): worker topology, capacity defaults, operator evidence, and scaling order for critical projection freshness.
 - [Push-Driven Projection Runtime Phase Map](./architecture/push-driven-projection-runtime-phase-map.md): phased rollout gates for the worker-owned relay, durable wake store, Checkout hot path, and platform work-signal composite.
 - [Event-Store Wake Notifications](./architecture/event-store-wake-notifications.md): after-commit source wake channel, envelope, privacy, failure, and relay expectations for push-driven projections.
+- [Source-Context Wake Registry](./architecture/source-context-wake-registry.md): platform rollout contract for source wake eligibility, event-store wake emission, relay fan-out, and production evidence gates.
 - [Checkout Surface Audit](./architecture/checkout-surface-audit.md): Shopify-simple Buy Cart and Sell List checkout gap inventory, fresh-state cleanup targets, and sequencing recommendation.
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.

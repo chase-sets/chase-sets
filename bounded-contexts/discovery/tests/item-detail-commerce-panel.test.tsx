@@ -30,7 +30,10 @@ vi.mock("@chase-sets/platform-runtime/realtime-react", () => ({
   useRealtimePatchedSnapshot: ({ initialSnapshot }: { initialSnapshot: unknown }) => initialSnapshot,
 }));
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  window.history.replaceState(null, "", "/");
+});
 
 const baseListing: DiscoveryMarketListing = {
   listing_id: "listing_charizard",
@@ -1224,6 +1227,66 @@ describe("item detail commerce panel", () => {
     ]);
   });
 
+  it("uses explicit listing URL state instead of the implicit cheapest default", () => {
+    const cheaperListing: DiscoveryMarketListing = {
+      ...baseListing,
+      listing_id: "listing_charizard_cheapest",
+      seller_display_name: "Best Price Cards",
+      price_amount: "300.00",
+    };
+
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [cheaperListing, alternateListing],
+        })}
+        initialSelectedListingId="listing_charizard_alt"
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <input data-testid="selected-listing-id" readOnly value={context.selectedListing?.listing_id ?? ""} />
+              <input data-testid="selected-listing-source" readOnly value={context.selectedListingSource} />
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_alt");
+    expect(screen.getByTestId("selected-listing-source")).toHaveProperty("value", "explicit");
+    expect(screen.getByRole("button", { name: "Selected Card Vault listing at $410.00" })).toBeTruthy();
+  });
+
+  it("recovers stale explicit listing URL state to the implicit default", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [baseListing, alternateListing],
+        })}
+        initialSelectedListingId="listing_missing"
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <input data-testid="selected-listing-id" readOnly value={context.selectedListing?.listing_id ?? ""} />
+              <input data-testid="selected-listing-source" readOnly value={context.selectedListingSource} />
+              <input data-testid="stale-listing-id" readOnly value={context.staleSelectedListingId ?? ""} />
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Listing unavailable")).toBeTruthy();
+    expect(
+      screen.getByText("That listing is no longer available. Showing the best available listing instead."),
+    ).toBeTruthy();
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard");
+    expect(screen.getByTestId("selected-listing-source")).toHaveProperty("value", "implicit");
+    expect(screen.getByTestId("stale-listing-id")).toHaveProperty("value", "listing_missing");
+  });
+
   it("ignores listings from other catalog items when selecting the buy listing", () => {
     const foreignListing: DiscoveryMarketListing = {
       ...alternateListing,
@@ -1268,6 +1331,8 @@ describe("item detail commerce panel", () => {
   });
 
   it("changes the selected listing when another listing is clicked", () => {
+    window.history.replaceState(null, "", "/items/charizard-base-set?market=buy");
+
     render(
       <ItemDetailPage
         data={createItem({
@@ -1282,6 +1347,7 @@ describe("item detail commerce panel", () => {
                 readOnly
                 value={context.selectedListing?.listing_id ?? ""}
               />
+              <input data-testid="selected-listing-source" readOnly value={context.selectedListingSource} />
             </form>
           ),
           offer: <div>Make an offer</div>,
@@ -1304,6 +1370,110 @@ describe("item detail commerce panel", () => {
     ).toBe("true");
     expect(screen.getByText("1 available · Raw · Near Mint")).toBeTruthy();
     expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_alt");
+    expect(screen.getByTestId("selected-listing-source")).toHaveProperty("value", "explicit");
+    const url = new URL(window.location.href);
+    expect(url.searchParams.get("listing")).toBe("listing_charizard_alt");
+    expect(url.searchParams.get("offer")).toBeNull();
+  });
+
+  it("restores explicit listing selection from browser history state", async () => {
+    const rawListing: DiscoveryMarketListing = {
+      ...baseListing,
+      product_id: "cat_charizard::form:raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw",
+    };
+    const gradedListing: DiscoveryMarketListing = {
+      ...alternateListing,
+      product_id: "cat_charizard::form:graded",
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+      product_summary: "Graded",
+    };
+    window.history.replaceState(null, "", "/items/charizard-base-set?market=buy&listing=listing_charizard");
+
+    render(
+      <ItemDetailPage
+        data={createItem({
+          product_schema: variantSchema,
+          market_listings: [rawListing, gradedListing],
+        })}
+        initialSelectedListingId="listing_charizard"
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <input data-testid="selected-listing-id" readOnly value={context.selectedListing?.listing_id ?? ""} />
+              <input data-testid="selected-options" readOnly value={JSON.stringify(context.selectedProductOptions)} />
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard");
+    expect(screen.getByTestId("selected-options")).toHaveProperty(
+      "value",
+      JSON.stringify([{ dimensionId: "form", optionId: "raw" }]),
+    );
+
+    window.history.pushState(null, "", "/items/charizard-base-set?market=buy&listing=listing_charizard_alt");
+    fireEvent(window, new PopStateEvent("popstate"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_alt"),
+    );
+    expect(screen.getByTestId("selected-options")).toHaveProperty(
+      "value",
+      JSON.stringify([{ dimensionId: "form", optionId: "graded" }]),
+    );
+  });
+
+  it("clears explicit listing URL state when product filters change", async () => {
+    const rawListing: DiscoveryMarketListing = {
+      ...baseListing,
+      product_id: "cat_charizard::form:raw",
+      selected_options: [{ dimensionId: "form", optionId: "raw" }],
+      product_summary: "Raw",
+    };
+    const gradedListing: DiscoveryMarketListing = {
+      ...alternateListing,
+      product_id: "cat_charizard::form:graded",
+      selected_options: [{ dimensionId: "form", optionId: "graded" }],
+      product_summary: "Graded",
+    };
+    window.history.replaceState(null, "", "/items/charizard-base-set?market=buy&listing=listing_charizard");
+
+    render(
+      <ItemDetailPage
+        data={createItem({
+          product_schema: variantSchema,
+          market_listings: [rawListing, gradedListing],
+        })}
+        initialSelectedListingId="listing_charizard"
+        renderCommerce={(context) => ({
+          buy: (
+            <form>
+              <input data-testid="selected-listing-id" readOnly value={context.selectedListing?.listing_id ?? ""} />
+              <input data-testid="selected-listing-source" readOnly value={context.selectedListingSource} />
+              <input data-testid="selected-options" readOnly value={JSON.stringify(context.selectedProductOptions)} />
+            </form>
+          ),
+          offer: <div>Make an offer</div>,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: /^Graded/ }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("selected-listing-id")).toHaveProperty("value", "listing_charizard_alt"),
+    );
+    expect(screen.getByTestId("selected-listing-source")).toHaveProperty("value", "implicit");
+    expect(screen.getByTestId("selected-options")).toHaveProperty(
+      "value",
+      JSON.stringify([{ dimensionId: "form", optionId: "graded" }]),
+    );
+    expect(new URL(window.location.href).searchParams.get("listing")).toBeNull();
   });
 
   it("keeps add to cart available for a selected product without a listing", () => {
@@ -1470,6 +1640,26 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByRole("button", { name: "Add product to cart" })).toBeNull();
   });
 
+  it("labels implicit listing defaults as the best available listing", () => {
+    renderWithDataRouter(
+      <CheckoutPurchaseIntentSection
+        catalogItemId="cat_charizard"
+        productId="cat_charizard::"
+        selectedListing={baseListing}
+        selectedListingSource="implicit"
+        itemTitle="Charizard"
+        selectedOptions={[]}
+        productSummary="Raw / Near Mint"
+        visibleListingCount={1}
+        actionMode="buy-now"
+      />,
+    );
+
+    expect(screen.getByText("Best available listing")).toBeTruthy();
+    expect(screen.getByText("Best available price")).toBeTruthy();
+    expect(screen.queryByText("Selected listing")).toBeNull();
+  });
+
   it("keeps shipping out of the item buy panel", () => {
     renderWithDataRouter(
       <CheckoutPurchaseIntentSection
@@ -1553,6 +1743,24 @@ describe("item detail commerce panel", () => {
     expect(screen.queryByText(/csg_seller_override/)).toBeNull();
   });
 
+  it("labels implicit offer defaults as the best offer", () => {
+    render(
+      <MarketplaceOfferMatchSection
+        selectedOffer={{
+          ...baseAccountOfferMatch,
+          price_amount: "380.00",
+        }}
+        selectedOfferSource="implicit"
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        matchingOfferCount={1}
+      />,
+    );
+
+    expect(screen.getByText("Best offer")).toBeTruthy();
+    expect(screen.queryByText("Selected offer")).toBeNull();
+  });
+
   it("keeps offer Sell List guidance in Reference Info", () => {
     render(
       <MarketplaceOfferMatchSection
@@ -1594,7 +1802,78 @@ describe("item detail commerce panel", () => {
     ).toBeTruthy();
   });
 
+  it("uses explicit offer URL state instead of the implicit best offer default", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [baseListing],
+          offer_demand_matches: [baseOffer, alternateOffer],
+        })}
+        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        initialMarketIntent="sell"
+        initialSelectedOfferId="offer_charizard"
+        renderCommerce={(context) => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: (
+            <form>
+              <input
+                data-testid="selected-offer-id"
+                readOnly
+                value={context.selectedAccountOfferMatch?.offer_id ?? ""}
+              />
+              <input data-testid="selected-offer-source" readOnly value={context.selectedOfferSource} />
+            </form>
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard");
+    expect(screen.getByTestId("selected-offer-source")).toHaveProperty("value", "explicit");
+    expect(screen.getByRole("button", { name: "Selected Ash Ketchum offer at $350.00" })).toBeTruthy();
+  });
+
+  it("recovers stale explicit offer URL state to the implicit default", () => {
+    render(
+      <ItemDetailPage
+        data={createItem({
+          market_listings: [baseListing],
+          offer_demand_matches: [baseOffer, alternateOffer],
+        })}
+        accountOfferMatches={[baseAccountOfferMatch, alternateAccountOfferMatch]}
+        initialMarketIntent="sell"
+        initialSelectedOfferId="offer_missing"
+        renderCommerce={(context) => ({
+          buy: <div>Buy selected product</div>,
+          offer: <div>Make an offer</div>,
+          sell: (
+            <form>
+              <input
+                data-testid="selected-offer-id"
+                readOnly
+                value={context.selectedAccountOfferMatch?.offer_id ?? ""}
+              />
+              <input data-testid="selected-offer-source" readOnly value={context.selectedOfferSource} />
+              <input data-testid="stale-offer-id" readOnly value={context.staleSelectedOfferId ?? ""} />
+            </form>
+          ),
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Offer unavailable")).toBeTruthy();
+    expect(
+      screen.getByText("That offer is no longer available. Showing the best offer for this product instead."),
+    ).toBeTruthy();
+    expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard_alt");
+    expect(screen.getByTestId("selected-offer-source")).toHaveProperty("value", "implicit");
+    expect(screen.getByTestId("stale-offer-id")).toHaveProperty("value", "offer_missing");
+  });
+
   it("changes the selected offer when another offer is clicked", async () => {
+    window.history.replaceState(null, "", "/items/charizard-base-set?market=sell");
+
     render(
       <ItemDetailPage
         data={createItem({
@@ -1613,6 +1892,7 @@ describe("item detail commerce panel", () => {
                 readOnly
                 value={context.selectedAccountOfferMatch?.offer_id ?? ""}
               />
+              <input data-testid="selected-offer-source" readOnly value={context.selectedOfferSource} />
             </form>
           ),
         })}
@@ -1632,6 +1912,10 @@ describe("item detail commerce panel", () => {
 
     expect(screen.getByRole("button", { name: /Ash Ketchum/ }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByTestId("selected-offer-id")).toHaveProperty("value", "offer_charizard");
+    expect(screen.getByTestId("selected-offer-source")).toHaveProperty("value", "explicit");
+    const url = new URL(window.location.href);
+    expect(url.searchParams.get("offer")).toBe("offer_charizard");
+    expect(url.searchParams.get("listing")).toBeNull();
   });
 
   it("shows the viewer's own offer without selecting it for seller acceptance", async () => {
