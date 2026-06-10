@@ -1083,6 +1083,17 @@ export function createCatalogApiClient({
       );
       return parseJsonResponse<T>(response);
     },
+    async recordCatalogControlPlaneEvent<T>(event: unknown): Promise<T> {
+      const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/control-plane-events`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...headersToRecord(headers),
+        },
+        body: JSON.stringify(event),
+      });
+      return parseJsonResponse<T>(response);
+    },
     async listSourceObservationProviderProfiles<T>(): Promise<T> {
       const response = await configuredFetch(`${baseUrl.replace(/\/$/, "")}/source-observations/provider-profiles`, {
         method: "GET",

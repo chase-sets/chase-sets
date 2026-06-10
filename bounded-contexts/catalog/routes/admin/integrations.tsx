@@ -16,6 +16,12 @@ import type {
   CatalogIntegrationControlPlaneOverview,
   SourceObservationIntegrationJobScope,
 } from "../../features/source-observations/ui/contracts";
+import {
+  commandTelemetryEvents,
+  loaderTelemetryEvents,
+  recordCatalogControlPlaneEvents,
+  type CatalogControlPlaneTelemetryApi,
+} from "../../features/source-observations/ui/primary-workbench-telemetry";
 import { CatalogPrimaryWorkbenchPage } from "../../features/source-observations/ui/primary-workbench-page";
 import {
   buildCatalogPrimaryWorkbenchReadModel,
@@ -82,6 +88,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     reviewPagination,
     canManageCatalog: true,
   });
+  await recordCatalogControlPlaneEvents(api, loaderTelemetryEvents(readModel));
 
   return {
     ...routeData,
@@ -110,7 +117,7 @@ export async function action({ request }: ActionFunctionArgs) {
           integrationScopeFromContext(context),
         );
 
-        return commandRedirect({
+        return commandRedirectWithTelemetry(api, {
           context: {
             ...context,
             jobId: stringValue(job.jobId) ?? context.jobId,
@@ -125,7 +132,7 @@ export async function action({ request }: ActionFunctionArgs) {
       case "resume-import-job":
       case "cancel-import-job": {
         if (!context.jobId) {
-          return commandRedirect({
+          return commandRedirectWithTelemetry(api, {
             context: { ...context, selectedObservationIds },
             intent,
             status: "error",
@@ -140,7 +147,7 @@ export async function action({ request }: ActionFunctionArgs) {
               ? await api.resumeSourceObservationIntegrationJob<CatalogCommandJobResponse>(context.jobId)
               : await api.cancelSourceObservationIntegrationJob<CatalogCommandJobResponse>(context.jobId);
 
-        return commandRedirect({
+        return commandRedirectWithTelemetry(api, {
           context: {
             ...context,
             selectedObservationIds,
@@ -157,7 +164,7 @@ export async function action({ request }: ActionFunctionArgs) {
           promotionScopeFromContext(context),
         );
 
-        return commandRedirect({
+        return commandRedirectWithTelemetry(api, {
           context: {
             ...context,
             selectedObservationIds,
@@ -173,7 +180,7 @@ export async function action({ request }: ActionFunctionArgs) {
           !context.promotionPreviewId ||
           !(await confirmsFreshPromotionPreview(api, context, selectedObservationIds))
         ) {
-          return commandRedirect({
+          return commandRedirectWithTelemetry(api, {
             context: {
               ...context,
               selectedObservationIds,
@@ -192,7 +199,7 @@ export async function action({ request }: ActionFunctionArgs) {
                 promotionScopeFromContext(context),
               );
 
-        return commandRedirect({
+        return commandRedirectWithTelemetry(api, {
           context: {
             ...context,
             jobId: stringValue(job.jobId) ?? context.jobId,
@@ -206,7 +213,7 @@ export async function action({ request }: ActionFunctionArgs) {
       case "reject-source-observations": {
         const reason = String(formData.get("reason") ?? "").trim();
         if (!reason) {
-          return commandRedirect({
+          return commandRedirectWithTelemetry(api, {
             context: { ...context, selectedObservationIds },
             intent,
             status: "error",
@@ -222,7 +229,7 @@ export async function action({ request }: ActionFunctionArgs) {
                 reason,
               );
 
-        return commandRedirect({
+        return commandRedirectWithTelemetry(api, {
           context: {
             ...context,
             selectedObservationIds,
@@ -240,7 +247,7 @@ export async function action({ request }: ActionFunctionArgs) {
             ? await api.reapplySourceObservations<BulkSourceObservationPromotionResult>([...selectedObservationIds])
             : await api.reapplySourceObservationsByScope<CatalogCommandJobResponse>(promotionScopeFromContext(context));
 
-        return commandRedirect({
+        return commandRedirectWithTelemetry(api, {
           context: {
             ...context,
             selectedObservationIds,
@@ -254,14 +261,14 @@ export async function action({ request }: ActionFunctionArgs) {
       }
       case "defer-source-observations":
       case "start-replay":
-        return commandRedirect({
+        return commandRedirectWithTelemetry(api, {
           context: { ...context, selectedObservationIds },
           intent,
           status: "error",
           result: "unsupported-command",
         });
       default:
-        return commandRedirect({
+        return commandRedirectWithTelemetry(api, {
           context,
           intent,
           status: "error",
@@ -269,7 +276,7 @@ export async function action({ request }: ActionFunctionArgs) {
         });
     }
   } catch {
-    return commandRedirect({
+    return commandRedirectWithTelemetry(api, {
       context: { ...context, selectedObservationIds },
       intent,
       status: "error",
@@ -460,4 +467,17 @@ function compactScope<T extends Record<string, string | undefined>>(scope: T): T
 
 function stringValue(value: FormDataEntryValue | unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+async function commandRedirectWithTelemetry(
+  api: CatalogControlPlaneTelemetryApi,
+  input: {
+    context: ReturnType<typeof parseCatalogPrimaryWorkbenchRouteContext>;
+    intent: string;
+    status: CatalogPrimaryWorkbenchCommandFeedback["status"];
+    result: CatalogPrimaryWorkbenchCommandFeedback["result"];
+  },
+) {
+  await recordCatalogControlPlaneEvents(api, commandTelemetryEvents(input));
+  return commandRedirect(input);
 }

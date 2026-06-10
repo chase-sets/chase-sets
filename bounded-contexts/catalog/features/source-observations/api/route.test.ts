@@ -96,6 +96,71 @@ describe("source observation routes", () => {
     expect(getCatalogIntegrationControlPlaneReadiness).toHaveBeenCalledOnce();
   });
 
+  it("allows catalog.view actors to record redaction-safe control-plane telemetry events", async () => {
+    const recordControlPlaneTelemetry = vi.fn();
+    const app = buildApp(
+      { recordControlPlaneTelemetry } as unknown as SourceObservationRouteServices,
+      undefined,
+      viewOnlyActor,
+    );
+
+    const response = await app.request("/source-observations/control-plane-events", {
+      method: "POST",
+      body: JSON.stringify({
+        eventName: "catalog_control_plane.primary_workbench_viewed",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+        scopeId: "en:3:base:base1",
+        profileRef: "pokemon-tcg:2026.06.04",
+        roleBucket: "view-only",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(202);
+    await expect(response.json()).resolves.toEqual({ status: "recorded" });
+    expect(recordControlPlaneTelemetry).toHaveBeenCalledWith({
+      eventName: "catalog_control_plane.primary_workbench_viewed",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      scopeId: "en:3:base:base1",
+      profileRef: "pokemon-tcg:2026.06.04",
+      jobRefState: null,
+      observationStatus: null,
+      observationCount: null,
+      promotionResult: null,
+      promotionCount: null,
+      blockerCategory: null,
+      detourTarget: null,
+      detourOutcome: null,
+      roleBucket: "view-only",
+      readModelFreshness: null,
+    });
+  });
+
+  it("rejects unknown control-plane telemetry events before recording metrics", async () => {
+    const recordControlPlaneTelemetry = vi.fn();
+    const app = buildApp({ recordControlPlaneTelemetry } as unknown as SourceObservationRouteServices);
+
+    const response = await app.request("/source-observations/control-plane-events", {
+      method: "POST",
+      body: JSON.stringify({
+        eventName: "catalog_control_plane.raw_json_opened",
+        providerKey: "tcgdex",
+      }),
+      headers: { "content-type": "application/json" },
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: "invalid_control_plane_event",
+        message: "Unknown Catalog control plane telemetry event.",
+      },
+    });
+    expect(recordControlPlaneTelemetry).not.toHaveBeenCalled();
+  });
+
   it("requires catalog.manage for destructive control-plane actions", async () => {
     const services = {
       enqueueIntegrationJob: vi.fn(),

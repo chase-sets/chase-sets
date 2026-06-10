@@ -183,6 +183,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.api.route.integration.job.lifecycle.unsupported":
     "Integration job lifecycle command is not available for this job state.",
   "catalog.features.sourceObservations.api.route.integration.job.not.found": "Integration job was not found.",
+  "catalog.features.sourceObservations.api.route.telemetry.invalid.event":
+    "Unknown Catalog control plane telemetry event.",
   "catalog.features.sourceObservations.api.route.impact.profile.version.required":
     "Provider key and profile version are required for impact analysis.",
   "catalog.features.sourceObservations.api.route.impact.lifecycle.operation.invalid":
