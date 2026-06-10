@@ -12,9 +12,11 @@ import {
 import {
   fanOutEventStoreWakeNotification,
   ProjectionWakeRelayNotificationRejectedError,
+  runProjectionWakeRelayActiveSession,
   type ProjectionWakeRelayFanOutFailedEvent,
   type ProjectionWakeRelayFanOutSkippedEvent,
   type ProjectionWakeRelayFanOutSucceededEvent,
+  type ProjectionWakeRelaySourceCatchUpCompletedEvent,
   type ProjectionWakeRelayNotificationRejectedEvent,
   type ProjectionWakeRelaySourceSkippedEvent,
 } from "./projection-wake-relay";
@@ -259,6 +261,315 @@ describe("projection wake relay fan-out", () => {
   });
 });
 
+describe("projection wake relay active runtime", () => {
+  it("catches up from durable source rows and advances the source cursor after fan-out", async () => {
+    const abortController = new AbortController();
+    const { store, inputs } = recordingWorkSignalStore();
+    const controlPlane = recordingRelayControlPlane();
+    const completed: ProjectionWakeRelaySourceCatchUpCompletedEvent[] = [];
+
+    const result = await runProjectionWakeRelayActiveSession({
+      workerId: "worker-a",
+      controlPlane,
+      projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+      workSignalStore: store,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          eventStore: eventStoreWithRows([
+            storedEvent({ position: "101", eventType: "CheckoutSessionCreated" }),
+            storedEvent({ position: "102", eventType: "CheckoutSessionCreated" }),
+          ]),
+        },
+      ],
+      relayConfigs: checkoutRelayConfigs(),
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      signal: abortController.signal,
+      observer: {
+        sourceCatchUpCompleted: (event) => {
+          completed.push(event);
+          abortController.abort();
+        },
+      },
+    });
+
+    expect(result).toMatchObject({
+      status: "stopped",
+      sourceContextNames: ["checkout"],
+      caughtUpEventCount: 2,
+      cursorAdvanceCount: 1,
+    });
+    expect(inputs).toHaveLength(1);
+    expect(inputs[0]).toMatchObject({
+      sourceContextName: "checkout",
+      requiredPosition: "102",
+      requiredCursor: "checkout:102",
+      origin: "relay",
+    });
+    expect(controlPlane.advances).toMatchObject([
+      {
+        sourceContextName: "checkout",
+        lastFanOutPosition: "102",
+        lastRequiredCursor: "checkout:102",
+        lease: expect.objectContaining({
+          leaseName: "projection-wake-relay:active",
+          ownerId: "worker-a",
+          fencingToken: "1",
+        }),
+      },
+    ]);
+    expect(completed).toMatchObject([{ reason: "startup", eventCount: 2, cursorAdvanceCount: 1 }]);
+    expect(controlPlane.released).toBe(1);
+  });
+
+  it("does not advance the source cursor when durable fan-out fails", async () => {
+    const { store } = recordingWorkSignalStore({ failOnEnqueue: true });
+    const controlPlane = recordingRelayControlPlane();
+
+    await expect(
+      runProjectionWakeRelayActiveSession({
+        workerId: "worker-a",
+        controlPlane,
+        projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+        workSignalStore: store,
+        sources: [
+          {
+            sourceContextName: "checkout",
+            eventStore: eventStoreWithRows([storedEvent({ position: "101", eventType: "CheckoutSessionCreated" })]),
+          },
+        ],
+        relayConfigs: checkoutRelayConfigs(),
+        leaseTtlMs: 30_000,
+        leaseRenewIntervalMs: 10_000,
+      }),
+    ).rejects.toThrow("control-plane unavailable");
+
+    expect(controlPlane.advances).toEqual([]);
+    expect(controlPlane.released).toBe(1);
+  });
+
+  it("uses notifications as hints and serializes duplicate catch-up through the durable cursor", async () => {
+    const abortController = new AbortController();
+    const listener = new FakeRelayListenerClient();
+    const events = eventStoreWithRows([]);
+    const { store, inputs } = recordingWorkSignalStore();
+    const controlPlane = recordingRelayControlPlane();
+    const completed: ProjectionWakeRelaySourceCatchUpCompletedEvent[] = [];
+
+    const resultPromise = runProjectionWakeRelayActiveSession({
+      workerId: "worker-a",
+      controlPlane,
+      projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+      workSignalStore: store,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          eventStore: events,
+          listenerPool: listenerPoolFromClients([listener]),
+        },
+      ],
+      relayConfigs: checkoutRelayConfigs(),
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      signal: abortController.signal,
+      observer: {
+        sourceCatchUpCompleted: (event) => {
+          completed.push(event);
+          if (event.reason === "startup") {
+            events.rows.push(storedEvent({ position: "101", eventType: "CheckoutSessionCreated" }));
+            listener.emit("platform_event_store_commits", "{}");
+            listener.emit("platform_event_store_commits", "{}");
+            return;
+          }
+          if (event.reason === "notification") {
+            abortController.abort();
+          }
+        },
+      },
+    });
+
+    const result = await resultPromise;
+
+    expect(listener.queries).toContain("LISTEN platform_event_store_commits");
+    expect(listener.queries).toContain("UNLISTEN platform_event_store_commits");
+    expect(inputs).toHaveLength(1);
+    expect(controlPlane.advances).toHaveLength(1);
+    expect(controlPlane.advances[0]).toMatchObject({
+      sourceContextName: "checkout",
+      lastFanOutPosition: "101",
+    });
+    expect(completed.filter((event) => event.reason === "notification")).toHaveLength(2);
+    expect(result).toMatchObject({
+      status: "stopped",
+      caughtUpEventCount: 1,
+      cursorAdvanceCount: 1,
+    });
+  });
+
+  it("reconnects listener connections and catches up durable rows after reconnect", async () => {
+    const abortController = new AbortController();
+    const firstListener = new FakeRelayListenerClient();
+    const secondListener = new FakeRelayListenerClient();
+    const events = eventStoreWithRows([]);
+    const { store, inputs } = recordingWorkSignalStore();
+    const controlPlane = recordingRelayControlPlane();
+    const connected: string[] = [];
+    const completed: ProjectionWakeRelaySourceCatchUpCompletedEvent[] = [];
+
+    const resultPromise = runProjectionWakeRelayActiveSession({
+      workerId: "worker-a",
+      controlPlane,
+      projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+      workSignalStore: store,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          eventStore: events,
+          listenerPool: listenerPoolFromClients([firstListener, secondListener]),
+        },
+      ],
+      relayConfigs: checkoutRelayConfigs(),
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      reconnectBackoffMs: 1,
+      signal: abortController.signal,
+      observer: {
+        listenerConnected: (event) => {
+          connected.push(event.sourceContextName);
+          if (connected.length === 1) {
+            firstListener.fail(new Error("connection lost"));
+            return;
+          }
+
+          events.rows.push(storedEvent({ position: "101", eventType: "CheckoutSessionCreated" }));
+        },
+        sourceCatchUpCompleted: (event) => {
+          completed.push(event);
+          if (event.reason === "reconnect") {
+            abortController.abort();
+          }
+        },
+      },
+    });
+
+    const result = await resultPromise;
+
+    expect(firstListener.queries).toContain("LISTEN platform_event_store_commits");
+    expect(firstListener.queries).toContain("UNLISTEN platform_event_store_commits");
+    expect(secondListener.queries).toContain("LISTEN platform_event_store_commits");
+    expect(secondListener.queries).toContain("UNLISTEN platform_event_store_commits");
+    expect(inputs).toHaveLength(1);
+    expect(controlPlane.advances).toMatchObject([
+      {
+        sourceContextName: "checkout",
+        lastFanOutPosition: "101",
+      },
+    ]);
+    expect(completed.map((event) => event.reason)).toEqual(["startup", "reconnect"]);
+    expect(result).toMatchObject({
+      status: "stopped",
+      caughtUpEventCount: 1,
+      cursorAdvanceCount: 1,
+    });
+  });
+
+  it("continues durable startup catch-up when listener setup cleanup fails", async () => {
+    const abortController = new AbortController();
+    const listener = new FakeRelayListenerClient({ failListen: true, failUnlisten: true });
+    const { store, inputs } = recordingWorkSignalStore();
+    const controlPlane = recordingRelayControlPlane();
+    const listenerFailures: unknown[] = [];
+
+    const result = await runProjectionWakeRelayActiveSession({
+      workerId: "worker-a",
+      controlPlane,
+      projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+      workSignalStore: store,
+      sources: [
+        {
+          sourceContextName: "checkout",
+          eventStore: eventStoreWithRows([storedEvent({ position: "101", eventType: "CheckoutSessionCreated" })]),
+          listenerPool: listenerPoolFromClients([listener]),
+        },
+      ],
+      relayConfigs: checkoutRelayConfigs(),
+      leaseTtlMs: 30_000,
+      leaseRenewIntervalMs: 10_000,
+      signal: abortController.signal,
+      observer: {
+        listenerUnavailable: (event) => listenerFailures.push(event.error),
+        listenerDisconnected: (event) => {
+          if (event.error) {
+            listenerFailures.push(event.error);
+          }
+        },
+        sourceCatchUpCompleted: () => abortController.abort(),
+      },
+    });
+
+    expect(listener.queries).toEqual(["LISTEN platform_event_store_commits", "UNLISTEN platform_event_store_commits"]);
+    expect(listener.released).toBe(true);
+    expect(listenerFailures).toHaveLength(2);
+    expect(inputs).toHaveLength(1);
+    expect(controlPlane.advances).toMatchObject([
+      {
+        sourceContextName: "checkout",
+        lastFanOutPosition: "101",
+      },
+    ]);
+    expect(result).toMatchObject({
+      status: "stopped",
+      caughtUpEventCount: 1,
+      cursorAdvanceCount: 1,
+    });
+  });
+
+  it("fails closed when cursor advancement is rejected by lease fencing", async () => {
+    const { store } = recordingWorkSignalStore();
+    const controlPlane = recordingRelayControlPlane({ rejectCursorAdvance: true });
+
+    await expect(
+      runProjectionWakeRelayActiveSession({
+        workerId: "worker-a",
+        controlPlane,
+        projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+        workSignalStore: store,
+        sources: [
+          {
+            sourceContextName: "checkout",
+            eventStore: eventStoreWithRows([storedEvent({ position: "101", eventType: "CheckoutSessionCreated" })]),
+          },
+        ],
+        relayConfigs: checkoutRelayConfigs(),
+        leaseTtlMs: 30_000,
+        leaseRenewIntervalMs: 10_000,
+      }),
+    ).rejects.toThrow("cursor advance was rejected");
+  });
+
+  it("does not acquire the active lease when no enabled source runtime is configured", async () => {
+    const controlPlane = recordingRelayControlPlane();
+
+    await expect(
+      runProjectionWakeRelayActiveSession({
+        workerId: "worker-a",
+        controlPlane,
+        projectionInterestIndex: checkoutProjectionIndex({ eventTypes: ["CheckoutSessionCreated"] }),
+        workSignalStore: recordingWorkSignalStore().store,
+        sources: [],
+        relayConfigs: checkoutRelayConfigs(),
+        leaseTtlMs: 30_000,
+        leaseRenewIntervalMs: 10_000,
+      }),
+    ).resolves.toMatchObject({
+      status: "no-enabled-sources",
+      sourceContextNames: [],
+    });
+    expect(controlPlane.acquired).toBe(0);
+  });
+});
+
 function checkoutWakeNotification(
   overrides: Partial<EventStoreWakeNotificationEnvelope["payload"]> = {},
 ): EventStoreWakeNotificationEnvelope {
@@ -338,6 +649,186 @@ function recordingWorkSignalStore(options: { failOnEnqueue?: boolean } = {}) {
 
         return wakeIntentRecord(input, inputs.length);
       },
+    },
+  };
+}
+
+function recordingRelayControlPlane(options: { rejectCursorAdvance?: boolean } = {}) {
+  const lease = {
+    leaseName: "projection-wake-relay:active",
+    ownerId: "worker-a",
+    fencingToken: "1",
+    expiresAt: "2026-06-10T12:01:00.000Z",
+  };
+  const cursors = new Map<string, { lastFanOutPosition: bigint; lastRequiredCursor: string | null }>();
+  const advances: Array<{
+    sourceContextName: string;
+    lastFanOutPosition: string;
+    lastRequiredCursor: string | null;
+    lease: typeof lease;
+  }> = [];
+
+  const controlPlane = {
+    advances,
+    acquired: 0,
+    released: 0,
+    acquireLease: async () => {
+      controlPlane.acquired += 1;
+      return lease;
+    },
+    renewLease: async () => true,
+    releaseLease: async () => {
+      controlPlane.released += 1;
+    },
+    getProjectionWakeRelayCursor: async (sourceContextName: string) => {
+      const cursor = cursors.get(sourceContextName);
+      return cursor
+        ? {
+            sourceContextName,
+            lastFanOutPosition: cursor.lastFanOutPosition,
+            lastRequiredCursor: cursor.lastRequiredCursor,
+            ownerId: lease.ownerId,
+            fencingToken: lease.fencingToken,
+            metadata: {},
+            updatedAt: "2026-06-10T12:00:00.000Z",
+          }
+        : null;
+    },
+    advanceProjectionWakeRelayCursor: async (input: {
+      sourceContextName: string;
+      lastFanOutPosition: bigint | number | string;
+      lastRequiredCursor?: string | null;
+      lease: typeof lease;
+    }) => {
+      if (options.rejectCursorAdvance) {
+        return null;
+      }
+
+      const nextPosition = BigInt(input.lastFanOutPosition);
+      const existing = cursors.get(input.sourceContextName);
+      const currentPosition = existing?.lastFanOutPosition ?? 0n;
+      if (nextPosition > currentPosition) {
+        cursors.set(input.sourceContextName, {
+          lastFanOutPosition: nextPosition,
+          lastRequiredCursor: input.lastRequiredCursor ?? null,
+        });
+        advances.push({
+          sourceContextName: input.sourceContextName,
+          lastFanOutPosition: nextPosition.toString(),
+          lastRequiredCursor: input.lastRequiredCursor ?? null,
+          lease: input.lease,
+        });
+      }
+
+      return {
+        sourceContextName: input.sourceContextName,
+        lastFanOutPosition: cursors.get(input.sourceContextName)?.lastFanOutPosition ?? currentPosition,
+        lastRequiredCursor:
+          cursors.get(input.sourceContextName)?.lastRequiredCursor ?? existing?.lastRequiredCursor ?? null,
+        ownerId: lease.ownerId,
+        fencingToken: lease.fencingToken,
+        metadata: {},
+        updatedAt: "2026-06-10T12:00:00.000Z",
+      };
+    },
+  };
+
+  return controlPlane;
+}
+
+function eventStoreWithRows(rows: ReturnType<typeof storedEvent>[]) {
+  return {
+    rows,
+    readAll: async (input?: {
+      afterGlobalPosition?: ReturnType<typeof parseGlobalPosition>;
+      streamPrefixes?: readonly string[];
+      limit?: number;
+    }) => {
+      const after = BigInt(input?.afterGlobalPosition ?? "0");
+      const prefixes = input?.streamPrefixes ?? [];
+      const limit = input?.limit ?? 500;
+
+      return rows
+        .filter((event) => BigInt(event.globalPosition) > after)
+        .filter((event) => prefixes.length === 0 || prefixes.some((prefix) => event.streamId.startsWith(prefix)))
+        .slice(0, limit);
+    },
+  };
+}
+
+function storedEvent(input: { position: string; eventType: string }) {
+  return {
+    eventId: `evt_${input.position}` as never,
+    streamId: `checkout.session-${input.position}`,
+    streamVersion: Number(input.position),
+    globalPosition: parseGlobalPosition(input.position),
+    tenantId: "tnt_test" as never,
+    eventType: input.eventType,
+    payload: {},
+    metadata: {},
+    occurredAt: parseIsoUtcTimestamp("2026-06-10T12:00:00.000Z"),
+    recordedAt: parseIsoUtcTimestamp("2026-06-10T12:00:00.000Z"),
+    performedByUserId: "usr_test" as never,
+    forAccountId: "acc_test" as never,
+    traceId: "trace_checkout_1" as never,
+  };
+}
+
+class FakeRelayListenerClient {
+  readonly queries: string[] = [];
+  private readonly listeners = new Map<string, Set<(message?: unknown) => void>>();
+  released = false;
+
+  constructor(private readonly options: Readonly<{ failListen?: boolean; failUnlisten?: boolean }> = {}) {}
+
+  async query(sql: string) {
+    this.queries.push(sql);
+    if (this.options.failListen && sql.startsWith("LISTEN ")) {
+      throw new Error("LISTEN failed");
+    }
+    if (this.options.failUnlisten && sql.startsWith("UNLISTEN ")) {
+      throw new Error("UNLISTEN failed");
+    }
+
+    return { rows: [], rowCount: 0 };
+  }
+
+  release() {
+    this.released = true;
+  }
+
+  on(event: "notification" | "error", listener: (message?: unknown) => void) {
+    const listeners = this.listeners.get(event) ?? new Set();
+    listeners.add(listener);
+    this.listeners.set(event, listeners);
+  }
+
+  off(event: "notification" | "error", listener: (message?: unknown) => void) {
+    this.listeners.get(event)?.delete(listener);
+  }
+
+  emit(channel: string, payload: string) {
+    for (const listener of this.listeners.get("notification") ?? []) {
+      listener({ channel, payload });
+    }
+  }
+
+  fail(error: unknown) {
+    for (const listener of this.listeners.get("error") ?? []) {
+      listener(error);
+    }
+  }
+}
+
+function listenerPoolFromClients(clients: FakeRelayListenerClient[]) {
+  return {
+    connect: async () => {
+      const client = clients.shift();
+      if (!client) {
+        throw new Error("No fake listener client available.");
+      }
+
+      return client;
     },
   };
 }

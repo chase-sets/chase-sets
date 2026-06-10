@@ -382,6 +382,8 @@ describe("platform api app", () => {
           })),
           claimScheduledRunner: vi.fn(async () => false),
           recordScheduledRunnerCompleted: vi.fn(async () => undefined),
+          getProjectionWakeRelayCursor: vi.fn(async () => null),
+          advanceProjectionWakeRelayCursor: vi.fn(async () => null),
         },
       },
     );
