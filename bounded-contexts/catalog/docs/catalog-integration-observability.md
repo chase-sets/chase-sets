@@ -56,8 +56,8 @@ The rebuilt Catalog Control Plane records these product/UX events through the Ca
 | `catalog_control_plane.promotion_completed` | Bulk review worker | A promote work unit completed. |
 | `catalog_control_plane.promotion_failed` | Bulk review worker | A promote work unit failed. |
 | `catalog_control_plane.observation_rejected` | Admin integrations action | Operator submitted or attempted a rejection command. |
-| `catalog_control_plane.observation_deferred` | Admin integrations action mapping | Operator attempted the deferred-observation workflow; unsupported launch paths are counted with a readiness blocker until the rebuilt defer workflow ships. |
-| `catalog_control_plane.reapply_replay_started` | Admin integrations action | Operator queued reapply or attempted replay. |
+| `catalog_control_plane.observation_deferred` | Admin integrations action mapping | Operator queued a defer decision that records a reason while keeping reviewable Source Observations in review. |
+| `catalog_control_plane.reapply_replay_started` | Admin integrations action | Operator queued current-active-profile reapply or original-source-profile replay. |
 | `catalog_control_plane.blocker_hit` | Admin integrations loader/action | Workbench or command context reached a permission, rollout, readiness, active-job, missing-profile, missing-fixture, provider-transport, promotion-conflict, stale-context, or unknown blocker. |
 | `catalog_control_plane.supporting_workflow_detour_opened` | Admin integrations loader | Operator opened a supporting workflow workspace instead of the primary import-to-promotion workspace. |
 | `catalog_control_plane.returned_to_primary_path` | Admin integrations loader | Operator returned to the primary workbench from a detour context. |

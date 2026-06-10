@@ -36,7 +36,7 @@ describe("Catalog primary workbench read model", () => {
       observed: 100,
       changed: 24,
       promoted: 16,
-      eligible: 22,
+      eligible: 124,
     });
     expect(readModel.actions.find((action) => action.key === "preview-promotion")).toMatchObject({
       state: "available",
@@ -93,7 +93,7 @@ describe("Catalog primary workbench read model", () => {
       unitKey: "tcgdex:pokemon:card:import",
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
-      expectedObservationVolume: 100,
+      expectedObservationVolume: 142,
       changedCount: 24,
       readiness: {
         adapterReadiness: "ready",
@@ -495,7 +495,7 @@ describe("Catalog primary workbench read model", () => {
       canManageCatalog: true,
     });
 
-    expect(readModel.sourceObservationReview.counts.eligible).toBe(22);
+    expect(readModel.sourceObservationReview.counts.eligible).toBe(124);
     expect(readModel.sourceObservationReview.rows[0]?.promotionReadiness.state).toBe("already-promoted");
     expect(readModel.sourceObservationReview.promotionReadyCount).toBe(0);
   });

@@ -142,6 +142,37 @@ function tcgdexProfileVersion(input: {
   };
 }
 
+function providerProfileVersionForProvider(
+  providerKey: string,
+  profileKey: string,
+  profileVersion: string,
+): CatalogProviderIntegrationProfileVersionRecord {
+  const base = currentTcgdexProfileVersion();
+
+  return {
+    ...base,
+    providerKey,
+    profileKey,
+    profileVersion,
+    lifecycle: "active",
+    active: true,
+    profile: {
+      ...base.profile,
+      providerKey,
+      displayName: `${providerKey} Pokemon profile`,
+    },
+    executableMappingContract: base.executableMappingContract
+      ? {
+          ...base.executableMappingContract,
+          providerKey,
+          profileKey,
+          profileVersion,
+          lifecycle: "active",
+        }
+      : undefined,
+  };
+}
+
 function tcgdexProfileSnapshot(profileVersion: string): Record<string, unknown> {
   return {
     providerKey: "tcgdex",
@@ -1041,6 +1072,106 @@ describe("source observation runtime", () => {
     expect(harness.appendedEvents).toEqual([]);
   });
 
+  it("snapshots selected reapply work units from each observation provider instead of the default provider", async () => {
+    const insertedWorkUnits: Array<Readonly<{ unitId: string; payload: Record<string, unknown> }>> = [];
+    const altdexProfile = providerProfileVersionForProvider("altdex", "altdex-pokemon-tcg", "2026.06.10");
+    const altdexObservation = sourceObservationDetailRow({
+      observation_id: "obs_altdex",
+      provider_key: "altdex",
+      external_key: "product:610001",
+      source_url: "https://altdex.example/products/610001",
+      source_profile_key: "altdex-pokemon-tcg",
+      source_profile_version: "2026.06.10",
+      source_mapping_fingerprint: "altdex-fingerprint",
+      status: "promoted",
+      promoted_catalog_item_id: "cat_altdex",
+    });
+    const deps = {
+      db: {
+        query: async <T>(sql: string, values: readonly unknown[] = []) => {
+          if (sql.includes("FROM catalog_source_observations") && sql.includes("WHERE observation_id = $1")) {
+            return { rowCount: 1, rows: [altdexObservation] as T[] };
+          }
+
+          if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_jobs")) {
+            const payload = JSON.parse(String(values[2])) as Record<string, unknown>;
+            return {
+              rowCount: 1,
+              rows: [
+                {
+                  job_id: values[0],
+                  job_kind: values[1],
+                  payload,
+                  event_context: JSON.parse(String(values[4])),
+                  status: "queued",
+                  progress: JSON.parse(String(values[3])),
+                  result: null,
+                  error_message: null,
+                  claim_owner_id: null,
+                  claimed_until: null,
+                  created_at: "2026-05-28T00:00:00.000Z",
+                  started_at: null,
+                  completed_at: null,
+                  updated_at: "2026-05-28T00:00:00.000Z",
+                },
+              ] as T[],
+            };
+          }
+
+          if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_work_units")) {
+            const units = JSON.parse(String(values[1])) as Array<{
+              unit_id: string;
+              payload: Record<string, unknown>;
+            }>;
+            insertedWorkUnits.push(...units.map((unit) => ({ unitId: unit.unit_id, payload: unit.payload })));
+            return { rowCount: units.length, rows: [] as T[] };
+          }
+
+          if (sql.includes("INSERT INTO catalog_source_observation_bulk_review_job_events")) {
+            return { rowCount: 1, rows: [{ sequence: 1 }] as T[] };
+          }
+
+          if (sql.includes("SELECT pg_notify")) {
+            return { rowCount: 1, rows: [] as T[] };
+          }
+
+          return { rowCount: 0, rows: [] as T[] };
+        },
+      },
+      eventStore: {
+        readStream: async () => [],
+        appendToStream: async () => [],
+        readAll: async () => [],
+      },
+      checkpointStore: {
+        loadCheckpoint: async () => "0",
+        saveCheckpoint: async () => undefined,
+      },
+    } as unknown as CatalogRuntimeDeps;
+    const services = createSourceObservationRuntime(
+      deps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+      createMutableProfileVersionReader([currentTcgdexProfileVersion(), altdexProfile]),
+    );
+
+    await services.enqueueBulkReviewJob({
+      action: "reapply",
+      observationIds: ["obs_altdex"],
+      context,
+    });
+
+    expect(insertedWorkUnits).toHaveLength(1);
+    expect(insertedWorkUnits[0]?.payload).toMatchObject({
+      observationId: "obs_altdex",
+      reapplyProfileMode: "current-active-profile",
+      profileSnapshot: {
+        providerKey: "altdex",
+        profileKey: "altdex-pokemon-tcg",
+      },
+    });
+  });
+
   it("reuses an active provider integration job with the same actor action and scope", async () => {
     const harness = createIntegrationJobDedupeHarness({
       existingJob: integrationJobRow({
@@ -1784,6 +1915,39 @@ function pokemonObservation(input: {
     imageDisclaimer:
       "TCGDex provides one image for this card number. This Catalog Item represents the Parallel Set - Reverse Foil variant, so the image may not show the exact foil or pattern.",
     variants: {},
+  };
+}
+
+function sourceObservationDetailRow(overrides: Record<string, unknown> = {}) {
+  const normalized = pokemonObservation({
+    expansionName: "Base Set",
+    seriesName: "Base",
+    name: "Selected Observation",
+  });
+
+  return {
+    observation_id: "obs_selected",
+    provider_key: "tcgdex",
+    external_key: "base1-1",
+    source_url: "https://api.tcgdex.net/v2/en/cards/base1-1",
+    language_code: "en",
+    source_record_hash: "hash-selected",
+    source_updated_at: "2026-05-20T00:00:00.000Z",
+    observed_at: "2026-05-20T00:00:00.000Z",
+    source_profile_key: "pokemon-tcg",
+    source_profile_version: "2026.06.03",
+    source_mapping_fingerprint: "fingerprint:2026.06.03",
+    normalized,
+    source_payload: { id: "base1-1" },
+    status: "promoted",
+    status_reason: null,
+    promoted_catalog_item_id: "cat_selected",
+    promoted_at: "2026-05-20T00:01:00.000Z",
+    promotion_profile_key: "pokemon-tcg",
+    promotion_profile_version: "2026.06.03",
+    promotion_plan_fingerprint: "plan-fingerprint:2026.06.03",
+    updated_at: "2026-05-20T00:01:00.000Z",
+    ...overrides,
   };
 }
 

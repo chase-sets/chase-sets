@@ -5,6 +5,7 @@ import type { BulkReviewJobServices, IntegrationJobServices } from "./runtime";
 import {
   parseObservationIds,
   parsePromotionScope,
+  parseReapplyProfileMode,
   promotionScopeToIntegrationScope,
   streamBulkJobEvents,
 } from "./route-helpers";
@@ -28,7 +29,9 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
     const body = (await c.req.json().catch(() => ({}))) as {
       observationIds?: unknown;
       scope?: unknown;
+      reapplyProfileMode?: unknown;
     };
+    const reapplyProfileMode = parseReapplyProfileMode(body.reapplyProfileMode) ?? "current-active-profile";
 
     if (body.scope) {
       let job;
@@ -36,6 +39,7 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
         job = await services.enqueueIntegrationJob({
           action: "reapply",
           scope: promotionScopeToIntegrationScope(parsePromotionScope(body.scope)),
+          reapplyProfileMode,
           context: c.get("context"),
         });
       } catch (error) {
@@ -53,6 +57,7 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       job = await services.enqueueBulkReviewJob({
         action: "reapply",
         observationIds: parseObservationIds(body.observationIds),
+        reapplyProfileMode,
         context: c.get("context"),
       });
     } catch (error) {
@@ -61,6 +66,40 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
       }
       throw error;
     }
+
+    return c.json(job, 202);
+  });
+
+  app.post("/bulk-defer/jobs", async (c) => {
+    const permissionError = requireCatalogIntegrationControlPlanePermission(c, "bulk-review-write");
+    if (permissionError) {
+      return permissionError;
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
+      scope?: unknown;
+      reason?: unknown;
+    };
+    const observationIds = parseObservationIds(body.observationIds);
+    const scope = body.scope ? parsePromotionScope(body.scope) : undefined;
+    if (observationIds.length === 0 && !hasExplicitBulkReviewScope(scope)) {
+      return c.json(
+        {
+          error: t("catalog.features.sourceObservations.api.route.bulk.deferral.requires.selection.or.scope"),
+        },
+        400,
+      );
+    }
+    const reason = String(body.reason ?? "").trim() || "Deferred during Source Observation review.";
+
+    const job = await services.enqueueBulkReviewJob({
+      action: "defer",
+      observationIds,
+      scope,
+      reason,
+      context: c.get("context"),
+    });
 
     return c.json(job, 202);
   });
@@ -247,4 +286,8 @@ export function bulkReviewJobRoutes(services: BulkReviewJobRouteServices) {
   });
 
   return app;
+}
+
+function hasExplicitBulkReviewScope(scope: ReturnType<typeof parsePromotionScope> | undefined): boolean {
+  return Boolean(scope && Object.values(scope).some((value) => typeof value === "string" && value.trim().length > 0));
 }

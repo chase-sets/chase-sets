@@ -19,7 +19,7 @@ export function sourceObservationScope(
     series_name: "Base",
     product_line_id: "3",
     product_line_name: "Pokemon",
-    total_observations: 100,
+    total_observations: 142,
     observed_observations: 100,
     changed_observations: 24,
     promoted_observations: 16,

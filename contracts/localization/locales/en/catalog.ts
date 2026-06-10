@@ -763,11 +763,14 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.description":
     "Selected eligible observations can be previewed before any Catalog-owned write runs.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.bulk.preview.title": "Preview selected observations",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.reviewable.observations": "Reviewable observations",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.conflict.changed":
     "Changed normalized facts require promotion preview before Catalog writes.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.conflict.linked.catalog.item":
     "Previously linked Catalog Item {itemId} needs review.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.defer": "Defer",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.defer.reason":
+    "Deferred from the primary workbench; observation remains in review.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.description":
     "Review provider observations with provenance, redacted facts, duplicate evidence, conflicts, and command readiness before promotion.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.duplicate.catalog.reference":
@@ -815,6 +818,7 @@ export const catalogEnglishTranslations = {
     "{kind}; {imageCount} image URL(s); {externalReferenceCount} external reference(s) summarized.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.preview.required": "Preview required",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.reapply": "Reapply",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.replay": "Replay",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.redaction.summary":
     "Provider payload withheld; normalized facts and provenance are redaction-safe.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.reject": "Reject",
@@ -1741,6 +1745,8 @@ export const catalogEnglishTranslations = {
   "catalog.features.categories.ui.categoryListPage.root.categories": "Root Categories",
   "catalog.features.referenceData.ui.referenceRecordListPage.attribute.value": "Attribute Value",
   "catalog.features.referenceData.ui.referenceTypeListPage.attribute.key": "Attribute Key",
+  "catalog.features.sourceObservations.api.route.bulk.deferral.requires.selection.or.scope":
+    "Bulk deferral requires selected observations or an explicit review scope.",
   "catalog.features.sourceObservations.api.route.bulk.rejection.requires.reason": "Bulk rejection requires a reason.",
   "catalog.features.sourceObservations.api.route.rejection.requires.reason": "Rejection requires a reason.",
   "catalog.features.sourceObservations.ui.list.bulk.reject": "Reject selected",

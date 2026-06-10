@@ -171,7 +171,7 @@ export type CatalogIntegrationOptionQueryTelemetryEvent = Readonly<{
 }>;
 
 export type CatalogIntegrationJobTelemetryEvent = Readonly<{
-  jobKind: "import" | "reapply" | "promote" | "reject";
+  jobKind: "import" | "reapply" | "promote" | "reject" | "defer";
   result: "completed" | "failed" | "skipped" | "cancelled" | "released" | "reconciled";
 }>;
 

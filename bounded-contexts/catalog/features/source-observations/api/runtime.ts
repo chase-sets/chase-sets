@@ -53,6 +53,7 @@ import {
   listSourceObservationIdsForPromotion,
   listSourceObservationIntegrationScopes,
   listSourceObservations,
+  previewSourceObservationPromotionIds,
   previewSourceObservationReapplyScope,
   previewSourceObservationPromotionScope,
   summarizeSourceObservationLifecycleImpact,
@@ -181,7 +182,7 @@ const staticCatalogProviderIntegrationProfileVersions: CatalogProviderIntegratio
 
 export type BulkSourceObservationPromotionOutcome = Readonly<{
   observationId: string;
-  status: "promoted" | "rejected" | "skipped" | "failed";
+  status: "promoted" | "rejected" | "deferred" | "skipped" | "failed";
   catalogItemId: CatalogItemId | null;
   reason: string | null;
 }>;
@@ -190,6 +191,7 @@ export type BulkSourceObservationPromotionResult = Readonly<{
   requested: number;
   promoted: number;
   rejected?: number;
+  deferred?: number;
   skipped: number;
   failed: number;
   outcomes: readonly BulkSourceObservationPromotionOutcome[];
@@ -229,7 +231,7 @@ type SourceObservationRecordInput = Omit<
   "type"
 >;
 
-export type SourceObservationBulkJobAction = "promote" | "reject" | "reapply";
+export type SourceObservationBulkJobAction = "promote" | "reject" | "defer" | "reapply";
 
 export type SourceObservationBulkJobStatus = "queued" | "running" | "completed" | "failed";
 
@@ -239,10 +241,14 @@ type SourceObservationBulkJobPayload = Readonly<{
   observationIds: readonly string[];
   scope: SourceObservationFilterScope;
   reason: string | null;
+  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
 }>;
 
 type SourceObservationBulkWorkUnitPayload = Readonly<{
   observationId: string;
+  profileSnapshot?: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
 }>;
 
 type SourceObservationBulkWorkUnitResult = BulkSourceObservationPromotionOutcome | BulkSourceObservationReapplyOutcome;
@@ -254,6 +260,8 @@ export type SourceObservationBulkJob = Readonly<{
   observationIds: readonly string[];
   scope: SourceObservationFilterScope;
   reason: string | null;
+  profileSnapshot: SourceObservationIntegrationProfileSnapshot | null;
+  reapplyProfileMode: SourceObservationReapplyProfileMode | null;
   status: SourceObservationBulkJobStatus;
   progress: BulkSourceObservationProgress;
   result: SourceObservationBulkJobResult | null;
@@ -608,6 +616,9 @@ export type PromotionReapplyServices = Readonly<{
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationPromotionResult>;
+  previewPromoteObservations: (input: {
+    observationIds: readonly string[];
+  }) => Promise<SourceObservationPromotionPreview>;
   previewPromoteObservationScope: (input: {
     scope: SourceObservationFilterScope;
   }) => Promise<SourceObservationPromotionPreview>;
@@ -643,6 +654,18 @@ export type PromotionReapplyServices = Readonly<{
     context: EventStoreContext;
     onProgress?: SourceObservationProgressHandler;
   }) => Promise<BulkSourceObservationPromotionResult>;
+  deferObservations: (input: {
+    observationIds: readonly string[];
+    reason: string;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+  }) => Promise<BulkSourceObservationPromotionResult>;
+  deferObservationScope: (input: {
+    scope: SourceObservationFilterScope;
+    reason: string;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+  }) => Promise<BulkSourceObservationPromotionResult>;
 }>;
 
 export type BulkReviewJobServices = Readonly<{
@@ -651,6 +674,7 @@ export type BulkReviewJobServices = Readonly<{
     observationIds?: readonly string[];
     scope?: SourceObservationFilterScope;
     reason?: string | null;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
     context: EventStoreContext;
   }) => Promise<SourceObservationBulkJob>;
   getBulkReviewJob: (jobId: string, context?: EventStoreContext | null) => Promise<SourceObservationBulkJob | null>;
@@ -676,6 +700,7 @@ export type IntegrationJobServices = Readonly<{
   enqueueIntegrationJob: (input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
     context: EventStoreContext;
   }) => Promise<SourceObservationIntegrationJob>;
   retryIntegrationJob: (input: {
@@ -1451,6 +1476,86 @@ export function createSourceObservationRuntime(
     return summarizePromotionOutcomes(requestedIds.length, outcomes);
   }
 
+  async function deferObservationIds(input: {
+    observationIds: readonly string[];
+    reason: string;
+    context: EventStoreContext;
+    onProgress?: SourceObservationProgressHandler;
+    runDeferObservation?: DurableSideEffectRunner;
+  }): Promise<BulkSourceObservationPromotionResult> {
+    const requestedIds = uniqueObservationIds(input.observationIds);
+    const outcomes: BulkSourceObservationPromotionOutcome[] = [];
+    await input.onProgress?.(bulkProgress(0, requestedIds.length));
+
+    for (const observationId of requestedIds) {
+      let currentName: string | null = null;
+      const outcomeCountBefore = outcomes.length;
+      try {
+        const observation = await getSourceObservationDetail(deps.db, observationId);
+        currentName = observation?.normalized.name ?? null;
+
+        if (!observation) {
+          outcomes.push({
+            observationId,
+            status: "failed",
+            catalogItemId: null,
+            reason: "Source observation was not found.",
+          });
+          continue;
+        }
+
+        if (!isReviewableObservationStatus(observation.status)) {
+          outcomes.push({
+            observationId,
+            status: "skipped",
+            catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+            reason: `Source observation is ${observation.status}.`,
+          });
+          continue;
+        }
+
+        await (input.runDeferObservation ?? runSourceObservationSideEffectImmediately)(() =>
+          commandHandler({
+            streamId: sourceObservationStreamId(observationId),
+            command: {
+              type: "DeferSourceObservation",
+              reason: input.reason,
+              deferredAt: new Date().toISOString(),
+            },
+            context: input.context,
+          }),
+        );
+        outcomes.push({
+          observationId,
+          status: "deferred",
+          catalogItemId: observation.promoted_catalog_item_id as CatalogItemId | null,
+          reason: null,
+        });
+      } catch (error) {
+        if (isDurableJobHandoffError(error)) {
+          throw error;
+        }
+        outcomes.push({
+          observationId,
+          status: "failed",
+          catalogItemId: null,
+          reason: error instanceof Error ? error.message : "Deferral failed.",
+        });
+      } finally {
+        if (outcomes.length > outcomeCountBefore) {
+          const outcome = outcomes[outcomes.length - 1];
+          await input.onProgress?.(
+            bulkProgress(outcomes.length, requestedIds.length, currentName, outcome?.status ?? null),
+          );
+        }
+      }
+    }
+
+    await input.onProgress?.(bulkProgress(requestedIds.length, requestedIds.length, null, null, "completed"));
+
+    return summarizePromotionOutcomes(requestedIds.length, outcomes);
+  }
+
   async function importTcgdexSetScope(input: {
     languageCode: string;
     setId: string;
@@ -1535,6 +1640,7 @@ export function createSourceObservationRuntime(
     observationIds?: readonly string[];
     scope?: SourceObservationFilterScope;
     reason?: string | null;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
     context: EventStoreContext;
   }): Promise<SourceObservationBulkJob> {
     if (input.action === "promote") {
@@ -1546,9 +1652,25 @@ export function createSourceObservationRuntime(
     const observationIds = uniqueObservationIds(input.observationIds ?? []);
     const selectionMode = observationIds.length > 0 ? "ids" : "filter";
     const scope = selectionMode === "filter" ? normalizeBulkJobScope(input.scope ?? {}) : {};
+    const reapplyProfileMode =
+      input.action === "reapply"
+        ? (normalizeReapplyProfileMode(input.reapplyProfileMode) ?? "current-active-profile")
+        : null;
     const jobId = createId("job");
     const unitObservationIds =
       selectionMode === "ids" ? observationIds : await listSourceObservationIdsForBulkAction(input.action, scope);
+    const unitProfileSnapshots =
+      input.action === "reapply" && reapplyProfileMode === "current-active-profile" && selectionMode === "ids"
+        ? await snapshotSelectedReapplyProfiles(unitObservationIds)
+        : new Map<string, SourceObservationIntegrationProfileSnapshot | null>();
+    const profileSnapshot =
+      input.action === "reapply" && reapplyProfileMode === "current-active-profile"
+        ? selectionMode === "ids"
+          ? commonProfileSnapshot([...unitProfileSnapshots.values()])
+          : snapshotCatalogReapplyProfileVersion(
+              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider),
+            )
+        : null;
     const progress = bulkProgress(0, unitObservationIds.length, null, null, "queued");
     const job = await bulkReviewJobStore.enqueue({
       jobId,
@@ -1559,6 +1681,8 @@ export function createSourceObservationRuntime(
         observationIds,
         scope,
         reason: input.reason?.trim() || null,
+        profileSnapshot,
+        reapplyProfileMode,
       },
       progress,
       eventContext: input.context,
@@ -1568,11 +1692,42 @@ export function createSourceObservationRuntime(
       units: unitObservationIds.map((observationId) => ({
         unitId: observationId,
         unitKind: input.action,
-        payload: { observationId },
+        payload: {
+          observationId,
+          profileSnapshot: unitProfileSnapshots.get(observationId) ?? profileSnapshot,
+          reapplyProfileMode,
+        },
       })),
     });
 
     return toSourceObservationBulkJob(job);
+  }
+
+  async function snapshotSelectedReapplyProfiles(
+    observationIds: readonly string[],
+  ): Promise<Map<string, SourceObservationIntegrationProfileSnapshot | null>> {
+    const snapshots = new Map<string, SourceObservationIntegrationProfileSnapshot | null>();
+    const profilesByProvider = new Map<string, SourceObservationIntegrationProfileSnapshot>();
+
+    for (const observationId of observationIds) {
+      const observation = await getSourceObservationDetail(deps.db, observationId);
+      if (!observation) {
+        snapshots.set(observationId, null);
+        continue;
+      }
+
+      const providerKey = observation.provider_key.trim().toLowerCase();
+      let snapshot = profilesByProvider.get(providerKey);
+      if (!snapshot) {
+        snapshot = snapshotCatalogReapplyProfileVersion(
+          await requireCatalogReapplyActiveProfileVersion(profileVersions, providerKey),
+        );
+        profilesByProvider.set(providerKey, snapshot);
+      }
+      snapshots.set(observationId, snapshot);
+    }
+
+    return snapshots;
   }
 
   async function processNextBulkReviewJob(
@@ -1593,7 +1748,7 @@ export function createSourceObservationRuntime(
       claimTtlMs: input.claimTtlMs,
       workflowMaxActiveClaims: input.workflowMaxActiveClaims ?? 1,
       jobMaxActiveClaims: input.jobMaxActiveClaims ?? 1,
-      jobKinds: ["promote", "reject", "reapply"],
+      jobKinds: ["promote", "reject", "defer", "reapply"],
       laneName: input.laneName ?? null,
     });
     if (!claimResult.claim) {
@@ -1619,7 +1774,11 @@ export function createSourceObservationRuntime(
               observationIds: [observationId],
               context,
               runReapplyObservation: runBulkReviewSideEffect,
-              reapplyProfileMode: "current-active-profile",
+              reapplyProfileMode: requireBulkJobReapplyProfileMode(
+                claim.unit.payload.reapplyProfileMode ?? claimed.reapplyProfileMode,
+                claimed.jobId,
+              ),
+              profileSnapshot: claim.unit.payload.profileSnapshot ?? claimed.profileSnapshot,
             })
           : claimed.action === "promote"
             ? await promoteObservationIds({
@@ -1627,12 +1786,19 @@ export function createSourceObservationRuntime(
                 context,
                 runPromoteObservation: runBulkReviewSideEffect,
               })
-            : await rejectObservationIds({
-                observationIds: [observationId],
-                reason: claimed.reason ?? "Rejected during review.",
-                context,
-                runRejectObservation: runBulkReviewSideEffect,
-              });
+            : claimed.action === "defer"
+              ? await deferObservationIds({
+                  observationIds: [observationId],
+                  reason: claimed.reason ?? "Deferred during review.",
+                  context,
+                  runDeferObservation: runBulkReviewSideEffect,
+                })
+              : await rejectObservationIds({
+                  observationIds: [observationId],
+                  reason: claimed.reason ?? "Rejected during review.",
+                  context,
+                  runRejectObservation: runBulkReviewSideEffect,
+                });
       const outcome = itemResult.outcomes[0] ?? failedBulkWorkUnitOutcome(claimed.action, observationId, "No outcome.");
       const terminalState = workUnitTerminalState(outcome);
       throwIfJobRunCancelled(input);
@@ -1696,7 +1862,7 @@ export function createSourceObservationRuntime(
   }
 
   async function reconcileTerminalBulkReviewJobs(): Promise<number> {
-    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "reapply"] });
+    const activeJobs = await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "defer", "reapply"] });
     let reconciled = 0;
     for (const rawJob of activeJobs) {
       const summary = await bulkReviewWorkUnitStore.summarize({ jobId: rawJob.jobId });
@@ -1896,6 +2062,7 @@ export function createSourceObservationRuntime(
   async function enqueueIntegrationJob(input: {
     action: SourceObservationIntegrationJobAction;
     scope: SourceObservationIntegrationJobScope;
+    reapplyProfileMode?: SourceObservationReapplyProfileMode | null;
     context: EventStoreContext;
   }): Promise<SourceObservationIntegrationJob> {
     const scope = normalizeIntegrationJobScope(input.scope);
@@ -1906,14 +2073,18 @@ export function createSourceObservationRuntime(
     const importProfileVersion =
       input.action === "import" ? await requireCatalogImportProfileVersion(profileVersions, scope.provider) : null;
     const reapplyProfileMode: SourceObservationReapplyProfileMode | null =
-      input.action === "reapply" ? "current-active-profile" : null;
+      input.action === "reapply"
+        ? (normalizeReapplyProfileMode(input.reapplyProfileMode) ?? "current-active-profile")
+        : null;
     const profileSnapshot =
       importProfileVersion === null
         ? reapplyProfileMode === null
           ? null
-          : snapshotCatalogReapplyProfileVersion(
-              await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider),
-            )
+          : reapplyProfileMode === "current-active-profile"
+            ? snapshotCatalogReapplyProfileVersion(
+                await requireCatalogReapplyActiveProfileVersion(profileVersions, scope.provider),
+              )
+            : null
         : snapshotCatalogProfileVersion(importProfileVersion);
 
     const existingJob = (await integrationJobStore.listActive({ jobKinds: [input.action] }))
@@ -1922,6 +2093,7 @@ export function createSourceObservationRuntime(
       .find(
         (job) =>
           JSON.stringify(job.scope) === JSON.stringify(scope) &&
+          job.reapplyProfileMode === reapplyProfileMode &&
           integrationProfileSnapshotKey(job.profileSnapshot, job.jobId) ===
             integrationProfileSnapshotKey(profileSnapshot, "new integration job"),
       );
@@ -3110,6 +3282,8 @@ export function createSourceObservationRuntime(
       }
     },
     promoteObservations: promoteObservationIds,
+    previewPromoteObservations: async ({ observationIds }) =>
+      previewSourceObservationPromotionIds(deps.db, observationIds),
     previewPromoteObservationScope: async ({ scope }) => previewSourceObservationPromotionScope(deps.db, scope),
     promoteObservationScope: async ({ scope, context, onProgress }) => {
       const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
@@ -3140,6 +3314,16 @@ export function createSourceObservationRuntime(
         onProgress,
       });
     },
+    deferObservations: deferObservationIds,
+    deferObservationScope: async ({ scope, reason, context, onProgress }) => {
+      const observationIds = await listSourceObservationIdsForPromotion(deps.db, scope);
+      return deferObservationIds({
+        observationIds,
+        reason,
+        context,
+        onProgress,
+      });
+    },
     rejectObservation: async ({ observationId, reason, context }) => {
       await commandHandler({
         streamId: sourceObservationStreamId(observationId),
@@ -3163,7 +3347,7 @@ export function createSourceObservationRuntime(
       (await bulkReviewJobStore.listEvents(jobId, afterSequence)).map(toSourceObservationJobEvent),
     waitForBulkReviewJobEvents: (jobId, signal) => bulkReviewJobStore.waitForEvents({ jobId, signal }),
     listActiveBulkReviewJobs: async ({ context }) =>
-      (await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "reapply"] }))
+      (await bulkReviewJobStore.listActive({ jobKinds: ["promote", "reject", "defer", "reapply"] }))
         .filter((job) => jobMatchesContext(job, context))
         .map(toSourceObservationBulkJob),
     processNextBulkReviewJob,
@@ -4168,6 +4352,31 @@ function integrationProfileSnapshotKey(
   return `${snapshot.providerKey}:${snapshot.profileKey}:${snapshot.profileVersion}`;
 }
 
+function commonProfileSnapshot(
+  snapshots: readonly (SourceObservationIntegrationProfileSnapshot | null)[],
+): SourceObservationIntegrationProfileSnapshot | null {
+  let common: SourceObservationIntegrationProfileSnapshot | null = null;
+
+  for (const snapshot of snapshots) {
+    if (!snapshot) {
+      continue;
+    }
+    if (!common) {
+      common = snapshot;
+      continue;
+    }
+    if (
+      snapshot.providerKey !== common.providerKey ||
+      snapshot.profileKey !== common.profileKey ||
+      snapshot.profileVersion !== common.profileVersion
+    ) {
+      return null;
+    }
+  }
+
+  return common;
+}
+
 function profileConnectorSourceVersion(
   connector: CatalogProviderIntegrationProfileVersionRecord["profile"]["connector"],
 ): string | null {
@@ -4546,6 +4755,10 @@ function isPromotableObservationStatus(status: string): boolean {
   return status === "observed" || status === "changed" || status === "promoted";
 }
 
+function isReviewableObservationStatus(status: string): boolean {
+  return status === "observed" || status === "changed";
+}
+
 function requirePromotionAssetPorts(input: {
   deps: CatalogRuntimeDeps;
   normalized: SourceObservationPokemonCardNormalized;
@@ -4894,6 +5107,16 @@ function requireIntegrationJobReapplyProfileMode(
   throw new Error(`Source Observation reapply job ${jobId} is missing reapply profile mode.`);
 }
 
+function requireBulkJobReapplyProfileMode(
+  mode: SourceObservationReapplyProfileMode | null | undefined,
+  jobId: string,
+): SourceObservationReapplyProfileMode {
+  if (mode === "current-active-profile" || mode === "original-source-profile") {
+    return mode;
+  }
+  throw new Error(`Source Observation bulk reapply job ${jobId} is missing reapply profile mode.`);
+}
+
 function isActivePromotionProfileVersion(version: CatalogProviderIntegrationProfileVersionRecord): boolean {
   return (
     version.active &&
@@ -4966,6 +5189,8 @@ function toSourceObservationBulkJob(
     observationIds: job.payload.observationIds,
     scope: normalizeBulkJobScope(job.payload.scope),
     reason: job.payload.reason,
+    profileSnapshot: job.payload.profileSnapshot ?? null,
+    reapplyProfileMode: normalizeReapplyProfileMode(job.payload.reapplyProfileMode),
     status: job.status,
     progress: job.progress,
     result: job.result,
@@ -5171,8 +5396,8 @@ function jobMatchesContext(
   );
 }
 
-function isImpactBlockingJob(status: string, action: "import" | "reapply" | "promote" | "reject"): boolean {
-  return action !== "reject" && (status === "queued" || status === "running");
+function isImpactBlockingJob(status: string, action: "import" | "reapply" | SourceObservationBulkJobAction): boolean {
+  return action !== "reject" && action !== "defer" && (status === "queued" || status === "running");
 }
 
 function impactJobProviderKey(job: SourceObservationIntegrationJob): string | null {
@@ -5252,6 +5477,7 @@ function summarizePromotionOutcomes(
     requested,
     promoted: outcomes.filter((outcome) => outcome.status === "promoted").length,
     rejected: outcomes.filter((outcome) => outcome.status === "rejected").length,
+    deferred: outcomes.filter((outcome) => outcome.status === "deferred").length,
     skipped: outcomes.filter((outcome) => outcome.status === "skipped").length,
     failed: outcomes.filter((outcome) => outcome.status === "failed").length,
     outcomes,
@@ -5283,6 +5509,7 @@ function isPromotionOutcome(
   return (
     outcome.status === "promoted" ||
     outcome.status === "rejected" ||
+    outcome.status === "deferred" ||
     outcome.status === "skipped" ||
     outcome.status === "failed"
   );

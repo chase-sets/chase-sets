@@ -2,12 +2,12 @@ import { t } from "@chase-sets/localization";
 import { Hono } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
 import type { CatalogIntegrationEngineServices, PromotionReapplyServices } from "./runtime";
-import { parsePromotionScope } from "./route-helpers";
+import { parseObservationIds, parsePromotionScope } from "./route-helpers";
 import { requireCatalogIntegrationControlPlanePermission } from "./admin-control-plane-rbac";
 
 export type PromotionReviewRouteServices = Pick<
   PromotionReapplyServices,
-  "previewPromoteObservationScope" | "previewReapplyObservationScope"
+  "previewPromoteObservations" | "previewPromoteObservationScope" | "previewReapplyObservationScope"
 > &
   Pick<CatalogIntegrationEngineServices, "previewReplayReapplyImpact">;
 
@@ -21,11 +21,16 @@ export function promotionReviewRoutes(services: PromotionReviewRouteServices) {
     }
 
     const body = (await c.req.json().catch(() => ({}))) as {
+      observationIds?: unknown;
       scope?: unknown;
     };
-    const result = await services.previewPromoteObservationScope({
-      scope: parsePromotionScope(body.scope),
-    });
+    const observationIds = parseObservationIds(body.observationIds);
+    const result =
+      observationIds.length > 0
+        ? await services.previewPromoteObservations({ observationIds })
+        : await services.previewPromoteObservationScope({
+            scope: parsePromotionScope(body.scope),
+          });
 
     return c.json(result);
   });

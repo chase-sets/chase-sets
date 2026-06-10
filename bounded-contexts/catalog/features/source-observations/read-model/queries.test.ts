@@ -4,6 +4,7 @@ import {
   listSourceObservationIdsForReapply,
   listSourceObservationIdsForPromotion,
   listSourceObservationIntegrationScopes,
+  previewSourceObservationPromotionIds,
   previewSourceObservationReapplyScope,
   previewSourceObservationPromotionScope,
   summarizeSourceObservationLifecycleImpact,
@@ -74,6 +75,26 @@ describe("source observation read-model queries", () => {
 
     expect(ids).toEqual(["obs_promoted"]);
     expect(db.query).toHaveBeenCalledWith(expect.stringContaining("ORDER BY observed_at DESC"), ["en", ["promoted"]]);
+  });
+
+  it("previews explicit promotion selections without broadening to the filtered scope", async () => {
+    const db = queryable([{ matched: "3", eligible: "2" }]);
+
+    const preview = await previewSourceObservationPromotionIds(db, ["obs_1", "obs_2", "obs_1", " "]);
+
+    expect(preview).toMatchObject({
+      matched: 3,
+      eligible: 2,
+      terminal: 1,
+      scope: {
+        search: "",
+        status: "",
+        provider: "",
+        language: "",
+        setId: "",
+      },
+    });
+    expect(db.query).toHaveBeenCalledWith(expect.stringContaining("observation_id = ANY($1)"), [["obs_1", "obs_2"]]);
   });
 
   it("does not query IDs when the current status filter is terminal", async () => {

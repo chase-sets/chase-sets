@@ -68,7 +68,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
   const changed = sum(scopeRows, (scope) => scope.changed_observations);
   const promoted = sum(scopeRows, (scope) => scope.promoted_observations);
   const rejected = sum(scopeRows, (scope) => scope.rejected_observations);
-  const eligible = Math.max(changed - rejected, 0);
+  const eligible = Math.max(observed + changed, 0);
   const providerTransport = providerTransportFor(input.controlPlaneOverview, providerKey);
   const readinessBlockers = readinessBlockersFor(input, providerKey, activeProfile);
   const rolloutEnabled =
@@ -105,6 +105,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
     providerSelected: Boolean(providerKey && unitKey && importScope),
     activeProfileReady: Boolean(activeProfile),
     eligible: promotionPreview.outcomeCounts.eligible,
+    reviewable: sourceObservationReview.counts.observed + sourceObservationReview.counts.changed,
     activeJobCount,
     blockers: readinessBlockers,
     promotionBlockers: promotionPreview.blockers,
@@ -1049,6 +1050,13 @@ function rowActionsFor(
         ? "blocked"
         : "disabled"
       : manageState;
+  const replayBlockers =
+    observation.status !== "promoted"
+      ? (["no-promotion-eligible-observations"] as readonly CatalogPrimaryWorkbenchBlockerCategory[])
+      : hasOriginalSourceProfileEvidence(observation)
+        ? manageBlockers
+        : (["profile-version-missing"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
+  const replayState = actionStateForBlockers(replayBlockers, manageState);
 
   return [
     { key: "view-source-observation", state: "available", blockers: [], href: input.detailHref },
@@ -1077,7 +1085,24 @@ function rowActionsFor(
       blockers: observation.status === "promoted" ? manageBlockers : ["no-promotion-eligible-observations"],
       href: input.detailHref,
     },
+    {
+      key: "start-replay",
+      state: replayState,
+      blockers: replayBlockers,
+      href: input.detailHref,
+    },
   ];
+}
+
+function hasOriginalSourceProfileEvidence(observation: SourceObservationListItem): boolean {
+  const sourceProfileKey = observation.source_profile_key.trim();
+  const sourceProfileVersion = observation.source_profile_version.trim();
+  return (
+    sourceProfileKey.length > 0 &&
+    sourceProfileVersion.length > 0 &&
+    sourceProfileKey.toLowerCase() !== "legacy" &&
+    sourceProfileVersion.toLowerCase() !== "legacy"
+  );
 }
 
 function auditTrailFor(observation: SourceObservationListItem): readonly string[] {
@@ -1291,6 +1316,7 @@ function buildActions(input: {
   providerSelected: boolean;
   activeProfileReady: boolean;
   eligible: number;
+  reviewable: number;
   activeJobCount: number;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   promotionBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
@@ -1312,12 +1338,14 @@ function buildActions(input: {
   const promotionBlockers = input.promotionBlockers;
   const promotionState = actionStateForBlockers(promotionBlockers, manageState);
   const reviewDecisionBlockers =
-    input.eligible > 0 ? [] : (["selection-empty"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
+    input.reviewable > 0 ? [] : (["selection-empty"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
   const reviewDecisionState = actionStateForBlockers(reviewDecisionBlockers, manageState);
-  const profileWorkflowBlockers = input.activeProfileReady
+  const reapplyBlockers = input.activeProfileReady
     ? []
     : (["profile-version-missing"] as readonly CatalogPrimaryWorkbenchBlockerCategory[]);
-  const profileWorkflowState = actionStateForBlockers(profileWorkflowBlockers, manageState);
+  const reapplyState = actionStateForBlockers(reapplyBlockers, manageState);
+  const replayBlockers: readonly CatalogPrimaryWorkbenchBlockerCategory[] = [];
+  const replayState = actionStateForBlockers(replayBlockers, manageState);
 
   return [
     {
@@ -1364,15 +1392,15 @@ function buildActions(input: {
     },
     {
       key: "start-reapply",
-      state: profileWorkflowState,
-      blockers: profileWorkflowBlockers,
-      copyKey: profileWorkflowBlockers.length > 0 ? "catalog.primary.reapply.originalProfileMissing" : null,
+      state: reapplyState,
+      blockers: reapplyBlockers,
+      copyKey: reapplyBlockers.length > 0 ? "catalog.primary.reapply.originalProfileMissing" : null,
     },
     {
       key: "start-replay",
-      state: profileWorkflowState,
-      blockers: profileWorkflowBlockers,
-      copyKey: profileWorkflowBlockers.length > 0 ? "catalog.primary.reapply.originalProfileMissing" : null,
+      state: replayState,
+      blockers: replayBlockers,
+      copyKey: null,
     },
   ];
 }

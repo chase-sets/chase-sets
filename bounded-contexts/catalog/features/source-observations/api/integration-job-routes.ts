@@ -1,9 +1,14 @@
 import { t } from "@chase-sets/localization";
 import { Hono, type Context } from "hono";
 import type { CatalogAuthoringEnv } from "../../../support/authoring-support/api";
-import type { IntegrationJobServices } from "./runtime";
+import type { IntegrationJobServices, SourceObservationIntegrationJobAction } from "./runtime";
 import { isSourceObservationIntegrationJobLifecycleCommandError } from "./runtime";
-import { isIntegrationJobValidationError, parseIntegrationJobScope, streamIntegrationJobEvents } from "./route-helpers";
+import {
+  isIntegrationJobValidationError,
+  parseIntegrationJobScope,
+  parseReapplyProfileMode,
+  streamIntegrationJobEvents,
+} from "./route-helpers";
 import {
   CatalogIntegrationRolloutControlError,
   rolloutControlErrorResponse,
@@ -24,10 +29,11 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
     const body = (await c.req.json().catch(() => ({}))) as {
       action?: unknown;
       scope?: unknown;
+      reapplyProfileMode?: unknown;
     };
-    const action = String(body.action ?? "");
+    const actionValue = String(body.action ?? "");
 
-    if (action !== "import" && action !== "reapply") {
+    if (actionValue !== "import" && actionValue !== "reapply") {
       return c.json(
         {
           error: {
@@ -38,14 +44,18 @@ export function integrationJobRoutes(services: IntegrationJobRouteServices) {
         400,
       );
     }
+    const action: SourceObservationIntegrationJobAction = actionValue;
+
+    const jobInput = {
+      action,
+      scope: parseIntegrationJobScope(body.scope),
+      ...(action === "reapply" ? { reapplyProfileMode: parseReapplyProfileMode(body.reapplyProfileMode) } : {}),
+      context: c.get("context"),
+    };
 
     let job;
     try {
-      job = await services.enqueueIntegrationJob({
-        action,
-        scope: parseIntegrationJobScope(body.scope),
-        context: c.get("context"),
-      });
+      job = await services.enqueueIntegrationJob(jobInput);
     } catch (error) {
       if (error instanceof CatalogIntegrationRolloutControlError) {
         return c.json(rolloutControlErrorResponse(error), 403);

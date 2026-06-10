@@ -627,7 +627,7 @@ export interface SourceObservationReplayImpactSummary {
   sampleObservationIds: string[];
 }
 
-export type BulkSourceObservationPromotionStatus = "promoted" | "rejected" | "skipped" | "failed";
+export type BulkSourceObservationPromotionStatus = "promoted" | "rejected" | "deferred" | "skipped" | "failed";
 
 export interface BulkSourceObservationPromotionOutcome {
   observationId: string;
@@ -640,6 +640,7 @@ export interface BulkSourceObservationPromotionResult {
   requested: number;
   promoted: number;
   rejected?: number;
+  deferred?: number;
   skipped: number;
   failed: number;
   outcomes: BulkSourceObservationPromotionOutcome[];

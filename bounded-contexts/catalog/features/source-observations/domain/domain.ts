@@ -199,11 +199,18 @@ export type RejectSourceObservationCommand = Readonly<{
   reason: string;
 }>;
 
+export type DeferSourceObservationCommand = Readonly<{
+  type: "DeferSourceObservation";
+  reason: string;
+  deferredAt: string;
+}>;
+
 export type SourceObservationCommand =
   | RecordSourceObservationCommand
   | PromoteSourceObservationCommand
   | RecordSourceObservationPromotionPlanCommand
-  | RejectSourceObservationCommand;
+  | RejectSourceObservationCommand
+  | DeferSourceObservationCommand;
 
 type SourceObservationRecordEventData = JsonObject &
   Omit<RecordSourceObservationCommand, "type" | "sourceUpdatedAt"> &
@@ -261,13 +268,23 @@ export type SourceObservationRejectedEvent = DomainEvent<
   }>
 >;
 
+export type SourceObservationDeferredEvent = DomainEvent<
+  "catalog.source-observation.deferred",
+  Readonly<{
+    reason: string;
+    deferredAt: string;
+    reviewStatus: Extract<SourceObservationStatus, "observed" | "changed">;
+  }>
+>;
+
 export type SourceObservationEvent =
   | SourceObservationRecordedEvent
   | SourceObservationChangedEvent
   | SourceObservationRefreshedEvent
   | SourceObservationPromotedEvent
   | SourceObservationPromotionPlanRecordedEvent
-  | SourceObservationRejectedEvent;
+  | SourceObservationRejectedEvent
+  | SourceObservationDeferredEvent;
 
 export const decideSourceObservation: AggregateDecider<
   SourceObservationState,
@@ -391,6 +408,20 @@ export const decideSourceObservation: AggregateDecider<
           },
         },
       ];
+    case "DeferSourceObservation":
+      requireReviewable(state);
+      assert(command.reason.trim().length > 0, "Deferral requires a reason.");
+
+      return [
+        {
+          type: "catalog.source-observation.deferred",
+          data: {
+            reason: command.reason.trim(),
+            deferredAt: command.deferredAt,
+            reviewStatus: state.status,
+          },
+        },
+      ];
     default:
       return assertNever(command);
   }
@@ -487,6 +518,12 @@ export const evolveSourceObservation: AggregateEvolver<SourceObservationState, S
         status: "rejected",
         statusReason: event.data.reason,
       };
+    case "catalog.source-observation.deferred":
+      return {
+        ...state,
+        status: event.data.reviewStatus,
+        statusReason: event.data.reason,
+      };
     default:
       return assertNever(event);
   }
@@ -502,6 +539,16 @@ function requirePromotable(state: SourceObservationState): void {
   assert(
     state.status === "observed" || state.status === "changed",
     "Only observed or changed source observations can be promoted.",
+  );
+}
+
+function requireReviewable(state: SourceObservationState): asserts state is SourceObservationState & {
+  status: "observed" | "changed";
+} {
+  assert(state.id !== null, "Source observation must be recorded first.");
+  assert(
+    state.status === "observed" || state.status === "changed",
+    "Only observed or changed source observations can be deferred.",
   );
 }
 
