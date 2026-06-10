@@ -109,9 +109,23 @@ export function spawnCommand(command, args, options = {}) {
 export function runCommand(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawnCommand(command, args, options);
+    let settled = false;
 
-    child.on("error", reject);
-    child.on("exit", (code) => {
+    child.on("error", (error) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      reject(error);
+    });
+
+    child.on("close", (code) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
       if (code === 0) {
         resolve();
         return;
