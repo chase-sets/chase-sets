@@ -22,6 +22,8 @@ import {
 } from "../support/client-support/product-assets";
 import {
   createMarketplaceRequestApiClient,
+  MarketplaceApiError,
+  type OfferMatchListItem,
   type MarketplaceListingInventoryItemOption,
   type MarketplaceListingTermsPreview,
   type MarketplacePublicStandardTermsPreview,
@@ -250,6 +252,135 @@ function parseSelectedOptions(value: FormDataEntryValue | null) {
   }
 }
 
+function parsePositiveQuantity(value: FormDataEntryValue | null) {
+  const normalized = String(value ?? "").trim();
+  const quantity = Number(normalized);
+
+  if (!/^\d+$/.test(normalized) || !Number.isSafeInteger(quantity) || quantity < 1) {
+    throw new Error(t("discovery.routes.itemDetail.validation.quantity.required"));
+  }
+
+  return quantity;
+}
+
+function normalizeMoneyAmount(
+  value: FormDataEntryValue | null,
+  options: Readonly<{
+    allowZero?: boolean;
+    optional: true;
+    invalidMessage: string;
+  }>,
+): string | null;
+function normalizeMoneyAmount(
+  value: FormDataEntryValue | null,
+  options: Readonly<{
+    allowZero?: boolean;
+    optional?: false;
+    invalidMessage: string;
+  }>,
+): string;
+function normalizeMoneyAmount(
+  value: FormDataEntryValue | null,
+  {
+    allowZero = false,
+    optional = false,
+    invalidMessage,
+  }: Readonly<{
+    allowZero?: boolean;
+    optional?: boolean;
+    invalidMessage: string;
+  }>,
+) {
+  const normalized = String(value ?? "").trim();
+
+  if (!normalized) {
+    if (optional) {
+      return null;
+    }
+    throw new Error(invalidMessage);
+  }
+
+  if (!/^\d+(\.\d{1,2})?$/.test(normalized)) {
+    throw new Error(invalidMessage);
+  }
+
+  const amount = Number.parseFloat(normalized);
+  if (!Number.isFinite(amount) || (allowZero ? amount < 0 : amount <= 0)) {
+    throw new Error(invalidMessage);
+  }
+
+  return amount.toFixed(2);
+}
+
+function getListingAvailableQuantity(listing: DiscoveryItemDetail["market_listings"][number]) {
+  const visibleQuantity = Number(listing.visible_quantity);
+  const quantityCap = Number(listing.quantity_cap);
+
+  if (Number.isFinite(visibleQuantity)) {
+    return visibleQuantity;
+  }
+
+  return Number.isFinite(quantityCap) ? quantityCap : 0;
+}
+
+function findSelectedListingForAction(item: DiscoveryItemDetail, listingId: string) {
+  const normalizedListingId = listingId.trim();
+  const listing = item.market_listings.find((candidate) => candidate.listing_id === normalizedListingId);
+
+  if (!normalizedListingId || !listing || listing.status !== "active" || getListingAvailableQuantity(listing) < 1) {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.listing.unavailable"));
+  }
+
+  return listing;
+}
+
+function assertSelectedListingQuantityAvailable(
+  listing: DiscoveryItemDetail["market_listings"][number],
+  quantity: number,
+) {
+  const availableQuantity = getListingAvailableQuantity(listing);
+  if (quantity > availableQuantity) {
+    throw new Error(
+      t("discovery.routes.itemDetail.validation.selected.listing.quantity.exceeded", {
+        availableQuantity,
+      }),
+    );
+  }
+}
+
+async function getFreshOfferMatchForAction(
+  marketplaceApi: ReturnType<typeof createMarketplaceRequestApiClient>,
+  item: DiscoveryItemDetail,
+  offerId: string,
+): Promise<OfferMatchListItem> {
+  const normalizedOfferId = offerId.trim();
+  if (!normalizedOfferId || typeof marketplaceApi.getOfferMatch !== "function") {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.offer.unavailable"));
+  }
+
+  const offer = await marketplaceApi.getOfferMatch(normalizedOfferId).catch((error: unknown) => {
+    if (error instanceof MarketplaceApiError && error.status === 404) {
+      return null;
+    }
+
+    throw error;
+  });
+  if (!offer || offer.catalog_catalog_item_id !== item.catalog_item_id || offer.status !== "submitted") {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.offer.unavailable"));
+  }
+
+  if (!offer.can_fulfill) {
+    throw new Error(
+      t("discovery.routes.itemDetail.validation.selected.offer.quantity.unavailable", {
+        requestedQuantity: offer.quantity_requested,
+        availableQuantity: offer.seller_available_quantity,
+      }),
+    );
+  }
+
+  return offer;
+}
+
 function shipFromAddressFromForm(formData: FormData) {
   const address = {
     name: String(formData.get("shipFromName") ?? "").trim(),
@@ -458,7 +589,11 @@ export async function action({ request, params }: ActionFunctionArgs) {
         productId: String(formData.get("productId") ?? ""),
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
-        thresholdAmount: String(formData.get("thresholdAmount") ?? "") || null,
+        thresholdAmount: normalizeMoneyAmount(formData.get("thresholdAmount"), {
+          allowZero: true,
+          optional: true,
+          invalidMessage: t("discovery.routes.itemDetail.validation.threshold.invalid"),
+        }),
       });
 
       return redirect(`/items/${item.slug || item.catalog_item_id}?productAlertCreated=1`);
@@ -466,6 +601,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
 
     if (intent === "submit-offer") {
       const item = await discoveryApi.getItemDetail(params.id!);
+      const offerPriceAmount = normalizeMoneyAmount(formData.get("priceAmount"), {
+        invalidMessage: t("discovery.routes.itemDetail.validation.price.required"),
+      });
+      const quantity = parsePositiveQuantity(formData.get("quantityRequested"));
       const query = new URLSearchParams({
         source: "offer-intent",
         catalogItemId: item.catalog_item_id,
@@ -474,8 +613,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemSubtitle: item.subtitle ?? "",
         selectedOptions: String(formData.get("selectedOptions") ?? "[]"),
         productSummary: String(formData.get("productSummary") ?? ""),
-        offerPriceAmount: String(formData.get("priceAmount") ?? ""),
-        quantity: String(formData.get("quantityRequested") ?? "1"),
+        offerPriceAmount,
+        quantity: String(quantity),
       });
 
       return redirect(`/checkout/start?${query.toString()}`);
@@ -485,6 +624,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
       const itemImage = selectItemImage(item, "thumbnail");
+      const quantity = parsePositiveQuantity(formData.get("quantity"));
       const cartLine = {
         catalogItemId: item.catalog_item_id,
         productId: String(formData.get("productId") ?? ""),
@@ -497,7 +637,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemImageLoadingSrcSet: imageVariantSrcSet(item.image_fallback, "thumbnail") ?? null,
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
-        quantity: Number(formData.get("quantity") ?? 0),
+        quantity,
         fulfillmentMode: "optimize" as const,
         lockedListingId: null,
       };
@@ -527,7 +667,15 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const actor = await resolveActorFromAuthApi({ request });
       const item = await discoveryApi.getItemDetail(params.id!);
       const lockedListingId =
-        intent === "buy-this-listing" ? String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "") : "";
+        intent === "buy-this-listing"
+          ? String(formData.get("lockedListingId") ?? formData.get("listingId") ?? "").trim()
+          : "";
+      const quantity = parsePositiveQuantity(formData.get("quantity"));
+      const lockedListing = lockedListingId ? findSelectedListingForAction(item, lockedListingId) : null;
+      if (lockedListing) {
+        assertSelectedListingQuantityAvailable(lockedListing, quantity);
+      }
+      const lockedListingAvailableQuantity = lockedListing ? getListingAvailableQuantity(lockedListing) : 0;
       const source = {
         type: "buy-now",
         listingId: lockedListingId,
@@ -537,7 +685,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemSubtitle: item.subtitle,
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
-        quantity: Number(formData.get("quantity") ?? 0),
+        quantity,
         fulfillmentMode: lockedListingId ? ("locked-listing" as const) : ("optimize" as const),
         lockedListingId: lockedListingId || null,
       } as const;
@@ -555,9 +703,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
           selectedOptions: JSON.stringify(source.selectedOptions),
           productSummary: source.productSummary ?? "",
           quantity: String(source.quantity),
-          priceAmount: source.fulfillmentMode === "locked-listing" ? String(formData.get("priceAmount") ?? "") : "",
-          sellerName: source.fulfillmentMode === "locked-listing" ? String(formData.get("sellerName") ?? "") : "",
-          availability: source.fulfillmentMode === "locked-listing" ? String(formData.get("availability") ?? "") : "",
+          priceAmount: lockedListing?.price_amount ?? "",
+          sellerName: lockedListing?.seller_display_name ?? "",
+          availability: lockedListing
+            ? t("discovery.routes.itemDetail.inventory.option.label", {
+                productSummary: source.productSummary ?? source.itemTitle,
+                availableQuantity: lockedListingAvailableQuantity,
+              })
+            : "",
           fulfillment: t("discovery.routes.itemDetail.confirmed.at.checkout"),
         });
         return redirect(`/checkout/start?${query.toString()}`);
@@ -576,7 +729,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
         permission: "offers.manage",
       });
 
-      const offerId = String(formData.get("offerId") ?? "");
+      const item = await discoveryApi.getItemDetail(params.id!);
+      const offerId = String(formData.get("offerId") ?? "").trim();
+      await getFreshOfferMatchForAction(marketplaceApi, item, offerId);
       await marketplaceApi.acceptOfferMatch(offerId, {
         feeQuoteFingerprint: String(formData.get("feeQuoteFingerprint") ?? ""),
       });
@@ -590,11 +745,8 @@ export async function action({ request, params }: ActionFunctionArgs) {
       });
 
       const item = await discoveryApi.getItemDetail(params.id!);
-      const offerId = String(formData.get("offerId") ?? "");
-      const offer = item.offer_demand_matches.find((candidate) => candidate.offer_id === offerId);
-      if (!offer) {
-        throw new Error("Offer match is no longer available.");
-      }
+      const offerId = String(formData.get("offerId") ?? "").trim();
+      const offer = await getFreshOfferMatchForAction(marketplaceApi, item, offerId);
 
       await checkoutApi.addSellListLine({
         lineType: "selected-offer",
@@ -617,6 +769,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const actor = await resolveActorFromAuthApi({ request });
 
       const item = await discoveryApi.getItemDetail(params.id!);
+      const quantity = parsePositiveQuantity(formData.get("quantity"));
       const sellListLine = {
         lineType: "product",
         offerId: null,
@@ -629,7 +782,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
         itemSubtitle: item.subtitle,
         selectedOptions: parseSelectedOptions(formData.get("selectedOptions")),
         productSummary: String(formData.get("productSummary") ?? "") || null,
-        quantity: Number(formData.get("quantity") ?? 0),
+        quantity,
         fallbackMode: "none",
         minimumListingPriceAmount: null,
       } as const;
@@ -676,8 +829,10 @@ export async function action({ request, params }: ActionFunctionArgs) {
       const item = await discoveryApi.getItemDetail(params.id!);
 
       const listingId = String(formData.get("listingId") ?? "").trim();
-      const priceAmount = String(formData.get("priceAmount") ?? "");
-      const quantityCap = Number(formData.get("quantityCap") ?? 0);
+      const priceAmount = normalizeMoneyAmount(formData.get("priceAmount"), {
+        invalidMessage: t("discovery.routes.itemDetail.validation.price.required"),
+      });
+      const quantityCap = parsePositiveQuantity(formData.get("quantityCap"));
 
       if (listingId) {
         const quote = await marketplaceApi.previewListingTerms({ priceAmount });
