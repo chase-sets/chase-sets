@@ -12,7 +12,7 @@ Executable mapping semantics are documented in [Provider Integration Mapping Con
 
 The operator-facing workflow is documented in [Provider Integration Admin Module](./provider-integration-admin-module.md). Normal profile authoring, validation, dry-run, comparison, activation, import, promotion/reapply, rollback, migration-evidence, and retirement workflows must be typed and guided in admin. Operators should not need to edit raw JSON to complete supported work.
 
-Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md). Schema versioning, launched-data compatibility, and resettable pre-launch data policy are documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider payload, fixture, dry-run, diagnostics, audit, logging, export, and policy/legal signoff rules are documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Fixture storage, provenance, sampling, coverage sufficiency, validation inputs, and activation-readiness behavior are documented in [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md). Activation, rollback, retirement, replay, and reapply workload previews are documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md). The executable pre-launch wipe/rebuild and rollback plan is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md). The cleanup inventory is documented in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md).
+Idempotency, lifecycle concurrency, retry/resume, partial-failure, and deploy-skew guarantees are documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md). Schema versioning, launched-data compatibility, and resettable pre-launch data policy are documented in [Catalog Integration Schema Compatibility](./catalog-integration-schema-compatibility.md). Provider payload, fixture, dry-run, diagnostics, audit, logging, export, and policy/legal signoff rules are documented in [Catalog Integration Data Governance](./catalog-integration-data-governance.md). Fixture storage, provenance, sampling, coverage sufficiency, validation inputs, and activation-readiness behavior are documented in [Catalog Integration Fixture Lifecycle](./catalog-integration-fixture-lifecycle.md). Activation, rollback, retirement, replay, and reapply workload previews are documented in [Catalog Integration Impact Analysis](./catalog-integration-impact-analysis.md). The executable pre-launch wipe/rebuild and rollback plan is documented in [Catalog Integration Data Migration Reset](./catalog-integration-data-migration-reset.md). The cleanup inventory is documented in [Catalog Integration Legacy Cleanup](./catalog-integration-legacy-cleanup.md). First-slice provider proof criteria, transport reliability categories, selected proof provider, and performance budgets are documented in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
 
 ## Versioned Data Path
 
@@ -36,7 +36,7 @@ Admin activation is guarded by the fixture harness and migration evidence. The a
 
 Rollback means activating a prior validated profile version and deprecating the currently active version. It does not edit or delete historical profile rows. Source Observations should continue to record the profile version that produced their normalized data so replay can use the same version by default and operator-initiated reapply can explicitly choose the current active version.
 
-Retirement is stricter than deprecation. A profile version can be retired only after no Source Observations reference it as either their source profile version or promotion profile version. Retired versions remain readable for historical review but cannot be activated for new imports.
+Retirement is stricter than deprecation. A profile version can be retired only after no Source Observations reference it as either their source profile version or promotion profile version. Retired versions remain readable for historical review but cannot be activated for new imports. This profile lifecycle state is not permission to retain unlaunched legacy control-plane code, product patterns, tests, fixtures, screenshots, docs, runbooks, release notes, operator instructions, flags, aliases, redirects, support-only routes, or compatibility shims; retiring those launch-blocking surfaces means complete removal.
 
 Bootstrap seeds static profile rows only as initial or reconciliation data. It preserves admin-authored rows with migration evidence or authoring audit metadata, then verifies that each seeded active provider still has an active persisted row. If an operator edits or retires the seeded active version without activating a replacement, bootstrap fails loudly instead of letting imports fall back to static runtime config.
 
@@ -114,6 +114,8 @@ through the registered TCGdex ProviderAdapter; profile data decides which
 operation and mapping are used. Cache keys, TTLs, stale fallback, cursor
 pagination, cache-only rollout behavior, and degraded Admin display are governed
 by [Catalog Integration Provider Option Query Controls](./catalog-integration-provider-option-query-controls.md).
+Issue #1065 first-slice proof budgets select this TCGdex unit as the primary proof
+provider; see [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
 
 Reference hierarchy provisioning is profile-driven. The TCGdex profile declares
 Reference Types for Manufacturer, Product Line, Series, and Expansion, static
@@ -197,6 +199,11 @@ active profile declares Catalog Item promotion capability and a valid promotion
 command plan. Its duplicate-prevention mapping still records review-only
 identity evidence such as sealed product form, barcode/GTIN values, and future
 bridge provider references.
+
+For #1065, TCGplayer remains supplemental transport evidence for
+credential/session/domain/rate-limit behavior. It must not replace the selected
+TCGdex first-slice proof provider until its promotion path is launch-active and
+the provider choice is explicitly changed with evidence.
 
 The automation client remains transport-owned code for cookie authentication,
 domain-specific HTTP clients, throttling, pagination, endpoint DTOs, and response

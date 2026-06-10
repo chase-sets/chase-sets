@@ -105,6 +105,17 @@ export type CatalogPrimaryWorkbenchProviderTransportCategory =
   | "stale-cache"
   | "degraded-provider";
 
+export const catalogPrimaryWorkbenchProviderTransportCategories = [
+  "rate-limit",
+  "throttle",
+  "quota",
+  "timeout",
+  "pagination-failure",
+  "partial-data",
+  "stale-cache",
+  "degraded-provider",
+] as const satisfies readonly CatalogPrimaryWorkbenchProviderTransportCategory[];
+
 export type CatalogPrimaryWorkbenchPromotionDisposition =
   | "eligible"
   | "skipped"
@@ -792,10 +803,12 @@ export const catalogPrimaryWorkbenchRetirementPolicy = {
     "runtime code",
     "API routes",
     "UI modules",
+    "product patterns",
     "route aliases",
     "hidden flags",
     "fallbacks",
     "redirects",
+    "compatibility shims",
     "tests",
     "fixtures",
     "screenshots",

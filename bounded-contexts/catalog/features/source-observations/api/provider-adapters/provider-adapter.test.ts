@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import type {
   CatalogIntegrationUnitDescriptor,
@@ -736,14 +737,15 @@ describe("ProviderAdapterRegistry", () => {
 
   it("keeps MTGJSON and Scryfall validation out of core runtime, routes, Admin branches, and raw JSON paths", () => {
     const guardedFiles = [
-      "features/source-observations/api/runtime.ts",
-      "features/source-observations/api/route.ts",
-      "features/source-observations/api/route-helpers.ts",
-      "features/source-observations/ui/integration-management-page.tsx",
-      "features/source-observations/api/provider-integration-profiles.ts",
+      new URL("../runtime.ts", import.meta.url),
+      new URL("../route.ts", import.meta.url),
+      new URL("../route-helpers.ts", import.meta.url),
+      new URL("../../ui/integration-management-page.tsx", import.meta.url),
+      new URL("../provider-integration-profiles.ts", import.meta.url),
     ];
 
-    for (const file of guardedFiles) {
+    for (const fileUrl of guardedFiles) {
+      const file = fileURLToPath(fileUrl);
       const source = readFileSync(file, "utf8");
 
       expect(source, file).not.toMatch(/mtgjson/i);
