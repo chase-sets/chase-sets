@@ -18,6 +18,7 @@
     "./projection-operations-routes": "./projection-operations-routes.ts",
     "./process-lifecycle": "./process-lifecycle.ts",
     "./projection-interest-index": "./projection-interest-index.ts",
+    "./projection-wake-relay": "./projection-wake-relay.ts",
     "./source-context-wake-registry": "./source-context-wake-registry.ts",
     "./ucp": "./ucp.ts",
     "./meta": "./meta.ts",
