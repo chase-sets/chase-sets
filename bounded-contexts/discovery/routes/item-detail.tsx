@@ -381,6 +381,25 @@ async function getFreshOfferMatchForAction(
   return offer;
 }
 
+function getPublicSelectedOfferForSellList(
+  item: DiscoveryItemDetail,
+  offerId: string,
+): DiscoveryItemDetail["offer_demand_matches"][number] {
+  const normalizedOfferId = offerId.trim();
+  const offer = item.offer_demand_matches.find((candidate) => candidate.offer_id === normalizedOfferId);
+
+  if (
+    !normalizedOfferId ||
+    !offer ||
+    offer.catalog_catalog_item_id !== item.catalog_item_id ||
+    offer.status !== "submitted"
+  ) {
+    throw new Error(t("discovery.routes.itemDetail.validation.selected.offer.unavailable"));
+  }
+
+  return offer;
+}
+
 function shipFromAddressFromForm(formData: FormData) {
   const address = {
     name: String(formData.get("shipFromName") ?? "").trim(),
@@ -749,13 +768,40 @@ export async function action({ request, params }: ActionFunctionArgs) {
     }
 
     if (intent === "add-to-sell-list") {
+      const actor = await resolveActorFromAuthApi({ request });
+
+      const item = await discoveryApi.getItemDetail(params.id!);
+      const offerId = String(formData.get("offerId") ?? "").trim();
+
+      if (!canUseAccountSellList(actor)) {
+        const offer = getPublicSelectedOfferForSellList(item, offerId);
+        const anonymousSellListId = ensureAnonymousSellListId(request);
+        await checkoutApi.addGuestSellListLine(anonymousSellListId, {
+          lineType: "selected-offer",
+          offerId,
+          buyerAccountId: null,
+          buyerDisplayName: offer.buyer_display_name,
+          offerPriceAmount: offer.price_amount,
+          catalogItemId: item.catalog_item_id,
+          productId: offer.product_id,
+          itemTitle: item.title,
+          itemSubtitle: item.subtitle,
+          selectedOptions: offer.selected_options,
+          productSummary: offer.product_summary,
+          quantity: offer.quantity_requested,
+          fallbackMode: "none",
+          minimumListingPriceAmount: null,
+        });
+        const response = redirect("/account/sell-list");
+        appendAnonymousSellListCookie(response.headers, anonymousSellListId);
+        return response;
+      }
+
       await requireActorFromAuthApi({
         request,
         permission: "offers.manage",
       });
 
-      const item = await discoveryApi.getItemDetail(params.id!);
-      const offerId = String(formData.get("offerId") ?? "").trim();
       const offer = await getFreshOfferMatchForAction(marketplaceApi, item, offerId);
 
       await checkoutApi.addSellListLine({

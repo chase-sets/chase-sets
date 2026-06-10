@@ -21,6 +21,7 @@ import {
   productOptionsFromSummary,
 } from "@chase-sets/design-system";
 import type { OfferMatchListItem } from "./contracts";
+import { OfferMatchSellListSnapshotFields } from "./offer-match-sell-list-snapshot-fields";
 
 function statusTone(status: string) {
   switch (status) {
@@ -270,7 +271,7 @@ export function MarketplaceOfferMatchListPage({
                 <Stack gap={2}>
                   <Form spacing="none" method="post" action="/account/sell-list">
                     <HiddenInput type="hidden" name="intent" value="add-selected-offer" />
-                    <HiddenInput type="hidden" name="offerId" value={row.offer_id} />
+                    <OfferMatchSellListSnapshotFields offer={row} />
                     <Button
                       type="submit"
                       tone="secondary"

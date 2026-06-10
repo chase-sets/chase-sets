@@ -490,6 +490,86 @@ describe("checkout sell list routes", () => {
     );
   });
 
+  it("adds signed-out selected offer intent to an anonymous Sell List owner", async () => {
+    const services = createServices();
+    const app = buildApp({ actor: null, services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/sell-list", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-sell-list-id": "anon_sell_1",
+        },
+        body: JSON.stringify({
+          lineType: "selected-offer",
+          offerId: "off_1",
+          buyerAccountId: null,
+          buyerDisplayName: "Collector123",
+          offerPriceAmount: "40.00",
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::form=raw",
+          itemTitle: "Charizard",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          productSummary: "Raw",
+          quantity: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+    expect(services.addLine).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sellerAccountId: "anon_sell_1",
+        lineType: "selected-offer",
+        offerId: "off_1",
+        buyerAccountId: null,
+        buyerDisplayName: "Collector123",
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("blocks new anonymous Sell List lines after the guest line limit", async () => {
+    const services = createServices();
+    vi.mocked(services.listLines).mockResolvedValue(
+      Array.from({ length: 50 }, (_, index) => ({
+        line_id: `sll_${index}`,
+        line_type: "selected-offer",
+        offer_id: `off_${index}`,
+      })) as never,
+    );
+    const app = buildApp({ actor: null, services });
+
+    const response = await app.fetch(
+      new Request("http://checkout.test/guest/sell-list", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-checkout-anonymous-sell-list-id": "anon_sell_1",
+        },
+        body: JSON.stringify({
+          lineType: "selected-offer",
+          offerId: "off_new",
+          catalogItemId: "cat_charizard",
+          productId: "cat_charizard::form=raw",
+          itemTitle: "Charizard",
+          selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+          quantity: 1,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "anonymous_sell_list_limit_exceeded",
+        message: "This device has 50 Sell List lines saved. Remove an item before adding another.",
+      },
+    });
+    expect(services.addLine).not.toHaveBeenCalled();
+  });
+
   it("creates a guest Sell List readiness snapshot from the anonymous owner", async () => {
     const services = createServices();
     const app = buildApp({ actor: null, services });

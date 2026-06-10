@@ -308,6 +308,8 @@ export const checkoutEnglishTranslations = {
     "Sell List readiness snapshot is required.",
   "checkout.features.sellList.api.route.sell.list.review.requires.seller.account":
     "Sell List review requires a seller account.",
+  "checkout.features.sellList.api.route.anonymous.sell.list.limit.exceeded":
+    "This device has {limit} Sell List lines saved. Remove an item before adding another.",
   "checkout.features.sellList.ui.sellListPage.add.selected.offers.or.products":
     "Add selected offers or products from item pages before reviewing seller checkout.",
   "checkout.features.sellList.ui.sellListPage.browse.products": "Browse products",

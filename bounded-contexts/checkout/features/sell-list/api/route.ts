@@ -7,6 +7,8 @@ import type { SellListExecutionSummary } from "../domain/domain";
 import { parseSellListReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutSellListServices } from "./runtime";
 
+const MAX_ANONYMOUS_SELL_LIST_LINES = 50;
+
 function requireSellListAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
   if (!actor) {
@@ -109,6 +111,22 @@ function parseSellListLineBody(body: Record<string, unknown>) {
         ? null
         : String(body.minimumListingPriceAmount),
   };
+}
+
+function isExistingSellListLine(
+  line: Awaited<ReturnType<CheckoutSellListServices["listLines"]>>[number],
+  body: ReturnType<typeof parseSellListLineBody>,
+) {
+  if (body.lineType === "selected-offer" && body.offerId) {
+    return line.offer_id === body.offerId;
+  }
+
+  return (
+    line.line_type === "product" &&
+    line.product_id === body.productId &&
+    line.fallback_mode === body.fallbackMode &&
+    (line.minimum_listing_price_amount ?? null) === (body.minimumListingPriceAmount ?? null)
+  );
 }
 
 function parseLineOutcomeStatus(value: unknown): "completed" | "partial" | "skipped" {
@@ -578,12 +596,31 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
 
     const context = c.get("context") ?? createGuestSellListContext();
     const body = await c.req.json<Record<string, unknown>>();
+    const line = parseSellListLineBody(body);
 
     try {
+      const existingLines = await services.listLines(ownerId);
+      if (
+        existingLines.length >= MAX_ANONYMOUS_SELL_LIST_LINES &&
+        !existingLines.some((existingLine) => isExistingSellListLine(existingLine, line))
+      ) {
+        return c.json(
+          {
+            error: {
+              code: "anonymous_sell_list_limit_exceeded",
+              message: t("checkout.features.sellList.api.route.anonymous.sell.list.limit.exceeded", {
+                limit: MAX_ANONYMOUS_SELL_LIST_LINES,
+              }),
+            },
+          },
+          400,
+        );
+      }
+
       const result = await services.addLine(
         {
           sellerAccountId: ownerId as never,
-          ...parseSellListLineBody(body),
+          ...line,
         },
         context,
       );

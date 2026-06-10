@@ -55,6 +55,14 @@ describe("MarketplaceOfferMatchListPage", () => {
     expect(markup).toContain('action="/account/sell-list"');
     expect(markup).toContain('name="intent" value="add-selected-offer"');
     expect(markup).toContain('name="offerId" value="off_1"');
+    expect(markup).toContain('name="buyerDisplayName" value="Ash Ketchum"');
+    expect(markup).toContain('name="offerPriceAmount" value="20.00"');
+    expect(markup).toContain('name="catalogItemId" value="cat_charizard"');
+    expect(markup).toContain('name="productId" value="cat_charizard::condition:raw"');
+    expect(markup).toContain('name="selectedOptions"');
+    expect(markup).not.toContain('name="buyerAccountId"');
+    expect(markup).not.toContain("60601");
+    expect(markup).not.toContain("seller_listing_availability");
     expect(markup).toContain("Add selected offer to Sell List");
   });
 

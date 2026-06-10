@@ -16,10 +16,15 @@ import type {
 import type { SettlementPayoutReadinessRow } from "@chase-sets/settlement/server";
 import {
   createCheckoutRequestApiClient,
+  type AddCheckoutSellListLineRequest,
   type CheckoutSellListLineRow,
   type SellListReadinessDecisionInput,
 } from "../support/request-support/api-client";
-import { readAnonymousSellListId } from "../support/request-support/guest-checkout";
+import {
+  appendAnonymousSellListCookie,
+  ensureAnonymousSellListId,
+  readAnonymousSellListId,
+} from "../support/request-support/guest-checkout";
 import { CheckoutSellListPage } from "../features/sell-list/ui/sell-list-page";
 
 function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
@@ -267,6 +272,86 @@ function formValue(formData: FormData, name: string) {
   return String(formData.get(name) ?? "").trim();
 }
 
+function limitedFormValue(formData: FormData, name: string, maxLength: number) {
+  const value = formValue(formData, name);
+  return value ? value.slice(0, maxLength) : "";
+}
+
+function parsePostedSelectedOptions(formData: FormData) {
+  try {
+    const parsed = JSON.parse(formValue(formData, "selectedOptions"));
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed
+      .map((selection) => ({
+        dimensionId: String(selection?.dimensionId ?? "")
+          .trim()
+          .slice(0, 80),
+        optionId: String(selection?.optionId ?? "")
+          .trim()
+          .slice(0, 80),
+      }))
+      .filter((selection) => selection.dimensionId && selection.optionId);
+  } catch {
+    return [];
+  }
+}
+
+function parsePostedQuantity(formData: FormData) {
+  const quantity = Number(formValue(formData, "quantity"));
+  return Number.isInteger(quantity) && quantity > 0 ? Math.min(quantity, 999) : 1;
+}
+
+function selectedOfferLineFromOffer(offer: OfferMatchListItem): AddCheckoutSellListLineRequest {
+  return {
+    lineType: "selected-offer",
+    offerId: offer.offer_id,
+    buyerAccountId: offer.buyer_account_id,
+    buyerDisplayName: offer.buyer_display_name,
+    offerPriceAmount: offer.price_amount,
+    catalogItemId: offer.catalog_catalog_item_id,
+    productId: offer.product_id,
+    itemTitle: offer.item_title,
+    itemSubtitle: offer.item_subtitle,
+    selectedOptions: offer.selected_options,
+    productSummary: offer.product_summary,
+    quantity: offer.quantity_requested,
+    fallbackMode: "none",
+    minimumListingPriceAmount: null,
+  };
+}
+
+function selectedOfferLineFromPostedSnapshot(formData: FormData): AddCheckoutSellListLineRequest {
+  const offerId = limitedFormValue(formData, "offerId", 160);
+  const catalogItemId = limitedFormValue(formData, "catalogItemId", 160);
+  const productId = limitedFormValue(formData, "productId", 240);
+  const itemTitle = limitedFormValue(formData, "itemTitle", 240);
+  const offerPriceAmount = limitedFormValue(formData, "offerPriceAmount", 40);
+
+  if (!offerId || !catalogItemId || !productId || !itemTitle || !offerPriceAmount) {
+    throw new Error(t("checkout.routes.accountSellList.sell.list.request.failed"));
+  }
+
+  return {
+    lineType: "selected-offer",
+    offerId,
+    buyerAccountId: null,
+    buyerDisplayName: limitedFormValue(formData, "buyerDisplayName", 160) || null,
+    offerPriceAmount,
+    catalogItemId,
+    productId,
+    itemTitle,
+    itemSubtitle: limitedFormValue(formData, "itemSubtitle", 240) || null,
+    selectedOptions: parsePostedSelectedOptions(formData),
+    productSummary: limitedFormValue(formData, "productSummary", 320) || null,
+    quantity: parsePostedQuantity(formData),
+    fallbackMode: "none",
+    minimumListingPriceAmount: null,
+  };
+}
+
 type SellListReviewPlan = Readonly<{
   version: 1;
   lines: readonly SellListReviewPlanLine[];
@@ -459,28 +544,17 @@ export async function action({ request }: ActionFunctionArgs) {
   try {
     if (intent === "add-selected-offer") {
       if (!useAccountSellList) {
-        return redirect(`/sign-in?returnTo=${encodeURIComponent("/account/sell-list")}`);
+        const anonymousOwnerId = ensureAnonymousSellListId(request);
+        const result = await api.addGuestSellListLine(anonymousOwnerId, selectedOfferLineFromPostedSnapshot(formData));
+        const response = redirect(appendFreshWriteToken("/account/sell-list", result));
+        appendAnonymousSellListCookie(response.headers, anonymousOwnerId);
+        return response;
       }
 
       const offerId = String(formData.get("offerId") ?? "");
       const offer = await marketplaceApi.getOfferMatch(offerId);
 
-      const result = await api.addSellListLine({
-        lineType: "selected-offer",
-        offerId: offer.offer_id,
-        buyerAccountId: offer.buyer_account_id,
-        buyerDisplayName: offer.buyer_display_name,
-        offerPriceAmount: offer.price_amount,
-        catalogItemId: offer.catalog_catalog_item_id,
-        productId: offer.product_id,
-        itemTitle: offer.item_title,
-        itemSubtitle: offer.item_subtitle,
-        selectedOptions: offer.selected_options,
-        productSummary: offer.product_summary,
-        quantity: offer.quantity_requested,
-        fallbackMode: "none",
-        minimumListingPriceAmount: null,
-      });
+      const result = await api.addSellListLine(selectedOfferLineFromOffer(offer));
 
       return redirect(appendFreshWriteToken("/account/sell-list", result));
     }
