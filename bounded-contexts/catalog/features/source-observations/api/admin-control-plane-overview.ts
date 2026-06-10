@@ -1,10 +1,12 @@
 import { t } from "@chase-sets/localization";
 import type { CatalogIntegrationUnitKey } from "./integration-unit";
+import type { CatalogAdminProfileVersionPointer } from "./admin-control-plane-read-model-contracts";
 import type {
   CatalogIntegrationControlPlaneDiagnostic,
   CatalogIntegrationControlPlaneReadiness,
   CatalogIntegrationControlPlaneUnitReadiness,
   SourceObservationIntegrationJob,
+  SourceObservationIntegrationProfileSnapshot,
 } from "./runtime";
 import type { CatalogProviderProfileVersionReview } from "./provider-profile-review";
 
@@ -33,8 +35,11 @@ export type CatalogIntegrationRecentJobSummary = Readonly<{
   phase: SourceObservationIntegrationJob["progress"]["phase"];
   completed: number;
   total: number;
+  unitKey: CatalogIntegrationUnitKey | null;
   providerKey: string;
+  importScope: string | null;
   profileVersion: string | null;
+  profileSnapshot: CatalogAdminProfileVersionPointer | null;
   startedAt: string | null;
   createdAt: string;
   summary: string;
@@ -128,13 +133,15 @@ function buildUnitActivity(
   units: readonly CatalogIntegrationControlPlaneUnitReadiness[],
   jobs: readonly SourceObservationIntegrationJob[],
 ): readonly CatalogIntegrationUnitActivity[] {
+  const maxRecentJobsPerUnit = 10;
+
   return units.map((unit) => ({
     unitKey: unit.unitKey,
     recentJobs: jobs
       .filter((job) => jobProviderKey(job) === unit.providerKey)
       .sort((left, right) => jobOccurredAt(right).localeCompare(jobOccurredAt(left)))
-      .slice(0, 3)
-      .map((job) => jobSummary(job, unit.providerKey)),
+      .slice(0, maxRecentJobsPerUnit)
+      .map((job) => jobSummary(job, unit.providerKey, unit.unitKey)),
   }));
 }
 
@@ -296,7 +303,11 @@ function jobAuditEntry(
   };
 }
 
-function jobSummary(job: SourceObservationIntegrationJob, providerKey: string): CatalogIntegrationRecentJobSummary {
+function jobSummary(
+  job: SourceObservationIntegrationJob,
+  providerKey: string,
+  unitKey: CatalogIntegrationUnitKey | null,
+): CatalogIntegrationRecentJobSummary {
   return {
     jobId: job.jobId,
     action: job.action,
@@ -304,8 +315,11 @@ function jobSummary(job: SourceObservationIntegrationJob, providerKey: string): 
     phase: job.progress.phase,
     completed: job.progress.completed,
     total: job.progress.total,
+    unitKey,
     providerKey,
+    importScope: importScopeForIntegrationJob(job.scope),
     profileVersion: job.profileSnapshot?.profileVersion ?? null,
+    profileSnapshot: profileSnapshotPointer(job.profileSnapshot),
     startedAt: job.startedAt ?? null,
     createdAt: job.createdAt,
     summary: t("catalog.features.sourceObservations.api.adminControlPlaneOverview.job.summary", {
@@ -316,6 +330,34 @@ function jobSummary(job: SourceObservationIntegrationJob, providerKey: string): 
       total: String(job.progress.total),
     }),
   };
+}
+
+function profileSnapshotPointer(
+  snapshot: SourceObservationIntegrationProfileSnapshot | null,
+): CatalogAdminProfileVersionPointer | null {
+  if (!snapshot) {
+    return null;
+  }
+
+  return {
+    schemaVersion: "catalog-provider-profile-version-v1",
+    compatibilityPolicy: "provider-profile-version",
+    providerKey: snapshot.providerKey,
+    profileKey: snapshot.profileKey,
+    profileVersion: snapshot.profileVersion,
+    lifecycle: snapshot.lifecycle,
+    active: snapshot.lifecycle === "active",
+    connectorKind: snapshot.connectorKind,
+    connectorSourceVersion: snapshot.connectorSourceVersion,
+    sourceMappingFingerprint: snapshot.sourceMappingFingerprint,
+  };
+}
+
+function importScopeForIntegrationJob(scope: SourceObservationIntegrationJob["scope"]): string | null {
+  const terminalScope = scope.setId ?? scope.productId ?? scope.setName ?? null;
+  const value = [scope.language, scope.productLineId, scope.seriesId, terminalScope].filter(Boolean).join(":");
+
+  return value || null;
 }
 
 function jobProviderKey(job: SourceObservationIntegrationJob): string {

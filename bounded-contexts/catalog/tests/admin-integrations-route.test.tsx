@@ -4,6 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
 import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observations/ui/primary-workbench-read-model";
 import {
+  controlPlaneOverview,
+  integrationJobSummary,
   profileReview,
   sourceObservationScope,
 } from "../features/source-observations/ui/primary-workbench-test-fixtures";
@@ -63,6 +65,171 @@ describe("Catalog integrations route", () => {
     ).toBeTruthy();
     expect(screen.queryByText("Integration Management")).toBeNull();
     expect(screen.queryByText("Old integrations surface")).toBeNull();
+  });
+
+  it("renders the provider import operation context and durable job evidence", () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1";
+    mockUseLoaderData.mockReturnValue({
+      data: scopes,
+      query: {},
+      profileReviews,
+      controlPlaneOverview: controlPlaneOverview(),
+      requestUrl,
+      readModel: buildCatalogPrimaryWorkbenchReadModel({
+        requestUrl,
+        scopes,
+        profileReviews,
+        controlPlaneOverview: controlPlaneOverview(),
+        canManageCatalog: true,
+      }),
+    });
+    mockUseRouteLoaderData.mockReturnValue({
+      actor: { permissions: ["catalog.view", "catalog.manage"] },
+    });
+
+    render(<IntegrationsRoute />);
+
+    expect(screen.getAllByText("Provider import operations").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Profile snapshot").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("tcgdex-pokemon-card@2026.06.04").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Observed observations").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Changed observations").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Current scope").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Consistency").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Snapshot: tcgdex-pokemon-card@2026.06.04").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Operator: Running").length).toBeGreaterThan(0);
+  });
+
+  it("scopes durable import jobs to the selected provider unit while keeping overlap conflicts visible", () => {
+    const scopes = {
+      items: [
+        sourceObservationScope(),
+        sourceObservationScope({ expansion_id: "jungle", series_id: "jungle", total_observations: 64 }),
+      ],
+      total: 2,
+      count: 2,
+    };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1";
+    const overview = controlPlaneOverview({
+      unitActivity: {
+        generatedAt: "2026-06-09T01:05:00.000Z",
+        units: [
+          {
+            unitKey: "tcgdex:pokemon:card:import",
+            recentJobs: [
+              integrationJobSummary({ jobId: "job_selected_scope", importScope: "en:3:base:base1" }),
+              integrationJobSummary({ jobId: "job_selected_scope", importScope: "en:3:base:base1" }),
+              integrationJobSummary({
+                jobId: "job_overlapping_scope",
+                importScope: "en:3:jungle:jungle",
+                startedAt: "2026-06-09T01:02:00.000Z",
+              }),
+            ],
+          },
+          {
+            unitKey: "scryfall:magic:card:import",
+            recentJobs: [
+              integrationJobSummary({
+                jobId: "job_other_provider",
+                unitKey: "scryfall:magic:card:import",
+                providerKey: "scryfall",
+                importScope: "en:magic:lea:lea",
+                summary: "Scryfall import",
+              }),
+            ],
+          },
+        ],
+      },
+    });
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes,
+      profileReviews,
+      controlPlaneOverview: overview,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.importJobs.jobs.map((job) => job.jobId)).toEqual(["job_selected_scope", "job_overlapping_scope"]);
+    expect(readModel.importJobs.jobs[0]?.scopeMatchesRoute).toBe(true);
+    expect(readModel.importJobs.jobs[1]?.scopeMatchesRoute).toBe(false);
+    expect(readModel.importJobs.jobs[1]?.blockers).toContain("active-job-conflict");
+    expect(readModel.importJobs.activeJobCount).toBe(2);
+    expect(readModel.importJobs.selectedScope?.readiness.blockers).toContain("active-job-conflict");
+    expect(readModel.importJobs.selectedScope?.readiness.blockers).toContain("concurrent-job");
+    expect(readModel.actions.find((actionEntry) => actionEntry.key === "start-provider-import")?.state).toBe("blocked");
+    expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("jobId=job_selected_scope");
+    expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("importScope=en%3A3%3Abase%3Abase1");
+  });
+
+  it("groups durable failures separately from provider transport failure categories", () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const requestUrl =
+      "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1";
+    const baseOverview = controlPlaneOverview();
+    const overview = controlPlaneOverview({
+      providerReadiness: {
+        ...baseOverview.providerReadiness,
+        providers: [
+          {
+            ...baseOverview.providerReadiness.providers[0],
+            apiReachability: {
+              status: "blocked",
+              diagnosticCodes: ["provider_timeout"],
+              message: "Provider request timeout",
+            },
+            diagnostics: [
+              {
+                code: "provider_timeout",
+                severity: "error",
+                message: "Provider request timeout",
+                unitKey: "tcgdex:pokemon:card:import",
+                retryAfterSeconds: null,
+                source: "provider-adapter",
+              },
+            ],
+          },
+        ],
+      },
+      unitActivity: {
+        generatedAt: "2026-06-09T01:05:00.000Z",
+        units: [
+          {
+            unitKey: "tcgdex:pokemon:card:import",
+            recentJobs: [
+              integrationJobSummary({
+                jobId: "job_failed_provider_timeout",
+                operatorStatus: "failed",
+                phase: "failed",
+                completed: 1,
+                total: 3,
+              }),
+            ],
+          },
+        ],
+      },
+    });
+
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl,
+      scopes,
+      profileReviews,
+      controlPlaneOverview: overview,
+      canManageCatalog: true,
+    });
+
+    expect(readModel.readiness.providerTransport).toContain("timeout");
+    expect(readModel.importJobs.selectedScope?.readiness.blockers).toContain("provider-transport-timeout");
+    expect(readModel.importJobs.jobs[0]?.failureGroups.map((group) => group.key)).toEqual([
+      "durable-job-failed",
+      "provider-transport-timeout",
+    ]);
   });
 
   it("records primary workbench view, provider scope, and support detour telemetry from the loader", async () => {

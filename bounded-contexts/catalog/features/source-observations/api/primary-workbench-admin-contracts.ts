@@ -326,6 +326,7 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
     unitKey: CatalogIntegrationUnitKey | null;
     importScope: string;
     profileVersion: string | null;
+    profileSnapshot: CatalogAdminProfileVersionPointer | null;
     expectedObservationVolume: number;
     observedCount: number;
     changedCount: number;
@@ -348,8 +349,12 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
     completed: number;
     total: number;
     progressPercent: number;
+    unitKey: CatalogIntegrationUnitKey | null;
     providerKey: string;
+    importScope: string | null;
     profileVersion: string | null;
+    profileSnapshot: CatalogAdminProfileVersionPointer | null;
+    scopeMatchesRoute: boolean;
     createdAt: string;
     startedAt: string | null;
     consistency: CatalogAdminJobConsistency;
