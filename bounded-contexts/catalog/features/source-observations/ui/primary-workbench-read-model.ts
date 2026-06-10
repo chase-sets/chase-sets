@@ -131,6 +131,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
       failedJobCount,
       selectedScope: selectedImportScopeFor({
         activeProfile,
+        activeJobCount,
         blockers: readinessBlockers,
         input,
         importScope,
@@ -325,6 +326,7 @@ function providerTransportFor(
 
 function selectedImportScopeFor(input: {
   activeProfile: CatalogProviderProfileVersionReview | null;
+  activeJobCount: number;
   blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
   input: CatalogPrimaryWorkbenchInput;
   importScope: string | null;
@@ -354,12 +356,19 @@ function selectedImportScopeFor(input: {
   for (const category of input.providerTransport) {
     blockers.add(providerTransportBlockerFor(category));
   }
+  if (input.activeJobCount > 0) {
+    blockers.add("active-job-conflict");
+  }
+  if (input.activeJobCount > 1) {
+    blockers.add("concurrent-job");
+  }
 
   return {
     providerKey: input.providerKey,
     unitKey: input.unitKey,
     importScope: input.importScope,
     profileVersion: input.activeProfile?.profileVersion ?? null,
+    profileSnapshot: profilePointerForProfile(input.activeProfile),
     expectedObservationVolume: sum(rows, (scope) => scope.total_observations),
     observedCount: sum(rows, (scope) => scope.observed_observations),
     changedCount: sum(rows, (scope) => scope.changed_observations),
@@ -380,53 +389,96 @@ function importJobsFor(
   routeContext: CatalogPrimaryWorkbenchRouteContext,
 ): CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"] {
   const providerTransport = providerTransportFor(overview, routeContext.providerKey);
-  const unitActivity = overview?.unitActivity.units.find(
-    (unit) => !routeContext.unitKey || unit.unitKey === routeContext.unitKey,
-  );
-  return (unitActivity?.recentJobs ?? []).slice(0, 3).map((job) => ({
-    jobId: job.jobId,
-    action: job.action === "reapply" ? "start-reapply" : "start-provider-import",
-    state:
-      job.operatorStatus === "cancelled"
-        ? "cancelled"
-        : job.phase === "completed"
-          ? "completed"
-          : job.phase === "failed"
-            ? "failed"
-            : job.phase === "enqueued"
-              ? "queued"
-              : "running",
-    operatorStatus: job.operatorStatus,
-    summary: job.summary,
-    completed: job.completed,
-    total: job.total,
-    progressPercent: progressPercent(job.completed, job.total),
-    providerKey: job.providerKey,
-    profileVersion: job.profileVersion,
-    createdAt: job.createdAt,
-    startedAt: job.startedAt,
-    consistency: {
-      schemaVersion: "catalog-integration-durable-job-v1",
-      compatibilityPolicy: "integration-durable-job",
-      duplicateSubmissionPolicy: "reuse-active-job",
-      profileSnapshotPolicy: "snapshotted-at-enqueue",
-      retryResumePolicy: "skip-completed-outcomes",
-      partialFailurePolicy: "mixed-outcomes",
-      workUnitClaimPolicy: job.action === "reapply" ? "leased-work-units" : "leased-job-turns",
-    },
-    failureGroups: failureGroupsFor(job, providerTransport),
-    retryAvailable:
-      job.operatorStatus === "failed" ||
-      job.operatorStatus === "partial" ||
-      job.operatorStatus === "stale" ||
-      job.operatorStatus === "cancelled",
-    resumeAvailable: job.operatorStatus === "stale" || job.operatorStatus === "retried",
-    cancelAvailable: job.phase === "enqueued" || job.phase === "fetching" || job.phase === "processing",
-    sourceObservationReviewHref: sourceObservationReviewHrefFor(routeContext, job),
-    auditEvidenceUrl: catalogPrimaryWorkbenchSupportingHref({ ...routeContext, jobId: job.jobId }, "audit-evidence"),
-    observationLinks: [sourceObservationReviewHrefFor(routeContext, job)],
-    blockers: job.operatorStatus === "stale" ? ["stale-replay"] : [],
-  }));
+  const seenJobIds = new Set<string>();
+  const rows = (overview?.unitActivity.units ?? [])
+    .flatMap((unit) =>
+      unit.recentJobs.map((job) => ({
+        unitKey: unit.unitKey,
+        job,
+      })),
+    )
+    .filter(({ unitKey, job }) => {
+      if (routeContext.unitKey && unitKey !== routeContext.unitKey) {
+        return false;
+      }
+      if (routeContext.providerKey && job.providerKey !== routeContext.providerKey) {
+        return false;
+      }
+
+      return true;
+    })
+    .filter(({ job }) => {
+      if (seenJobIds.has(job.jobId)) {
+        return false;
+      }
+      seenJobIds.add(job.jobId);
+
+      return true;
+    })
+    .sort((left, right) => {
+      const rightMatchesScope = jobMatchesRouteScope(right.job, routeContext) ? 1 : 0;
+      const leftMatchesScope = jobMatchesRouteScope(left.job, routeContext) ? 1 : 0;
+      if (rightMatchesScope !== leftMatchesScope) {
+        return rightMatchesScope - leftMatchesScope;
+      }
+
+      return jobOccurredAt(right.job).localeCompare(jobOccurredAt(left.job));
+    });
+
+  return rows.map(({ unitKey, job }) => {
+    const scopeMatchesRoute = jobMatchesRouteScope(job, routeContext);
+    const state = importJobState(job);
+    const blockers = new Set<CatalogPrimaryWorkbenchBlockerCategory>();
+    if (job.operatorStatus === "stale") {
+      blockers.add("stale-replay");
+    }
+    if (!scopeMatchesRoute && (state === "queued" || state === "running")) {
+      blockers.add("active-job-conflict");
+    }
+
+    return {
+      jobId: job.jobId,
+      action: job.action === "reapply" ? "start-reapply" : "start-provider-import",
+      state,
+      operatorStatus: job.operatorStatus,
+      summary: job.summary,
+      completed: job.completed,
+      total: job.total,
+      progressPercent: progressPercent(job.completed, job.total),
+      unitKey: job.unitKey ?? unitKey,
+      providerKey: job.providerKey,
+      importScope: job.importScope,
+      profileVersion: job.profileVersion,
+      profileSnapshot: job.profileSnapshot,
+      scopeMatchesRoute,
+      createdAt: job.createdAt,
+      startedAt: job.startedAt,
+      consistency: {
+        schemaVersion: "catalog-integration-durable-job-v1",
+        compatibilityPolicy: "integration-durable-job",
+        duplicateSubmissionPolicy: "reuse-active-job",
+        profileSnapshotPolicy: "snapshotted-at-enqueue",
+        retryResumePolicy: "skip-completed-outcomes",
+        partialFailurePolicy: "mixed-outcomes",
+        workUnitClaimPolicy: job.action === "reapply" ? "leased-work-units" : "leased-job-turns",
+      },
+      failureGroups: failureGroupsFor(job, providerTransport),
+      retryAvailable:
+        job.operatorStatus === "failed" ||
+        job.operatorStatus === "partial" ||
+        job.operatorStatus === "stale" ||
+        job.operatorStatus === "cancelled",
+      resumeAvailable: job.operatorStatus === "stale" || job.operatorStatus === "retried",
+      cancelAvailable: job.phase === "enqueued" || job.phase === "fetching" || job.phase === "processing",
+      sourceObservationReviewHref: sourceObservationReviewHrefFor(routeContext, job),
+      auditEvidenceUrl: catalogPrimaryWorkbenchSupportingHref(
+        { ...routeContext, jobId: job.jobId, importScope: job.importScope ?? routeContext.importScope },
+        "audit-evidence",
+      ),
+      observationLinks: [sourceObservationReviewHrefFor(routeContext, job)],
+      blockers: [...blockers],
+    };
+  });
 }
 
 function sourceObservationReviewFor(input: {
@@ -1066,6 +1118,7 @@ function sourceObservationReviewHrefFor(
     {
       ...routeContext,
       jobId: job.jobId,
+      importScope: job.importScope ?? routeContext.importScope,
       sourceObservationFilters: {
         ...routeContext.sourceObservationFilters,
         providerKey: job.providerKey,
@@ -1073,6 +1126,36 @@ function sourceObservationReviewHrefFor(
     },
     "source-observation-review",
   );
+}
+
+function importJobState(
+  job: CatalogIntegrationRecentJobReadModel,
+): CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number]["state"] {
+  if (job.operatorStatus === "cancelled") {
+    return "cancelled";
+  }
+  if (job.phase === "completed") {
+    return "completed";
+  }
+  if (job.phase === "failed") {
+    return "failed";
+  }
+  if (job.phase === "enqueued") {
+    return "queued";
+  }
+
+  return "running";
+}
+
+function jobMatchesRouteScope(
+  job: CatalogIntegrationRecentJobReadModel,
+  routeContext: CatalogPrimaryWorkbenchRouteContext,
+): boolean {
+  return !routeContext.importScope || job.importScope === routeContext.importScope;
+}
+
+function jobOccurredAt(job: CatalogIntegrationRecentJobReadModel): string {
+  return job.startedAt ?? job.createdAt;
 }
 
 function failureGroupsFor(
@@ -1356,24 +1439,32 @@ function providerScopeProviders(
           importScopes: providerScopes.map((scope) =>
             [scope.language_code, scope.product_line_id, scope.series_id, scope.expansion_id].filter(Boolean).join(":"),
           ),
-          activeProfile: profile
-            ? {
-                schemaVersion: "catalog-provider-profile-version-v1",
-                compatibilityPolicy: "provider-profile-version",
-                providerKey: profile.providerKey,
-                profileKey: profile.profileKey,
-                profileVersion: profile.profileVersion,
-                lifecycle: profile.lifecycle,
-                active: profile.active,
-                connectorKind: profile.connectorKind,
-                connectorSourceVersion: null,
-                sourceMappingFingerprint: null,
-              }
-            : null,
+          activeProfile: profilePointerForProfile(profile),
         },
       ],
     };
   });
+}
+
+function profilePointerForProfile(
+  profile: CatalogProviderProfileVersionReview | null,
+): CatalogPrimaryWorkbenchReadModel["providerScope"]["providers"][number]["units"][number]["activeProfile"] {
+  if (!profile) {
+    return null;
+  }
+
+  return {
+    schemaVersion: "catalog-provider-profile-version-v1",
+    compatibilityPolicy: "provider-profile-version",
+    providerKey: profile.providerKey,
+    profileKey: profile.profileKey,
+    profileVersion: profile.profileVersion,
+    lifecycle: profile.lifecycle,
+    active: profile.active,
+    connectorKind: profile.connectorKind,
+    connectorSourceVersion: null,
+    sourceMappingFingerprint: null,
+  };
 }
 
 function normalizeUnitSegment(value: string): string {

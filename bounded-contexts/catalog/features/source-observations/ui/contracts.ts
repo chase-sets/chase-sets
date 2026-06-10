@@ -1,5 +1,6 @@
 import type { JsonValue } from "@chase-sets/primitives/json";
 import type { SourceObservationNormalized } from "../domain/domain";
+import type { CatalogAdminProfileVersionPointer } from "../api/admin-control-plane-read-model-contracts";
 import type {
   CatalogProviderProfileBasicsUpdateCommand,
   CatalogProviderProfileCatalogFieldMappingUpdateCommand,
@@ -239,8 +240,11 @@ export interface CatalogIntegrationRecentJobSummary {
   phase: SourceObservationIntegrationJobPhase;
   completed: number;
   total: number;
+  unitKey: string | null;
   providerKey: string;
+  importScope: string | null;
   profileVersion: string | null;
+  profileSnapshot: CatalogAdminProfileVersionPointer | null;
   startedAt: string | null;
   createdAt: string;
   summary: string;

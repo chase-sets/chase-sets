@@ -197,9 +197,25 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
             <div className="text-sm font-semibold text-foreground">{job.summary}</div>
             <div className="text-xs text-secondary">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.profile", {
-                profile:
-                  job.profileVersion ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                profile: profileSnapshotLabel(job.profileSnapshot, job.profileVersion),
               })}
+            </div>
+            <div className="text-xs leading-5 text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.unit", {
+                unit: job.unitKey ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+              })}
+            </div>
+            <div className="flex min-w-0 flex-wrap gap-1">
+              <Badge tone={job.scopeMatchesRoute ? "success" : "warning"}>
+                {job.scopeMatchesRoute
+                  ? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.current.scope")
+                  : t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.overlapping.scope")}
+              </Badge>
+              <Badge tone="neutral">
+                {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.context.scope", {
+                  scope: job.importScope ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected"),
+                })}
+              </Badge>
             </div>
           </div>
         ),
@@ -212,12 +228,49 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
           <div className="grid min-w-0 gap-1">
             <Badge tone={jobStateTone(job.state)}>{stateLabel(job.state)}</Badge>
             <div className="text-xs text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.operator.status", {
+                status: stateLabel(job.operatorStatus),
+              })}
+            </div>
+            <div className="text-xs text-secondary">
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.progress.value", {
                 completed: job.completed,
                 total: job.total,
                 percent: job.progressPercent,
               })}
             </div>
+            <div className="text-xs leading-5 text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.created", {
+                value: job.createdAt,
+              })}
+            </div>
+            <div className="text-xs leading-5 text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.started", {
+                value:
+                  job.startedAt ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.not.started"),
+              })}
+            </div>
+          </div>
+        ),
+      },
+      {
+        key: "consistency",
+        header: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.consistency"),
+        mobileLabel: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.table.consistency"),
+        cell: (job) => (
+          <div className="grid min-w-0 gap-2">
+            <div className="text-xs leading-5 text-secondary">
+              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.profile.snapshot", {
+                profile: profileSnapshotLabel(job.profileSnapshot, job.profileVersion),
+              })}
+            </div>
+            <div className="flex min-w-0 flex-wrap gap-1.5">
+              <Badge tone="neutral">{stateLabel(job.consistency.duplicateSubmissionPolicy)}</Badge>
+              <Badge tone="neutral">{stateLabel(job.consistency.retryResumePolicy)}</Badge>
+              <Badge tone="neutral">{stateLabel(job.consistency.partialFailurePolicy)}</Badge>
+              <Badge tone="neutral">{stateLabel(job.consistency.workUnitClaimPolicy)}</Badge>
+            </div>
+            <BlockerList blockers={job.blockers} compact hideWhenEmpty />
           </div>
         ),
       },
@@ -662,7 +715,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
               density="compact"
             >
               {readModel.importJobs.selectedScope ? (
-                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
+                <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(18rem,24rem)]">
                   <KeyValueList
                     items={[
                       {
@@ -686,8 +739,37 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                           t("catalog.features.sourceObservations.ui.primaryWorkbench.no.active.profile"),
                       },
                       {
+                        key: t(
+                          "catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.profile.snapshot",
+                        ),
+                        value: profileSnapshotLabel(
+                          readModel.importJobs.selectedScope.profileSnapshot,
+                          readModel.importJobs.selectedScope.profileVersion,
+                        ),
+                      },
+                    ]}
+                  />
+                  <KeyValueList
+                    items={[
+                      {
                         key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.expected"),
                         value: readModel.importJobs.selectedScope.expectedObservationVolume,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.observed"),
+                        value: readModel.importJobs.selectedScope.observedCount,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.changed"),
+                        value: readModel.importJobs.selectedScope.changedCount,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.promoted"),
+                        value: readModel.importJobs.selectedScope.promotedCount,
+                      },
+                      {
+                        key: t("catalog.features.sourceObservations.ui.primaryWorkbench.import.operations.rejected"),
+                        value: readModel.importJobs.selectedScope.rejectedCount,
                       },
                     ]}
                   />
@@ -720,10 +802,16 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
                       },
                       {
                         key: t("catalog.features.sourceObservations.ui.primaryWorkbench.table.blockers"),
-                        value: readModel.importJobs.selectedScope.readiness.blockers.length,
+                        value:
+                          readModel.importJobs.selectedScope.readiness.blockers.length > 0
+                            ? readModel.importJobs.selectedScope.readiness.blockers.length
+                            : t("catalog.features.sourceObservations.ui.primaryWorkbench.none"),
                       },
                     ]}
                   />
+                  <div className="xl:col-span-3">
+                    <BlockerList blockers={readModel.importJobs.selectedScope.readiness.blockers} compact />
+                  </div>
                 </div>
               ) : (
                 <EmptyState
@@ -1741,6 +1829,17 @@ function blockerTone(blocker: CatalogPrimaryWorkbenchBlockerCategory) {
   }
 
   return blocker.includes("blocked") ? "danger" : "warning";
+}
+
+function profileSnapshotLabel(
+  profileSnapshot: ImportJobRow["profileSnapshot"],
+  fallbackVersion: string | null,
+): string {
+  if (profileSnapshot) {
+    return `${profileSnapshot.profileKey}@${profileSnapshot.profileVersion}`;
+  }
+
+  return fallbackVersion ?? t("catalog.features.sourceObservations.ui.primaryWorkbench.not.selected");
 }
 
 function stateLabel(state: string): string {
