@@ -805,7 +805,9 @@ describe("DigitalOcean platform configuration", () => {
     expect(platformPrWorkflow).toContain("node ./scripts/pr-release-status.mjs");
     expect(platformPrWorkflow).toContain('cat artifacts/pr-release-status.md >> "$GITHUB_STEP_SUMMARY"');
     expect(platformPrWorkflow).toContain("github.event.pull_request.head.repo.full_name == github.repository");
-    expect(platformPrWorkflow).toContain("gh pr comment");
+    expect(platformPrWorkflow).toContain(
+      'gh api --method POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"',
+    );
   });
 
   it("delegates staging DNS so App Platform apex routing can coexist with mail records", () => {

@@ -1154,5 +1154,6 @@ jobs:
             gh api --method PATCH "repos/${{ github.repository }}/issues/comments/${comment_id}" \
               -f body="$(cat artifacts/pr-release-status.md)" >/dev/null
           else
-            gh pr comment "${{ github.event.pull_request.number }}" --body-file artifacts/pr-release-status.md
+            gh api --method POST "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+              -f body="$(cat artifacts/pr-release-status.md)" >/dev/null
           fi
