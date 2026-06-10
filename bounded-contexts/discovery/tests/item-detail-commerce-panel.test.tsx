@@ -363,6 +363,9 @@ describe("item detail commerce panel", () => {
         selectedOffer={{
           buyer_account_id: "buyer_1",
           buyer_display_name: "Top Loader Capital",
+          buyer_slug: "top-loader-capital",
+          buyer_average_rating: "4.80",
+          buyer_review_count: 12,
           price_amount: "380.00",
           quantity_requested: 1,
           public_standard_terms_preview: {
@@ -385,11 +388,17 @@ describe("item detail commerce panel", () => {
 
     expect(screen.getByText("Selected offer")).toBeTruthy();
     expect(screen.getByText("$380.00 offer")).toBeTruthy();
-    expect(screen.getByText("From Top Loader Capital")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Top Loader Capital" }).getAttribute("href")).toBe(
+      "/accounts/top-loader-capital#feedback",
+    );
+    expect(screen.getByText("4.8")).toBeTruthy();
+    expect(screen.getByText("(12)")).toBeTruthy();
     expect(screen.getByText("5 offers")).toBeTruthy();
     expect(screen.getByText("1 requested")).toBeTruthy();
-    expect(screen.getByText("$345.65 after $34.35 fee")).toBeTruthy();
-    expect(screen.getByText("$19.00 (5%)")).toBeTruthy();
+    expect(screen.getByText("$345.65")).toBeTruthy();
+    expect(screen.queryByText("$345.65 after $34.35 fee")).toBeNull();
+    expect(screen.queryByText("$34.35")).toBeNull();
+    expect(screen.queryByText("$19.00 (5%)")).toBeNull();
     expect(screen.getAllByText("Raw / Near Mint")).toHaveLength(2);
     expect(screen.queryByText("Estimated payout uses Standard seller terms.")).toBeNull();
     expect(
@@ -451,11 +460,48 @@ describe("item detail commerce panel", () => {
     );
 
     expect(screen.queryByText(/after .* fee/)).toBeNull();
+    expect(screen.queryByText("buyer_1")).toBeNull();
+    expect(screen.getByText("Top Loader Capital")).toBeTruthy();
     expect(screen.getByText(/Estimated payout is temporarily unavailable/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "View estimated payout details" })).toBeNull();
     expect(screen.getByRole("link", { name: "Continue to accept offer" }).getAttribute("href")).toBe(
       "/register?returnTo=%2Fitems%2Fcat_charizard",
     );
+  });
+
+  it("uses a generic buyer label instead of raw account id when public display name is missing", () => {
+    render(
+      <MarketplaceSellerRegistrationSection
+        productSummary="Raw / Near Mint"
+        selectedOffer={{
+          buyer_account_id: "buyer_private_internal_id",
+          buyer_display_name: null,
+          buyer_average_rating: "4.90",
+          buyer_review_count: 3,
+          price_amount: "380.00",
+          quantity_requested: 1,
+          public_standard_terms_preview: {
+            account_type: "personal",
+            basis_amount: "380.00",
+            marketplace_sales_fee_unit_amount: "34.35",
+            seller_net_unit_amount: "345.65",
+            shipping_allowance_percentage_bps: 500,
+            source_kind: "public-standard-seller-terms",
+            source_label: "Standard seller terms",
+            schedule_label: "Personal Default",
+            source_updated_at: "2026-05-05T16:36:36.000Z",
+            resolved_at: "2026-05-05T16:36:36.000Z",
+          },
+        }}
+        matchingOfferCount={1}
+        registerHref="/register?returnTo=%2Fitems%2Fcat_charizard"
+      />,
+    );
+
+    expect(screen.getByText("Buyer")).toBeTruthy();
+    expect(screen.getByText("4.9")).toBeTruthy();
+    expect(screen.getByText("(3)")).toBeTruthy();
+    expect(screen.queryByText("buyer_private_internal_id")).toBeNull();
   });
 
   it("keeps list at price as a compact action when ship-from setup exists", () => {
@@ -1793,6 +1839,29 @@ describe("item detail commerce panel", () => {
 
     expect(screen.getByText("Best offer")).toBeTruthy();
     expect(screen.queryByText("Selected offer")).toBeNull();
+  });
+
+  it("does not show raw buyer ids in selected offer match fallback identity", () => {
+    render(
+      <MarketplaceOfferMatchSection
+        selectedOffer={{
+          ...baseAccountOfferMatch,
+          buyer_account_id: "buyer_private_internal_id",
+          buyer_display_name: null,
+          buyer_average_rating: "4.20",
+          buyer_review_count: 5,
+          price_amount: "380.00",
+        }}
+        productId="cat_charizard::"
+        productSummary="Raw / Near Mint"
+        matchingOfferCount={1}
+      />,
+    );
+
+    expect(screen.getByText("Buyer")).toBeTruthy();
+    expect(screen.getByText("4.2")).toBeTruthy();
+    expect(screen.getByText("(5)")).toBeTruthy();
+    expect(screen.queryByText("buyer_private_internal_id")).toBeNull();
   });
 
   it("keeps offer Sell List guidance in Reference Info", () => {
