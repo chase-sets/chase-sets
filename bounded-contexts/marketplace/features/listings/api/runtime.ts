@@ -13,6 +13,7 @@ import {
   quotePublicStandardMarketplaceTerms,
 } from "../../../support/runtime-support/fee-quotes";
 import type {
+  MarketplaceAnonymousListingDraftIntent,
   MarketplaceListingFeeLockReportEntry,
   MarketplaceListingFeeHistoryEntry,
   MarketplaceListingTermsPreview,
@@ -60,6 +61,8 @@ const MAX_LISTING_PHOTO_UPLOAD_BYTES = 10 * 1024 * 1024;
 const LISTING_PHOTO_UPLOAD_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const HIGH_DOLLAR_LISTING_AMOUNT = 250;
 const MIN_TRUSTED_REPUTATION_REVIEWS = 3;
+const ANONYMOUS_LISTING_DRAFT_TTL_MS = 1000 * 60 * 60 * 24 * 30;
+const MAX_ACTIVE_ANONYMOUS_LISTING_DRAFTS = 20;
 
 function createMarketplaceSystemContext(accountId: string): EventStoreContext {
   return {
@@ -163,6 +166,32 @@ export type MarketplaceListingServices = Readonly<{
   previewPublicStandardListingTerms: (
     params: Readonly<{ priceAmount: string }>,
   ) => Promise<MarketplacePublicStandardTermsPreview>;
+  createAnonymousListingDraftIntent: (
+    params: Readonly<{
+      anonymousOwnerId: string;
+      sourcePath: string;
+      catalogItemId: string;
+      productId: string;
+      selectedOptions: readonly { dimensionId: string; optionId: string }[];
+      productSummary?: string | null;
+      priceAmount: string;
+      quantityCap: number;
+      purchaseLimits?: Partial<MarketplaceListingPurchaseLimits> | null;
+    }>,
+  ) => Promise<MarketplaceAnonymousListingDraftIntent>;
+  getAnonymousListingDraftIntent: (
+    params: Readonly<{
+      anonymousOwnerId: string;
+      intentId: string;
+    }>,
+  ) => Promise<MarketplaceAnonymousListingDraftIntent | null>;
+  claimAnonymousListingDraftIntent: (
+    params: Readonly<{
+      anonymousOwnerId: string;
+      intentId: string;
+      accountId: string;
+    }>,
+  ) => Promise<MarketplaceAnonymousListingDraftIntent>;
   updateListingPrice: (
     params: Readonly<{
       accountId: string;
@@ -244,6 +273,82 @@ export type MarketplaceListingPhotoUpload = Readonly<{
   originalFilename: string | null;
   altText?: string | null;
 }>;
+
+type AnonymousListingDraftIntentRow = Readonly<{
+  intent_id: string;
+  anonymous_owner_id: string;
+  source_path: string;
+  catalog_item_id: string;
+  product_id: string;
+  selected_options: unknown;
+  product_summary: string | null;
+  price_amount: string;
+  quantity_cap: number;
+  max_units_per_order: number | null;
+  max_units_per_day: number | null;
+  max_units_per_customer_account: number | null;
+  status: "active" | "claimed" | "expired";
+  claimed_account_id: string | null;
+  claimed_at: string | null;
+  expires_at: string;
+  created_at: string;
+  updated_at: string;
+}>;
+
+function normalizeAnonymousListingDraftRow(
+  row: AnonymousListingDraftIntentRow,
+): MarketplaceAnonymousListingDraftIntent {
+  return {
+    ...row,
+    selected_options: normalizeSelectedOptions(row.selected_options),
+    price_amount: String(row.price_amount),
+  };
+}
+
+function normalizeSelectedOptions(value: unknown): readonly { dimensionId: string; optionId: string }[] {
+  return Array.isArray(value)
+    ? value
+        .map((entry) =>
+          entry && typeof entry === "object"
+            ? {
+                dimensionId: String((entry as Record<string, unknown>).dimensionId ?? "").trim(),
+                optionId: String((entry as Record<string, unknown>).optionId ?? "").trim(),
+              }
+            : null,
+        )
+        .filter((entry): entry is { dimensionId: string; optionId: string } =>
+          Boolean(entry?.dimensionId && entry.optionId),
+        )
+    : [];
+}
+
+function normalizePositiveInteger(value: unknown, message: string) {
+  const numeric = Number(value);
+  assert(Number.isInteger(numeric) && numeric > 0, message);
+  return numeric;
+}
+
+function normalizeOptionalPositiveInteger(value: unknown, message: string) {
+  if (value === null || value === undefined || value === "") {
+    return null;
+  }
+
+  return normalizePositiveInteger(value, message);
+}
+
+function normalizePriceAmount(value: unknown) {
+  const normalized = String(value ?? "").trim();
+  assert(/^\d+(\.\d{1,2})?$/.test(normalized), "Listing price must use dollars and cents.");
+  const numeric = Number(normalized);
+  assert(Number.isFinite(numeric) && numeric > 0, "Listing price must be greater than zero.");
+  return numeric.toFixed(2);
+}
+
+function normalizeAnonymousOwnerId(value: string) {
+  const normalized = value.trim();
+  assert(normalized.startsWith("anon_"), "Anonymous listing draft owner is required.");
+  return normalized;
+}
 
 export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): MarketplaceListingServices {
   const repository = createAggregateRepository({
@@ -359,6 +464,201 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
       trusted,
       "High-dollar listings require a trusted seller account or established account reputation before publication.",
     );
+  }
+
+  async function expireAnonymousListingDraftIntents(anonymousOwnerId: string) {
+    await deps.db.query(
+      `UPDATE marketplace_anonymous_listing_draft_intents
+       SET status = 'expired', updated_at = now()
+       WHERE anonymous_owner_id = $1
+         AND status = 'active'
+         AND expires_at <= now()`,
+      [anonymousOwnerId],
+    );
+  }
+
+  async function getAnonymousListingDraftIntent(params: Readonly<{ anonymousOwnerId: string; intentId: string }>) {
+    const anonymousOwnerId = normalizeAnonymousOwnerId(params.anonymousOwnerId);
+    await expireAnonymousListingDraftIntents(anonymousOwnerId);
+
+    const result = await deps.db.query<AnonymousListingDraftIntentRow>(
+      `SELECT *
+       FROM marketplace_anonymous_listing_draft_intents
+       WHERE intent_id = $1
+         AND anonymous_owner_id = $2`,
+      [params.intentId, anonymousOwnerId],
+    );
+
+    return result.rows[0] ? normalizeAnonymousListingDraftRow(result.rows[0]) : null;
+  }
+
+  async function createAnonymousListingDraftIntent(
+    params: Parameters<MarketplaceListingServices["createAnonymousListingDraftIntent"]>[0],
+  ) {
+    const anonymousOwnerId = normalizeAnonymousOwnerId(params.anonymousOwnerId);
+    const catalogItemId = params.catalogItemId.trim();
+    const productId = params.productId.trim();
+    const sourcePath = params.sourcePath.trim();
+    const selectedOptions = normalizeSelectedOptions(params.selectedOptions);
+    const priceAmount = normalizePriceAmount(params.priceAmount);
+    const quantityCap = normalizePositiveInteger(params.quantityCap, "Listing quantity must be greater than zero.");
+    const purchaseLimits = {
+      maxUnitsPerOrder: normalizeOptionalPositiveInteger(
+        params.purchaseLimits?.maxUnitsPerOrder,
+        "Order purchase limit must be greater than zero.",
+      ),
+      maxUnitsPerDay: normalizeOptionalPositiveInteger(
+        params.purchaseLimits?.maxUnitsPerDay,
+        "Daily purchase limit must be greater than zero.",
+      ),
+      maxUnitsPerCustomerAccount: normalizeOptionalPositiveInteger(
+        params.purchaseLimits?.maxUnitsPerCustomerAccount,
+        "Customer purchase limit must be greater than zero.",
+      ),
+    };
+
+    assert(sourcePath.startsWith("/") && !sourcePath.startsWith("//"), "Listing draft source path is invalid.");
+    assert(catalogItemId, "Listing draft catalog item is required.");
+    assert(productId, "Listing draft product is required.");
+
+    await expireAnonymousListingDraftIntents(anonymousOwnerId);
+
+    const existingResult = await deps.db.query<AnonymousListingDraftIntentRow>(
+      `SELECT *
+       FROM marketplace_anonymous_listing_draft_intents
+       WHERE anonymous_owner_id = $1
+         AND status = 'active'
+         AND expires_at > now()
+         AND catalog_item_id = $2
+         AND product_id = $3
+         AND selected_options = $4::jsonb
+         AND price_amount = $5::numeric
+         AND quantity_cap = $6
+         AND max_units_per_order IS NOT DISTINCT FROM $7
+         AND max_units_per_day IS NOT DISTINCT FROM $8
+         AND max_units_per_customer_account IS NOT DISTINCT FROM $9
+       ORDER BY updated_at DESC
+       LIMIT 1`,
+      [
+        anonymousOwnerId,
+        catalogItemId,
+        productId,
+        JSON.stringify(selectedOptions),
+        priceAmount,
+        quantityCap,
+        purchaseLimits.maxUnitsPerOrder,
+        purchaseLimits.maxUnitsPerDay,
+        purchaseLimits.maxUnitsPerCustomerAccount,
+      ],
+    );
+
+    const expiresAt = new Date(Date.now() + ANONYMOUS_LISTING_DRAFT_TTL_MS).toISOString();
+
+    if (existingResult.rows[0]) {
+      const result = await deps.db.query<AnonymousListingDraftIntentRow>(
+        `UPDATE marketplace_anonymous_listing_draft_intents
+         SET source_path = $2,
+             product_summary = $3,
+             expires_at = $4,
+             updated_at = now()
+         WHERE intent_id = $1
+         RETURNING *`,
+        [existingResult.rows[0].intent_id, sourcePath, params.productSummary ?? null, expiresAt],
+      );
+
+      return normalizeAnonymousListingDraftRow(result.rows[0]);
+    }
+
+    const countResult = await deps.db.query<{ count: string }>(
+      `SELECT count(*)::text AS count
+       FROM marketplace_anonymous_listing_draft_intents
+       WHERE anonymous_owner_id = $1
+         AND status = 'active'
+         AND expires_at > now()`,
+      [anonymousOwnerId],
+    );
+    assert(
+      Number(countResult.rows[0]?.count ?? 0) < MAX_ACTIVE_ANONYMOUS_LISTING_DRAFTS,
+      "Too many saved listing drafts. Review or finish registration before saving another listing draft.",
+    );
+
+    const result = await deps.db.query<AnonymousListingDraftIntentRow>(
+      `INSERT INTO marketplace_anonymous_listing_draft_intents (
+         intent_id,
+         anonymous_owner_id,
+         source_path,
+         catalog_item_id,
+         product_id,
+         selected_options,
+         product_summary,
+         price_amount,
+         quantity_cap,
+         max_units_per_order,
+         max_units_per_day,
+         max_units_per_customer_account,
+         expires_at
+       ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8::numeric, $9, $10, $11, $12, $13)
+       RETURNING *`,
+      [
+        createId("ldi"),
+        anonymousOwnerId,
+        sourcePath,
+        catalogItemId,
+        productId,
+        JSON.stringify(selectedOptions),
+        params.productSummary ?? null,
+        priceAmount,
+        quantityCap,
+        purchaseLimits.maxUnitsPerOrder,
+        purchaseLimits.maxUnitsPerDay,
+        purchaseLimits.maxUnitsPerCustomerAccount,
+        expiresAt,
+      ],
+    );
+
+    return normalizeAnonymousListingDraftRow(result.rows[0]);
+  }
+
+  async function claimAnonymousListingDraftIntent(
+    params: Parameters<MarketplaceListingServices["claimAnonymousListingDraftIntent"]>[0],
+  ) {
+    const anonymousOwnerId = normalizeAnonymousOwnerId(params.anonymousOwnerId);
+    const accountId = params.accountId.trim();
+    assert(accountId, "Seller account is required.");
+    await expireAnonymousListingDraftIntents(anonymousOwnerId);
+
+    const existing = await getAnonymousListingDraftIntent({
+      anonymousOwnerId,
+      intentId: params.intentId,
+    });
+    assert(existing, "Listing draft was not found. Start a new listing draft from the item page.");
+
+    if (existing.status === "claimed" && existing.claimed_account_id === accountId) {
+      return existing;
+    }
+
+    assert(
+      existing.status === "active",
+      "Listing draft is no longer available. Start a new listing draft from the item page.",
+    );
+
+    const result = await deps.db.query<AnonymousListingDraftIntentRow>(
+      `UPDATE marketplace_anonymous_listing_draft_intents
+       SET status = 'claimed',
+           claimed_account_id = $3,
+           claimed_at = now(),
+           updated_at = now()
+       WHERE intent_id = $1
+         AND anonymous_owner_id = $2
+         AND status = 'active'
+         AND expires_at > now()
+       RETURNING *`,
+      [params.intentId, anonymousOwnerId, accountId],
+    );
+
+    assert(result.rows[0], "Listing draft is no longer available. Start a new listing draft from the item page.");
+
+    return normalizeAnonymousListingDraftRow(result.rows[0]);
   }
 
   async function normalizePhotoUploads(
@@ -684,6 +984,9 @@ export function createMarketplaceListingRuntime(deps: ListingRuntimeDeps): Marke
     previewPublicStandardListingTerms: async (params) => {
       return quotePublicStandardListingTerms(params.priceAmount);
     },
+    createAnonymousListingDraftIntent,
+    getAnonymousListingDraftIntent,
+    claimAnonymousListingDraftIntent,
     updateListingPrice: async (params, context) => {
       await loadOwnedListingState(params.listingId, params.accountId);
       const quote = await quoteListingTerms(params.accountId, params.priceAmount);

@@ -6,6 +6,7 @@ const {
   mockCreateDiscoveryRequestApiClient,
   mockCreateMarketplaceRequestApiClient,
   mockCreateCheckoutRequestApiClient,
+  mockCreateInventoryRequestApiClient,
   mockAddSellListLine,
   mockAddGuestSellListLine,
   mockCreateProductAlert,
@@ -15,16 +16,20 @@ const {
   mockAddGuestCartLine,
   mockGetOfferMatch,
   mockAcceptOfferMatch,
+  mockEnsureListingStock,
   mockAppendAnonymousCartCookie,
   mockAppendAnonymousSellListCookie,
+  mockAppendAnonymousListingDraftCookie,
   mockEnsureAnonymousCartId,
   mockEnsureAnonymousSellListId,
+  mockEnsureAnonymousListingDraftOwnerId,
 } = vi.hoisted(() => ({
   mockAddCartLine: vi.fn(),
   mockCreateCheckoutSession: vi.fn(),
   mockCreateDiscoveryRequestApiClient: vi.fn(),
   mockCreateMarketplaceRequestApiClient: vi.fn(),
   mockCreateCheckoutRequestApiClient: vi.fn(),
+  mockCreateInventoryRequestApiClient: vi.fn(),
   mockAddSellListLine: vi.fn(),
   mockAddGuestSellListLine: vi.fn(),
   mockCreateProductAlert: vi.fn(),
@@ -34,14 +39,19 @@ const {
   mockAddGuestCartLine: vi.fn(),
   mockGetOfferMatch: vi.fn(),
   mockAcceptOfferMatch: vi.fn(),
+  mockEnsureListingStock: vi.fn(),
   mockAppendAnonymousCartCookie: vi.fn((headers: Headers, anonymousCartId: string) => {
     headers.append("Set-Cookie", `chase_sets_anonymous_cart=${anonymousCartId}`);
   }),
   mockAppendAnonymousSellListCookie: vi.fn((headers: Headers, anonymousSellListId: string) => {
     headers.append("Set-Cookie", `chase_sets_anonymous_sell_list=${anonymousSellListId}`);
   }),
+  mockAppendAnonymousListingDraftCookie: vi.fn((headers: Headers, anonymousOwnerId: string) => {
+    headers.append("Set-Cookie", `chase_sets_anonymous_listing_drafts=${anonymousOwnerId}`);
+  }),
   mockEnsureAnonymousCartId: vi.fn(() => "anon_cart_1"),
   mockEnsureAnonymousSellListId: vi.fn(() => "anon_sell_1"),
+  mockEnsureAnonymousListingDraftOwnerId: vi.fn(() => "anon_listing_draft_1"),
 }));
 
 vi.mock("@chase-sets/platform-runtime/auth", async () => {
@@ -62,7 +72,9 @@ vi.mock("../support/request-support/api-client", () => ({
 }));
 
 vi.mock("@chase-sets/marketplace/server", () => ({
+  appendAnonymousListingDraftCookie: mockAppendAnonymousListingDraftCookie,
   createMarketplaceRequestApiClient: mockCreateMarketplaceRequestApiClient,
+  ensureAnonymousListingDraftOwnerId: mockEnsureAnonymousListingDraftOwnerId,
 }));
 
 vi.mock("@chase-sets/checkout/server", () => ({
@@ -71,6 +83,10 @@ vi.mock("@chase-sets/checkout/server", () => ({
   createCheckoutRequestApiClient: mockCreateCheckoutRequestApiClient,
   ensureAnonymousCartId: mockEnsureAnonymousCartId,
   ensureAnonymousSellListId: mockEnsureAnonymousSellListId,
+}));
+
+vi.mock("@chase-sets/inventory/server", () => ({
+  createInventoryRequestApiClient: mockCreateInventoryRequestApiClient,
 }));
 
 import { action, loader } from "../routes/item-detail";
@@ -143,6 +159,7 @@ describe("item detail buy now action", () => {
     } as never);
 
     expect(result.canSubmitOffers).toBe(false);
+    expect(result.canUseGuestListingDraft).toBe(true);
     expect(result.viewerAccountId).toBeNull();
     expect(result.item?.offer_demand_matches).toHaveLength(1);
   });
@@ -1332,6 +1349,68 @@ describe("item detail buy now action", () => {
 
     expect(result).toEqual({ error: "Enter a target price of $0.00 or more using dollars and cents." });
     expect(mockCreateProductAlert).not.toHaveBeenCalled();
+  });
+
+  it("saves guest listing draft intent before seller registration", async () => {
+    const createAnonymousListingDraftIntent = vi.fn().mockResolvedValue({
+      intent_id: "ldi_1",
+    });
+    const createListing = vi.fn();
+    const publishListing = vi.fn();
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockCreateDiscoveryRequestApiClient.mockReturnValue({
+      getItemDetail: vi.fn().mockResolvedValue({
+        catalog_item_id: "cat_charizard",
+        slug: "charizard-base-set",
+        title: "Charizard",
+      }),
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      createAnonymousListingDraftIntent,
+      createListing,
+      publishListing,
+    });
+    mockCreateInventoryRequestApiClient.mockReturnValue({
+      ensureListingStock: mockEnsureListingStock,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({});
+
+    const form = new URLSearchParams();
+    form.set("intent", "list-at-price");
+    form.set("productId", "cat_charizard::form:raw");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Form: Raw");
+    form.set("priceAmount", "350.00");
+    form.set("quantityCap", "1");
+
+    const result = (await action({
+      request: new Request("http://localhost/items/cat_charizard?market=sell", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: { id: "cat_charizard" },
+      context: undefined,
+    } as never)) as Response;
+
+    expect(result.status).toBe(302);
+    expect(result.headers.get("Location")).toBe(
+      "/register?returnTo=%2Faccount%2Flistings%3FclaimListingIntent%3Dldi_1",
+    );
+    expect(result.headers.get("Set-Cookie")).toContain("chase_sets_anonymous_listing_drafts=anon_listing_draft_1");
+    expect(createAnonymousListingDraftIntent).toHaveBeenCalledWith("anon_listing_draft_1", {
+      sourcePath: "/items/charizard-base-set?market=sell",
+      catalogItemId: "cat_charizard",
+      productId: "cat_charizard::form:raw",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Form: Raw",
+      priceAmount: "350.00",
+      quantityCap: 1,
+    });
+    expect(mockRequireActorFromAuthApi).not.toHaveBeenCalled();
+    expect(mockEnsureListingStock).not.toHaveBeenCalled();
+    expect(createListing).not.toHaveBeenCalled();
+    expect(publishListing).not.toHaveBeenCalled();
   });
 
   it("rejects invalid listing prices before previewing listing terms", async () => {

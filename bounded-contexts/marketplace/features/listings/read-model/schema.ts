@@ -55,6 +55,35 @@ ALTER TABLE marketplace_listing_pages
   ADD COLUMN IF NOT EXISTS max_units_per_customer_account integer NULL,
   ADD COLUMN IF NOT EXISTS listing_photos jsonb NOT NULL DEFAULT '[]'::jsonb;
 
+CREATE TABLE IF NOT EXISTS marketplace_anonymous_listing_draft_intents (
+  intent_id text PRIMARY KEY,
+  anonymous_owner_id text NOT NULL,
+  source_path text NOT NULL,
+  catalog_item_id text NOT NULL,
+  product_id text NOT NULL,
+  selected_options jsonb NOT NULL DEFAULT '[]'::jsonb,
+  product_summary text NULL,
+  price_amount numeric(12,2) NOT NULL,
+  quantity_cap integer NOT NULL CHECK (quantity_cap > 0),
+  max_units_per_order integer NULL CHECK (max_units_per_order IS NULL OR max_units_per_order > 0),
+  max_units_per_day integer NULL CHECK (max_units_per_day IS NULL OR max_units_per_day > 0),
+  max_units_per_customer_account integer NULL CHECK (
+    max_units_per_customer_account IS NULL OR max_units_per_customer_account > 0
+  ),
+  status text NOT NULL DEFAULT 'active',
+  claimed_account_id text NULL,
+  claimed_at timestamptz NULL,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS marketplace_anonymous_listing_draft_owner_idx
+  ON marketplace_anonymous_listing_draft_intents (anonymous_owner_id, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS marketplace_anonymous_listing_draft_expiry_idx
+  ON marketplace_anonymous_listing_draft_intents (status, expires_at);
+
 CREATE TABLE IF NOT EXISTS marketplace_seller_listing_availability_pages (
   account_id text PRIMARY KEY,
   status text NOT NULL DEFAULT 'available',
