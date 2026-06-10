@@ -384,6 +384,9 @@
       "@chase-sets/platform-runtime/projection-wake-relay": [
         "./infrastructure/platform-runtime/projection-wake-relay.ts"
       ],
+      "@chase-sets/platform-runtime/projection-wake-scheduler": [
+        "./infrastructure/platform-runtime/projection-wake-scheduler.ts"
+      ],
       "@chase-sets/platform-runtime/realtime": [
         "./infrastructure/platform-runtime/realtime.ts"
       ],
