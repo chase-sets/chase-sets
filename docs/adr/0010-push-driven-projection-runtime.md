@@ -37,12 +37,16 @@ The durable control-plane wake store starts in the existing control database. It
 
 The platform work-signal composite consolidates shared wake/listen/wait/metrics primitives across projection wakes, checkpoint readiness, durable job event waits, projection operation events, realtime SSE wake signals, scheduled/manual work triggers, and reconciliation wakeups. It does not collapse durable state into one generic table. Each owner keeps its own durable source-of-truth tables and domain semantics.
 
+The composite must expose one owning runtime/API surface for shared emission, listener, waiter, claim, fallback, redaction, and metrics contracts. Projection wakes, checkpoint readiness, durable jobs, projection operations, realtime, scheduled/manual work, and reconciliation should use thin adapters over that surface. Direct use of raw `LISTEN`, `pg_notify`, ad hoc wait loops, or ad hoc wake tables is allowed only when the phase map or an implementation issue records a reviewed, budgeted exception.
+
 The migration is phased:
 
 - Phase 0: ADR, terminology, source-of-truth boundaries, phase map, and static guardrails.
 - Phase 1: Checkout/projection hot path, relay, durable wake store, scheduler, checkpoint readiness, staging/prod topology parity, and proof gates.
 - Phase 2: durable job, projection operation, realtime SSE, scheduled/manual trigger adapters, and stale helper cleanup.
 - Phase 3: full composite load proof, production proof mode, rollout expansion, and milestone debt closure.
+
+Phase 0 gates production push enablement and broad consumer rollout. Foundational implementation slices may land behind flags before every Phase 0 artifact is complete, but the ADR and phase-gate review must validate, amend, or supersede those contracts before Phase 1 enablement.
 
 ## Constraints
 
