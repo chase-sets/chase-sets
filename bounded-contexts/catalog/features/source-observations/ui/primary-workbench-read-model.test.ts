@@ -188,6 +188,64 @@ describe("Catalog primary workbench read model", () => {
     });
   });
 
+  it("maps stale and cancelled provider import jobs to lifecycle recovery actions", () => {
+    const baseOverview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview({
+        unitActivity: {
+          ...baseOverview.unitActivity,
+          units: [
+            {
+              unitKey: "tcgdex:pokemon:card:import",
+              recentJobs: [
+                {
+                  ...baseOverview.unitActivity.units[0]!.recentJobs[0]!,
+                  jobId: "job_stale",
+                  operatorStatus: "stale",
+                  phase: "processing",
+                },
+                {
+                  ...baseOverview.unitActivity.units[0]!.recentJobs[0]!,
+                  jobId: "job_cancelled",
+                  operatorStatus: "cancelled",
+                  phase: "failed",
+                },
+              ],
+            },
+          ],
+        },
+      }),
+      canManageCatalog: true,
+    });
+
+    expect(readModel.importJobs.jobs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          jobId: "job_stale",
+          state: "running",
+          retryAvailable: true,
+          resumeAvailable: true,
+          cancelAvailable: true,
+          blockers: ["stale-replay"],
+        }),
+        expect.objectContaining({
+          jobId: "job_cancelled",
+          state: "cancelled",
+          retryAvailable: true,
+          resumeAvailable: false,
+          cancelAvailable: false,
+          failureGroups: expect.arrayContaining([
+            expect.objectContaining({ key: "durable-job-cancelled", severity: "warning" }),
+          ]),
+        }),
+      ]),
+    );
+  });
+
   it("distinguishes concurrent durable jobs from a single active job conflict", () => {
     const baseOverview = controlPlaneOverview();
     const readModel = buildCatalogPrimaryWorkbenchReadModel({

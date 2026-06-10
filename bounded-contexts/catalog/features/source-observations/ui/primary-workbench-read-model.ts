@@ -387,13 +387,15 @@ function importJobsFor(
     jobId: job.jobId,
     action: job.action === "reapply" ? "start-reapply" : "start-provider-import",
     state:
-      job.phase === "completed"
-        ? "completed"
-        : job.phase === "failed"
-          ? "failed"
-          : job.phase === "enqueued"
-            ? "queued"
-            : "running",
+      job.operatorStatus === "cancelled"
+        ? "cancelled"
+        : job.phase === "completed"
+          ? "completed"
+          : job.phase === "failed"
+            ? "failed"
+            : job.phase === "enqueued"
+              ? "queued"
+              : "running",
     operatorStatus: job.operatorStatus,
     summary: job.summary,
     completed: job.completed,
@@ -410,11 +412,14 @@ function importJobsFor(
       profileSnapshotPolicy: "snapshotted-at-enqueue",
       retryResumePolicy: "skip-completed-outcomes",
       partialFailurePolicy: "mixed-outcomes",
-      workUnitClaimPolicy: "leased-work-units",
+      workUnitClaimPolicy: job.action === "reapply" ? "leased-work-units" : "leased-job-turns",
     },
     failureGroups: failureGroupsFor(job, providerTransport),
     retryAvailable:
-      job.operatorStatus === "failed" || job.operatorStatus === "partial" || job.operatorStatus === "stale",
+      job.operatorStatus === "failed" ||
+      job.operatorStatus === "partial" ||
+      job.operatorStatus === "stale" ||
+      job.operatorStatus === "cancelled",
     resumeAvailable: job.operatorStatus === "stale" || job.operatorStatus === "retried",
     cancelAvailable: job.phase === "enqueued" || job.phase === "fetching" || job.phase === "processing",
     sourceObservationReviewHref: sourceObservationReviewHrefFor(routeContext, job),
@@ -1080,7 +1085,14 @@ function failureGroupsFor(
     count: number;
     severity: "warning" | "error";
   }[] = [];
-  if (job.operatorStatus === "failed" || job.phase === "failed") {
+  if (job.operatorStatus === "cancelled") {
+    groups.push({
+      key: "durable-job-cancelled",
+      label: "durable-job-cancelled",
+      count: 1,
+      severity: "warning",
+    });
+  } else if (job.operatorStatus === "failed" || job.phase === "failed") {
     groups.push({
       key: "durable-job-failed",
       label: "durable-job-failed",

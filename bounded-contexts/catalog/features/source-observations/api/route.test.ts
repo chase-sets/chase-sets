@@ -14,6 +14,7 @@ import {
   createCatalogIntegrationRolloutControlPolicy,
 } from "./catalog-integration-rollout-controls";
 import { CatalogProviderOptionQueryUnavailableError } from "./provider-option-query-cache";
+import { SourceObservationIntegrationJobLifecycleCommandError } from "./runtime";
 
 const context: EventStoreContext = {
   tenantId: "tnt_test" as never,
@@ -1362,6 +1363,73 @@ describe("source observation routes", () => {
       items: [{ jobId: "job_integration", action: "import", status: "running" }],
     });
     expect(listActiveIntegrationJobs).toHaveBeenCalledWith({ context });
+  });
+
+  it("runs provider import lifecycle commands through the current request context", async () => {
+    const retryJob = integrationJob({ status: "queued" });
+    const resumeJob = integrationJob({ status: "running" });
+    const cancelJob = integrationJobFixture({
+      status: "failed",
+      operatorStatus: "cancelled",
+      progress: {
+        phase: "failed",
+        completed: 7,
+        total: 24,
+        currentName: "Base Set",
+        status: null,
+      },
+      errorMessage: "Operator cancelled provider import job.",
+    });
+    const retryIntegrationJob = vi.fn(async () => retryJob);
+    const resumeIntegrationJob = vi.fn(async () => resumeJob);
+    const cancelIntegrationJob = vi.fn(async () => cancelJob);
+    const services = {
+      retryIntegrationJob,
+      resumeIntegrationJob,
+      cancelIntegrationJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    await expect(
+      app.request("/source-observations/integration-jobs/job_import/retry", { method: "POST" }),
+    ).resolves.toMatchObject({ status: 202 });
+    await expect(
+      app.request("/source-observations/integration-jobs/job_import/resume", { method: "POST" }),
+    ).resolves.toMatchObject({ status: 202 });
+    const cancelResponse = await app.request("/source-observations/integration-jobs/job_import/cancel", {
+      method: "POST",
+    });
+
+    expect(cancelResponse.status).toBe(202);
+    await expect(cancelResponse.json()).resolves.toMatchObject({
+      jobId: "job_integration",
+      operatorStatus: "cancelled",
+    });
+    expect(retryIntegrationJob).toHaveBeenCalledWith({ jobId: "job_import", context });
+    expect(resumeIntegrationJob).toHaveBeenCalledWith({ jobId: "job_import", context });
+    expect(cancelIntegrationJob).toHaveBeenCalledWith({ jobId: "job_import", context });
+  });
+
+  it("fails closed when provider import lifecycle commands are not available for the job state", async () => {
+    const retryIntegrationJob = vi.fn(async () => {
+      throw new SourceObservationIntegrationJobLifecycleCommandError(
+        "unsupported_state",
+        "Completed provider import jobs without failed outcomes cannot be retried.",
+      );
+    });
+    const services = {
+      retryIntegrationJob,
+    } as unknown as SourceObservationRouteServices;
+    const app = buildApp(services);
+
+    const response = await app.request("/source-observations/integration-jobs/job_done/retry", { method: "POST" });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "unsupported_state",
+      },
+    });
   });
 
   it("streams provider integration job status events until completion", async () => {

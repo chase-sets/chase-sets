@@ -343,7 +343,7 @@ export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
     jobId: string;
     action: Extract<CatalogPrimaryWorkbenchCommandKey, "start-provider-import" | "start-reapply" | "start-replay">;
     state: "queued" | "running" | "completed" | "failed" | "cancelled";
-    operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "completed";
+    operatorStatus: "queued" | "running" | "stale" | "retried" | "partial" | "failed" | "cancelled" | "completed";
     summary: string;
     completed: number;
     total: number;

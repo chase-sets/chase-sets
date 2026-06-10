@@ -205,6 +205,152 @@ describe("durable job store", () => {
     expect(calls[0].sql).toContain("claimed_until > now()");
   });
 
+  it("requeues terminal jobs without changing payload or job identity", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          if (sql.includes("INSERT INTO inventory_import_batch_job_events")) {
+            return { rows: [{ sequence: 1 }], rowCount: 1 };
+          }
+          if (sql.includes("UPDATE inventory_import_batch_jobs") && sql.includes("completed_at = NULL")) {
+            return {
+              rows: [
+                {
+                  job_id: "job_1",
+                  job_kind: "commit",
+                  status: "queued",
+                  payload: { batchId: "imb_1" },
+                  progress: { phase: "queued" },
+                  result: { committed: 1 },
+                  error_message: null,
+                  event_context: { tenantId: "tnt_1" },
+                  claim_owner_id: null,
+                  claimed_until: null,
+                  created_at: "2026-05-28T00:00:00.000Z",
+                  started_at: "2026-05-28T00:00:00.000Z",
+                  completed_at: null,
+                  updated_at: "2026-05-28T00:00:10.000Z",
+                },
+              ],
+              rowCount: 1,
+            };
+          }
+          return { rows: [], rowCount: 1 };
+        },
+      },
+      {
+        jobsTable: "inventory_import_batch_jobs",
+        eventsTable: "inventory_import_batch_job_events",
+      },
+    );
+
+    await expect(
+      store.requeue({
+        jobId: "job_1",
+        progress: { phase: "queued" },
+        result: { committed: 1 },
+        allowedStatuses: ["failed", "completed"],
+      }),
+    ).resolves.toMatchObject({ jobId: "job_1", status: "queued", result: { committed: 1 } });
+
+    expect(calls[0].sql).toContain("status = 'queued'");
+    expect(calls[0].sql).toContain("completed_at = NULL");
+    expect(calls[0].sql).toContain("claim_owner_id = NULL");
+    expect(calls[0].sql).toContain("status = ANY($5::text[])");
+    expect(calls[0].sql).toContain("claimed_until IS NULL OR claimed_until <= now()");
+    expect(calls[0].values[4]).toEqual(["failed", "completed"]);
+    expect(calls[0].values[5]).toBe(false);
+  });
+
+  it("can guard requeue against a newly active claim", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          return { rows: [], rowCount: 0 };
+        },
+      },
+      {
+        jobsTable: "inventory_import_batch_jobs",
+        eventsTable: "inventory_import_batch_job_events",
+      },
+    );
+
+    await expect(
+      store.requeue({
+        jobId: "job_1",
+        progress: { phase: "queued" },
+        allowedStatuses: ["running"],
+        requireExpiredClaim: true,
+      }),
+    ).resolves.toBeNull();
+
+    expect(calls[0].sql).toContain("claimed_until IS NULL OR claimed_until <= now()");
+    expect(calls[0].values[4]).toEqual(["running"]);
+    expect(calls[0].values[5]).toBe(true);
+  });
+
+  it("cancels queued or running jobs as terminal failures with a status event", async () => {
+    const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
+    const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
+      {
+        query: async (sql: string, values: readonly unknown[] = []) => {
+          calls.push({ sql, values });
+          if (sql.includes("INSERT INTO inventory_import_batch_job_events")) {
+            return { rows: [{ sequence: 1 }], rowCount: 1 };
+          }
+          if (sql.includes("UPDATE inventory_import_batch_jobs") && sql.includes("status = 'failed'")) {
+            return {
+              rows: [
+                {
+                  job_id: "job_1",
+                  job_kind: "commit",
+                  status: "failed",
+                  payload: { batchId: "imb_1" },
+                  progress: { phase: "failed" },
+                  result: null,
+                  error_message: "Operator cancelled job.",
+                  event_context: { tenantId: "tnt_1" },
+                  claim_owner_id: null,
+                  claimed_until: null,
+                  created_at: "2026-05-28T00:00:00.000Z",
+                  started_at: "2026-05-28T00:00:00.000Z",
+                  completed_at: "2026-05-28T00:00:10.000Z",
+                  updated_at: "2026-05-28T00:00:10.000Z",
+                },
+              ],
+              rowCount: 1,
+            };
+          }
+          return { rows: [], rowCount: 1 };
+        },
+      },
+      {
+        jobsTable: "inventory_import_batch_jobs",
+        eventsTable: "inventory_import_batch_job_events",
+      },
+    );
+
+    await expect(
+      store.cancel({
+        jobId: "job_1",
+        progress: { phase: "failed" },
+        errorMessage: "Operator cancelled job.",
+        allowedStatuses: ["queued", "running"],
+      }),
+    ).resolves.toMatchObject({ jobId: "job_1", status: "failed", errorMessage: "Operator cancelled job." });
+
+    expect(calls[0].sql).toContain("status = 'failed'");
+    expect(calls[0].sql).toContain("completed_at = now()");
+    expect(calls[0].sql).toContain("claim_owner_id = NULL");
+    expect(calls[0].sql).toContain("status = ANY($4::text[])");
+    expect(calls[0].values[3]).toEqual(["queued", "running"]);
+    expect(calls.some((call) => call.sql.includes("INSERT INTO inventory_import_batch_job_events"))).toBe(true);
+  });
+
   it("prunes terminal jobs with a bounded limit", async () => {
     const calls: Array<{ sql: string; values: readonly unknown[] }> = [];
     const store = createPostgresDurableJobStore<{ batchId: string }, { phase: string }, { committed: number }>(
