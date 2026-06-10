@@ -452,6 +452,23 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.count.skipped": "Skipped",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.key": "Defer decision",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.defer.value": "Defer keeps observations in review",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.error.title": "Command needs attention",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed":
+    "The command did not complete. Review the named blockers, then retry from this workbench.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.invalid.intent":
+    "The submitted command is not part of the rebuilt primary workbench contract.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.description":
+    "Promotion preview is ready for the current provider, scope, filters, and selection checkpoint.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.required":
+    "Run a fresh promotion preview before promoting Catalog facts.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.title": "Promotion preview ready",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description":
+    "The durable job is queued with this provider, scope, profile, and review context.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title": "Command queued",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required":
+    "Rejecting Source Observations requires an operator reason for audit evidence.",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.unsupported":
+    "This command has no launch-ready backend path yet, so the workbench fails closed.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh": "Preview freshness",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard": "Stale preview guard",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value":
@@ -776,6 +793,7 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.redaction.summary":
     "Provider payload withheld; normalized facts and provenance are redaction-safe.",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.reject": "Reject",
+  "catalog.features.sourceObservations.ui.primaryWorkbench.review.reject.reason": "Reject reason",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.changed": "Changed since last pull",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.count": " ({value})",
   "catalog.features.sourceObservations.ui.primaryWorkbench.review.saved.ready": "Ready for promotion preview",

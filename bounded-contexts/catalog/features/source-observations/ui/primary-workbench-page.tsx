@@ -8,7 +8,9 @@ import {
   DataTable,
   EmptyState,
   FilterArea,
+  Form,
   KeyValueList,
+  LinkButton,
   MetricStrip,
   OperationalStatusBanner,
   SectionNavigation,
@@ -16,6 +18,7 @@ import {
   WorkflowModule,
   WorkflowReadinessChecklist,
   type DataColumn,
+  type ButtonProps,
   type SectionNavigationGroup,
   type WorkflowReadinessItem,
 } from "@chase-sets/design-system";
@@ -55,12 +58,36 @@ type PrimaryWorkbenchStep = Readonly<{
 
 type ImportJobRow = CatalogPrimaryWorkbenchReadModel["importJobs"]["jobs"][number];
 type SourceObservationReviewRow = CatalogPrimaryWorkbenchReadModel["sourceObservationReview"]["rows"][number];
+type CatalogPrimaryWorkbenchSubmitIntent = Extract<
+  CatalogPrimaryWorkbenchActionReadModel["key"],
+  | "start-provider-import"
+  | "preview-promotion"
+  | "execute-promotion"
+  | "reject-source-observations"
+  | "defer-source-observations"
+  | "start-reapply"
+  | "start-replay"
+>;
+
+export type CatalogPrimaryWorkbenchCommandFeedback = Readonly<{
+  status: "success" | "error";
+  intent: string;
+  result:
+    | "job-queued"
+    | "preview-ready"
+    | "preview-required"
+    | "reason-required"
+    | "unsupported-command"
+    | "invalid-intent"
+    | "command-failed";
+}>;
 
 export interface CatalogPrimaryWorkbenchPageProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
+  commandFeedback?: CatalogPrimaryWorkbenchCommandFeedback | null;
 }
 
-export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkbenchPageProps) {
+export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null }: CatalogPrimaryWorkbenchPageProps) {
   const navigation = useMemo(() => navigationGroups(readModel), [readModel]);
   const [activeSection, setActiveSection] = useState(() => normalizeActiveWorkspace(readModel.routeContext.section));
   useEffect(() => {
@@ -147,17 +174,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
         cell: (step) => (
           <div className="flex flex-wrap justify-end gap-2">
             <StepEvidenceSheet step={step} readModel={readModel} />
-            <Button
-              size="sm"
-              tone={step.key === "import" || step.key === "promote" ? "primary" : "secondary"}
-              disabled={step.state !== "available" && step.state !== "degraded"}
-              aria-label={t("catalog.features.sourceObservations.ui.primaryWorkbench.action.aria", {
-                action: step.action,
-                label: step.label,
-              })}
-            >
-              {step.action}
-            </Button>
+            <PrimaryStepAction readModel={readModel} step={step} />
           </div>
         ),
       },
@@ -232,15 +249,6 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
             <a className="text-sm font-semibold text-accent hover:underline" href={job.auditEvidenceUrl}>
               {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.evidence.link")}
             </a>
-            <Button size="sm" tone="secondary" disabled={!job.retryAvailable}>
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.retry")}
-            </Button>
-            <Button size="sm" tone="secondary" disabled={!job.resumeAvailable}>
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.resume")}
-            </Button>
-            <Button size="sm" tone="secondary" disabled={!job.cancelAvailable}>
-              {t("catalog.features.sourceObservations.ui.primaryWorkbench.import.jobs.cancel")}
-            </Button>
           </div>
         ),
       },
@@ -333,18 +341,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
                 {row.actions
                   .filter((actionEntry) => actionEntry.key !== "view-source-observation")
                   .map((actionEntry) => (
-                    <Button
-                      key={actionEntry.key}
-                      size="sm"
-                      tone={actionEntry.key === "preview-promotion" ? "primary" : "secondary"}
-                      disabled={actionEntry.state !== "available" && actionEntry.state !== "degraded"}
-                      aria-label={t("catalog.features.sourceObservations.ui.primaryWorkbench.review.action.aria", {
-                        action: rowActionLabel(actionEntry.key),
-                        observation: row.displayName,
-                      })}
-                    >
-                      {rowActionLabel(actionEntry.key)}
-                    </Button>
+                    <RowCommandAction key={actionEntry.key} actionEntry={actionEntry} readModel={readModel} row={row} />
                   ))}
               </div>
               <BlockerList blockers={rowActionBlockers} compact hideWhenEmpty />
@@ -353,7 +350,7 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
         },
       },
     ],
-    [],
+    [readModel],
   );
 
   return (
@@ -371,14 +368,16 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end sm:justify-end">
-          <Button leadingIcon="refreshCcw" disabled={!isActionAvailable(readModel, "start-provider-import")}>
+          <CommandFormButton readModel={readModel} intent="start-provider-import" leadingIcon="refreshCcw">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
-          </Button>
-          <Button tone="secondary" leadingIcon="check" disabled={!isActionAvailable(readModel, "preview-promotion")}>
+          </CommandFormButton>
+          <CommandFormButton readModel={readModel} intent="preview-promotion" tone="secondary" leadingIcon="check">
             {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
-          </Button>
+          </CommandFormButton>
         </div>
       </div>
+
+      {commandFeedback ? <CommandFeedbackBanner feedback={commandFeedback} /> : null}
 
       <MetricStrip
         items={[
@@ -435,9 +434,17 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
                   : t("catalog.features.sourceObservations.ui.primaryWorkbench.banner.ready.description")
               }
               action={
-                <Button size="sm" tone="secondary" leadingIcon="externalLink">
+                <LinkButton
+                  size="sm"
+                  tone="secondary"
+                  leadingIcon="externalLink"
+                  href={
+                    readModel.readiness.auditEvidenceUrl ??
+                    catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, "audit-evidence")
+                  }
+                >
                   {t("catalog.features.sourceObservations.ui.primaryWorkbench.view.supporting.evidence")}
-                </Button>
+                </LinkButton>
               }
             />
 
@@ -451,16 +458,22 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
               }
               actions={
                 <>
-                  <Button size="sm" tone="secondary" leadingIcon="filter">
+                  <LinkButton
+                    size="sm"
+                    tone="secondary"
+                    leadingIcon="filter"
+                    href={catalogPrimaryWorkbenchHref(readModel.routeContext, "source-observation-review")}
+                  >
                     {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
-                  </Button>
-                  <Button
+                  </LinkButton>
+                  <CommandFormButton
+                    readModel={readModel}
+                    intent="start-provider-import"
                     size="sm"
                     leadingIcon="refreshCcw"
-                    disabled={!isActionAvailable(readModel, "start-provider-import")}
                   >
                     {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
-                  </Button>
+                  </CommandFormButton>
                 </>
               }
               headingLevel={2}
@@ -474,9 +487,21 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
                   "catalog.features.sourceObservations.ui.primaryWorkbench.context.preservation.description",
                 )}
                 actions={
-                  <Button size="sm" tone="secondary">
+                  <LinkButton
+                    size="sm"
+                    tone="secondary"
+                    href={catalogPrimaryWorkbenchHref(
+                      {
+                        ...readModel.routeContext,
+                        sourceObservationFilters: {},
+                        selectedObservationIds: [],
+                        promotionPreviewId: null,
+                      },
+                      "import-to-promotion",
+                    )}
+                  >
                     {t("catalog.features.sourceObservations.ui.primaryWorkbench.reset.view")}
-                  </Button>
+                  </LinkButton>
                 }
               >
                 <Badge tone="info">
@@ -547,9 +572,9 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
                       )}
                       triggerLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.configure.preview")}
                       footer={
-                        <Button size="sm" disabled={!isActionAvailable(readModel, "preview-promotion")}>
+                        <CommandFormButton readModel={readModel} intent="preview-promotion" size="sm">
                           {t("catalog.features.sourceObservations.ui.primaryWorkbench.queue.preview")}
-                        </Button>
+                        </CommandFormButton>
                       }
                     >
                       <KeyValueList
@@ -604,13 +629,14 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
                 </Badge>
               }
               actions={
-                <Button
+                <CommandFormButton
+                  readModel={readModel}
+                  intent="start-provider-import"
                   size="sm"
                   leadingIcon="refreshCcw"
-                  disabled={!isActionAvailable(readModel, "start-provider-import")}
                 >
                   {t("catalog.features.sourceObservations.ui.primaryWorkbench.pull.provider.data")}
-                </Button>
+                </CommandFormButton>
               }
               headingLevel={2}
               density="compact"
@@ -712,12 +738,17 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
               }
               actions={
                 <>
-                  <Button size="sm" tone="secondary" leadingIcon="filter">
+                  <LinkButton
+                    size="sm"
+                    tone="secondary"
+                    leadingIcon="filter"
+                    href={catalogPrimaryWorkbenchHref(readModel.routeContext, "source-observation-review")}
+                  >
                     {t("catalog.features.sourceObservations.ui.primaryWorkbench.save.context")}
-                  </Button>
-                  <Button size="sm" leadingIcon="check" disabled={!isActionAvailable(readModel, "preview-promotion")}>
+                  </LinkButton>
+                  <CommandFormButton readModel={readModel} intent="preview-promotion" size="sm" leadingIcon="check">
                     {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
-                  </Button>
+                  </CommandFormButton>
                 </>
               }
               headingLevel={2}
@@ -775,17 +806,15 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
                       })}
                     </div>
                     <div className="flex flex-wrap justify-end gap-2">
-                      <Button
+                      <CommandFormButton
+                        readModel={readModel}
+                        intent="preview-promotion"
                         size="sm"
-                        disabled={
-                          selectedEligibleObservationCount === 0 || !isActionAvailable(readModel, "preview-promotion")
-                        }
+                        selectedObservationIds={[...selectedObservationKeys]}
+                        disabled={selectedEligibleObservationCount === 0}
                       >
                         {t("catalog.features.sourceObservations.ui.primaryWorkbench.preview.promotion")}
-                      </Button>
-                      <Button size="sm" tone="secondary" disabled={selectedEligibleObservationCount === 0}>
-                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject")}
-                      </Button>
+                      </CommandFormButton>
                       <Button size="sm" tone="secondary" onClick={() => setSelectedObservationKeys(new Set())}>
                         {t("catalog.features.sourceObservations.ui.primaryWorkbench.clear.selection")}
                       </Button>
@@ -805,6 +834,44 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
                       },
                     ]}
                   />
+                  <Form
+                    spacing="none"
+                    method="post"
+                    action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+                    className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end"
+                    data-catalog-primary-workbench-command="reject-source-observations"
+                  >
+                    <CommandHiddenInputs
+                      readModel={readModel}
+                      intent="reject-source-observations"
+                      selectedObservationIds={[...selectedObservationKeys]}
+                    />
+                    <label className="grid min-w-0 gap-1 text-sm text-secondary">
+                      <span className="font-semibold text-foreground">
+                        {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject.reason")}
+                      </span>
+                      <input
+                        className="min-h-10 rounded-tokenSm border border-border bg-surface px-3 py-2 text-sm text-foreground"
+                        name="reason"
+                        required
+                        disabled={
+                          selectedEligibleObservationCount === 0 ||
+                          !isActionAvailable(readModel, "reject-source-observations")
+                        }
+                      />
+                    </label>
+                    <Button
+                      type="submit"
+                      size="sm"
+                      tone="secondary"
+                      disabled={
+                        selectedEligibleObservationCount === 0 ||
+                        !isActionAvailable(readModel, "reject-source-observations")
+                      }
+                    >
+                      {t("catalog.features.sourceObservations.ui.primaryWorkbench.review.reject")}
+                    </Button>
+                  </Form>
                 </div>
               ) : null}
             </WorkflowModule>
@@ -818,9 +885,9 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
                 </Badge>
               }
               actions={
-                <Button size="sm" leadingIcon="check" disabled={!isActionAvailable(readModel, "execute-promotion")}>
+                <CommandFormButton readModel={readModel} intent="execute-promotion" size="sm" leadingIcon="check">
                   {t("catalog.features.sourceObservations.ui.primaryWorkbench.promote.catalog.facts")}
-                </Button>
+                </CommandFormButton>
               }
               headingLevel={2}
               density="compact"
@@ -983,6 +1050,173 @@ export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkben
         </BulkActionSurface>
       </div>
     </section>
+  );
+}
+
+function CommandFeedbackBanner({ feedback }: { feedback: CatalogPrimaryWorkbenchCommandFeedback }) {
+  return (
+    <OperationalStatusBanner
+      tone={feedback.status === "success" ? "success" : "warning"}
+      title={
+        feedback.status === "success"
+          ? commandSuccessTitle(feedback.result)
+          : t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.error.title")
+      }
+      description={commandFeedbackDescription(feedback)}
+    />
+  );
+}
+
+function PrimaryStepAction({
+  readModel,
+  step,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  step: PrimaryWorkbenchStep;
+}) {
+  if (step.key === "provider" || step.key === "review") {
+    return (
+      <LinkButton
+        size="sm"
+        tone="secondary"
+        href={catalogPrimaryWorkbenchHref(
+          readModel.routeContext,
+          step.key === "provider" ? "provider-scope-selection" : "source-observation-review",
+        )}
+      >
+        {step.action}
+      </LinkButton>
+    );
+  }
+
+  const intentByStep: Record<
+    Exclude<PrimaryWorkbenchStepKey, "provider" | "review">,
+    CatalogPrimaryWorkbenchSubmitIntent
+  > = {
+    import: "start-provider-import",
+    preview: "preview-promotion",
+    promote: "execute-promotion",
+  };
+
+  return (
+    <CommandFormButton
+      readModel={readModel}
+      intent={intentByStep[step.key]}
+      size="sm"
+      tone={step.key === "import" || step.key === "promote" ? "primary" : "secondary"}
+      disabled={step.state !== "available" && step.state !== "degraded"}
+    >
+      {step.action}
+    </CommandFormButton>
+  );
+}
+
+function RowCommandAction({
+  actionEntry,
+  readModel,
+  row,
+}: {
+  actionEntry: SourceObservationReviewRow["actions"][number];
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  row: SourceObservationReviewRow;
+}) {
+  const disabled = actionEntry.state !== "available" && actionEntry.state !== "degraded";
+  const ariaLabel = t("catalog.features.sourceObservations.ui.primaryWorkbench.review.action.aria", {
+    action: rowActionLabel(actionEntry.key),
+    observation: row.displayName,
+  });
+
+  if (actionEntry.key === "preview-promotion") {
+    return (
+      <CommandFormButton
+        readModel={readModel}
+        intent="preview-promotion"
+        selectedObservationIds={[row.observationId]}
+        size="sm"
+        disabled={disabled}
+        aria-label={ariaLabel}
+      >
+        {rowActionLabel(actionEntry.key)}
+      </CommandFormButton>
+    );
+  }
+  if (actionEntry.key === "start-reapply") {
+    return (
+      <CommandFormButton
+        readModel={readModel}
+        intent="start-reapply"
+        selectedObservationIds={[row.observationId]}
+        size="sm"
+        tone="secondary"
+        disabled={disabled}
+        aria-label={ariaLabel}
+      >
+        {rowActionLabel(actionEntry.key)}
+      </CommandFormButton>
+    );
+  }
+
+  return (
+    <Button size="sm" tone="secondary" disabled aria-label={ariaLabel}>
+      {rowActionLabel(actionEntry.key)}
+    </Button>
+  );
+}
+
+type CommandFormButtonProps = Omit<ButtonProps, "type" | "disabled"> & {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  intent: CatalogPrimaryWorkbenchSubmitIntent;
+  selectedObservationIds?: readonly string[];
+  disabled?: boolean;
+};
+
+function CommandFormButton({
+  readModel,
+  intent,
+  selectedObservationIds,
+  disabled = false,
+  children,
+  ...buttonProps
+}: CommandFormButtonProps) {
+  return (
+    <Form
+      spacing="none"
+      method="post"
+      action={catalogPrimaryWorkbenchHref(readModel.routeContext, "import-to-promotion")}
+      className="inline-flex"
+      data-catalog-primary-workbench-command={intent}
+    >
+      <CommandHiddenInputs readModel={readModel} intent={intent} selectedObservationIds={selectedObservationIds} />
+      <Button type="submit" disabled={disabled || !isActionAvailable(readModel, intent)} {...buttonProps}>
+        {children}
+      </Button>
+    </Form>
+  );
+}
+
+function CommandHiddenInputs({
+  readModel,
+  intent,
+  selectedObservationIds,
+}: {
+  readModel: CatalogPrimaryWorkbenchReadModel;
+  intent: CatalogPrimaryWorkbenchSubmitIntent;
+  selectedObservationIds?: readonly string[];
+}) {
+  const context = readModel.routeContext;
+  const observationIds = selectedObservationIds ?? context.selectedObservationIds;
+
+  return (
+    <>
+      <input type="hidden" name="_intent" value={intent} />
+      <input type="hidden" name="providerKey" value={context.providerKey ?? ""} />
+      <input type="hidden" name="unitKey" value={context.unitKey ?? ""} />
+      <input type="hidden" name="importScope" value={context.importScope ?? ""} />
+      <input type="hidden" name="profileVersion" value={context.profileVersion ?? ""} />
+      <input type="hidden" name="selectedObservationIds" value={observationIds.join(",")} />
+      <input type="hidden" name="jobId" value={context.jobId ?? ""} />
+      <input type="hidden" name="promotionPreviewId" value={context.promotionPreviewId ?? ""} />
+    </>
   );
 }
 
@@ -1459,6 +1693,38 @@ function stateLabel(state: string): string {
     .split("-")
     .join(" ")
     .replace(/^\w/, (char) => char.toUpperCase());
+}
+
+function commandSuccessTitle(result: CatalogPrimaryWorkbenchCommandFeedback["result"]): string {
+  if (result === "preview-ready") {
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.title");
+  }
+
+  return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.title");
+}
+
+function commandFeedbackDescription(feedback: CatalogPrimaryWorkbenchCommandFeedback): string {
+  if (feedback.status === "success") {
+    if (feedback.result === "preview-ready") {
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.description");
+    }
+
+    return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.queued.description");
+  }
+
+  switch (feedback.result) {
+    case "preview-required":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.preview.required");
+    case "reason-required":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.reason.required");
+    case "unsupported-command":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.unsupported");
+    case "invalid-intent":
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.invalid.intent");
+    case "command-failed":
+    default:
+      return t("catalog.features.sourceObservations.ui.primaryWorkbench.command.feedback.failed");
+  }
 }
 
 function supportNavigationState(readModel: CatalogPrimaryWorkbenchReadModel) {

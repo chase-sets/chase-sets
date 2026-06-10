@@ -223,6 +223,42 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
   });
 
+  it("submits primary workbench commands with clean intent and selected-observation context", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview(),
+      reviewObservations: { items: [sourceObservationListItem()], total: 1, count: 1 },
+      reviewPagination: { limit: 25, offset: 0 },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    const importForm = document.querySelector('form[data-catalog-primary-workbench-command="start-provider-import"]');
+    expect(importForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("start-provider-import");
+    expect(importForm?.querySelector<HTMLInputElement>('input[name="providerKey"]')?.value).toBe("tcgdex");
+    expect(importForm?.getAttribute("action")).toContain("/catalog/integrations?");
+    expect(importForm?.getAttribute("action")).not.toMatch(/raw-json|legacy|compat/i);
+
+    const reviewModule = screen.getByRole("heading", { name: "Source Observation review" }).closest("section");
+    const checkbox = within(reviewModule as HTMLElement).getAllByRole("checkbox")[0];
+    fireEvent.click(checkbox);
+
+    const selectedPreviewForm = Array.from(
+      document.querySelectorAll<HTMLFormElement>('form[data-catalog-primary-workbench-command="preview-promotion"]'),
+    ).find((form) => form.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value === "obs_001");
+    const rejectForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="reject-source-observations"]',
+    );
+
+    expect(selectedPreviewForm).toBeTruthy();
+    expect(rejectForm?.querySelector<HTMLInputElement>('input[name="selectedObservationIds"]')?.value).toBe("obs_001");
+    expect(rejectForm?.querySelector<HTMLInputElement>('input[name="reason"]')?.required).toBe(true);
+  });
+
   it("renders explicit-row command scope and stale-preview blockers before promotion execution", () => {
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
       requestUrl:
@@ -241,7 +277,11 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getByText("Explicit selected observations")).toBeTruthy();
     expect(screen.getAllByText("Stale").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Stale promotion preview").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "Promote Catalog facts" }).hasAttribute("disabled")).toBe(true);
+    expect(
+      screen
+        .getAllByRole("button", { name: "Promote Catalog facts" })
+        .every((button) => button.hasAttribute("disabled")),
+    ).toBe(true);
   });
 
   it("clears route-provided Source Observation selections when the review context changes", async () => {
