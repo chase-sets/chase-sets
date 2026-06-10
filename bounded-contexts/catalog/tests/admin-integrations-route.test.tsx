@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import IntegrationsRoute, { action } from "../routes/admin/integrations";
+import IntegrationsRoute, { action, loader } from "../routes/admin/integrations";
 import { buildCatalogPrimaryWorkbenchReadModel } from "../features/source-observations/ui/primary-workbench-read-model";
 import {
   profileReview,
@@ -65,9 +65,55 @@ describe("Catalog integrations route", () => {
     expect(screen.queryByText("Old integrations surface")).toBeNull();
   });
 
+  it("records primary workbench view, provider scope, and support detour telemetry from the loader", async () => {
+    const scopes = { items: [sourceObservationScope()], total: 1, count: 1 };
+    const profileReviews = { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 };
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      listSourceObservationIntegrationScopes: vi.fn().mockResolvedValue(scopes),
+      listSourceObservationProviderProfiles: vi.fn().mockResolvedValue(profileReviews),
+      getCatalogIntegrationControlPlaneOverview: vi.fn().mockResolvedValue(null),
+      listSourceObservations: vi.fn().mockResolvedValue({ items: [], total: 0, count: 0 }),
+      recordCatalogControlPlaneEvent,
+    });
+
+    await loader({
+      request: new Request(
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=adapter",
+      ),
+      params: {},
+      context: {},
+    } as Parameters<typeof loader>[0]);
+
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.primary_workbench_viewed",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        scopeId: "en:3:base:base1",
+      }),
+    );
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.provider_scope_selected",
+      }),
+    );
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.supporting_workflow_detour_opened",
+        detourTarget: "adapter-readiness",
+        detourOutcome: "opened",
+      }),
+    );
+  });
+
   it("queues a scoped provider import from the primary workbench route action", async () => {
     const enqueueSourceObservationIntegrationJob = vi.fn().mockResolvedValue({ jobId: "job_import_123" });
-    mockCreateCatalogRequestApiClient.mockReturnValue({ enqueueSourceObservationIntegrationJob });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      enqueueSourceObservationIntegrationJob,
+      recordCatalogControlPlaneEvent,
+    });
 
     const response = await runAction({
       _intent: "start-provider-import",
@@ -88,6 +134,17 @@ describe("Catalog integrations route", () => {
     expect(response.headers.get("Location")).toContain("jobId=job_import_123");
     expect(response.headers.get("Location")).toContain("commandStatus=success");
     expect(response.headers.get("Location")).toContain("commandResult=job-queued");
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.import_started",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        scopeId: "en:3:base:base1",
+        profileRef: "tcgdex:2026.06.04",
+        jobRefState: "present",
+        promotionResult: "job-queued",
+      }),
+    );
   });
 
   it("preserves selected IDs while creating a scoped promotion preview token", async () => {

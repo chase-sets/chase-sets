@@ -20,6 +20,7 @@ import {
 } from "@chase-sets/object-storage";
 import {
   getObservabilityRuntime,
+  recordCatalogControlPlaneEvent,
   recordCatalogIntegrationJob,
   recordCatalogIntegrationOptionQuery,
 } from "@chase-sets/observability";
@@ -107,6 +108,7 @@ function createSourceObservationTelemetry() {
       recordCatalogIntegrationJob({ ...event, operation: "integration-job" }),
     recordBulkReviewWorkUnit: (event: { jobKind: string; result: string }) =>
       recordCatalogIntegrationJob({ ...event, operation: "bulk-review-work-unit" }),
+    recordControlPlaneEvent: recordCatalogControlPlaneEvent,
   };
 }
 

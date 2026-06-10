@@ -143,7 +143,11 @@ import {
   queryCatalogProviderIntegrationOptionsWithCache,
   type CatalogProviderOptionQueryPage,
 } from "./provider-option-query-cache";
-import type { SourceObservationTelemetry } from "./catalog-integration-observability";
+import {
+  normalizeCatalogControlPlaneTelemetryEvent,
+  type CatalogControlPlaneTelemetryEventInput,
+  type SourceObservationTelemetry,
+} from "./catalog-integration-observability";
 import {
   planCatalogProviderPromotionCommands,
   type CatalogProviderPromotionResolvedCatalogMapping,
@@ -722,6 +726,10 @@ export type SourceObservationReadServices = Readonly<{
   getSourceObservationDetail: (observationId: string) => ReturnType<typeof getSourceObservationDetail>;
 }>;
 
+export type ControlPlaneTelemetryServices = Readonly<{
+  recordControlPlaneTelemetry: (event: CatalogControlPlaneTelemetryEventInput) => void;
+}>;
+
 export type SourceObservationRetentionServices = Readonly<{
   pruneSourceObservationJobRetention: (input?: {
     completedBefore?: string | Date;
@@ -744,6 +752,7 @@ export type SourceObservationServices = SourceObservationCommandServices &
   BulkReviewJobServices &
   IntegrationJobServices &
   SourceObservationReadServices &
+  ControlPlaneTelemetryServices &
   SourceObservationRetentionServices &
   SourceObservationProjectorServices;
 
@@ -1643,6 +1652,7 @@ export function createSourceObservationRuntime(
         }),
       );
       recordBulkReviewWorkUnitTelemetry(deps.sourceObservationTelemetry, claimed.action, terminalState);
+      recordBulkReviewControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, outcome);
       return 1;
     } catch (error) {
       if (error instanceof SourceObservationJobCancelledError || isDurableJobHandoffError(error, input)) {
@@ -1680,6 +1690,7 @@ export function createSourceObservationRuntime(
         }),
       );
       recordBulkReviewWorkUnitTelemetry(deps.sourceObservationTelemetry, claimed.action, "failed");
+      recordBulkReviewControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, outcome);
       return 1;
     }
   }
@@ -2158,6 +2169,7 @@ export function createSourceObservationRuntime(
           claimed.action,
           sourceObservationIntegrationJobTelemetryResult(turnResult.result),
         );
+        recordIntegrationJobControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, turnResult.result);
       } else {
         await requireSourceObservationJobClaim(
           integrationJobStore.releaseClaim({
@@ -2189,6 +2201,7 @@ export function createSourceObservationRuntime(
         }),
       );
       recordIntegrationJobTelemetry(deps.sourceObservationTelemetry, claimed.action, "failed");
+      recordIntegrationJobControlPlaneTelemetry(deps.sourceObservationTelemetry, claimed, null, "failed");
       return 1;
     }
   }
@@ -3196,6 +3209,9 @@ export function createSourceObservationRuntime(
       return { bulkReviewJobs, integrationJobs };
     },
     getSourceObservationDetail: (observationId) => getSourceObservationDetail(deps.db, observationId),
+    recordControlPlaneTelemetry: (event) => {
+      deps.sourceObservationTelemetry?.recordControlPlaneEvent?.(normalizeCatalogControlPlaneTelemetryEvent(event));
+    },
     projectors,
   };
 }
@@ -3216,6 +3232,59 @@ function recordBulkReviewWorkUnitTelemetry(
   telemetry?.recordBulkReviewWorkUnit?.({ jobKind, result });
 }
 
+function recordIntegrationJobControlPlaneTelemetry(
+  telemetry: SourceObservationTelemetry | undefined,
+  job: ClaimedSourceObservationIntegrationJob,
+  result: SourceObservationIntegrationJobResult | null,
+  fallbackResult?: "failed",
+): void {
+  if (job.action !== "import") {
+    return;
+  }
+
+  const failed = fallbackResult === "failed" || (result?.failed ?? 0) > 0;
+  telemetry?.recordControlPlaneEvent?.(
+    normalizeCatalogControlPlaneTelemetryEvent({
+      eventName: failed ? "catalog_control_plane.import_failed" : "catalog_control_plane.import_completed",
+      providerKey: job.scope.provider ?? job.profileSnapshot?.providerKey ?? null,
+      scopeId: integrationScopeTelemetryRef(job.scope),
+      profileRef: integrationProfileTelemetryRef(job.profileSnapshot),
+      jobRefState: "present",
+      observationStatus: result ? "mixed" : "unknown",
+      observationCount: result?.observed ?? result?.imported ?? null,
+      promotionResult: failed ? "failed" : "completed",
+      blockerCategory: failed ? "provider-transport" : null,
+      roleBucket: "unknown",
+    }),
+  );
+}
+
+function recordBulkReviewControlPlaneTelemetry(
+  telemetry: SourceObservationTelemetry | undefined,
+  job: ClaimedSourceObservationBulkJob,
+  outcome: SourceObservationBulkWorkUnitResult,
+): void {
+  if (job.action !== "promote") {
+    return;
+  }
+
+  const failed = outcome.status === "failed";
+  telemetry?.recordControlPlaneEvent?.(
+    normalizeCatalogControlPlaneTelemetryEvent({
+      eventName: failed ? "catalog_control_plane.promotion_failed" : "catalog_control_plane.promotion_completed",
+      providerKey: job.scope.provider ?? null,
+      scopeId: promotionScopeTelemetryRef(job.scope),
+      jobRefState: "present",
+      observationStatus: failed ? "unknown" : "promoted",
+      observationCount: 1,
+      promotionResult: failed ? "failed" : "completed",
+      promotionCount: failed ? 0 : 1,
+      blockerCategory: failed ? "promotion-conflict" : null,
+      roleBucket: "unknown",
+    }),
+  );
+}
+
 function sourceObservationIntegrationJobTelemetryResult(
   result: SourceObservationIntegrationJobResult,
 ): "completed" | "failed" | "skipped" {
@@ -3226,6 +3295,26 @@ function sourceObservationIntegrationJobTelemetryResult(
     return "skipped";
   }
   return "completed";
+}
+
+function integrationScopeTelemetryRef(scope: SourceObservationIntegrationJobScope): string | null {
+  const segments = [scope.language, scope.productLineId, scope.seriesId, scope.setId, scope.productId].filter(
+    (segment): segment is string => Boolean(segment),
+  );
+
+  return segments.length > 0 ? segments.join(":") : null;
+}
+
+function promotionScopeTelemetryRef(scope: SourceObservationFilterScope): string | null {
+  const segments = [scope.provider, scope.language, scope.setId, scope.status].filter((segment): segment is string =>
+    Boolean(segment),
+  );
+
+  return segments.length > 0 ? segments.join(":") : null;
+}
+
+function integrationProfileTelemetryRef(profile: SourceObservationIntegrationProfileSnapshot | null): string | null {
+  return profile ? `${profile.profileKey}:${profile.profileVersion}` : null;
 }
 
 async function listProviderIntegrationOptions(

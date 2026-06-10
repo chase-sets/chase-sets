@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { CatalogItemServices } from "../../catalog-items/api/runtime";
 import type { ReferenceDataServices } from "../../reference-data/api/runtime";
 import type { CatalogRuntimeDeps } from "../../../support/authoring-support/runtime-support";
@@ -6,6 +6,7 @@ import {
   createSourceObservationRuntime,
   type BulkReviewJobServices,
   type CatalogIntegrationEngineServices,
+  type ControlPlaneTelemetryServices,
   type IntegrationJobServices,
   type ProviderAdapterServices,
   type ProviderImportOrchestrationServices,
@@ -34,6 +35,7 @@ describe("Source Observation service facets", () => {
     const bulkReviewJobs: BulkReviewJobServices = services;
     const integrationJobs: IntegrationJobServices = services;
     const reads: SourceObservationReadServices = services;
+    const telemetry: ControlPlaneTelemetryServices = services;
 
     expect(providerAdapters.providerAdapterRegistry.require("reference-cards").providerKey).toBe("reference-cards");
     expect(providerAdapters.providerAdapterRegistry.require("tcgdex").providerKey).toBe("tcgdex");
@@ -47,6 +49,57 @@ describe("Source Observation service facets", () => {
     expect(typeof bulkReviewJobs.processNextBulkReviewJob).toBe("function");
     expect(typeof integrationJobs.processNextIntegrationJob).toBe("function");
     expect(typeof reads.listSourceObservations).toBe("function");
+    expect(typeof telemetry.recordControlPlaneTelemetry).toBe("function");
+  });
+
+  it("normalizes control-plane telemetry before recording through the host port", () => {
+    const recordControlPlaneEvent = vi.fn();
+    const services = createSourceObservationRuntime(
+      {
+        checkpointStore: {},
+        db: {},
+        eventStore: {},
+        sourceObservationTelemetry: { recordControlPlaneEvent },
+      } as unknown as CatalogRuntimeDeps,
+      {} as CatalogItemServices,
+      {} as ReferenceDataServices,
+    );
+
+    services.recordControlPlaneTelemetry({
+      eventName: "catalog_control_plane.blocker_hit",
+      providerKey: "provider@example.com",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      scopeId: "en:3:base:base1",
+      profileRef: "pokemon-tcg:2026.06.04",
+      jobRefState: "job_123" as never,
+      observationStatus: "changed",
+      observationCount: 42,
+      promotionResult: "operator note" as never,
+      promotionCount: 2,
+      blockerCategory: "provider-transport",
+      detourTarget: "adapter-readiness",
+      detourOutcome: "opened",
+      roleBucket: "operator",
+      readModelFreshness: "fresh",
+    });
+
+    expect(recordControlPlaneEvent).toHaveBeenCalledWith({
+      eventName: "catalog_control_plane.blocker_hit",
+      providerKey: "none",
+      unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+      scopeId: "en:3:base:base1",
+      profileRef: "pokemon-tcg:2026.06.04",
+      jobRefState: "none",
+      observationStatus: "changed",
+      observationCountBucket: "11-100",
+      promotionResult: "none",
+      promotionCountBucket: "2-10",
+      blockerCategory: "provider-transport",
+      detourTarget: "adapter-readiness",
+      detourOutcome: "opened",
+      roleBucket: "operator",
+      readModelFreshness: "fresh",
+    });
   });
 
   it("reports reference and TCGdex dry-run proof readiness by ingestion unit", async () => {

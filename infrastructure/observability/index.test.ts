@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  catalogControlPlaneEventAttributes,
   catalogIntegrationJobAttributes,
   catalogIntegrationOptionQueryAttributes,
   createLogger,
@@ -123,6 +124,45 @@ describe("public presence waitlist analytics observability", () => {
 });
 
 describe("catalog integration observability", () => {
+  it("maps control-plane journey events to bounded redaction-safe labels", () => {
+    expect(
+      catalogControlPlaneEventAttributes({
+        eventName: "catalog_control_plane.supporting_workflow_detour_opened",
+        providerKey: "TCG Player Provider",
+        unitKey: "tcgplayer:pokemon:single-card:source-observation-import",
+        scopeId: "en:3:base:base1",
+        profileRef: "pokemon-tcg:2026.06.04",
+        jobRefState: "present",
+        observationStatus: "changed",
+        observationCountBucket: "11-100",
+        promotionResult: "preview-ready",
+        promotionCountBucket: "2-10",
+        blockerCategory: "provider-transport",
+        detourTarget: "adapter-readiness",
+        detourOutcome: "opened",
+        roleBucket: "operator",
+        readModelFreshness: "fresh",
+      }),
+    ).toEqual({
+      context: "catalog",
+      event: "catalog_control_plane.supporting_workflow_detour_opened",
+      provider: "TCG_Player_Provider",
+      unit: "tcgplayer_pokemon_single-card_source-observation-import",
+      scope: "en_3_base_base1",
+      profile: "pokemon-tcg_2026.06.04",
+      job_ref: "present",
+      observation_status: "changed",
+      observation_count: "11-100",
+      promotion_result: "preview-ready",
+      promotion_count: "2-10",
+      blocker_category: "provider-transport",
+      detour_target: "adapter-readiness",
+      detour_outcome: "opened",
+      role_bucket: "operator",
+      read_model_freshness: "fresh",
+    });
+  });
+
   it("maps provider option queries to bounded metric labels", () => {
     expect(
       catalogIntegrationOptionQueryAttributes({
