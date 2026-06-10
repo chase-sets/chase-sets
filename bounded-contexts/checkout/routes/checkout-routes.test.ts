@@ -1241,7 +1241,7 @@ describe("checkout web routes", () => {
     expect(response.headers.get("Location")).toBe("/checkout/chk_offer");
   });
 
-  it("keeps checkout visible when live fulfillment preview is temporarily unavailable", async () => {
+  it("keeps checkout visible when checkout totals are temporarily unavailable", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockGetCheckoutSession.mockResolvedValue({
       session_id: "chk_1",
@@ -1283,8 +1283,7 @@ describe("checkout web routes", () => {
     expect(result).toEqual(
       expect.objectContaining({
         fulfillmentPreview: null,
-        previewError:
-          "Live fulfillment preview is temporarily unavailable. You can still review checkout and refresh before confirming.",
+        previewError: "Checkout totals are temporarily unavailable. Refresh before confirming payment.",
       }),
     );
     expect(mockPreviewCheckoutFulfillment).toHaveBeenCalledWith(

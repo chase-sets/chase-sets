@@ -36,7 +36,7 @@ import { normalizeRequestedBalanceCreditAmount } from "../support/request-suppor
 import { CheckoutSessionPage } from "../features/sessions/ui/checkout-page";
 import { LinkButton, MarketplaceEmptyState, Page, PageSection } from "@chase-sets/design-system";
 
-const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.choose.shipping.and.create.purchases.grouped");
+const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.enter.contact.delivery.shipping.payment");
 const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
   "checkout.routes.checkoutSession.fulfillment.preview.temporarily.unavailable",
 );
