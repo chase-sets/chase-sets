@@ -1,6 +1,7 @@
 export type CatalogControlPlaneContextKey =
+  | "section"
   | "providerKey"
-  | "ingestionUnitKey"
+  | "unitKey"
   | "importScope"
   | "profileVersion"
   | "sourceObservationFilters"
@@ -58,8 +59,9 @@ export type CatalogControlPlaneCurrentConceptDisposition = Readonly<{
 }>;
 
 export const CATALOG_CONTROL_PLANE_CONTEXT_KEYS = [
+  "section",
   "providerKey",
-  "ingestionUnitKey",
+  "unitKey",
   "importScope",
   "profileVersion",
   "sourceObservationFilters",
@@ -102,7 +104,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     completesAt: "Named blocker owner, affected primary action, and return link.",
     evidenceScope: ["Semantic readiness", "Transport readiness", "Projection freshness", "Diagnostic counts"],
     primaryPathRole: "supporting-detour",
-    linkBackContextKeys: ["providerKey", "ingestionUnitKey", "importScope", "jobId", "returnPath"],
+    linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "jobId", "returnPath"],
     consumesIssues: [1032, 1060, 1058],
   },
   {
@@ -116,7 +118,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     completesAt: "Saved draft, active profile snapshot, or section-level diagnostic result.",
     evidenceScope: ["Profile overview", "Section diagnostics", "Dirty state", "Save outcome"],
     primaryPathRole: "supporting-detour",
-    linkBackContextKeys: ["providerKey", "ingestionUnitKey", "profileVersion", "returnPath"],
+    linkBackContextKeys: ["section", "providerKey", "unitKey", "profileVersion", "returnPath"],
     consumesIssues: [1033, 1034, 1035],
   },
   {
@@ -130,7 +132,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     completesAt: "Validation evidence attached to the blocked import or promotion action.",
     evidenceScope: ["Fixture result", "Dry-run facts", "Semantic diff", "Activation readiness"],
     primaryPathRole: "supporting-detour",
-    linkBackContextKeys: ["providerKey", "ingestionUnitKey", "importScope", "profileVersion", "returnPath"],
+    linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "returnPath"],
     consumesIssues: [1036, 1037],
   },
   {
@@ -144,7 +146,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     completesAt: "Import can proceed or shows a provider-owned remediation.",
     evidenceScope: ["Credential state", "Adapter state", "Option cache state", "Provider transport limits"],
     primaryPathRole: "supporting-detour",
-    linkBackContextKeys: ["providerKey", "ingestionUnitKey", "importScope", "returnPath"],
+    linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "returnPath"],
     consumesIssues: [1035, 1065],
   },
   {
@@ -159,8 +161,9 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     evidenceScope: ["Affected references", "Replay impact", "Reapply impact", "Rollback or retirement plan"],
     primaryPathRole: "supporting-detour",
     linkBackContextKeys: [
+      "section",
       "providerKey",
-      "ingestionUnitKey",
+      "unitKey",
       "importScope",
       "profileVersion",
       "sourceObservationFilters",
@@ -181,7 +184,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     completesAt: "Allowed action or explicit fail-closed reason with owner and metric.",
     evidenceScope: ["RBAC matrix", "Rollout mode", "Kill switches", "Operational metrics"],
     primaryPathRole: "supporting-detour",
-    linkBackContextKeys: ["providerKey", "ingestionUnitKey", "importScope", "jobId", "returnPath"],
+    linkBackContextKeys: ["section", "providerKey", "unitKey", "importScope", "jobId", "returnPath"],
     consumesIssues: [1043, 1059, 1064],
   },
   {
@@ -196,8 +199,9 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     evidenceScope: ["Audit timeline", "Release evidence", "Smoke proof", "Risk register links"],
     primaryPathRole: "supporting-detour",
     linkBackContextKeys: [
+      "section",
       "providerKey",
-      "ingestionUnitKey",
+      "unitKey",
       "importScope",
       "profileVersion",
       "sourceObservationFilters",

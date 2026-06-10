@@ -90,10 +90,5 @@ export default function IntegrationsRoute() {
     [canManageCatalog, routeData],
   );
 
-  return (
-    <CatalogPrimaryWorkbenchPage
-      readModel={readModel}
-      initialSection={new URL(routeData.requestUrl).searchParams.get("section") ?? undefined}
-    />
-  );
+  return <CatalogPrimaryWorkbenchPage readModel={readModel} />;
 }

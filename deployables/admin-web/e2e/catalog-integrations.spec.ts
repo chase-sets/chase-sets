@@ -118,8 +118,21 @@ test.describe("catalog admin integrations", () => {
     await expect(page.getByRole("textbox", { name: /JSON/i })).toHaveCount(0);
     await expect(page.getByText(/Old integrations surface/i)).toHaveCount(0);
 
+    await expectPageOk(
+      page,
+      "/catalog/integrations?providerKey=tcgdex&section=triage&filter.status=changed&selectedObservationIds=obs_001",
+    );
+    await page.waitForLoadState("networkidle");
+    await expect(page).toHaveURL(/\/catalog\/integrations\?.*section=triage/);
+    await expect(page.getByRole("link", { name: /Health triage/i })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link", { name: /Import to promotion workbench/i })).toHaveAttribute(
+      "href",
+      /section=workbench/,
+    );
+
     await page.setViewportSize({ width: 390, height: 900 });
     await expect(page.getByRole("navigation", { name: "Catalog control plane workflows" })).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "Choose Catalog workflow" })).toHaveValue("health-triage");
     await expect(page.getByRole("button", { name: /Pull provider data/i }).first()).toBeVisible();
     await expect(
       page
@@ -127,6 +140,9 @@ test.describe("catalog admin integrations", () => {
         .filter({ hasText: /Promote into Catalog Items/i })
         .first(),
     ).toBeVisible();
+    await page.getByRole("combobox", { name: "Choose Catalog workflow" }).selectOption("audit-evidence");
+    await expect(page).toHaveURL(/\/catalog\/integrations\?.*section=evidence/);
+    await expect(page).toHaveURL(/returnPath=/);
     await page.setViewportSize({ width: 1280, height: 900 });
   });
 });
