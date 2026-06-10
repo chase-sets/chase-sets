@@ -43,17 +43,96 @@ type DbStreamVersionRow = Readonly<{
   current_version: number | string;
 }>;
 
+export const EVENT_STORE_WAKE_NOTIFICATION_KIND = "event-store.commit";
+export const EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION = 1;
+export const EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION = 1;
+export const DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL = "platform_event_store_commits";
+export const DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE = "event-core-postgres";
+export const EVENT_STORE_WAKE_NOTIFICATION_MAX_PAYLOAD_BYTES = 4 * 1024;
+
+export type EventStoreWakeNotificationPayload = Readonly<{
+  sourceContextName: string;
+  streamCategory: string;
+  firstGlobalPosition: GlobalPosition;
+  lastGlobalPosition: GlobalPosition;
+  eventCount: number;
+  eventTypes: readonly string[];
+}>;
+
+export type EventStoreWakeNotificationEnvelope = Readonly<{
+  schemaVersion: typeof EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION;
+  payloadVersion: typeof EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION;
+  kind: typeof EVENT_STORE_WAKE_NOTIFICATION_KIND;
+  source: string;
+  emittedAt: IsoUtcTimestamp;
+  correlationId?: string;
+  payload: EventStoreWakeNotificationPayload;
+}>;
+
+export type EventStoreWakeNotificationObserver = Readonly<{
+  notificationEmitted?: (event: EventStoreWakeNotificationEmittedEvent) => void;
+  notificationFailed?: (event: EventStoreWakeNotificationFailedEvent) => void;
+  payloadRejected?: (event: EventStoreWakeNotificationPayloadRejectedEvent) => void;
+}>;
+
+export type EventStoreWakeNotificationEmittedEvent = Readonly<{
+  channel: string;
+  sourceContextName: string;
+  streamCategory: string;
+  firstGlobalPosition: GlobalPosition;
+  lastGlobalPosition: GlobalPosition;
+  eventCount: number;
+  eventTypes: readonly string[];
+  payloadBytes: number;
+  correlationId: string | null;
+}>;
+
+export type EventStoreWakeNotificationFailedEvent = Readonly<{
+  channel: string;
+  sourceContextName: string;
+  streamCategory: string;
+  firstGlobalPosition: GlobalPosition;
+  lastGlobalPosition: GlobalPosition;
+  eventCount: number;
+  correlationId: string | null;
+  error: unknown;
+}>;
+
+export type EventStoreWakeNotificationPayloadRejectedEvent = Readonly<{
+  channel: string;
+  sourceContextName: string;
+  streamCategory: string;
+  firstGlobalPosition: GlobalPosition;
+  lastGlobalPosition: GlobalPosition;
+  eventCount: number;
+  correlationId: string | null;
+  reason: string;
+}>;
+
+export type PostgresEventStoreWakeNotificationConfig = Readonly<{
+  enabled: boolean;
+  channel?: string;
+  source?: string;
+  maxPayloadBytes?: number;
+  observer?: EventStoreWakeNotificationObserver;
+}>;
+
 export type PostgresEventStoreConfig = Readonly<{
   pool: PgTransactionalPool;
   eventsTableName?: string;
   streamsTableName?: string;
   now?: () => IsoUtcTimestamp;
   createEventId?: () => EventId;
+  wakeNotifications?: PostgresEventStoreWakeNotificationConfig;
 }>;
 
 const DEFAULT_EVENTS_TABLE = "event_store_events";
 
 const DEFAULT_STREAMS_TABLE = "event_store_streams";
+
+const POSTGRES_WAKE_NOTIFICATION_CHANNEL_PATTERN = /^[A-Za-z_][A-Za-z0-9_]{0,62}$/;
+const SENSITIVE_WAKE_NOTIFICATION_KEY_PATTERN =
+  /(^|_|\b)(email|guestEmail|payment|card|pan|cvc|cvv|password|secret|privatePayload|providerPayload|eventPayload|rawPayload|payloadJson|phone|address|tenantId|userId|accountId|streamId)(_|$|\b)/i;
 
 const EVENT_COLUMNS = [
   "event_id",
@@ -61,6 +140,8 @@ const EVENT_COLUMNS = [
   "stream_version",
   "global_position",
   "tenant_id",
+  "stream_context_name",
+  "stream_category",
   "event_type",
   "payload",
   "metadata",
@@ -80,6 +161,7 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
   const streamsTable = assertSqlIdentifier(config.streamsTableName ?? DEFAULT_STREAMS_TABLE);
   const now = config.now ?? nowIsoUtcTimestamp;
   const createEventId = config.createEventId ?? createDefaultEventId;
+  const wakeNotifications = normalizeEventStoreWakeNotificationConfig(config.wakeNotifications);
 
   const upsertStreamSql = `
     INSERT INTO ${streamsTable} (stream_id, current_version, updated_at)
@@ -149,17 +231,29 @@ export function createPostgresEventStore(config: PostgresEventStoreConfig): Even
         },
         async () => {
           try {
-            return await withTransaction(pool, async (client) =>
-              appendEventsToStream({
-                client,
-                input,
-                now,
-                createEventId,
-                upsertStreamSql,
-                readCurrentVersionSql,
-                insertEventSql,
-                updateStreamVersionSql,
-              }),
+            return await withTransaction(
+              pool,
+              async (client) =>
+                appendEventsToStream({
+                  client,
+                  input,
+                  now,
+                  createEventId,
+                  upsertStreamSql,
+                  readCurrentVersionSql,
+                  insertEventSql,
+                  updateStreamVersionSql,
+                }),
+              wakeNotifications
+                ? (client, storedEvents) =>
+                    emitEventStoreWakeNotificationAfterCommit({
+                      client,
+                      config: wakeNotifications,
+                      input,
+                      storedEvents,
+                      emittedAt: now(),
+                    })
+                : undefined,
             );
           } catch (error) {
             throw normalizeEventStoreError(error, "Failed to append events to Postgres event store.");
@@ -235,6 +329,13 @@ type ReadAllQueryInput = Readonly<{
   tenantId?: ReadAllInput["tenantId"];
   eventTypes?: readonly string[];
   streamPrefixes?: readonly string[];
+}>;
+
+type NormalizedEventStoreWakeNotificationConfig = Readonly<{
+  channel: string;
+  source: string;
+  maxPayloadBytes: number;
+  observer?: EventStoreWakeNotificationObserver;
 }>;
 
 function buildReadAllSql(eventsTable: string, input: ReadAllInput | undefined): string {
@@ -449,16 +550,283 @@ function streamCategory(streamId: string): string {
   return lastDashIndex > 0 ? streamId.slice(0, lastDashIndex) : streamId;
 }
 
-async function withTransaction<T>(pool: PgTransactionalPool, work: (client: PgPoolClient) => Promise<T>): Promise<T> {
+function normalizeEventStoreWakeNotificationConfig(
+  config: PostgresEventStoreWakeNotificationConfig | undefined,
+): NormalizedEventStoreWakeNotificationConfig | null {
+  if (!config?.enabled) {
+    return null;
+  }
+
+  const channel = assertPostgresEventStoreWakeNotificationChannel(
+    config.channel ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_CHANNEL,
+  );
+  const source = (config.source ?? DEFAULT_EVENT_STORE_WAKE_NOTIFICATION_SOURCE).trim();
+
+  if (!source) {
+    throw new Error("Event-store wake notification source is required.");
+  }
+
+  return {
+    channel,
+    source,
+    maxPayloadBytes: Math.max(1, Math.floor(config.maxPayloadBytes ?? EVENT_STORE_WAKE_NOTIFICATION_MAX_PAYLOAD_BYTES)),
+    ...(config.observer ? { observer: config.observer } : {}),
+  };
+}
+
+type EmitEventStoreWakeNotificationAfterCommitArgs = Readonly<{
+  client: PgPoolClient;
+  config: NormalizedEventStoreWakeNotificationConfig;
+  input: AppendToStreamInput;
+  storedEvents: readonly StoredEvent[];
+  emittedAt: IsoUtcTimestamp;
+}>;
+
+async function emitEventStoreWakeNotificationAfterCommit(
+  args: EmitEventStoreWakeNotificationAfterCommitArgs,
+): Promise<void> {
+  if (args.storedEvents.length === 0) {
+    return;
+  }
+
+  const envelope = createEventStoreWakeNotificationEnvelope({
+    input: args.input,
+    storedEvents: args.storedEvents,
+    source: args.config.source,
+    emittedAt: args.emittedAt,
+  });
+  const observation = createEventStoreWakeNotificationObservation(args.config.channel, envelope);
+  let serialized: string;
+
+  try {
+    serialized = serializeEventStoreWakeNotificationEnvelope(envelope, {
+      maxPayloadBytes: args.config.maxPayloadBytes,
+    });
+  } catch (error) {
+    args.config.observer?.payloadRejected?.({
+      ...observation,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  try {
+    await args.client.query("SELECT pg_notify($1, $2)", [args.config.channel, serialized]);
+    args.config.observer?.notificationEmitted?.({
+      ...observation,
+      payloadBytes: byteLengthUtf8(serialized),
+    });
+  } catch (error) {
+    args.config.observer?.notificationFailed?.({
+      ...observation,
+      error,
+    });
+  }
+}
+
+type CreateEventStoreWakeNotificationEnvelopeArgs = Readonly<{
+  input: AppendToStreamInput;
+  storedEvents: readonly StoredEvent[];
+  source: string;
+  emittedAt: IsoUtcTimestamp;
+}>;
+
+function createEventStoreWakeNotificationEnvelope(
+  args: CreateEventStoreWakeNotificationEnvelopeArgs,
+): EventStoreWakeNotificationEnvelope {
+  const firstEvent = args.storedEvents[0];
+  const lastEvent = args.storedEvents[args.storedEvents.length - 1];
+  const correlationId = eventStoreWakeCorrelationId(args.input, args.storedEvents);
+
+  return {
+    schemaVersion: EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION,
+    payloadVersion: EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION,
+    kind: EVENT_STORE_WAKE_NOTIFICATION_KIND,
+    source: args.source,
+    emittedAt: args.emittedAt,
+    ...(correlationId ? { correlationId } : {}),
+    payload: {
+      sourceContextName: streamContextName(args.input.streamId),
+      streamCategory: streamCategory(args.input.streamId),
+      firstGlobalPosition: firstEvent.globalPosition,
+      lastGlobalPosition: lastEvent.globalPosition,
+      eventCount: args.storedEvents.length,
+      eventTypes: [...new Set(args.storedEvents.map((event) => event.eventType))],
+    },
+  };
+}
+
+function eventStoreWakeCorrelationId(input: AppendToStreamInput, storedEvents: readonly StoredEvent[]): string | null {
+  return input.context.trace?.traceId ?? storedEvents[0]?.eventId ?? null;
+}
+
+function createEventStoreWakeNotificationObservation(
+  channel: string,
+  envelope: EventStoreWakeNotificationEnvelope,
+): Omit<EventStoreWakeNotificationEmittedEvent, "payloadBytes"> {
+  return {
+    channel,
+    sourceContextName: envelope.payload.sourceContextName,
+    streamCategory: envelope.payload.streamCategory,
+    firstGlobalPosition: envelope.payload.firstGlobalPosition,
+    lastGlobalPosition: envelope.payload.lastGlobalPosition,
+    eventCount: envelope.payload.eventCount,
+    eventTypes: envelope.payload.eventTypes,
+    correlationId: envelope.correlationId ?? null,
+  };
+}
+
+export function serializeEventStoreWakeNotificationEnvelope(
+  envelope: EventStoreWakeNotificationEnvelope,
+  options: Readonly<{ maxPayloadBytes?: number }> = {},
+): string {
+  assertSafeEventStoreWakeNotificationEnvelope(envelope);
+  const serialized = JSON.stringify(envelope);
+  const maxPayloadBytes = Math.max(
+    1,
+    Math.floor(options.maxPayloadBytes ?? EVENT_STORE_WAKE_NOTIFICATION_MAX_PAYLOAD_BYTES),
+  );
+  const payloadBytes = byteLengthUtf8(serialized);
+
+  if (payloadBytes > maxPayloadBytes) {
+    throw new Error(
+      `Event-store wake notification payload is ${payloadBytes} bytes, which exceeds the ${maxPayloadBytes} byte limit.`,
+    );
+  }
+
+  return serialized;
+}
+
+export function parseEventStoreWakeNotificationEnvelope(
+  payload: string | undefined,
+): EventStoreWakeNotificationEnvelope | null {
+  if (!payload) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(payload) as EventStoreWakeNotificationEnvelope;
+    assertSafeEventStoreWakeNotificationEnvelope(parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function assertPostgresEventStoreWakeNotificationChannel(channel: string): string {
+  if (!POSTGRES_WAKE_NOTIFICATION_CHANNEL_PATTERN.test(channel)) {
+    throw new Error(`Invalid Postgres event-store wake notification channel '${channel}'.`);
+  }
+
+  return channel;
+}
+
+function assertSafeEventStoreWakeNotificationEnvelope(envelope: EventStoreWakeNotificationEnvelope): void {
+  if (envelope.schemaVersion !== EVENT_STORE_WAKE_NOTIFICATION_SCHEMA_VERSION) {
+    throw new Error(`Unsupported event-store wake notification schemaVersion '${String(envelope.schemaVersion)}'.`);
+  }
+  if (envelope.payloadVersion !== EVENT_STORE_WAKE_NOTIFICATION_PAYLOAD_VERSION) {
+    throw new Error(`Unsupported event-store wake notification payloadVersion '${String(envelope.payloadVersion)}'.`);
+  }
+  if (envelope.kind !== EVENT_STORE_WAKE_NOTIFICATION_KIND) {
+    throw new Error(`Unsupported event-store wake notification kind '${String(envelope.kind)}'.`);
+  }
+  if (!envelope.source?.trim()) {
+    throw new Error("Event-store wake notification source is required.");
+  }
+  if (!envelope.emittedAt || Number.isNaN(new Date(envelope.emittedAt).getTime())) {
+    throw new Error("Event-store wake notification emittedAt must be an ISO timestamp.");
+  }
+
+  assertSafeWakeNotificationPayload(envelope.payload);
+  assertSafeWakeNotificationRecord(envelope.payload, "payload");
+}
+
+function assertSafeWakeNotificationPayload(payload: EventStoreWakeNotificationPayload): void {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("Event-store wake notification payload must be a JSON object.");
+  }
+  if (typeof payload.sourceContextName !== "string" || !payload.sourceContextName.trim()) {
+    throw new Error("Event-store wake notification payload.sourceContextName is required.");
+  }
+  if (typeof payload.streamCategory !== "string" || !payload.streamCategory.trim()) {
+    throw new Error("Event-store wake notification payload.streamCategory is required.");
+  }
+  assertGlobalPositionString(payload.firstGlobalPosition, "payload.firstGlobalPosition");
+  assertGlobalPositionString(payload.lastGlobalPosition, "payload.lastGlobalPosition");
+  if (!Number.isInteger(payload.eventCount) || payload.eventCount < 1) {
+    throw new Error("Event-store wake notification payload.eventCount must be a positive integer.");
+  }
+  if (!Array.isArray(payload.eventTypes) || payload.eventTypes.length < 1) {
+    throw new Error("Event-store wake notification payload.eventTypes must contain at least one event type.");
+  }
+  for (const eventType of payload.eventTypes) {
+    if (typeof eventType !== "string" || !eventType.trim()) {
+      throw new Error("Event-store wake notification payload.eventTypes must contain non-empty strings.");
+    }
+  }
+}
+
+function assertGlobalPositionString(value: unknown, fieldName: string): asserts value is GlobalPosition {
+  if (typeof value !== "string") {
+    throw new Error(`Event-store wake notification ${fieldName} must be a global position string.`);
+  }
+
+  parseGlobalPosition(value);
+}
+
+function assertSafeWakeNotificationRecord(value: unknown, path: string): void {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`Event-store wake notification ${path} must be a JSON object.`);
+  }
+
+  for (const [key, nested] of Object.entries(value)) {
+    const nestedPath = `${path}.${key}`;
+    if (SENSITIVE_WAKE_NOTIFICATION_KEY_PATTERN.test(key)) {
+      throw new Error(`Event-store wake notification ${nestedPath} uses a sensitive payload key.`);
+    }
+
+    if (!nested || typeof nested !== "object") {
+      continue;
+    }
+
+    if (Array.isArray(nested)) {
+      for (let index = 0; index < nested.length; index += 1) {
+        const item = nested[index];
+        if (item && typeof item === "object") {
+          assertSafeWakeNotificationRecord(item, `${nestedPath}[${index}]`);
+        }
+      }
+      continue;
+    }
+
+    assertSafeWakeNotificationRecord(nested, nestedPath);
+  }
+}
+
+function byteLengthUtf8(value: string): number {
+  return typeof Buffer !== "undefined" ? Buffer.byteLength(value, "utf8") : new TextEncoder().encode(value).length;
+}
+
+async function withTransaction<T>(
+  pool: PgTransactionalPool,
+  work: (client: PgPoolClient) => Promise<T>,
+  afterCommit?: (client: PgPoolClient, result: T) => Promise<void>,
+): Promise<T> {
   const client = await pool.connect();
+  let committed = false;
 
   try {
     await client.query("BEGIN");
     const result = await work(client);
     await client.query("COMMIT");
+    committed = true;
+    await afterCommit?.(client, result);
     return result;
   } catch (error) {
-    await client.query("ROLLBACK");
+    if (!committed) {
+      await client.query("ROLLBACK");
+    }
     throw error;
   } finally {
     client.release();
