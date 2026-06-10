@@ -960,6 +960,16 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
 
+        dynamic "env" {
+          for_each = local.worker_listener_database_urls
+          content {
+            key   = "WORKER_LISTENER_DATABASE_URL_${upper(replace(env.key, "-", "_"))}"
+            value = env.value
+            type  = "SECRET"
+            scope = "RUN_TIME"
+          }
+        }
+
         env {
           key   = "SOURCE_OBSERVATION_BULK_JOB_LANE_COUNT"
           value = local.source_observation_bulk_job_lanes

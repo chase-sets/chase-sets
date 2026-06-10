@@ -4,6 +4,7 @@ import {
   type PgTransactionalPool,
   type PgQueryable,
 } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createProjectionHandlerSet, type ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import type { NotificationOutbox } from "@chase-sets/notifications";
 import { createPostgresNotificationOutbox } from "@chase-sets/notification-outbox";
@@ -29,7 +30,10 @@ export type DiscoveryServices = Readonly<{
 }>;
 
 export function createDiscoveryServices(pool: PgTransactionalPool, ports: DiscoveryHostPorts = {}): DiscoveryServices {
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "discovery" }),
+  });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const deps = { eventStore, checkpointStore, db } as const;

@@ -4,6 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createPriceSignalRuntime } from "../../features/price-signals/api/runtime";
 import { createPricingRecommendationRuntime } from "../../features/recommendations/api/runtime";
@@ -17,7 +18,10 @@ export type PricingServices = Readonly<{
 }>;
 
 export function createPricingServices(pool: PgTransactionalPool): PricingServices {
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "pricing" }),
+  });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const priceSignals = createPriceSignalRuntime({ db });

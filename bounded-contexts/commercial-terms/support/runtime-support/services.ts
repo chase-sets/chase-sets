@@ -4,6 +4,7 @@ import {
   type PgQueryable,
   type PgTransactionalPool,
 } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
 import { createAgreementRuntime } from "../../features/agreements/api/runtime";
 import { createResolutionRuntime } from "../../features/resolutions/api/runtime";
@@ -19,7 +20,12 @@ export type CommercialTermsServices = Readonly<{
 }>;
 
 export function createCommercialTermsServices(pool: PgTransactionalPool): CommercialTermsServices {
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({
+      sourceContextName: "commercial-terms",
+    }),
+  });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const schedules = createScheduleRuntime({

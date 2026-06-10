@@ -1,4 +1,5 @@
 import { createPostgresEventStore } from "@chase-sets/event-core-postgres";
+import { createEventStoreWakeNotificationConfigForSourceContext } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresProjectionStore } from "@chase-sets/event-core-postgres";
 import type { PgTransactionalPool, PgQueryable } from "@chase-sets/event-core-postgres";
 import type { ProjectionHandlerSet } from "@chase-sets/event-core/projector";
@@ -41,7 +42,10 @@ export type CatalogServices = Readonly<{
 }>;
 
 export function createCatalogServices(pool: PgTransactionalPool, ports: CatalogHostPorts = {}): CatalogServices {
-  const eventStore = createPostgresEventStore({ pool });
+  const eventStore = createPostgresEventStore({
+    pool,
+    wakeNotifications: createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "catalog" }),
+  });
   const checkpointStore = createPostgresProjectionStore({ db: pool });
   const db = pool as PgQueryable;
   const deps = {

@@ -239,6 +239,12 @@ describe("DigitalOcean platform configuration", () => {
       expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(1);
     }
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"')).toBe(1);
+    expect(platformLocals).toContain(
+      'worker_listener_source_contexts = ["checkout", "marketplace", "ordering", "payments"]',
+    );
+    expect(platformLocals).toContain("worker_listener_database_urls");
+    expect(occurrenceCount(platformMain, "for_each = local.worker_listener_database_urls")).toBe(1);
+    expect(platformMain).toContain('key   = "WORKER_LISTENER_DATABASE_URL_${upper(replace(env.key, "-", "_"))}"');
     expect(platformMain).toContain('check "worker_runner_capacity"');
     expect(platformMain).toContain("tonumber(local.worker_job_concurrency)");
     expect(platformMain).toContain("tonumber(local.worker_wake_concurrency)");
