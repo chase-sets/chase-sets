@@ -155,13 +155,6 @@ describe("checkout sell list page", () => {
     expect(markup).not.toContain("settlement internals");
   });
 
-  it("confirms when sale checkout review is recorded", () => {
-    const markup = renderToString(<CheckoutSellListPage sellListLines={[]} reviewCompleted />);
-
-    expect(markup).toContain("Sale checkout review recorded");
-    expect(markup).toContain("cleared the Sell List items");
-  });
-
   it("shows a simple empty Sell List recovery state", () => {
     const markup = renderToString(<CheckoutSellListPage sellListLines={[]} />);
 

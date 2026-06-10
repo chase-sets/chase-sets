@@ -29,11 +29,7 @@ import {
 } from "@chase-sets/design-system";
 import { t } from "@chase-sets/localization";
 import { useState } from "react";
-import type {
-  CheckoutSellListExecutionRow,
-  CheckoutSellListLineRow,
-  CheckoutSellListReceiptRow,
-} from "../read-model/queries";
+import type { CheckoutSellListLineRow } from "../read-model/queries";
 
 type SellListOfferReview = Readonly<{
   lineId: string;
@@ -563,10 +559,6 @@ function ProductLineRow({
 export function CheckoutSellListPage({
   sellListLines,
   isSignedIn = true,
-  reviewCompleted = false,
-  sellListExecutionId = null,
-  latestPendingExecution = null,
-  latestReceipt = null,
   offerReviews = [],
   productOfferReviews = [],
   inventoryItems = [],
@@ -575,10 +567,6 @@ export function CheckoutSellListPage({
 }: {
   sellListLines: readonly CheckoutSellListLineRow[];
   isSignedIn?: boolean;
-  reviewCompleted?: boolean;
-  sellListExecutionId?: string | null;
-  latestPendingExecution?: CheckoutSellListExecutionRow | null;
-  latestReceipt?: CheckoutSellListReceiptRow | null;
   offerReviews?: readonly SellListOfferReview[];
   productOfferReviews?: readonly SellListProductOfferReview[];
   inventoryItems?: readonly SellListInventoryItem[];
@@ -736,58 +724,6 @@ export function CheckoutSellListPage({
           />
         ) : null}
 
-        {reviewCompleted ? (
-          <Stack gap={3}>
-            <MarketplaceNotice
-              tone="success"
-              title={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded")}
-              description={t("checkout.features.sellList.ui.sellListPage.sale.checkout.review.recorded.description")}
-            />
-            {latestReceipt?.execution_summary.lineOutcomes?.length ? (
-              <Surface elevated>
-                <Stack gap={3}>
-                  <Inline gap={2}>
-                    <Badge tone="success">{t("checkout.features.sellList.ui.sellListPage.sale.receipt")}</Badge>
-                    <Text weight="semibold">
-                      {t("checkout.features.sellList.ui.sellListPage.sale.receipt.summary", {
-                        acceptedOfferCount: latestReceipt.execution_summary.acceptedOfferCount ?? 0,
-                        createdListingCount: latestReceipt.execution_summary.createdListingCount ?? 0,
-                      })}
-                    </Text>
-                  </Inline>
-                  <Stack gap={2}>
-                    {latestReceipt.execution_summary.lineOutcomes.map((outcome) => (
-                      <KeyValueList
-                        key={`${outcome.lineId}:${outcome.status}`}
-                        density="compact"
-                        variant="plain"
-                        items={[
-                          {
-                            key: t("checkout.features.sellList.ui.sellListPage.receipt.item"),
-                            value: outcome.itemTitle,
-                          },
-                          {
-                            key: t("checkout.features.sellList.ui.sellListPage.receipt.result"),
-                            value: outcome.status,
-                          },
-                          {
-                            key: t("checkout.features.sellList.ui.sellListPage.receipt.quantity"),
-                            value: outcome.quantity,
-                          },
-                          {
-                            key: t("checkout.features.sellList.ui.sellListPage.receipt.remaining"),
-                            value: outcome.remainingQuantity,
-                          },
-                        ]}
-                      />
-                    ))}
-                  </Stack>
-                </Stack>
-              </Surface>
-            ) : null}
-          </Stack>
-        ) : null}
-
         {sellListLines.length === 0 ? (
           <MarketplaceEmptyState
             title={t("checkout.features.sellList.ui.sellListPage.your.sell.list.is.empty")}
@@ -817,41 +753,6 @@ export function CheckoutSellListPage({
                     : t("checkout.features.sellList.ui.sellListPage.ready.for.seller.checkout.description")
                 }
               />
-
-              {latestPendingExecution ? (
-                <Surface tone="subtle" elevated>
-                  <Stack gap={3}>
-                    <MarketplaceNotice
-                      tone="warning"
-                      title={t("checkout.features.sellList.ui.sellListPage.pending.seller.checkout")}
-                      description={t("checkout.features.sellList.ui.sellListPage.pending.seller.checkout.description")}
-                    />
-                    <Inline gap={2}>
-                      <Button
-                        type="submit"
-                        form="sell-list-checkout-form"
-                        name="intent"
-                        value="review-sell-list-checkout"
-                        leadingIcon="refreshCcw"
-                        disabled={!canContinue}
-                      >
-                        {t("checkout.features.sellList.ui.sellListPage.continue.pending.checkout")}
-                      </Button>
-                      <Button
-                        type="submit"
-                        form="sell-list-checkout-form"
-                        name="intent"
-                        value="rebuild-sell-list-checkout"
-                        tone="secondary"
-                        leadingIcon="refreshCcw"
-                        disabled={!canContinue}
-                      >
-                        {t("checkout.features.sellList.ui.sellListPage.rebuild.from.current.sell.list")}
-                      </Button>
-                    </Inline>
-                  </Stack>
-                </Surface>
-              ) : null}
 
               {isSignedIn && payoutReadiness?.status !== "ready" ? (
                 <MarketplaceNotice
@@ -893,7 +794,6 @@ export function CheckoutSellListPage({
                   </Text>
                   <Inline gap={2}>
                     <Form spacing="none" id="sell-list-checkout-form" method="post">
-                      <HiddenInput type="hidden" name="sellListExecutionId" value={sellListExecutionId ?? ""} />
                       <Button
                         type="submit"
                         name="intent"
