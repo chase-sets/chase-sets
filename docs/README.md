@@ -13,6 +13,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Read-After-Write Route Author Checklist](./architecture/read-after-write-route-author-checklist.md): exact freshness dependencies, route inventory, transient recovery, cookie-backed continuation, and guardrail checks for post-write projection reads.
 - [Projection Freshness SLOs](./architecture/projection-freshness-slos.md): critical post-write read SLOs, rollout gates, and shared thresholds for guest Buy Now checkout freshness.
 - [Projection Freshness Worker Capacity](./architecture/projection-freshness-worker-capacity.md): worker topology, capacity defaults, operator evidence, and scaling order for critical projection freshness.
+- [Push-Driven Projection Runtime Phase Map](./architecture/push-driven-projection-runtime-phase-map.md): phased rollout gates for the worker-owned relay, durable wake store, Checkout hot path, and platform work-signal composite.
 - [Checkout Surface Audit](./architecture/checkout-surface-audit.md): Shopify-simple Buy Cart and Sell List checkout gap inventory, fresh-state cleanup targets, and sequencing recommendation.
 - [Environment Domain Names](./architecture/environment-domain-names.md): production, staging, dev, and preview hostname convention.
 - [Environment Data Profiles](./architecture/environment-data-profiles.md): bootstrap, Catalog integration, and scenario seed policy by environment.
@@ -31,6 +32,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0007: Google Shopping Merchant Center Integration](./adr/0007-google-shopping-merchant-center-integration.md): Merchant account posture, feed ownership, export projection, and launch exclusions.
 - [ADR 0008: Admin Shell And IA Model](./adr/0008-admin-shell-and-ia-model.md): admin section taxonomy, Commercial Terms placement, shell navigation model, operations authorization, root hub, and admin page primitive direction.
 - [ADR 0009: Targeted Projection Catchup](./adr/0009-targeted-projection-catchup.md): no-go decision for route-time projection catchup, baseline freshness contract, and reopening criteria.
+- [ADR 0010: Push-Driven Projection Runtime](./adr/0010-push-driven-projection-runtime.md): worker-owned projection wake relay, durable control-plane wake store, and phased platform work-signal composite.
 - [Checkout Fresh-State Route Strategy](../bounded-contexts/checkout/docs/fresh-state-route-strategy.md): Shopify-simple checkout route map, legacy route disposition, readiness guardrails, and kill-switch behavior.
 - [Checkout Fresh Session Contracts](../bounded-contexts/checkout/docs/fresh-checkout-session-contracts.md): Milestone #17 buy/sell checkout snapshot, commands, state machine, idempotency, guest merge, and fresh-state compatibility rules.
 - [Checkout Session Projection Performance](../bounded-contexts/checkout/docs/checkout-session-projection-performance.md): guest Buy Now checkout freshness path, supporting indexes, projection transaction behavior, and remaining platform evidence gates.
@@ -151,6 +153,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [ADR 0007: Google Shopping Merchant Center Integration](./adr/0007-google-shopping-merchant-center-integration.md)
 - [ADR 0008: Admin Shell And IA Model](./adr/0008-admin-shell-and-ia-model.md)
 - [ADR 0009: Targeted Projection Catchup](./adr/0009-targeted-projection-catchup.md)
+- [ADR 0010: Push-Driven Projection Runtime](./adr/0010-push-driven-projection-runtime.md)
 
 ## Maintenance
 

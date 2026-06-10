@@ -4,6 +4,10 @@
 
 Projection consumers keep bounded-context read models current without coupling event publishers to downstream projectors. Publishers append integration facts to their own event store. Workers lease projection consumers, read matching source events, apply downstream handlers, and persist checkpoints.
 
+## Push-Driven Migration Note
+
+Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md) and the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md). Until those phases land, this document describes the current runtime contract. Push-first changes must keep worker-owned execution, projection leases, fencing, ledgers, poison handling, statement timeouts, and checkpoint truth intact; API routes may wake and wait, but must not run projectors inline.
+
 ## Runtime Model
 
 - A source context owns the event stream and publishes facts.

@@ -2,6 +2,10 @@
 
 Projection operations are durable control-plane records for operator-triggered projection work. Admin APIs enqueue operations and return immediately; workers claim and execute them. Publishers remain unaware of projectors.
 
+## Push-Driven Migration Note
+
+Milestone #19 is governed by [ADR 0010: Push-Driven Projection Runtime](../adr/0010-push-driven-projection-runtime.md) and the [Push-Driven Projection Runtime Phase Map](./push-driven-projection-runtime-phase-map.md). Projection operation event notifications and waits should migrate through the platform work-signal composite or carry a documented, budgeted exception, while operation rows, event rows, leases, and fencing remain the durable control-plane contract.
+
 ## Operation Lifecycle
 
 - `queued`: operation is durable and unclaimed.
