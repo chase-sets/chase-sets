@@ -1,5 +1,6 @@
 import type { PgQueryable, PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import { platformUcpRuntimeSchemaSql } from "./ucp";
+import { platformWorkSignalStoreSchemaSql } from "./work-signal-store";
 
 const DEFAULT_PROJECTION_OPERATION_LIMIT = 50;
 const PROJECTION_OPERATION_NOTIFY_CHANNEL = "platform_projection_operation_events";
@@ -184,6 +185,8 @@ CREATE TABLE IF NOT EXISTS platform_scheduled_runners (
 
 CREATE INDEX IF NOT EXISTS platform_scheduled_runners_next_run_idx
   ON platform_scheduled_runners (next_run_at);
+
+${platformWorkSignalStoreSchemaSql}
 
 ${platformUcpRuntimeSchemaSql}
 `;

@@ -396,6 +396,9 @@
       "@chase-sets/platform-runtime/web-route-config": [
         "./infrastructure/platform-runtime/web-route-config.ts"
       ],
+      "@chase-sets/platform-runtime/work-signal-store": [
+        "./infrastructure/platform-runtime/work-signal-store.ts"
+      ],
       "@chase-sets/platform-runtime/worker": [
         "./infrastructure/platform-runtime/worker.ts"
       ],
