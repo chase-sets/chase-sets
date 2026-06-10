@@ -23,6 +23,7 @@ describe("Catalog primary workbench read model", () => {
 
     expect(() => validateCatalogPrimaryWorkbenchReadModelContract(readModel)).not.toThrow();
     expect(readModel.routeContext).toMatchObject({
+      section: "import-to-promotion",
       providerKey: "tcgdex",
       importScope: "en:3:base:base1",
       profileVersion: "2026.06.04",
@@ -112,6 +113,9 @@ describe("Catalog primary workbench read model", () => {
       cancelAvailable: true,
     });
     expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("section=source-observation-review");
+    expect(readModel.importJobs.jobs[0]?.sourceObservationReviewHref).toContain("providerKey=tcgdex");
+    expect(readModel.importJobs.jobs[0]?.auditEvidenceUrl).toContain("section=evidence");
+    expect(readModel.importJobs.jobs[0]?.auditEvidenceUrl).toContain("returnPath=");
     expect(readModel.actions.find((action) => action.key === "start-provider-import")).toMatchObject({
       state: "blocked",
       blockers: ["active-job-conflict"],
@@ -440,6 +444,7 @@ describe("Catalog primary workbench read model", () => {
 
   it("fails closed for denied writes and does not fetch all-provider review rows without provider context", () => {
     const noProviderQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery({
+      section: "import-to-promotion",
       providerKey: null,
       unitKey: null,
       importScope: null,

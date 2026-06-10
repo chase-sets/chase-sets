@@ -30,7 +30,11 @@ import {
   CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS,
   CATALOG_CONTROL_PLANE_WORKSPACES,
 } from "./admin-control-plane/information-architecture";
-import { catalogPrimaryWorkbenchHref } from "./primary-workbench-route-context";
+import {
+  catalogPrimaryWorkbenchHref,
+  catalogPrimaryWorkbenchSupportingHref,
+  normalizeCatalogPrimaryWorkbenchSection,
+} from "./primary-workbench-route-context";
 
 type PrimaryWorkbenchStepKey = "provider" | "import" | "review" | "preview" | "promote";
 
@@ -48,11 +52,37 @@ type SourceObservationReviewRow = CatalogPrimaryWorkbenchReadModel["sourceObserv
 
 export interface CatalogPrimaryWorkbenchPageProps {
   readModel: CatalogPrimaryWorkbenchReadModel;
-  initialSection?: string;
 }
 
-export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: CatalogPrimaryWorkbenchPageProps) {
-  const [activeSection, setActiveSection] = useState(() => normalizeInitialSection(initialSection));
+export function CatalogPrimaryWorkbenchPage({ readModel }: CatalogPrimaryWorkbenchPageProps) {
+  const navigation = useMemo(() => navigationGroups(readModel), [readModel]);
+  const [activeSection, setActiveSection] = useState(() => normalizeActiveWorkspace(readModel.routeContext.section));
+  useEffect(() => {
+    setActiveSection(normalizeActiveWorkspace(readModel.routeContext.section));
+  }, [readModel.routeContext.section]);
+  useEffect(() => {
+    const handlePopState = () => {
+      setActiveSection(
+        normalizeActiveWorkspace(new URL(window.location.href).searchParams.get("section") ?? undefined),
+      );
+    };
+
+    window.addEventListener("popstate", handlePopState);
+
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+  const handleSectionSelect = (key: string) => {
+    const normalized = normalizeActiveWorkspace(key);
+    setActiveSection(normalized);
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const href = findNavigationHref(navigation, key) ?? findNavigationHref(navigation, normalized);
+    if (href) {
+      window.history.pushState({ catalogPrimaryWorkbenchSection: normalized }, "", href);
+    }
+  };
   const steps = useMemo(() => [...buildSteps(readModel)], [readModel]);
   const selectableStepKeys = useMemo(
     () =>
@@ -369,11 +399,11 @@ export function CatalogPrimaryWorkbenchPage({ readModel, initialSection }: Catal
       <div className="grid gap-5 lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start">
         <div className="lg:sticky lg:top-20">
           <SectionNavigation
-            groups={navigationGroups(readModel)}
+            groups={navigation}
             activeKey={activeSection}
             label={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.label")}
             mobileLabel={t("catalog.features.sourceObservations.ui.primaryWorkbench.navigation.mobile.label")}
-            onSelect={setActiveSection}
+            onSelect={handleSectionSelect}
           />
         </div>
 
@@ -954,7 +984,10 @@ function navigationGroups(readModel: CatalogPrimaryWorkbenchReadModel): SectionN
       return {
         key: workspaceKey,
         label: workspace?.accessibleName ?? workspaceKey,
-        href: catalogPrimaryWorkbenchHref(readModel.routeContext, workspace?.routeSegment),
+        href:
+          workspace?.primaryPathRole === "supporting-detour"
+            ? catalogPrimaryWorkbenchSupportingHref(readModel.routeContext, workspace.key)
+            : catalogPrimaryWorkbenchHref(readModel.routeContext, workspace?.key),
         description: workspace?.operatorJob,
         count:
           workspaceKey === "import-to-promotion" ? readModel.sourceObservationReview.promotionReadyCount : undefined,
@@ -1392,18 +1425,14 @@ function activeFilterCount(readModel: CatalogPrimaryWorkbenchReadModel): number 
   ].filter(Boolean).length;
 }
 
-function normalizeInitialSection(initialSection: string | undefined): string {
-  if (
-    initialSection &&
-    CATALOG_CONTROL_PLANE_WORKSPACES.some((workspace) => workspace.routeSegment === initialSection)
-  ) {
-    return (
-      CATALOG_CONTROL_PLANE_WORKSPACES.find((workspace) => workspace.routeSegment === initialSection)?.key ??
-      "import-to-promotion"
-    );
-  }
-  if (initialSection && CATALOG_CONTROL_PLANE_WORKSPACES.some((workspace) => workspace.key === initialSection)) {
-    return initialSection;
+function findNavigationHref(groups: SectionNavigationGroup[], key: string): string | undefined {
+  return groups.flatMap((group) => group.items).find((item) => item.key === key)?.href;
+}
+
+function normalizeActiveWorkspace(section: string | undefined): string {
+  const normalizedSection = normalizeCatalogPrimaryWorkbenchSection(section);
+  if (CATALOG_CONTROL_PLANE_WORKSPACES.some((workspace) => workspace.key === normalizedSection)) {
+    return normalizedSection;
   }
 
   return "import-to-promotion";

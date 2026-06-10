@@ -49,8 +49,9 @@ describe("Catalog Control Plane information architecture", () => {
   it("requires every supporting workspace to preserve return context to the primary path", () => {
     for (const workspace of CATALOG_CONTROL_PLANE_WORKSPACES) {
       expect(workspace.linkBackContextKeys).toContain("returnPath");
+      expect(workspace.linkBackContextKeys).toContain("section");
       expect(workspace.linkBackContextKeys).toContain("providerKey");
-      expect(workspace.linkBackContextKeys).toContain("ingestionUnitKey");
+      expect(workspace.linkBackContextKeys).toContain("unitKey");
       expect(workspace.consumesIssues.length).toBeGreaterThan(0);
     }
 

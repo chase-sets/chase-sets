@@ -13,6 +13,7 @@ import {
 describe("CatalogPrimaryWorkbenchPage", () => {
   afterEach(() => {
     cleanup();
+    window.history.pushState({}, "", "/catalog/integrations");
   });
 
   it("puts provider import, Source Observation review, and promotion ahead of support workflows", () => {
@@ -64,12 +65,41 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       canManageCatalog: true,
     });
 
-    render(<CatalogPrimaryWorkbenchPage readModel={readModel} initialSection="triage" />);
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
 
     expect(screen.getByRole("link", { name: /Health triage/i }).getAttribute("aria-current")).toBe("page");
     expect(screen.getByRole("link", { name: /Import to promotion workbench/i }).getAttribute("href")).toContain(
       "/catalog/integrations?",
     );
+  });
+
+  it("updates the browser URL from mobile workflow navigation while preserving route context", () => {
+    window.history.pushState(
+      {},
+      "",
+      "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&section=workbench",
+    );
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: window.location.href,
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Choose Catalog workflow" }), {
+      target: { value: "audit-evidence" },
+    });
+
+    expect(screen.getByRole("link", { name: /Audit evidence/i }).getAttribute("aria-current")).toBe("page");
+    expect(window.location.pathname).toBe("/catalog/integrations");
+    expect(window.location.search).toContain("section=evidence");
+    expect(window.location.search).toContain("providerKey=tcgdex");
+    expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");
+    expect(window.location.search).toContain("filter.status=changed");
+    expect(window.location.search).toContain("returnPath=");
   });
 
   it("renders scoped durable import monitoring without hiding the primary provider pull", () => {

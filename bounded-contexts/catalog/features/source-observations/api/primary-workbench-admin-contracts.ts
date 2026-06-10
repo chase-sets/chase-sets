@@ -135,6 +135,7 @@ export type CatalogPrimaryWorkbenchPromotionProfileSemantics =
   | "original-source-profile-version";
 
 export type CatalogPrimaryWorkbenchRouteContextKey =
+  | "section"
   | "providerKey"
   | "unitKey"
   | "importScope"
@@ -144,6 +145,24 @@ export type CatalogPrimaryWorkbenchRouteContextKey =
   | "jobId"
   | "promotionPreviewId"
   | "returnPath";
+
+export const catalogPrimaryWorkbenchRouteSections = [
+  "import-to-promotion",
+  "health-triage",
+  "profile-authoring",
+  "validation-readiness",
+  "adapter-readiness",
+  "lifecycle-recovery",
+  "governance-controls",
+  "audit-evidence",
+  "provider-scope-selection",
+  "readiness",
+  "import-jobs",
+  "source-observation-review",
+  "promotion-preview",
+  "promotion-result",
+  "supporting-evidence",
+] as const;
 
 export type CatalogPrimaryWorkbenchCopyKey =
   | "catalog.primary.providerScope.required"
@@ -252,6 +271,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
 }>;
 
 export type CatalogPrimaryWorkbenchRouteContext = Readonly<{
+  section: string;
   providerKey: string | null;
   unitKey: CatalogIntegrationUnitKey | null;
   importScope: string | null;
@@ -513,7 +533,7 @@ export const catalogPrimaryWorkbenchSections = [
     commands: ["select-provider-scope"],
     freshnessStates: ["fresh", "stale", "partial", "unavailable"],
     pagination: "none",
-    routeContextKeys: ["providerKey", "unitKey", "importScope", "profileVersion", "returnPath"],
+    routeContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "returnPath"],
   }),
   section({
     key: "readiness",
@@ -528,7 +548,7 @@ export const catalogPrimaryWorkbenchSections = [
     commands: [],
     freshnessStates: ["fresh", "stale", "lagging", "partial", "unavailable"],
     pagination: "none",
-    routeContextKeys: ["providerKey", "unitKey", "importScope", "profileVersion", "returnPath"],
+    routeContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "returnPath"],
   }),
   section({
     key: "import-jobs",
@@ -537,7 +557,7 @@ export const catalogPrimaryWorkbenchSections = [
     commands: ["start-provider-import", "resume-import-job", "retry-import-job", "cancel-import-job"],
     freshnessStates: ["fresh", "stale", "lagging", "unavailable"],
     pagination: "sse",
-    routeContextKeys: ["providerKey", "unitKey", "importScope", "profileVersion", "jobId", "returnPath"],
+    routeContextKeys: ["section", "providerKey", "unitKey", "importScope", "profileVersion", "jobId", "returnPath"],
   }),
   section({
     key: "source-observation-review",
@@ -548,6 +568,7 @@ export const catalogPrimaryWorkbenchSections = [
     pagination: "cursor",
     routeContextKeys: [
       "providerKey",
+      "section",
       "unitKey",
       "importScope",
       "profileVersion",
@@ -565,6 +586,7 @@ export const catalogPrimaryWorkbenchSections = [
     pagination: "cursor",
     routeContextKeys: [
       "providerKey",
+      "section",
       "unitKey",
       "importScope",
       "profileVersion",
@@ -580,7 +602,7 @@ export const catalogPrimaryWorkbenchSections = [
     commands: ["start-reapply", "start-replay"],
     freshnessStates: ["fresh", "stale", "lagging", "partial", "unavailable"],
     pagination: "cursor",
-    routeContextKeys: ["providerKey", "unitKey", "profileVersion", "jobId", "returnPath"],
+    routeContextKeys: ["section", "providerKey", "unitKey", "profileVersion", "jobId", "returnPath"],
   }),
   section({
     key: "supporting-evidence",
@@ -595,7 +617,7 @@ export const catalogPrimaryWorkbenchSections = [
     commands: [],
     freshnessStates: ["fresh", "stale", "lagging", "partial", "unavailable"],
     pagination: "cursor",
-    routeContextKeys: ["providerKey", "unitKey", "profileVersion", "returnPath"],
+    routeContextKeys: ["section", "providerKey", "unitKey", "profileVersion", "returnPath"],
   }),
 ] as const satisfies readonly CatalogPrimaryWorkbenchSectionContract[];
 
@@ -865,11 +887,15 @@ export const catalogPrimaryWorkbenchDownstreamContracts = [
     "#1057",
     ["provider-scope-selection", "import-jobs", "source-observation-review", "promotion-preview"],
     [
+      "routeContext.section",
       "routeContext.providerKey",
       "routeContext.unitKey",
       "routeContext.importScope",
+      "routeContext.sourceObservationFilters",
       "routeContext.selectedObservationIds",
+      "routeContext.jobId",
       "routeContext.promotionPreviewId",
+      "routeContext.returnPath",
     ],
   ),
   downstream(
@@ -938,6 +964,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   if (!value.routeContext) {
     throw new Error("Primary workbench route context is required for context preservation.");
   }
+  validatePrimaryWorkbenchRouteContext(value.routeContext);
   if (!value.securityPrivacy) {
     throw new Error("Primary workbench security/privacy fields are required and must fail closed when missing.");
   }
@@ -965,6 +992,51 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   );
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
+}
+
+function validatePrimaryWorkbenchRouteContext(context: CatalogPrimaryWorkbenchRouteContext): void {
+  if (
+    !context.section ||
+    !catalogPrimaryWorkbenchRouteSections.includes(
+      context.section as (typeof catalogPrimaryWorkbenchRouteSections)[number],
+    ) ||
+    /legacy|compat|raw-json|god-page|provider-profile-review/i.test(context.section)
+  ) {
+    throw new Error("Primary workbench route context section must be a rebuilt workspace or primary section key.");
+  }
+  if (!Array.isArray(context.selectedObservationIds)) {
+    throw new Error("Primary workbench route context selectedObservationIds must be an array.");
+  }
+  if (context.selectedObservationIds.some((id) => !id || /[?#]/.test(id))) {
+    throw new Error("Primary workbench route context selectedObservationIds must be clean identifiers.");
+  }
+  if (!context.sourceObservationFilters || typeof context.sourceObservationFilters !== "object") {
+    throw new Error("Primary workbench route context Source Observation filters are required.");
+  }
+  for (const [key, value] of Object.entries(context.sourceObservationFilters)) {
+    if (!key || key.includes("=") || key.includes("&") || value.includes("\n")) {
+      throw new Error("Primary workbench route context filters must be clean query values.");
+    }
+  }
+  if (
+    context.returnPath &&
+    (!isSafePrimaryWorkbenchReturnPath(context.returnPath) ||
+      /legacy|compat|raw-json|god-page/i.test(context.returnPath))
+  ) {
+    throw new Error("Primary workbench returnPath must be a safe rebuilt Catalog admin path.");
+  }
+}
+
+function isSafePrimaryWorkbenchReturnPath(path: string): boolean {
+  if (path.startsWith("//")) {
+    return false;
+  }
+  try {
+    const parsedUrl = new URL(path, "https://admin.example");
+    return parsedUrl.origin === "https://admin.example" && parsedUrl.pathname === "/catalog/integrations";
+  } catch {
+    return false;
+  }
 }
 
 function section(input: CatalogPrimaryWorkbenchSectionContract): CatalogPrimaryWorkbenchSectionContract {

@@ -119,6 +119,7 @@ describe("Catalog primary workbench admin contracts", () => {
       validateCatalogPrimaryWorkbenchReadModelContract({
         schemaVersion: catalogPrimaryWorkbenchContractVersion,
         routeContext: {
+          section: "legacy-god-page",
           providerKey: "tcgdex",
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",
           importScope: "changed",
@@ -127,7 +128,41 @@ describe("Catalog primary workbench admin contracts", () => {
           selectedObservationIds: [],
           jobId: null,
           promotionPreviewId: null,
-          returnPath: "/admin/catalog/primary-workbench",
+          returnPath: "/catalog/integrations",
+        },
+      }),
+    ).toThrow("Primary workbench route context section must be a rebuilt workspace or primary section key.");
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract({
+        schemaVersion: catalogPrimaryWorkbenchContractVersion,
+        routeContext: {
+          section: "import-to-promotion",
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          importScope: "changed",
+          profileVersion: "2026.06.04",
+          sourceObservationFilters: {},
+          selectedObservationIds: [],
+          jobId: null,
+          promotionPreviewId: null,
+          returnPath: "/catalog/source-observations",
+        },
+      }),
+    ).toThrow("Primary workbench returnPath must be a safe rebuilt Catalog admin path.");
+    expect(() =>
+      validateCatalogPrimaryWorkbenchReadModelContract({
+        schemaVersion: catalogPrimaryWorkbenchContractVersion,
+        routeContext: {
+          section: "import-to-promotion",
+          providerKey: "tcgdex",
+          unitKey: "tcgdex:pokemon:single-card:source-observation-import",
+          importScope: "changed",
+          profileVersion: "2026.06.04",
+          sourceObservationFilters: {},
+          selectedObservationIds: [],
+          jobId: null,
+          promotionPreviewId: null,
+          returnPath: "/catalog/integrations",
         },
         deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[0],
         instrumentation: {
@@ -140,6 +175,7 @@ describe("Catalog primary workbench admin contracts", () => {
       validateCatalogPrimaryWorkbenchReadModelContract({
         schemaVersion: catalogPrimaryWorkbenchContractVersion,
         routeContext: {
+          section: "import-to-promotion",
           providerKey: "tcgdex",
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",
           importScope: "changed",
@@ -148,7 +184,7 @@ describe("Catalog primary workbench admin contracts", () => {
           selectedObservationIds: [],
           jobId: null,
           promotionPreviewId: null,
-          returnPath: "/admin/catalog/primary-workbench",
+          returnPath: "/catalog/integrations",
         },
         readiness: {
           freshness: "fresh",
@@ -175,6 +211,7 @@ describe("Catalog primary workbench admin contracts", () => {
       validateCatalogPrimaryWorkbenchReadModelContract({
         schemaVersion: catalogPrimaryWorkbenchContractVersion,
         routeContext: {
+          section: "import-to-promotion",
           providerKey: "tcgdex",
           unitKey: "tcgdex:pokemon:single-card:source-observation-import",
           importScope: "changed",
@@ -183,7 +220,7 @@ describe("Catalog primary workbench admin contracts", () => {
           selectedObservationIds: [],
           jobId: null,
           promotionPreviewId: null,
-          returnPath: "/admin/catalog/primary-workbench",
+          returnPath: "/catalog/integrations",
         },
         deploySkew: catalogPrimaryWorkbenchDeploySkewPolicies[1],
         securityPrivacy: {
@@ -320,6 +357,7 @@ describe("Catalog primary workbench admin contracts", () => {
       schemaVersion: catalogPrimaryWorkbenchContractVersion,
       generatedAt: "2026-06-09T00:00:00.000Z",
       routeContext: {
+        section: "import-to-promotion",
         providerKey: "tcgdex",
         unitKey: "tcgdex:pokemon:single-card:source-observation-import",
         importScope: "changed",
@@ -328,7 +366,7 @@ describe("Catalog primary workbench admin contracts", () => {
         selectedObservationIds: ["obs_001"],
         jobId: "job_001",
         promotionPreviewId: "preview_001",
-        returnPath: "/admin/catalog/primary-workbench?provider=tcgdex",
+        returnPath: "/catalog/integrations?providerKey=tcgdex&section=workbench",
       },
       providerScope: {
         providers: [
@@ -353,7 +391,7 @@ describe("Catalog primary workbench admin contracts", () => {
         providerTransport: ["rate-limit", "partial-data"],
         rolloutEnabled: true,
         rbacAllowed: true,
-        auditEvidenceUrl: "/admin/catalog/primary-workbench/audit?unit=tcgdex",
+        auditEvidenceUrl: "/catalog/integrations?providerKey=tcgdex&section=evidence",
       },
       importJobs: {
         freshness: "fresh",
@@ -404,8 +442,10 @@ describe("Catalog primary workbench admin contracts", () => {
             retryAvailable: false,
             resumeAvailable: false,
             cancelAvailable: true,
-            sourceObservationReviewHref: "/catalog/integrations?providerKey=tcgdex&jobId=job_001&section=review",
-            auditEvidenceUrl: "/catalog/integrations?providerKey=tcgdex&jobId=job_001&section=evidence",
+            sourceObservationReviewHref:
+              "/catalog/integrations?providerKey=tcgdex&jobId=job_001&section=source-observation-review",
+            auditEvidenceUrl:
+              "/catalog/integrations?section=evidence&providerKey=tcgdex&jobId=job_001&returnPath=%2Fcatalog%2Fintegrations%3FproviderKey%3Dtcgdex%26jobId%3Djob_001%26section%3Dworkbench",
             observationLinks: ["obs_001"],
             blockers: [],
           },

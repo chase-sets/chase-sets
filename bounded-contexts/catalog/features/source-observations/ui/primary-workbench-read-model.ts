@@ -21,6 +21,7 @@ import type {
 } from "./contracts";
 import {
   catalogPrimaryWorkbenchHref,
+  catalogPrimaryWorkbenchSupportingHref,
   parseCatalogPrimaryWorkbenchRouteContext,
 } from "./primary-workbench-route-context";
 
@@ -122,7 +123,7 @@ export function buildCatalogPrimaryWorkbenchReadModel(
       providerTransport,
       rolloutEnabled,
       rbacAllowed: input.canManageCatalog,
-      auditEvidenceUrl: catalogPrimaryWorkbenchHref(routeContext, "evidence"),
+      auditEvidenceUrl: catalogPrimaryWorkbenchSupportingHref(routeContext, "audit-evidence"),
     },
     importJobs: {
       freshness: input.controlPlaneOverview ? "fresh" : "partial",
@@ -417,7 +418,7 @@ function importJobsFor(
     resumeAvailable: job.operatorStatus === "stale" || job.operatorStatus === "retried",
     cancelAvailable: job.phase === "enqueued" || job.phase === "fetching" || job.phase === "processing",
     sourceObservationReviewHref: sourceObservationReviewHrefFor(routeContext, job),
-    auditEvidenceUrl: catalogPrimaryWorkbenchHref({ ...routeContext, jobId: job.jobId }, "evidence"),
+    auditEvidenceUrl: catalogPrimaryWorkbenchSupportingHref({ ...routeContext, jobId: job.jobId }, "audit-evidence"),
     observationLinks: [sourceObservationReviewHrefFor(routeContext, job)],
     blockers: job.operatorStatus === "stale" ? ["stale-replay"] : [],
   }));
