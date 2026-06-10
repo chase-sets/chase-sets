@@ -228,4 +228,17 @@ describe("checkout sell list page", () => {
       ),
     ).toBeTruthy();
   });
+
+  it("uses a generic buyer label instead of raw account ids", () => {
+    const lineWithoutPublicBuyerName: CheckoutSellListLineRow = {
+      ...selectedOfferLine,
+      buyer_account_id: "acc_private_buyer_id",
+      buyer_display_name: null,
+    };
+
+    render(<CheckoutSellListPage sellListLines={[lineWithoutPublicBuyerName]} />);
+
+    expect(screen.getAllByText("Buyer").length).toBeGreaterThan(0);
+    expect(screen.queryByText("acc_private_buyer_id")).toBeNull();
+  });
 });

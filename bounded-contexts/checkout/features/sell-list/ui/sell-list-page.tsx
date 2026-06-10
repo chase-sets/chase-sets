@@ -166,7 +166,8 @@ function productOptionsFromSelectedOptions(selections: readonly { dimensionId: s
 }
 
 function buyerLabel(offer: { buyer_display_name: string | null; buyer_account_id: string | null }) {
-  return offer.buyer_display_name ?? offer.buyer_account_id ?? t("checkout.features.sellList.ui.sellListPage.buyer");
+  const displayName = offer.buyer_display_name?.trim();
+  return displayName || t("checkout.features.sellList.ui.sellListPage.buyer");
 }
 
 function selectedOfferReadiness(review: SellListOfferReview | undefined): LineReadiness {

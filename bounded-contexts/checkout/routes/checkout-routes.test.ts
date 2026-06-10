@@ -39,6 +39,7 @@ const {
   mockCreateListing,
   mockGetPayoutReadiness,
   mockAddSellListLine,
+  mockAddGuestSellListLine,
   mockStartSellListExecution,
   mockRecordSellListExecutionProgress,
   mockCheckoutSellList,
@@ -90,6 +91,7 @@ const {
   mockCreateListing: vi.fn(),
   mockGetPayoutReadiness: vi.fn(),
   mockAddSellListLine: vi.fn(),
+  mockAddGuestSellListLine: vi.fn(),
   mockStartSellListExecution: vi.fn(),
   mockRecordSellListExecutionProgress: vi.fn(),
   mockCheckoutSellList: vi.fn(),
@@ -745,6 +747,62 @@ describe("checkout web routes", () => {
     });
     expect(response.status).toBe(302);
     expect(response.headers.get("Location")).toBe("/account/sell-list");
+  });
+
+  it("adds a posted selected offer snapshot to the anonymous Sell List when signed out", async () => {
+    mockResolveActorFromAuthApi.mockResolvedValue(null);
+    mockAddGuestSellListLine.mockResolvedValue({ status: "added" });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      getOfferMatch: mockGetOfferMatch,
+    });
+    mockCreateCheckoutRequestApiClient.mockReturnValue({
+      addGuestSellListLine: mockAddGuestSellListLine,
+    });
+
+    const form = new URLSearchParams();
+    form.set("intent", "add-selected-offer");
+    form.set("offerId", "off_1");
+    form.set("buyerDisplayName", "Collector123");
+    form.set("buyerAccountId", "acc_buyer_private");
+    form.set("offerPriceAmount", "40.00");
+    form.set("catalogItemId", "cat_mewtwo");
+    form.set("productId", "cat_mewtwo::raw:nm");
+    form.set("itemTitle", "Mewtwo");
+    form.set("itemSubtitle", "Black Star Promo 3");
+    form.set("selectedOptions", JSON.stringify([{ dimensionId: "form", optionId: "raw" }]));
+    form.set("productSummary", "Raw / Near Mint");
+    form.set("quantity", "2");
+
+    const response = (await accountSellListAction({
+      request: new Request("http://localhost/account/sell-list", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form.toString(),
+      }),
+      params: {},
+      context: undefined,
+    } as never)) as Response;
+
+    expect(mockGetOfferMatch).not.toHaveBeenCalled();
+    expect(mockAddGuestSellListLine).toHaveBeenCalledWith(expect.stringMatching(/^anon_/), {
+      lineType: "selected-offer",
+      offerId: "off_1",
+      buyerAccountId: null,
+      buyerDisplayName: "Collector123",
+      offerPriceAmount: "40.00",
+      catalogItemId: "cat_mewtwo",
+      productId: "cat_mewtwo::raw:nm",
+      itemTitle: "Mewtwo",
+      itemSubtitle: "Black Star Promo 3",
+      selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+      productSummary: "Raw / Near Mint",
+      quantity: 2,
+      fallbackMode: "none",
+      minimumListingPriceAmount: null,
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toBe("/account/sell-list");
+    expect(response.headers.getSetCookie().join("; ")).toContain("chase_sets_anonymous_sell_list=anon_");
   });
 
   function expectNoSellerCommitSideEffects() {
