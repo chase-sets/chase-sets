@@ -635,6 +635,7 @@ export function createCheckoutApiClient({
         fulfillmentPreviewRevision?: string | null;
         acknowledgedMaterialChanges?: boolean;
         deferPayment?: boolean;
+        deferredCheckoutOrderProofReference?: string | null;
         shippingAddress?: CheckoutShippingAddressInput | null;
       }> = {},
     ): Promise<{

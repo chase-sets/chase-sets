@@ -64,6 +64,7 @@ export async function runDeferredCheckoutOrderProof(options, fetchImpl = globalT
           typeof request.fulfillmentPreviewRevision === "string" ? request.fulfillmentPreviewRevision : null,
         acknowledgedMaterialChanges: true,
         deferPayment: true,
+        deferredCheckoutOrderProofReference: options.reference,
       }),
     },
   );
