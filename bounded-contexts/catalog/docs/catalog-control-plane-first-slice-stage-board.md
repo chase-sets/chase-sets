@@ -11,7 +11,7 @@ The rebuild continues to use the clean launch contracts from [Catalog Control Pl
 | Stage 0 cleanup | #1050-#1055 | Complete | #1050 and #1055 closed; PRs #1091, #1125, #1094, #1138, and #1143 provide cleanup evidence. |
 | Stage 1 contracts and IA | #1060, #1031, #1048, #1046, #1049 | Complete | API/read-model contracts, rebuilt IA, grouped navigation/mobile pattern, dense-workbench primitive proof, and primary-path framing accepted. |
 | Stage 2 primary workbench | #1056, #1038, #1039, #1040, #1057, #1058 | In implementation; #1056 shipped the clean default workbench shell, #1038 shipped scoped durable import operations, and #1039 is adding Source Observation evidence-row review inside that rebuilt shell | Provider/scope selection through import, Source Observation review, promotion preview, promotion/recovery, route context, and operator copy accepted together as one workbench. |
-| Stage 3 hardening and proof | #1063, #1065, #1059, #1062, #1064, #1047 | Waiting on relevant Stage 1/2 contracts | Durable-job edge cases, provider transport budgets, instrumentation, real-provider proof, security/privacy, and no-confusion acceptance accepted. |
+| Stage 3 hardening and proof | #1063, #1065, #1059, #1062, #1064, #1047 | In implementation; #1065 is setting provider transport budgets and first-slice proof criteria | Durable-job edge cases, provider transport budgets, instrumentation, real-provider proof, security/privacy, and no-confusion acceptance accepted. |
 | Stage 4 rollout and retirement | #1061, #1088, #1090 | Blocked by accepted first slice | Decision/risk register, production rollout, smoke/signoff, and complete old-surface deletion accepted. |
 
 ## Cross-Stage Coordination
@@ -65,10 +65,10 @@ Until a specific assignee is added, first-slice implementation comments should n
 | #1038 | Stage 2 | PR #1201 | Complete; scoped import readiness, durable job monitoring, grouped failure evidence, retry/resume/cancel availability, active-job conflict blocking, and Source Observation handoff links now live inside the rebuilt #1056 workbench. |
 | #1039 | Stage 2 | Owner comment and current bounded-context delivery segment | In implementation; adds provider-scoped Source Observation review rows, filters, pagination metadata, redacted evidence drawer data, duplicate/conflict summaries, bulk selection, and permission-aware row actions inside the rebuilt #1056 workbench. |
 | #1040 | Stage 2 | Issue comment required before implementation PR | Ready for implementation as the promotion preview, promote/reject/defer, reapply, and replay contributor to the #1056 workbench. |
-| #1057 | Stage 2 | Issue comment required before implementation PR | Ready for implementation; #1056 establishes canonical route-context keys for provider, unit, scope, profile, filters, selections, job, preview, and return path. |
+| #1057 | Stage 2 | Owner comment and PR #1247 | Complete; canonical route-context keys preserve provider, unit, scope, profile, filters, selections, job, preview, and return path across rebuilt workbench navigation. |
 | #1058 | Stage 2 | Issue comment required before implementation PR | Ready for implementation against #1060 blocker categories and the #1056 primary-path screen responsibility. |
 | #1063 | Stage 3 | Issue comment required before implementation PR | Waiting on #1060 durable-job fields and Stage 2 workflow behavior. |
-| #1065 | Stage 3 | Issue comment required before implementation PR | Waiting on #1060 provider transport categories and Stage 2 import behavior. |
+| #1065 | Stage 3 | Owner comment and current bounded-context delivery segment | In implementation; defines [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md), selected TCGdex proof provider, supplemental TCGplayer transport evidence, reliability categories, performance budgets, and #1062 evidence gates. |
 | #1059 | Stage 3 | Issue comment required before implementation PR | Waiting on #1049 path framing and Stage 2 event points. |
 | #1062 | Stage 3 | Issue comment required before implementation PR | Waiting on accepted Stage 2 primary path. |
 | #1064 | Stage 3 | Issue comment required before implementation PR | Waiting on #1060 security/privacy fields and Stage 2 action surfaces. |
@@ -97,5 +97,6 @@ Each stage exit comment should include:
 - [Catalog Integration Admin UX And Accessibility Acceptance](./catalog-integration-admin-ux-accessibility.md)
 - [Catalog Integration Operator Acceptance Journeys](./catalog-integration-operator-acceptance-journeys.md)
 - [Catalog Primary Workbench Admin Contract](./primary-workbench-admin-contract.md)
+- [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md)
 - [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md)
 - [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md)

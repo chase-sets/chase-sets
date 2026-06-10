@@ -15,6 +15,7 @@ bounded-contexts/catalog/features/source-observations/api/admin-control-plane-re
 - Platform owns generic durable job mechanics, event projection runtime, replay headers, queue leases, and deployment observability. Catalog read models may depend on those platform guarantees without moving Catalog query semantics into Platform.
 - UI modules must render freshness and degraded states from the read model contract. They must not recover by reading raw provider profile JSON, durable job tables, or Source Observation rows directly.
 - Planned indexes below are implementation requirements for the API/projection slices that materialize those views. Existing summary views may stay bounded and unpaginated.
+- First-slice provider transport proof adds a flow-level budget on top of these query SLOs. The selected provider, reliability vocabulary, degraded transport evidence, and #1062 signoff requirements are documented in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
 
 ## Latency And Freshness Inventory
 
@@ -110,3 +111,5 @@ The Source Observations API test suite must require SLO coverage for every Admin
 - Replay/reapply, promotion, rollback, and profile reference impact: at least 50,000 representative rows per provider/profile scope where practical.
 - Durable job progress: at least 10,000 job event or work-unit rows across active and completed jobs.
 - Audit evidence timelines: at least 100,000 event or projection rows with context/category/time filters.
+
+Provider transport proof must also satisfy the first-slice budgets in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md), including the TCGdex proof provider selection, option-query cache budget, degraded transport category evidence, and real-provider proof-run timeout.

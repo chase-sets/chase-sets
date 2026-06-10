@@ -8,7 +8,7 @@ The authoritative TypeScript surface lives in:
 bounded-contexts/catalog/features/source-observations/api/primary-workbench-admin-contracts.ts
 ```
 
-The contract composes the shared query inventory in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md) and the read-model SLO states in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). It exists so Stage 2 workbench implementation can consume one typed API boundary instead of preserving page-specific selectors, raw JSON patches, or provider-specific UI branches.
+The contract composes the shared query inventory in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md), the read-model SLO states in [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md), and the first-slice provider transport budgets in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md). It exists so Stage 2 workbench implementation can consume one typed API boundary instead of preserving page-specific selectors, raw JSON patches, or provider-specific UI branches.
 
 ## Primary Path
 

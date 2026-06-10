@@ -50,7 +50,7 @@ Admin Control Plane statuses and production observability use the same concepts:
 | `lagging` | projection/read-model lag exceeds fresh budget but has recoverable checkpoint evidence |
 | `unavailable` | provider/API/read model cannot answer safely; workflow must not continue |
 
-The canonical diagnostic vocabulary remains [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md). Read-model freshness budgets remain [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md).
+The canonical diagnostic vocabulary remains [Catalog Integration Diagnostic Taxonomy](./catalog-integration-diagnostic-taxonomy.md). Read-model freshness budgets remain [Admin Control Plane Read-Model SLOs](./admin-control-plane-read-model-slos.md). First-slice provider transport reliability categories, blocker mapping, proof criteria, and performance budgets are documented in [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
 
 ## Alert Starters
 
@@ -81,3 +81,4 @@ Release verification should include:
 - platform worker/request/projection metrics still present in Grafana/Prometheus;
 - runbook links available from release notes and docs map;
 - redaction checks proving provider credentials and raw payload data are absent from logs and metric labels.
+- #1062 provider proof evidence that links at least one degraded transport condition to the canonical workbench `providerTransport` and blocker categories from [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).

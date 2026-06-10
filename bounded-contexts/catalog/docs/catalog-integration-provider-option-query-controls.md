@@ -23,6 +23,10 @@ Default policy:
 - default page size: 50;
 - max page size: 200.
 
+The first-slice selector budget, degraded fallback expectation, and #1062 proof
+evidence target are documented in
+[Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
+
 A fresh cache hit returns `cache.status: "fresh"` and `cache.source: "cache"` without calling provider transport. A miss or explicit `forceRefresh=true` calls live provider transport, writes a new cache row, and returns `cache.source: "live"`.
 
 If live transport fails and a stale entry is still inside the stale window, Catalog returns the stale page with `cache.status: "stale"`, `cache.degraded: true`, and diagnostic code `provider-option-query-stale-cache-used`. If no cached entry is available, the route returns a provider option query unavailable error rather than silently issuing repeated retries.
@@ -47,7 +51,7 @@ Admin selectors should avoid repeated live calls from dependent dropdowns and ty
 
 Provider adapters should emit transport diagnostics for provider reachability, auth, retryable status codes, cooldowns, and rate limits. The control plane maps those diagnostics into readiness and Admin option-query status.
 
-Operational metrics should distinguish cache hit, cache miss, stale cache served, live refresh success, live refresh failure, cache-only unavailable, and provider retry-after or cooldown. Metric names, bounded labels, alert starters, and redaction rules are documented in [Catalog Integration Observability](./catalog-integration-observability.md).
+Operational metrics should distinguish cache hit, cache miss, stale cache served, live refresh success, live refresh failure, cache-only unavailable, and provider retry-after or cooldown. Metric names, bounded labels, alert starters, redaction rules, and transport-condition ownership are documented in [Catalog Integration Observability](./catalog-integration-observability.md) and [Catalog Integration Provider Transport Budgets](./catalog-integration-provider-transport-budgets.md).
 
 ## Fixtures And Tests
 

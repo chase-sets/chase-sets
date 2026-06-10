@@ -8,6 +8,7 @@ import {
   catalogPrimaryWorkbenchDeploySkewPolicies,
   catalogPrimaryWorkbenchDownstreamContracts,
   catalogPrimaryWorkbenchInstrumentationDimensions,
+  catalogPrimaryWorkbenchProviderTransportCategories,
   catalogPrimaryWorkbenchRetirementPolicy,
   catalogPrimaryWorkbenchSections,
   validateCatalogPrimaryWorkbenchReadModelContract,
@@ -273,10 +274,12 @@ describe("Catalog primary workbench admin contracts", () => {
         "runtime code",
         "API routes",
         "UI modules",
+        "product patterns",
         "route aliases",
         "hidden flags",
         "fallbacks",
         "redirects",
+        "compatibility shims",
         "tests",
         "fixtures",
         "screenshots",
@@ -295,6 +298,19 @@ describe("Catalog primary workbench admin contracts", () => {
         "raw JSON escape hatch",
       ]),
     );
+  });
+
+  it("exports canonical provider transport categories for downstream proof budgets", () => {
+    expect(catalogPrimaryWorkbenchProviderTransportCategories).toEqual([
+      "rate-limit",
+      "throttle",
+      "quota",
+      "timeout",
+      "pagination-failure",
+      "partial-data",
+      "stale-cache",
+      "degraded-provider",
+    ]);
   });
 
   it("pins command contracts with permission, idempotency, and confirmation semantics", () => {
