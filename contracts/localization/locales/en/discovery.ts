@@ -327,7 +327,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.list.at.price.3": "List at price",
   "discovery.routes.itemDetail.list.at.price.4": "List at price",
   "discovery.routes.itemDetail.list.for.sale": "Create listing",
-  "discovery.routes.itemDetail.list.for.sale.action.description": "Create a listing for this product.",
+  "discovery.routes.itemDetail.list.for.sale.action.description": "Set price and quantity to create a listing.",
   "discovery.routes.itemDetail.listing.is": "listing is $",
   "discovery.routes.itemDetail.listing.price": "Listing price",
   "discovery.routes.itemDetail.listing.stock.created.automatically": "Listing stock is created automatically.",
@@ -665,6 +665,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.selected.offer.summary": "Selected offer: {price} from {buyer}.",
   "discovery.routes.itemDetail.selected.offer.supply.summary":
     "Requested: {requested}. Your active supply covers {available}.",
+  "discovery.routes.itemDetail.selected.offer.workflow.helper": "Accept the selected offer or save it to Sell List.",
   "discovery.routes.itemDetail.selected.listing.workflow.helper": "Buy this listing or save it to Buy Cart.",
   "discovery.routes.itemDetail.selling.product": "Selling: {productSummary}",
   "discovery.routes.itemDetail.standard.terms": "Standard terms",

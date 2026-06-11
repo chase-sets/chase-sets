@@ -868,9 +868,9 @@ export function MarketplaceOfferMatchSection({
     buyer_account_id: string;
     price_amount: string;
     quantity_requested: number;
-    seller_available_quantity: number;
-    can_fulfill: boolean;
-    in_sell_list: boolean;
+    seller_available_quantity?: number | null;
+    can_fulfill?: boolean;
+    in_sell_list?: boolean;
     product_summary?: string | null;
     buyer_slug?: string | null;
     buyer_average_rating?: string | null;
@@ -906,6 +906,10 @@ export function MarketplaceOfferMatchSection({
   const selectedOfferBuyerName = selectedOffer?.buyer_display_name?.trim();
   const selectedOfferBuyer = selectedOfferBuyerName || t("discovery.features.itemDetail.ui.itemDetailPage.buyer");
   const selectedOfferBuyerHref = selectedOffer?.buyer_slug ? `/accounts/${selectedOffer.buyer_slug}#feedback` : null;
+  const selectedOfferCanFulfill = selectedOffer ? (selectedOffer.can_fulfill ?? true) : false;
+  const selectedOfferInSellList = Boolean(selectedOffer?.in_sell_list);
+  const showFulfillmentStatus = typeof selectedOffer?.can_fulfill === "boolean";
+  const selectedOfferAvailableQuantity = selectedOffer?.seller_available_quantity;
   const selectedOfferReferenceInfo =
     actionMode === "add-to-sell-list"
       ? {
@@ -930,10 +934,11 @@ export function MarketplaceOfferMatchSection({
             t("discovery.routes.itemDetail.referenceInfo.estimatedPayout.line2"),
             t("discovery.routes.itemDetail.referenceInfo.acceptOffer.line1"),
             t("discovery.routes.itemDetail.referenceInfo.offerSellList.line1"),
+            t("discovery.routes.itemDetail.referenceInfo.offerSellList.line2"),
           ],
         };
   const sellNowAction = (
-    <Button type="submit" name="intent" value="sell-now" disabled={!selectedOffer?.can_fulfill} block>
+    <Button type="submit" name="intent" value="sell-now" disabled={!selectedOfferCanFulfill} block>
       {t("discovery.routes.itemDetail.sell.now")}
     </Button>
   );
@@ -942,11 +947,11 @@ export function MarketplaceOfferMatchSection({
       type="submit"
       name="intent"
       value="add-to-sell-list"
-      tone={actionMode === "add-to-sell-list" && selectedOffer?.can_fulfill ? "primary" : "secondary"}
-      disabled={!selectedOffer?.can_fulfill || selectedOffer.in_sell_list}
+      tone={actionMode === "add-to-sell-list" && selectedOfferCanFulfill ? "primary" : "secondary"}
+      disabled={!selectedOfferCanFulfill || selectedOfferInSellList}
       block
     >
-      {selectedOffer?.in_sell_list
+      {selectedOfferInSellList
         ? t("discovery.routes.itemDetail.in.sell.list")
         : t("discovery.routes.itemDetail.add.to.sell.list")}
     </Button>
@@ -987,11 +992,13 @@ export function MarketplaceOfferMatchSection({
                         amount: formatMoneyAmount(acceptedValue),
                       })}
                     </Text>
-                    <Badge tone={selectedOffer.can_fulfill ? "success" : "warning"}>
-                      {selectedOffer.can_fulfill
-                        ? t("discovery.routes.itemDetail.can.fulfill")
-                        : t("discovery.routes.itemDetail.needs.supply")}
-                    </Badge>
+                    {showFulfillmentStatus ? (
+                      <Badge tone={selectedOfferCanFulfill ? "success" : "warning"}>
+                        {selectedOfferCanFulfill
+                          ? t("discovery.routes.itemDetail.can.fulfill")
+                          : t("discovery.routes.itemDetail.needs.supply")}
+                      </Badge>
+                    ) : null}
                   </Inline>
                   <AccountReputationSummary
                     accountName={selectedOfferBuyer}
@@ -1013,10 +1020,15 @@ export function MarketplaceOfferMatchSection({
                       items={[
                         {
                           key: t("discovery.routes.itemDetail.requested"),
-                          value: t("discovery.routes.itemDetail.requested.available.summary", {
-                            requested: selectedOffer.quantity_requested,
-                            available: selectedOffer.seller_available_quantity,
-                          }),
+                          value:
+                            typeof selectedOfferAvailableQuantity === "number"
+                              ? t("discovery.routes.itemDetail.requested.available.summary", {
+                                  requested: selectedOffer.quantity_requested,
+                                  available: selectedOfferAvailableQuantity,
+                                })
+                              : t("discovery.routes.itemDetail.requested.count", {
+                                  count: selectedOffer.quantity_requested,
+                                }),
                         },
                         {
                           key: t("discovery.routes.itemDetail.seller.payout"),
@@ -1517,14 +1529,14 @@ export function MarketplaceListingSubmissionSection({
   const listPrice = listing?.price_amount ?? bestListing?.price_amount ?? "";
   const defaultQuantity = listing?.quantity_cap ?? 1;
   const requiresShipFromSetup = !listing && !hasListingStockLocation && !allowDraftWithoutShipFromSetup;
-  const canUseListAction = Boolean(productId && listPrice && !requiresShipFromSetup);
+  const canUseListAction = Boolean(productId && !requiresShipFromSetup);
   const defaultActions = listing ? (
     <LinkButton href={`/account/listings/${listing.listing_id}`} block>
       {t("discovery.routes.itemDetail.manage.listing")}
     </LinkButton>
   ) : (
     <Button type="submit" name="intent" value="list-at-price" disabled={!canUseListAction} block>
-      {t("discovery.routes.itemDetail.list.at.price")}
+      {t("discovery.routes.itemDetail.list.for.sale")}
     </Button>
   );
 
@@ -1535,14 +1547,12 @@ export function MarketplaceListingSubmissionSection({
         <HiddenInput type="hidden" name="selectedOptions" value={JSON.stringify(selectedOptions)} />
         <HiddenInput type="hidden" name="productSummary" value={productSummary ?? ""} />
         <HiddenInput type="hidden" name="listingId" value={listing?.listing_id ?? ""} />
-        <HiddenInput type="hidden" name="priceAmount" value={listPrice} />
-        <HiddenInput type="hidden" name="quantityCap" value={String(defaultQuantity)} />
         {showSummary ? (
           <Stack gap={1}>
             <Text weight="semibold">
               {listing
                 ? t("discovery.routes.itemDetail.update.your.listing")
-                : t("discovery.routes.itemDetail.list.at.price.2")}
+                : t("discovery.routes.itemDetail.sell.on.chase.sets")}
             </Text>
             {productSelectionDetails.length > 0 ? (
               <ProductOptions
@@ -1585,6 +1595,31 @@ export function MarketplaceListingSubmissionSection({
           </Stack>
         ) : null}
         {listing ? <HiddenInput type="hidden" name="inventoryItemId" value={listing.inventory_item_id} /> : null}
+        {listing ? (
+          <>
+            <HiddenInput type="hidden" name="priceAmount" value={listPrice} />
+            <HiddenInput type="hidden" name="quantityCap" value={String(defaultQuantity)} />
+          </>
+        ) : (
+          <>
+            <CurrencyInput
+              label={t("discovery.routes.itemDetail.listing.price")}
+              name="priceAmount"
+              defaultValue={listPrice}
+              placeholder="24.99"
+              min="0"
+              step="0.01"
+              required
+            />
+            <NumberInput
+              label={t("discovery.routes.itemDetail.quantity")}
+              name="quantityCap"
+              min="1"
+              defaultValue={String(defaultQuantity)}
+              required
+            />
+          </>
+        )}
         {!listing && requiresShipFromSetup ? (
           <Text size="sm" tone="secondary">
             {t("discovery.routes.itemDetail.ship.from.setup.required")}
@@ -1609,7 +1644,7 @@ export function MarketplaceListingSubmissionSection({
 }
 
 type BuyAction = "buy-now" | "add-to-cart" | "make-offer";
-type SellAction = "sell-now" | "add-to-sell-list" | "add-product-to-sell-list" | "list-for-sale";
+type SellAction = "selected-offer" | "add-product-to-sell-list" | "list-for-sale";
 type WatchAction = "watch-listings" | "watch-offers";
 
 type CommerceActionOption<TAction extends string> = Readonly<{
@@ -1802,11 +1837,10 @@ export function SellActionCard({
   productSummary,
   productSelectionDetails,
   hasMatchingOffer,
-  canUseSellerFeatures,
-  canSelectListingAction = canUseSellerFeatures,
+  canSelectListingAction = true,
   canSelectProductSellListAction = canSelectListingAction,
-  renderSellNow,
-  renderAddToSellList,
+  selectedOfferSource = "implicit",
+  renderSelectedOffer,
   renderAddProductToSellList,
   renderListing,
 }: {
@@ -1817,16 +1851,15 @@ export function SellActionCard({
   productSummary: string | null;
   productSelectionDetails: readonly ProductSelectionDisplayDetail[];
   hasMatchingOffer: boolean;
-  canUseSellerFeatures: boolean;
   canSelectListingAction?: boolean;
   canSelectProductSellListAction?: boolean;
-  renderSellNow: (formId: string) => ReactNode;
-  renderAddToSellList: (formId: string) => ReactNode;
+  selectedOfferSource?: MarketSelectionSource;
+  renderSelectedOffer: (formId: string) => ReactNode;
   renderAddProductToSellList: (formId: string) => ReactNode;
   renderListing: (formId: string) => ReactNode;
 }) {
   const defaultAction: SellAction | "" = hasMatchingOffer
-    ? "sell-now"
+    ? "selected-offer"
     : canSelectProductSellListAction
       ? "add-product-to-sell-list"
       : canSelectListingAction
@@ -1838,55 +1871,46 @@ export function SellActionCard({
     setSelectedAction(defaultAction);
   }, [defaultAction]);
 
+  const selectedOfferWorkflowLabel =
+    selectedOfferSource === "explicit"
+      ? t("discovery.routes.itemDetail.selected.offer.heading")
+      : t("discovery.routes.itemDetail.best.offer.heading");
   const options = [
     {
-      value: "sell-now",
-      label: t("discovery.routes.itemDetail.sell.now"),
-      description: t("discovery.routes.itemDetail.sell.now.action.description"),
+      value: "selected-offer",
+      label: selectedOfferWorkflowLabel,
+      description: t("discovery.routes.itemDetail.selected.offer.workflow.helper"),
       icon: "dollar",
       disabled: !productId || !hasMatchingOffer,
     },
     {
-      value: "add-to-sell-list",
-      label: t("discovery.routes.itemDetail.add.to.sell.list"),
-      description: t("discovery.routes.itemDetail.add.to.sell.list.action.description"),
-      icon: "cart",
-      disabled: !productId || !hasMatchingOffer,
-    },
-    {
       value: "add-product-to-sell-list",
-      label: t("discovery.routes.itemDetail.add.product.to.sell.list"),
+      label: t("discovery.routes.itemDetail.selected.product"),
       description: t("discovery.routes.itemDetail.add.product.to.sell.list.action.description"),
       icon: "spark",
       disabled: !productId || !canSelectProductSellListAction,
     },
     {
       value: "list-for-sale",
-      label: t("discovery.routes.itemDetail.list.for.sale"),
+      label: t("discovery.routes.itemDetail.sell.on.chase.sets"),
       description: t("discovery.routes.itemDetail.list.for.sale.action.description"),
       icon: "store",
       disabled: !productId || !canSelectListingAction,
     },
   ] satisfies readonly CommerceActionOption<SellAction>[];
   const selectedContent =
-    selectedAction === "sell-now"
-      ? renderSellNow(`${formIdPrefix}-sell-now`)
-      : selectedAction === "add-to-sell-list"
-        ? renderAddToSellList(`${formIdPrefix}-sell-list`)
-        : selectedAction === "add-product-to-sell-list"
-          ? renderAddProductToSellList(`${formIdPrefix}-product-sell-list`)
-          : selectedAction === "list-for-sale"
-            ? renderListing(`${formIdPrefix}-list-for-sale`)
-            : null;
+    selectedAction === "selected-offer"
+      ? renderSelectedOffer(`${formIdPrefix}-selected-offer`)
+      : selectedAction === "add-product-to-sell-list"
+        ? renderAddProductToSellList(`${formIdPrefix}-product-sell-list`)
+        : selectedAction === "list-for-sale"
+          ? renderListing(`${formIdPrefix}-list-for-sale`)
+          : null;
 
   return (
     <ItemDetailActionCard
       title={t("discovery.routes.itemDetail.sell.card.title")}
-      description={
-        canUseSellerFeatures
-          ? t("discovery.routes.itemDetail.sell.card.description")
-          : t("discovery.routes.itemDetail.sell.card.registration.description")
-      }
+      description={t("discovery.routes.itemDetail.sell.card.description")}
       productSummary={productSummary}
       productSelectionDetails={productSelectionDetails}
       options={options}
