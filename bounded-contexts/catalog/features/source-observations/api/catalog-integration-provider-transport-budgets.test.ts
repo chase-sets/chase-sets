@@ -86,6 +86,18 @@ describe("Catalog provider transport budgets", () => {
     }
 
     expect(JSON.stringify(selected.coverage)).not.toMatch(/raw-json|two-page|compatibility redirect/i);
+    expect(selectedCoverage.get("provider-transport-degraded-condition")).toMatchObject({
+      status: "covered-by-test",
+      ownerIssue: "#1062",
+    });
+    expect(selectedCoverage.get("promotion-preview-counts")).toMatchObject({
+      status: "covered-by-test",
+      ownerIssue: "#1062",
+    });
+    expect(selectedCoverage.get("redaction-safe-evidence")).toMatchObject({
+      status: "covered-by-test",
+      ownerIssue: "#1064",
+    });
   });
 
   it("keeps provider transport budgets aligned with read-model SLOs and high-volume evidence", () => {
@@ -151,6 +163,10 @@ describe("Catalog provider transport budgets", () => {
       new URL("../../../docs/catalog-integration-provider-transport-budgets.md", import.meta.url),
       "utf8",
     );
+    const proofDoc = readFileSync(
+      new URL("../../../docs/catalog-integration-real-provider-proof.md", import.meta.url),
+      "utf8",
+    );
 
     expect(catalogProviderTransportBudgetDocPath).toBe(
       "bounded-contexts/catalog/docs/catalog-integration-provider-transport-budgets.md",
@@ -158,8 +174,14 @@ describe("Catalog provider transport budgets", () => {
     expect(doc).toContain("TCGdex");
     expect(doc).toContain("complete removal");
     expect(doc).toContain("not a migration");
+    expect(doc).toContain("catalog-real-provider-proof/v1");
+    expect(doc).toContain("pnpm run catalog:real-provider-proof");
     expect(doc).toContain("Provider Transport Reliability Vocabulary");
     expect(doc).toContain("First-Slice Performance Budgets");
+    expect(proofDoc).toContain("Catalog Integration Real-Provider Proof");
+    expect(proofDoc).toContain("pnpm run catalog:real-provider-proof");
+    expect(proofDoc).toContain("Retirement Rule");
     expect(doc).not.toMatch(/operators can keep using the old|fallback to raw JSON/i);
+    expect(`${doc}\n${proofDoc}`).not.toMatch(/#800|thin real-provider proof/i);
   });
 });
