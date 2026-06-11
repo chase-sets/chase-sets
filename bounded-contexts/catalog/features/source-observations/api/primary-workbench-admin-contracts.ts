@@ -28,6 +28,7 @@ export type CatalogPrimaryWorkbenchCommandKey =
   | "resume-import-job"
   | "retry-import-job"
   | "cancel-import-job"
+  | "clone-provider-profile"
   | "select-source-observations"
   | "preview-promotion"
   | "execute-promotion"
@@ -248,6 +249,7 @@ export type CatalogPrimaryWorkbenchActionContract = Readonly<{
 }>;
 
 export type CatalogPrimaryWorkbenchDownstreamIssueKey =
+  | "#1033"
   | "#1056"
   | "#1038"
   | "#1039"
@@ -273,6 +275,7 @@ export type CatalogPrimaryWorkbenchReadModel = Readonly<{
   providerScope: CatalogPrimaryWorkbenchProviderScopeReadModel;
   readiness: CatalogPrimaryWorkbenchReadinessReadModel;
   healthTriage: CatalogPrimaryWorkbenchHealthTriageReadModel;
+  profileAuthoring: CatalogPrimaryWorkbenchProfileAuthoringReadModel;
   importJobs: CatalogPrimaryWorkbenchImportJobsReadModel;
   sourceObservationReview: CatalogPrimaryWorkbenchSourceObservationReviewReadModel;
   promotionPreview: CatalogPrimaryWorkbenchPromotionPreviewReadModel;
@@ -433,6 +436,123 @@ export type CatalogPrimaryWorkbenchHealthTriageAuditPreview = Readonly<{
     unitKey: CatalogIntegrationUnitKey | null;
     summary: string;
   }>[];
+}>;
+
+export type CatalogPrimaryWorkbenchProfileAuthoringStatus = "ready" | "missing-profile" | "stale-selection";
+
+export type CatalogPrimaryWorkbenchProfileLifecycleRestrictionCode =
+  | "draft-editable"
+  | "test-editable"
+  | "active-clone-required"
+  | "deprecated-clone-required"
+  | "retired-read-only"
+  | "missing-profile"
+  | "stale-selection";
+
+export type CatalogPrimaryWorkbenchProfileImmutableFactKey =
+  | "provider-key"
+  | "profile-key"
+  | "source-contract-owner"
+  | "source-contract-repository"
+  | "connector-kind"
+  | "supported-scopes";
+
+export type CatalogPrimaryWorkbenchProfileImmutableFact = Readonly<{
+  key: CatalogPrimaryWorkbenchProfileImmutableFactKey;
+  label: string;
+  value: string;
+}>;
+
+export type CatalogPrimaryWorkbenchProfileLifecycleRestriction = Readonly<{
+  code: CatalogPrimaryWorkbenchProfileLifecycleRestrictionCode;
+  label: string;
+  description: string;
+  severity: "info" | "warning" | "blocked";
+}>;
+
+export type CatalogPrimaryWorkbenchProfileOption = Readonly<{
+  providerKey: string;
+  profileKey: string;
+  profileVersion: string;
+  displayName: string;
+  lifecycle: string;
+  active: boolean;
+  status: string;
+  href: string;
+}>;
+
+export type CatalogPrimaryWorkbenchProfileOverview = Readonly<{
+  providerKey: string;
+  profileKey: string;
+  profileVersion: string;
+  displayName: string;
+  lifecycle: string;
+  active: boolean;
+  status: string;
+  connectorKind: string;
+  capabilities: readonly string[];
+  supportedScopes: readonly string[];
+  languageOptions: readonly string[];
+  mappingOutputKind: string;
+  hasExecutableMappingContract: boolean;
+  mappingFingerprint: string | null;
+  referenceCount: number;
+  sourceContract: Readonly<{
+    owner: string;
+    repository: string | null;
+    commit: string | null;
+    documentPath: string;
+    fixtureSetVersion: string;
+  }>;
+  fixtures: Readonly<{
+    fixtureRoot: string;
+    coveredFlows: readonly string[];
+    liveProviderCallsAllowed: boolean;
+  }>;
+  validation: Readonly<{
+    status: "valid" | "invalid";
+    diagnosticCount: number;
+    latestDiagnosticText: string | null;
+  }>;
+  migrationEvidence: Readonly<{
+    state: "recorded" | "not-recorded";
+    recordedAt: string | null;
+    fixtureRunId: string | null;
+    mappingFingerprintBefore: string | null;
+    mappingFingerprintAfter: string | null;
+  }>;
+  authoringAudit: Readonly<{
+    createdAt: string | null;
+    createdByUserId: string | null;
+    createdForAccountId: string | null;
+    updatedAt: string | null;
+    updatedByUserId: string | null;
+    updatedForAccountId: string | null;
+  }>;
+  immutableIdentityFacts: readonly CatalogPrimaryWorkbenchProfileImmutableFact[];
+}>;
+
+export type CatalogPrimaryWorkbenchProfileCloneDraftReadModel = Readonly<{
+  commandKey: Extract<CatalogPrimaryWorkbenchCommandKey, "clone-provider-profile">;
+  sourceProviderKey: string | null;
+  sourceProfileVersion: string | null;
+  targetProfileVersion: string | null;
+  targetLifecycle: "draft";
+  state: CatalogPrimaryWorkbenchActionState;
+  blockers: readonly CatalogPrimaryWorkbenchBlockerCategory[];
+  submitHref: string;
+  lifecycleRestrictions: readonly CatalogPrimaryWorkbenchProfileLifecycleRestriction[];
+  immutableIdentityFacts: readonly CatalogPrimaryWorkbenchProfileImmutableFact[];
+}>;
+
+export type CatalogPrimaryWorkbenchProfileAuthoringReadModel = Readonly<{
+  status: CatalogPrimaryWorkbenchProfileAuthoringStatus;
+  generatedAt: string;
+  selectedProfile: CatalogPrimaryWorkbenchProfileOverview | null;
+  activeProfile: CatalogPrimaryWorkbenchProfileOption | null;
+  availableProfiles: readonly CatalogPrimaryWorkbenchProfileOption[];
+  returnToPrimaryHref: string;
+  cloneDraft: CatalogPrimaryWorkbenchProfileCloneDraftReadModel;
 }>;
 
 export type CatalogPrimaryWorkbenchImportJobsReadModel = Readonly<{
@@ -813,6 +933,23 @@ export const catalogPrimaryWorkbenchActions = [
       idempotencyRequired: true,
     },
   ),
+  action(
+    "clone-provider-profile",
+    "POST",
+    "/api/catalog/source-observations/admin/provider-profiles/:providerKey/:profileVersion/clone",
+    "catalog.manage",
+    {
+      blockerCategories: [
+        "permission-denied",
+        "authorization-denied",
+        "profile-version-missing",
+        "active-job-conflict",
+        "concurrent-job",
+        "raw-json-retired",
+      ],
+      idempotencyRequired: true,
+    },
+  ),
   action("select-source-observations", "GET", "/api/catalog/source-observations/admin/review", "catalog.view", {
     blockerCategories: ["source-projection-stale", "read-model-unavailable"],
   }),
@@ -973,6 +1110,16 @@ export const catalogPrimaryWorkbenchInstrumentationDimensions = [
 ] as const satisfies readonly CatalogPrimaryWorkbenchInstrumentationDimension[];
 
 export const catalogPrimaryWorkbenchDownstreamContracts = [
+  downstream(
+    "#1033",
+    ["supporting-evidence"],
+    [
+      "profileAuthoring.status",
+      "profileAuthoring.selectedProfile",
+      "profileAuthoring.availableProfiles",
+      "profileAuthoring.cloneDraft",
+    ],
+  ),
   downstream(
     "#1056",
     [
@@ -1137,6 +1284,7 @@ export function validateCatalogPrimaryWorkbenchReadModelContract(
   );
   assertPrimaryWorkbenchBlockers(value.promotionPreview?.blockers);
   assertPrimaryWorkbenchPromotionPreview(value.promotionPreview);
+  assertPrimaryWorkbenchProfileAuthoring(value.profileAuthoring);
 }
 
 function validatePrimaryWorkbenchRouteContext(context: CatalogPrimaryWorkbenchRouteContext): void {
@@ -1292,6 +1440,52 @@ function assertPrimaryWorkbenchHealthTriage(value: CatalogPrimaryWorkbenchReadMo
   for (const provider of value.providers) {
     if (!provider.providerKey || !provider.ownerMetricKey || !provider.nextAction) {
       throw new Error("Primary workbench health triage providers must name provider, owner metric, and next action.");
+    }
+  }
+}
+
+function assertPrimaryWorkbenchProfileAuthoring(
+  value: CatalogPrimaryWorkbenchReadModel["profileAuthoring"] | undefined,
+): void {
+  if (!value) {
+    throw new Error("Primary workbench profile authoring contract is required.");
+  }
+  if (!["ready", "missing-profile", "stale-selection"].includes(value.status)) {
+    throw new Error("Primary workbench profile authoring status must be explicit.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.returnToPrimaryHref)) {
+    throw new Error("Primary workbench profile authoring return link must target the rebuilt workbench.");
+  }
+  if (value.cloneDraft.commandKey !== "clone-provider-profile") {
+    throw new Error("Primary workbench profile draft command must use the rebuilt clone-provider-profile boundary.");
+  }
+  if (!isSafePrimaryWorkbenchReturnPath(value.cloneDraft.submitHref)) {
+    throw new Error("Primary workbench profile draft submit link must target the rebuilt workbench.");
+  }
+  assertCatalogPrimaryWorkbenchActionState(value.cloneDraft.state);
+  assertPrimaryWorkbenchBlockers(value.cloneDraft.blockers);
+  if (value.status === "ready" && !value.selectedProfile) {
+    throw new Error("Primary workbench profile authoring ready state requires a selected profile.");
+  }
+  if (value.status !== "ready" && value.cloneDraft.blockers.length === 0) {
+    throw new Error("Primary workbench profile draft command must fail closed when profile selection is missing.");
+  }
+  if (value.selectedProfile) {
+    if (
+      !value.selectedProfile.providerKey ||
+      !value.selectedProfile.profileKey ||
+      !value.selectedProfile.profileVersion
+    ) {
+      throw new Error("Primary workbench selected profile must preserve provider, profile, and version identity.");
+    }
+    if (value.selectedProfile.immutableIdentityFacts.length === 0) {
+      throw new Error("Primary workbench selected profile must expose immutable identity facts.");
+    }
+    if (
+      value.cloneDraft.sourceProviderKey !== value.selectedProfile.providerKey ||
+      value.cloneDraft.sourceProfileVersion !== value.selectedProfile.profileVersion
+    ) {
+      throw new Error("Primary workbench profile draft command must preserve source provider and version context.");
     }
   }
 }

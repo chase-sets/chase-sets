@@ -343,6 +343,81 @@ describe("Catalog integrations route", () => {
     expect(response.headers.get("Location")).toContain("commandResult=preview-ready");
   });
 
+  it("bridges profile draft creation through the typed provider profile clone API", async () => {
+    const cloneSourceObservationProviderProfile = vi.fn().mockResolvedValue({
+      providerKey: "tcgdex",
+      profileKey: "tcgdex-pokemon-card",
+      profileVersion: "2026.06.04-draft",
+    });
+    const recordCatalogControlPlaneEvent = vi.fn().mockResolvedValue({ status: "recorded" });
+    mockCreateCatalogRequestApiClient.mockReturnValue({
+      cloneSourceObservationProviderProfile,
+      recordCatalogControlPlaneEvent,
+    });
+
+    const response = await runAction({
+      _intent: "clone-provider-profile",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      sourceProviderKey: "tcgdex",
+      sourceProfileVersion: "2026.06.04",
+      targetProfileVersion: "2026.06.04-draft",
+      targetLifecycle: "draft",
+      selectedObservationIds: "obs_001",
+      promotionPreviewId: "preview-stale",
+    });
+
+    expect(cloneSourceObservationProviderProfile).toHaveBeenCalledWith("tcgdex", "2026.06.04", {
+      targetProfileVersion: "2026.06.04-draft",
+      lifecycle: "draft",
+    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("section=profile-work");
+    expect(response.headers.get("Location")).toContain("providerKey=tcgdex");
+    expect(response.headers.get("Location")).toContain("profileVersion=2026.06.04-draft");
+    expect(response.headers.get("Location")).toContain("selectedObservationIds=obs_001");
+    expect(response.headers.get("Location")).not.toContain("promotionPreviewId=");
+    expect(response.headers.get("Location")).toContain("commandStatus=success");
+    expect(response.headers.get("Location")).toContain("commandResult=draft-created");
+    expect(recordCatalogControlPlaneEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventName: "catalog_control_plane.profile_draft_created",
+        providerKey: "tcgdex",
+        unitKey: "tcgdex:pokemon:card:import",
+        scopeId: "en:3:base:base1",
+        profileRef: "tcgdex:2026.06.04-draft",
+        promotionResult: "draft-created",
+        detourTarget: "profile-authoring",
+        detourOutcome: "returned",
+      }),
+    );
+  });
+
+  it("fails closed when profile draft creation receives a non-draft lifecycle", async () => {
+    const cloneSourceObservationProviderProfile = vi.fn();
+    mockCreateCatalogRequestApiClient.mockReturnValue({ cloneSourceObservationProviderProfile });
+
+    const response = await runAction({
+      _intent: "clone-provider-profile",
+      providerKey: "tcgdex",
+      unitKey: "tcgdex:pokemon:card:import",
+      importScope: "en:3:base:base1",
+      profileVersion: "2026.06.04",
+      sourceProviderKey: "tcgdex",
+      sourceProfileVersion: "2026.06.04",
+      targetProfileVersion: "2026.06.04-test",
+      targetLifecycle: "test",
+    });
+
+    expect(cloneSourceObservationProviderProfile).not.toHaveBeenCalled();
+    expect(response.status).toBe(302);
+    expect(response.headers.get("Location")).toContain("section=profile-work");
+    expect(response.headers.get("Location")).toContain("commandStatus=error");
+    expect(response.headers.get("Location")).toContain("commandResult=invalid-intent");
+  });
+
   it("fails closed when promotion execution has no fresh preview", async () => {
     const bulkPromoteSourceObservations = vi.fn();
     mockCreateCatalogRequestApiClient.mockReturnValue({ bulkPromoteSourceObservations });

@@ -111,8 +111,78 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.getAllByText(/Open the durable job evidence, resolve the failure group/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText("import-job-started").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Provider import started for health triage.").length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Provider import operations" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
+  it("renders profile authoring overview and draft creation as a focused support workspace", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&section=profile-work",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
+    expect(screen.getByText("Selected profile is ready")).toBeTruthy();
+    expect(screen.getAllByText("TCGdex Pokemon cards").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("tcgdex-pokemon-card@2026.06.04").length).toBeGreaterThan(0);
+    expect(screen.getByText("Draft required for active profiles")).toBeTruthy();
+    expect(screen.getByText("Immutable identity facts")).toBeTruthy();
+    expect(screen.getByLabelText("Draft profile version")).toHaveProperty("value", "2026.06.04-draft");
+    expect(screen.getByRole("button", { name: "Create draft" }).hasAttribute("disabled")).toBe(false);
+
+    const draftForm = document.querySelector<HTMLFormElement>(
+      'form[data-catalog-primary-workbench-command="clone-provider-profile"]',
+    );
+    expect(draftForm?.querySelector<HTMLInputElement>('input[name="_intent"]')?.value).toBe("clone-provider-profile");
+    expect(draftForm?.querySelector<HTMLInputElement>('input[name="sourceProviderKey"]')?.value).toBe("tcgdex");
+    expect(draftForm?.querySelector<HTMLInputElement>('input[name="sourceProfileVersion"]')?.value).toBe("2026.06.04");
+    expect(draftForm?.getAttribute("action")).toContain("section=profile-work");
+    expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
+    expect(screen.queryByText(/raw JSON/i)).toBeNull();
+  });
+
+  it("keeps profile overview inspectable but disables draft creation for view-only operators", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: false,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
+    expect(screen.getAllByText("TCGdex Pokemon cards").length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Create draft" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getAllByText("Permission denied").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("View-only operators can inspect profile evidence but cannot create draft profiles."),
+    ).toBeTruthy();
+  });
+
+  it("renders stale selected-profile state without falling back to another version", () => {
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&section=profile-work&profileVersion=missing-version",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByText("Profile selection is stale")).toBeTruthy();
+    expect(screen.getByText("Select an available version")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Create draft" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.queryByText("Selected profile is ready")).toBeNull();
   });
 
   it("opens health triage from mobile workflow navigation without burying the primary provider pull", () => {
@@ -143,7 +213,37 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(window.location.search).toContain("providerKey=tcgdex");
     expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");
     expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("heading", { name: "Import to promotion workbench" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Import to promotion workbench" })).toBeNull();
+  });
+
+  it("opens profile authoring from mobile workflow navigation while preserving provider context", () => {
+    window.history.pushState(
+      {},
+      "",
+      "/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&section=workbench",
+    );
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl: window.location.href,
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: null,
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Choose Catalog workflow" }), {
+      target: { value: "profile-authoring" },
+    });
+
+    expect(screen.getByRole("heading", { name: "Provider profile authoring" })).toBeTruthy();
+    expect(window.location.pathname).toBe("/catalog/integrations");
+    expect(window.location.search).toContain("section=profile-work");
+    expect(window.location.search).toContain("providerKey=tcgdex");
+    expect(window.location.search).toContain("unitKey=tcgdex%3Apokemon%3Acard%3Aimport");
+    expect(window.location.search).toContain("filter.status=changed");
+    expect(screen.getAllByRole("button", { name: /Pull provider data/i }).length).toBeGreaterThan(0);
+    expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
   });
 
   it("updates the browser URL from mobile workflow navigation while preserving route context", () => {

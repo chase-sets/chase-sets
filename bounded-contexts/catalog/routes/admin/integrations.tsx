@@ -40,6 +40,7 @@ type CatalogPrimaryWorkbenchFormIntent = Extract<
   | "retry-import-job"
   | "resume-import-job"
   | "cancel-import-job"
+  | "clone-provider-profile"
   | "preview-promotion"
   | "execute-promotion"
   | "reject-source-observations"
@@ -170,6 +171,43 @@ export async function action({ request }: ActionFunctionArgs) {
           intent,
           status: "success",
           result: "preview-ready",
+        });
+      }
+      case "clone-provider-profile": {
+        const sourceProviderKey = stringValue(formData.get("sourceProviderKey")) ?? context.providerKey;
+        const sourceProfileVersion = stringValue(formData.get("sourceProfileVersion")) ?? context.profileVersion;
+        const targetProfileVersion = stringValue(formData.get("targetProfileVersion"));
+        const targetLifecycle = stringValue(formData.get("targetLifecycle")) ?? "draft";
+        if (!sourceProviderKey || !sourceProfileVersion || !targetProfileVersion || targetLifecycle !== "draft") {
+          return commandRedirectWithTelemetry(api, {
+            context: { ...context, section: "profile-authoring", selectedObservationIds },
+            intent,
+            status: "error",
+            result: "invalid-intent",
+          });
+        }
+
+        const profile = await api.cloneSourceObservationProviderProfile<CatalogProviderProfileVersionReview>(
+          sourceProviderKey,
+          sourceProfileVersion,
+          {
+            targetProfileVersion,
+            lifecycle: "draft",
+          },
+        );
+
+        return commandRedirectWithTelemetry(api, {
+          context: {
+            ...context,
+            section: "profile-authoring",
+            providerKey: profile.providerKey,
+            profileVersion: profile.profileVersion,
+            selectedObservationIds,
+            promotionPreviewId: null,
+          },
+          intent,
+          status: "success",
+          result: "draft-created",
         });
       }
       case "execute-promotion": {
@@ -404,7 +442,8 @@ function commandRedirect(input: {
   status: CatalogPrimaryWorkbenchCommandFeedback["status"];
   result: CatalogPrimaryWorkbenchCommandFeedback["result"];
 }) {
-  const url = new URL(catalogPrimaryWorkbenchHref(input.context, "import-to-promotion"), "https://admin.example");
+  const redirectSection = input.intent === "clone-provider-profile" ? "profile-authoring" : "import-to-promotion";
+  const url = new URL(catalogPrimaryWorkbenchHref(input.context, redirectSection), "https://admin.example");
   url.searchParams.set("commandStatus", input.status);
   url.searchParams.set("commandIntent", input.intent);
   url.searchParams.set("commandResult", input.result);
@@ -430,6 +469,7 @@ function isCommandFeedbackResult(value: string | null): value is CatalogPrimaryW
     value === "job-queued" ||
     value === "job-cancelled" ||
     value === "preview-ready" ||
+    value === "draft-created" ||
     value === "preview-required" ||
     value === "job-required" ||
     value === "reason-required" ||

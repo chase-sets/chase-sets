@@ -14,6 +14,7 @@ export type CatalogPrimaryWorkbenchCommandTelemetryResult =
   | "job-queued"
   | "job-cancelled"
   | "preview-ready"
+  | "draft-created"
   | "preview-required"
   | "job-required"
   | "reason-required"
@@ -148,6 +149,16 @@ export function commandTelemetryEvents(
       ...base,
       promotionResult,
       promotionCount: input.context.selectedObservationIds.length || null,
+    });
+  }
+
+  if (input.intent === "clone-provider-profile" && input.status === "success") {
+    events.push({
+      eventName: "catalog_control_plane.profile_draft_created",
+      ...base,
+      promotionResult,
+      detourTarget: "profile-authoring",
+      detourOutcome: "returned",
     });
   }
 
@@ -340,6 +351,7 @@ function promotionTelemetryResult(
     case "job-queued":
     case "job-cancelled":
     case "preview-ready":
+    case "draft-created":
     case "preview-required":
     case "reason-required":
     case "unsupported-command":

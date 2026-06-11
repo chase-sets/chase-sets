@@ -38,7 +38,7 @@ Operators should not need health, profile authoring, validation, lifecycle, cont
 | --- | --- | --- | --- |
 | Primary import-to-promotion path | Import to promotion workbench | Import to promotion workbench | Import readiness, job progress, Source Observation review, promotion preview. |
 | Health triage | Health triage | Import to promotion workbench | Readiness KPIs, read-model freshness, semantic readiness, fixture/dry-run status, transport readiness, rollout stops, active jobs, and audit preview. |
-| Profile overview, drafting, and section editing | Profile authoring | Import to promotion workbench | Profile version, section diagnostics, save outcome. |
+| Profile overview, drafting, and section editing | Profile authoring | Import to promotion workbench | Selected profile overview, lifecycle restrictions, immutable clone facts, validation, fixture coverage, authoring audit, draft outcome, and section diagnostics. |
 | Validation, dry run, compare, and activation readiness | Validation readiness | Import to promotion workbench | Fixture result, dry-run evidence, semantic compare, activation readiness. |
 | Imports, jobs, Source Observation review, promotion, reapply, replay | Import to promotion workbench | Import to promotion workbench | Durable job state, observation evidence, promotion command plan, recovery result. |
 | Lifecycle, rollout, RBAC, observability, and audit evidence | Governance controls | Audit evidence | Permission result, rollout mode, operational metric, audit record. |
@@ -53,7 +53,8 @@ Launch screen boundaries:
 
 - Import setup, durable job progress, Source Observation review, promotion preview, promotion execution, and common recovery branches stay in the primary workbench.
 - Health triage is the dense support dashboard for distinguishing Catalog semantic readiness from provider adapter transport, rollout stops, active jobs, operational owner metrics, and audit projection state. It must keep a context-preserving return to the import-to-promotion workbench and must not become a second default page.
-- Profile authoring, validation readiness, adapter readiness, lifecycle recovery, governance controls, and audit evidence are detours only when they unblock, govern, recover, or verify the primary job.
+- Profile authoring owns provider profile overview, draft creation, lifecycle restrictions, immutable identity evidence, and later typed section editing. It stays a detour only when profile evidence blocks or supports the primary provider-data pull and promotion path.
+- Validation readiness, adapter readiness, lifecycle recovery, governance controls, and audit evidence are detours only when they unblock, govern, recover, or verify the primary job.
 - No screen may recreate retired admin patterns, tabbed module splits, raw JSON fallbacks, provider-specific UI branches, or compatibility paths.
 
 Retire, remove, deprecate, and cleanup mean complete deletion of retired code, product patterns, routes, APIs, read-model contracts, clients, tests, fixtures, seeds, screenshots, documentation, runbooks, release notes, and operator instructions. No hidden flag, feature flag, fallback branch, compatibility redirect, alias, shim, migration shim, or support-only route may preserve a retired screen or pattern.

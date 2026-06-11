@@ -20,6 +20,14 @@ The module should be organized around operator jobs rather than storage shape:
 - Operations workbench: provider-specific import scope controls, active profile snapshot before enqueue, current job status, completed job result summaries, grouped failures, and links into filtered Source Observations.
 - Lifecycle workbench: activation, deprecation, rollback, retirement, structured evidence capture, immutable audit display, and blocked-action guidance.
 
+## Rebuilt Profile Overview And Draft Creation
+
+Issue #1033 implements the launch profile overview and draft creation surface inside the rebuilt `/catalog/integrations` control plane. It is a support detour reached through `section=profile-work`; it is not a migration of the retired two-page catalog integrations experience and it must not revive old profile review patterns.
+
+The overview consumes typed `CatalogProviderProfileVersionReview` evidence and shows provider/profile/version identity, lifecycle, active state, validation, capabilities, scopes, fixture coverage, mapping fingerprint when typed evidence reports one, reference count, source contract, migration evidence, and authoring audit. It must not parse profile JSON snapshots or ask operators to inspect payload JSON.
+
+Draft creation uses the existing typed provider profile clone command through the rebuilt route bridge. The UI preserves immutable provider/profile identity facts, explains lifecycle restrictions before submit, denies writes for view-only operators while leaving evidence inspectable, fails closed for missing or stale selected profile versions, and redirects back to the profile authoring detour with the created draft selected.
+
 ## Query Contracts
 
 Admin workflows consume the Source Observations query/read-model contracts documented in [Admin Control Plane Query Contracts](./admin-control-plane-query-contracts.md). Those contracts define stable query keys, DTO names, source tables/projections, freshness expectations, and operator-facing error states for health, readiness, profile sections, fixture validation, dry runs, semantic compare, activation, impact preview, job progress, Source Observation review, promotion preview, rollback/retirement, and audit/evidence timelines. Runtime consistency and lifecycle conflict policy is documented in [Catalog Integration Job Consistency](./catalog-integration-job-consistency.md).
