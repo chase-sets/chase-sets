@@ -1956,6 +1956,346 @@ describe("bounded context projection replay", () => {
     ).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
   });
 
+  it("requests a wake and registers waiters once for exactly the pending dependencies", async () => {
+    const wakeCalls: { requests: readonly unknown[]; metadata?: unknown }[] = [];
+    const waiterCalls: { requests: readonly unknown[]; timeoutMs: number }[] = [];
+    let lastGlobalPosition = "1";
+    let refreshCount = 0;
+
+    const outcome = await waitForProjectionFreshness({
+      projectionGroups: [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              checkpointKey: "marketplace-listing-projection:marketplace:v1",
+              refreshStatus: async () => {
+                refreshCount += 1;
+                if (refreshCount > 1) {
+                  lastGlobalPosition = "5";
+                }
+
+                return {
+                  lastGlobalPosition,
+                  state: "behind",
+                  lastError: null,
+                };
+              },
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["marketplace"],
+      receipt: {
+        observedAtMs: 1,
+        sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+      },
+      timeoutMs: 100,
+      pollIntervalMs: 1,
+      workSignalGateway: {
+        requestWake: async (input) => {
+          wakeCalls.push(input);
+          return input.requests.length;
+        },
+        registerWaiters: async (input) => {
+          waiterCalls.push(input);
+        },
+      },
+      workSignalMetadata: { mountPath: "/api/marketplace" },
+    });
+
+    expect(outcome).toEqual({ wakeRequestCount: 1, workSignalErrorPresent: false });
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0].requests).toEqual([
+      {
+        sourceContextName: "marketplace",
+        targetContextName: "marketplace",
+        projectionName: "marketplace-listing-projection",
+        checkpointKey: "marketplace-listing-projection:marketplace:v1",
+        requiredPosition: "5",
+      },
+    ]);
+    expect(wakeCalls[0].metadata).toEqual({ mountPath: "/api/marketplace" });
+    expect(waiterCalls).toHaveLength(1);
+    expect(waiterCalls[0].timeoutMs).toBe(100);
+  });
+
+  it("does not request wakes when projections are already fresh", async () => {
+    let wakeRequested = false;
+
+    const outcome = await waitForProjectionFreshness({
+      projectionGroups: [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              checkpointKey: "marketplace-listing-projection:marketplace:v1",
+              refreshStatus: async () => ({
+                lastGlobalPosition: "9",
+                state: "caught-up",
+                lastError: null,
+              }),
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["marketplace"],
+      receipt: {
+        observedAtMs: 1,
+        sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+      },
+      timeoutMs: 100,
+      pollIntervalMs: 1,
+      workSignalGateway: {
+        requestWake: async () => {
+          wakeRequested = true;
+          return 0;
+        },
+      },
+    });
+
+    expect(wakeRequested).toBe(false);
+    expect(outcome).toEqual({ wakeRequestCount: 0, workSignalErrorPresent: false });
+  });
+
+  it("continues the durable poll when the work-signal gateway fails", async () => {
+    let lastGlobalPosition = "1";
+    let refreshCount = 0;
+
+    const outcome = await waitForProjectionFreshness({
+      projectionGroups: [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              checkpointKey: "marketplace-listing-projection:marketplace:v1",
+              refreshStatus: async () => {
+                refreshCount += 1;
+                if (refreshCount > 1) {
+                  lastGlobalPosition = "5";
+                }
+
+                return {
+                  lastGlobalPosition,
+                  state: "behind",
+                  lastError: null,
+                };
+              },
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["marketplace"],
+      receipt: {
+        observedAtMs: 1,
+        sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+      },
+      timeoutMs: 100,
+      pollIntervalMs: 1,
+      workSignalGateway: {
+        requestWake: async () => {
+          throw new Error("control database unavailable");
+        },
+      },
+    });
+
+    expect(outcome).toEqual({ wakeRequestCount: 0, workSignalErrorPresent: true });
+  });
+
+  it("skips wake requests for subscription runners without checkpoint keys", async () => {
+    let wakeRequested = false;
+
+    await expect(
+      waitForProjectionFreshness({
+        projectionGroups: [
+          {
+            targetContextName: "marketplace",
+            projectionName: "marketplace-listing-projection",
+            subscriptionRunners: [
+              {
+                sourceContextName: "marketplace",
+                refreshStatus: async () => ({
+                  lastGlobalPosition: "1",
+                  state: "behind",
+                  lastError: null,
+                }),
+              },
+            ],
+          },
+        ],
+        targetContextNames: ["marketplace"],
+        receipt: {
+          observedAtMs: 1,
+          sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+        },
+        timeoutMs: 0,
+        pollIntervalMs: 1,
+        workSignalGateway: {
+          requestWake: async () => {
+            wakeRequested = true;
+            return 0;
+          },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
+
+    expect(wakeRequested).toBe(false);
+  });
+
+  it("issues a single wake batch even when the wait spans multiple poll iterations", async () => {
+    let wakeCalls = 0;
+    let lastGlobalPosition = "1";
+    let refreshCount = 0;
+
+    await waitForProjectionFreshness({
+      projectionGroups: [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              checkpointKey: "marketplace-listing-projection:marketplace:v1",
+              refreshStatus: async () => {
+                refreshCount += 1;
+                if (refreshCount > 3) {
+                  lastGlobalPosition = "5";
+                }
+
+                return {
+                  lastGlobalPosition,
+                  state: "behind",
+                  lastError: null,
+                };
+              },
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["marketplace"],
+      receipt: {
+        observedAtMs: 1,
+        sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+      },
+      timeoutMs: 500,
+      pollIntervalMs: 1,
+      workSignalGateway: {
+        requestWake: async (input) => {
+          wakeCalls += 1;
+          return input.requests.length;
+        },
+      },
+    });
+
+    expect(refreshCount).toBeGreaterThan(3);
+    expect(wakeCalls).toBe(1);
+  });
+
+  it("keeps the wake count and flags the error when waiter registration fails after a wake succeeds", async () => {
+    let lastGlobalPosition = "1";
+    let refreshCount = 0;
+
+    const outcome = await waitForProjectionFreshness({
+      projectionGroups: [
+        {
+          targetContextName: "marketplace",
+          projectionName: "marketplace-listing-projection",
+          subscriptionRunners: [
+            {
+              sourceContextName: "marketplace",
+              checkpointKey: "marketplace-listing-projection:marketplace:v1",
+              refreshStatus: async () => {
+                refreshCount += 1;
+                if (refreshCount > 1) {
+                  lastGlobalPosition = "5";
+                }
+
+                return {
+                  lastGlobalPosition,
+                  state: "behind",
+                  lastError: null,
+                };
+              },
+            },
+          ],
+        },
+      ],
+      targetContextNames: ["marketplace"],
+      receipt: {
+        observedAtMs: 1,
+        sources: [{ sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] }],
+      },
+      timeoutMs: 100,
+      pollIntervalMs: 1,
+      workSignalGateway: {
+        requestWake: async (input) => input.requests.length,
+        registerWaiters: async () => {
+          throw new Error("control database unavailable");
+        },
+      },
+    });
+
+    expect(outcome).toEqual({ wakeRequestCount: 1, workSignalErrorPresent: true });
+  });
+
+  it("dedupes wake requests by checkpoint and clamps forged positions to the durable source head", async () => {
+    const wakeCalls: { requests: readonly { checkpointKey: string; requiredPosition: string }[] }[] = [];
+
+    // The forged source position can never become fresh, so the wait itself
+    // times out; the wake request must still be deduped and clamped.
+    await expect(
+      waitForProjectionFreshness({
+        projectionGroups: [
+          {
+            targetContextName: "marketplace",
+            projectionName: "marketplace-listing-projection",
+            subscriptionRunners: [
+              {
+                sourceContextName: "marketplace",
+                checkpointKey: "marketplace-listing-projection:marketplace:v1",
+                refreshStatus: async () => ({
+                  lastGlobalPosition: "1",
+                  sourceHeadGlobalPosition: "9",
+                  state: "behind",
+                  lastError: null,
+                }),
+              },
+            ],
+          },
+        ],
+        targetContextNames: ["marketplace"],
+        receipt: {
+          observedAtMs: 1,
+          sources: [
+            { sourceContextName: "marketplace", maxGlobalPosition: "5", eventIds: ["evt_5"] },
+            { sourceContextName: "marketplace", maxGlobalPosition: "900000", eventIds: ["evt_forged"] },
+          ],
+        },
+        timeoutMs: 25,
+        pollIntervalMs: 1,
+        workSignalGateway: {
+          requestWake: async (input) => {
+            wakeCalls.push({ requests: input.requests });
+            return input.requests.length;
+          },
+        },
+      }),
+    ).rejects.toBeInstanceOf(ProjectionFreshnessTimeoutError);
+
+    expect(wakeCalls).toHaveLength(1);
+    expect(wakeCalls[0].requests).toHaveLength(1);
+    expect(wakeCalls[0].requests[0]).toMatchObject({
+      checkpointKey: "marketplace-listing-projection:marketplace:v1",
+      requiredPosition: "9",
+    });
+  });
+
   it("returns a projection freshness timeout response before serving stale API reads", async () => {
     const middlewares: ((context: unknown, next: () => Promise<void>) => Promise<unknown>)[] = [];
     const receipt = encodeFreshWriteReceipt({
@@ -2800,7 +3140,7 @@ describe("bounded context projection replay", () => {
               sourceContextName: "checkout",
               requiredGlobalPosition: "7",
               lastGlobalPosition: "3",
-              lastError: "checkout input lagging",
+              lastError: "present",
             },
           ],
         },
@@ -2879,7 +3219,7 @@ describe("bounded context projection replay", () => {
               sourceContextName: "checkout",
               requiredGlobalPosition: "5",
               lastGlobalPosition: "1",
-              lastError: "worker lagging",
+              lastError: "present",
             },
           ],
         },

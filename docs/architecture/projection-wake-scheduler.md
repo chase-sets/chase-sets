@@ -67,9 +67,20 @@ Staging and production share this contract; only scale values differ. The Terraf
 
 Scheduler observer events separate claim, completion (ran vs. already satisfied), not-ready retry, lease-busy deferral, unknown target, run failure, attempts exhausted, lost claims, and readiness record failures, each carrying lane, origin, attempt count, and queue age. The worker status endpoint exposes the live wake-intent summary (queued, claimed, failed, expired, stale claims, oldest ages) for dashboards and the milestone's commit-to-checkpoint latency segmentation.
 
+## API Wake-Before-Wait And Checkpoint Readiness
+
+Read-after-write freshness waits integrate with the work-signal store through a check-then-wake contract:
+
+1. The read-consistency middleware performs its first durable freshness check against projection checkpoints. Only when dependencies are actually behind the commit receipt does it issue one wake batch — exact `api-wait` wake intents on the hot lane for precisely the pending `(source, target, projection, checkpoint)` tuples.
+2. Wake batches are bounded on the request path: deduplicated per checkpoint, capped per wait, clamped to the durable source head (commit receipts are unauthenticated client input), and raced against a small time budget so a slow control database can never hold a freshness wait past its own timeout. A batch that loses the race completes in the background.
+3. The bounded durable poll continues unchanged as the unconditional fallback, so a wake landing between the check and the wait can never strand a request, and disabling the gateway never removes exact waits.
+4. API processes only write wake-intent rows through pooled control-database queries; they hold no listener connections. Durable checkpoint-waiter registration exists in the gateway but stays off by default until the readiness-notification wait path that consumes waiter rows lands.
+5. Checkpoint readiness is recorded from durable checkpoints only: wake-driven scheduler completions record it, and polling-path projection runs record it for subscriptions whose checkpoints advanced. Empty-batch skip-ahead checkpoint advances do not record readiness; the durable poll covers that gap. Readiness rows are cleared when a projection group resets for a revision rebuild or an operator rebuild so stale positions cannot outlive their checkpoints, and bounded readiness TTLs reap anything cleared out-of-band.
+6. Wake-request counts and work-signal errors appear in the read-after-write freshness audit records for dashboards. Public freshness-timeout responses redact raw projection errors and internal checkpoint topology; the audit record keeps the detail.
+7. Rollout: `READ_CONSISTENCY_WAKE_BEFORE_WAIT_ENABLED` defaults off and rides a staging-first ramp in Terraform; production enablement follows the milestone rollout-control and canary evidence gates.
+
 ## Boundaries
 
 - The scheduler does not listen to source databases and does not parse wake notifications; that is the relay's job.
 - The scheduler does not decide rollout; source enablement stays in the source-context wake registry, and no intents exist for disabled sources.
-- The admin-support worker currently relies on fallback polling; its wake consumption lands with the projection-group migration inventory work.
-- Recording checkpoint readiness from polling-path runs and the API freshness-wait integration are owned by the checkpoint-readiness issue, not this scheduler.
+- The admin-support worker currently relies on fallback polling; its wake consumption lands with the projection-group migration inventory work. The admin-support API likewise runs without the wake-before-wait gateway until its contexts enter the rollout inventory.

@@ -110,6 +110,11 @@ locals {
     )
   } : {}
 
+  # Read-after-write wake-before-wait rides a staging-first ramp: staging
+  # proves the api-wait wake path before production enablement, which stays
+  # gated behind the milestone rollout-control and canary evidence issues.
+  read_consistency_wake_before_wait_enabled = local.is_staging ? "true" : "false"
+
   source_observation_bulk_job_lanes             = local.is_staging ? "4" : "1"
   source_observation_bulk_workflow_cap          = local.is_staging ? "4" : "1"
   source_observation_bulk_job_cap               = local.is_staging ? "2" : "1"

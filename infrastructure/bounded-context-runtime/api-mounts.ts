@@ -36,8 +36,90 @@ export type ReadConsistencyRouteDependency = Readonly<{
 
 type ReadConsistencySubscriptionRunner = Readonly<{
   sourceContextName: string;
-  refreshStatus: () => Promise<Readonly<{ lastGlobalPosition: string; state: string; lastError?: string | null }>>;
+  checkpointKey?: string;
+  refreshStatus: () => Promise<
+    Readonly<{
+      lastGlobalPosition: string;
+      sourceHeadGlobalPosition?: string;
+      state: string;
+      lastError?: string | null;
+    }>
+  >;
 }>;
+
+export type ReadConsistencyWakeRequest = Readonly<{
+  sourceContextName: string;
+  targetContextName: string;
+  projectionName: string;
+  checkpointKey: string;
+  requiredPosition: string;
+}>;
+
+export type ReadConsistencyWorkSignalGateway = Readonly<{
+  requestWake?: (
+    input: Readonly<{
+      requests: readonly ReadConsistencyWakeRequest[];
+      metadata?: Readonly<Record<string, unknown>>;
+    }>,
+  ) => Promise<number>;
+  registerWaiters?: (
+    input: Readonly<{
+      requests: readonly ReadConsistencyWakeRequest[];
+      timeoutMs: number;
+      metadata?: Readonly<Record<string, unknown>>;
+    }>,
+  ) => Promise<void>;
+}>;
+
+export type ReadConsistencyWaitOutcome = Readonly<{
+  wakeRequestCount: number;
+  workSignalErrorPresent: boolean;
+}>;
+
+const WAKE_REQUEST_RACE_BUDGET_MS = 250;
+const MAX_WAKE_REQUESTS_PER_WAIT = 16;
+
+function collectWakeRequests(
+  pending: readonly Readonly<{
+    sourceContextName: string;
+    targetContextName: string;
+    projectionName: string;
+    checkpointKey: string | null;
+    requiredGlobalPosition: string;
+    sourceHeadGlobalPosition: string | null;
+  }>[],
+): readonly ReadConsistencyWakeRequest[] {
+  const requestsByCheckpoint = new Map<string, ReadConsistencyWakeRequest>();
+  for (const item of pending) {
+    if (!item.checkpointKey) {
+      continue;
+    }
+
+    // Receipts are unauthenticated request input: clamp the requested
+    // position to the durable source head so a forged receipt cannot poison
+    // the shared coalesced wake intent with an unreachable position.
+    const requiredPosition =
+      item.sourceHeadGlobalPosition !== null &&
+      BigInt(item.requiredGlobalPosition) > BigInt(item.sourceHeadGlobalPosition)
+        ? item.sourceHeadGlobalPosition
+        : item.requiredGlobalPosition;
+    const dedupeKey = `${item.checkpointKey}:${item.sourceContextName}`;
+    const existing = requestsByCheckpoint.get(dedupeKey);
+    if (existing && BigInt(existing.requiredPosition) >= BigInt(requiredPosition)) {
+      continue;
+    }
+
+    requestsByCheckpoint.set(dedupeKey, {
+      sourceContextName: item.sourceContextName,
+      targetContextName: item.targetContextName,
+      projectionName: item.projectionName,
+      checkpointKey: item.checkpointKey,
+      requiredPosition,
+    });
+  }
+
+  return [...requestsByCheckpoint.values()].slice(0, MAX_WAKE_REQUESTS_PER_WAIT);
+}
 
 export type ReadConsistencyProjectionGroup = Readonly<{
   targetContextName: string;
@@ -84,10 +166,13 @@ export type ReadConsistencyAuditRecord = Readonly<{
   receiptSourceCount: number;
   receiptEventCount: number;
   dependencies: readonly ResolvedReadConsistencyDependency[];
+  wakeRequestCount: number;
+  workSignalError: "present" | null;
   pending: readonly Readonly<{
     targetContextName: string;
     projectionName: string;
     sourceContextName: string;
+    checkpointKey: string | null;
     requiredGlobalPosition: string;
     lastGlobalPosition: string;
     globalPositionLag: string;
@@ -101,6 +186,7 @@ export type ReadConsistencyMiddlewareOptions = Readonly<{
   pollIntervalMs?: number;
   exactDependencyMode?: ReadConsistencyExactDependencyMode;
   routeTuning?: readonly ReadConsistencyRouteTuning[];
+  workSignalGateway?: ReadConsistencyWorkSignalGateway;
   recordReadConsistencyAudit?: (record: ReadConsistencyAuditRecord) => void;
   nowMs?: () => number;
 }>;
@@ -113,6 +199,7 @@ export class ProjectionFreshnessTimeoutError extends Error {
         targetContextName: string;
         projectionName: string;
         sourceContextName: string;
+        checkpointKey: string | null;
         requiredGlobalPosition: string;
         lastGlobalPosition: string;
         state: string;
@@ -120,6 +207,8 @@ export class ProjectionFreshnessTimeoutError extends Error {
       }>[];
       waitMode: ReadConsistencyWaitMode;
       dependencies: readonly ResolvedReadConsistencyDependency[];
+      wakeRequestCount: number;
+      workSignalErrorPresent: boolean;
     }>,
   ) {
     super("Projection read model did not catch up to the requested write receipt before the freshness timeout.");
@@ -248,14 +337,19 @@ export async function waitForProjectionFreshness(
     dependencies?: readonly ResolvedReadConsistencyDependency[];
     timeoutMs?: number;
     pollIntervalMs?: number;
+    workSignalGateway?: ReadConsistencyWorkSignalGateway;
+    workSignalMetadata?: Readonly<Record<string, unknown>>;
     nowMs?: () => number;
   }>,
-): Promise<void> {
+): Promise<ReadConsistencyWaitOutcome> {
   const timeoutMs = input.timeoutMs ?? 2_500;
   const pollIntervalMs = input.pollIntervalMs ?? 75;
   const nowMs = input.nowMs ?? Date.now;
   const startedAt = nowMs();
   const targetContextNames = [...new Set(input.targetContextNames)];
+  let wakeRequestCount = 0;
+  let workSignalErrorPresent = false;
+  let workSignalsRequested = false;
 
   while (true) {
     const pending = await findPendingProjectionFreshness({
@@ -266,7 +360,43 @@ export async function waitForProjectionFreshness(
     });
 
     if (pending.length === 0) {
-      return;
+      return { wakeRequestCount, workSignalErrorPresent };
+    }
+
+    // Check, then wake: only durable evidence of lagging checkpoints triggers
+    // a single wake/waiter batch for exactly the pending dependencies. The
+    // bounded durable poll below remains the unconditional fallback, so a
+    // wake landing between the check and the registration cannot strand the
+    // request.
+    if (!workSignalsRequested && input.workSignalGateway) {
+      workSignalsRequested = true;
+      const requests = collectWakeRequests(pending);
+      if (requests.length > 0) {
+        const gateway = input.workSignalGateway;
+        const gatewayWork = (async () => {
+          wakeRequestCount = (await gateway.requestWake?.({ requests, metadata: input.workSignalMetadata })) ?? 0;
+          await gateway.registerWaiters?.({
+            requests,
+            timeoutMs,
+            metadata: input.workSignalMetadata,
+          });
+        })().catch(() => {
+          // Wake acceleration is best-effort; the durable poll continues.
+          workSignalErrorPresent = true;
+        });
+
+        // Bound the request-path cost: a slow control database must never
+        // hold a freshness wait past its own budget. A batch that loses the
+        // race keeps completing in the background.
+        const raceBudgetMs = Math.min(WAKE_REQUEST_RACE_BUDGET_MS, Math.max(0, timeoutMs - (nowMs() - startedAt)));
+        const settledInBudget = await Promise.race([
+          gatewayWork.then(() => true),
+          delay(raceBudgetMs).then(() => false),
+        ]);
+        if (!settledInBudget) {
+          workSignalErrorPresent = true;
+        }
+      }
     }
 
     if (nowMs() - startedAt >= timeoutMs) {
@@ -275,6 +405,8 @@ export async function waitForProjectionFreshness(
         pending,
         waitMode: input.dependencies ? "exact-dependency" : "target-context",
         dependencies: input.dependencies ?? [],
+        wakeRequestCount,
+        workSignalErrorPresent,
       });
     }
 
@@ -296,7 +428,9 @@ async function findPendingProjectionFreshness(
     targetContextName: string;
     projectionName: string;
     sourceContextName: string;
+    checkpointKey: string | null;
     requiredGlobalPosition: string;
+    sourceHeadGlobalPosition: string | null;
     lastGlobalPosition: string;
     state: string;
     lastError: string | null;
@@ -331,7 +465,9 @@ async function findPendingProjectionFreshness(
           targetContextName: group.targetContextName,
           projectionName: group.projectionName,
           sourceContextName: source.sourceContextName,
+          checkpointKey: runner.checkpointKey ?? null,
           requiredGlobalPosition: source.maxGlobalPosition,
+          sourceHeadGlobalPosition: status.sourceHeadGlobalPosition ?? null,
           lastGlobalPosition: status.lastGlobalPosition,
           state: status.state,
           lastError: status.lastError ?? null,
@@ -445,6 +581,8 @@ export function attachReadConsistencyMiddleware(
             receiptSourceCount: 0,
             receiptEventCount: 0,
             dependencies: exactDependencies ?? [],
+            wakeRequestCount: 0,
+            workSignalError: null,
             pending: [],
           });
         }
@@ -452,14 +590,20 @@ export function attachReadConsistencyMiddleware(
         return;
       }
 
+      let waitOutcome: ReadConsistencyWaitOutcome = { wakeRequestCount: 0, workSignalErrorPresent: false };
       try {
-        await waitForProjectionFreshness({
+        waitOutcome = await waitForProjectionFreshness({
           projectionGroups,
           targetContextNames: waitTargetContextNames,
           receipt,
           dependencies: exactDependencies ?? undefined,
           timeoutMs,
           pollIntervalMs,
+          workSignalGateway: options.workSignalGateway,
+          workSignalMetadata: {
+            mountPath,
+            routePaths: routeFreshness.routePaths,
+          },
           nowMs,
         });
       } catch (error) {
@@ -481,6 +625,8 @@ export function attachReadConsistencyMiddleware(
             receiptSourceCount: receipt.sources.length,
             receiptEventCount: receipt.sources.reduce((count, source) => count + source.eventIds.length, 0),
             dependencies: error.details.dependencies,
+            wakeRequestCount: error.details.wakeRequestCount,
+            workSignalError: error.details.workSignalErrorPresent ? "present" : null,
             pending: error.details.pending.map((pending) => ({
               ...pending,
               globalPositionLag: globalPositionLag(pending.requiredGlobalPosition, pending.lastGlobalPosition),
@@ -494,7 +640,17 @@ export function attachReadConsistencyMiddleware(
                 error: {
                   code: "projection_freshness_timeout",
                   message: error.message,
-                  pending: error.details.pending,
+                  // Public body: redact raw projection error text and internal
+                  // checkpoint topology; the audit record keeps the detail.
+                  pending: error.details.pending.map((pending) => ({
+                    targetContextName: pending.targetContextName,
+                    projectionName: pending.projectionName,
+                    sourceContextName: pending.sourceContextName,
+                    requiredGlobalPosition: pending.requiredGlobalPosition,
+                    lastGlobalPosition: pending.lastGlobalPosition,
+                    state: pending.state,
+                    lastError: pending.lastError ? "present" : null,
+                  })),
                   waitMode: error.details.waitMode,
                   dependencies: error.details.dependencies,
                 },
@@ -524,6 +680,8 @@ export function attachReadConsistencyMiddleware(
         receiptSourceCount: receipt.sources.length,
         receiptEventCount: receipt.sources.reduce((count, source) => count + source.eventIds.length, 0),
         dependencies: exactDependencies ?? [],
+        wakeRequestCount: waitOutcome.wakeRequestCount,
+        workSignalError: waitOutcome.workSignalErrorPresent ? "present" : null,
         pending: [],
       });
       await next();

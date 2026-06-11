@@ -19,6 +19,7 @@ import type { ProjectionRunContext, ProjectorRunResult } from "@chase-sets/event
 import { ZERO_GLOBAL_POSITION } from "@chase-sets/event-core/storage";
 import type { PgTransactionalPool } from "@chase-sets/event-core-postgres";
 import type { PlatformControlPlane, PlatformLease, ProjectionOperationRecord } from "./control-plane";
+import type { PostgresWorkSignalStore } from "./work-signal-store";
 
 export type WorkerHostName = "platform-worker" | "admin-support-worker";
 
@@ -231,11 +232,22 @@ export function collectWorkerRunners(
     projectionOperationLeaseRenewIntervalMs?: number;
     projectionOperationStatementTimeoutMs?: number;
     projectionOperationCancelPollIntervalMs?: number;
+    workSignalStore?: Pick<PostgresWorkSignalStore, "recordCheckpointReady" | "clearCheckpointReadiness">;
     observer?: WorkerRuntimeObserver;
   }> = {},
 ): readonly WorkerRunner[] {
+  const onCheckpointsAdvanced = options.workSignalStore
+    ? createCheckpointReadinessRecorder(options.workSignalStore)
+    : undefined;
+  const onCheckpointsReset = options.workSignalStore
+    ? async (checkpointKeys: readonly string[]) => {
+        await options.workSignalStore?.clearCheckpointReadiness({ checkpointKeys });
+      }
+    : undefined;
   const runners = [
-    ...runtime.projectionGroups.map((group) => createProjectionGroupWorkerRunner(group)),
+    ...runtime.projectionGroups.map((group) =>
+      createProjectionGroupWorkerRunner(group, { onCheckpointsAdvanced, onCheckpointsReset }),
+    ),
     createSubscriptionLedgerCompactionRunner(runtime),
     createProjectionGenerationRetentionRunner(runtime),
   ];
@@ -250,6 +262,7 @@ export function collectWorkerRunners(
           leaseRenewIntervalMs: options.projectionOperationLeaseRenewIntervalMs ?? 30_000,
           statementTimeoutMs: options.projectionOperationStatementTimeoutMs ?? 30_000,
           cancelPollIntervalMs: options.projectionOperationCancelPollIntervalMs ?? 5_000,
+          onCheckpointsReset,
           observer: options.observer,
         }),
       ]
@@ -559,9 +572,45 @@ export class ProjectionGroupRevisionStaleError extends Error {
   }
 }
 
+export function createCheckpointReadinessRecorder(
+  workSignalStore: Pick<PostgresWorkSignalStore, "recordCheckpointReady">,
+): (status: ContextProjectionGroupStatus, previousStatus?: ContextProjectionGroupStatus) => Promise<void> {
+  return async (status, previousStatus) => {
+    const previousPositions = new Map(
+      (previousStatus?.subscriptions ?? []).map((subscription) => [
+        subscription.checkpointKey,
+        BigInt(subscription.lastGlobalPosition),
+      ]),
+    );
+
+    for (const subscription of status.subscriptions) {
+      const previousPosition = previousPositions.get(subscription.checkpointKey);
+      if (previousPosition !== undefined && BigInt(subscription.lastGlobalPosition) <= previousPosition) {
+        continue;
+      }
+
+      await workSignalStore.recordCheckpointReady({
+        checkpointKey: subscription.checkpointKey,
+        sourceContextName: subscription.sourceContextName,
+        targetContextName: subscription.targetContextName,
+        projectionName: subscription.projectionName,
+        readyPosition: subscription.lastGlobalPosition,
+        metadata: { recordedBy: "projection-poll" },
+      });
+    }
+  };
+}
+
 export function createProjectionGroupWorkerRunner(
   group: ContextProjectionGroup,
-  options: Readonly<{ revisionStaleBehavior?: "reset" | "reject" }> = {},
+  options: Readonly<{
+    revisionStaleBehavior?: "reset" | "reject";
+    onCheckpointsAdvanced?: (
+      status: ContextProjectionGroupStatus,
+      previousStatus?: ContextProjectionGroupStatus,
+    ) => Promise<void>;
+    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
+  }> = {},
 ): WorkerRunner {
   const revisionStaleBehavior = options.revisionStaleBehavior ?? "reset";
   let rebuildingRevision: number | null = null;
@@ -582,6 +631,14 @@ export function createProjectionGroupWorkerRunner(
           context?.throwIfLeaseLost?.();
           await resetProjectionGroup(group, context);
           rebuildingRevision = group.projectionRevision;
+          if (options.onCheckpointsReset) {
+            try {
+              await options.onCheckpointsReset(group.subscriptionRunners.map((runner) => runner.checkpointKey));
+            } catch {
+              // Readiness clearing is best-effort; the bounded readiness TTL
+              // still reaps stale rows.
+            }
+          }
         }
 
         let processed = 0;
@@ -600,6 +657,14 @@ export function createProjectionGroupWorkerRunner(
           context?.throwIfLeaseLost?.();
           await group.markRevisionSynced();
           rebuildingRevision = null;
+        }
+
+        if (processed > 0 && options.onCheckpointsAdvanced) {
+          try {
+            await options.onCheckpointsAdvanced(group.getStatus(), status);
+          } catch {
+            // Readiness recording is best-effort and must never fail the run.
+          }
         }
 
         return {
@@ -626,6 +691,7 @@ function createProjectionOperationWorkerRunner(
     leaseRenewIntervalMs: number;
     statementTimeoutMs: number;
     cancelPollIntervalMs: number;
+    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
     observer?: WorkerRuntimeObserver;
   }>,
 ): WorkerRunner {
@@ -746,6 +812,7 @@ async function runProjectionOperationWithRenewedClaim(
     leaseRenewIntervalMs: number;
     statementTimeoutMs: number;
     cancelPollIntervalMs: number;
+    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
   }>,
   operation: ProjectionOperationRecord,
   ownerId: string,
@@ -829,6 +896,7 @@ async function runProjectionOperation(
     leaseRenewIntervalMs: number;
     statementTimeoutMs: number;
     cancelPollIntervalMs: number;
+    onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void>;
   }>,
   operation: ProjectionOperationRecord,
   ownerId: string,
@@ -856,7 +924,10 @@ async function runProjectionOperation(
           operationKind: operation.operationKind,
         },
       },
-      (context) => rebuildContextProjectionGroup(runtime, operation.contextName, projectionName, context),
+      async (context) => {
+        await clearGroupCheckpointReadiness(runtime, operation.contextName, projectionName, options);
+        return rebuildContextProjectionGroup(runtime, operation.contextName, projectionName, context);
+      },
     );
     return;
   }
@@ -884,15 +955,17 @@ async function runProjectionOperation(
             operationKind: operation.operationKind,
           },
         },
-        (context) =>
-          rebuildAllContextProjectionGroups(
+        async (context) => {
+          await clearGroupCheckpointReadiness(runtime, group.targetContextName, group.projectionName, options);
+          return rebuildAllContextProjectionGroups(
             {
               projectionGroups: [group],
             },
             operation.contextName,
             {},
             context,
-          ),
+          );
+        },
       );
     }
     return;
@@ -925,6 +998,31 @@ async function runProjectionOperation(
   }
 
   throw new Error(`Projection operation kind '${operation.operationKind}' is not implemented.`);
+}
+
+async function clearGroupCheckpointReadiness(
+  runtime: Pick<WorkerHostRuntime, "projectionGroups">,
+  targetContextName: string,
+  projectionName: string,
+  options: Readonly<{ onCheckpointsReset?: (checkpointKeys: readonly string[]) => Promise<void> }>,
+): Promise<void> {
+  if (!options.onCheckpointsReset) {
+    return;
+  }
+
+  const group = runtime.projectionGroups.find(
+    (candidate) => candidate.targetContextName === targetContextName && candidate.projectionName === projectionName,
+  );
+  if (!group) {
+    return;
+  }
+
+  try {
+    await options.onCheckpointsReset(group.subscriptionRunners.map((runner) => runner.checkpointKey));
+  } catch {
+    // Readiness clearing is best-effort; the bounded readiness TTL still
+    // reaps stale rows.
+  }
 }
 
 function findProjectionGroupForProjectionKey(
