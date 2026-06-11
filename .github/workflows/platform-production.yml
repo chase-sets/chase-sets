@@ -1,11 +1,9 @@
 name: Platform Deploy
 
 on:
-  workflow_run:
-    workflows:
-      - Platform PR
-    types:
-      - completed
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       release_ref:
@@ -42,9 +40,7 @@ jobs:
     timeout-minutes: 35
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push' &&
-       github.event.workflow_run.head_branch == 'main')
+      github.event_name == 'push'
     outputs:
       release_commit: ${{ steps.release.outputs.release_commit }}
       deployment_required: ${{ steps.deployment_scope.outputs.deploy }}
@@ -74,8 +70,8 @@ jobs:
           set -euo pipefail
 
           git fetch origin main
-          if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            release_commit="${{ github.event.workflow_run.head_sha }}"
+          if [ "${{ github.event_name }}" = "push" ]; then
+            release_commit="${{ github.sha }}"
           else
             release_ref="${{ inputs.release_ref }}"
             git fetch origin "${release_ref}" || true
@@ -218,7 +214,7 @@ jobs:
 
       - name: Confirm automatic deploy is latest main
         id: latest_main
-        if: github.event_name == 'workflow_run'
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           git fetch origin main
@@ -950,7 +946,7 @@ jobs:
       - name: Resolve staging release health metadata
         id: release_health_metadata
         env:
-          SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.created_at || '' }}
+          SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'push' && github.event.head_commit.timestamp || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
@@ -1150,7 +1146,7 @@ jobs:
 
       - name: Confirm automatic deploy is latest main
         id: latest_main
-        if: github.event_name == 'workflow_run'
+        if: github.event_name == 'push'
         run: |
           set -euo pipefail
           git fetch origin main
@@ -1829,7 +1825,7 @@ jobs:
         id: release_health_metadata
         if: always() && steps.latest_main.outputs.should_deploy != 'false'
         env:
-          SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.created_at || '' }}
+          SOURCE_WORKFLOW_CREATED_AT: ${{ github.event_name == 'push' && github.event.head_commit.timestamp || '' }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
