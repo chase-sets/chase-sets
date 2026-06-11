@@ -2,6 +2,7 @@
 import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { isCommitSha, readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const CANARY_ANALYSIS_VERSION = "canary-analysis/v1";
 
@@ -101,29 +102,11 @@ function normalizeNonNegativeInteger(value) {
   return Number.isInteger(normalized) && normalized >= 0 ? normalized : 0;
 }
 
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
-}
-
 function requireString(value, label) {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new Error(`${label} must be a non-empty string.`);
   }
   return value.trim();
-}
-
-function isCommitSha(value) {
-  return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

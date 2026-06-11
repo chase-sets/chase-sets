@@ -440,7 +440,7 @@ function ledgerDocument(entries) {
   return {
     version: 1,
     milestone: 12,
-    generatedBy: "pnpm run design-system:legacy-inventory -- --write-ledger",
+    generatedBy: "pnpm run ops design-system:legacy-inventory --write-ledger",
     description:
       "Design-system legacy pattern inventory for milestone #12. Entries are file/category level and must map to a milestone issue with no permanent exceptions.",
     summary: summarizeInventory(entries),

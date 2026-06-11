@@ -2,11 +2,7 @@
 import { createHmac } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
-
-function readEnv(name, env = process.env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
+import { readEnv } from "./lib/cli-options.mjs";
 
 function stripTrailingSlash(value) {
   return value.replace(/\/+$/, "");

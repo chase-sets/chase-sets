@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
 
 const ISO_EVENT_NAMES = new Set(["added_to_merge_queue", "ready_for_review", "merged", "removed_from_merge_queue"]);
 
@@ -190,23 +191,6 @@ function normalizeIso(value) {
 function normalizeCommitSha(value) {
   const normalized = normalizeString(value);
   return normalized && /^[0-9a-f]{40}$/i.test(normalized) ? normalized : null;
-}
-
-function normalizeString(value) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function readEnv(name, env) {
-  return normalizeString(env[name]);
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

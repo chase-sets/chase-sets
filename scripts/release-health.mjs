@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { isCommitSha, readEnv, readOption } from "./lib/cli-options.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const RELEASE_HEALTH_VERSION = "release-health/v1";
 
@@ -256,8 +256,7 @@ export async function writeReleaseHealthRecord(options) {
     throw new Error("RELEASE_HEALTH_OUT or --out is required.");
   }
 
-  await mkdir(dirname(options.outPath), { recursive: true });
-  await writeFile(options.outPath, `${JSON.stringify(result.record, null, 2)}\n`);
+  await writeJsonRecord(options.outPath, result.record);
   return result;
 }
 
@@ -367,30 +366,12 @@ function validateOptionalIsoInstant(name, value, errors) {
   }
 }
 
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
-}
-
 function emptyToNull(value) {
   return isNonEmptyString(value) ? value.trim() : null;
 }
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
-}
-
-function isCommitSha(value) {
-  return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

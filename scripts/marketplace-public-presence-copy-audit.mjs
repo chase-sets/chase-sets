@@ -2,6 +2,7 @@
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isIsoTimestamp } from "./marketplace-evidence-references.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const MARKETPLACE_PUBLIC_PRESENCE_COPY_AUDIT_VERSION = "marketplace-public-presence-copy-audit/v1";
 
@@ -181,20 +182,6 @@ function stripHtml(html) {
 
 function matchPatterns(text, patterns) {
   return patterns.filter((pattern) => new RegExp(pattern, "i").test(text));
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function requireString(value, label) {

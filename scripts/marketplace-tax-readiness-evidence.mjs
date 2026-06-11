@@ -4,6 +4,7 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { isIsoTimestamp, validateEvidenceReference } from "./marketplace-evidence-references.mjs";
 import { TAX_NEXUS_JURISDICTION_CODES } from "./marketplace-tax-nexus-measurement.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const MARKETPLACE_TAX_READINESS_EVIDENCE_VERSION = "marketplace-tax-readiness-evidence/v1";
 const TAX_NEXUS_MEASUREMENT_QUERY_VERSION = "tax-nexus-measurement-query/v1";
@@ -404,23 +405,9 @@ function normalizeSourceMeasurementQueryWindow(value) {
   };
 }
 
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
 function readBooleanEnv(name, env) {
   const value = readEnv(name, env);
   return parseBoolean(value);
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function readBooleanOption(argv, name) {

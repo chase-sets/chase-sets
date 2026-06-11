@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { isCommitSha, normalizeString, readEnv, readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const ACCOUNT_CANARY_EVIDENCE_VERSION = "account-canary-evidence/v1";
 
@@ -28,8 +29,7 @@ export async function runAccountCanaryEvidence(options) {
   const result = buildAccountCanaryEvidence({ ...options, policy });
 
   if (options.outPath) {
-    await mkdir(dirname(options.outPath), { recursive: true });
-    await writeFile(options.outPath, `${JSON.stringify(result.record, null, 2)}\n`);
+    await writeJsonRecord(options.outPath, result.record);
   }
 
   return result;
@@ -156,39 +156,6 @@ function parseSubjectList(value) {
     .split(",")
     .map((entry) => entry.trim())
     .filter(Boolean);
-}
-
-function normalizeString(value) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function isCommitSha(value) {
-  return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
-}
-
-function readRepeatedOptions(argv, name) {
-  const values = [];
-  for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] === name && argv[index + 1] && !argv[index + 1].startsWith("--")) {
-      values.push(argv[index + 1]);
-      index += 1;
-    }
-  }
-  return values;
 }
 
 async function main(argv, env = process.env) {

@@ -6,6 +6,7 @@ import {
   MARKETPLACE_LAUNCH_EVIDENCE_SCHEMA_VERSION,
   validateMarketplaceLaunchEvidence,
 } from "./marketplace-launch-evidence.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export function parseLaunchPacketArgs(argv, env = process.env) {
   return {
@@ -278,20 +279,6 @@ function requireRecord(value, label) {
     throw new Error(`${label} must be a JSON object.`);
   }
   return value;
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function isRecord(value) {

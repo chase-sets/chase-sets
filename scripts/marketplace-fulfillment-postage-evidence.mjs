@@ -8,6 +8,7 @@ import {
   validateEvidenceReferences,
 } from "./marketplace-evidence-references.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const MARKETPLACE_FULFILLMENT_POSTAGE_EVIDENCE_VERSION = "marketplace-fulfillment-postage-evidence/v1";
 const MAX_FULFILLMENT_POSTAGE_PROOF_AGE_DAYS = 30;
@@ -396,20 +397,6 @@ function validateProductionPostageWebhookDestination(value, errors) {
   } catch {
     errors.push("Fulfillment postage proof webhookDestination must be an absolute HTTPS URL.");
   }
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function requireString(value, label) {

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { isCommitSha, normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const EMERGENCY_RECOVERY_GUIDE_VERSION = "emergency-recovery-guide/v1";
 
@@ -24,8 +24,7 @@ export function parseEmergencyRecoveryGuideArgs(argv, env = process.env) {
 export async function runEmergencyRecoveryGuide(options) {
   const result = buildEmergencyRecoveryGuide(options);
   if (options.outPath) {
-    await mkdir(dirname(options.outPath), { recursive: true });
-    await writeFile(options.outPath, `${JSON.stringify(result.record, null, 2)}\n`);
+    await writeJsonRecord(options.outPath, result.record);
   }
   return result;
 }
@@ -101,28 +100,6 @@ function nextActions(mode, lockBypassAllowed) {
     "Merge the recovery pull request through required checks.",
     "Dispatch Platform Production with emergency_release=true and the emergency reference if the release lock remains active.",
   ];
-}
-
-function normalizeString(value) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function isCommitSha(value) {
-  return typeof value === "string" && /^[0-9a-f]{40}$/i.test(value);
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 async function main(argv, env = process.env) {

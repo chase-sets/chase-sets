@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { validateEvidenceReference } from "./marketplace-evidence-references.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const DEFERRED_CHECKOUT_ORDER_PROOF_VERSION = "marketplace-deferred-checkout-order-proof/v1";
 
@@ -288,20 +289,6 @@ function readNonEmptyString(value, label) {
     throw new Error(`Expected ${label} to be returned.`);
   }
   return value.trim();
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function isRecord(value) {

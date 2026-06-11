@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { repoRoot } from "./lib/repo.mjs";
+import { readOption } from "./lib/cli-options.mjs";
 
 export const DESIGN_SYSTEM_LEGACY_EVIDENCE_VERSION = "design-system-legacy-visual-accessibility-evidence/v1";
 export const defaultEvidencePath = path.join(
@@ -131,8 +132,8 @@ const surfaceChecks = [
 ];
 
 const verificationCommands = [
-  "pnpm run design-system:legacy-inventory -- --write-ledger",
-  "pnpm run design-system:legacy-evidence -- --write",
+  "pnpm run ops design-system:legacy-inventory --write-ledger",
+  "pnpm run ops design-system:legacy-evidence --write",
   "pnpm run test:design-system-legacy-inventory",
   "pnpm run test:design-system-legacy-evidence",
   "pnpm exec tsc -p ./tsconfig.json --noEmit",
@@ -162,7 +163,7 @@ export function collectDesignSystemLegacyEvidence(options = {}) {
     schemaVersion: DESIGN_SYSTEM_LEGACY_EVIDENCE_VERSION,
     milestone: 12,
     checkedAt,
-    generatedBy: "pnpm run design-system:legacy-evidence -- --write",
+    generatedBy: "pnpm run ops design-system:legacy-evidence --write",
     retainedArtifact: normalizeRelativePath(options.out ?? defaultEvidencePath, rootDir),
     summary: {
       representativeSurfaceCount: checks.length,
@@ -238,13 +239,6 @@ function validateLedger(ledger) {
 
 function readJson(filePath) {
   return JSON.parse(readFileSync(filePath, "utf8"));
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) return null;
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function readBooleanEnv(name, env) {

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { normalizeString, readEnv, readOption } from "./lib/cli-options.mjs";
+import { writeJsonRecord } from "./lib/output-file.mjs";
 
 export const GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION = "guest-buy-now-freshness-canary/v2";
 export const CANARY_STATES = Object.freeze(["pass", "temporary", "fail"]);
@@ -375,8 +375,7 @@ export async function runGuestBuyNowFreshnessCanary(options) {
   }
 
   if (options.outPath) {
-    await mkdir(dirname(options.outPath), { recursive: true });
-    await writeFile(options.outPath, `${JSON.stringify(evidence, null, 2)}\n`);
+    await writeJsonRecord(options.outPath, evidence);
   }
 
   return evidence;
@@ -727,10 +726,6 @@ function normalizePath(value) {
   return text.startsWith("/") ? text : `/${text}`;
 }
 
-function normalizeString(value) {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function normalizePositiveInteger(value, fallback) {
   const normalized = Number.parseInt(String(value ?? ""), 10);
   return Number.isInteger(normalized) && normalized > 0 ? normalized : fallback;
@@ -751,20 +746,6 @@ function normalizeOptionalNonNegativeInteger(value) {
 
 function readBoolean(value) {
   return /^(1|true|yes)$/i.test(String(value ?? "").trim());
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function readFlag(argv, name) {

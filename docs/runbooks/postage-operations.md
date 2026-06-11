@@ -120,14 +120,14 @@ Before closing postage snapshot cleanup:
 Run the read-only cleanup evidence report against the target environment before closing the cleanup gate:
 
 ```powershell
-pnpm run postage-policy:cleanup-evidence -- --environment=production --ordering-database-url=$env:ORDERING_DATABASE_URL --fulfillment-database-url=$env:FULFILLMENT_DATABASE_URL
+pnpm run ops postage-policy:cleanup-evidence --environment=production --ordering-database-url=$env:ORDERING_DATABASE_URL --fulfillment-database-url=$env:FULFILLMENT_DATABASE_URL
 ```
 
 The report must show `activeSnapshotCoverageComplete: true` before the cleanup gate is closed. Historical immutable snapshots remain retained audit data; the cleanup gate is about active rows, runtime decision paths, and temporary migration artifacts.
 
 For production prelaunch proof, first deploy private proof mode with `PRODUCTION_MARKETPLACE_PROOF_ENABLED=true` and `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; DigitalOcean then routes `https://chasesets.com/api/fulfillment/provider/postage/webhooks` to `platform-api` while normal public/admin `/api/*` traffic remains on admin-support.
 
-Run `pnpm run marketplace:production-proof-readiness` before EasyPost dashboard setup and use `operatorSetup.easyPostWebhookSetup` from its JSON output as the canonical production setup checklist. The checklist carries the exact production webhook destination, the required GitHub secret name, provider-event kinds expected in Fulfillment proof, and the launch evidence fields that must be backed by the resulting EasyPost records. Do not hand-enter alternate callback URLs.
+Run `pnpm run ops marketplace:production-proof-readiness` before EasyPost dashboard setup and use `operatorSetup.easyPostWebhookSetup` from its JSON output as the canonical production setup checklist. The checklist carries the exact production webhook destination, the required GitHub secret name, provider-event kinds expected in Fulfillment proof, and the launch evidence fields that must be backed by the resulting EasyPost records. Do not hand-enter alternate callback URLs.
 
 ## Production EasyPost Proof
 
@@ -155,12 +155,12 @@ Before assembling or refreshing the Fulfillment postage proof record, run the re
 pnpm run marketplace:provider-proof-status -- --environment production --payments-database-url "$env:PAYMENTS_DATABASE_URL" --settlement-database-url "$env:SETTLEMENT_DATABASE_URL" --fulfillment-database-url "$env:FULFILLMENT_DATABASE_URL"
 ```
 
-The report summarizes `fulfillment_postage_provider_events`, postage label operations, and shipment label status rows so operators can see whether tracking, refund, purchase, and void evidence exists before running the launch gate command. It is status evidence only and does not replace `pnpm run marketplace:fulfillment-postage-evidence`.
+The report summarizes `fulfillment_postage_provider_events`, postage label operations, and shipment label status rows so operators can see whether tracking, refund, purchase, and void evidence exists before running the launch gate command. It is status evidence only and does not replace `pnpm run ops marketplace:fulfillment-postage-evidence`.
 
 Build the redacted launch-packet gate from the production EasyPost proof record instead of hand-editing `gates.fulfillmentPostage`. The proof record must include `proofCompletedAt`; rerun the production postage proof when the proof is older than 30 days at launch review.
 
 ```powershell
-pnpm run marketplace:fulfillment-postage-evidence -- --proof .\secure\fulfillment-postage-2026-05-30.json --reference FULFILLMENT-POSTAGE-2026-05-30
+pnpm run ops marketplace:fulfillment-postage-evidence --proof .\secure\fulfillment-postage-2026-05-30.json --reference FULFILLMENT-POSTAGE-2026-05-30
 ```
 
 The command fails unless the proof record is production, uses EasyPost production mode, points at the HTTPS `/api/fulfillment/provider/postage/webhooks` destination on a production Chase Sets host, includes the controlled parcel shipment id, EasyPost `shp_` shipment id, EasyPost `pl_` label id, EasyPost `trk_` tracker id, tracking identifier, delivery-exception evidence kind, label void/refund provider object reference, Letter Mailpiece shipment id, at least four `fulfillment_postage_provider_events` `evt_` ids matched to shipments, at least three `tracking-status` `evt_` ids, one `refund-status` `evt_` id, and proves every required parcel label, void/refund, tracking, delivery exception, and Letter Mailpiece rehearsal.

@@ -9,6 +9,7 @@ import {
   validateEvidenceReferences,
 } from "./marketplace-evidence-references.mjs";
 import { validateReleaseCommit } from "./marketplace-release-commit.mjs";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const MARKETPLACE_SUPPORT_OPERATIONS_EVIDENCE_VERSION = "marketplace-support-operations-evidence/v1";
 
@@ -226,20 +227,6 @@ function validateRehearsalCompletedAt(value, checkedAt, errors) {
   if (ageDays > MAX_SUPPORT_REHEARSAL_AGE_DAYS) {
     errors.push(`Support operations rehearsalCompletedAt cannot be older than ${MAX_SUPPORT_REHEARSAL_AGE_DAYS} days.`);
   }
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function requireString(value, label) {

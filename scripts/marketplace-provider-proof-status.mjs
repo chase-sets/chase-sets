@@ -2,6 +2,7 @@
 import pg from "pg";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 const { Client } = pg;
 
@@ -557,20 +558,6 @@ function isIsoTimestamp(value) {
   }
   const date = new Date(value);
   return !Number.isNaN(date.getTime()) && date.toISOString() === value;
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 async function main(argv, env = process.env) {

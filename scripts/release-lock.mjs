@@ -2,6 +2,7 @@
 import { appendFile } from "node:fs/promises";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const RELEASE_LOCK_CHECK_VERSION = "release-lock-check/v1";
 
@@ -115,20 +116,6 @@ function normalizeBooleanString(value, name) {
     return normalized;
   }
   throw new Error(`${name} must be the string true or false.`);
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function isNonEmptyString(value) {

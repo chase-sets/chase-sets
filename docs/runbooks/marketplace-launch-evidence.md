@@ -7,7 +7,7 @@ Production stays landing/admin-support until a redacted Marketplace Launch Evide
 Run the verifier from the repo root with a redacted packet:
 
 ```powershell
-pnpm run marketplace:launch-evidence -- --file .\secure\redacted-marketplace-launch-evidence.json
+pnpm run ops marketplace:launch-evidence --file .\secure\redacted-marketplace-launch-evidence.json
 ```
 
 The verifier fails closed when required approval gates are missing, references are placeholders, gate `checkedAt` timestamps are invalid, future-dated, or older than 30 days, GitHub Environment values drift from the packet, required workflow proof fields are missing, Tax posture contradicts collection readiness, launch supply has any active eligible listing without a resolved product measure, or UCP/AP2 public claims are enabled without certification.
@@ -15,7 +15,7 @@ The verifier fails closed when required approval gates are missing, references a
 When production approval variables are not set yet, assemble the first passing packet from gate outputs and an explicit desired production posture. Use `--launch-evidence-reference` for the private record or artifact that stores the passing redacted packet. Use `--public-enabled true` only for the final launch packet; keep it `false` for a pre-promotion rehearsal packet:
 
 ```powershell
-pnpm run marketplace:launch-packet -- --public-enabled true --launch-evidence-reference MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30 --launch-supply-reference CATALOG-MEASURES-2026-05-30 --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json > .\secure\redacted-marketplace-launch-evidence.json
+pnpm run ops marketplace:launch-packet --public-enabled true --launch-evidence-reference MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30 --launch-supply-reference CATALOG-MEASURES-2026-05-30 --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json > .\secure\redacted-marketplace-launch-evidence.json
 ```
 
 The assembler derives `productionEnvironment` approval and reference values from the gate outputs in this mode. It still validates the complete packet before printing it.
@@ -24,19 +24,19 @@ After updating production from a passing packet, export the production GitHub En
 
 ```powershell
 gh variable list --env production --json name,value > .\secure\github-production-variables-2026-05-30.json
-pnpm run marketplace:production-env-snapshot -- --variables .\secure\github-production-variables-2026-05-30.json > .\secure\production-environment-2026-05-30.json
+pnpm run ops marketplace:production-env-snapshot --variables .\secure\github-production-variables-2026-05-30.json > .\secure\production-environment-2026-05-30.json
 ```
 
 To avoid an intermediate file, pass the GitHub CLI output through stdin:
 
 ```powershell
-gh variable list --env production --json name,value | pnpm run marketplace:production-env-snapshot -- --variables - > .\secure\production-environment-2026-05-30.json
+gh variable list --env production --json name,value | pnpm run ops marketplace:production-env-snapshot --variables - > .\secure\production-environment-2026-05-30.json
 ```
 
 To verify GitHub Environment drift after running the generated variable commands, assemble the packet again from the actual production environment snapshot:
 
 ```powershell
-pnpm run marketplace:launch-packet -- --production-env .\secure\production-environment-2026-05-30.json --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json
+pnpm run ops marketplace:launch-packet --production-env .\secure\production-environment-2026-05-30.json --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json
 ```
 
 The assembler emits the exact packet consumed by `marketplace:launch-evidence` and immediately validates it. In drift-check mode, it normalizes the launch-supply measurement into `gates.launchSupplyMeasurements` using `PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE` from the production environment snapshot and fails if any gate output or environment value drifts.
@@ -44,7 +44,7 @@ The assembler emits the exact packet consumed by `marketplace:launch-evidence` a
 After the packet passes, generate the exact production GitHub Environment variable commands from that same packet:
 
 ```powershell
-pnpm run marketplace:production-env-commands -- --file .\secure\redacted-marketplace-launch-evidence.json
+pnpm run ops marketplace:production-env-commands --file .\secure\redacted-marketplace-launch-evidence.json
 ```
 
 Review the emitted commands against the private launch record, then run them from an authenticated `gh` shell. Do not hand-copy individual approval variables from separate gate outputs; use the passing packet as the single source of truth.
@@ -54,7 +54,7 @@ After setting the packet-derived variables and required secret names, run the fi
 ```powershell
 gh variable list --env production --json name,value > .\secure\github-production-variables-2026-05-30.json
 gh secret list --env production --json name,updatedAt > .\secure\github-production-secrets-2026-05-30.json
-pnpm run marketplace:production-launch-readiness -- --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
+pnpm run ops marketplace:production-launch-readiness --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
 ```
 
 The launch readiness preflight fails until public promotion is explicitly enabled from the passing packet, proof mode is off, every launch approval variable/reference is present and non-placeholder, Tax posture is explicit, `EASYPOST_MODE=production`, admin Google Workspace SSO is configured for `chasesets.com`, Amazon SES is configured for `transactional-production`, and live Stripe, EasyPost, SES, Google SSO, DigitalOcean, Spaces, and Platform secret names exist in the production GitHub Environment.
@@ -86,20 +86,20 @@ Use this sequence while #570, #571, #572, #596, and #597 remain open. It orders 
 2. Resolve the Stripe Connect blocker in #570: Stripe must enable Accounts v2 for livemode merchant `acct_1OStceEUIXxGiR9y` or provide the supported path for dashboard-none embedded account/session creation.
 3. After Stripe enables the target path, rerun the authenticated production seller payout setup on `https://marketplace.chasesets.com/account/payouts/setup` and capture dashboard-none/application-controller evidence for the same release commit.
 4. Complete the live Stripe money operations record for #596: live checkout, refund, dispute, embedded setup sessions, payout readiness, payout preview/request, transfer plus connected-account payout, payout failure reversal, reconciliation, platform balance funding, webhook replay, provider-row queries, Radar/risk posture, sensitive-data review, legacy hosted-dashboard migration report, release hardening, staging sandbox smoke reference, and rollback rehearsal.
-5. Run `pnpm run marketplace:stripe-money-operations-evidence -- --proof .\secure\stripe-money-operations-<date>.json --reference <STRIPE-MONEY-reference>` and keep `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED` unset until it passes.
+5. Run `pnpm run ops marketplace:stripe-money-operations-evidence --proof .\secure\stripe-money-operations-<date>.json --reference <STRIPE-MONEY-reference>` and keep `PRODUCTION_STRIPE_MONEY_OPERATIONS_APPROVED` unset until it passes.
 6. Complete the EasyPost/Fulfillment blocker in #571: locate or wait for the EasyPost `refund.successful` Event for the existing controlled voided label, redeliver or replay it to `/api/fulfillment/provider/postage/webhooks`, and confirm Fulfillment records at least one matched `refund-status` row.
 7. Collect the remaining controlled-shipment postage rows for #571: at least four matched provider events, at least three `tracking-status` rows, at least one `refund-status` row, parcel label purchase, label void/refund, delivery exception evidence, and Letter Mailpiece handling without a parcel-label purchase.
-8. Run `pnpm run marketplace:fulfillment-postage-evidence -- --proof .\secure\fulfillment-postage-<date>.json --reference <FULFILLMENT-POSTAGE-reference>` and keep `PRODUCTION_FULFILLMENT_POSTAGE_APPROVED` unset until it passes.
+8. Run `pnpm run ops marketplace:fulfillment-postage-evidence --proof .\secure\fulfillment-postage-<date>.json --reference <FULFILLMENT-POSTAGE-reference>` and keep `PRODUCTION_FULFILLMENT_POSTAGE_APPROVED` unset until it passes.
 9. Convert Public Presence from prelaunch copy to approved launch-mode copy for #597 only after Stripe money operations and Fulfillment postage can pass. Preserve approved seller-economics claims; remove future-only availability language and keep uncertified UCP/AP2/headless-checkout claims absent.
-10. Run `pnpm run marketplace:public-presence-copy-audit -- --base-url https://chasesets.com --mode launch`, then build Marketplace Promotion evidence from the final launch review record.
+10. Run `pnpm run ops marketplace:public-presence-copy-audit --base-url https://chasesets.com --mode launch`, then build Marketplace Promotion evidence from the final launch review record.
 11. Assemble the redacted Marketplace Launch Evidence packet for #572 from the passing gate outputs with a single release commit. The packet must include Stripe Money Operations, Fulfillment Postage, Marketplace Promotion/Public Presence, Checkout Fee, Checkout Launch, Support, Transactional Email, Launch Supply, Tax Readiness, and UCP/AP2 Marketing gates.
-12. Run `pnpm run marketplace:launch-evidence -- --file .\secure\redacted-marketplace-launch-evidence.json`, then generate production GitHub Environment commands with `pnpm run marketplace:production-env-commands -- --file .\secure\redacted-marketplace-launch-evidence.json`.
-13. Apply only the packet-derived production variables, turn proof mode off, turn public mode on, rerun `pnpm run marketplace:production-launch-readiness`, and deploy promotion only after the final readiness preflight passes.
+12. Run `pnpm run ops marketplace:launch-evidence --file .\secure\redacted-marketplace-launch-evidence.json`, then generate production GitHub Environment commands with `pnpm run ops marketplace:production-env-commands --file .\secure\redacted-marketplace-launch-evidence.json`.
+13. Apply only the packet-derived production variables, turn proof mode off, turn public mode on, rerun `pnpm run ops marketplace:production-launch-readiness`, and deploy promotion only after the final readiness preflight passes.
 
 Build the Marketplace Promotion and UCP/AP2 Marketing gates from the final launch review record:
 
 ```powershell
-pnpm run marketplace:promotion-evidence -- --review .\secure\marketplace-promotion-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
+pnpm run ops marketplace:promotion-evidence --review .\secure\marketplace-promotion-2026-05-30.json --reference LAUNCH-REVIEW-2026-05-30
 ```
 
 The review JSON must include `reviewReference`, `reviewCompletedAt`, `environment: "production"`, `releaseCommit`, staging and production workflow run references, public presence and policy page review references, a launch-mode Public Presence copy audit reference with `publicPresenceCopyAuditVersion: "marketplace-public-presence-copy-audit/v1"`, `publicPresenceCopyAuditBaseUrl: "https://chasesets.com"`, `publicPresenceCopyAuditMode: "launch"`, `publicPresenceCopyAuditCompletedAt`, `publicPresenceCopyAuditRequiredPageCount: 8`, and true audit summary values for pass, future-only copy removal, policy-page reachability, and uncertified-claim absence. It must also include a rollback owner reference, true values for final launch review, public launch-copy review, future-only copy removal, policy-page review, and rollback ownership, plus explicit UCP/AP2 public-claim posture. Set `publicLaunchClaimsEnabled: false` and `uncertifiedClaimsAbsent: true` for the current launch unless a separate UCP/AP2 certification record exists. The command prints the fields that map into `gates.marketplacePromotion` and `gates.ucpAp2Marketing`, and the launch verifier rejects stale launch review, vague copy-audit summaries, or stale copy-audit evidence.
@@ -107,7 +107,7 @@ The review JSON must include `reviewReference`, `reviewCompletedAt`, `environmen
 Build the Public Presence copy audit for the current production posture:
 
 ```powershell
-pnpm run marketplace:public-presence-copy-audit -- --base-url https://chasesets.com --mode prelaunch
+pnpm run ops marketplace:public-presence-copy-audit --base-url https://chasesets.com --mode prelaunch
 ```
 
 Use `--mode prelaunch` while `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; it requires the public pages to stay explicit that checkout remains gated and rejects uncertified UCP/AP2/headless-checkout claims. Use `--mode launch` only during final promotion review; it fails while future-only launch copy such as early access, waitlist, or production-promotion-gated checkout language remains live.
@@ -115,7 +115,7 @@ Use `--mode prelaunch` while `PRODUCTION_MARKETPLACE_PUBLIC_ENABLED=false`; it r
 Build the Marketplace Checkout Fee gate from the Payments-owned approval record:
 
 ```powershell
-pnpm run marketplace:checkout-fee-evidence -- --approval .\secure\marketplace-checkout-fee-2026-05-30.json --reference PAYMENTS-FEE-2026-05-30
+pnpm run ops marketplace:checkout-fee-evidence --approval .\secure\marketplace-checkout-fee-2026-05-30.json --reference PAYMENTS-FEE-2026-05-30
 ```
 
 The approval JSON must include `approvalReference`, `approvalCompletedAt`, `environment: "production"`, `releaseCommit`, `feePolicyVersion: "marketplace-checkout-fee-v1"`, `feePolicyEffectiveAt`, `stripeMode: "live"`, the live policy endpoint URL `/api/marketplace/account/marketplace-checkout-fee-policy` on a production Chase Sets host, HTTP status `200`, endpoint checked-at timestamp, the live policy endpoint reference, the approved live policy snapshot (`enabledJurisdictions: ["US"]`, card/base `290` bps plus `0.30`, bank-account `50` bps plus `0.00`, platform-credit `0` bps plus `0.00`, `unsupportedMethodsDefault: "no-positive-fee"`, and stale quote handling `409 fee_quote_stale` with confirmation required), references for buyer-facing copy, fee labels, refund language, state disclosure review, and Stripe live fee configuration, plus true approval values for those five launch requirements. The command prints the fields that map into `gates.marketplaceCheckoutFee`, and the launch verifier rejects stale fee approval evidence, missing production endpoint observations, or a policy snapshot that does not match the live Payments endpoint.
@@ -123,7 +123,7 @@ The approval JSON must include `approvalReference`, `approvalCompletedAt`, `envi
 Build the Checkout Launch gate from the Checkout-owned composite evidence record:
 
 ```powershell
-pnpm run marketplace:launch-packet -- --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json --public-enabled false --launch-evidence-reference MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30 --launch-supply-reference CATALOG-MEASURES-2026-05-30
+pnpm run ops marketplace:launch-packet --checkout-launch .\secure\checkout-launch-evidence-2026-05-30.json --promotion .\secure\marketplace-promotion-evidence-2026-05-30.json --checkout-fee .\secure\marketplace-checkout-fee-evidence-2026-05-30.json --stripe-money .\secure\stripe-money-operations-evidence-2026-05-30.json --support .\secure\support-operations-evidence-2026-05-30.json --fulfillment-postage .\secure\fulfillment-postage-evidence-2026-05-30.json --transactional-email .\secure\transactional-email-evidence-2026-05-30.json --launch-supply .\secure\launch-supply-measurement-2026-05-30.json --tax-readiness .\secure\tax-readiness-evidence-2026-05-30.json --public-enabled false --launch-evidence-reference MARKETPLACE-LAUNCH-EVIDENCE-2026-05-30 --launch-supply-reference CATALOG-MEASURES-2026-05-30
 ```
 
 The Checkout Launch JSON maps directly to `gates.checkoutLaunchEvidence`. It must include the standard gate fields (`approved: true`, `reference`, `owner: "Checkout"`, `checkedAt`) plus `evidenceCompletedAt`, `environment: "production"`, the release commit, `matrixVersion: "checkout-launch-evidence-matrix/v1"`, and real external references for the matrix, copy policy, visual targets, performance budget, coverage artifact, performance measurement, production proof canary, no-side-effect proof, no-compatibility scan, fresh-state cleanup, launch register, observability, support, security policy, staging workflow run, and production workflow run. Required coverage counts are `matrixRowCount >= 25`, `scenarioStateCount >= 23`, `launchRegisterRowCount >= 19`, `noSideEffectRowCount >= 14`, `pendingDownstreamBoundaryRowCount >= 5`, `freshStateCleanupRowCount >= 25`, `measuredPerformanceRowCount >= 25`, `visualSnapshotCount >= 4`, `mobileViewportCount >= 2`, `accessibilityScenarioCount >= 8`, `e2eScenarioCount >= 8`, and `canaryArtifactCount >= 4`.
@@ -137,7 +137,7 @@ Do not satisfy this gate by adding fulfillment assignment to checkout. Items wit
 Build the Stripe Money Operations gate from the live proof record:
 
 ```powershell
-pnpm run marketplace:stripe-money-operations-evidence -- --proof .\secure\stripe-money-operations-2026-05-30.json --reference STRIPE-MONEY-2026-05-30
+pnpm run ops marketplace:stripe-money-operations-evidence --proof .\secure\stripe-money-operations-2026-05-30.json --reference STRIPE-MONEY-2026-05-30
 ```
 
 The proof JSON must include `proofReference`, `proofCompletedAt`, `environment: "live"`, `releaseCommit`, `apiVersion: "2026-03-25.dahlia"`, `paymentWebhookDestination`, `connectWebhookDestination`, `connectCustomAccountProofCompletedAt`, `connectPayoutSetupPageUrl`, `connectPayoutSetupPageEvidenceKind`, `connectDashboardAccess`, `connectControllerFeesPayer`, `connectControllerLossesCollector`, `connectControllerRequirementCollection`, `connectConnectedAccountCount`, `connectCustomDashboardNoneAccountCount`, `connectEmbeddedSetupSessionCount` of at least `2`, `connectLegacyHostedAccountCount`, `connectLegacyPayoutReadyAccountCount`, `connectReleaseHardeningOpenP0P2FindingCount: 0`, `sensitiveProviderDataStoredCount: 0`, `paymentProviderEventRowCount` of at least `5`, `connectProviderEventRowCount` of at least `2`, concrete live Stripe object IDs (`livePaymentIntentId`, `liveCheckoutSessionId`, `refundId`, `disputeId`, `connectAccountId`, `payoutReadinessAccountId`, `payoutFailurePayoutId`, `payoutFailureBalanceTransactionId`, `platformFundingBalanceTransactionId`), `paymentProviderEventIds` with at least five concrete `evt_` IDs, `connectProviderEventIds` with at least two concrete `evt_` IDs, concrete references for live checkout, refund, dispute, embedded custom account proof, embedded setup sessions, payout setup page proof, fresh setup sessions, provider readiness refresh, account webhook rows, sensitive-data review, legacy migration report, custom Connect release hardening, staging custom Connect sandbox smoke, custom Connect rollback rehearsal, payout readiness, payout preview/request, transfer plus connected-account payout, payout failure reversal, reconciliation, platform balance funding, webhook replay, Payments provider event query, Settlement money-movement provider event query, and Radar/risk posture, plus true values for each workflow. The command prints the fields that map into `gates.stripeMoneyOperations`, and the launch verifier rejects Stripe money gates that only provide booleans, a generic proof link, stale live or custom Connect proof, missing embedded dashboard-none account proof, invalid legacy account counts, unresolved P0-P2 hardening findings, missing staging sandbox smoke, missing rollback rehearsal, stored sensitive provider data, or missing Stripe object and provider-event IDs.
@@ -147,7 +147,7 @@ During private production proof mode, register Stripe payment webhooks to `/api/
 Build the Fulfillment Postage gate from the production EasyPost proof record:
 
 ```powershell
-pnpm run marketplace:fulfillment-postage-evidence -- --proof .\secure\fulfillment-postage-2026-05-30.json --reference FULFILLMENT-POSTAGE-2026-05-30
+pnpm run ops marketplace:fulfillment-postage-evidence --proof .\secure\fulfillment-postage-2026-05-30.json --reference FULFILLMENT-POSTAGE-2026-05-30
 ```
 
 The proof JSON must include `proofReference`, `proofCompletedAt`, `environment: "production"`, `releaseCommit`, `easyPostMode: "production"`, `webhookDestination`, `providerEventRowCount` of at least `4`, `matchedShipmentProviderEventRowCount` of at least `4`, `trackingStatusProviderEventRowCount` of at least `3`, `refundStatusProviderEventRowCount` of at least `1`, concrete EasyPost and Fulfillment identifiers (`controlledParcelShipmentId`, `parcelProviderShipmentId`, `parcelProviderLabelId`, `trackingProviderObjectReference`, `trackingIdentifier`, `labelVoidRefundProviderObjectReference`, `letterMailpieceShipmentId`), `deliveryExceptionEvidenceKind`, either a concrete EasyPost `deliveryExceptionProviderEventId` for provider-event exception proof or a concrete Fulfillment `deliveryExceptionRehearsalShipmentId` for authenticated rehearsal proof, `providerEventIds` with at least four concrete EasyPost `evt_` IDs, `trackingStatusProviderEventIds` with at least three concrete EasyPost `evt_` IDs, `refundStatusProviderEventIds` with at least one concrete EasyPost `evt_` ID, concrete references for the EasyPost account, webhook destination, provider event query, parcel label purchase, label void/refund, tracking event, delivery exception, and Letter Mailpiece rehearsal, plus true values for EasyPost production mode, webhook destination configuration, provider event rows, parcel label purchase, label void/refund, tracking event processing, delivery exception handling, and Letter Mailpiece handling. The launch packet assembler copies this proof into production environment as `EASYPOST_MODE=production`; it refuses to derive launch variables from non-production EasyPost proof. The command prints the fields that map into `gates.fulfillmentPostage`, and the launch verifier rejects stale production postage proof, missing EasyPost object/provider-event IDs, or missing delivery-exception rehearsal identifiers.
@@ -155,7 +155,7 @@ The proof JSON must include `proofReference`, `proofCompletedAt`, `environment: 
 Build the Transactional Email gate from the production SES proof record:
 
 ```powershell
-pnpm run marketplace:transactional-email-evidence -- --proof .\secure\transactional-email-2026-05-30.json --reference NOTIFICATIONS-SES-2026-05-30
+pnpm run ops marketplace:transactional-email-evidence --proof .\secure\transactional-email-2026-05-30.json --reference NOTIFICATIONS-SES-2026-05-30
 ```
 
 The proof JSON must include `proofReference`, `proofCompletedAt`, `environment: "production"`, `releaseCommit`, `sesConfigurationSetName: "transactional-production"`, `webhookDestination`, `providerEventRowCount`, `controlledSendProviderMessageId`, `outboxRowId`, `deliveryProviderEventId`, `bounceProviderEventId`, `complaintProviderEventId`, true values for SES DNS, controlled send, outbox dispatch, SNS subscription confirmation, bounce/complaint parsing, delivery monitoring, and webhook destination configuration, concrete references for SES identity verification, controlled send message, outbox dispatch, delivery event, bounce event, complaint event, delivery monitoring, SNS subscription confirmation, and template review evidence, plus critical template coverage for auth, orders, payments, fulfillment, refunds, support, and payouts. Provider event IDs must use the `amazon-ses:<message-id>:delivery|bounce|complaint:<occurred-at>` shape from `notification_email_provider_events.provider_event_id`. The command prints the fields that map into `gates.transactionalEmail`, and the launch verifier rejects stale production email proof or missing SES message/outbox/provider-event identifiers.
@@ -163,7 +163,7 @@ The proof JSON must include `proofReference`, `proofCompletedAt`, `environment: 
 Build the Support Operations gate from the staging rehearsal record:
 
 ```powershell
-pnpm run marketplace:support-operations-evidence -- --rehearsal .\secure\support-operations-rehearsal-2026-05-30.json --reference SUPPORT-OPS-2026-05-30
+pnpm run ops marketplace:support-operations-evidence --rehearsal .\secure\support-operations-rehearsal-2026-05-30.json --reference SUPPORT-OPS-2026-05-30
 ```
 
 The rehearsal JSON must include `rehearsalReference`, `rehearsalCompletedAt`, `environment: "staging"`, `releaseCommit`, true values for buyer issue opening, seller issue opening, operations queue review, overdue escalation, lifecycle endpoints, refund-producing resolution, settlement hold coordination, and support notifications, plus the buyer `sup_` support request id, seller `sup_` support request id, refund-resolution `sup_` support request id, Payments `sre_` refund effect id, Payments `rfd_` refund id, Settlement `hold_` hold id, operations queue review reference, overdue escalation result reference, lifecycle endpoint result reference, Payments refund-effect evidence, Settlement hold evidence, separate Settlement hold-release evidence, and support notification evidence. The command prints the fields that map into `gates.supportOperations`, and the launch verifier rejects support gates that only provide booleans, reuse the hold evidence as the release evidence, use wrong bounded-context id prefixes, or carry stale rehearsal evidence.
@@ -193,7 +193,7 @@ Before enabling proof mode, export the production GitHub Environment variable an
 ```powershell
 gh variable list --env production --json name,value > .\secure\github-production-variables-2026-05-30.json
 gh secret list --env production --json name,updatedAt > .\secure\github-production-secrets-2026-05-30.json
-pnpm run marketplace:production-proof-readiness -- --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
+pnpm run ops marketplace:production-proof-readiness --variables .\secure\github-production-variables-2026-05-30.json --secrets .\secure\github-production-secrets-2026-05-30.json
 ```
 
 For a one-off local check, either input can be piped through stdin with `-`; keep the variables and secret-name exports separate so the preflight can distinguish values from secret names.
@@ -204,7 +204,7 @@ When the preflight fails, use `operatorSetup.variableCommands` and `operatorSetu
 
 The readiness output also includes `providerCallbackSetup.dashboardDestinations`, which is the exact provider-dashboard setup manifest for private proof mode. Configure Stripe payment webhooks, Stripe Connect money-movement webhooks, SES/SNS notifications, and EasyPost webhooks from those URLs only after the topology evidence command confirms they return expected JSON API responses from the production proof origin, with provider callbacks handled as accepted or malformed callback requests and private proof APIs returning unauthenticated JSON challenges. Use `operatorSetup.sesSnsEventDestinationSetup` for the AWS SNS topic/subscription and SES configuration-set event destination commands, and use `operatorSetup.easyPostWebhookSetup` as the EasyPost dashboard checklist before collecting Transactional Email or Fulfillment Postage proof. `providerCallbackSetup.stripeConnectCustomSetup` carries the final embedded payout setup page and the Stripe money operations evidence fields that prove Custom Connect launch readiness. Use `operatorSetup.stripeMoneySmokeEnvironmentCommands` to prepare the private live Stripe smoke shell after topology evidence passes and the live Stripe secrets are loaded, choose one `operatorSetup.stripeMoneySmokeAuthenticationOptions` entry for the authenticated seller-flow session, then run `operatorSetup.stripeMoneySmokeCheckCommand` before the live smoke command. `operatorSetup.stripeMoneySmokeLegacyHostedCompatibilityCommands` is only for manually exercising legacy hosted Account Link compatibility. Continue only when the check output has `"ok": true` and an empty `readinessErrors` array.
 
-Use `pnpm run marketplace:production-proof-topology-evidence` after enabling proof mode and before configuring provider dashboards. The command proves the base URL is `https://chasesets.com` or `https://admin.chasesets.com`, the production health endpoint returns JSON `200`, Stripe payment, Stripe Connect money-movement, SES/SNS email, and EasyPost postage callback paths return JSON `200` or `400` without redirects, the exact private Checkout/Ordering/Payments/Settlement proof APIs used by live money smoke and deferred-checkout order creation return JSON `401` without redirects, the authenticated Inventory/Marketplace launch-supply proof APIs return JSON `401` without redirects, proof mode is explicitly enabled, and public marketplace promotion remains disabled.
+Use `pnpm run ops marketplace:production-proof-topology-evidence` after enabling proof mode and before configuring provider dashboards. The command proves the base URL is `https://chasesets.com` or `https://admin.chasesets.com`, the production health endpoint returns JSON `200`, Stripe payment, Stripe Connect money-movement, SES/SNS email, and EasyPost postage callback paths return JSON `200` or `400` without redirects, the exact private Checkout/Ordering/Payments/Settlement proof APIs used by live money smoke and deferred-checkout order creation return JSON `401` without redirects, the authenticated Inventory/Marketplace launch-supply proof APIs return JSON `401` without redirects, proof mode is explicitly enabled, and public marketplace promotion remains disabled.
 
 ```json
 {
@@ -643,7 +643,7 @@ Use `pnpm run marketplace:production-proof-topology-evidence` after enabling pro
 Run this against the production marketplace read models after projections are caught up. `--query-reference` must point to the production query evidence record; `queryVersion` already carries the canonical SQL version and cannot stand in for evidence. The command fails closed unless active launch listings are present, at least one active seller account is represented, sampled production listing IDs are included, missing resolved measures equal `0`, coverage is `100`, the environment is `production`, `checkedAt` is an ISO timestamp, the operator is present, and both query and projection-freshness references are real evidence records. It prints the redacted measurement fields that map into `gates.launchSupplyMeasurements`; keep the production database URL out of the evidence packet and attach the JSON output, production environment, production query record, projection freshness record, timestamp, operator identity, and redacted listing sample support to `PRODUCTION_LAUNCH_SUPPLY_MEASUREMENTS_REFERENCE`.
 
 ```powershell
-pnpm run marketplace:launch-supply-measurement -- --environment production --operator ops@chasesets.com --query-reference CATALOG-LAUNCH-SUPPLY-QUERY-2026-05-30 --projection-freshness-reference PROJECTION-FRESHNESS-2026-05-30
+pnpm run ops marketplace:launch-supply-measurement --environment production --operator ops@chasesets.com --query-reference CATALOG-LAUNCH-SUPPLY-QUERY-2026-05-30 --projection-freshness-reference PROJECTION-FRESHNESS-2026-05-30
 ```
 
 Use `MARKETPLACE_DATABASE_URL` or `DATABASE_URL` for the production read-model connection and set `--environment production` or `LAUNCH_SUPPLY_ENVIRONMENT=production`. If an operator needs a one-off shell, `--database-url` is supported, but avoid recording the value in tickets, docs, or evidence folders. The command emits the canonical query version `launch-supply-measurement-query/v1` separately from the required launch-specific external query record.
@@ -711,7 +711,7 @@ The packet passes only when the active listing count and seller account count ar
 Build the source activity measurement from production order tax snapshots before producing the approved Tax gate. Keep the full counsel/accounting workpapers and any state-level raw sales exports in the private evidence folder.
 
 ```powershell
-pnpm run marketplace:tax-nexus-measurement -- --database-url $env:PRODUCTION_DATABASE_URL --environment production --operator "ops@chasesets.com" --projection-freshness-reference ORDERING-PROJECTION-2026-05-30 --reference TAX-NEXUS-SOURCE-2026-05-30
+pnpm run ops marketplace:tax-nexus-measurement --database-url $env:PRODUCTION_DATABASE_URL --environment production --operator "ops@chasesets.com" --projection-freshness-reference ORDERING-PROJECTION-2026-05-30 --reference TAX-NEXUS-SOURCE-2026-05-30
 ```
 
 The measurement command prints redacted state-by-state activity for the current and previous calendar years. It fails unless the measurement is explicitly production-scoped, `checkedAt` is an ISO timestamp, the operator is present, the source measurement and projection-freshness references are real evidence records, the query window is internally consistent, every Tax-supported US jurisdiction is represented in the redacted activity output, every measured order has a recognized jurisdiction, and the source measurement reports `passesSourceMeasurementGate=true`. Tax counsel/accounting must review that output, threshold policy, registration/collection status, provider posture, and filing ownership before producing the `TaxNexusReadinessReport`.
@@ -719,7 +719,7 @@ The measurement command prints redacted state-by-state activity for the current 
 Build the Tax gate from the reviewed redacted Tax nexus readiness report instead of hand-editing the packet. The command input should contain only the reviewed `TaxNexusReadinessReport` fields needed for the launch packet.
 
 ```powershell
-pnpm run marketplace:tax-readiness-evidence -- --nexus-report .\secure\tax-nexus-readiness-2026-05-30.json --reference TAX-READINESS-2026-05-30 --counsel-accounting-approval-reference TAX-COUNSEL-2026-05-30 --state-by-state-nexus-reference TAX-NEXUS-2026-05-30 --provider-decision-reference TAX-PROVIDER-DECISION-2026-05-30 --threshold-policy-reference TAX-THRESHOLD-POLICY-2026-05-30 --nexus-monitoring-reference TAX-NEXUS-MONITORING-2026-05-30
+pnpm run ops marketplace:tax-readiness-evidence --nexus-report .\secure\tax-nexus-readiness-2026-05-30.json --reference TAX-READINESS-2026-05-30 --counsel-accounting-approval-reference TAX-COUNSEL-2026-05-30 --state-by-state-nexus-reference TAX-NEXUS-2026-05-30 --provider-decision-reference TAX-PROVIDER-DECISION-2026-05-30 --threshold-policy-reference TAX-THRESHOLD-POLICY-2026-05-30 --nexus-monitoring-reference TAX-NEXUS-MONITORING-2026-05-30
 ```
 
 The command prints the fields that map into `gates.taxReadiness`, including `thresholdPolicyReference`, `nexusMonitoringReference`, `nexusReportAsOf`, `sourceMeasurementReference`, `sourceMeasurementEnvironment`, `sourceMeasurementQueryVersion`, `sourceMeasurementCheckedAt`, `sourceMeasurementProjectionFreshnessReference`, `sourceMeasurementQueryWindow`, `sourceMeasurementJurisdictionCount`, source measurement coverage counts, `sourceMeasurementRequiresManualReview`, `sourceMeasurementPasses`, and `stateByStateJurisdictionReviewCount`. The launch verifier rejects Tax readiness when the nexus report timestamp is missing, invalid, in the future, older than 30 days, not tied to a production source measurement, not tied to the canonical `tax-nexus-measurement-query/v1`, not tied to a passing source measurement with zero missing or unknown jurisdiction coverage, missing threshold policy evidence, or missing ongoing nexus monitoring evidence. Add `--provider-backed-resolver-composed true` only when a provider-backed `TaxQuoteResolver` is actually composed and verified for production order creation, and include `--provider-backed-resolver-reference` pointing to that production resolver composition and smoke evidence.

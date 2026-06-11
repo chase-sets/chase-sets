@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { fileURLToPath } from "node:url";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const GOOGLE_SHOPPING_CRAWL_POSTURE_EVIDENCE_VERSION = "google-shopping-crawl-posture-evidence/v1";
 export const GOOGLE_SHOPPING_PRODUCTION_MARKETPLACE_ORIGIN = "https://marketplace.chasesets.com";
@@ -203,20 +204,6 @@ function parseBoolean(value) {
     return false;
   }
   return true;
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function readRepeatedOption(argv, name) {

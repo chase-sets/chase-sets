@@ -3,6 +3,7 @@ import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { readEnv, readOption, readRepeatedOptions } from "./lib/cli-options.mjs";
 
 export const RELEASE_HEALTH_REPORT_VERSION = "release-health-report/v1";
 
@@ -427,31 +428,6 @@ function formatOptionalSeconds(seconds) {
 
 function escapeMarkdownCell(value) {
   return String(value).replaceAll("|", "\\|");
-}
-
-function readRepeatedOptions(argv, name) {
-  const values = [];
-  for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] === name && argv[index + 1] && !argv[index + 1].startsWith("--")) {
-      values.push(argv[index + 1]);
-      index += 1;
-    }
-  }
-  return values;
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 async function main(argv, env = process.env) {

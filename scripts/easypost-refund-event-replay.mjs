@@ -2,6 +2,7 @@
 import { createHmac } from "node:crypto";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const EASYPOST_REFUND_EVENT_REPLAY_VERSION = "easypost-refund-event-replay/v1";
 export const EASYPOST_REFUND_EVENT_REPLAY_CONFIRM = "replay easypost refund event";
@@ -351,20 +352,6 @@ function parseIntegerOption(value, fallback) {
   }
   const parsed = Number(value);
   return Number.isInteger(parsed) ? parsed : Number.NaN;
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function isIsoTimestamp(value) {

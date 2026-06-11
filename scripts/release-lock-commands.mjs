@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import process from "node:process";
 import { fileURLToPath } from "node:url";
+import { readEnv, readOption } from "./lib/cli-options.mjs";
 
 export const RELEASE_LOCK_COMMANDS_VERSION = "release-lock-commands/v1";
 
@@ -70,20 +71,6 @@ async function main(argv, env = process.env) {
     return 1;
   }
   return 0;
-}
-
-function readEnv(name, env) {
-  const value = env[name];
-  return value && value.trim() ? value.trim() : null;
-}
-
-function readOption(argv, name) {
-  const index = argv.indexOf(name);
-  if (index < 0) {
-    return null;
-  }
-  const value = argv[index + 1];
-  return value && !value.startsWith("--") ? value : null;
 }
 
 function requireString(value, label) {
