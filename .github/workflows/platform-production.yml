@@ -385,7 +385,12 @@ jobs:
         run: terraform apply -auto-approve
 
       - uses: docker/setup-buildx-action@v4
+        id: buildx
         if: steps.latest_main.outputs.should_deploy != 'false'
+        continue-on-error: true
+
+      - uses: docker/setup-buildx-action@v4
+        if: steps.latest_main.outputs.should_deploy != 'false' && steps.buildx.outcome == 'failure'
 
       - name: Build and push App Platform image
         if: steps.latest_main.outputs.should_deploy != 'false'
@@ -1412,7 +1417,12 @@ jobs:
           "$RUNNER_TEMP/doctl" auth init --access-token "$DIGITALOCEAN_ACCESS_TOKEN"
 
       - uses: docker/setup-buildx-action@v4
+        id: buildx
         if: steps.latest_main.outputs.should_deploy != 'false'
+        continue-on-error: true
+
+      - uses: docker/setup-buildx-action@v4
+        if: steps.latest_main.outputs.should_deploy != 'false' && steps.buildx.outcome == 'failure'
 
       - name: Verify promoted App Platform image
         if: steps.latest_main.outputs.should_deploy != 'false'

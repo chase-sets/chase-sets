@@ -73,6 +73,11 @@ export function useCheckoutPreparingRevalidation(
     }
 
     function revalidateCurrentPath() {
+      // Re-checked here, not only at the call sites: a tick that was already
+      // queued when the budget ran out must not spend a navigation.
+      if (!hasAttemptBudget()) {
+        return;
+      }
       attemptCountRef.current += 1;
       void navigateRef.current(currentPath, { replace: true, preventScrollReset: true });
     }

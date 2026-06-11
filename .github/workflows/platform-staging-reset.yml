@@ -241,6 +241,11 @@ jobs:
         run: terraform apply -auto-approve
 
       - uses: docker/setup-buildx-action@v4
+        id: buildx
+        continue-on-error: true
+
+      - uses: docker/setup-buildx-action@v4
+        if: steps.buildx.outcome == 'failure'
 
       - name: Build and push App Platform image
         run: |
