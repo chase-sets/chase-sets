@@ -8,6 +8,7 @@ import { buildCatalogPrimaryWorkbenchReadModel } from "./primary-workbench-read-
 import { CatalogPrimaryWorkbenchPage } from "./primary-workbench-page";
 import {
   controlPlaneOverview,
+  profileAuthoringModel,
   profileReview,
   sourceObservationListItem,
   sourceObservationScope,
@@ -159,6 +160,98 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByRole("heading", { name: "Provider import operations" })).toBeNull();
     expect(screen.queryByText(/raw JSON/i)).toBeNull();
     expect(screen.queryByText(/Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
+  });
+
+  it("renders validation readiness as a focused fixture, dry-run, compare, and activation workspace", () => {
+    const profile = profileReview({
+      active: true,
+      lifecycle: "active",
+      executableMappingContract: jsonClone(tcgdexPokemonCardSourceObservationMappingContract),
+      profile: {
+        providerKey: "tcgdex",
+        supportedScopes: ["pokemon/card"],
+        selectedOptionMapping: {
+          dimensions: [
+            {
+              dimensionKey: "foil-treatment",
+              sourcePath: "card.variant.displayName",
+            },
+          ],
+        },
+      },
+      fixtures: {
+        fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
+        coveredFlows: [
+          "normal",
+          "partial",
+          "stale",
+          "changed",
+          "ambiguous",
+          "replay",
+          "sealed-product",
+          "unknown-option",
+        ],
+        liveProviderCallsAllowed: false,
+      },
+    });
+    const overview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&profileVersion=2026.06.04&section=readiness",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      profileAuthoringModel: profileAuthoringModel({ review: profile }),
+      controlPlaneOverview: {
+        ...overview,
+        readiness: {
+          ...overview.readiness,
+          units: [
+            {
+              ...overview.readiness.units[0],
+              dryRunEvidence: [
+                {
+                  externalKey: "en:sv01-001",
+                  sourceUrl: "fixture://tcgdex/normal.json",
+                  sourceHash: "sha256:tcgdex-normal",
+                  normalizedFacts: {
+                    name: "Sprigatito",
+                    cardNumber: "001",
+                    cardVariantKey: "standard",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("heading", { name: "Validation readiness" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Fixture flow proof" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Dry-run evidence" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Semantic compare" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Activation readiness" })).toBeTruthy();
+    expect(screen.getAllByText(/Sprigatito/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/sha256:candidate-mapping/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Changes the card variant merge identity.").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Promotion Plan").length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href")).toContain(
+      "section=workbench",
+    );
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Inspect proof" })[0]!);
+
+    expect(screen.getByRole("heading", { name: "Duplicate candidates" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Selected options" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Promotion command preview" })).toBeTruthy();
+    expect(screen.getByText("Option dimension: foil-treatment")).toBeTruthy();
+    expect(screen.getAllByText("CreateCatalogItem").length).toBeGreaterThan(0);
+    expect(screen.getByText("Payload body")).toBeTruthy();
+    expect(screen.getByText("not retained")).toBeTruthy();
+    expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
   });
 
   it("renders option-query, import-scope, and mapping authoring detail panels without reviving raw profile editors", () => {

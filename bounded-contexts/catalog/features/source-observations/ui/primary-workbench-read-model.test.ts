@@ -13,6 +13,7 @@ import {
 } from "./primary-workbench-read-model";
 import {
   controlPlaneOverview,
+  profileAuthoringModel,
   profileReview,
   sourceObservationListItem,
   sourceObservationScope,
@@ -1100,6 +1101,216 @@ describe("Catalog primary workbench read model", () => {
     expect(readModel.sourceObservationReview.counts.eligible).toBe(124);
     expect(readModel.sourceObservationReview.rows[0]?.promotionReadiness.state).toBe("already-promoted");
     expect(readModel.sourceObservationReview.promotionReadyCount).toBe(0);
+  });
+
+  it("builds validation cockpit evidence from fixture, dry-run, compare, and readiness contracts", () => {
+    const profile = profileReview({
+      active: true,
+      lifecycle: "active",
+      executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract,
+      profile: {
+        providerKey: "tcgdex",
+        supportedScopes: ["pokemon/card"],
+        selectedOptionMapping: {
+          dimensions: [
+            {
+              dimensionKey: "foil-treatment",
+              sourcePath: "card.variant.displayName",
+            },
+          ],
+        },
+      },
+      fixtures: {
+        fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
+        coveredFlows: [
+          "normal",
+          "partial",
+          "stale",
+          "changed",
+          "ambiguous",
+          "replay",
+          "sealed-product",
+          "unknown-option",
+        ],
+        liveProviderCallsAllowed: false,
+      },
+    });
+    const overview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&profileVersion=2026.06.04&section=readiness",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      profileAuthoringModel: profileAuthoringModel({ review: profile }),
+      controlPlaneOverview: {
+        ...overview,
+        readiness: {
+          ...overview.readiness,
+          units: [
+            {
+              ...overview.readiness.units[0],
+              dryRunEvidence: [
+                {
+                  externalKey: "en:sv01-001",
+                  sourceUrl: "fixture://tcgdex/normal.json",
+                  sourceHash: "sha256:tcgdex-normal",
+                  normalizedFacts: {
+                    name: "Sprigatito",
+                    cardNumber: "001",
+                    cardVariantKey: "standard",
+                  },
+                },
+              ],
+            },
+          ],
+        },
+      },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.validationReadiness.status).toBe("degraded");
+    expect(readModel.validationReadiness.fixtureFlows.every((flow) => flow.status === "ready")).toBe(true);
+    expect(readModel.validationReadiness.dryRunEvidence[0]).toMatchObject({
+      externalKey: "en:sv01-001",
+      normalizedFacts: expect.arrayContaining([{ key: "name", value: "Sprigatito" }]),
+    });
+    expect(readModel.validationReadiness.dryRunEvidence[0]?.duplicateCandidates.length).toBeGreaterThan(0);
+    expect(readModel.validationReadiness.dryRunEvidence[0]?.selectedOptions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "Option dimension: foil-treatment" })]),
+    );
+    expect(
+      readModel.validationReadiness.dryRunEvidence[0]?.promotionCommandPreview.map((command) => command.commandName),
+    ).toEqual(expect.arrayContaining(["CreateCatalogItem", "LinkExternalCatalogItemReference"]));
+    expect(readModel.validationReadiness.semanticCompare.mappingFingerprint).toMatchObject({
+      candidate: "sha256:candidate-mapping",
+      active: "sha256:active-mapping",
+      changed: true,
+    });
+    expect(readModel.validationReadiness.semanticCompare.unchangedSections).toEqual(
+      expect.arrayContaining([expect.objectContaining({ domainConcept: "Promotion Plan" })]),
+    );
+    expect(JSON.stringify(readModel.validationReadiness)).not.toMatch(/raw\s+json/i);
+  });
+
+  it("groups blocked validation readiness with exact remediation and long diagnostic paths", () => {
+    const longPath =
+      "executableMappingContract.normalizedObservation.fields.variants.providerSpecific.parallelFoilTreatment.sourceSelector.path";
+    const profile = profileReview({
+      active: true,
+      lifecycle: "active",
+      executableMappingContract: tcgdexPokemonCardSourceObservationMappingContract,
+      validation: {
+        status: "invalid",
+        diagnostics: [
+          {
+            code: "missing-required-path",
+            path: longPath,
+            diagnosticText: "Variant foil treatment selector is missing.",
+            severity: "error",
+          },
+        ],
+      },
+      fixtures: {
+        fixtureRoot: "bounded-contexts/catalog/features/source-observations/api/__fixtures__/tcgdex",
+        coveredFlows: ["normal"],
+        liveProviderCallsAllowed: false,
+      },
+    });
+    const overview = controlPlaneOverview();
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&profileVersion=2026.06.04&section=readiness",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profile], total: 1, count: 1 },
+      profileAuthoringModel: profileAuthoringModel({
+        review: profile,
+        activationReadiness: {
+          status: "blocked",
+          checks: [
+            {
+              checkKey: "normalized-observation:variant-foil",
+              code: "missing-required-path",
+              sectionKey: "normalized-observation",
+              domainConcept: "Normalized Observation",
+              status: "blocked",
+              path: longPath,
+              diagnosticText: "Variant foil treatment selector is missing.",
+              severity: "error",
+              remediation: "Map the provider foil treatment before activation.",
+              blockingBehavior: "fail-closed",
+            },
+          ],
+          groups: [
+            {
+              domainConcept: "Normalized Observation",
+              status: "blocked",
+              checks: [
+                {
+                  checkKey: "normalized-observation:variant-foil",
+                  code: "missing-required-path",
+                  sectionKey: "normalized-observation",
+                  domainConcept: "Normalized Observation",
+                  status: "blocked",
+                  path: longPath,
+                  diagnosticText: "Variant foil treatment selector is missing.",
+                  severity: "error",
+                  remediation: "Map the provider foil treatment before activation.",
+                  blockingBehavior: "fail-closed",
+                },
+              ],
+            },
+          ],
+          requiresMigrationEvidence: true,
+          referenceCount: 2,
+        },
+      }),
+      controlPlaneOverview: {
+        ...overview,
+        readiness: {
+          ...overview.readiness,
+          units: [
+            {
+              ...overview.readiness.units[0],
+              fixtureValidationStatus: "blocked",
+              dryRunStatus: "blocked",
+              diagnosticCounts: { info: 0, warning: 0, error: 1 },
+              diagnostics: [
+                {
+                  code: "fixture-harness-failure",
+                  severity: "error",
+                  message: "Fixture dry-run blocked by normalized observation mapping.",
+                  unitKey: "tcgdex:pokemon:card:import",
+                  retryAfterSeconds: null,
+                  source: "catalog",
+                },
+              ],
+              latestDiagnosticText: "Fixture dry-run blocked by normalized observation mapping.",
+              dryRunEvidence: [],
+            },
+          ],
+        },
+      },
+      canManageCatalog: true,
+    });
+
+    expect(readModel.validationReadiness.status).toBe("blocked");
+    expect(readModel.validationReadiness.summary.blockedFixtureFlows).toBeGreaterThan(0);
+    expect(readModel.validationReadiness.activationReadiness.groups).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          domainConcept: "Normalized Observation",
+          checks: [
+            expect.objectContaining({
+              path: longPath,
+              remediation: "Map the provider foil treatment before activation.",
+            }),
+          ],
+        }),
+      ]),
+    );
+    expect(readModel.validationReadiness.dryRunEvidence[0]?.diagnostics).toEqual(
+      expect.arrayContaining([expect.objectContaining({ path: longPath })]),
+    );
   });
 
   it("fails closed for denied writes and does not fetch all-provider review rows without provider context", () => {

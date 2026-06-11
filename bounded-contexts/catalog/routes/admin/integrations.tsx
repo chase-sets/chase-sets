@@ -12,8 +12,12 @@ import type {
   SourceObservationPromotionPreview,
   SourceObservationPromotionScope,
 } from "../../client";
-import type { CatalogPrimaryWorkbenchActionReadModel } from "../../features/source-observations/api/primary-workbench-admin-contracts";
 import type {
+  CatalogPrimaryWorkbenchActionReadModel,
+  CatalogPrimaryWorkbenchRouteContext,
+} from "../../features/source-observations/api/primary-workbench-admin-contracts";
+import type {
+  CatalogProviderProfileAuthoringModel,
   CatalogProviderProfileEditableSectionKey,
   CatalogProviderProfileSectionUpdateCommand,
   CatalogIntegrationControlPlaneOverview,
@@ -76,6 +80,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     controlPlaneOverview,
     canManageCatalog: true,
   });
+  const profileAuthoringModel = await selectedProviderProfileAuthoringModel(api, preliminaryReadModel.routeContext);
   const reviewPagination = { limit: 25, offset: 0 };
   const reviewQuery = buildCatalogPrimaryWorkbenchSourceObservationReviewQuery(
     preliminaryReadModel.routeContext,
@@ -88,6 +93,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
     requestUrl: request.url,
     scopes: routeData.data,
     profileReviews,
+    profileAuthoringModel,
     controlPlaneOverview,
     reviewObservations,
     reviewPagination,
@@ -98,6 +104,7 @@ export async function loader({ request }: LoaderFunctionArgs) {
   return {
     ...routeData,
     profileReviews,
+    profileAuthoringModel,
     controlPlaneOverview,
     reviewObservations,
     reviewPagination,
@@ -105,6 +112,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
     requestUrl: request.url,
     commandFeedback: commandFeedbackFromUrl(request.url),
   };
+}
+
+async function selectedProviderProfileAuthoringModel(
+  api: ReturnType<typeof createCatalogRequestApiClient>,
+  context: CatalogPrimaryWorkbenchRouteContext,
+): Promise<CatalogProviderProfileAuthoringModel | null> {
+  if (!context.providerKey || !context.profileVersion) {
+    return null;
+  }
+
+  return api.getSourceObservationProviderProfileAuthoringModel<CatalogProviderProfileAuthoringModel>(
+    context.providerKey,
+    context.profileVersion,
+  );
 }
 
 export async function action({ request }: ActionFunctionArgs) {
@@ -431,6 +452,7 @@ export default function IntegrationsRoute() {
             requestUrl: routeData.requestUrl,
             scopes: routeData.data,
             profileReviews: routeData.profileReviews,
+            profileAuthoringModel: routeData.profileAuthoringModel,
             controlPlaneOverview: routeData.controlPlaneOverview,
             reviewObservations: routeData.reviewObservations,
             reviewPagination: routeData.reviewPagination,
