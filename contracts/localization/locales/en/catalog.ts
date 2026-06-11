@@ -408,6 +408,90 @@ export const catalogEnglishTranslations = {
   "catalog.features.sourceObservations.ui.lifecycleRecovery.table.profile": "Profile",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.table.references": "References",
   "catalog.features.sourceObservations.ui.lifecycleRecovery.title": "Lifecycle recovery",
+  "catalog.features.sourceObservations.ui.conflictResolution.audit.description":
+    "Recent provider, profile, and reapply events that explain how the conflict state was produced.",
+  "catalog.features.sourceObservations.ui.conflictResolution.audit.emptyDescription":
+    "Conflict audit evidence appears after provider imports, profile edits, activation, or reapply runs.",
+  "catalog.features.sourceObservations.ui.conflictResolution.audit.emptyTitle": "No conflict audit events",
+  "catalog.features.sourceObservations.ui.conflictResolution.audit.notRecorded": "not recorded",
+  "catalog.features.sourceObservations.ui.conflictResolution.audit.title": "Conflict audit evidence",
+  "catalog.features.sourceObservations.ui.conflictResolution.backToWorkbench": "Back to import workbench",
+  "catalog.features.sourceObservations.ui.conflictResolution.banner.blockedDescription":
+    "Promotion is blocked until the conflicting facts are reviewed with evidence and a launch-ready command path.",
+  "catalog.features.sourceObservations.ui.conflictResolution.banner.blockedTitle": "Conflicts are blocking promotion",
+  "catalog.features.sourceObservations.ui.conflictResolution.banner.emptyDescription":
+    "The selected Source Observations do not have duplicate, precedence, or promotion conflict evidence.",
+  "catalog.features.sourceObservations.ui.conflictResolution.banner.emptyTitle": "No conflicts in scope",
+  "catalog.features.sourceObservations.ui.conflictResolution.banner.readyDescription":
+    "Review affected facts, precedence rules, candidate values, and audit evidence before returning to promotion.",
+  "catalog.features.sourceObservations.ui.conflictResolution.banner.readyTitle": "Conflict evidence is ready",
+  "catalog.features.sourceObservations.ui.conflictResolution.banner.unavailableDescription":
+    "Source Observation review data is unavailable, so conflict resolution fails closed.",
+  "catalog.features.sourceObservations.ui.conflictResolution.banner.unavailableTitle": "Conflict evidence unavailable",
+  "catalog.features.sourceObservations.ui.conflictResolution.blockers.none": "No conflict blockers",
+  "catalog.features.sourceObservations.ui.conflictResolution.blockers.title": "Conflict blockers",
+  "catalog.features.sourceObservations.ui.conflictResolution.conflicts.description":
+    "Affected facts, candidate values, precedence rules, and promotion impact for selected Source Observations.",
+  "catalog.features.sourceObservations.ui.conflictResolution.conflicts.emptyDescription":
+    "Return to Source Observation review or promotion preview to select observations with conflict evidence.",
+  "catalog.features.sourceObservations.ui.conflictResolution.conflicts.emptyTitle": "No conflict rows",
+  "catalog.features.sourceObservations.ui.conflictResolution.conflicts.title": "Fact conflicts",
+  "catalog.features.sourceObservations.ui.conflictResolution.description":
+    "Explain provider-to-provider and source-to-source fact conflicts that can block or shape Catalog promotion.",
+  "catalog.features.sourceObservations.ui.conflictResolution.diagnostic.autoResolved":
+    "Catalog precedence resolved this conflict without blocking promotion.",
+  "catalog.features.sourceObservations.ui.conflictResolution.diagnostic.duplicateConflict":
+    "Duplicate evidence requires review before promotion continues.",
+  "catalog.features.sourceObservations.ui.conflictResolution.diagnostic.permissionDenied":
+    "Override review requires Catalog management permission.",
+  "catalog.features.sourceObservations.ui.conflictResolution.diagnostic.promotionConflict":
+    "Promotion preview found a conflict that blocks execution.",
+  "catalog.features.sourceObservations.ui.conflictResolution.metric.audit": "Audit events",
+  "catalog.features.sourceObservations.ui.conflictResolution.metric.autoResolved": "auto-resolved",
+  "catalog.features.sourceObservations.ui.conflictResolution.metric.blocking": "Blocking",
+  "catalog.features.sourceObservations.ui.conflictResolution.metric.conflicts": "Conflicts",
+  "catalog.features.sourceObservations.ui.conflictResolution.metric.overrides": "Overrides",
+  "catalog.features.sourceObservations.ui.conflictResolution.metric.reviewRequired": "need review",
+  "catalog.features.sourceObservations.ui.conflictResolution.override.audit.required": "Audit required",
+  "catalog.features.sourceObservations.ui.conflictResolution.override.banner.title":
+    "Overrides fail closed until rebuilt",
+  "catalog.features.sourceObservations.ui.conflictResolution.override.description":
+    "Override affordances are permission-aware and auditable, but no compatibility override path exists.",
+  "catalog.features.sourceObservations.ui.conflictResolution.override.key.audit": "Audit evidence",
+  "catalog.features.sourceObservations.ui.conflictResolution.override.key.permission": "Required permission",
+  "catalog.features.sourceObservations.ui.conflictResolution.override.policy.reason":
+    "Conflict overrides need a rebuilt backend command with evidence capture; compatibility override paths are retired.",
+  "catalog.features.sourceObservations.ui.conflictResolution.override.title": "Override policy",
+  "catalog.features.sourceObservations.ui.conflictResolution.rule.catalogAuthority": "Catalog promotion policy",
+  "catalog.features.sourceObservations.ui.conflictResolution.rule.duplicate.description":
+    "Potential duplicate identity evidence requires operator review before promotion.",
+  "catalog.features.sourceObservations.ui.conflictResolution.rule.duplicate.label": "Duplicate prevention",
+  "catalog.features.sourceObservations.ui.conflictResolution.rule.fieldPrecedence.description":
+    "Catalog applies field precedence from Source Observation evidence when the result is not promotion-blocking.",
+  "catalog.features.sourceObservations.ui.conflictResolution.rule.fieldPrecedence.label": "Field precedence",
+  "catalog.features.sourceObservations.ui.conflictResolution.rule.promotionBlocking.description":
+    "Promotion command conflicts stop execution until the affected facts have reviewed evidence.",
+  "catalog.features.sourceObservations.ui.conflictResolution.rule.promotionBlocking.label": "Promotion blocking",
+  "catalog.features.sourceObservations.ui.conflictResolution.rules.description":
+    "The precedence rules used to decide whether a conflict blocks promotion, needs review, or auto-resolves.",
+  "catalog.features.sourceObservations.ui.conflictResolution.rules.emptyDescription":
+    "Precedence rules appear when the selected review scope contains conflict evidence.",
+  "catalog.features.sourceObservations.ui.conflictResolution.rules.emptyTitle": "No precedence rules",
+  "catalog.features.sourceObservations.ui.conflictResolution.rules.title": "Precedence rules",
+  "catalog.features.sourceObservations.ui.conflictResolution.source.catalogCandidate": "Catalog candidate",
+  "catalog.features.sourceObservations.ui.conflictResolution.source.duplicateEvidence": "Duplicate evidence",
+  "catalog.features.sourceObservations.ui.conflictResolution.source.providerEvidence": "Provider evidence",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.action": "Action",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.authority": "Authority",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.behavior": "Behavior",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.event": "Event",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.fact": "Affected fact",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.occurred": "Occurred",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.openEvidence": "Open evidence",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.rule": "Rule",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.state": "State",
+  "catalog.features.sourceObservations.ui.conflictResolution.table.values": "Candidate values",
+  "catalog.features.sourceObservations.ui.conflictResolution.title": "Conflict resolution",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.preview.fresh": "Preview freshness",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.guard": "Stale preview guard",
   "catalog.features.sourceObservations.ui.primaryWorkbench.command.execution.stale.value":

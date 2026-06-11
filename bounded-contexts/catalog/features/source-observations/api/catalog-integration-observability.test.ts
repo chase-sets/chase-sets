@@ -76,4 +76,14 @@ describe("Catalog control plane telemetry normalization", () => {
       readModelFreshness: "fresh",
     });
   });
+
+  it("keeps conflict resolution as a rebuilt support detour target", () => {
+    expect(
+      normalizeCatalogControlPlaneTelemetryEvent({
+        eventName: "catalog_control_plane.supporting_workflow_detour_opened",
+        detourTarget: "conflict-resolution",
+        detourOutcome: "opened",
+      }).detourTarget,
+    ).toBe("conflict-resolution");
+  });
 });

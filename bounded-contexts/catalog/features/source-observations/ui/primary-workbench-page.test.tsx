@@ -345,6 +345,73 @@ describe("CatalogPrimaryWorkbenchPage", () => {
     expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
   });
 
+  it("renders conflict resolution as a focused evidence workspace without exposing compatibility overrides", () => {
+    const baseObservation = sourceObservationListItem({
+      observation_id: "obs_conflict",
+      promoted_catalog_item_id: "cat_001",
+    });
+    const readModel = buildCatalogPrimaryWorkbenchReadModel({
+      requestUrl:
+        "https://admin.example/catalog/integrations?providerKey=tcgdex&unitKey=tcgdex:pokemon:card:import&importScope=en:3:base:base1&filter.status=changed&selectedObservationIds=obs_conflict&promotionPreviewId=preview_001&section=conflicts",
+      scopes: { items: [sourceObservationScope()], total: 1, count: 1 },
+      profileReviews: { items: [profileReview({ active: true, lifecycle: "active" })], total: 1, count: 1 },
+      controlPlaneOverview: controlPlaneOverview({
+        auditLifecycle: {
+          ...controlPlaneOverview().auditLifecycle,
+          entries: [
+            {
+              eventId: "aud_conflict_001",
+              occurredAt: "2026-06-09T01:05:00.000Z",
+              eventName: "profile-section-edited",
+              category: "profile-section",
+              providerKey: "tcgdex",
+              unitKey: "tcgdex:pokemon:card:import",
+              profileVersion: "2026.06.04",
+              actorUserId: "user_admin",
+              relatedJobId: null,
+              summary: "Promotion mapping reviewed for conflicting Catalog item.",
+              diagnosticCodes: [],
+            },
+          ],
+        },
+      }),
+      reviewObservations: {
+        items: [
+          {
+            ...baseObservation,
+            normalized: {
+              ...baseObservation.normalized,
+              mergeIdentity: undefined,
+              externalCatalogItemReferences: [],
+            },
+          },
+        ],
+        total: 1,
+        count: 1,
+      },
+      canManageCatalog: true,
+    });
+
+    render(<CatalogPrimaryWorkbenchPage readModel={readModel} />);
+
+    expect(screen.getByRole("link", { name: /Conflict resolution/i }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("heading", { name: "Conflict resolution" })).toBeTruthy();
+    expect(screen.getByText("Conflicts are blocking promotion")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Fact conflicts" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Precedence rules" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Override policy" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Conflict audit evidence" })).toBeTruthy();
+    expect(screen.getAllByText("promotion-command.conflict-blocking.v1").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Promotion blocking").length).toBeGreaterThan(0);
+    expect(screen.getByText("Overrides fail closed until rebuilt")).toBeTruthy();
+    expect(screen.getByText(/compatibility override paths are retired/i)).toBeTruthy();
+    expect(screen.getAllByText("Promotion mapping reviewed for conflicting Catalog item.").length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Back to import workbench" }).getAttribute("href")).toContain(
+      "section=workbench",
+    );
+    expect(screen.queryByText(/raw JSON|Profile JSON|Candidate JSON|Active JSON/i)).toBeNull();
+  });
+
   it("renders option-query, import-scope, and mapping authoring detail panels without reviving raw profile editors", () => {
     const baseOverview = controlPlaneOverview();
     const readModel = buildCatalogPrimaryWorkbenchReadModel({
@@ -559,7 +626,10 @@ describe("CatalogPrimaryWorkbenchPage", () => {
       target: { value: "audit-evidence" },
     });
 
-    expect(screen.getByRole("link", { name: /Audit evidence/i }).getAttribute("aria-current")).toBe("page");
+    const auditEvidenceLink = screen
+      .getAllByRole("link")
+      .find((link) => link.getAttribute("href")?.includes("section=evidence"));
+    expect(auditEvidenceLink?.getAttribute("aria-current")).toBe("page");
     expect(window.location.pathname).toBe("/catalog/integrations");
     expect(window.location.search).toContain("section=evidence");
     expect(window.location.search).toContain("providerKey=tcgdex");

@@ -48,6 +48,7 @@ export const catalogControlPlaneTelemetryDetourTargets = [
   "profile-authoring",
   "validation-readiness",
   "adapter-readiness",
+  "conflict-resolution",
   "lifecycle-recovery",
   "governance-controls",
   "audit-evidence",

@@ -16,6 +16,7 @@ export type CatalogControlPlaneWorkspaceKey =
   | "profile-authoring"
   | "validation-readiness"
   | "adapter-readiness"
+  | "conflict-resolution"
   | "lifecycle-recovery"
   | "governance-controls"
   | "audit-evidence";
@@ -149,11 +150,35 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     consumesIssues: [1035, 1065],
   },
   {
+    key: "conflict-resolution",
+    routeSegment: "conflicts",
+    accessibleName: "Conflict resolution",
+    group: "govern",
+    keyboardOrder: 60,
+    operatorJob: "Explain source fact conflicts, precedence rules, promotion blocking, and audit evidence.",
+    startsAt: "Duplicate, conflict, changed-source, or promotion-conflict evidence on Source Observations.",
+    completesAt: "Conflict state is auto-resolved, reviewed, or clearly blocking promotion with evidence.",
+    evidenceScope: ["Affected facts", "Candidate values", "Precedence rules", "Audit evidence"],
+    primaryPathRole: "supporting-detour",
+    linkBackContextKeys: [
+      "section",
+      "providerKey",
+      "unitKey",
+      "importScope",
+      "profileVersion",
+      "sourceObservationFilters",
+      "selectedObservationIds",
+      "promotionPreviewId",
+      "returnPath",
+    ],
+    consumesIssues: [1041],
+  },
+  {
     key: "lifecycle-recovery",
     routeSegment: "lifecycle",
     accessibleName: "Lifecycle recovery",
     group: "govern",
-    keyboardOrder: 60,
+    keyboardOrder: 70,
     operatorJob: "Rollback, retire, deprecate, replay, or reapply profile behavior that affects the primary path.",
     startsAt: "Bad activation, stale preview, profile lifecycle, or reapply blocker.",
     completesAt: "Recovery result with affected observations, jobs, profile versions, and audit evidence.",
@@ -170,14 +195,14 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
       "promotionPreviewId",
       "returnPath",
     ],
-    consumesIssues: [1040, 1041, 1042, 1045, 1063],
+    consumesIssues: [1040, 1042, 1045, 1063],
   },
   {
     key: "governance-controls",
     routeSegment: "controls",
     accessibleName: "Governance controls",
     group: "govern",
-    keyboardOrder: 70,
+    keyboardOrder: 80,
     operatorJob: "Control RBAC, rollout, kill switches, observability, and degraded state ownership.",
     startsAt: "Denied, disabled, rollout-stopped, or degraded primary action.",
     completesAt: "Allowed action or explicit fail-closed reason with owner and metric.",
@@ -191,7 +216,7 @@ export const CATALOG_CONTROL_PLANE_WORKSPACES = [
     routeSegment: "evidence",
     accessibleName: "Audit evidence",
     group: "verify",
-    keyboardOrder: 80,
+    keyboardOrder: 90,
     operatorJob: "Verify who changed what, what evidence shipped, and what release proof exists.",
     startsAt: "Audit, smoke, release, or signoff evidence request.",
     completesAt: "Traceable audit/release evidence linked to the primary work item.",
@@ -227,7 +252,7 @@ export const CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS = [
   {
     key: "govern",
     accessibleName: "Govern and recover",
-    items: ["lifecycle-recovery", "governance-controls"],
+    items: ["conflict-resolution", "lifecycle-recovery", "governance-controls"],
   },
   {
     key: "verify",
@@ -270,7 +295,14 @@ export const CATALOG_CONTROL_PLANE_WORKFLOW_MAP = [
     startsIn: "import-to-promotion",
     completesIn: "import-to-promotion",
     requiredEvidence: ["Durable job state", "Observation evidence", "Promotion command plan", "Recovery result"],
-    blockedBy: ["lifecycle-recovery", "governance-controls"],
+    blockedBy: ["conflict-resolution", "lifecycle-recovery", "governance-controls"],
+  },
+  {
+    workflow: "Conflict resolution and source precedence",
+    startsIn: "conflict-resolution",
+    completesIn: "import-to-promotion",
+    requiredEvidence: ["Affected facts", "Candidate values", "Precedence rule", "Audit evidence"],
+    blockedBy: ["governance-controls", "audit-evidence"],
   },
   {
     workflow: "Lifecycle, rollout, RBAC, observability, and audit evidence",
@@ -294,8 +326,9 @@ export const CATALOG_CONTROL_PLANE_REBUILD_RELEASE_RULES = [
   },
   {
     key: "complete-retirement",
-    rule: "Retired artifacts are removed from code, product patterns, tests, scripts, screenshots, and docs.",
-    verification: "Static guards fail when retired page artifacts, namespaces, nav entries, or file paths reappear.",
+    rule: "Retire means complete removal of all retired code, product patterns, tests, fixtures, scripts, screenshots, documentation, runbooks, release notes, and operator instructions.",
+    verification:
+      "Static guards fail when retired page artifacts, compatibility shims, aliases, flags, namespaces, nav entries, file paths, docs, runbooks, release notes, or operator instructions reappear.",
   },
 ] as const satisfies readonly CatalogControlPlaneRebuildReleaseRule[];
 

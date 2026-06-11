@@ -34,6 +34,7 @@ import {
   CATALOG_CONTROL_PLANE_NAVIGATION_GROUPS,
   CATALOG_CONTROL_PLANE_WORKSPACES,
 } from "./admin-control-plane/information-architecture";
+import { CatalogIntegrationConflictResolutionWorkspace } from "./admin-control-plane/conflicts/conflict-resolution-workspace";
 import { CatalogIntegrationHealthTriageDashboard } from "./admin-control-plane/health/integration-health-dashboard";
 import { CatalogIntegrationLifecycleRecoveryWorkspace } from "./admin-control-plane/lifecycle/lifecycle-recovery-workspace";
 import { CatalogIntegrationProfileAuthoringWorkspace } from "./admin-control-plane/profiles/profile-authoring-workspace";
@@ -171,6 +172,8 @@ export function CatalogPrimaryWorkbenchPage({ readModel, commandFeedback = null 
       <CatalogIntegrationProfileAuthoringWorkspace readModel={readModel} />
     ) : activeSection === "validation-readiness" ? (
       <CatalogIntegrationValidationReadinessWorkspace readModel={readModel} />
+    ) : activeSection === "conflict-resolution" ? (
+      <CatalogIntegrationConflictResolutionWorkspace readModel={readModel} />
     ) : activeSection === "lifecycle-recovery" ? (
       <CatalogIntegrationLifecycleRecoveryWorkspace readModel={readModel} />
     ) : null;

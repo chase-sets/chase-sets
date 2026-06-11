@@ -32,6 +32,7 @@ export type CatalogNoConfusionUxWorkflowKey =
   | "health-triage-support"
   | "profile-authoring-support"
   | "validation-readiness-support"
+  | "conflict-resolution-support"
   | "lifecycle-recovery-support"
   | "rbac-rollout-observability-support";
 
@@ -298,6 +299,7 @@ const catalogNoConfusionUxWorkflows = [
   "health-triage-support",
   "profile-authoring-support",
   "validation-readiness-support",
+  "conflict-resolution-support",
   "lifecycle-recovery-support",
   "rbac-rollout-observability-support",
 ] as const satisfies readonly CatalogNoConfusionUxWorkflowKey[];
@@ -580,6 +582,13 @@ function buildDefaultWorkflowEvidence(evidenceBase: string): readonly CatalogNoC
       ["readiness", "supporting-evidence"],
       ["update-provider-profile-section", "activate-provider-profile"],
       "Validation readiness explains fixture/dry-run blockers, records migration evidence, and activates provider profiles only after readiness blockers are resolved.",
+    ),
+    workflow(
+      "conflict-resolution-support",
+      null,
+      ["source-observation-review", "conflict-resolution", "promotion-preview", "supporting-evidence"],
+      ["preview-promotion", "reject-source-observations", "defer-source-observations"],
+      "Conflict resolution explains affected facts, candidate values, precedence rules, promotion blockers, and audit evidence before returning to promotion.",
     ),
     workflow(
       "lifecycle-recovery-support",
