@@ -143,6 +143,26 @@ export type FreshCheckoutPostConfirmationHandoff = Readonly<{
   accountHistoryHref: string | null;
 }>;
 
+export type FreshCheckoutSplitGroupHandoff = Readonly<{
+  status: "not-started" | "ready" | "pending" | "failed";
+  groups: readonly Readonly<{
+    groupId: string;
+    lineIds: readonly string[];
+    listingIds: readonly string[];
+    sellerAccountId: AccountId | null;
+    sellerDisplayName: string | null;
+    packageCount: number;
+    itemCount: number;
+    deliveryPromise: string | null;
+    shippingAmount: CheckoutMoney | null;
+    supportReference: string;
+    downstreamReferenceStatus: "not-started" | "pending" | "ready" | "failed";
+    orderIds: readonly OrderId[];
+    shipmentIds: readonly ShipmentId[];
+  }>[];
+  supportReference: string | null;
+}>;
+
 export type FreshCheckoutSavedInfoRow = Readonly<{
   kind: "contact" | "shipping-address" | "ship-from-address" | "payment-method" | "payout-method";
   status: CheckoutSavedRowStatus;
@@ -205,6 +225,7 @@ export type FreshCheckoutSessionBase = Readonly<{
   recovery: FreshCheckoutRecoveryState | null;
   communication: FreshCheckoutCommunicationState;
   reconciliation: FreshCheckoutReconciliationState;
+  splitGroupHandoff: FreshCheckoutSplitGroupHandoff | null;
   postConfirmation: FreshCheckoutPostConfirmationHandoff;
   savedInfoRows: readonly FreshCheckoutSavedInfoRow[];
   availableCommands: readonly FreshCheckoutCommandType[];
@@ -326,6 +347,7 @@ export function renderableCheckoutSummary(snapshot: FreshCheckoutSessionSnapshot
     freshnessStatus: snapshot.freshness.status,
     providerStatus: snapshot.provider.status,
     riskStatus: snapshot.risk.status,
+    splitGroupCount: snapshot.splitGroupHandoff?.groups.length ?? 0,
     postConfirmationStatus: snapshot.postConfirmation.status,
     primaryAction: canConfirmFreshCheckout(snapshot) ? "confirm" : "resolve",
   } as const;

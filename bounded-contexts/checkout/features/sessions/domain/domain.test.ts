@@ -3,7 +3,7 @@ import { createCartReadinessSnapshot } from "../../cart/domain/readiness";
 import { decideCheckoutSession, evolveCheckoutSession, initialCheckoutSessionState } from "./domain";
 
 const line = {
-  listingId: null,
+  listingId: "lst_1",
   cartLineId: "cli_1",
   catalogItemId: "cat_1",
   productId: "cat_1::",
@@ -12,6 +12,10 @@ const line = {
   selectedOptions: [],
   productSummary: null,
   quantity: 1,
+  fulfillmentMode: "locked-listing" as const,
+  lockedListingId: "lst_1",
+  sellerPreferenceId: null,
+  availabilityState: "available" as const,
 };
 
 const shippingAddress = {
@@ -97,6 +101,17 @@ describe("checkout session domain", () => {
       sourceType: "cart",
       shippingOption: "priority",
       shippingAddress,
+      splitGroupHandoff: {
+        status: "ready",
+        groups: [
+          expect.objectContaining({
+            lineIds: ["cli_1"],
+            listingIds: ["lst_1"],
+            sellerAccountId: "acc_seller",
+            downstreamReferenceStatus: "not-started",
+          }),
+        ],
+      },
       orderIds: ["ord_1"],
       paymentId: "pay_1",
     });
@@ -121,5 +136,66 @@ describe("checkout session domain", () => {
         createdAt: "2026-04-29T00:00:00.000Z",
       }),
     ).toThrow("Cart readiness snapshot is required.");
+  });
+
+  it("rejects cart sessions when split groups do not match checkout lines", () => {
+    expect(() =>
+      decideCheckoutSession(initialCheckoutSessionState, {
+        type: "StartCheckoutSession",
+        sessionId: "chk_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sourceType: "cart",
+        shippingOption: "standard",
+        cartReadinessSnapshot,
+        lines: [
+          {
+            ...line,
+            cartLineId: "cli_other",
+          },
+        ],
+        createdAt: "2026-04-29T00:00:00.000Z",
+      }),
+    ).toThrow("Cart readiness split groups must match checkout line listings.");
+  });
+
+  it("rejects cart sessions when readiness omits split group facts", () => {
+    expect(() =>
+      decideCheckoutSession(initialCheckoutSessionState, {
+        type: "StartCheckoutSession",
+        sessionId: "chk_1" as never,
+        buyerAccountId: "acc_buyer" as never,
+        sourceType: "cart",
+        shippingOption: "standard",
+        cartReadinessSnapshot: {
+          ...cartReadinessSnapshot,
+          fulfillmentGroups: [],
+        },
+        lines: [line],
+        createdAt: "2026-04-29T00:00:00.000Z",
+      }),
+    ).toThrow("Cart readiness must include split group facts.");
+  });
+
+  it("does not create split group handoff facts for non-cart source intents", () => {
+    const started = decideCheckoutSession(initialCheckoutSessionState, {
+      type: "StartCheckoutSession",
+      sessionId: "chk_buy_now" as never,
+      buyerAccountId: "acc_buyer" as never,
+      sourceType: "buy-now",
+      shippingOption: "standard",
+      lines: [
+        {
+          ...line,
+          cartLineId: null,
+        },
+      ],
+      createdAt: "2026-04-29T00:00:00.000Z",
+    });
+
+    expect(started[0]?.type).toBe("checkout.session.started");
+    if (started[0]?.type !== "checkout.session.started") {
+      throw new Error("Expected checkout session started event.");
+    }
+    expect(started[0].data.splitGroupHandoff).toBeNull();
   });
 });

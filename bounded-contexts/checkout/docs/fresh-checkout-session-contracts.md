@@ -36,6 +36,7 @@ Every fresh checkout session snapshot uses `schemaVersion: checkout.fresh-sessio
 - `recovery`: stale, provider-failure, partial-completion, invalid-address, unresolved-fulfillment, seller-readiness, or risk-review recovery state
 - `communication`
 - `reconciliation`
+- `splitGroupHandoff`: buy-side split package/order summary facts and support-safe group references, when source readiness produced them
 - `postConfirmation`
 - `savedInfoRows`
 - `availableCommands`
@@ -131,10 +132,26 @@ Supported customer-safe outcomes before checkout are:
 - ready lines continue into checkout;
 - unavailable or waiting-for-supply lines are removed or kept in the cart outside checkout;
 - a proposed lower-cost fulfillment option is accepted and applied to the checkout lines;
-- a proposed lower-cost fulfillment option is declined while the current allocation remains valid.
+- a proposed lower-cost fulfillment option is declined while the current fulfillment selection remains valid.
 
 The checkout form may display the resulting delivery/summary facts, but it must not regroup sellers, assign
 fulfillment, or ask the buyer to resolve unavailable items inside checkout.
+
+## Split Group Handoff
+
+Cart readiness produces `fulfillmentGroups` for every ready Buy Cart checkout snapshot. Each group contains stable
+group id, included line ids, selected listing ids, seller/account reference where known, package count, customer-safe
+delivery/shipping placeholders, a support reference, and `downstreamReferenceStatus: not-started`.
+
+Checkout session creation derives `splitGroupHandoff` from those readiness groups and the normalized checkout lines.
+The handoff is accepted only when the groups cover the same line ids and selected listing ids as the checkout session.
+Missing, duplicate, partial, stale, or mismatched group facts fail closed before checkout starts.
+
+These group facts are handoff references, not downstream commitments. They must not be shown as completed orders,
+shipments, labels, payouts, settlements, notifications, account-history rows, support cases, refunds, or reversals
+until the owning context commits those facts. Checkout may use them to keep one customer-facing checkout action and
+confirmation while Ordering, Fulfillment, Support, Notifications, Payments, and Settlement later resolve underlying
+records by stable reference.
 
 Changed economics are represented by `freshness.reason` values such as `shipping-changed`, `tax-changed`, `fees-changed`, `discounts-changed`, or `credits-changed`. The customer must refresh and review the updated total before confirmation.
 

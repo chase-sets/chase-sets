@@ -1,6 +1,6 @@
 import type { PgQueryable } from "@chase-sets/event-core-postgres";
 import type { CartReadinessSnapshot } from "../../cart/domain/readiness";
-import type { CheckoutSessionLine, CheckoutShippingAddress } from "../domain/domain";
+import type { CheckoutSessionLine, CheckoutShippingAddress, CheckoutSplitGroupHandoff } from "../domain/domain";
 
 export type CheckoutSessionRow = Readonly<{
   session_id: string;
@@ -9,6 +9,7 @@ export type CheckoutSessionRow = Readonly<{
   optimization_goal: "lowest-total" | "fewest-shipments";
   fulfillment_preview_revision: string | null;
   cart_readiness_snapshot?: CartReadinessSnapshot | null;
+  split_group_handoff?: CheckoutSplitGroupHandoff | null;
   shipping_option: "standard" | "expedited" | "priority";
   shipping_address_id: string | null;
   shipping_address: CheckoutShippingAddress | null;
@@ -30,6 +31,7 @@ type CheckoutSessionPageRow = Omit<
     shipping_option: string;
     shipping_address: unknown;
     cart_readiness_snapshot: unknown;
+    split_group_handoff: unknown;
     lines: unknown;
     order_ids: unknown;
   }>;
@@ -49,6 +51,10 @@ function mapSessionRow(row: CheckoutSessionPageRow): CheckoutSessionRow {
     cart_readiness_snapshot:
       typeof row.cart_readiness_snapshot === "object" && row.cart_readiness_snapshot !== null
         ? (row.cart_readiness_snapshot as CartReadinessSnapshot)
+        : null,
+    split_group_handoff:
+      typeof row.split_group_handoff === "object" && row.split_group_handoff !== null
+        ? (row.split_group_handoff as CheckoutSplitGroupHandoff)
         : null,
     lines: Array.isArray(row.lines) ? (row.lines as CheckoutSessionLine[]) : [],
     order_ids: Array.isArray(row.order_ids)
@@ -70,6 +76,7 @@ export async function getCheckoutSession(
        optimization_goal,
        fulfillment_preview_revision,
        cart_readiness_snapshot,
+       split_group_handoff,
        shipping_option,
        shipping_address_id,
        shipping_address,
