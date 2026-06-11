@@ -42,6 +42,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Checkout Fresh-State Route Strategy](../bounded-contexts/checkout/docs/fresh-state-route-strategy.md): Shopify-simple checkout route map, legacy route disposition, readiness guardrails, and kill-switch behavior.
 - [Checkout Fresh Session Contracts](../bounded-contexts/checkout/docs/fresh-checkout-session-contracts.md): Milestone #17 buy/sell checkout snapshot, commands, state machine, idempotency, guest merge, and fresh-state compatibility rules.
 - [Checkout Session Projection Performance](../bounded-contexts/checkout/docs/checkout-session-projection-performance.md): guest Buy Now checkout freshness path, supporting indexes, projection transaction behavior, and remaining platform evidence gates.
+- [Checkout Performance Budgets](../bounded-contexts/checkout/docs/checkout-performance-budgets.md): Milestone #17 cart/list, readiness, checkout entry, confirmation, mobile, support, and recovery performance budgets.
 - [Guest Buy Now Freshness Verification](../bounded-contexts/checkout/docs/guest-buy-now-freshness-verification.md): signed-out Buy Now freshness contract, shared test/canary states, fixture ownership, and no-payment/no-order side-effect rules.
 - [Discovery Google Shopping Feed Mapping](../bounded-contexts/discovery/docs/google-shopping-feed-mapping.md): product, offer, image, condition, shipping, returns, and eligibility mapping for Google Shopping rows.
 - [Marketplace API](./api/marketplace-api.md): human-readable API guide.
