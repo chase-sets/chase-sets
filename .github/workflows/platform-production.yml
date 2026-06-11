@@ -131,6 +131,23 @@ jobs:
           release_commit="${{ steps.release.outputs.release_commit }}"
           git fetch origin production || true
 
+          # Skip stale releases before any staging work starts: a newer main
+          # commit has its own deploy run queued behind this one (issue #1326).
+          if [ "${{ github.event_name }}" = "push" ]; then
+            git fetch origin main
+            latest_main="$(git rev-parse origin/main)"
+            if [ "$release_commit" != "$latest_main" ]; then
+              {
+                echo "deploy=false"
+                echo "exposure_posture_changed=false"
+                echo "exposure_posture_categories="
+                echo "exposure_posture_categories_json=[]"
+              } >> "$GITHUB_OUTPUT"
+              echo "Release commit ${release_commit} is no longer origin/main (${latest_main}); skipping stale deployment before staging."
+              exit 0
+            fi
+          fi
+
           if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.force_deploy }}" = "true" ]; then
             {
               echo "deploy=true"
@@ -413,13 +430,17 @@ jobs:
 
           doctl registry login --expiry-seconds 3600
           image="registry.digitalocean.com/${registry_name}/${PLATFORM_IMAGE_REPOSITORY}:${TF_VAR_platform_image_tag}"
-          docker buildx build \
-            --pull \
-            --cache-from type=gha,scope=platform-image \
-            --cache-to type=gha,scope=platform-image,mode=min \
-            --push \
-            --tag "$image" \
-            .
+          if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+            echo "Reusing merge-queue validated image ${image}; skipping rebuild."
+          else
+            docker buildx build \
+              --pull \
+              --cache-from type=gha,scope=platform-image \
+              --cache-to type=gha,scope=platform-image,mode=max \
+              --push \
+              --tag "$image" \
+              .
+          fi
 
           digest="$(docker buildx imagetools inspect "$image" --format '{{.Manifest.Digest}}')"
           echo "image=${image}" >> "$GITHUB_OUTPUT"
