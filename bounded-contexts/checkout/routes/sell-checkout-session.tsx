@@ -161,6 +161,8 @@ type SellListReviewedLine = Readonly<{
   readinessAction: ParsedSellListLineAction["action"];
 }>;
 
+type MarketplaceRequestApiClient = ReturnType<typeof createMarketplaceRequestApiClient>;
+
 type SellListMarketplaceHandoff = Readonly<{
   completedLineIds: readonly string[];
   remainingLineQuantities: readonly { lineId: string; quantity: number }[];
@@ -170,6 +172,16 @@ type SellListMarketplaceHandoff = Readonly<{
 type SellListConfirmResponse = Readonly<{
   confirmation: CheckoutSellListConfirmationRow;
 }>;
+
+class SellListReviewPlanStaleError extends Error {
+  readonly recovery: SignedInSellCheckoutRecovery;
+
+  constructor(detail: string) {
+    super(detail);
+    this.name = "SellListReviewPlanStaleError";
+    this.recovery = { kind: "readiness-stale", detail };
+  }
+}
 
 function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
@@ -705,6 +717,55 @@ function reviewedLinesForConfirmation(
   return reviewed;
 }
 
+function staleReviewPlanError(itemTitle: string) {
+  return new SellListReviewPlanStaleError(
+    t("checkout.routes.accountSellList.offer.terms.need.refresh.detail", { itemTitle }),
+  );
+}
+
+async function assertMarketplaceOfferTermsFresh(
+  marketplaceApi: MarketplaceRequestApiClient,
+  reviewedLines: readonly SellListReviewedLine[],
+) {
+  const plannedOffers = new Map<string, { feeQuoteFingerprint: string; itemTitle: string }>();
+
+  for (const { line, review, readinessAction } of reviewedLines) {
+    if (readinessAction === "selected-offer" && review.selectedOffer) {
+      plannedOffers.set(review.selectedOffer.offerId, {
+        feeQuoteFingerprint: review.selectedOffer.feeQuoteFingerprint,
+        itemTitle: line.item_title,
+      });
+      continue;
+    }
+
+    if (readinessAction === "smart-match") {
+      for (const target of review.productOfferTargets) {
+        const existing = plannedOffers.get(target.offerId);
+        if (existing && existing.feeQuoteFingerprint !== target.feeQuoteFingerprint) {
+          throw staleReviewPlanError(line.item_title);
+        }
+        plannedOffers.set(target.offerId, {
+          feeQuoteFingerprint: target.feeQuoteFingerprint,
+          itemTitle: line.item_title,
+        });
+      }
+    }
+  }
+
+  for (const [offerId, planned] of plannedOffers) {
+    let currentTerms: Awaited<ReturnType<MarketplaceRequestApiClient["previewOfferAcceptanceTerms"]>>;
+    try {
+      currentTerms = await marketplaceApi.previewOfferAcceptanceTerms(offerId);
+    } catch {
+      throw staleReviewPlanError(planned.itemTitle);
+    }
+
+    if (currentTerms.fee_quote_fingerprint !== planned.feeQuoteFingerprint) {
+      throw staleReviewPlanError(planned.itemTitle);
+    }
+  }
+}
+
 function responseString(value: unknown, ...keys: string[]) {
   const source = objectValue(value);
   if (!source) {
@@ -731,11 +792,10 @@ function isAlreadyActiveListingPublishReplay(error: unknown) {
 }
 
 async function performMarketplaceHandoff(
-  request: Request,
+  marketplaceApi: MarketplaceRequestApiClient,
   confirmationId: string,
   reviewedLines: readonly SellListReviewedLine[],
 ): Promise<SellListMarketplaceHandoff> {
-  const marketplaceApi = createMarketplaceRequestApiClient(request);
   const completedLineIds: string[] = [];
   const remainingLineQuantities: { lineId: string; quantity: number }[] = [];
   const lineOutcomes: Array<NonNullable<SellListConfirmationSummary["lineOutcomes"]>[number]> = [];
@@ -1246,7 +1306,9 @@ export async function action({
     try {
       const reviewPlan = parseSellListReviewPlan(state.sellListReviewPlan);
       const reviewedLines = reviewedLinesForConfirmation(state.lines, state.readiness, reviewPlan);
-      const marketplaceHandoff = await performMarketplaceHandoff(request, confirmationId, reviewedLines);
+      const marketplaceApi = createMarketplaceRequestApiClient(request);
+      await assertMarketplaceOfferTermsFresh(marketplaceApi, reviewedLines);
+      const marketplaceHandoff = await performMarketplaceHandoff(marketplaceApi, confirmationId, reviewedLines);
       const confirmedAt = new Date().toISOString();
       const sellerEvidence = buildSellerEvidence(values, state.payoutSummary, confirmedAt);
       const result = (await api.confirmSellListCheckout({
@@ -1271,6 +1333,17 @@ export async function action({
         },
       };
     } catch (error) {
+      if (error instanceof SellListReviewPlanStaleError) {
+        return {
+          status: "error",
+          values,
+          recovery: error.recovery,
+          fieldErrors: {
+            form: error.message,
+          },
+        };
+      }
+
       return {
         status: "error",
         values,

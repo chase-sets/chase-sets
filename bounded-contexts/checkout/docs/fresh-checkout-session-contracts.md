@@ -159,6 +159,11 @@ The seller checkout form may display concise payout, listing, label, and next-st
 silently choose sale actions, manufacture payout readiness, repair missing ship-from/label facts, or absorb provider
 diagnostics that belong in Sell List readiness or later provider-owned setup flows.
 
+Active signed-in seller checkout rechecks Marketplace-owned offer terms from the stored review plan immediately before
+handoff. If any selected-offer or Smart Match offer fee quote fingerprint is missing, unreachable, or no longer current,
+Checkout routes back to Sell List readiness recovery and does not accept offers, publish fallback listings, record seller
+confirmation, or start downstream label, payout, settlement, notification, support, reversal, or account-history work.
+
 ## Idempotency And Guest Merge
 
 Fresh session creation is idempotent by `creationIdempotencyKey`, which is derived from the source intent and the current checkout-relevant revision. Replaying creation for the same cart, buy-now, or Sell List state must return the same active session or replace it with a fresh regenerated session, not create duplicate customer commitments.
