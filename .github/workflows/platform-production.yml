@@ -51,6 +51,19 @@ jobs:
       exposure_posture_categories: ${{ steps.deployment_scope.outputs.exposure_posture_categories }}
       exposure_posture_changed: ${{ steps.deployment_scope.outputs.exposure_posture_changed }}
     steps:
+      - name: Validate production proof canary credentials
+        if: vars.PRODUCTION_MARKETPLACE_PROOF_ENABLED == 'true'
+        env:
+          PROOF_CANARY_EMAIL: ${{ secrets.PRODUCTION_PROOF_CANARY_EMAIL || secrets.PLATFORM_ADMIN_EMAIL || '' }}
+          PROOF_CANARY_PASSWORD: ${{ secrets.PRODUCTION_PROOF_CANARY_PASSWORD || secrets.PLATFORM_ADMIN_PASSWORD || '' }}
+        run: |
+          set -euo pipefail
+          if [ -z "${PROOF_CANARY_EMAIL}" ] || [ -z "${PROOF_CANARY_PASSWORD}" ]; then
+            echo "Production proof mode requires Buy Now canary operator credentials before any deploy work starts: configure PRODUCTION_PROOF_CANARY_EMAIL/PRODUCTION_PROOF_CANARY_PASSWORD or keep PLATFORM_ADMIN_EMAIL/PLATFORM_ADMIN_PASSWORD available as the launch fallback." >&2
+            exit 1
+          fi
+          echo "Production proof canary credentials are configured."
+
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
@@ -747,6 +760,7 @@ jobs:
           GUEST_BUY_NOW_CANARY_FIXTURE_KEY: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_FIXTURE_KEY || 'staging-guest-buy-now-fixture' }}
           GUEST_BUY_NOW_CANARY_TIMEOUT_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_TIMEOUT_MS || '45000' }}
           GUEST_BUY_NOW_CANARY_READY_SLO_MS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
+          GUEST_BUY_NOW_CANARY_SLO_MODE: ${{ vars.GUEST_BUY_NOW_CANARY_SLO_MODE || 'warn' }}
           GUEST_BUY_NOW_CANARY_ATTEMPTS: ${{ vars.STAGING_GUEST_BUY_NOW_CANARY_ATTEMPTS || '3' }}
           MARKETPLACE_E2E_EMAIL: ${{ vars.MARKETPLACE_E2E_EMAIL || '' }}
           MARKETPLACE_E2E_PASSWORD: ${{ secrets.MARKETPLACE_E2E_PASSWORD || '' }}
@@ -811,6 +825,8 @@ jobs:
           if [ "$guest_exit" -ne 0 ] || [ "$account_exit" -ne 0 ]; then
             result=failure
             promotion_decision=abort
+          elif [ "$guest_promotion_decision" = "warn" ] || [ "$account_promotion_decision" = "warn" ]; then
+            promotion_decision=warn
           fi
 
           {
@@ -835,6 +851,10 @@ jobs:
             echo "| account | ${account_final_state} | ${account_promotion_decision} | ${account_ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-account |"
             echo ""
             echo "Interpretation: docs/runbooks/guest-buy-now-freshness-canary.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
+            if [ "$promotion_decision" = "warn" ]; then
+              echo ""
+              echo "WARNING: ready SLO exceeded with a user-safe final state. Recorded as a release-health warning; promotion was not blocked (slo-mode=warn, pending #1237 ratification)."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$result" != "success" ]; then
@@ -1700,6 +1720,7 @@ jobs:
           GUEST_BUY_NOW_CANARY_FIXTURE_KEY: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_FIXTURE_KEY || 'production-proof-buy-now-fixture' }}
           GUEST_BUY_NOW_CANARY_TIMEOUT_MS: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_TIMEOUT_MS || '45000' }}
           GUEST_BUY_NOW_CANARY_READY_SLO_MS: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_READY_SLO_MS || vars.STAGING_GUEST_BUY_NOW_CANARY_READY_SLO_MS || '10000' }}
+          GUEST_BUY_NOW_CANARY_SLO_MODE: ${{ vars.GUEST_BUY_NOW_CANARY_SLO_MODE || 'warn' }}
           GUEST_BUY_NOW_CANARY_ATTEMPTS: ${{ vars.PRODUCTION_PROOF_BUY_NOW_CANARY_ATTEMPTS || '3' }}
           PRODUCTION_MARKETPLACE_PROOF_REFERENCE: ${{ vars.PRODUCTION_MARKETPLACE_PROOF_REFERENCE || '' }}
         run: |
@@ -1763,6 +1784,10 @@ jobs:
             echo "| account (proof mode) | ${final_state} | ${promotion_decision} | ${ready_latency_ms} | github-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-production-proof |"
             echo ""
             echo "Interpretation: docs/runbooks/guest-buy-now-freshness-canary.md. Join server-side wake segments by correlation id via the projection wake dashboard and /api/platform/projections/wake-status."
+            if [ "$promotion_decision" = "warn" ]; then
+              echo ""
+              echo "WARNING: ready SLO exceeded with user-safe final state '${final_state}'. Recorded as a release-health warning; the release was not blocked (slo-mode=warn, pending #1237 ratification)."
+            fi
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$canary_exit" -ne 0 ]; then
@@ -1897,7 +1922,7 @@ jobs:
           CANARY_SKIPPED_REASON: ${{ steps.stage1_canary.outcome == 'skipped' && 'stage-1-canary-not-run' || '' }}
           CANARY_COHORT_SUBJECT_TYPE: operator
           CANARY_COHORT_SIZE: "0"
-          CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
+          CANARY_PROMOTION_DECISION: ${{ steps.proof_canary.outcome == 'failure' && 'abort' || steps.canary_evidence.outcome == 'failure' && 'abort' || steps.proof_canary.outputs.promotion_decision == 'warn' && 'warn' || steps.stage1_canary.outcome == 'success' && 'promote' || steps.stage1_canary.outcome == 'failure' && 'abort' || 'skipped' }}
           PRODUCTION_RESULT: ${{ job.status }}
           PRODUCTION_STARTED_AT: ${{ steps.production_started.outputs.started_at }}
           PRODUCTION_COMPLETED_AT: ${{ steps.release_health_metadata.outputs.completed_at }}

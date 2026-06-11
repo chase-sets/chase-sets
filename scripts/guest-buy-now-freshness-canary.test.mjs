@@ -49,7 +49,7 @@ describe("guest Buy Now freshness canary", () => {
     });
   });
 
-  it("aborts promotion when checkout readiness exceeds the agreed SLO", () => {
+  it("warns by default when checkout readiness exceeds the interim SLO", () => {
     expect(
       classifyGuestBuyNowObservation(
         {
@@ -63,12 +63,31 @@ describe("guest Buy Now freshness canary", () => {
       ),
     ).toEqual({
       finalState: "pass",
+      promotionDecision: "warn",
+      failureReason: "checkout-ready-slo-exceeded",
+    });
+  });
+
+  it("aborts promotion on SLO breach when slo-mode is gate", () => {
+    expect(
+      classifyGuestBuyNowObservation(
+        {
+          afterWritePresent: true,
+          guestCookiePresent: true,
+          checkoutReviewVisible: true,
+          readyLatencyMs: 14_000,
+          negativeProbe: healthyProbe,
+        },
+        { readySloMs: 10_000, sloMode: "gate" },
+      ),
+    ).toEqual({
+      finalState: "pass",
       promotionDecision: "abort",
       failureReason: "checkout-ready-slo-exceeded",
     });
   });
 
-  it("aborts promotion for temporary recovery that never becomes pay-ready inside the SLO", () => {
+  it("warns by default for temporary recovery that never becomes pay-ready inside the SLO", () => {
     expect(
       classifyGuestBuyNowObservation({
         afterWritePresent: true,
@@ -78,6 +97,26 @@ describe("guest Buy Now freshness canary", () => {
         pageText: "Preparing checkout. Refresh checkout. Your payment has not started.",
         negativeProbe: healthyProbe,
       }),
+    ).toEqual({
+      finalState: "temporary",
+      promotionDecision: "warn",
+      failureReason: "checkout-ready-slo-exceeded",
+    });
+  });
+
+  it("aborts temporary recovery on SLO breach when slo-mode is gate", () => {
+    expect(
+      classifyGuestBuyNowObservation(
+        {
+          afterWritePresent: true,
+          guestCookiePresent: true,
+          temporaryRecoveryVisible: true,
+          readyLatencyMs: null,
+          pageText: "Preparing checkout. Refresh checkout. Your payment has not started.",
+          negativeProbe: healthyProbe,
+        },
+        { sloMode: "gate" },
+      ),
     ).toEqual({
       finalState: "temporary",
       promotionDecision: "abort",
@@ -224,7 +263,7 @@ describe("guest Buy Now freshness canary", () => {
     ).toBe("negative-probe-unexpected-state");
   });
 
-  it("keeps the headline readiness failure when both readiness and the probe fail", () => {
+  it("lets an unsafe probe failure override a readiness warning", () => {
     expect(
       classifyGuestBuyNowObservation({
         afterWritePresent: true,
@@ -233,6 +272,25 @@ describe("guest Buy Now freshness canary", () => {
         readyLatencyMs: null,
         negativeProbe: { attempted: true, documentStatus: 200, permanentRecoveryVisible: false },
       }),
+    ).toEqual({
+      finalState: "temporary",
+      promotionDecision: "abort",
+      failureReason: "negative-probe-unexpected-state",
+    });
+  });
+
+  it("keeps the headline readiness failure when gating and both readiness and the probe fail", () => {
+    expect(
+      classifyGuestBuyNowObservation(
+        {
+          afterWritePresent: true,
+          guestCookiePresent: true,
+          temporaryRecoveryVisible: true,
+          readyLatencyMs: null,
+          negativeProbe: { attempted: true, documentStatus: 200, permanentRecoveryVisible: false },
+        },
+        { sloMode: "gate" },
+      ),
     ).toEqual({
       finalState: "temporary",
       promotionDecision: "abort",
@@ -474,7 +532,7 @@ describe("guest Buy Now freshness canary", () => {
     ).rejects.toThrow("found no active buyable marketplace item");
   });
 
-  it("writes evidence and aborts for safe temporary state that never becomes pay-ready", async () => {
+  it("writes evidence and warns for safe temporary state that never becomes pay-ready", async () => {
     const directory = await mkdtemp(join(tmpdir(), "chase-sets-guest-buy-now-canary-"));
     const outFile = join(directory, "guest-buy-now.json");
     const evidence = await runGuestBuyNowFreshnessCanary({
@@ -498,7 +556,7 @@ describe("guest Buy Now freshness canary", () => {
     });
 
     expect(evidence.finalState).toBe("temporary");
-    expect(evidence.promotionDecision).toBe("abort");
+    expect(evidence.promotionDecision).toBe("warn");
     expect(evidence.failureReason).toBe("checkout-ready-slo-exceeded");
     expect(evidence.attemptCount).toBe(1);
     expect(JSON.parse(await readFile(outFile, "utf8"))).toEqual(evidence);
@@ -547,7 +605,7 @@ describe("guest Buy Now freshness canary", () => {
       {
         attempt: 1,
         finalState: "temporary",
-        promotionDecision: "abort",
+        promotionDecision: "warn",
         failureReason: "checkout-ready-slo-exceeded",
         readyLatencyMs: null,
       },
