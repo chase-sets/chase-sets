@@ -39,6 +39,13 @@ const DEFAULT_GUEST_EMAIL = "guest-buy-now-canary@chasesets.test";
 const DEFAULT_SEARCH_QUERY = "charizard";
 const MAX_ATTEMPT_LIMIT = 10;
 const READY_POLL_INTERVAL_MS = 250;
+const SLO_MODES = ["warn", "gate"];
+// The 10s ready budget is an interim value pending the #1237 numeric SLO/load
+// proof. Until it is ratified, SLO-exceeded results with a user-safe final
+// state warn instead of aborting the release (issue #1323). Unsafe states
+// (permanent not-found, missing after-write/cookies, platform errors,
+// negative-probe failures) always abort regardless of mode.
+const DEFAULT_SLO_MODE = "warn";
 const RAW_AFTER_WRITE_PATTERN = /afterWrite=[^&\s")]+/gi;
 const CHECKOUT_SESSION_ID_PATTERN = /\bchk_[0-9A-Za-z_:-]+\b/g;
 const GUEST_COOKIE_PATTERN = /chase_sets_guest_checkout=[^;\s]+/gi;
@@ -83,6 +90,7 @@ export function parseGuestBuyNowCanaryArgs(argv, env = process.env) {
       readOption(argv, "--ready-slo-ms") ?? readEnv("GUEST_BUY_NOW_CANARY_READY_SLO_MS", env),
       DEFAULT_READY_SLO_MS,
     ),
+    sloMode: readOption(argv, "--slo-mode") ?? readEnv("GUEST_BUY_NOW_CANARY_SLO_MODE", env) ?? DEFAULT_SLO_MODE,
     maxAttempts: Math.min(
       normalizePositiveInteger(
         readOption(argv, "--attempts") ?? readEnv("GUEST_BUY_NOW_CANARY_ATTEMPTS", env),
@@ -119,6 +127,9 @@ export function validateGuestBuyNowCanaryOptions(options) {
   if (!normalizeString(options.fixtureKey)) {
     errors.push("GUEST_BUY_NOW_CANARY_FIXTURE_KEY or --fixture-key is required.");
   }
+  if (options.sloMode !== undefined && !SLO_MODES.includes(options.sloMode)) {
+    errors.push(`GUEST_BUY_NOW_CANARY_SLO_MODE or --slo-mode must be one of: ${SLO_MODES.join(", ")}.`);
+  }
   if (flow === "guest" && !normalizeString(options.guestEmail)) {
     errors.push("GUEST_BUY_NOW_CANARY_GUEST_EMAIL or --guest-email is required for the guest flow.");
   }
@@ -148,6 +159,7 @@ export function validateGuestBuyNowCanaryOptions(options) {
 export function classifyGuestBuyNowObservation(observation, gate = {}) {
   const flow = normalizeFlow(gate.flow) ?? "guest";
   const readySloMs = normalizePositiveInteger(gate.readySloMs, DEFAULT_READY_SLO_MS);
+  const sloMode = SLO_MODES.includes(gate.sloMode) ? gate.sloMode : DEFAULT_SLO_MODE;
   const pageText = observation.pageText ?? "";
 
   if (observation.permanentNotFoundVisible || PERMANENT_NOT_FOUND_PATTERN.test(pageText)) {
@@ -171,15 +183,15 @@ export function classifyGuestBuyNowObservation(observation, gate = {}) {
   if (readyLatencyMs !== null && readyLatencyMs <= readySloMs) {
     readiness = { finalState: "pass", promotionDecision: "promote", failureReason: null };
   } else if (readyLatencyMs !== null) {
-    readiness = abort("pass", "checkout-ready-slo-exceeded");
+    readiness = sloExceeded("pass", sloMode);
   } else if (observation.temporaryRecoveryVisible || TEMPORARY_RECOVERY_PATTERN.test(pageText)) {
-    readiness = abort("temporary", "checkout-ready-slo-exceeded");
+    readiness = sloExceeded("temporary", sloMode);
   } else {
     readiness = abort("fail", "checkout-review-state-not-detected");
   }
 
   const probeFailureReason = classifyNegativeProbe(observation.negativeProbe);
-  if (readiness.promotionDecision === "promote" && probeFailureReason) {
+  if (readiness.promotionDecision !== "abort" && probeFailureReason) {
     return abort(readiness.finalState, probeFailureReason);
   }
   return readiness;
@@ -187,6 +199,14 @@ export function classifyGuestBuyNowObservation(observation, gate = {}) {
 
 function abort(finalState, failureReason) {
   return { finalState, promotionDecision: "abort", failureReason };
+}
+
+function sloExceeded(finalState, sloMode) {
+  return {
+    finalState,
+    promotionDecision: sloMode === "gate" ? "abort" : "warn",
+    failureReason: "checkout-ready-slo-exceeded",
+  };
 }
 
 function resolveReadyLatencyMs(observation) {
@@ -220,8 +240,9 @@ function classifyNegativeProbe(probe) {
 export function buildGuestBuyNowCanaryEvidence(input) {
   const flow = normalizeFlow(input.flow) ?? "guest";
   const readySloMs = normalizePositiveInteger(input.readySloMs, DEFAULT_READY_SLO_MS);
+  const sloMode = SLO_MODES.includes(input.sloMode) ? input.sloMode : DEFAULT_SLO_MODE;
   const observation = input.observation ?? {};
-  const classification = classifyGuestBuyNowObservation(observation, { flow, readySloMs });
+  const classification = classifyGuestBuyNowObservation(observation, { flow, readySloMs, sloMode });
   return {
     schemaVersion: GUEST_BUY_NOW_FRESHNESS_CANARY_VERSION,
     checkedAt: input.checkedAt,
@@ -234,6 +255,7 @@ export function buildGuestBuyNowCanaryEvidence(input) {
     promotionDecision: classification.promotionDecision,
     failureReason: classification.failureReason,
     readySloMs,
+    sloMode,
     readyLatencyMs: resolveReadyLatencyMs(observation),
     latencyMs: normalizeNonNegativeInteger(observation.latencyMs ?? 0),
     segments: {
@@ -329,6 +351,7 @@ export async function runGuestBuyNowFreshnessCanary(options) {
       diagnosticCorrelationId: options.diagnosticCorrelationId,
       productionProofReference: options.productionProofReference,
       readySloMs: options.readySloMs,
+      sloMode: options.sloMode,
       observation,
     });
     attemptSummaries.push({
@@ -756,7 +779,12 @@ async function main(argv, env = process.env) {
       guestEmail: options.guestEmail ?? DEFAULT_GUEST_EMAIL,
     });
     console.log(JSON.stringify(evidence, null, 2));
-    return evidence.promotionDecision === "promote" ? 0 : 1;
+    if (evidence.promotionDecision === "warn") {
+      console.error(
+        `WARNING: Buy Now freshness canary exceeded the ready SLO (${evidence.readySloMs}ms) with user-safe final state '${evidence.finalState}'. Recorded as a release-health warning; the release is not blocked (slo-mode=warn, pending #1237 ratification).`,
+      );
+    }
+    return evidence.promotionDecision === "abort" ? 1 : 0;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 2;

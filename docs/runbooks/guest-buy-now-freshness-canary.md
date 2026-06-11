@@ -14,9 +14,12 @@ pnpm run guest-buy-now:freshness-canary -- --flow guest --environment staging --
 pnpm run guest-buy-now:freshness-canary -- --flow account --environment staging --base-url https://marketplace.staging.chasesets.com --search-query charizard --fixture-key <fixture-key> --ready-slo-ms 10000 --attempts 3
 ```
 
-The gate promotes only when, for each flow, at least one attempt reaches a pay-ready checkout (Continue to payment / Checkout Summary / Payable total) within the readiness SLO budget **and** the negative invalid-session probe shows permanent recovery. Temporary preparing-checkout recovery is still the user-safe state, but it no longer promotes by itself: a run that stays temporary past the budget aborts with `checkout-ready-slo-exceeded`.
+The gate promotes only when, for each flow, at least one attempt reaches a pay-ready checkout (Continue to payment / Checkout Summary / Payable total) within the readiness SLO budget **and** the negative invalid-session probe shows permanent recovery. Temporary preparing-checkout recovery is still the user-safe state, but it does not promote by itself: a run that stays temporary past the budget records `checkout-ready-slo-exceeded`.
 
-- `--ready-slo-ms` (`GUEST_BUY_NOW_CANARY_READY_SLO_MS`, default `10000`): per-attempt write-to-checkout-ready budget. This is the interim ratified gate value pending the #1237 numeric SLO/load proof; see [Projection Freshness SLOs](../architecture/projection-freshness-slos.md).
+Until the #1237 numeric SLO/load proof ratifies the budget, `checkout-ready-slo-exceeded` with a user-safe final state (`pass` beyond SLO, or `temporary`) **warns instead of aborting** (issue #1323): the canary exits `0`, records `promotionDecision: "warn"` in evidence and release health, and the release proceeds. Unsafe states (permanent not-found, missing receipt/cookie, platform error page, undetected checkout state, negative-probe failures) always abort. Set `--slo-mode gate` (`GUEST_BUY_NOW_CANARY_SLO_MODE=gate`, settable as a repo Actions variable) to restore hard SLO gating once the budget is ratified.
+
+- `--ready-slo-ms` (`GUEST_BUY_NOW_CANARY_READY_SLO_MS`, default `10000`): per-attempt write-to-checkout-ready budget. This is the interim value pending the #1237 numeric SLO/load proof; see [Projection Freshness SLOs](../architecture/projection-freshness-slos.md).
+- `--slo-mode` (`GUEST_BUY_NOW_CANARY_SLO_MODE`, default `warn`): `warn` records SLO breaches with user-safe states as release-health warnings without blocking; `gate` aborts the release on any SLO breach.
 - `--attempts` (`GUEST_BUY_NOW_CANARY_ATTEMPTS`, default `1`; the workflow passes `3`): only `checkout-ready-slo-exceeded` outcomes are retried, matching the SLO doc's "hold after 3 consecutive attempts without pay-ready" rollout decision. Hard failures (permanent not-found, missing receipt/cookie, platform error page, negative-probe failures) abort immediately without retry.
 
 The workflow discovers the first active buyable item from `/api/marketplace/items?q=<query>&includeTotal=true`. The search query defaults to `STAGING_GUEST_BUY_NOW_CANARY_SEARCH_QUERY`, then `MARKETPLACE_E2E_SEARCH_QUERY`, then `charizard`. `STAGING_GUEST_BUY_NOW_CANARY_ITEM_PATH` is an optional override for a known item detail route. The fixture key defaults to `staging-guest-buy-now-fixture` but should be set to a stable operator-owned identifier when staging representative commerce state is refreshed. In the account flow, fixture discovery runs through the signed-in browser session so it also works on hosts that gate the marketplace API behind sign-in.
@@ -35,12 +38,12 @@ The canary uses the shared Checkout state model with the tightened #1227 gate:
 | State | Gate result | Meaning |
 | --- | --- | --- |
 | `pass` within SLO | Promote | Checkout review reached a payable state inside the readiness budget with receipt and cookie handoff intact. |
-| `pass` beyond SLO | Abort (`checkout-ready-slo-exceeded`) | Checkout eventually became payable but slower than the agreed readiness SLO. |
-| `temporary` without pay-ready | Abort (`checkout-ready-slo-exceeded`) | Fresh receipt valid and recovery user-safe, but the page never became pay-ready inside the budget. User-safe is necessary but no longer sufficient for promotion. |
+| `pass` beyond SLO | Warn in `slo-mode=warn` (default), abort in `gate` (`checkout-ready-slo-exceeded`) | Checkout eventually became payable but slower than the interim readiness SLO. |
+| `temporary` without pay-ready | Warn in `slo-mode=warn` (default), abort in `gate` (`checkout-ready-slo-exceeded`) | Fresh receipt valid and recovery user-safe, but the page never became pay-ready inside the budget. |
 | `fail` | Abort | Permanent checkout-session-not-found, lost receipt/cookie handoff, platform error page, or no recognizable checkout state. |
-| any state + failed negative probe | Abort (`negative-probe-*`) | Recovery is masking real errors; see below. |
+| any non-abort state + failed negative probe | Abort (`negative-probe-*`) | Recovery is masking real errors; see below. Probe failures override SLO warnings. |
 
-Exit codes: `0` promote, `1` abort with evidence written, `2` configuration/runtime error (no evidence).
+Exit codes: `0` promote or warn (warning logged and recorded in evidence), `1` abort with evidence written, `2` configuration/runtime error (no evidence).
 
 ## Negative Invalid-Session Probe
 
