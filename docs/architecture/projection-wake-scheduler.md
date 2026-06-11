@@ -28,11 +28,35 @@ A claimed intent maps to a projection group by `targetContextName` + `projection
 ## Fairness, Backpressure, And Poison Behavior
 
 - Lane runners are dedicated per priority lane with configurable instance counts, so hot-path bursts cannot starve standard or bulk intents indefinitely. Lane runner loop leases are platform-wide single flight per lane instance, so lane throughput scales with configured runner counts rather than worker instance count.
+- Hot-lane runners are the `wakes` runner loop's reserved-capacity class (see Reserved Hot-Lane Capacity below), so a hot wake can never wait behind in-flight standard/bulk passes for a loop slot.
 - Each runner pass claims at most `maxClaimsPerRun` intents; the runner loop's poll interval and lease bound the pass.
 - Retries that made checkpoint progress requeue quickly (`deferredRetryMs`) without escalating; retries with no progress use exponential backoff on `next_eligible_at` (`retryBackoffBaseMs` to `retryBackoffMaxMs`).
 - Store-level failures propagate to the runner loop's failure backoff, which slows claiming while the control database is unhealthy. A projection run failure durably retries the intent and ends the pass without backing off the whole lane.
 - Intents whose target projection group or checkpoint is not hosted by the claiming worker fail with a longer retry so another worker or a newer deploy can claim them.
 - Crossing `maxAttempts` without progress emits a single attempts-exhausted observer event for alerting; bounded `expires_at` retention reaps intents that never become satisfiable. Expiry is safe because durable event rows remain the source of truth and fallback polling still drains the projection.
+
+## Reserved Hot-Lane Capacity
+
+The `wakes` runner group is its own worker loop with its own concurrency budget (`WORKER_WAKE_MAX_CONCURRENT_RUNNERS`), so projection polling, jobs, dispatch, and scheduled runners can never consume wake capacity. Within that loop, hot/standard/bulk lane runners used to compete round-robin for the same slots, which let a long standard/bulk pass (up to `maxClaimsPerRun` claims of `maxRunsPerClaim` projection batches each) delay a critical checkout/payment/proof wake by a whole pass. The loop now reserves capacity for the hot lane:
+
+- Hot-lane runners are flagged as the loop's reserved-capacity class. Reserved slots fill first on every scheduling pass and accept only hot-lane runners; standard/bulk runners can never occupy them. A hot wake therefore always finds a slot, no matter how saturated the shared lanes are.
+- The platform worker requests `WORKER_WAKE_HOT_LANE_RUNNER_COUNT` reserved slots for the wakes loop. The loop clamps the effective reservation to `min(hot lane runner count, WORKER_WAKE_MAX_CONCURRENT_RUNNERS - 1)` whenever non-hot lanes exist, so standard/bulk (and the rest of the shared rotation) always keep at least one slot — the reservation can protect the hot path but can never starve normal lanes, reconciliation, or cleanup work.
+- Beyond the reservation, hot-lane runners compete fairly in the original shared rotation, so extra hot runners do not preempt shared capacity.
+- Bypass stops at scheduling: claimed hot intents still run through the same projection-group lease, fencing tokens, ledgers, blocked-stream/poison handling, and durable-position completion as every other lane.
+- With wake concurrency 1, the clamp makes the reservation zero and the loop degrades to the previous fair rotation; nothing breaks, but the hot lane loses its guarantee. Keep `WORKER_WAKE_MAX_CONCURRENT_RUNNERS >= WORKER_WAKE_HOT_LANE_RUNNER_COUNT + 1` wherever hot-path wakes are enabled.
+
+The effective reservation is observable: each loop's status (in `/internal/workers/status` under `loops`) reports `reservedRunnerSlots` and `activeReservedSlotCount`, and `projectionWakeControls.hotLaneReservedRunnerSlots` surfaces the wakes-loop value next to the lane runner counts.
+
+### Capacity Guidance For Hot-Path Lanes
+
+Before enabling an additional hot-path source context (registry `priorityLane: "hot"`) or raising lane throughput, walk the chain:
+
+1. **Worker loop:** `WORKER_WAKE_MAX_CONCURRENT_RUNNERS >= WORKER_WAKE_HOT_LANE_RUNNER_COUNT + 1`. Raise the hot lane runner count when the hot-lane queue age p95 alert (`platform-worker-wake-alerts`) fires or the wake-intent summary shows sustained queued hot intents with idle standard/bulk lanes; raise wake concurrency alongside it to keep the reservation real.
+2. **Worker database pool:** the sum of all runner group concurrencies (projections, jobs, dispatch, scheduled, wakes) must stay at or below `DATABASE_POOL_MAX`; the worker capacity assertion fails startup and the Terraform `worker_runner_capacity` check fails the plan otherwise. Staging and production both run wake concurrency 2 with 1/1/1 lane runners (reserved hot slot 1), and both runner concurrency sums currently equal their worker pool maxima (staging 10/10, production 7/7), so any wake increase needs `worker_database_pool_max` raised first.
+3. **Control-plane wake store:** every lane runner adds one claim query per poll interval plus claim/complete/fail traffic per intent against `platform_projection_wake_intents`; the registry's `wakeStoreLoadEstimate` for the new source context indicates expected intent volume. Watch the wake-intent summary (stale claims, oldest ages) after enabling.
+4. **Cluster connection budget and deployment overlap:** pool maxima, relay listener connections, and rolling-deploy doubling are modeled in the plan-time `wake_connection_budget` check; see `docs/architecture/push-wake-connection-budget.md` before changing pool sizes or instance counts.
+
+Load-level proof that hot paths stay near real time under representative background backlog and relay reconnect bursts is owned by the SLO/load-proof work (#1237) in staging and production proof mode.
 
 ## Fallback Polling
 
@@ -49,9 +73,9 @@ Platform worker environment variables, all with safe defaults:
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `WORKER_PROJECTION_WAKE_SCHEDULER_ENABLED` | `true` | Consumer-side kill switch for the wake scheduler runners. |
-| `WORKER_WAKE_MAX_CONCURRENT_RUNNERS` | `2` | Concurrency budget for the `wakes` runner group (counted by the worker capacity assertion and the Terraform worker capacity check). |
+| `WORKER_WAKE_MAX_CONCURRENT_RUNNERS` | `2` | Concurrency budget for the `wakes` runner group (counted by the worker capacity assertion and the Terraform worker capacity check). Keep it at least the hot lane runner count + 1 so the hot-lane reservation is effective. |
 | `WORKER_WAKE_POLL_INTERVAL_MS` | `1000` | Poll cadence of the `wakes` runner group loop. |
-| `WORKER_WAKE_HOT_LANE_RUNNER_COUNT` | `1` | Hot lane runner instances. |
+| `WORKER_WAKE_HOT_LANE_RUNNER_COUNT` | `1` | Hot lane runner instances; also the requested reserved-slot count for the wakes loop (clamped to wake concurrency - 1 while other lanes exist). |
 | `WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT` | `1` | Standard lane runner instances. |
 | `WORKER_WAKE_BULK_LANE_RUNNER_COUNT` | `1` | Bulk lane runner instances. |
 | `WORKER_WAKE_MAX_CLAIMS_PER_RUN` | `10` | Bounded claims per runner pass. |

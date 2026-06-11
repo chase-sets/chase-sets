@@ -18,8 +18,12 @@ import {
 import { ErrorBoundary as CheckoutSessionRouteErrorBoundary } from "../../../routes/checkout-session";
 import { CheckoutSessionRecoveryPage, type CheckoutSessionRecoveryPageProps } from "./checkout-recovery-page";
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  // Drain React's queued scheduler work (from router navigations) while the
+  // jsdom environment still exists; otherwise callbacks fire after teardown
+  // and surface as unhandled "window is not defined" errors in later files.
+  await new Promise((resolve) => setTimeout(resolve, 20));
 });
 
 function checkoutCommit() {
@@ -218,6 +222,7 @@ describe("CheckoutSessionRecoveryPage", () => {
       expect(await screen.findByText(recovery.expectedTitle)).toBeTruthy();
       expect(screen.queryByText("Marketplace error")).toBeNull();
       cleanup();
+      await new Promise((resolve) => setTimeout(resolve, 20));
     }
   });
 });

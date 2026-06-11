@@ -393,6 +393,11 @@ export function createProjectionWakeSchedulerRunners(options: ProjectionWakeSche
       return {
         name: laneRunnerName,
         kind: "job",
+        // Hot-lane runners are the runner loop's reserved-capacity class so
+        // critical read-after-write wakes (checkout, payment-start, proof)
+        // always find reserved wake-loop capacity even while standard/bulk
+        // passes saturate the shared slots.
+        reservedCapacity: laneConfig.lane === "hot",
         runOnce: async (context) => {
           let processed = 0;
 

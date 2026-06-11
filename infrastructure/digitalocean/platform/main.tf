@@ -1027,6 +1027,21 @@ resource "digitalocean_app" "platform" {
           scope = "RUN_TIME"
         }
         env {
+          key   = "WORKER_WAKE_HOT_LANE_RUNNER_COUNT"
+          value = local.worker_wake_hot_lane_runners
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT"
+          value = local.worker_wake_standard_lane_runners
+          scope = "RUN_TIME"
+        }
+        env {
+          key   = "WORKER_WAKE_BULK_LANE_RUNNER_COUNT"
+          value = local.worker_wake_bulk_lane_runners
+          scope = "RUN_TIME"
+        }
+        env {
           key   = "WORKER_PROJECTION_WAKE_RELAY_ENABLED"
           value = local.worker_projection_wake_relay_enabled
           scope = "RUN_TIME"

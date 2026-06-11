@@ -1,8 +1,9 @@
 import type { ContextProjectionGroup, ContextSubscriptionRunner } from "@chase-sets/bounded-context-runtime";
 import type { ProjectionRunContext } from "@chase-sets/event-core/projector";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PlatformControlPlane } from "./control-plane";
+import { createWorkerRunnerLoop } from "./worker";
 import {
   createProjectionWakeSchedulerRunners,
   createWorkSignalCleanupRunner,
@@ -560,6 +561,90 @@ describe("projection wake scheduler", () => {
     ]);
   });
 
+  it("marks only hot-lane runners as reserved-capacity runners", () => {
+    const projection = checkoutProjection({ position: 0n, headPosition: 0n });
+    const store = recordingSchedulerStore([]);
+    const controlPlane = recordingControlPlane();
+
+    const runners = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: controlPlane.controlPlane,
+      workSignalStore: store.store,
+      projectionGroups: [projection.group],
+      lanes: [
+        { lane: "hot", runnerCount: 1 },
+        { lane: "standard", runnerCount: 1 },
+        { lane: "bulk", runnerCount: 1 },
+      ],
+    });
+
+    expect(runners.map((runner) => ({ name: runner.name, reserved: runner.reservedCapacity === true }))).toEqual([
+      { name: "projection-wake-scheduler.hot.lane-1", reserved: true },
+      { name: "projection-wake-scheduler.standard.lane-1", reserved: false },
+      { name: "projection-wake-scheduler.bulk.lane-1", reserved: false },
+    ]);
+  });
+
+  it("completes hot-lane intents in the reserved slot while bulk passes occupy the shared wake capacity", async () => {
+    const projection = checkoutProjection({ position: 200n, headPosition: 200n });
+    const completed: ProjectionWakeIntentCompletedEvent[] = [];
+    let releaseBulkClaims: (() => void) | null = null;
+    const bulkClaimsBlocked = new Promise<void>((resolve) => {
+      releaseBulkClaims = resolve;
+    });
+    const hotQueue = [claimedIntent({ requiredPosition: 102n, priorityLane: "hot" })];
+    const store: Parameters<typeof createProjectionWakeSchedulerRunners>[0]["workSignalStore"] = {
+      claimNextProjectionWakeIntent: async (input) => {
+        if (input.priorityLanes?.includes("bulk")) {
+          // A bulk pass wedges mid-claim for the whole test window, holding
+          // its wake-loop slot exactly like a long backlog drain would.
+          await bulkClaimsBlocked;
+          return null;
+        }
+        return hotQueue.shift() ?? null;
+      },
+      completeProjectionWakeIntent: async () => "completed",
+      failProjectionWakeIntent: async () => true,
+      recordCheckpointReady: async () => ({}) as never,
+    };
+    const schedulerControlPlane = recordingControlPlane();
+    const runners = createProjectionWakeSchedulerRunners({
+      workerId: "worker-a",
+      controlPlane: schedulerControlPlane.controlPlane,
+      workSignalStore: store,
+      projectionGroups: [projection.group],
+      lanes: [
+        { lane: "bulk", runnerCount: 2 },
+        { lane: "hot", runnerCount: 1 },
+      ],
+      observer: { wakeIntentCompleted: (event) => completed.push(event) },
+      now: () => NOW,
+    });
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane: loopControlPlane(),
+      runners,
+      maxConcurrentRunners: 2,
+      reservedRunnerSlots: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(completed).toHaveLength(1);
+      });
+    } finally {
+      (releaseBulkClaims as (() => void) | null)?.();
+      await loop.stop();
+    }
+
+    expect(completed[0]).toMatchObject({ priorityLane: "hot", outcome: "already-satisfied" });
+    expect(loop.status()).toMatchObject({ reservedRunnerSlots: 1 });
+  });
+
   it("returns no runners when the worker hosts no projection groups", () => {
     const store = recordingSchedulerStore([]);
     const controlPlane = recordingControlPlane();
@@ -714,6 +799,21 @@ function recordingSchedulerStore(
       },
     },
   };
+}
+
+function loopControlPlane(): PlatformControlPlane {
+  return {
+    acquireLease: async (input: { leaseName: string; ownerId: string; ttlMs: number }) => ({
+      leaseName: input.leaseName,
+      ownerId: input.ownerId,
+      fencingToken: "1",
+      expiresAt: new Date(NOW.getTime() + input.ttlMs).toISOString(),
+    }),
+    renewLease: async () => true,
+    releaseLease: async () => {},
+    recordRunnerStatus: async () => {},
+    recordProjectionStatusSnapshot: async () => {},
+  } as never;
 }
 
 function recordingControlPlane(

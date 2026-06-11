@@ -223,6 +223,154 @@ describe("worker runner loop", () => {
     expect(failed).toContain("failing-backlog-projection");
   });
 
+  it("keeps a reserved slot available for reserved-capacity runners while shared runners saturate the loop", async () => {
+    const reservedRuns: number[] = [];
+    let activeSharedRuns = 0;
+    let maxConcurrentSharedRuns = 0;
+    let gatesOpen = false;
+    const releaseGates: Array<() => void> = [];
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const sharedRunners = Array.from({ length: 2 }, (_, index): WorkerRunner => {
+      const name = `bulk-wake-lane-${index + 1}`;
+      return {
+        name,
+        kind: "job",
+        runOnce: async () => {
+          activeSharedRuns += 1;
+          maxConcurrentSharedRuns = Math.max(maxConcurrentSharedRuns, activeSharedRuns);
+          if (!gatesOpen) {
+            await new Promise<void>((resolve) => {
+              releaseGates.push(resolve);
+            });
+          }
+          activeSharedRuns -= 1;
+          return { processed: 0, lastGlobalPosition: "0" as never };
+        },
+      };
+    });
+    const reservedRunner: WorkerRunner = {
+      name: "hot-wake-lane",
+      kind: "job",
+      reservedCapacity: true,
+      runOnce: async () => {
+        reservedRuns.push(reservedRuns.length + 1);
+        return { processed: 1, lastGlobalPosition: "1" as never };
+      },
+    };
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [...sharedRunners, reservedRunner],
+      maxConcurrentRunners: 2,
+      reservedRunnerSlots: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        // The reserved runner keeps completing passes while a shared runner
+        // holds the single shared slot for the whole window.
+        expect(reservedRuns.length).toBeGreaterThanOrEqual(3);
+      });
+      expect(loop.status()).toMatchObject({ reservedRunnerSlots: 1 });
+    } finally {
+      gatesOpen = true;
+      for (const release of releaseGates) {
+        release();
+      }
+      await loop.stop();
+    }
+
+    // Shared runners never occupied the reserved slot.
+    expect(maxConcurrentSharedRuns).toBe(1);
+  });
+
+  it("fills reserved slots before shared slots in a scheduling pass", async () => {
+    const calls: string[] = [];
+    let gatesOpen = false;
+    const releaseGates: Array<() => void> = [];
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const blockingRunner = (name: string, reservedCapacity?: boolean): WorkerRunner => ({
+      name,
+      kind: "job",
+      reservedCapacity,
+      runOnce: async () => {
+        calls.push(name);
+        if (!gatesOpen) {
+          await new Promise<void>((resolve) => {
+            releaseGates.push(resolve);
+          });
+        }
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    });
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [blockingRunner("standard-wake-lane"), blockingRunner("hot-wake-lane", true)],
+      maxConcurrentRunners: 2,
+      reservedRunnerSlots: 1,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls.length).toBeGreaterThanOrEqual(2);
+      });
+    } finally {
+      gatesOpen = true;
+      for (const release of releaseGates) {
+        release();
+      }
+      await loop.stop();
+    }
+
+    expect(calls[0]).toBe("hot-wake-lane");
+    expect(calls[1]).toBe("standard-wake-lane");
+  });
+
+  it("clamps over-sized reservations so shared runners always keep one slot", async () => {
+    const calls: string[] = [];
+    const controlPlane = createAlwaysLeasedControlPlane();
+    const quickRunner = (name: string, reservedCapacity?: boolean): WorkerRunner => ({
+      name,
+      kind: "job",
+      reservedCapacity,
+      runOnce: async () => {
+        calls.push(name);
+        return { processed: 0, lastGlobalPosition: "0" as never };
+      },
+    });
+    const loop = createWorkerRunnerLoop({
+      workerId: "worker-a",
+      controlPlane,
+      runners: [quickRunner("hot-wake-lane", true), quickRunner("bulk-wake-lane")],
+      maxConcurrentRunners: 1,
+      reservedRunnerSlots: 5,
+      leaseTtlMs: 1_000,
+      leaseRenewIntervalMs: 100,
+      pollIntervalMs: 5,
+    });
+
+    loop.start();
+    try {
+      await vi.waitFor(() => {
+        expect(calls).toContain("hot-wake-lane");
+        expect(calls).toContain("bulk-wake-lane");
+      });
+    } finally {
+      await loop.stop();
+    }
+
+    expect(loop.status()).toMatchObject({ reservedRunnerSlots: 0 });
+  });
+
   it("aborts active runner contexts during stop and releases the lease without recording a runner error", async () => {
     const failures: string[] = [];
     const releasedLeases: string[] = [];

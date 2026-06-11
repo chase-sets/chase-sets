@@ -181,7 +181,10 @@ describe("DigitalOcean platform configuration", () => {
     expectTerraformAssignment(platformLocals, "worker_database_pool_max", "tostring(var.worker_database_pool_max");
     expectTerraformAssignment(platformLocals, "bootstrap_database_pool_max", '"4"');
     expectTerraformAssignment(platformLocals, "worker_projection_concurrency", '"2"');
-    expectTerraformAssignment(platformLocals, "worker_wake_concurrency", 'local.is_staging ? "2" : "1"');
+    expectTerraformAssignment(platformLocals, "worker_wake_concurrency", '"2"');
+    expectTerraformAssignment(platformLocals, "worker_wake_hot_lane_runners", '"1"');
+    expectTerraformAssignment(platformLocals, "worker_wake_standard_lane_runners", '"1"');
+    expectTerraformAssignment(platformLocals, "worker_wake_bulk_lane_runners", '"1"');
     expectTerraformAssignment(platformLocals, "worker_default_job_concurrency", "local.is_staging ? 4 : 1");
     expectTerraformAssignment(platformLocals, "worker_job_concurrency", "tostring(var.worker_job_concurrency");
     expectTerraformAssignment(platformLocals, "source_observation_bulk_job_lanes", 'local.is_staging ? "4" : "1"');
@@ -239,6 +242,9 @@ describe("DigitalOcean platform configuration", () => {
       expect(occurrenceCount(platformMain, `key   = "${key}"`)).toBe(1);
     }
     expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_MAX_CONCURRENT_RUNNERS"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_HOT_LANE_RUNNER_COUNT"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_STANDARD_LANE_RUNNER_COUNT"')).toBe(1);
+    expect(occurrenceCount(platformMain, 'key   = "WORKER_WAKE_BULK_LANE_RUNNER_COUNT"')).toBe(1);
     expect(platformLocals).toContain(
       'worker_listener_source_contexts = ["checkout", "marketplace", "ordering", "payments"]',
     );
