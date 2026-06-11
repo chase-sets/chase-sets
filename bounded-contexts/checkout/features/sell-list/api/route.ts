@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { SellListLineId } from "../../../support/runtime-support/common";
 import type { CheckoutApiEnv } from "../../../api";
@@ -7,6 +8,13 @@ import { parseSellListReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutSellListServices } from "./runtime";
 
 const MAX_ANONYMOUS_SELL_LIST_LINES = 50;
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
+const anonymousSellListCaptureRateLimiter = createInMemoryRateLimiter({
+  keyPrefix: "checkout:anonymous-sell-list-capture",
+  max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX,
+  windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS,
+});
 
 function requireSellListAccess(c: { get(key: "actor"): CheckoutApiEnv["Variables"]["actor"] }) {
   const actor = c.get("actor");
@@ -134,6 +142,18 @@ function isExistingSellListLine(
     line.fallback_mode === body.fallbackMode &&
     (line.minimum_listing_price_amount ?? null) === (body.minimumListingPriceAmount ?? null)
   );
+}
+
+function anonymousRailRateLimitedResponse(retryAfterSeconds: number) {
+  return {
+    body: {
+      error: {
+        code: "anonymous_rail_rate_limited",
+        message: t("checkout.features.sellList.api.route.anonymous.rail.rate.limited"),
+      },
+    },
+    headers: { "Retry-After": String(retryAfterSeconds) },
+  };
 }
 
 function parseLineOutcomeStatus(value: unknown): "completed" | "partial" | "skipped" {
@@ -605,6 +625,12 @@ export function createGuestSellListRoutes(services: CheckoutSellListServices) {
         },
         400,
       );
+    }
+
+    const rateLimit = anonymousSellListCaptureRateLimiter.check(c.req.raw);
+    if (rateLimit.limited) {
+      const response = anonymousRailRateLimitedResponse(rateLimit.retryAfterSeconds);
+      return c.json(response.body, 429, response.headers);
     }
 
     const context = c.get("context") ?? createGuestSellListContext();

@@ -1,8 +1,18 @@
 import { t } from "@chase-sets/localization";
+import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { CheckoutApiEnv } from "../../../api";
 import { parseCartReadinessDecisionInput } from "../domain/readiness";
 import type { CheckoutCartServices } from "./runtime";
+
+const MAX_ANONYMOUS_CART_LINES = 50;
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
+const anonymousCartCaptureRateLimiter = createInMemoryRateLimiter({
+  keyPrefix: "checkout:anonymous-cart-capture",
+  max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX,
+  windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS,
+});
 
 function requireCartAccess(
   c: {
@@ -120,6 +130,76 @@ function parseCartLineBody(body: Record<string, unknown>) {
 
 function countCartItems(items: readonly { quantity: number }[]) {
   return items.reduce((sum, item) => sum + item.quantity, 0);
+}
+
+type CartLineBody = ReturnType<typeof parseCartLineBody>;
+
+function cartLineKey(line: {
+  catalog_catalog_item_id?: string;
+  catalogItemId?: string;
+  product_id?: string;
+  productId?: string;
+  fulfillment_mode?: "optimize" | "locked-listing";
+  fulfillmentMode?: "optimize" | "locked-listing";
+  locked_listing_id?: string | null;
+  lockedListingId?: string | null;
+  seller_preference_id?: string | null;
+  sellerPreferenceId?: string | null;
+}) {
+  return [
+    line.catalog_catalog_item_id ?? line.catalogItemId ?? "",
+    line.product_id ?? line.productId ?? "",
+    line.fulfillment_mode ?? line.fulfillmentMode ?? "optimize",
+    line.locked_listing_id ?? line.lockedListingId ?? "",
+    line.seller_preference_id ?? line.sellerPreferenceId ?? "",
+  ].join("|");
+}
+
+function isExistingCartLine(
+  line: Awaited<ReturnType<CheckoutCartServices["listCartLines"]>>[number],
+  body: CartLineBody,
+) {
+  return cartLineKey(line) === cartLineKey(body);
+}
+
+function newCartLineCount(
+  existingLines: Awaited<ReturnType<CheckoutCartServices["listCartLines"]>>,
+  requestedLines: readonly CartLineBody[],
+) {
+  const existingKeys = new Set(existingLines.map(cartLineKey));
+  const newKeys = new Set<string>();
+
+  for (const line of requestedLines) {
+    const key = cartLineKey(line);
+    if (!existingKeys.has(key)) {
+      newKeys.add(key);
+    }
+  }
+
+  return newKeys.size;
+}
+
+function anonymousCartLimitExceededResponse() {
+  return {
+    error: {
+      code: "anonymous_cart_limit_exceeded",
+      message: t("checkout.features.cart.api.route.anonymous.cart.limit.exceeded", {
+        limit: MAX_ANONYMOUS_CART_LINES,
+      }),
+    },
+  };
+}
+
+function anonymousRailRateLimitedResponse(retryAfterSeconds: number) {
+  return {
+    body: {
+      error: {
+        code: "anonymous_rail_rate_limited",
+        message: t("checkout.features.cart.api.route.anonymous.rail.rate.limited"),
+      },
+    },
+    headers: { "Retry-After": String(retryAfterSeconds) },
+  };
 }
 
 export function createAccountCartRoutes(services: CheckoutCartServices) {
@@ -405,15 +485,30 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
       );
     }
 
+    const rateLimit = anonymousCartCaptureRateLimiter.check(c.req.raw);
+    if (rateLimit.limited) {
+      const response = anonymousRailRateLimitedResponse(rateLimit.retryAfterSeconds);
+      return c.json(response.body, 429, response.headers);
+    }
+
     const context = c.get("context") ?? createGuestCheckoutContext();
 
     const body = await c.req.json();
+    const line = parseCartLineBody(body);
 
     try {
+      const existingLines = await services.listCartLines(ownerId);
+      if (
+        existingLines.length >= MAX_ANONYMOUS_CART_LINES &&
+        !existingLines.some((existingLine) => isExistingCartLine(existingLine, line))
+      ) {
+        return c.json(anonymousCartLimitExceededResponse(), 400);
+      }
+
       const result = await services.addLine(
         {
           accountId: ownerId as never,
-          ...parseCartLineBody(body),
+          ...line,
         },
         context,
       );
@@ -438,17 +533,29 @@ export function createGuestCartRoutes(services: CheckoutCartServices) {
       );
     }
 
+    const rateLimit = anonymousCartCaptureRateLimiter.check(c.req.raw);
+    if (rateLimit.limited) {
+      const response = anonymousRailRateLimitedResponse(rateLimit.retryAfterSeconds);
+      return c.json(response.body, 429, response.headers);
+    }
+
     const context = c.get("context") ?? createGuestCheckoutContext();
     const body = await c.req.json<Record<string, unknown>>();
     const rawLines: unknown[] = Array.isArray(body.lines) ? body.lines : [];
+    const lines = rawLines
+      .filter((line: unknown): line is Record<string, unknown> => Boolean(line && typeof line === "object"))
+      .map(parseCartLineBody);
 
     try {
+      const existingLines = await services.listCartLines(ownerId);
+      if (existingLines.length + newCartLineCount(existingLines, lines) > MAX_ANONYMOUS_CART_LINES) {
+        return c.json(anonymousCartLimitExceededResponse(), 400);
+      }
+
       const result = await services.addLines(
         {
           accountId: ownerId as never,
-          lines: rawLines
-            .filter((line: unknown): line is Record<string, unknown> => Boolean(line && typeof line === "object"))
-            .map(parseCartLineBody),
+          lines,
         },
         context,
       );

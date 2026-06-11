@@ -205,6 +205,37 @@ describe("marketplace listing routes", () => {
     });
   });
 
+  it("rate limits public standard terms previews", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    let response = new Response(null, { status: 500 });
+    for (let index = 0; index < 121; index += 1) {
+      response = await app.fetch(
+        new Request("http://marketplace.test/terms/public-standard/listing-preview", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-forwarded-for": "203.0.113.121",
+          },
+          body: JSON.stringify({ priceAmount: "20.00" }),
+        }),
+      );
+    }
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBeTruthy();
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "anonymous_rail_rate_limited",
+      },
+    });
+    expect(services.previewPublicStandardListingTerms).toHaveBeenCalledTimes(120);
+  });
+
   it("saves an anonymous listing draft intent without requiring a signed-in actor", async () => {
     const services = createServices();
     const app = buildApp({
@@ -254,6 +285,46 @@ describe("marketplace listing routes", () => {
         maxUnitsPerCustomerAccount: null,
       },
     });
+  });
+
+  it("rate limits anonymous listing draft intent capture", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    let response = new Response(null, { status: 500 });
+    for (let index = 0; index < 31; index += 1) {
+      response = await app.fetch(
+        new Request("http://marketplace.test/guest/listing-draft-intents", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-marketplace-anonymous-listing-draft-id": "anon_listing_draft_rate_limited",
+            "x-forwarded-for": "203.0.113.122",
+          },
+          body: JSON.stringify({
+            sourcePath: "/items/charizard?market=sell",
+            catalogItemId: `cat_rate_${index}`,
+            productId: `cat_rate_${index}::form:raw`,
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            productSummary: "Form: Raw",
+            priceAmount: "20.00",
+            quantityCap: 1,
+          }),
+        }),
+      );
+    }
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBeTruthy();
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "anonymous_rail_rate_limited",
+      },
+    });
+    expect(services.createAnonymousListingDraftIntent).toHaveBeenCalledTimes(30);
   });
 
   it("requires the anonymous owner header before saving a listing draft intent", async () => {

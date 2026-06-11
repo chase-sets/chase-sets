@@ -50,9 +50,13 @@ export const marketplaceEnglishTranslations = {
   "marketplace.features.listings.api.route.authentication.context.missing.6": "Authentication context missing.",
   "marketplace.features.listings.api.route.anonymous.listing.draft.required":
     "Listing draft session is missing. Start a new listing draft from the item page.",
+  "marketplace.features.listings.api.route.anonymous.rail.rate.limited":
+    "Too many anonymous listing draft requests. Wait a few minutes and try again.",
   "marketplace.features.listings.api.route.authentication.required": "Authentication required.",
   "marketplace.features.listings.api.route.forbidden": "Forbidden.",
   "marketplace.features.listings.api.route.listing.not.found": "Listing not found.",
+  "marketplace.features.listings.api.route.public.standard.terms.preview.rate.limited":
+    "Too many public terms preview requests. Wait a few minutes and try again.",
   "marketplace.features.listings.api.route.request.failed": "Request failed.",
   "marketplace.features.listings.domain.domain.greater.than.zero": "greater than zero",
   "marketplace.features.listings.domain.domain.price.amount": "Price amount",

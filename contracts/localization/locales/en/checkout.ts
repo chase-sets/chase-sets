@@ -3,6 +3,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.cart.api.route.authentication.context.missing.2": "Authentication context missing.",
   "checkout.features.cart.api.route.authentication.context.missing.3": "Authentication context missing.",
   "checkout.features.cart.api.route.authentication.required": "Authentication required.",
+  "checkout.features.cart.api.route.anonymous.cart.limit.exceeded":
+    "This device has {limit} Buy Cart lines saved. Remove an item before adding another.",
+  "checkout.features.cart.api.route.anonymous.rail.rate.limited":
+    "Too many anonymous Buy Cart requests. Wait a few minutes and try again.",
   "checkout.features.cart.api.route.forbidden": "Forbidden.",
   "checkout.features.cart.api.route.request.failed": "Request failed.",
   "checkout.features.cart.integrations.catalog.catalogSchema.create.table.if.not.exists.checkout":
@@ -304,6 +308,8 @@ export const checkoutEnglishTranslations = {
     "Sell List review requires a seller account.",
   "checkout.features.sellList.api.route.anonymous.sell.list.limit.exceeded":
     "This device has {limit} Sell List lines saved. Remove an item before adding another.",
+  "checkout.features.sellList.api.route.anonymous.rail.rate.limited":
+    "Too many anonymous Sell List requests. Wait a few minutes and try again.",
   "checkout.features.sellList.ui.sellListPage.add.selected.offers.or.products":
     "Add selected offers or products from item pages before reviewing seller checkout.",
   "checkout.features.sellList.ui.sellListPage.browse.products": "Browse products",

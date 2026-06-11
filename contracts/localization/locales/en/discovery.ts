@@ -782,6 +782,8 @@ export const discoveryEnglishTranslations = {
     "This account cannot manage Product Alerts.",
   "discovery.features.productAlerts.api.route.anonymous.product.alert.required":
     "Watch alert registration expired. Start a new alert from the item page.",
+  "discovery.features.productAlerts.api.route.anonymous.rail.rate.limited":
+    "Too many anonymous Watch alert requests. Wait a few minutes and try again.",
   "discovery.features.productAlerts.api.route.authentication.context.missing": "Authentication context is missing.",
   "discovery.features.productAlerts.api.route.product.alert.request.failed": "Product Alert request failed.",
   "discovery.features.productAlerts.api.route.sign.in.to.manage.product.alerts": "Sign in to manage Product Alerts.",

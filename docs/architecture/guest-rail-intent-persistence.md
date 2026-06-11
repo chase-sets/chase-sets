@@ -141,14 +141,53 @@ Use the same user-facing persistence horizon as anonymous Buy Cart and Sell List
 
 Implemented limits:
 
+- Anonymous Buy Cart has a 50-line per-device cap. Duplicate or mergeable lines remain allowed at the cap so a quantity adjustment does not force users to delete and recreate intent.
+- Anonymous Sell List has a 50-line per-device cap. Duplicate selected-offer or product lines remain allowed at the cap for the same reason.
 - Marketplace listing draft intents use 30-day cookie/server TTL, 20 active intents per anonymous listing-draft cookie, identical-criteria dedupe, and one-time claim.
 - Discovery Watch intents use 30-day cookie/server TTL, 20 active intents per anonymous Product Alert cookie, identical-criteria dedupe, and one-time claim.
+- Anonymous rail capture write routes are throttled per public client key in-process at 30 requests per 10 minutes for Buy Cart, Sell List, listing draft intent, and Watch intent capture.
+- Public standard seller-terms preview is throttled per public client key in-process at 120 requests per 10 minutes.
+- Public client keys prefer `x-forwarded-for`, then `cf-connecting-ip`, then `x-real-ip`, and fall back to `local` in development or direct tests.
+- In-process rate-limit buckets are bounded and expire by window. The limits provide immediate application-side protection; edge or durable distributed throttling can be added later if production traffic requires cross-instance enforcement.
+- Rate-limited routes return HTTP 429 with `Retry-After` and customer-safe recovery copy. Oversized anonymous carts or Sell Lists return a recoverable validation error that asks the user to remove an item before adding another.
 
-Remaining shared guardrails should define:
+Cleanup behavior:
 
-- per-IP or per-device creation throttles;
-- cleanup for expired anonymous intent records;
-- telemetry for saved, claimed, expired, deduped, rate-limited, and stale-recovered intents.
+- Marketplace listing draft and Discovery Watch runtimes mark stale active intent records as `expired` before active-count checks and claim lookups. Expired rows remain available for bounded recovery/debugging until a future retention job physically deletes them.
+- Checkout anonymous Buy Cart and Sell List rows remain tied to their anonymous owner ids until the user removes lines, merges into an account, or a future retention job prunes abandoned anonymous owners.
+- The route throttles are intentionally side-effect-free: a 429 response does not create or mutate Cart, Sell List, listing draft, Watch, Product Alert, Listing, Offer, payout, notification, order, or payment records.
+- #1188 owns funnel analytics. Any telemetry added there for saved, claimed, expired, deduped, rate-limited, stale-recovered, or preview-throttled outcomes must avoid PII, private shipping/contact facts, account-specific agreement ids, fee quote fingerprints, and high-cardinality monetary values unless policy explicitly allows them.
+
+## Public Standard Terms Preview Boundaries
+
+The public standard seller-terms preview exists to support guest selected-offer payout estimates before a seller account is attached.
+
+It may expose display-safe standard terms facts:
+
+- basis amount
+- marketplace sales fee amount
+- estimated seller net amount
+- shipping allowance percentage
+- public standard source kind and source label
+- display schedule label
+- source and resolution timestamps
+
+It must not expose:
+
+- fee quote fingerprints
+- schedule ids
+- account-specific agreement ids
+- buyer or seller private facts
+- contact details
+- shipping destination details
+- payout destination details
+
+Guest previews are informational only. Registered seller review must resolve current account-specific terms before offer acceptance, listing publication, payout, or seller checkout commitment.
+
+Cache behavior:
+
+- The route does not introduce a durable response cache. Callers should treat the preview as a current display estimate and refresh it during review.
+- Future edge or client caching is allowed only for the display-safe response shape above and must respect the same request limit and privacy boundary.
 
 ## Privacy And Security
 

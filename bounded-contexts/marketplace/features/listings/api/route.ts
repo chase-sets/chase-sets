@@ -1,4 +1,5 @@
 import { t } from "@chase-sets/localization";
+import { createInMemoryRateLimiter } from "@chase-sets/http/rate-limit";
 import { Hono } from "hono";
 import type { MarketplaceApiEnv } from "../../../api";
 import {
@@ -6,6 +7,21 @@ import {
   type MarketplaceListingPhotoUpload,
   type MarketplaceListingServices,
 } from "./runtime";
+
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX = 30;
+const PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_MAX = 120;
+const anonymousListingDraftCaptureRateLimiter = createInMemoryRateLimiter({
+  keyPrefix: "marketplace:anonymous-listing-draft-capture",
+  max: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_MAX,
+  windowMs: ANONYMOUS_RAIL_CAPTURE_RATE_LIMIT_WINDOW_MS,
+});
+const publicStandardTermsPreviewRateLimiter = createInMemoryRateLimiter({
+  keyPrefix: "marketplace:public-standard-terms-preview",
+  max: PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_MAX,
+  windowMs: PUBLIC_STANDARD_TERMS_PREVIEW_RATE_LIMIT_WINDOW_MS,
+});
 
 function requireListingAccess(
   c: {
@@ -57,6 +73,18 @@ function requireAnonymousListingDraftOwnerId(c: { req: { header(name: string): s
 
 function errorMessage(error: unknown) {
   return error instanceof Error ? error.message : t("marketplace.features.listings.api.route.request.failed");
+}
+
+function rateLimitedResponse(message: string, retryAfterSeconds: number) {
+  return {
+    body: {
+      error: {
+        code: "anonymous_rail_rate_limited",
+        message,
+      },
+    },
+    headers: { "Retry-After": String(retryAfterSeconds) },
+  };
 }
 
 function validationError(error: unknown) {
@@ -837,6 +865,15 @@ export function createPublicListingRoutes(services: MarketplaceListingServices) 
       );
     }
 
+    const rateLimit = anonymousListingDraftCaptureRateLimiter.check(c.req.raw);
+    if (rateLimit.limited) {
+      const response = rateLimitedResponse(
+        t("marketplace.features.listings.api.route.anonymous.rail.rate.limited"),
+        rateLimit.retryAfterSeconds,
+      );
+      return c.json(response.body, 429, response.headers);
+    }
+
     const body = await c.req.json().catch(() => ({}));
 
     try {
@@ -853,6 +890,15 @@ export function createPublicListingRoutes(services: MarketplaceListingServices) 
   });
 
   app.post("/terms/public-standard/listing-preview", async (c) => {
+    const rateLimit = publicStandardTermsPreviewRateLimiter.check(c.req.raw);
+    if (rateLimit.limited) {
+      const response = rateLimitedResponse(
+        t("marketplace.features.listings.api.route.public.standard.terms.preview.rate.limited"),
+        rateLimit.retryAfterSeconds,
+      );
+      return c.json(response.body, 429, response.headers);
+    }
+
     const body = await c.req.json().catch(() => ({}));
 
     try {

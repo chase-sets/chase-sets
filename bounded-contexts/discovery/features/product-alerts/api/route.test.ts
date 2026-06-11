@@ -167,6 +167,46 @@ describe("product alert routes", () => {
     expect(services.createAnonymousProductAlertIntent).not.toHaveBeenCalled();
   });
 
+  it("rate limits repeated anonymous Product Alert intent capture requests", async () => {
+    const services = createServices();
+    const app = buildApp({
+      actor: null,
+      services,
+    });
+
+    let response = new Response(null, { status: 500 });
+    for (let index = 0; index < 31; index += 1) {
+      response = await app.fetch(
+        new Request("http://discovery.test/guest/product-alert-intents", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-discovery-anonymous-product-alert-id": "anon_watch_rate_limited",
+            "x-forwarded-for": "203.0.113.131",
+          },
+          body: JSON.stringify({
+            sourcePath: "/items/charizard-base-set?market=watch",
+            marketSide: "listing",
+            catalogItemId: `cat_rate_${index}`,
+            productId: `cat_rate_${index}::form:raw`,
+            selectedOptions: [{ dimensionId: "form", optionId: "raw" }],
+            productSummary: "Form: Raw",
+            thresholdAmount: "20.00",
+          }),
+        }),
+      );
+    }
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBeTruthy();
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "anonymous_rail_rate_limited",
+      },
+    });
+    expect(services.createAnonymousProductAlertIntent).toHaveBeenCalledTimes(30);
+  });
+
   it("claims an anonymous Product Alert intent for a signed-in account", async () => {
     const services = createServices();
     const app = buildApp({
