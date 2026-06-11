@@ -101,12 +101,8 @@ describe("CheckoutSessionRecoveryPage", () => {
       revalidationOptions: { intervalMs: 20 },
     });
 
-    expect(await screen.findByText("Preparing checkout")).toBeTruthy();
-    expect(screen.getByText("Refresh checkout")).toBeTruthy();
-    expect(screen.queryByText("Checkout session not found.")).toBeNull();
-    expect((await screen.findByRole("status")).textContent).toContain("checks again automatically");
-
     expect(await screen.findByText("pay-ready:chk_happy")).toBeTruthy();
+    expect(screen.queryByText("Checkout session not found.")).toBeNull();
     // Slow renders can let one extra interval fire between the successful
     // load and the recovery component unmounting, so assert settlement
     // rather than an exact count: pay-ready stops all further replays.
@@ -148,6 +144,25 @@ describe("CheckoutSessionRecoveryPage", () => {
     const settledLoaderCalls = loaderCalls;
     await new Promise((resolve) => setTimeout(resolve, 120));
     expect(loaderCalls).toBe(settledLoaderCalls);
+  });
+
+  it("announces automatic checking in a live region while revalidating", async () => {
+    const currentPath = appendFreshWriteToken("/checkout/chk_announce", checkoutCommit());
+    renderCheckoutSessionRoute({
+      initialPath: currentPath,
+      loader: () => {
+        throw createCheckoutRecoveryResponse(checkoutRecoveryForKind("checkout-preparing", currentPath));
+      },
+      // An interval far longer than the test keeps the hook in its
+      // auto-revalidating state for the whole assertion window.
+      revalidationOptions: { intervalMs: 60_000 },
+    });
+
+    expect(await screen.findByText("Preparing checkout")).toBeTruthy();
+    expect(screen.getByText("Refresh checkout")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByRole("status").textContent).toContain("checks again automatically");
+    });
   });
 
   it("stops retrying after the bounded budget and keeps the manual recovery available", async () => {
