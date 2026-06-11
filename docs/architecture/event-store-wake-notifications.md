@@ -18,7 +18,7 @@ SELECT pg_notify($1, $2)
 
 If the post-commit notification query fails, the append still succeeds. The observer receives `notificationFailed`, and the relay or fallback scanner must recover from durable event-store rows. This prevents callers from retrying a write that has already committed.
 
-Rollout wiring must enable this consistently across staging and production by environment-specific config. The primitive alone does not mean every bounded-context service factory is already emitting wakes.
+Every implemented bounded context's runtime service factory passes a registry-derived `wakeNotifications` config to its Postgres event store, so write-side emission is wired everywhere and controlled by the [source-context wake registry](./source-context-wake-registry.md) plus the environment-level `PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED` switch (staging on; production and previews off until the production proof gates pass).
 
 ## Channel
 

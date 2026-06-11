@@ -4,7 +4,7 @@
 
 The projection wake relay is the worker-owned bridge between source event-store wake hints and durable projection work. It keeps `pg_notify` cheap and non-durable while ensuring accepted projection work is represented in the control-plane work-signal store before ordinary workers or API waiters depend on it.
 
-This document describes the relay fan-out core and disabled-by-default active relay runtime shipped for Milestone #19. Deployable listener URL wiring, DigitalOcean connection-budget validation, and production source-context enablement remain gated by the topology and budget issues.
+This document describes the relay fan-out core and the active relay runtime shipped for Milestone #19. The deployable listener URL wiring (`WORKER_LISTENER_DATABASE_URL_<CONTEXT>` via Terraform), the plan-time DigitalOcean connection-budget checks, and staging enablement for the wave-1 source contexts are live; production source-context enablement remains gated by the topology-parity, budget, and SLO proof issues (#1243, #1237).
 
 ## Fan-Out Core
 
@@ -92,4 +92,24 @@ The fan-out core reports:
 
 The active runtime reports lease acquisition/miss/loss, listener connection/unavailability/disconnection, notification receipt, catch-up start/completion/failure, cursor advancement, and all fan-out core events.
 
-The worker-side claim, execution, completion, and readiness path is documented in the [projection wake-intent scheduler](./projection-wake-scheduler.md). Later deployable slices should attach both relay and scheduler observer events to the shared work-signal metrics so dashboards can separate notify receipt, relay catch-up, fan-out, control-plane enqueue, worker claim, projection execution, and checkpoint readiness latency.
+The worker-side claim, execution, completion, and readiness path is documented in the [projection wake-intent scheduler](./projection-wake-scheduler.md). The platform worker attaches both relay and scheduler observer events to the shared wake metrics (`recordProjectionWakeRelayCatchUp`, `recordProjectionWakeRelayFanOut`, `recordProjectionWakeIntentOutcome`), so the `projection-wake-pipeline` dashboard and `platform-worker-wake-alerts` rules separate notify receipt, relay catch-up, fan-out, control-plane enqueue, worker claim, projection execution, and checkpoint readiness latency.
+
+## Credentials And Least Privilege
+
+Current credential posture for each relay-adjacent connection, as validated in `infrastructure/digitalocean/platform/locals.tf` and the deployable configs:
+
+- **Listener connections (staging):** Terraform builds `WORKER_LISTENER_DATABASE_URL_<CONTEXT>` from the per-context DigitalOcean database user (`digitalocean_database_user.contexts[...]`) against the cluster's direct port, because `LISTEN` cannot ride the PgBouncer transaction pools. This user is the context's owning database user, so the listener credential can read and mutate that context's domain tables. The relay only ever issues `LISTEN`/`UNLISTEN` on these connections, but the credential itself is not least-privilege.
+- **Listener connections (production):** the listener URLs reuse the App Platform database bindings (`${db-<context>.DATABASE_URL}`), which carry the same owning-user privileges. Production relay enablement is killed by default (`worker_projection_wake_relay_enabled = "false"`).
+- **Catch-up reads:** durable event-store catch-up reads use the worker's normal pooled context query URLs, scoped the same as all other worker projection reads.
+- **Control plane:** wake intents, readiness rows, waiters, relay cursors, and leases live in the control database and are written through `PLATFORM_CONTROL_DATABASE_URL`, which holds no bounded-context domain tables.
+- **Operator/debug surface:** the only wake-store debug surface is the platform worker's `GET /internal/workers/status`, served from an App Platform `worker` component with no public ingress; it returns aggregate intent counts, control flags, relay supervisor state, and lease/runner metadata only — never intent metadata, payloads, or error bodies.
+
+Deferred (owner: #1243 staging/prod topology parity, pre-production-rollout gate): replace the context owning-user listener credentials with dedicated roles scoped to `LISTEN` plus read-only access to event-store metadata, in both staging Terraform user provisioning and the production binding strategy. Until then, the compensating controls are the relay's narrow query surface (`LISTEN`/`UNLISTEN` plus pooled `readAll`), single active fenced relay session, and the environment kill switches.
+
+## Telemetry Privacy, Retention, And Incident Response
+
+- **Redaction at write time:** wake notification envelopes are denylist-checked and size-capped before `pg_notify` (event store), relay-enriched metadata is denylist-checked before enqueue (`assertSafeRelayMetadata`), and the durable work-signal store rejects sensitive metadata keys and redacts sensitive failure-detail keys for every origin (`work-signal-store.ts`). Composite envelopes apply the same checks (`work-signal-composite.ts`).
+- **Redaction at log time:** all wake observer events flow through the shared structured logger, which recursively redacts sensitive field names and reduces error objects to name + message (`sanitizeLogFields` in `@chase-sets/observability`).
+- **Metrics:** wake metrics carry only bounded structural labels (source/target context, projection, lane, origin, outcome, status, reason) via `boundedMetricLabel`; no identifiers from request traffic enter metric labels.
+- **Retention:** wake intents, readiness rows, and waiter rows expire on bounded TTLs and are reaped by the `work-signals.cleanup` runner (see [projection wake-intent scheduler](./projection-wake-scheduler.md)); telemetry retention follows the platform observability stack's standard log/metric retention.
+- **Incident response:** if sensitive data is ever found in a wake surface, kill emission and relay with the switches in the [push-wake rollout controls runbook](../runbooks/push-wake-rollout-controls.md) (wakes are acceleration only; durable correctness is unaffected), purge affected wake-store rows via the bounded cleanup path or direct deletion in the control database, and treat the writer as the defect — the store-level denylist failure means a new writer bypassed review.
