@@ -69,6 +69,7 @@ This folder is a curated map for cross-cutting product, language, API, ADR, and 
 - [Realtime SSE](./runbooks/realtime-sse.md): projection patch transport and operational checks.
 - [Projection Poison Events](./runbooks/projection-poison-events.md): triage and repair for degraded projection consumers.
 - [Projection Operations](./runbooks/projection-operations.md): backlog, worker capacity, retry, and rebuild triage.
+- [Push-Wake Rollout Controls](./runbooks/push-wake-rollout-controls.md): kill-switch matrix, rollback recipes, verification, and scope assessment for the push-first projection wake runtime.
 - [Projection Freshness Audit](./runbooks/projection-freshness-audit.md): read-after-write audit record fields, privacy rules, and guest Buy Now root-cause classification.
 - [Guest Buy Now Projection Lag Root Cause](./runbooks/guest-buy-now-projection-lag-root-cause.md): staging incident classification, evidence limits, failed contract, and follow-up mapping for Checkout projection lag.
 - [Guest Buy Now Freshness Canary](./runbooks/guest-buy-now-freshness-canary.md): staging synthetic browser canary, fixture ownership, redacted evidence, and no-payment/no-order safety.
