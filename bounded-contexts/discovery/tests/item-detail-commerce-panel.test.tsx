@@ -668,8 +668,8 @@ describe("item detail commerce panel", () => {
     expect(screen.getByText("Check out with the current best available listing.")).toBeTruthy();
     expect(screen.getByRole("button", { name: /Selected product/ })).toBeTruthy();
     expect(screen.getByText("Save the selected product for Buy Cart review.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Make offer/ })).toBeTruthy();
-    expect(screen.getByText("Offer your price and quantity for this product.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Make an offer/ })).toBeTruthy();
+    expect(screen.getByText("Offer your price and quantity for the selected product.")).toBeTruthy();
     expect(screen.queryByText(/product-wide demand/i)).toBeNull();
     expect(screen.queryByText(/Buy locked to this seller/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /Set alert/ })).toBeNull();
@@ -681,7 +681,7 @@ describe("item detail commerce panel", () => {
     expect(container.querySelector('[class*="-mx-4"]')).toBeTruthy();
     expect(container.querySelector('[class*="before:absolute"]')).toBeTruthy();
 
-    const makeOfferButton = screen.getByRole("button", { name: /Make offer/ });
+    const makeOfferButton = screen.getByRole("button", { name: /Make an offer/ });
     fireEvent.click(makeOfferButton);
 
     expect(screen.getByText("Make offer form")).toBeTruthy();
@@ -1605,22 +1605,23 @@ describe("item detail commerce panel", () => {
     expect(commercePanel.querySelector(".modern-surface")).toBeNull();
     expect(screen.queryByText("Offer details")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /Make offer/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Make an offer/ }));
 
-    expect(screen.getByText("Offer details")).toBeTruthy();
-    expect(screen.getByText("Product criteria")).toBeTruthy();
-    expect(screen.getByText("1 listing matches this selection.")).toBeTruthy();
+    expect(screen.getAllByText("Make an offer").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Selected product").length).toBeGreaterThan(0);
+    expect(screen.getByText("Current lowest listing is $399.99.")).toBeTruthy();
+    expect(screen.queryByText("1 listing matches this selection.")).toBeNull();
     expect(screen.queryByText("Sellers can review this offer for the selected product.")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "View making an offer details" }));
     const offerDialog = screen.getByRole("dialog", { name: "Making an offer" });
     expect(
-      within(offerDialog).getByText("Your offer is product-level demand that eligible sellers can review."),
+      within(offerDialog).getByText("Your offer is for the selected product and eligible sellers can review it."),
     ).toBeTruthy();
     expect(within(offerDialog).getByText("You choose price and quantity before submitting.")).toBeTruthy();
     fireEvent.click(within(offerDialog).getByRole("button", { name: "Close reference detail" }));
     expect(screen.getByLabelText(/Offer price/)).toBeTruthy();
-    expect(screen.getByLabelText(/Quantity requested/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Submit offer" })).toBeTruthy();
+    expect(screen.getByLabelText(/Quantity/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Make offer" })).toBeTruthy();
     expect(screen.queryByText("Selected seller")).toBeNull();
     expect(screen.queryByText("Selected seller signal")).toBeNull();
 

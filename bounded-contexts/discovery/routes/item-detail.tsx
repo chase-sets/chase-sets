@@ -1192,7 +1192,7 @@ function DiscoveryItemDetailRealtimeView({
                   selectedOptions={context.selectedProductOptions}
                   productSelectionDetails={context.selectedProductSelectionDetails}
                   productSummary={context.selectedProductSummary}
-                  visibleListingCount={context.visibleListings.length}
+                  lowestListing={context.bestListing}
                   errorMessage={actionErrorMessage}
                 />
               );

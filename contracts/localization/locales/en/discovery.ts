@@ -336,7 +336,8 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.make.offer": "Make offer",
   "discovery.routes.itemDetail.make.an.offer": "Make an offer",
   "discovery.routes.itemDetail.make.offer.action": "Make offer",
-  "discovery.routes.itemDetail.make.offer.action.description": "Offer your price and quantity for this product.",
+  "discovery.routes.itemDetail.make.offer.action.description":
+    "Offer your price and quantity for the selected product.",
   "discovery.routes.itemDetail.matching.offers.need.more.active.supply": "Matching offers need more active supply.",
   "discovery.routes.itemDetail.matching.listings": "Matching listings",
   "discovery.routes.itemDetail.needs.supply": "Needs supply",
@@ -450,10 +451,10 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.shipping.allowance.amount": "{amount} ({percentage})",
   "discovery.routes.itemDetail.standard.seller.terms": "Standard terms",
   "discovery.routes.itemDetail.start.with": "Product: ",
-  "discovery.routes.itemDetail.submit.offer": "Submit offer",
-  "discovery.routes.itemDetail.submit.product.wide.demand": "Offer your price and quantity for this product.",
+  "discovery.routes.itemDetail.submit.offer": "Make offer",
+  "discovery.routes.itemDetail.submit.product.wide.demand": "Offer your price and quantity for the selected product.",
   "discovery.routes.itemDetail.submit.product.wide.demand.short": "Make an offer.",
-  "discovery.routes.itemDetail.submit.offer.2": "Submit offer",
+  "discovery.routes.itemDetail.submit.offer.2": "Make offer",
   "discovery.routes.itemDetail.update.listing": "Update listing",
   "discovery.routes.itemDetail.update.listing.2": "Update listing",
   "discovery.routes.itemDetail.update.listing.3": "Update listing",
@@ -641,17 +642,17 @@ export const discoveryEnglishTranslations = {
     "Account identity and listing status are shown before checkout commitment.",
   "discovery.routes.itemDetail.buying.product": "Buying: {productSummary}",
   "discovery.routes.itemDetail.current.best.listing.summary": "Current best listing is {price}.",
+  "discovery.routes.itemDetail.current.lowest.listing.summary": "Current lowest listing is {price}.",
   "discovery.routes.itemDetail.inventory.option.label": "{productSummary} - {availableQuantity} available",
   "discovery.routes.itemDetail.listing.match.count": "{count} {listingLabel} this selection.",
   "discovery.routes.itemDetail.listing.plural": "listings",
   "discovery.routes.itemDetail.listing.singular": "listing",
   "discovery.routes.itemDetail.offer.for.product": "Offer for: {productSummary}",
   "discovery.routes.itemDetail.offer.registration.context":
-    "{count} {listingLabel} match this product. Sign in to place an offer accounts can track.",
+    "{count} {listingLabel} match this product. Sign in to make an offer.",
   "discovery.routes.itemDetail.offer.requires.account":
     "Offers are tied to an account so sellers can evaluate the request and you can track the response.",
-  "discovery.routes.itemDetail.account.cannot.submit.product.wide.offers.yet":
-    "This account cannot submit product-wide offers yet.",
+  "discovery.routes.itemDetail.account.cannot.submit.product.wide.offers.yet": "This account cannot make offers yet.",
   "discovery.routes.itemDetail.account.cannot.create.product.alerts": "This account cannot create Product Alerts.",
   "discovery.routes.itemDetail.offer.marketplace.fee": "Marketplace sales fee: {amount}",
   "discovery.routes.itemDetail.offer.quote.time": "Quote time: {time}",
@@ -709,7 +710,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.referenceInfo.makeOffer.line2":
     "No payment is collected until an accepted offer reaches checkout review.",
   "discovery.routes.itemDetail.referenceInfo.makeOffer.summary":
-    "Your offer is product-level demand that eligible sellers can review.",
+    "Your offer is for the selected product and eligible sellers can review it.",
   "discovery.routes.itemDetail.referenceInfo.makeOffer.title": "Making an offer",
   "discovery.routes.itemDetail.referenceInfo.makeOffer.trigger": "Making an offer",
   "discovery.routes.itemDetail.referenceInfo.marketplaceFee": "Marketplace sales fee",
@@ -818,7 +819,7 @@ export const discoveryEnglishTranslations = {
   "discovery.routes.itemDetail.listing.matches.plural": "listings match",
   "discovery.routes.itemDetail.listing.matches.singular": "listing matches",
   "discovery.routes.itemDetail.product.wide.offers.available":
-    "{count} {listingLabel} this product. Offers are available to signed-in accounts.",
+    "{count} {listingLabel} this product. Offers are available after account setup.",
   "discovery.routes.itemDetail.selected.product.intent": "Selected product",
   "discovery.routes.itemDetail.selected.seller": "Selected seller",
   "discovery.routes.itemDetail.selected.seller.signal": "Selected price",

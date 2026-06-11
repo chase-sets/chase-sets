@@ -357,7 +357,7 @@ export function MarketplaceOfferSubmissionSection({
   selectedOptions,
   productSelectionDetails = [],
   productSummary,
-  visibleListingCount,
+  lowestListing,
   errorMessage,
 }: {
   formId?: string;
@@ -370,12 +370,12 @@ export function MarketplaceOfferSubmissionSection({
   selectedOptions: readonly { dimensionId: string; optionId: string }[];
   productSelectionDetails?: readonly ProductSelectionDisplayDetail[];
   productSummary: string | null;
-  visibleListingCount: number;
+  lowestListing?: { price_amount: string } | null;
   errorMessage?: string | null;
 }) {
   const defaultActions = (
     <Button type="submit" disabled={!productId} block>
-      {t("discovery.routes.itemDetail.submit.offer")}
+      {t("discovery.routes.itemDetail.make.offer.action")}
     </Button>
   );
   const form = (
@@ -389,7 +389,7 @@ export function MarketplaceOfferSubmissionSection({
         {showSummary ? (
           <Stack gap={3}>
             <Stack gap={1}>
-              <Text weight="semibold">{t("discovery.routes.itemDetail.offer.details")}</Text>
+              <Text weight="semibold">{t("discovery.routes.itemDetail.make.an.offer")}</Text>
               <RailReferenceInfo
                 triggerLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.trigger")}
                 ariaLabel={t("discovery.routes.itemDetail.referenceInfo.makeOffer.aria")}
@@ -403,24 +403,23 @@ export function MarketplaceOfferSubmissionSection({
             </Stack>
             <Stack gap={1}>
               <Text size="sm" tone="secondary">
-                {t("discovery.routes.itemDetail.product.criteria")}
+                {t("discovery.routes.itemDetail.selected.product")}
               </Text>
               <ProductOptions
                 options={productOptionsFromSelectionDetails(productSelectionDetails)}
                 emptyLabel={productSummary ?? itemTitle}
               />
-              <Text size="sm" tone="secondary">
-                {productId
-                  ? t("discovery.routes.itemDetail.listing.match.count", {
-                      count: visibleListingCount,
-                      listingLabel: t(
-                        visibleListingCount === 1
-                          ? "discovery.routes.itemDetail.listing.matches.singular"
-                          : "discovery.routes.itemDetail.listing.matches.plural",
-                      ),
-                    })
-                  : t("discovery.routes.itemDetail.choose.options.to.make.an.offer")}
-              </Text>
+              {productId && lowestListing ? (
+                <Text size="sm" tone="secondary">
+                  {t("discovery.routes.itemDetail.current.lowest.listing.summary", {
+                    price: formatMoneyAmount(lowestListing.price_amount),
+                  })}
+                </Text>
+              ) : !productId ? (
+                <Text size="sm" tone="secondary">
+                  {t("discovery.routes.itemDetail.choose.options.to.make.an.offer")}
+                </Text>
+              ) : null}
             </Stack>
           </Stack>
         ) : null}
@@ -433,12 +432,7 @@ export function MarketplaceOfferSubmissionSection({
           step="0.01"
           required
         />
-        <NumberInput
-          label={t("discovery.routes.itemDetail.quantity.requested")}
-          name="quantityRequested"
-          min="1"
-          required
-        />
+        <NumberInput label={t("discovery.routes.itemDetail.quantity")} name="quantityRequested" min="1" required />
         {actions !== undefined ? actions : defaultActions}
       </Stack>
     </Form>
@@ -1795,7 +1789,7 @@ export function BuyActionCard({
     },
     {
       value: "make-offer",
-      label: t("discovery.routes.itemDetail.make.offer.action"),
+      label: t("discovery.routes.itemDetail.make.an.offer"),
       description: t("discovery.routes.itemDetail.make.offer.action.description"),
       icon: "tag",
       disabled: !productId,
