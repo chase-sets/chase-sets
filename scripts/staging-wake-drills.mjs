@@ -369,6 +369,23 @@ export async function createDatabaseAudit(options) {
   const { default: pg } = await import("pg");
   const clients = new Map();
 
+  // pg honors libpq sslmode semantics only with uselibpqcompat; without it the
+  // connection string sslmode overrides the ssl option object (see
+  // marketplace-provider-proof-status.mjs for the same convention).
+  function normalizeDrillDatabaseUrl(databaseUrl) {
+    try {
+      const url = new URL(databaseUrl);
+      if (url.searchParams.get("sslmode") === "require" && !url.searchParams.has("uselibpqcompat")) {
+        url.searchParams.set("uselibpqcompat", "true");
+        return url.toString();
+      }
+    } catch {
+      return databaseUrl;
+    }
+
+    return databaseUrl;
+  }
+
   // DigitalOcean managed Postgres presents a CA outside the default chain;
   // sslmode=require URLs use encrypted-but-unverified TLS like the other
   // staging evidence scripts (see marketplace-provider-proof-status.mjs).
@@ -386,7 +403,8 @@ export async function createDatabaseAudit(options) {
 
   async function clientFor(url) {
     if (!clients.has(url)) {
-      const client = new pg.Client({ connectionString: url, ssl: resolveDrillDatabaseSsl(url) });
+      const normalizedUrl = normalizeDrillDatabaseUrl(url);
+      const client = new pg.Client({ connectionString: normalizedUrl, ssl: resolveDrillDatabaseSsl(normalizedUrl) });
       await client.connect();
       clients.set(url, client);
     }
