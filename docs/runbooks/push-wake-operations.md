@@ -144,13 +144,14 @@ Pattern: guest Buy Now writes a checkout session, redirects to `/checkout/:sessi
 ## Honest Gaps
 
 - **Composite origins (#1248)**: durable-job and realtime wake notifications now ride the work-signal composite (versioned envelopes, shared waiters, bounded fallback), and the wake-status endpoint lists every origin's disposition under `origins` (see [Platform Work-Signal Composite](../architecture/work-signal-composite.md)). Their *health* still lives on their own surfaces (linked above), not in the wake store: scheduled/manual and reconciliation kinds have no emitters yet, and provider-outbox dispatch remains a documented scheduled/outbox exception with no wake signals.
-- **Live failover/recovery drills (#1234)**: the relay takeover and kill-switch behaviors described here are covered by unit/runtime tests, not yet by scheduled production drills.
+- **Live failover/recovery drills (#1234)**: the executable drills (missed-fan-out reconciliation audit, bounded burst) run on demand from the `Platform Staging Wake Drills` workflow, and the operator-driven drills (relay failover, kill-switch flips, cursor loss, DB failover) have production-ready procedures in [Push-Wake Recovery Drills](./push-wake-recovery-drills.md). Remaining gap: the operator drills require a live operator session per execution, and no production-environment drill cadence exists yet.
 - **Topology parity / connection-budget evidence (#1243)**: parity status and budget ledgers are documented in [Push-Wake Connection Budget](../architecture/push-wake-connection-budget.md) and Terraform checks; the wake panel shows rollout state, not Terraform-level parity proofs.
 - **Interest-index route coverage**: the panel shows the index version loaded per relay cursor and the worker's live version; a per-route dependency coverage view needs the #1248 composite route metadata.
 
 ## Related Documents
 
 - [Push-Wake Rollout Controls](./push-wake-rollout-controls.md) — kill-switch matrix, rollback recipes, verification.
+- [Push-Wake Recovery Drills](./push-wake-recovery-drills.md) — drill catalog, executable staging drill workflow, operator drill procedures.
 - [Projection Wake Relay](../architecture/projection-wake-relay.md) / [Projection Wake-Intent Scheduler](../architecture/projection-wake-scheduler.md) — runtime contracts.
 - [Source-Context Wake Registry](../architecture/source-context-wake-registry.md) — rollout states and evidence gates.
 - [Projection Operations](./projection-operations.md) — backlog, repair, rebuild triage.
