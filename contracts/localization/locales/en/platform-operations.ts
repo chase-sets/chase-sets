@@ -180,6 +180,18 @@ export const platformOperationsEnglishTranslations = {
   "platformOperations.projectionOperations.wakeLastAdvanceReason": "Last advance reason",
   "platformOperations.projectionOperations.wakeLatestReadyAge": "Latest readiness age",
   "platformOperations.projectionOperations.wakeMaxAttempts": "Max attempts",
+  "platformOperations.projectionOperations.wakeMigration": "Push-first migration by projection group",
+  "platformOperations.projectionOperations.wakeMigrationEnabledSources": "Enabled sources",
+  "platformOperations.projectionOperations.wakeMigrationNoProjections": "No projection groups",
+  "platformOperations.projectionOperations.wakeMigrationNoProjectionsDescription":
+    "The push-first migration inventory returned no projection groups.",
+  "platformOperations.projectionOperations.wakeMigrationOptOut": "Opt-out",
+  "platformOperations.projectionOperations.wakeMigrationOptOutReview": "review {reviewBy}",
+  "platformOperations.projectionOperations.wakeMigrationOwner": "Owner",
+  "platformOperations.projectionOperations.wakeMigrationSourceRatio": "{enabled} / {total}",
+  "platformOperations.projectionOperations.wakeMigrationStatus": "Migration status",
+  "platformOperations.projectionOperations.wakeMigrationSummary":
+    "{projections} projection groups / {optOuts} opt-outs / {pushEnabledRoutes} of {routes} route dependencies push-enabled",
   "platformOperations.projectionOperations.wakeNoCursors": "No relay cursors",
   "platformOperations.projectionOperations.wakeNoCursorsDescription":
     "Cursors appear after the relay fans out its first wake for a source context.",

@@ -106,6 +106,35 @@ describe("wake status contracts", () => {
           },
         ],
       },
+      migration: {
+        summary: {
+          projectionCount: 58,
+          statusCounts: [
+            { status: "push-enabled", count: 20 },
+            { status: "push-eligible", count: 38 },
+            { status: "disabled", count: 0 },
+            { status: "opted-out", count: 0 },
+          ],
+          optOutCount: 0,
+          routeDependencyCount: 18,
+          pushEnabledRouteDependencyCount: 12,
+        },
+        projections: [
+          {
+            projectionKey: "checkout:checkout.session-projection",
+            targetContextName: "checkout",
+            projectionName: "checkout.session-projection",
+            owner: "Checkout",
+            status: "push-enabled",
+            sourceContextCount: 1,
+            enabledSourceContextCount: 1,
+            sourceContextNames: ["checkout"],
+            consumesDurableWakeIntents: true,
+            optOutReason: null,
+            optOutReviewBy: null,
+          },
+        ],
+      },
     });
 
     expect(snapshot.wakeStore.intentSummary.queuedCount).toBe(3);
@@ -127,6 +156,20 @@ describe("wake status contracts", () => {
       rolloutState: "staging-enabled",
       relayFanOutEnabled: true,
     });
+    expect(snapshot.migration.summary).toMatchObject({
+      projectionCount: 58,
+      optOutCount: 0,
+      routeDependencyCount: 18,
+      pushEnabledRouteDependencyCount: 12,
+    });
+    expect(snapshot.migration.projections[0]).toMatchObject({
+      projectionKey: "checkout:checkout.session-projection",
+      owner: "Checkout",
+      status: "push-enabled",
+      enabledSourceContextCount: 1,
+      sourceContextNames: ["checkout"],
+      consumesDurableWakeIntents: true,
+    });
   });
 
   it("normalizes malformed payloads to unavailable sections", () => {
@@ -136,6 +179,8 @@ describe("wake status contracts", () => {
     expect(snapshot.relay.available).toBe(false);
     expect(snapshot.schedulers.available).toBe(false);
     expect(snapshot.rollout.sources).toEqual([]);
+    expect(snapshot.migration.projections).toEqual([]);
+    expect(snapshot.migration.summary.projectionCount).toBe(0);
   });
 
   it("builds wake attention items for failed intents, stale claims, and expired signals", () => {

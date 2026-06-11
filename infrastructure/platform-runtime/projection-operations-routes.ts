@@ -11,6 +11,7 @@ import type { ApiHostRuntime } from "./api";
 import type { ResolvedActor } from "./auth";
 import type { PlatformControlPlane, ProjectionOperationKind } from "./control-plane";
 import { createDurableJobEventStream } from "./durable-job-events";
+import { listProjectionPushMigrationEntries, summarizeProjectionPushMigration } from "./projection-push-migration";
 import { PROJECTION_WAKE_RELAY_ACTIVE_LEASE_NAME } from "./projection-wake-relay";
 import {
   isEventStoreWakeNotificationEmissionEnabled,
@@ -108,6 +109,10 @@ export function createProjectionOperationsRoutes(
       relay,
       schedulers,
       rollout: readWakeRolloutStatus(),
+      // Push-first migration inventory (#1224): disposition by projection
+      // group derived from the wake registry. Structural metadata only:
+      // names, owners, states, counts.
+      migration: readWakeMigrationStatus(),
       // Static composite-origin disposition inventory (#1248/#1238): which
       // wake families ride the work-signal composite versus documented
       // exceptions. Structural metadata only.
@@ -457,6 +462,25 @@ function readWakeRolloutStatus() {
       affectedProjectionNames: entry.affectedProjectionNames,
       disabledReason: entry.disabledReason ?? null,
       optOutReason: entry.optOutReason ?? null,
+    })),
+  } as const;
+}
+
+function readWakeMigrationStatus() {
+  return {
+    summary: summarizeProjectionPushMigration(),
+    projections: listProjectionPushMigrationEntries().map((entry) => ({
+      projectionKey: entry.projectionKey,
+      targetContextName: entry.targetContextName,
+      projectionName: entry.projectionName,
+      owner: entry.owner,
+      status: entry.status,
+      sourceContextCount: entry.sourceContextCount,
+      enabledSourceContextCount: entry.enabledSourceContextCount,
+      sourceContextNames: entry.sourceContexts.map((source) => source.sourceContextName),
+      consumesDurableWakeIntents: entry.consumesDurableWakeIntents,
+      optOutReason: entry.optOut?.reason ?? null,
+      optOutReviewBy: entry.optOut?.reviewBy ?? null,
     })),
   } as const;
 }

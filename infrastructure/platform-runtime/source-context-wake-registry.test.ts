@@ -21,7 +21,7 @@ import {
 describe("source-context wake registry", () => {
   const inventory = loadBoundedContextInventory();
 
-  it("covers every bounded context with only the checkout wave-1 hot path staging-enabled", () => {
+  it("covers every bounded context with only the wave-1 hot-path contexts staging-enabled", () => {
     expect(() =>
       validateSourceContextWakeRegistry({
         boundedContextNames: inventory.contextNames,
@@ -31,22 +31,26 @@ describe("source-context wake registry", () => {
     expect(sourceContextWakeRegistry.map((entry) => entry.sourceContextName)).toEqual(inventory.contextNames);
     expect(listEventStoreWakeNotificationSourceContexts().map((entry) => entry.sourceContextName)).toEqual([
       "checkout",
+      "marketplace",
+      "ordering",
+      "payments",
     ]);
-    expect(listSourceContextWakeRelayConfigs()).toMatchObject([
-      {
-        sourceContextName: "checkout",
+    expect(listSourceContextWakeRelayConfigs()).toMatchObject(
+      ["checkout", "marketplace", "ordering", "payments"].map((sourceContextName) => ({
+        sourceContextName,
         rolloutState: "staging-enabled",
+        rolloutWave: "wave-1-checkout-hot-path",
         relayFanOutEnabled: true,
         priorityLane: "hot",
-      },
-    ]);
+      })),
+    );
     expect(listSourceContextWakeRelayConfigs({ includeInactive: true })).toHaveLength(inventory.contextNames.length);
 
     expect(summarizeSourceContextWakeRegistry()).toMatchObject({
       entryCount: inventory.contextNames.length,
-      activeEntryCount: 1,
-      enabledEventStoreWakeContextCount: 1,
-      enabledRelayFanOutContextCount: 1,
+      activeEntryCount: 4,
+      enabledEventStoreWakeContextCount: 4,
+      enabledRelayFanOutContextCount: 4,
     });
   });
 
@@ -81,7 +85,7 @@ describe("source-context wake registry", () => {
   it("creates write-side and relay configs from the same source-context entry", () => {
     delete process.env.PLATFORM_EVENT_STORE_WAKE_NOTIFICATIONS_ENABLED;
 
-    expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "marketplace" })).toMatchObject({
+    expect(createEventStoreWakeNotificationConfigForSourceContext({ sourceContextName: "inventory" })).toMatchObject({
       enabled: false,
       channel: "platform_event_store_commits",
       source: "event-core-postgres",
@@ -93,7 +97,7 @@ describe("source-context wake registry", () => {
       source: "event-core-postgres",
     });
 
-    const registry = withRegistryEntryPatch("marketplace", {
+    const registry = withRegistryEntryPatch("inventory", {
       rolloutState: "staging-enabled",
       enablement: {
         eventStoreWakeNotifications: true,
@@ -106,7 +110,7 @@ describe("source-context wake registry", () => {
     ).not.toThrow();
     expect(
       createEventStoreWakeNotificationConfigForSourceContext({
-        sourceContextName: "marketplace",
+        sourceContextName: "inventory",
         registry,
       }),
     ).toMatchObject({
@@ -120,7 +124,22 @@ describe("source-context wake registry", () => {
         priorityLane: "hot",
       },
       {
+        sourceContextName: "inventory",
+        relayFanOutEnabled: true,
+        priorityLane: "hot",
+      },
+      {
         sourceContextName: "marketplace",
+        relayFanOutEnabled: true,
+        priorityLane: "hot",
+      },
+      {
+        sourceContextName: "ordering",
+        relayFanOutEnabled: true,
+        priorityLane: "hot",
+      },
+      {
+        sourceContextName: "payments",
         relayFanOutEnabled: true,
         priorityLane: "hot",
       },
@@ -167,7 +186,7 @@ describe("source-context wake registry", () => {
 
     expect(() =>
       validateSourceContextWakeRegistry({
-        registry: withRegistryEntryPatch("marketplace", {
+        registry: withRegistryEntryPatch("catalog", {
           enablement: {
             eventStoreWakeNotifications: true,
             relayFanOut: true,

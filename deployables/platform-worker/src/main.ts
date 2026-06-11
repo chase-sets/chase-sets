@@ -46,7 +46,11 @@ import {
   type ProjectionWakeRelayRuntimeObserver,
   type ProjectionWakeRelaySourceRuntime,
 } from "@chase-sets/platform-runtime/projection-wake-relay";
-import { buildProjectionInterestIndex } from "@chase-sets/platform-runtime/projection-interest-index";
+import {
+  buildProjectionInterestIndex,
+  summarizeProjectionInterestIndex,
+} from "@chase-sets/platform-runtime/projection-interest-index";
+import { listProjectionInterestOverridesForPushMigration } from "@chase-sets/platform-runtime/projection-push-migration";
 import { listSourceContextWakeRelayConfigs } from "@chase-sets/platform-runtime/source-context-wake-registry";
 import { createPostgresWorkSignalStore } from "@chase-sets/platform-runtime/work-signal-store";
 import { createPgPool, createPostgresEventStore, type PgTransactionalPool } from "@chase-sets/event-core-postgres";
@@ -334,15 +338,24 @@ const projectionWakeRelaySources: ProjectionWakeRelaySourceRuntime[] = config.pr
   : [];
 const projectionWakeRelayInterestIndex = buildProjectionInterestIndex({
   projectionGroups: runtime.projectionGroups,
-  projectionOverrides: config.projectionWakeDisabledProjections.map((projectionKey) => {
-    const separatorIndex = projectionKey.indexOf(":");
-    return {
-      targetContextName: projectionKey.slice(0, separatorIndex),
-      projectionName: projectionKey.slice(separatorIndex + 1),
-      disabled: true,
-      optOutReason: "Disabled by WORKER_WAKE_DISABLED_PROJECTIONS.",
-    };
-  }),
+  projectionOverrides: [
+    // Deployment-level disables win over registry-derived data, so they come
+    // first (override resolution takes the first match per scope).
+    ...config.projectionWakeDisabledProjections.map((projectionKey) => {
+      const separatorIndex = projectionKey.indexOf(":");
+      return {
+        targetContextName: projectionKey.slice(0, separatorIndex),
+        projectionName: projectionKey.slice(separatorIndex + 1),
+        disabled: true,
+        optOutReason: "Disabled by WORKER_WAKE_DISABLED_PROJECTIONS.",
+      };
+    }),
+    // Rollout/owner/opt-out data from the source-context wake registry and
+    // the push-first migration inventory (#1245/#1224): owners on every
+    // entry, plus disables for registry-disabled/opted-out sources and
+    // owner-approved projection opt-outs.
+    ...listProjectionInterestOverridesForPushMigration(),
+  ],
 });
 const projectionWakeRelayAbortController = new AbortController();
 let projectionWakeRelayIdleLogged = false;
@@ -489,6 +502,10 @@ app.get("/internal/workers/status", async (c) => {
           configuredSourceContextNames: projectionWakeRelaySources.map((source) => source.sourceContextName),
           listenerSourceContextNames: [...projectionWakeRelayListenerPools.keys()],
           interestIndexVersion: projectionWakeRelayInterestIndex.indexVersion,
+          // Operator surface for #1220: loaded index version, staleness and
+          // generation time, enabled source contexts, disabled/opt-out entry
+          // counts, and route-dependency coverage.
+          interestIndex: summarizeProjectionInterestIndex(projectionWakeRelayInterestIndex),
         }
       : { enabled: false },
     workers: await controlPlane.listWorkerHeartbeats(),

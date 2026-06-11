@@ -100,6 +100,8 @@ Production and previews already run in this posture by default; this recipe is t
 ## Related Documents
 
 - [Source-Context Wake Registry](../architecture/source-context-wake-registry.md) — rollout states, validators, production evidence gates.
+- [Push-First Projection Migration Inventory](../architecture/push-first-projection-migration.md) — disposition per projection group and route entry, opt-out policy.
+- [Projection Interest Index](../architecture/projection-interest-index.md) — fan-out mapping, coarse-payload lookup, stale-index policy.
 - [Push-Wake Recovery Drills](./push-wake-recovery-drills.md) — kill-switch flip drill procedure and post-flip convergence verification.
 - [Projection Wake Relay](../architecture/projection-wake-relay.md) — relay runtime, catch-up, degraded modes.
 - [Projection Wake-Intent Scheduler](../architecture/projection-wake-scheduler.md) — lanes, retries, fallback polling guarantees.
