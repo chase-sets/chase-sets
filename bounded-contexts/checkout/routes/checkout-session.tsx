@@ -34,7 +34,7 @@ import {
 } from "@chase-sets/payments/server";
 import { normalizeRequestedBalanceCreditAmount } from "../support/request-support/balance-credit";
 import { CheckoutSessionPage, type CheckoutEditSection } from "../features/sessions/ui/checkout-page";
-import { LinkButton, MarketplaceEmptyState, Page, PageSection } from "@chase-sets/design-system";
+import { CheckoutSessionRecoveryPage } from "../features/sessions/ui/checkout-recovery-page";
 
 const MARKETPLACE_DESCRIPTION = t("checkout.routes.checkoutSession.enter.contact.delivery.shipping.payment");
 const FULFILLMENT_PREVIEW_UNAVAILABLE = t(
@@ -599,30 +599,14 @@ export function ErrorBoundary() {
   };
 
   return (
-    <Page>
-      <PageSection title={t("checkout.routes.checkoutSession.secure.checkout")}>
-        <MarketplaceEmptyState
-          title={title}
-          description={description}
-          trustCue={trustCue}
-          recoveryActions={
-            <>
-              <LinkButton href={primaryAction.href} leadingIcon={primaryAction.leadingIcon} tone={primaryAction.tone}>
-                {primaryAction.label}
-              </LinkButton>
-              {secondaryAction ? (
-                <LinkButton
-                  href={secondaryAction.href}
-                  tone={secondaryAction.tone}
-                  leadingIcon={secondaryAction.leadingIcon}
-                >
-                  {secondaryAction.label}
-                </LinkButton>
-              ) : null}
-            </>
-          }
-        />
-      </PageSection>
-    </Page>
+    <CheckoutSessionRecoveryPage
+      kind={recovery?.kind ?? null}
+      title={title}
+      description={description}
+      trustCue={trustCue}
+      primaryAction={primaryAction}
+      secondaryAction={secondaryAction}
+      currentPath={currentPath}
+    />
   );
 }

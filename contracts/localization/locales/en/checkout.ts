@@ -812,6 +812,8 @@ export const checkoutEnglishTranslations = {
   "checkout.routes.checkoutRecovery.checkout.preparing": "Preparing checkout",
   "checkout.routes.checkoutRecovery.checkout.preparing.description":
     "We are getting your checkout ready. Refresh this page in a moment to continue.",
+  "checkout.routes.checkoutRecovery.checkout.preparing.auto.description":
+    "We are getting your checkout ready. This page checks again automatically and opens checkout as soon as it is ready.",
   "checkout.routes.checkoutRecovery.checkout.needs.attention": "Checkout needs attention",
   "checkout.routes.checkoutRecovery.checkout.needs.attention.description":
     "We could not start checkout from the current cart or item. Review your Buy Cart or browse for another item.",
