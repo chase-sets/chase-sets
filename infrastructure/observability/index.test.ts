@@ -3,16 +3,19 @@ import {
   catalogControlPlaneEventAttributes,
   catalogIntegrationJobAttributes,
   catalogIntegrationOptionQueryAttributes,
+  checkoutObservabilityEventAttributes,
   createLogger,
   itemDetailRailAnalyticsAttributes,
   loadObservabilityConfig,
   projectionFreshnessAuditMetricRecords,
   publicPresenceWaitlistAnalyticsAttributes,
+  recordCheckoutObservabilityEvent,
   recordProjectionWakeIntentOutcome,
   recordProjectionWakeNotificationEmitted,
   recordProjectionWakeRelayCatchUp,
   recordProjectionWakeRelayFanOut,
   sanitizeLogFields,
+  type CheckoutObservabilityEventSignal,
 } from "./index";
 
 describe("observability config", () => {
@@ -98,6 +101,93 @@ describe("structured logging", () => {
       token: "[redacted]",
     });
     log.mockRestore();
+  });
+});
+
+describe("checkout launch observability", () => {
+  const productionProofEvent = {
+    eventName: "checkout.launch.production_proof_buy_now",
+    telemetryClass: "launch-governance",
+    alertClass: "launch-alert",
+    entrySource: "buy-now",
+    actorMode: "guest",
+    scenarioState: "production-proof-readiness",
+    visibleState: "checkout-review",
+    sideEffectStatus: "not-attempted",
+    releaseHealthRequired: true,
+    readinessContract: "checkout.cart-readiness.v1",
+    readinessSnapshotState: "fresh",
+    sourceRevisionState: "current",
+    freshWriteReceiptPresence: "present-valid",
+    supportReferencePresent: true,
+    performanceBudgetId: "checkout-entry-ready-slo",
+    providerCategory: "none",
+    riskCategory: "none",
+    downstreamStatus: "not-started",
+    launchRegisterDecision: "enabled",
+    freshStateScanResult: "not-applicable",
+    canaryFinalState: "pay-ready",
+    promotionDecision: "promote",
+    releaseRunId: "github-27375620810-production-proof",
+  } satisfies CheckoutObservabilityEventSignal;
+
+  it("maps checkout launch events to bounded dashboard labels", () => {
+    expect(checkoutObservabilityEventAttributes(productionProofEvent)).toEqual({
+      context: "checkout",
+      event_name: "checkout.launch.production_proof_buy_now",
+      telemetry_class: "launch-governance",
+      alert_class: "launch-alert",
+      entry_source: "buy-now",
+      actor_mode: "guest",
+      scenario_state: "production-proof-readiness",
+      visible_state: "checkout-review",
+      side_effect_status: "not-attempted",
+      release_health_required: "true",
+      readiness_contract: "checkout.cart-readiness.v1",
+      readiness_snapshot_state: "fresh",
+      source_revision_state: "current",
+      fresh_write_receipt_presence: "present-valid",
+      support_reference_present: "true",
+      performance_budget_id: "checkout-entry-ready-slo",
+      provider_category: "none",
+      risk_category: "none",
+      downstream_status: "not-started",
+      launch_register_decision: "enabled",
+      fresh_state_scan_result: "not-applicable",
+      canary_final_state: "pay-ready",
+      promotion_decision: "promote",
+      release_run_id: "github-27375620810-production-proof",
+    });
+  });
+
+  it("whitelists redacted checkout labels instead of raw checkout data", () => {
+    const attributes = checkoutObservabilityEventAttributes({
+      ...productionProofEvent,
+      checkoutSessionId: "cs_raw_123",
+      accountId: "acct_raw_123",
+      email: "buyer@example.com",
+      address: "3354 Brush Creek Court",
+      afterWrite: "raw-after-write-token",
+      providerPayload: { id: "pi_raw_123" },
+      fullUrl: "https://example.test/checkouts/cn/raw",
+    } as CheckoutObservabilityEventSignal & Record<string, unknown>);
+
+    const serializedAttributes = JSON.stringify(attributes);
+
+    expect(Object.keys(attributes)).not.toEqual(
+      expect.arrayContaining(["checkoutSessionId", "accountId", "email", "address", "afterWrite", "providerPayload"]),
+    );
+    expect(serializedAttributes).not.toContain("cs_raw_123");
+    expect(serializedAttributes).not.toContain("acct_raw_123");
+    expect(serializedAttributes).not.toContain("buyer@example.com");
+    expect(serializedAttributes).not.toContain("Brush Creek");
+    expect(serializedAttributes).not.toContain("raw-after-write-token");
+    expect(serializedAttributes).not.toContain("pi_raw_123");
+    expect(serializedAttributes).not.toContain("checkouts/cn/raw");
+  });
+
+  it("records checkout events through the shared metric without requiring raw ids", () => {
+    expect(() => recordCheckoutObservabilityEvent(productionProofEvent)).not.toThrow();
   });
 });
 
