@@ -57,6 +57,25 @@ describe("registration page", () => {
     );
   });
 
+  it("shows contextual registration copy when the return path needs an account gate", () => {
+    render(
+      <RegisterPage
+        contextMessage={{
+          title: "Use an account to continue seller checkout",
+          description:
+            "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Use an account to continue seller checkout")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
+      ),
+    ).toBeTruthy();
+  });
+
   it("keeps entered identity details when moving to magic link", () => {
     render(<RegisterPage />);
     fillIdentity();

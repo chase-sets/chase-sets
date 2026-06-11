@@ -25,6 +25,10 @@ import {
   ensureAnonymousSellListId,
   readAnonymousSellListId,
 } from "../support/request-support/guest-checkout";
+import {
+  SELLER_CHECKOUT_REGISTER_HREF,
+  SELLER_CHECKOUT_SIGN_IN_HREF,
+} from "../features/sell-list/ui/registration-return";
 import { CheckoutSellListPage } from "../features/sell-list/ui/sell-list-page";
 
 function canUseAccountSellList(actor: Awaited<ReturnType<typeof resolveActorFromAuthApi>>) {
@@ -241,25 +245,42 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const actor = await resolveActorFromAuthApi({ request });
   const api = createCheckoutRequestApiClient(request);
   const anonymousSellListId = readAnonymousSellListId(request);
+  const requestUrl = new URL(request.url);
+  const registrationReturn: "seller-checkout" | null =
+    requestUrl.searchParams.get("registrationReturn") === "seller-checkout" ? "seller-checkout" : null;
 
   if (!canUseAccountSellList(actor)) {
     const sellList = await api.getGuestSellList(anonymousSellListId);
 
     return {
       isSignedIn: false,
+      registrationReturn: null,
+      mergedLineCount: 0,
+      mergeError: null,
       sellList,
       offerReviews: await loadGuestSellListOfferReviews(request, sellList.items),
     };
   }
 
+  let mergedLineCount = 0;
+  let mergeError: string | null = null;
   if (anonymousSellListId) {
-    await api.mergeGuestSellListToAccount(anonymousSellListId);
+    try {
+      const mergeResult = await api.mergeGuestSellListToAccount(anonymousSellListId);
+      const count = Number((mergeResult as { mergedLineCount?: unknown }).mergedLineCount ?? 0);
+      mergedLineCount = Number.isFinite(count) ? count : 0;
+    } catch {
+      mergeError = t("checkout.routes.accountSellList.sell.list.request.failed");
+    }
   }
 
   const sellList = await api.getSellList();
 
   return {
     isSignedIn: true,
+    registrationReturn,
+    mergedLineCount,
+    mergeError,
     sellList,
     offerReviews: await loadSellListOfferReviews(request, sellList.items),
     productOfferReviews: await loadSellListProductOfferReviews(request, sellList.items),
@@ -581,7 +602,7 @@ export async function action({ request }: ActionFunctionArgs) {
     if (intent === "review-sell-list-checkout") {
       if (!useAccountSellList) {
         if (!anonymousSellListId) {
-          return redirect(`/sign-in?returnTo=${encodeURIComponent("/account/sell-list")}`);
+          return redirect(SELLER_CHECKOUT_SIGN_IN_HREF);
         }
 
         const readiness = await api.createGuestSellListReadiness(anonymousSellListId);
@@ -589,13 +610,7 @@ export async function action({ request }: ActionFunctionArgs) {
           throw new Error(t("checkout.routes.accountSellList.sell.list.readiness.must.be.resolved"));
         }
 
-        const query = new URLSearchParams({
-          readinessSnapshotId: readiness.readiness.snapshotId,
-          readinessSourceRevision: readiness.readiness.sourceRevision,
-        });
-        return redirect(
-          appendFreshWriteToken(`/checkout/sell/session/${createId("chk")}?${query.toString()}`, readiness),
-        );
+        return redirect(SELLER_CHECKOUT_REGISTER_HREF);
       }
 
       const sellList = await api.getSellList();
@@ -637,6 +652,9 @@ export default function CheckoutAccountSellListRoute() {
       productOfferReviews={"productOfferReviews" in data ? data.productOfferReviews : []}
       inventoryItems={"inventoryItems" in data ? data.inventoryItems : []}
       payoutReadiness={"payoutReadiness" in data ? data.payoutReadiness : null}
+      registrationReturn={data.registrationReturn}
+      mergedLineCount={data.mergedLineCount}
+      mergeError={data.mergeError}
       errorMessage={actionData?.error ?? null}
     />
   );

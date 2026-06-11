@@ -87,6 +87,7 @@ function identifierFromNotice(notice: AuthActionNotice | null | undefined) {
 export function SignInPage(
   props: Readonly<{
     action?: string;
+    contextMessage?: Readonly<{ title: string; description: string }> | null;
     errorMessage?: string | null;
     hiddenFields?: readonly { name: string; value: string }[];
     notice?: AuthActionNotice | null;
@@ -196,6 +197,10 @@ export function SignInPage(
         </Text>
         <Text tone="secondary">{t("auth.features.signIn.ui.signInPage.use.social.email.or.phone")}</Text>
       </Stack>
+
+      {props.contextMessage ? (
+        <Banner title={props.contextMessage.title} description={props.contextMessage.description} tone="info" />
+      ) : null}
 
       {props.errorMessage ? (
         <Banner

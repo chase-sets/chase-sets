@@ -378,6 +378,13 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.readiness.ready": "{count} ready",
   "checkout.features.sellList.ui.sellListPage.remaining.quantity.action": "Remaining quantity action",
   "checkout.features.sellList.ui.sellListPage.remove": "Remove",
+  "checkout.features.sellList.ui.sellListPage.registration.return.merge.issue.title": "Sell List needs review",
+  "checkout.features.sellList.ui.sellListPage.registration.return.merged.description":
+    "{count} Sell List line(s) moved to your account. Review final seller terms, payout setup, and ship-from details before continuing.",
+  "checkout.features.sellList.ui.sellListPage.registration.return.merged.title": "Sell List saved to your account",
+  "checkout.features.sellList.ui.sellListPage.registration.return.review.description":
+    "Your account is ready. Review final seller terms, payout setup, and ship-from details before continuing.",
+  "checkout.features.sellList.ui.sellListPage.registration.return.review.title": "Review final seller details",
   "checkout.features.sellList.ui.sellListPage.resolve.before.seller.checkout":
     "Resolve {count} line(s) before seller checkout starts.",
   "checkout.features.sellList.ui.sellListPage.resolve.items": "Resolve items",
@@ -385,6 +392,10 @@ export const checkoutEnglishTranslations = {
   "checkout.features.sellList.ui.sellListPage.expected.seller.payout": "Expected seller payout",
   "checkout.features.sellList.ui.sellListPage.future.listing.gross": "Future listing gross",
   "checkout.features.sellList.ui.sellListPage.estimated.sales.fees": "Estimated sales fees",
+  "checkout.features.sellList.ui.sellListPage.account.gate.description":
+    "Your Sell List is saved on this device. Create an account before offer acceptance, listing publication, payout, or shipping label work starts.",
+  "checkout.features.sellList.ui.sellListPage.account.gate.title": "Create an account to continue seller checkout",
+  "checkout.features.sellList.ui.sellListPage.create.account.to.continue": "Create account to continue",
   "checkout.features.sellList.ui.sellListPage.simple.review.description":
     "Review cards, payout readiness, and pre-checkout sale actions before seller checkout.",
   "checkout.features.sellList.ui.sellListPage.sale.checkout.summary": "Sale checkout summary",
