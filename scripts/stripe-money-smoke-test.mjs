@@ -627,6 +627,7 @@ async function refreshPayoutSetupUntilEmbeddedDashboardNone(baseUrl, options) {
         headers: options.headers,
         body: JSON.stringify({
           contactEmail: readEnv("SMOKE_SELLER_EMAIL", options.env),
+          providerReference: options.embeddedSetupSession.providerReference,
         }),
       },
       options.fetchImpl,
