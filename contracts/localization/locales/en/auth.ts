@@ -47,6 +47,12 @@ export const authEnglishTranslations = {
   "auth.features.registration.ui.registerPage.create.account.with.code": "Create account with code",
   "auth.features.registration.ui.registerPage.use.an.account.you.already.have": "Use an account you already have.",
   "auth.features.registration.ui.registerPage.use.magic.link": "Use magic link",
+  "auth.routes.marketplace.accountGate.listing.draft.description":
+    "Your listing draft is saved. An account is required before inventory, payout, and listing publication can be confirmed.",
+  "auth.routes.marketplace.accountGate.listing.draft.title": "Use an account to publish this listing",
+  "auth.routes.marketplace.accountGate.seller.checkout.description":
+    "Your Sell List is saved. An account is required before offer acceptance, listing publication, payout, or shipping label work starts.",
+  "auth.routes.marketplace.accountGate.seller.checkout.title": "Use an account to continue seller checkout",
   "auth.features.sessions.api.route.forbidden": "Forbidden.",
   "auth.features.sessions.api.route.session.not.found": "Session not found.",
   "auth.features.sessions.ui.sessionDetailPage.active.account": "Active Account",

@@ -1182,6 +1182,9 @@ describe("checkout web routes", () => {
 
     expect(result).toEqual({
       isSignedIn: false,
+      registrationReturn: null,
+      mergedLineCount: 0,
+      mergeError: null,
       sellList: { items: [{ line_id: "sll_1", quantity: 1 }], count: 1 },
       offerReviews: [],
     });
@@ -1232,6 +1235,9 @@ describe("checkout web routes", () => {
     expect(mockPreviewPublicStandardListingTerms).toHaveBeenCalledWith({ priceAmount: "380.00" });
     expect(result).toEqual({
       isSignedIn: false,
+      registrationReturn: null,
+      mergedLineCount: 0,
+      mergeError: null,
       sellList: {
         items: [
           {
@@ -1265,17 +1271,38 @@ describe("checkout web routes", () => {
     );
   });
 
-  it("merges anonymous Sell List lines after sign-in returns to Sell List review", async () => {
+  it("merges anonymous Sell List lines after registration returns to Sell List review", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue({ accountId: "acc_seller", permissions: [] });
     mockMergeGuestSellListToAccount.mockResolvedValue({ mergedLineCount: 1 });
+    mockPreviewOfferAcceptanceTerms.mockResolvedValue({
+      basis_amount: "380.00",
+      marketplace_sales_fee_unit_amount: "38.00",
+      seller_net_unit_amount: "342.00",
+      shipping_allowance_percentage_bps: 0,
+      fee_quote_fingerprint: "registered_quote",
+    });
     mockCreateCheckoutRequestApiClient.mockReturnValue({
-      getSellList: vi.fn(async () => ({ items: [], count: 0 })),
+      getSellList: vi.fn(async () => ({
+        items: [
+          {
+            line_id: "sll_1",
+            line_type: "selected-offer",
+            offer_id: "off_1",
+            item_title: "Mewtwo",
+            quantity: 1,
+          },
+        ],
+        count: 1,
+      })),
       mergeGuestSellListToAccount: mockMergeGuestSellListToAccount,
+    });
+    mockCreateMarketplaceRequestApiClient.mockReturnValue({
+      previewOfferAcceptanceTerms: mockPreviewOfferAcceptanceTerms,
     });
 
     const { loader: accountSellListLoader } = await import("./account-sell-list");
     const result = await accountSellListLoader({
-      request: new Request("http://localhost/account/sell-list", {
+      request: new Request("http://localhost/account/sell-list?registrationReturn=seller-checkout", {
         headers: { cookie: "chase_sets_anonymous_sell_list=anon_sell_1" },
       }),
       params: {},
@@ -1283,7 +1310,18 @@ describe("checkout web routes", () => {
     } as never);
 
     expect(result.isSignedIn).toBe(true);
+    expect(result.registrationReturn).toBe("seller-checkout");
+    expect(result.mergedLineCount).toBe(1);
+    expect(result.mergeError).toBeNull();
     expect(mockMergeGuestSellListToAccount).toHaveBeenCalledWith("anon_sell_1");
+    expect(mockPreviewOfferAcceptanceTerms).toHaveBeenCalledWith("off_1");
+    expect(result.offerReviews[0]).toEqual(
+      expect.objectContaining({
+        lineId: "sll_1",
+        status: "ready",
+        terms: expect.objectContaining({ fee_quote_fingerprint: "registered_quote" }),
+      }),
+    );
   });
 
   it("removes anonymous Sell List lines before sign-in", async () => {
@@ -1315,7 +1353,7 @@ describe("checkout web routes", () => {
     expect(response.headers.get("Location")).toBe("/account/sell-list");
   });
 
-  it("starts guest seller checkout from a valid anonymous Sell List readiness snapshot", async () => {
+  it("routes guest seller checkout through registration after Sell List readiness passes", async () => {
     mockResolveActorFromAuthApi.mockResolvedValue(null);
     mockCreateCheckoutRequestApiClient.mockReturnValue({
       createGuestSellListReadiness: mockCreateGuestSellListReadiness,
@@ -1339,8 +1377,8 @@ describe("checkout web routes", () => {
 
     expect(mockCreateGuestSellListReadiness).toHaveBeenCalledWith("anon_sell_1");
     expect(response.status).toBe(302);
-    expect(response.headers.get("Location")).toMatch(
-      /^\/checkout\/sell\/session\/chk_.+readinessSnapshotId=slr_ready&readinessSourceRevision=slr_source/,
+    expect(response.headers.get("Location")).toBe(
+      "/register?returnTo=%2Faccount%2Fsell-list%3FregistrationReturn%3Dseller-checkout",
     );
     expect(mockAcceptOfferMatch).not.toHaveBeenCalled();
     expect(mockCreateListing).not.toHaveBeenCalled();
